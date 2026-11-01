@@ -146,8 +146,12 @@ triggers: their lights would lie.
 
 **Letter or place.** A printable character follows the player's layout: `A`
 is where A is printed, on QWERTY and AZERTY alike, so mnemonic orders keep
-their meaning. A position stays put: `@Digit1` is the key left of `@Digit2`
-whether it types 1 or &, so group keys and a grid stay in one shape. The
+their meaning, and `=` is the key that types = on a US, French or Dvorak
+layout alike. A layout whose number row types symbols and needs Shift for
+the digits, as AZERTY does, counts that row as its digits: there `1` is
+the key that types & and 1, and `-` is not the key that types - and 6. A
+position stays put: `@Digit1` is the key left of `@Digit2` whether it
+types 1 or &, so group keys and a grid stay in one shape. The
 editor writes a letter for an action marked `mnemonic` in the registry and a
 position for one marked `positional`, and the player can switch either
 binding. When no key on the player's layout types a character a layout

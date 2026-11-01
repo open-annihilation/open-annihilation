@@ -5,8 +5,8 @@
 // then play or watch together with match, then menus, then Open
 // Annihilation's screens, then global. An exact match beats a match that
 // has extra Shift, Alt or Meta, including one in a context further up the
-// stack. A letter and the place that prints it are the same rank, so a
-// hack's precedence and then the narrower conditions decide between them.
+// stack. A letter and the place whose events carry it are the same rank, so
+// a hack's precedence and then the narrower conditions decide between them.
 
 #include "oa/ui/key_bindings/dispatcher.hpp"
 
@@ -530,8 +530,8 @@ void log_tie(DispatcherState& state, std::string_view winner, std::string_view o
 
 /// Which candidate wins on rank, hack precedence and conditions.
 ///
-/// A letter and the place that prints it drop the position bonus, so they
-/// tie on rank. Registry order is not applied here.
+/// A letter and the place whose events carry it drop the position bonus, so
+/// they tie on rank. Registry order is not applied here.
 ///
 /// @param left one candidate
 /// @param right the other

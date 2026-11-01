@@ -292,10 +292,13 @@ bool same_key(const Chord& first, const Chord& second, const KeyboardMap* keyboa
     } else {
         return false;
     }
-    const char32_t printed = keyboard->printed(place->scancode);
-    if (printed == 0)
+    // The letter's key is the one whose events carry it, as `match` reads a
+    // letter. A PC's AZERTY number row prints & and - but its events carry
+    // the digits, so - is not the 6 key there.
+    const uint32_t carried = keyboard->event_key_code(place->scancode);
+    if (carried == 0 || (carried & position_key_code_bit) != 0)
         return false;
-    return fold_ascii(printed) == fold_ascii(letter->character);
+    return fold_ascii(static_cast<char32_t>(carried)) == fold_ascii(letter->character);
 }
 
 Chord pressed_chord(const Chord& chord, Platform platform) {

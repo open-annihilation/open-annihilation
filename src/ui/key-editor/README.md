@@ -136,7 +136,7 @@ Clone as New Layout… (in LAYOUT ▾ and More) asks a new layout's name and des
 
 `ui-key-editor-capture` captures a chord and checks what the capture says and its button; that the clash question lists each outcome on both actions, changes nothing until its confirm button, and that Cancel and Choose another key change nothing; that the question and Settle…'s resolve each outcome's copy of the draft at most three times as they open, and no draft at all while the pointer moves over them; Settle… on a draft clash; and Find by key, which changes nothing, apart from the search. A chord that names Primary and Ctrl together is Ctrl+7 where Primary is Ctrl: Find by key lists it for Ctrl+7, and keeping Ctrl+7 for the group key takes it off; on a Mac it is another key.
 
-`ui-key-editor-views` checks the labels, the layers, Escape, Settings, an AZERTY map, a key's click that only inspects, the inspector's buttons, the mouse in both schemes, and Find on keyboard.
+`ui-key-editor-views` checks the labels, the layers, Escape, Settings, an AZERTY map, a key's click that only inspects, the inspector's buttons, the mouse in both schemes, and Find on keyboard. On a Mac's AZERTY the keys that type `=` and `-` are labelled so, the key that types `-` shows Slower, their cards name Speed up and Speed down, Find on keyboard outlines them, and Speed up's keys read `=` and `+`; on a PC's AZERTY the 6 key, which prints `-`, stays Page 6 with no clash.
 
 `ui-key-editor-share` checks a share id, a paste that keeps a clash and an unknown action, and an import that moves a chord and records `imported-from`.
 

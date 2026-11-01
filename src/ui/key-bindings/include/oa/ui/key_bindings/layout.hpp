@@ -173,7 +173,8 @@ struct Resolved {
 /// Reports whether two chords are one key.
 ///
 /// Equal chords are one key. A letter and a place are one key when the map
-/// says that place prints the letter. With no map, only equal chords match.
+/// says that place's events carry the letter, which is the key the letter
+/// matches. With no map, only equal chords match.
 ///
 /// @param first one chord
 /// @param second the other chord

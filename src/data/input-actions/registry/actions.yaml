@@ -47,8 +47,10 @@
 #   aliases       old ids kept after a rename
 #
 # A printable key of a by: place action is its position (@KeyW, @Digit1,
-# @Equal, @Minus, @Slash, @Backslash, @Backquote), not the character. Whether
-# an @ name is a real key position is checked by the C++ grammar (K04).
+# @Slash, @Backslash, @Backquote), not the character. Whether an @ name is a
+# real key position is checked by the C++ grammar (K04). A 3.1c key that
+# follows what the player's layout types, such as the speed keys' = + and -,
+# is by: letter, so it stays on the key that types it on every keyboard.
 
 input-actions: 1
 
@@ -1598,9 +1600,9 @@ actions:
     order: 4
     context: [match, watch]
     kind: repeat
-    by: place
+    by: letter
     source: [3.1c]
-    default: ["@Equal", "NumpadAdd"]
+    default: ["=", "+", "NumpadAdd"]
     repeatable: true
     pad: faster
     words: {name: "Speed up", description: "One speed step faster"}
@@ -1609,9 +1611,9 @@ actions:
     order: 5
     context: [match, watch]
     kind: repeat
-    by: place
+    by: letter
     source: [3.1c]
-    default: ["@Minus", "NumpadSubtract"]
+    default: ["-", "NumpadSubtract"]
     repeatable: true
     pad: slower
     words: {name: "Speed down", description: "One speed step slower"}

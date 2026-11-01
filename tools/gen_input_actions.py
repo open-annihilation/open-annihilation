@@ -145,7 +145,14 @@ def chord_parts(text):
         body, gesture = text.rsplit(":", 1)
         if gesture not in GESTURES:
             return None, None, None, None, "a gesture the grammar does not name"
-    parts = body.split("+")
+    # A last part of "+" is the plus key, as the C++ grammar reads it: "+"
+    # alone, or modifiers and "++".
+    if body == "+":
+        parts = ["+"]
+    elif body.endswith("++"):
+        parts = body[:-2].split("+") + ["+"]
+    else:
+        parts = body.split("+")
     if any(part == "" for part in parts):
         return None, None, None, None, "the chord has an empty part"
     if len(parts) == 1 and parts[0] in MODIFIERS:
@@ -972,6 +979,10 @@ def chord_case(failures):
         ("Ctrl+Shift+A", "press", "letter", False),
         ("Ctrl+Ctrl+A", "press", "letter", True),
         ("Primary+,", "press", "letter", False),
+        ("+", "repeat", "letter", False),
+        ("Shift++", "press", "letter", False),
+        ("++", "press", "letter", True),
+        ("+", "repeat", "place", True),
         ("MouseLeft", "pointer", None, False),
         ("MouseLeft", "press", None, True),
         ("WheelUp", "press", None, True),

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The dispatcher on oa-default: one binding for each event, the gestures,
-// and a modifier role read from the keys held now rather than from the
-// events the dispatcher has seen.
+// a modifier role read from the keys held now rather than from the events
+// the dispatcher has seen, and the speed keys on the key that types them.
+#include "keyboards.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
@@ -12,6 +13,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <string>
@@ -380,6 +382,104 @@ void equals_key(const Resolved& resolved, const KeyboardMap& map) {
     );
 }
 
+/// One key press on a keyboard, and the action it should start.
+struct TypedPress {
+    const char* label{};       ///< what the case says
+    std::string_view code{};   ///< the place pressed
+    char32_t carried{};        ///< the character its events carry
+    uint8_t modifiers{};       ///< the physical modifiers held
+    std::string_view action{}; ///< the action pressed, or empty for none
+};
+
+/// Plays presses on oa-default, with no hack, on one keyboard, while playing.
+///
+/// @param keyboard the keyboard
+/// @param presses the presses, each on a dispatcher of its own
+void play_typed(const KeyboardMap& keyboard, std::initializer_list<TypedPress> presses) {
+    keys::ResolveInput input;
+    input.keyboard = &keyboard;
+    input.platform.primary_is_meta = true;
+    const Resolved resolved = keys::resolve(input);
+    for (const TypedPress& press : presses) {
+        Dispatcher dispatcher = open_dispatcher(resolved, keyboard);
+        use_contexts(dispatcher, context_bit("play") | context_bit("match"), 0);
+        const Fed fed = dispatcher.feed(letter_event(
+            place_of(press.code), static_cast<uint32_t>(press.carried), true, press.modifiers, 1
+        ));
+        if (!press.action.empty()) {
+            expect_only(press.label, fed, press.action, Phase::pressed);
+            continue;
+        }
+        if (!fed.events.empty() || fed.bound) {
+            std::fprintf(stderr, "%s\n", press.label);
+            show(fed);
+        }
+        OA_CHECK(fed.events.empty());
+        OA_CHECK(!fed.bound);
+    }
+}
+
+/// The speed keys are the keys that type = + and -, as in 3.1c, on every
+/// keyboard, and the key a US keyboard has there does nothing when it types
+/// something else. A PC's AZERTY - is the 6 key, which stays page 6.
+void speed_keys_follow_the_keyboard() {
+    play_typed(
+        keyboards::mac_azerty(),
+        {
+            {"Mac AZERTY = speeds up", "Slash", U'=', 0, "game.speed-up"},
+            {"Mac AZERTY Shift and = (+) speeds up", "Slash", U'=', keys::shift, "game.speed-up"},
+            {"Mac AZERTY - slows down", "Equal", U'-', 0, "game.speed-down"},
+            {"Mac AZERTY ) does nothing", "Minus", U')', 0, {}},
+        }
+    );
+    play_typed(
+        keyboards::pc_azerty(),
+        {
+            {"PC AZERTY = speeds up", "Equal", U'=', 0, "game.speed-up"},
+            {"PC AZERTY Shift and = (+) speeds up", "Equal", U'=', keys::shift, "game.speed-up"},
+            {"PC AZERTY ) does nothing", "Minus", U')', 0, {}},
+            {"PC AZERTY 6 key is page 6", "Digit6", U'6', 0, "build.page-6"},
+        }
+    );
+    play_typed(
+        keyboards::qwertz(),
+        {
+            {"QWERTZ + speeds up", "BracketRight", U'+', 0, "game.speed-up"},
+            {"QWERTZ - slows down", "Slash", U'-', 0, "game.speed-down"},
+            {"QWERTZ dead acute does nothing", "Equal", U'´', 0, {}},
+            {"QWERTZ sharp s does nothing", "Minus", U'ß', 0, {}},
+        }
+    );
+    play_typed(
+        keyboards::dvorak(),
+        {
+            {"Dvorak = speeds up", "BracketRight", U'=', 0, "game.speed-up"},
+            {"Dvorak - slows down", "Quote", U'-', 0, "game.speed-down"},
+            {"Dvorak ] does nothing", "Equal", U']', 0, {}},
+            {"Dvorak [ does nothing", "Minus", U'[', 0, {}},
+        }
+    );
+    play_typed(
+        KeyboardMap::us(),
+        {
+            {"US = speeds up", "Equal", U'=', 0, "game.speed-up"},
+            {"US - slows down", "Minus", U'-', 0, "game.speed-down"},
+        }
+    );
+    const KeyboardMap pc = keyboards::pc_azerty();
+    keys::ResolveInput input;
+    input.keyboard = &pc;
+    const Resolved resolved = keys::resolve(input);
+    Dispatcher keypad = open_dispatcher(resolved, pc);
+    use_contexts(keypad, context_bit("match"), 0);
+    expect_only(
+        "PC AZERTY keypad - slows down",
+        keypad.feed(named_event("NumpadSubtract", true, 0, 1)),
+        "game.speed-down",
+        Phase::pressed
+    );
+}
+
 /// With text_entry, A gives nothing and Escape gives chat.cancel.
 void typing(const Resolved& resolved, const KeyboardMap& map) {
     const uint32_t play = context_bit("play");
@@ -468,6 +568,7 @@ void repeats(const Resolved& resolved, const KeyboardMap& map) {
     equals.down = true;
     equals.repeat = true;
     equals.scancode = keys::scancode_of("Equal").value_or(0);
+    equals.key_code = static_cast<uint32_t>('=');
     equals.time_ms = 1;
     expect_only(
         "a repeated Equals with no earlier down is game.speed-up",
@@ -733,5 +834,6 @@ int main() {
     re_resolve_drops_held_keys(resolved, map);
     release(resolved, map);
     queue_role(resolved, map);
+    speed_keys_follow_the_keyboard();
     return oa::test::check_exit_status();
 }

@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Resolution: oa-default clashes with nothing, a layout and a mod and a
-// player's own changes combine in order, and the pairs that share a key
-// without clashing stay listed as shadows. Primary clashes with Ctrl or Cmd
-// on the platforms that press them as one key.
+// Resolution: oa-default clashes with nothing, on the US keyboard, AZERTY,
+// QWERTZ and Dvorak, a layout and a mod and a player's own changes combine
+// in order, and the pairs that share a key without clashing stay listed as
+// shadows. Primary clashes with Ctrl or Cmd on the platforms that press them
+// as one key.
+#include "keyboards.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
@@ -281,19 +283,33 @@ void layers_conditions_and_same_key() {
     OA_CHECK(keys::same_key(must_parse("="), must_parse("@Equal"), &us));
     OA_CHECK(!keys::same_key(must_parse("B"), must_parse("@KeyB"), nullptr));
     OA_CHECK(!keys::same_key(letter, must_parse("B"), &us));
+
+    // A letter is the key whose events carry it. A PC's AZERTY 6 key prints
+    // - and its events carry 6, so - is not that key and 6 is. A Mac's
+    // AZERTY has = where a US keyboard has /, and - where it has =.
+    const keys::KeyboardMap pc = keyboards::pc_azerty();
+    OA_CHECK(!keys::same_key(must_parse("-"), must_parse("@Digit6"), &pc));
+    OA_CHECK(keys::same_key(must_parse("6"), must_parse("@Digit6"), &pc));
+    OA_CHECK(keys::same_key(must_parse("="), must_parse("@Equal"), &pc));
+    const keys::KeyboardMap mac = keyboards::mac_azerty();
+    OA_CHECK(keys::same_key(must_parse("="), must_parse("@Slash"), &mac));
+    OA_CHECK(!keys::same_key(must_parse("="), must_parse("@Equal"), &mac));
+    OA_CHECK(keys::same_key(must_parse("-"), must_parse("@Equal"), &mac));
+    OA_CHECK(!keys::same_key(must_parse("-"), must_parse("@Minus"), &mac));
 }
 
-/// oa-default clashes with nothing on one platform, for every hack combination.
+/// oa-default clashes with nothing on one platform and one keyboard, for
+/// every hack combination.
 ///
 /// @param platform which key Primary means
-void oa_default_has_no_clash_on(keys::Platform platform) {
-    const keys::KeyboardMap us = keys::KeyboardMap::us();
+/// @param keyboard the keyboard
+void oa_default_has_no_clash_on(keys::Platform platform, const keys::KeyboardMap& keyboard) {
     const keys::PointerScheme schemes[] = {
         keys::PointerScheme::right_click, keys::PointerScheme::left_click
     };
     const bool swaps[] = {false, true};
 
-    keys::ResolveInput input = fresh(us);
+    keys::ResolveInput input = fresh(keyboard);
     input.platform = platform;
     for (const keys::PointerScheme scheme : schemes) {
         input.scheme = scheme;
@@ -329,12 +345,31 @@ void oa_default_has_no_clash_on(keys::Platform platform) {
 }
 
 /// oa-default clashes with nothing, for every hack combination the registry
-/// names, where Primary is Ctrl and where it is the command key.
+/// names, where Primary is Ctrl and where it is the command key, on the US
+/// keyboard and on AZERTY, QWERTZ and Dvorak. The speed keys follow what a
+/// key types, so a PC's AZERTY - stays apart from the 6 key's page.
 void oa_default_has_no_clash() {
-    for (const bool primary_is_meta : {false, true}) {
-        keys::Platform platform;
-        platform.primary_is_meta = primary_is_meta;
-        oa_default_has_no_clash_on(platform);
+    struct Tried {
+        const char* name;
+        keys::KeyboardMap keyboard;
+    };
+
+    const Tried tried[] = {
+        {"US", keys::KeyboardMap::us()},
+        {"Mac AZERTY", keyboards::mac_azerty()},
+        {"PC AZERTY", keyboards::pc_azerty()},
+        {"QWERTZ", keyboards::qwertz()},
+        {"Dvorak", keyboards::dvorak()},
+    };
+    for (const Tried& one : tried) {
+        const int failed_before = oa::test::failed_checks();
+        for (const bool primary_is_meta : {false, true}) {
+            keys::Platform platform;
+            platform.primary_is_meta = primary_is_meta;
+            oa_default_has_no_clash_on(platform, one.keyboard);
+        }
+        if (oa::test::failed_checks() != failed_before)
+            std::fprintf(stderr, "those clashes are on the %s keyboard\n", one.name);
     }
 }
 

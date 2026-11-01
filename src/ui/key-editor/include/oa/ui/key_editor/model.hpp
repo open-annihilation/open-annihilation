@@ -927,8 +927,8 @@ mouse_table(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
 
 /// The keys an action is bound to, as W3C codes, for FIND ON KEYBOARD.
 ///
-/// A letter is the key that prints it. A place is that key. A named key is
-/// its key. The same code is listed once.
+/// A letter is the key whose events carry it, the key it matches. A place
+/// is that key. A named key is its key. The same code is listed once.
 ///
 /// @param editor the bindings and the keyboard
 /// @param action the action id

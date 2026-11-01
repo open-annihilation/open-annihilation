@@ -225,17 +225,17 @@ void clear_releases_a_held_button() {
     OA_CHECK(rest.dx == 0.F && rest.dy == 0.F);
 }
 
-/// While pointer keys are on, Faster loses NumpadAdd and keeps `=`.
+/// While pointer keys are on, Faster loses NumpadAdd and keeps `=` and `+`.
 void set_aside_while_on_keeps_equals_and_own_changes() {
     const keys::KeyboardMap map = keys::KeyboardMap::us();
     keys::ResolveInput input = fresh(map);
     const Resolved resolved = keys::resolve(input);
     const Resolved off = keys::pointer_keys_bindings(resolved, false);
-    OA_CHECK(chords_are(find_bound(off, "game.speed-up"), {"@Equal", "NumpadAdd"}));
+    OA_CHECK(chords_are(find_bound(off, "game.speed-up"), {"=", "+", "NumpadAdd"}));
     OA_CHECK(chords_are(find_bound(off, "build.page-5"), {"@Digit5", "Numpad5"}));
 
     const Resolved on = keys::pointer_keys_bindings(resolved, true);
-    OA_CHECK(chords_are(find_bound(on, "game.speed-up"), {"@Equal"}));
+    OA_CHECK(chords_are(find_bound(on, "game.speed-up"), {"=", "+"}));
     OA_CHECK(chords_are(find_bound(on, "pointer.hold-left"), {"NumpadAdd"}));
     OA_CHECK(chords_are(find_bound(on, "build.page-5"), {"@Digit5"}));
     OA_CHECK(chords_are(find_bound(on, "group.assign-1"), {"Ctrl+@Digit1", "Ctrl+Numpad1"}));

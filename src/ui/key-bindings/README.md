@@ -78,10 +78,11 @@ dispatcher times a double press and a hold from that time.
   keeps Primary apart from Ctrl and Meta as the layout wrote them, so it
   drops no chord for it and a key press finds what it always found.
 - `layers_meet`, `conditions_meet` and `same_key` are that rule in pieces.
-  `same_key` treats a letter and a place as one key when the keyboard map
-  prints that letter on that place. `pressed_chord` reads Primary as the key
-  a platform presses for it, and `same_key_on` is `same_key` on two chords
-  read that way.
+  `same_key` treats a letter and a place as one key when that place's
+  events carry the letter, the key the letter matches: on a PC's AZERTY
+  `-` and `@Digit6` are two keys, since the 6 key prints `-` but its events
+  carry 6. `pressed_chord` reads Primary as the key a platform presses for
+  it, and `same_key_on` is `same_key` on two chords read that way.
 - `layout_from_manifest` parses each chord of a manifest. A chord that does
   not parse, and a modifier on its own on an action whose kind is not a
   modifier, are errors at that chord's own line and column. An action this
@@ -229,7 +230,11 @@ Shift chord and replaces Alt on `build.snap-override`.
 
 `ui-key-bindings-layouts` (`tests/layout_test.cpp`) resolves `oa-default`
 with no clash for no hack, for each hack alone and for all of them, in both
-pointer schemes and with the number-key swap off and on. It checks a chosen
+pointer schemes and with the number-key swap off and on, on the US keyboard
+and on the maps `tests/keyboards.hpp` makes: French AZERTY as a Mac and as a
+PC lay it out, German QWERTZ and US Dvorak. On the PC's AZERTY `-` and
+`@Digit6` are two keys and `6` and `@Digit6` one; on the Mac's `=` is
+`@Slash` and `-` is `@Equal`. It checks a chosen
 layout, a mod letter, a player's own change, a hack's default and its
 replacement, the left-click scheme, the swap, fixed Escape, and the pairs
 that share a key without clashing: modifiers, the left button, a stricter
@@ -253,7 +258,11 @@ reaching the keys overlay in global; a repeating pan and a press that does
 not repeat; the status strip's press and release around a Shift; a
 double-click selecting the type; a hold that fires once after 500 ms; a
 key-up never seen down; `release_all`; and the queue role following Shift
-whether or not a Shift event was fed.
+whether or not a Shift event was fed. On each map of `tests/keyboards.hpp`
+and the US one, the key that types `=` or `+` speeds up, with Shift held
+too, the key that types `-` slows down, and the key a US keyboard has there
+does nothing where it types something else. The PC's AZERTY 6 key stays
+page 6, and its keypad `-` slows down.
 
 `ui-key-bindings-latches` (`tests/latches_test.cpp`) walks the same kind of
 timeline for the hold helpers: a tap latches and a second tap lets go; a

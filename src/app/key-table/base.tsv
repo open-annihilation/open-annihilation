@@ -152,6 +152,10 @@ game.speed-down:numpad		key KP_MINUS	messages=1;speed=-1
 game.speed-up:repeat		key Equals repeat	messages=1;speed=+1
 game.speed-up:watcher	watcher	key Equals	none
 game.speed-down:watcher	watcher	key Minus	none
+game.speed-up:azerty		key Slash types==	messages=1;speed=+1
+game.speed-down:azerty		key Equals types=-	messages=1;speed=-1
+game.speed-down:azerty-paren		key Minus types=)	none
+game.speed-up:qwertz		key RightBracket types=+	messages=1;speed=+1
 game.unit-info	select=combat	key F1	unit-info=open
 game.pin-unit	select=combat	key F1 shift	none
 game.kill-board		key F4	kill-board=on

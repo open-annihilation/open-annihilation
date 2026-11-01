@@ -68,6 +68,18 @@ the keypad. In the editor, **Same place on every keyboard** (under the
 capture's More options) chooses a place; leaving it off chooses the
 letter.
 
+The game's own keys are bound as 3.1c reads them. The orders, `,` and `.`
+for the build pages, and the speed keys `=`, `+` and `-` follow the
+character: on a French AZERTY keyboard the speed keys are the ones
+labelled `=` and `-`, and on a German keyboard the `+` key speeds up. A
+character is the key that types it without Shift. Shift held as well
+still counts, so Shift and `=`, the `+` of a US or French keyboard,
+speeds up too. The groups, the build pages' digits and the damage bars
+keep their place. A French keyboard's number row is its digits, as in
+3.1c, so the 6 key, which types `-` on a French PC keyboard, stays page
+6, and the keypad's `-` slows the game there. The editor names a place by
+what that key prints on your keyboard.
+
 Modifiers are written in this order: Primary, Ctrl, Alt, Shift, then the
 key. Primary is Command on a Mac and Ctrl on the other systems, so
 Primary+5 and Ctrl+5 are the same keys on Windows, Linux and the Steam
@@ -668,8 +680,8 @@ default; On the map is 3.1c's double click. **Select same type**
 | Back | `Escape, Ctrl+Escape` | `game.back` |
 | Game menu | `F2, Ctrl+F2` | `game.menu` |
 | Pause | `Pause, Ctrl+Pause` | `game.pause` |
-| Speed up | `@Equal, NumpadAdd` | `game.speed-up` |
-| Speed down | `@Minus, NumpadSubtract` | `game.speed-down` |
+| Speed up | `=, +, NumpadAdd` | `game.speed-up` |
+| Speed down | `-, NumpadSubtract` | `game.speed-down` |
 | Unit info | `F1, Ctrl+F1` | `game.unit-info` |
 | Pin unit | `Shift+F1, Ctrl+Shift+F1` | `game.pin-unit` |
 | Kills board | `F4, Ctrl+F4` | `game.kill-board` |

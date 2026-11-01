@@ -82,6 +82,9 @@ struct Gesture {
     bool twice = false;
     bool wheel_up = true;
     SDL_Scancode held = SDL_SCANCODE_UNKNOWN;
+    /// The character a key's events carry in place of the US keyboard's,
+    /// as another layout's key does; 0 keeps the US one.
+    SDL_Keycode types = SDLK_UNKNOWN;
 };
 
 struct Prepared {
@@ -438,6 +441,17 @@ bool safe_console(std::string_view line) {
     return true;
 }
 
+/// The character a `types=` word names: one printing ASCII character.
+///
+/// @param text the text after `types=`
+/// @return the key code that character is
+SDL_Keycode typed_character(std::string_view text) {
+    if (text.size() != 1 || static_cast<unsigned char>(text[0]) < 0x21 ||
+        static_cast<unsigned char>(text[0]) > 0x7E)
+        fail("types= takes one printing character, not " + std::string(text));
+    return static_cast<SDL_Keycode>(static_cast<unsigned char>(text[0]));
+}
+
 void take_flag(Gesture& gesture, std::string_view flag) {
     if (flag == "ctrl")
         gesture.ctrl = true;
@@ -455,6 +469,8 @@ void take_flag(Gesture& gesture, std::string_view flag) {
         gesture.held = scancode_named(flag.substr(5));
     else if (flag.rfind("clicks=", 0) == 0)
         gesture.clicks = std::stoi(std::string(flag.substr(7)));
+    else if (flag.rfind("types=", 0) == 0)
+        gesture.types = typed_character(flag.substr(6));
     else
         fail("unknown input word " + std::string(flag));
 }
@@ -862,13 +878,16 @@ void Runtime::check_key_table() {
             SDL_SetModState(down ? mods_of(gesture) : SDL_KMOD_NONE);
         }
 
-        void tap(SDL_Scancode scancode, SDL_Keymod mods, bool repeat) {
+        void
+        tap(SDL_Scancode scancode, SDL_Keymod mods, bool repeat, SDL_Keycode types = SDLK_UNKNOWN) {
             SDL_Event event{};
             event.key.windowID = window_id();
             event.key.scancode = scancode;
             // true: the key code a real key event would carry. Shift stays in
-            // the modifier word, so Ctrl+Shift+C is still C.
-            event.key.key = SDL_GetKeyFromScancode(scancode, mods, true);
+            // the modifier word, so Ctrl+Shift+C is still C. A row that says
+            // what the key types plays another layout's key in that place.
+            event.key.key =
+                types != SDLK_UNKNOWN ? types : SDL_GetKeyFromScancode(scancode, mods, true);
             event.key.mod = mods;
             event.key.repeat = repeat;
             for (const bool down : {true, false}) {
@@ -1791,10 +1810,10 @@ void Runtime::check_key_table() {
             if (gesture.kind == GestureKind::key) {
                 if (gesture.scancode == SDL_SCANCODE_SPACE)
                     self.space_held_by_check_ = true;
-                tap(gesture.scancode, mods_of(gesture), gesture.repeat);
+                tap(gesture.scancode, mods_of(gesture), gesture.repeat, gesture.types);
                 // The same chord again, with nothing between, is a second press.
                 if (gesture.twice)
-                    tap(gesture.scancode, mods_of(gesture), false);
+                    tap(gesture.scancode, mods_of(gesture), false, gesture.types);
                 hold_mods(gesture, false);
                 self.space_held_by_check_ = false;
                 // A key that resizes the window (Alt+Enter) leaves the pointer

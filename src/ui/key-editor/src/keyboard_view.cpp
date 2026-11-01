@@ -111,7 +111,9 @@ uint8_t folded_modifiers(uint8_t bits, keys::Platform platform) noexcept {
 
 /// True when a chord's trigger is this key, whatever its modifiers.
 ///
-/// A letter matches the key that prints it, or whose events carry it.
+/// A letter matches the key whose events carry it, as a key press matches
+/// it. A PC's AZERTY 6 key prints - but its events carry 6, so a - chord
+/// does not name that key.
 ///
 /// @param chord the chord
 /// @param code the W3C code
@@ -138,9 +140,6 @@ bool trigger_matches(
     if (chord.kind != keys::TriggerKind::character)
         return false;
     const char32_t want = fold_char(chord.character);
-    const char32_t printed = map.printed(*scan);
-    if (printed != 0 && fold_char(printed) == want)
-        return true;
     const uint32_t event = map.event_key_code(*scan);
     if (event != 0 && event <= 0x10FFFF && fold_char(static_cast<char32_t>(event)) == want)
         return true;

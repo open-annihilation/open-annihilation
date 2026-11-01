@@ -5,6 +5,7 @@
 // every shape is a code the bindings know. Labels follow what the keyboard
 // prints. No key is dashed as fixed. A free key's click fills K33's prompt
 // and does not bind. The mouse's scheme redraws roles and leaves the layout.
+// On AZERTY the speed keys are the keys that type = and -.
 
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
@@ -482,6 +483,102 @@ void find_outlines_attack() {
     OA_CHECK(outlined);
 }
 
+/// True when a key's card has a line for the action.
+///
+/// @param model the editor
+/// @param code the W3C code
+/// @param action the action id
+/// @return true when one line names it
+bool card_names(const editor::Editor& model, std::string_view code, std::string_view action) {
+    for (const editor::CardLine& line : editor::key_card(model, code, 0)) {
+        if (line.id == action)
+            return true;
+    }
+    return false;
+}
+
+/// True when a list of codes holds one.
+///
+/// @param codes the codes
+/// @param code the code
+/// @return true when it is listed
+bool lists(const std::vector<std::string>& codes, std::string_view code) {
+    for (const std::string& listed : codes) {
+        if (listed == code)
+            return true;
+    }
+    return false;
+}
+
+/// The speed keys on AZERTY are the keys that type = and -. On a Mac's
+/// AZERTY the picture labels each key as the keyboard prints it and its
+/// card names the command it gives, Find on keyboard outlines those keys,
+/// and the command's keys read = and -. A PC's AZERTY 6 key prints - and
+/// stays page 6, with no clash.
+void speed_keys_on_azerty() {
+    const auto set =
+        [](keys::KeyboardMap& map, std::string_view code, char32_t carried, char32_t printed) {
+            const std::optional<uint16_t> scancode = keys::scancode_of(code);
+            OA_CHECK(scancode.has_value());
+            if (scancode)
+                map.set(*scancode, static_cast<uint32_t>(carried), printed);
+        };
+
+    editor::EditorInputs mac_inputs = stock_inputs();
+    mac_inputs.platform.primary_is_meta = true;
+    set(mac_inputs.keyboard, "Minus", U')', U')');
+    set(mac_inputs.keyboard, "Equal", U'-', U'-');
+    set(mac_inputs.keyboard, "Slash", U'=', U'=');
+    const editor::Editor mac(std::move(mac_inputs));
+    OA_CHECK(mac.clashes() == 0);
+    const kit::KeyboardLook mac_none = picture_of(mac, kit::KeyboardShape::iso, 0);
+    const kit::KeyboardKey* minus_place = key_of(mac_none, "Minus");
+    const kit::KeyboardKey* equal_place = key_of(mac_none, "Equal");
+    const kit::KeyboardKey* slash_place = key_of(mac_none, "Slash");
+    OA_CHECK(
+        equal_place != nullptr && equal_place->cap.label == "-" && equal_place->cap.sub == "Slower"
+    );
+    OA_CHECK(slash_place != nullptr && slash_place->cap.label == "=");
+    OA_CHECK(
+        minus_place != nullptr && minus_place->cap.label == ")" && minus_place->cap.sub.empty()
+    );
+    OA_CHECK(card_names(mac, "Slash", "game.speed-up"));
+    OA_CHECK(card_names(mac, "Equal", "game.speed-down"));
+    OA_CHECK(!card_names(mac, "Equal", "game.speed-up"));
+    OA_CHECK(!card_names(mac, "Minus", "game.speed-down"));
+    const std::vector<std::string> faster_keys = editor::keys_of(mac, "game.speed-up");
+    OA_CHECK(lists(faster_keys, "Slash") && lists(faster_keys, "NumpadAdd"));
+    OA_CHECK(!lists(faster_keys, "Equal"));
+    const std::vector<std::string> slower_keys = editor::keys_of(mac, "game.speed-down");
+    OA_CHECK(lists(slower_keys, "Equal") && lists(slower_keys, "NumpadSubtract"));
+    OA_CHECK(!lists(slower_keys, "Minus"));
+    const editor::Details faster = mac.details("game.speed-up");
+    const editor::Details slower = mac.details("game.speed-down");
+    OA_CHECK(faster.chords.size() == 3 && slower.chords.size() == 2);
+    if (faster.chords.size() == 3 && slower.chords.size() == 2) {
+        const auto shown = [&](const editor::ChordDetail& detail) {
+            return keys::display_text(detail.chord, mac.keyboard(), mac.platform());
+        };
+        OA_CHECK(shown(faster.chords[0]) == "=");
+        OA_CHECK(shown(faster.chords[1]) == "+");
+        OA_CHECK(shown(slower.chords[0]) == "-");
+    }
+
+    editor::EditorInputs pc_inputs = stock_inputs();
+    pc_inputs.platform.primary_is_meta = false;
+    set(pc_inputs.keyboard, "Minus", U')', U')');
+    set(pc_inputs.keyboard, "Digit6", U'6', U'-');
+    const editor::Editor pc(std::move(pc_inputs));
+    OA_CHECK(pc.clashes() == 0);
+    const kit::KeyboardLook pc_none = picture_of(pc, kit::KeyboardShape::iso, 0);
+    const kit::KeyboardKey* six = key_of(pc_none, "Digit6");
+    OA_CHECK(six != nullptr && six->cap.label == "-" && six->cap.sub == "Page 6");
+    OA_CHECK(card_names(pc, "Digit6", "build.page-6"));
+    OA_CHECK(!card_names(pc, "Digit6", "game.speed-down"));
+    const std::vector<std::string> pc_slower = editor::keys_of(pc, "game.speed-down");
+    OA_CHECK(pc_slower.size() == 1 && lists(pc_slower, "NumpadSubtract"));
+}
+
 } // namespace
 
 int main() {
@@ -491,5 +588,6 @@ int main() {
     mouse_schemes();
     mouse_buttons_read_their_roles();
     find_outlines_attack();
+    speed_keys_on_azerty();
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }
