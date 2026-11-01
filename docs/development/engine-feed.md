@@ -80,9 +80,14 @@ Check now and `automatic` otherwise, and `install_id` is the named
 registry's install ID, empty while that registry's install ID is off or
 none has been made ([What is sent](../updates.md#what-is-sent)). The
 engine names no address and no registry of its own: both come only from
-the signed feed. A run that is unattended, headless or given a test feed
-reports only to an address on this machine. A failed report changes
-nothing and is logged. Readers older than 0.8.12 ignore the member, so
+the signed feed. The body holds exactly those five members; `version` is
+`MAJOR.MINOR.PATCH` with no label, because a build whose version has a
+label never reports, and neither does a build whose package id is not
+one of the release packages', such as iOS (`reported_platforms`). A run
+that is unattended, headless or given a test feed reports only to an
+address on this machine. Any answer but a 2xx, such as 400 for a body the
+server refuses or 429 when it limits the rate, and a report that reaches
+no server, change nothing and are logged. Readers older than 0.8.12 ignore the member, so
 both files may carry it.
 
 Each release has:

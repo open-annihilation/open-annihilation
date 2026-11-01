@@ -62,6 +62,28 @@ void bodies() {
     );
 }
 
+/// A release build of each package the releases are built for reports; a
+/// labelled build and a build of another package, such as iOS, do not.
+void builds_that_report() {
+    update::ThisBuild build;
+    build.version_text = "0.8.12";
+    for (const std::string_view platform : update::reported_platforms) {
+        build.package = std::string(platform);
+        OA_CHECK(update::build_reports(build));
+    }
+    build.package = "macos-universal";
+    build.development = true;
+    OA_CHECK(!update::build_reports(build));
+    build.development = false;
+    for (const char* other : {"ios", "android", "", "windows-x64-setup"}) {
+        build.package = other;
+        OA_CHECK(!update::build_reports(build));
+    }
+    build.package = "windows-x64";
+    build.version_text.clear();
+    OA_CHECK(!update::build_reports(build));
+}
+
 void local_addresses() {
     OA_CHECK(update::local_address("http://127.0.0.1:8123/v1/engine/pings"));
     OA_CHECK(update::local_address("http://127.1.2.3/pings"));
@@ -152,6 +174,7 @@ void one_at_a_time(fixture::Server& server) {
 
 int main() {
     bodies();
+    builds_that_report();
     local_addresses();
     fixture::Server server;
     server.set_idle_close_ms(120000);

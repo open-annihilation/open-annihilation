@@ -26,6 +26,15 @@ constexpr uint64_t kAnswerBytes = 4096;
 
 } // namespace
 
+bool build_reports(const ThisBuild& build) noexcept {
+    if (build.development || build.version_text.empty())
+        return false;
+    for (const std::string_view platform : reported_platforms)
+        if (build.package == platform)
+            return true;
+    return false;
+}
+
 std::string ping_body(const PingReport& report) {
     json::JsonWriter writer;
     writer.begin_object();

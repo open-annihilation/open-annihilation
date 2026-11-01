@@ -225,8 +225,9 @@ std::optional<fs::path> updates_folder(const Options& options, std::string& fail
 
 /// Reports a check whose feed names a ping address, at most once a check and
 /// once an hour, and writes the time of the report. A remembered result is
-/// not a check. A run nobody watches, and one given a test feed, report only
-/// to this machine. Nothing waits for the report.
+/// not a check. A labelled build, and one no release package is made for,
+/// never reports. A run nobody watches, and one given a test feed, report
+/// only to this machine. Nothing waits for the report.
 ///
 /// @param options the run's options
 /// @param[in,out] values the preference values; the time is written here
@@ -246,6 +247,9 @@ bool report_check(
     if (latest.state != update::CheckState::up_to_date &&
         latest.state != update::CheckState::offered)
         return false;
+    const update::ThisBuild built = program_build();
+    if (!update::build_reports(built))
+        return false;
     const oa::data::engine_feed::Ping& ping = *latest.feed->ping;
     const bool test_run =
         options.update_feed.has_value() || options.unattended || options.headless_check;
@@ -256,7 +260,6 @@ bool report_check(
     }
     if (!update::ping_due(update::read_pinged(values), now))
         return false;
-    const update::ThisBuild built = program_build();
     update::PingReport report;
     report.version = built.version_text;
     report.platform = built.package;

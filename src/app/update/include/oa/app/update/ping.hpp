@@ -7,8 +7,10 @@
 // reported is the caller's choice, at most once a check and once an hour.
 #pragma once
 
+#include "oa/app/update/build.hpp"
 #include "oa/base/threads.hpp"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -24,6 +26,30 @@ struct PingReport {
     std::string install_id; ///< the feed's registry's install ID; empty when off or absent
     bool asked{};           ///< the player asked for the check (`manual`); else `automatic`
 };
+
+/// The package ids a report may name: those the releases are built for.
+inline constexpr std::array<std::string_view, 9> reported_platforms{
+    "linux-arm64",
+    "linux-armhf",
+    "linux-x86_64",
+    "macos-universal",
+    "steam-deck",
+    "windows-95",
+    "windows-arm64",
+    "windows-x64",
+    "windows-x86",
+};
+
+/// Tells whether this build reports its checks.
+///
+/// A build reports only when its version has no label and its package id
+/// is one of `reported_platforms`. A labelled build, such as a development
+/// one, and a build no release package is made for, such as iOS, never
+/// reports.
+///
+/// @param build this build
+/// @return true when its checks are reported
+[[nodiscard]] bool build_reports(const ThisBuild& build) noexcept;
 
 /// The report as the body of its request.
 ///

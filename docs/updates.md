@@ -147,8 +147,10 @@ made; turned off, the report carries none, and a report never makes one.
 The game does not wait for the report, and a report that fails changes
 nothing: it is written to the log and the check goes on as before. The
 address comes only from the signed feed; an unattended or headless run,
-and one given a test feed, reports only to this machine. Check for updates
-at Never makes no request at all, so it sends no report either.
+and one given a test feed, reports only to this machine. A build whose
+version has a label, such as a development build, and a build no release
+package is made for, such as iOS, never report. Check for updates at
+Never makes no request at all, so it sends no report either.
 
 ## What is kept
 

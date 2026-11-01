@@ -51,7 +51,8 @@ folder. The main thread reads snapshots. Nothing here installs a package.
   `ping_body` is the report's JSON: the version, the package id, the
   channel, the install ID and the trigger, `manual` for an asked check.
   `local_address` is `localhost` or a 127 address, where an unattended run
-  or a test feed reports. `Pinger` posts one report on a worker thread
+  or a test feed reports. `build_reports` is true only for a build with no
+  version label whose package id is one of `reported_platforms`. `Pinger` posts one report on a worker thread
   with the game's own user agent; nothing waits for it, and `snapshot`
   says whether the server took it.
 - `Checker` fetches one feed and its signature on a worker thread. `start`
@@ -147,9 +148,9 @@ launch option over the setting and each channel's address; the testing
 channel's feed fetched from testing-2.json, each channel's feed refused as
 the other's, and a copy back on Stable that is offered nothing until a
 newer stable release; and the report's hour. `app-update-ping` covers the
-report's body, which addresses are this machine's, one report posted to a
-local server with its type and user agent, a refused and an unanswered
-report, and one report at a time.
+report's body, which builds report, which addresses are this machine's,
+one report posted to a local server with its type and user agent, a
+refused and an unanswered report, and one report at a time.
 `app-update-plan` covers the plan and state texts and the refusals: an
 unknown format, route or channel, a relative path, an empty program, and a
 title or line that is too long, and a plan for the testing channel. `app-update-download` covers the download against a

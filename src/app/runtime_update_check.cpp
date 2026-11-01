@@ -467,6 +467,7 @@ void Runtime::check_engine_feed() {
     expected.platform = built.package;
     expected.channel = "stable";
     const std::string ping_url = server.url("/v1/engine/pings");
+    const bool reports = update::build_reports(built);
     const SignedFeed pinged_feed =
         sign_feed(feed_json(built.release + 1, built.package, ping_url), kKeyId, 0x51);
 
@@ -499,39 +500,51 @@ void Runtime::check_engine_feed() {
             update_snapshot().state == update::CheckState::offered,
             "the feed with a ping did not offer (" + update_snapshot().failure + ")"
         );
-        await_reports(1, "the check was not reported");
-        const std::vector<fixture::LoggedRequest> reported = posts(server);
-        require(reported.size() == 1, "the check was reported more than once");
-        const fixture::LoggedRequest& report = reported[0];
-        require(report.target == "/v1/engine/pings", "the report went to another address");
-        update::PingReport manual = expected;
-        manual.install_id = std::string(kInstallId);
-        manual.asked = true;
-        const std::string body(report.body.begin(), report.body.end());
-        require(body == update::ping_body(manual), "the report's body was " + body);
-        const std::string* type = report.header("Content-Type");
-        require(type != nullptr && *type == "application/json", "the report is not JSON");
-        const std::string* agent = report.header("User-Agent");
-        require(
-            agent != nullptr && agent->starts_with("OpenAnnihilation/"),
-            "the report did not use the game's user agent"
-        );
-        require(report.header("Cookie") == nullptr, "the report sent a cookie");
-        for (const fixture::LoggedRequest& request : server.requests())
-            if (request.method != "POST")
-                require(
-                    request.method == "GET" && request.target.find('?') == std::string::npos,
-                    "the feed was not fetched with GET and no query"
-                );
-        require(
-            update::read_pinged(preference_values_).has_value(), "the report was not remembered"
-        );
+        // A labelled build, or one no release package is made for, reports
+        // nothing, and the next two parts, which read a report, are left out.
+        if (!reports) {
+            for (int frame = 0; frame < 20; ++frame)
+                idle_tick();
+            require(posts(server).empty(), "a build that does not report sent a report");
+            require(
+                !update::read_pinged(preference_values_).has_value(),
+                "a report that was not sent was remembered"
+            );
+        } else {
+            await_reports(1, "the check was not reported");
+            const std::vector<fixture::LoggedRequest> reported = posts(server);
+            require(reported.size() == 1, "the check was reported more than once");
+            const fixture::LoggedRequest& report = reported[0];
+            require(report.target == "/v1/engine/pings", "the report went to another address");
+            update::PingReport manual = expected;
+            manual.install_id = std::string(kInstallId);
+            manual.asked = true;
+            const std::string body(report.body.begin(), report.body.end());
+            require(body == update::ping_body(manual), "the report's body was " + body);
+            const std::string* type = report.header("Content-Type");
+            require(type != nullptr && *type == "application/json", "the report is not JSON");
+            const std::string* agent = report.header("User-Agent");
+            require(
+                agent != nullptr && agent->starts_with("OpenAnnihilation/"),
+                "the report did not use the game's user agent"
+            );
+            require(report.header("Cookie") == nullptr, "the report sent a cookie");
+            for (const fixture::LoggedRequest& request : server.requests())
+                if (request.method != "POST")
+                    require(
+                        request.method == "GET" && request.target.find('?') == std::string::npos,
+                        "the feed was not fetched with GET and no query"
+                    );
+            require(
+                update::read_pinged(preference_values_).has_value(), "the report was not remembered"
+            );
+        }
         std::cout << "engine-feed: 8\n";
         std::cout.flush();
     }
 
     // 9. Another check inside the hour fetches the feed and reports nothing.
-    {
+    if (reports) {
         const int feeds = count_target(server, feed_target);
         const std::optional<int64_t> pinged = update::read_pinged(preference_values_);
         const uint64_t before = update_snapshot().generation;
@@ -551,7 +564,7 @@ void Runtime::check_engine_feed() {
 
     // 10. With the registry's install ID off, an automatic check an hour
     // later reports no install ID.
-    {
+    if (reports) {
         oa::app::content::turn_install_id_off(preference_values_, kPingRegistry);
         preference_values_.erase(std::string(oa::ui::engine_settings::key::update_pinged));
         update::write_checked(preference_values_, wall_seconds() - 90000);
