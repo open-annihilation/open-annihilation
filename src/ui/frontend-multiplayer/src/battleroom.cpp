@@ -2421,6 +2421,15 @@ bool info_version_compatible(
     return netgame::version_admits(compared, version);
 }
 
+int32_t
+info_declared_version_major(const PlayerSetupInfo& info, const netgame::WireRules& rules) noexcept {
+    const int32_t major = info.version_major;
+    if (rules.launch_version_bias && (info.status & status::launch_only) != 0 &&
+        major >= kLaunchVersionBias)
+        return major - kLaunchVersionBias;
+    return major;
+}
+
 char* local_password_field(Lobby& lobby) noexcept {
     return local_info(lobby).password;
 }

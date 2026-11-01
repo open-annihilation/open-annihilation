@@ -4106,6 +4106,15 @@ int main() {
     );
     expect(shows_color(d, art, "LOGO" + row, 1, "3.1"), "the remote player's colour square");
     expect(shows_version(d, art, "LOGO" + row, "3.1"), "the remote player's version");
+    // A host a launch started sends its major biased by 100 and marks its
+    // block launch-only; the room shows the version its game declares.
+    remote->version_major = 103;
+    remote->status = static_cast<uint16_t>(remote->status | mp::status::launch_only);
+    d.frame();
+    expect(shows_version(d, art, "LOGO" + row, "3.1"), "a launched player's version reads 3.1");
+    remote->version_major = 3;
+    remote->status = static_cast<uint16_t>(remote->status & ~mp::status::launch_only);
+    d.frame();
     expect(shows_frame(d, art, disc, 0, control("CD" + row)), "a remote 3.1c player's CD icon");
     expect(!door->hot, "the doors stop taking clicks once everyone is ready");
     expect(

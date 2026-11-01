@@ -4242,6 +4242,29 @@ void test_versioned_rules() {
     reset_launch();
 }
 
+// The battle room shows the major each block declares: a launched host's
+// block carries 103 and the launch-only mark and shows 3, a computer player
+// it seats carries the mark without the bias and shows 3, and a game
+// without the launch bias, or a block without the mark, shows its byte.
+void test_declared_version() {
+    mp::PlayerSetupInfo block{};
+    block.version_major = 3;
+    expect(mp::info_declared_version_major(block) == 3, "a plain block shows 3");
+    block.status = mp::status::launch_only;
+    expect(mp::info_declared_version_major(block) == 3, "a launched room's computer shows 3");
+    block.version_major = 103;
+    expect(mp::info_declared_version_major(block) == 3, "a launched host shows 3, not 103");
+    expect(mp::info_version_compatible(block, 3), "and its biased byte still joins");
+    block.version_major = 110;
+    expect(
+        mp::info_declared_version_major(block, versioned_recorder_rules()) == 110,
+        "without the launch bias the byte shows as it is"
+    );
+    block.status = 0;
+    block.version_major = 103;
+    expect(mp::info_declared_version_major(block) == 103, "an unmarked block shows its byte");
+}
+
 // A recorder stamps its protocol on every battle-room block; the host sends
 // its recorder options once to a joiner whose block says it runs one, and
 // takes a joiner's recorder protocol from its block.
@@ -6095,6 +6118,7 @@ void test_launch_connection() {
         "an active launch marks the session and biases its version"
     );
     expect(mp::info_version_compatible(info, 3), "the biased version still joins");
+    expect(mp::info_declared_version_major(info) == 3, "the room shows the host's version as 3");
     launch_block.player_limit = 12;
     expect(
         mp::connect_host(lobby, state) && mp::lobby_session_players(*game) == 10,
@@ -7355,6 +7379,7 @@ int main(int argc, char** argv) {
         test_restrict_pictures_across_the_clock_turn();
         test_session_description();
         test_versioned_rules();
+        test_declared_version();
         test_recorder_in_the_battle_room();
         test_no_presence_bytes_in_the_battle_room();
         test_presence_records_in_the_battle_room();

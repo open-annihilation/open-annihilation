@@ -777,6 +777,23 @@ void slot_set_status(Lobby& lobby, Player& player, uint8_t status) noexcept;
     const PlayerSetupInfo& info, uint32_t local_major, const netgame::WireRules& rules = {}
 ) noexcept;
 
+/// Returns the major version a player's lobby block declares, as the battle
+/// room shows it over the player's colour square.
+///
+/// A host a launch started publishes its session with its major biased by
+/// 100 and its block marked launch-only, and its block keeps the biased
+/// byte from then on; the computer players it seats are marked launch-only
+/// without the bias. The bias is taken off a marked block whose major holds
+/// it, under rules that bias a launch, so the room shows 3.1, not 103.1. The
+/// block itself, and what is sent and compared, keep the biased byte.
+///
+/// @param info A player's lobby block.
+/// @param rules The local game's network rules; 3.1c's by default.
+/// @return The major the player's game declares.
+[[nodiscard]] int32_t info_declared_version_major(
+    const PlayerSetupInfo& info, const netgame::WireRules& rules = {}
+) noexcept;
+
 /// Reads a battle-room chat line for the recorder's commands, as every recorder reads each line it
 /// sends or hears.
 ///

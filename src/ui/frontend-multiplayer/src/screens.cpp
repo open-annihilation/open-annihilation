@@ -2465,9 +2465,11 @@ void draw_text(
 ///
 /// Every slot held by the local player, a computer player or a remote player
 /// shows "major.minor" from its lobby block in the label font, centred on its
-/// LOGO<slot> rectangle whether or not the square shows. The rectangle's
-/// right and bottom edges are its last column and row, and halves are
-/// truncated toward zero.
+/// LOGO<slot> rectangle whether or not the square shows. The major is the one
+/// the player's game declares, without the bias a launched host's block
+/// carries (info_declared_version_major), so a launched room shows 3.1. The
+/// rectangle's right and bottom edges are its last column and row, and halves
+/// are truncated toward zero.
 ///
 /// @param[in,out] surface image drawn on
 /// @param res the battle room's resources
@@ -2489,7 +2491,13 @@ void draw_player_versions(renderer::Surface& surface, const Resources& res, Lobb
         if (logo == nullptr || info == nullptr)
             continue;
         char text[16];
-        std::snprintf(text, sizeof(text), "%d.%d", info->version_major, info->version_minor);
+        std::snprintf(
+            text,
+            sizeof(text),
+            "%d.%d",
+            static_cast<int>(info_declared_version_major(*info, lobby.wire_rules)),
+            info->version_minor
+        );
         const auto text_width = static_cast<int32_t>(formats::fnt::measure_text(font, text));
         const int32_t left = logo->x + res.offset_x;
         const int32_t top = logo->y + res.offset_y;

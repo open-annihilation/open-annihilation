@@ -161,8 +161,12 @@ other human, against computer players alone; 3.1c waits for a remote
 player, and so does a room whose launch locks the options
 ([launch settings](docs/command-line.md#launch-settings)). Every OA
 player still tells the other machines it has one, since a 3.1c host
-counts them. In the battle
-room a player on 3.1c shows the CD icon, and an OA player the app icon,
+counts them. The number over each player's colour square is the version
+that player's game declares, 3.1 for 3.1c and for Open Annihilation alike.
+A host a launch started (a launch file, or a launch option such as
+`--player-limit`) sends its version as 103.1, as 3.1c does, so that only a
+game started through a launch joins it; the room still shows 3.1. In the
+battle room a player on 3.1c shows the CD icon, and an OA player the app icon,
 the plates alone, in its place. The badge is drawn at the window's own
 pixels and scaled to that rectangle with an area filter, so it stays sharp
 at any window size and a clear corner stays clear. A dot on it means that
