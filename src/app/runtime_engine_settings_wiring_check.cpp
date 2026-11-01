@@ -497,6 +497,34 @@ void Runtime::check_engine_settings_wiring() {
     require(match_zoom_target_ > kCheckZoom, "the wheel did not zoom with the setting on");
     chosen = engine_settings();
 
+    // Invert mouse zoom: the same turn of the wheel zooms the classic view
+    // out, and in again once it is off. The two switches of the turned
+    // view's drags leave the wheel as it was.
+    const auto zoom_after_wheel = [&](bool pan, bool rotation, bool zoom) {
+        chosen.invert_3d_camera_pan = pan;
+        chosen.invert_3d_camera_rotation = rotation;
+        chosen.invert_mouse_zoom = zoom;
+        apply_engine_settings(chosen);
+        match_zoom_ = kCheckZoom;
+        match_zoom_target_ = kCheckZoom;
+        zoom_focus_ = {};
+        send(wheel);
+        return match_zoom_target_;
+    };
+    require(
+        zoom_after_wheel(false, false, true) < kCheckZoom, "Invert mouse zoom did not zoom out"
+    );
+    require(
+        zoom_after_wheel(true, true, false) > kCheckZoom,
+        "Invert 3D camera pan or rotation turned the classic view's wheel round"
+    );
+    require(
+        zoom_after_wheel(true, true, true) < kCheckZoom,
+        "Invert mouse zoom did not zoom out beside the turned view's switches"
+    );
+    require(zoom_after_wheel(false, false, false) > kCheckZoom, "the wheel did not zoom in again");
+    chosen = engine_settings();
+
     // Escape opens the game menu: off, Escape only clears the selection;
     // on, the first press cancels or clears and the next opens the menu.
     uint16_t commander = 0;

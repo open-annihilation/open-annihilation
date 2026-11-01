@@ -497,6 +497,12 @@ bool Runtime::live_renderer_unlocked() const noexcept {
     return live_renderer_ && live_renderer_->camera.unlocked;
 }
 
+std::array<float, 2> Runtime::live_camera_angles() const noexcept {
+    if (!live_renderer_)
+        return {};
+    return {live_renderer_->camera.yaw_degrees, live_renderer_->camera.pitch_degrees};
+}
+
 bool Runtime::live_renderer_failed() const noexcept {
     return live_renderer_ && live_renderer_->failed;
 }

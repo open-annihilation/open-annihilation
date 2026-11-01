@@ -1054,6 +1054,23 @@ void Runtime::check_engine_settings_dialog() {
         past_map_edge_share() == 0.25,
         "View past the map's edge 25% is not the view's limits' share"
     );
+    // The switches that turn the mouse's camera gestures round, under
+    // Middle-click pans: each On at once.
+    const int32_t invert_pan = control_named("settings.invert-3d-camera-pan");
+    focus(invert_pan, "Invert 3D camera pan");
+    click(invert_pan, "On", "Invert 3D camera pan's On");
+    chosen.invert_3d_camera_pan = true;
+    expect("Invert 3D camera pan On");
+    const int32_t invert_rotation = control_named("settings.invert-3d-camera-rotation");
+    focus(invert_rotation, "Invert 3D camera rotation");
+    click(invert_rotation, "On", "Invert 3D camera rotation's On");
+    chosen.invert_3d_camera_rotation = true;
+    expect("Invert 3D camera rotation On");
+    const int32_t invert_zoom = control_named("settings.invert-mouse-zoom");
+    focus(invert_zoom, "Invert mouse zoom");
+    click(invert_zoom, "On", "Invert mouse zoom's On");
+    chosen.invert_mouse_zoom = true;
+    expect("Invert mouse zoom On");
     // Window edge opens on Capture, with Edge stickiness under it locked at
     // 1.0: Tab passes it by and its keys change nothing. Sticky frees it,
     // and a step of it is the sticky edge's firmness at once. Free locks it
@@ -1451,6 +1468,9 @@ void Runtime::check_engine_settings_dialog() {
         {std::string(settings::key::max_zoom_out), "whole-map"},
         {std::string(settings::key::max_zoom_in), "3"},
         {std::string(settings::key::view_past_map_edge), "25"},
+        {std::string(settings::key::invert_3d_camera_pan), "1"},
+        {std::string(settings::key::invert_3d_camera_rotation), "1"},
+        {std::string(settings::key::invert_mouse_zoom), "1"},
         {std::string(settings::key::window_edge), "sticky"},
         {std::string(settings::key::edge_stickiness), "1.2"},
         {std::string(settings::key::escape_opens_menu), "1"},

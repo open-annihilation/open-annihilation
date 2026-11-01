@@ -8201,6 +8201,10 @@ class Runtime final : public menu::Host,
     [[nodiscard]] bool live_renderer_active() const noexcept;
     /// Reports whether the wider camera range is enabled.
     [[nodiscard]] bool live_renderer_unlocked() const noexcept;
+    /// Returns the live camera's turn about the vertical and its elevation
+    /// change from the classic view, in degrees; both zero before the live
+    /// renderer is made.
+    [[nodiscard]] std::array<float, 2> live_camera_angles() const noexcept;
     /// Reports a scene or GPU failure from the last attempted frame.
     [[nodiscard]] bool live_renderer_failed() const noexcept;
     /// Distinguishes an unsupported GPU backend from a rendering error.

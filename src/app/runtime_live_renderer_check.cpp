@@ -823,6 +823,52 @@ int Runtime::check_live_renderer() {
     require(live_renderer_take_event(wheel), "the rotated view did not consume a flipped wheel");
     snapshot();
     require(std::abs(match_zoom_ - zoom_before) < 0.001F, "flipped wheel did not reverse zoom");
+    // Invert mouse zoom turns the same turn round, so the wheel zooms the
+    // rotated view out; Invert 3D camera pan and rotation leave the wheel as
+    // it was. The view and the zoom come back as the flipped wheel left them.
+    {
+        const auto camera_settings = engine_settings();
+        const auto zoom_kept = match_zoom_;
+        const auto target_kept = match_zoom_target_;
+        const auto wheel_kept = zoom_wheel_;
+        const auto view_kept = match_view_place();
+        const auto hold_kept = view_hold_;
+        const auto focus_kept = zoom_focus_;
+        const auto zoom_after = [&](bool pan, bool rotation, bool zoom) {
+            auto chosen = camera_settings;
+            chosen.invert_3d_camera_pan = pan;
+            chosen.invert_3d_camera_rotation = rotation;
+            chosen.invert_mouse_zoom = zoom;
+            apply_engine_settings(chosen);
+            match_zoom_ = match_zoom_target_ = zoom_before;
+            place_match_view(view_kept[0], view_kept[1]);
+            SDL_Event turn = wheel;
+            turn.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+            require(
+                live_renderer_take_event(turn), "the rotated view did not consume an inverted wheel"
+            );
+            return match_zoom_;
+        };
+        require(
+            zoom_after(false, false, true) < zoom_before,
+            "Invert mouse zoom did not zoom the rotated view out"
+        );
+        require(
+            zoom_after(true, true, false) > zoom_before,
+            "Invert 3D camera pan or rotation turned the rotated view's wheel round"
+        );
+        require(
+            zoom_after(true, true, true) < zoom_before,
+            "Invert mouse zoom did not zoom out beside the drags' switches"
+        );
+        apply_engine_settings(camera_settings);
+        match_zoom_ = zoom_kept;
+        match_zoom_target_ = target_kept;
+        zoom_wheel_ = wheel_kept;
+        place_match_view(view_kept[0], view_kept[1]);
+        view_hold_ = hold_kept;
+        zoom_focus_ = focus_kept;
+    }
     // Keep the exact classic-reset comparison independent of camera clamping.
     place_match_view(initial_view[0], initial_view[1]);
     snapshot();
@@ -881,6 +927,122 @@ int Runtime::check_live_renderer() {
         "middle-drag did not change the rendered world"
     );
     save_picture("panned.png", panned);
+    // Invert 3D camera rotation turns both orbit bindings' turn and tilt
+    // round, and Invert 3D camera pan both pan bindings' motion: a drag one
+    // way moves the view as a plain drag the other way does. Each leaves the
+    // other's drags, and Invert mouse zoom leaves both, as they were. The
+    // camera and the view come back as the pan left them.
+    {
+        const auto camera_settings = engine_settings();
+        const auto angles_kept = live_camera_angles();
+        const auto pointer_kept = std::array{pointer_x_, pointer_y_};
+        const auto set_inversions = [&](bool pan, bool rotation, bool zoom) {
+            auto chosen = camera_settings;
+            chosen.invert_3d_camera_pan = pan;
+            chosen.invert_3d_camera_rotation = rotation;
+            chosen.invert_mouse_zoom = zoom;
+            apply_engine_settings(chosen);
+        };
+        // A press on the battlefield's middle with the binding's modifiers
+        // held, one motion, and the release.
+        const auto camera_drag = [&](uint8_t button,
+                                     SDL_Keymod modifiers,
+                                     float travel_x,
+                                     float travel_y) {
+            const auto held = SDL_GetModState();
+            SDL_SetModState(modifiers);
+            SDL_Event event{};
+            event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+            event.button.button = button;
+            event.button.down = true;
+            event.button.x = pan_x;
+            event.button.y = pan_y;
+            const bool began = live_renderer_take_event(event);
+            SDL_SetModState(held);
+            require(began, "a camera binding's press did not start its drag");
+            event = {};
+            event.type = SDL_EVENT_MOUSE_MOTION;
+            event.motion.state = SDL_BUTTON_MASK(button);
+            event.motion.x = pan_x + travel_x;
+            event.motion.y = pan_y + travel_y;
+            event.motion.xrel = travel_x;
+            event.motion.yrel = travel_y;
+            require(live_renderer_take_event(event), "a camera drag's motion was not consumed");
+            event = {};
+            event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+            event.button.button = button;
+            event.button.x = pan_x + travel_x;
+            event.button.y = pan_y + travel_y;
+            require(live_renderer_take_event(event), "a camera drag's release was not consumed");
+        };
+        // An orbit from a turn inside the locked range: 16 points across and
+        // 8 down are 4 degrees of turn and 2 of tilt.
+        constexpr float start_yaw = 10.0F;
+        constexpr float start_pitch = 5.0F;
+        const auto orbit_change = [&](uint8_t button, bool pan, bool rotation, bool zoom) {
+            set_inversions(pan, rotation, zoom);
+            require(turn_live_camera(start_yaw, start_pitch), "the camera did not turn");
+            camera_drag(button, SDL_KMOD_ALT, 16.0F, 8.0F);
+            const auto angles = live_camera_angles();
+            return std::array{angles[0] - start_yaw, angles[1] - start_pitch};
+        };
+        for (const uint8_t button : std::array<uint8_t, 2>{SDL_BUTTON_LEFT, SDL_BUTTON_MIDDLE}) {
+            const auto plain = orbit_change(button, false, false, false);
+            require(plain[0] > 0 && plain[1] > 0, "a plain orbit did not turn and tilt the camera");
+            const auto turned = orbit_change(button, false, true, false);
+            require(
+                turned[0] == -plain[0] && turned[1] == -plain[1],
+                "Invert 3D camera rotation did not turn an orbit binding round"
+            );
+            require(
+                orbit_change(button, true, false, true) == plain,
+                "Invert 3D camera pan or Invert mouse zoom changed an orbit"
+            );
+            require(
+                orbit_change(button, true, true, true) == turned,
+                "Invert 3D camera rotation did not turn an orbit round beside the other switches"
+            );
+        }
+        // The turn the pan left, held within the range Unlocked camera says.
+        require(turn_live_camera(angles_kept[0], angles_kept[1]), "the camera did not turn back");
+        apply_live_camera_settings(camera_settings.allow_full_3d, camera_settings.unlocked_camera);
+        // A pan from the view the pan left, towards the map's middle.
+        const auto pan_change =
+            [&](uint8_t button, float travel, bool pan, bool rotation, bool zoom) {
+                set_inversions(pan, rotation, zoom);
+                place_match_view(panned_view[0], panned_view[1]);
+                camera_drag(
+                    button,
+                    button == SDL_BUTTON_LEFT
+                        ? static_cast<SDL_Keymod>(SDL_KMOD_ALT | SDL_KMOD_SHIFT)
+                        : SDL_KMOD_NONE,
+                    travel,
+                    0.0F
+                );
+                const auto moved = match_view_place();
+                return std::array{moved[0] - panned_view[0], moved[1] - panned_view[1]};
+            };
+        for (const uint8_t button : std::array<uint8_t, 2>{SDL_BUTTON_MIDDLE, SDL_BUTTON_LEFT}) {
+            const auto plain = pan_change(button, pan_travel, false, false, false);
+            require(plain != std::array{0.0, 0.0}, "a plain camera pan did not move the view");
+            require(
+                pan_change(button, -pan_travel, true, false, false) == plain,
+                "Invert 3D camera pan did not turn a pan binding round"
+            );
+            require(
+                pan_change(button, pan_travel, false, true, true) == plain,
+                "Invert 3D camera rotation or Invert mouse zoom changed a camera pan"
+            );
+            require(
+                pan_change(button, -pan_travel, true, true, true) == plain,
+                "Invert 3D camera pan did not turn a pan round beside the other switches"
+            );
+        }
+        apply_engine_settings(camera_settings);
+        place_match_view(panned_view[0], panned_view[1]);
+        pointer_x_ = pointer_kept[0];
+        pointer_y_ = pointer_kept[1];
+    }
     require(
         key(SDLK_U, SDL_KMOD_ALT) && live_renderer_unlocked(), "Option+U did not unlock the camera"
     );
