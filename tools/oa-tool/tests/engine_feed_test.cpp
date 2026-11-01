@@ -11,6 +11,7 @@
 
 #include "oa/base/sha256.hpp"
 #include "oa/data/engine_feed/feed.hpp"
+#include "oa/formats/oamod/package_keys.hpp"
 #include "oa/netgame/http_fixture/server.hpp"
 #include "oa/test/check.hpp"
 #include "oa/test/scratch_directory.hpp"
@@ -127,9 +128,10 @@ void help_text() {
     exited("write help", write_help, oa::tool::exit_done);
     OA_CHECK(contains(
         write_help.out,
-        "--version V [--release N] --date YYYY-MM-DD --from V --page URL --mirror URL "
-        "[--mirror URL]... [--notes FILE] [--rollout N] [--online-min V] [--channel stable] "
-        "[--previous FEED] --out FEED PACKAGE..."
+        "--version V [--release N] --date YYYY-MM-DD --from V [--package-from ID=V]... "
+        "--page URL [--install-page URL] --mirror URL [--mirror URL]... [--notes FILE] "
+        "[--rollout N] [--online-min V] [--channel stable] [--previous FEED] --out FEED "
+        "PACKAGE..."
     ));
     const auto check_help = run({"engine-feed", "check", "--help"});
     exited("check help", check_help, oa::tool::exit_done);
@@ -163,6 +165,125 @@ void wrong_version(const fs::path& root) {
     exited("other version", refused, oa::tool::exit_failed);
     OA_CHECK(contains(refused.err, "another version"));
     OA_CHECK(!fs::exists(out));
+}
+
+/// engine-feed write for 0.8.12 with the extra options, from the stand-in
+/// packages `write_sign_check` made beside `out`.
+Captured
+write_minimum(const fs::path& root, const fs::path& out, const std::vector<std::string>& extra) {
+    std::vector<std::string> arguments = {
+        "engine-feed",
+        "write",
+        "--version",
+        "0.8.12",
+        "--date",
+        "2026-11-02",
+        "--from",
+        "0.8.0",
+        "--page",
+        "https://example.net/v0.8.12",
+        "--mirror",
+        "http://downloads.example.net/v1/engine/0.8.12/",
+        "--out",
+        generic_utf8(out),
+    };
+    arguments.insert(arguments.end(), extra.begin(), extra.end());
+    arguments.push_back(generic_utf8(root / "open-annihilation-0.8.12-windows-x64.zip"));
+    arguments.push_back(generic_utf8(root / "open-annihilation-0.8.12-macos-universal.zip"));
+    return run(arguments);
+}
+
+/// A macOS minimum above the release's and an install page: the feed carries
+/// both, check prints them, and the options' mistakes are refused.
+void package_minimum(
+    const fs::path& root, const fs::path& key, const fs::path& pass, const std::string& public_key
+) {
+    constexpr std::string_view windows_zip = "windows-0812-bytes";
+    constexpr std::string_view macos_zip = "macos-0812-bytes!";
+    write_text(root / "open-annihilation-0.8.12-windows-x64.zip", windows_zip);
+    write_text(root / "open-annihilation-0.8.12-macos-universal.zip", macos_zip);
+    const fs::path out = root / "minimum.json";
+    const auto wrote = write_minimum(
+        root,
+        out,
+        {"--package-from",
+         "macos-universal=0.8.12",
+         "--install-page",
+         "https://example.net/install"}
+    );
+    if (!exited("write minimum", wrote, oa::tool::exit_done))
+        return;
+    OA_CHECK(contains(wrote.out, "release 812"));
+    const std::vector<uint8_t> bytes = read_bytes(out);
+    std::string error;
+    const auto loaded = feed::read_feed(bytes, &error);
+    if (!loaded)
+        std::fprintf(stderr, "read_feed: %s\n", error.c_str());
+    OA_CHECK(loaded.has_value());
+    if (!loaded || loaded->releases.size() != 1)
+        return;
+    const feed::Release& release = loaded->releases[0];
+    OA_CHECK(release.from == (oa::formats::oamod::EngineVersion{0, 8, 0}));
+    OA_CHECK(release.install_page == "https://example.net/install");
+    OA_CHECK(release.page == "https://example.net/v0.8.12");
+    for (const feed::Package& package : release.packages) {
+        if (package.id == "macos-universal") {
+            OA_CHECK(package.from.has_value());
+            if (package.from)
+                OA_CHECK((*package.from == oa::formats::oamod::EngineVersion{0, 8, 12}));
+        } else {
+            OA_CHECK(package.id == "windows-x64");
+            OA_CHECK(!package.from.has_value());
+        }
+    }
+
+    const auto signed_feed = run(
+        {"engine-feed",
+         "sign",
+         "--key",
+         generic_utf8(key),
+         "--passphrase-file",
+         generic_utf8(pass),
+         generic_utf8(out)}
+    );
+    if (!exited("sign minimum", signed_feed, oa::tool::exit_done))
+        return;
+    const auto checked =
+        run({"engine-feed", "check", "--key", "feed-test=" + public_key, generic_utf8(out)});
+    if (!exited("check minimum", checked, oa::tool::exit_done))
+        return;
+    OA_CHECK(contains(checked.out, "812 0.8.12 2026-11-02 from 0.8.0"));
+    OA_CHECK(contains(
+        checked.out, "macos-universal " + std::to_string(macos_zip.size()) + " from 0.8.12"
+    ));
+    OA_CHECK(contains(checked.out, "windows-x64 " + std::to_string(windows_zip.size())));
+    OA_CHECK(!contains(checked.out, "windows-x64 " + std::to_string(windows_zip.size()) + " from"));
+    OA_CHECK(contains(checked.out, " install_page https://example.net/install\n"));
+
+    struct Refusal {
+        std::vector<std::string> extra;
+        std::string_view reason;
+    };
+
+    const Refusal refusals[] = {
+        {{"--package-from", "linux-x86_64=0.8.12"}, "no package given is linux-x86_64"},
+        {{"--package-from", "macos-universal=0.8"},
+         "the from for macos-universal is not a version"},
+        {{"--package-from", "macos-universal"}, "a package's from must be a package id"},
+        {{"--package-from", "macos-universal=0.8.12", "--package-from", "macos-universal=0.8.13"},
+         "two froms for macos-universal"},
+        {{"--install-page", "ftp://example.net/install"},
+         "install_page is not an http or https address"},
+    };
+    for (const Refusal& refusal : refusals) {
+        const fs::path refused_out = root / "refused-minimum.json";
+        const auto refused = write_minimum(root, refused_out, refusal.extra);
+        exited(refusal.reason, refused, oa::tool::exit_failed);
+        if (!contains(refused.err, refusal.reason))
+            show(refusal.reason, refused);
+        OA_CHECK(contains(refused.err, refusal.reason));
+        OA_CHECK(!fs::exists(refused_out));
+    }
 }
 
 void write_sign_check(const fs::path& root) {
@@ -295,6 +416,8 @@ void write_sign_check(const fs::path& root) {
     const auto unpinned = run({"engine-feed", "check", generic_utf8(out)});
     exited("unpinned", unpinned, oa::tool::exit_failed);
     OA_CHECK(contains(unpinned.out, "unknown_key"));
+
+    package_minimum(root, key, pass, public_key);
 
     oa::netgame::http_fixture::Server server;
     std::string server_error;

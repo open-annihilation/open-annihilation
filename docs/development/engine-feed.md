@@ -41,10 +41,11 @@ Each release has:
 | `release` | A whole number from 1 to 2^53. The number decides. |
 | `version` | The version as `MAJOR.MINOR.PATCH`, shown to the player. |
 | `date` | The day, `YYYY-MM-DD`. |
-| `from` | The oldest version updated in place. An older build is offered the page. |
+| `from` | The oldest version updated in place. An older build is offered the page. A package may name its own. |
 | `rollout` | A whole number from 0 to 100. Absent is 100. Read and kept; not acted on until 0.9. |
 | `notes` | An object of language tag to lines. Present notes include `en`. At most 12 lines a language, 200 bytes a line, UTF-8, no control characters. |
 | `page` | An `http` or `https` address. A query is allowed. Absent when the release has no page. |
+| `install_page` | An `http` or `https` address, where a copy that may not update in place installs the release by hand. A query is allowed. Optional. |
 | `packages` | One object a package id. |
 
 A package id is the name of a release package: `macos-universal`,
@@ -53,14 +54,32 @@ A package id is the name of a release package: `macos-universal`,
 is `[a-z0-9]+(-[a-z0-9_]+)*`. A build only takes the package whose id is
 its own. A `windows-95` build does not take `windows-x86`.
 
-Each package has `file`, `size` and `sha256` for the zip, an optional
-`installer` with the same three for a Windows `-setup.exe` or the macOS
-`.pkg`, and `mirrors`. `file` is a plain file name, 1 to 128 bytes of
+Each package has an optional `from`, `file`, `size` and `sha256` for the
+zip, an optional `installer` with the same three for a Windows
+`-setup.exe` or the macOS `.pkg`, and `mirrors`. `file` is a plain file name, 1 to 128 bytes of
 `[A-Za-z0-9._-]`, never a path and never `.` or `..`. `size` is a whole
 number of bytes from 1 to 2^40. `sha256` is 64 lower-case hex digits. A
 mirror is an `http` or `https` address that ends in `/` and has no query.
 The download address is the mirror plus the file name. A package needs at
 least one mirror.
+
+## Who updates in place
+
+A build takes the newest release above its own number that has its
+package. It updates in place when its version is at or after that
+package's `from`, or the release's `from` when the package names none. An
+older build is offered a page instead and downloads nothing: the
+`install_page` when the release names one, where the game says the
+version is installed by hand, and the release's `page` otherwise. A
+package's `from` may be above the release's, so older copies of one
+platform go to the install page while the others update in place, or
+below it.
+
+Both members keep `feed` at 1. A build older than 0.8.12 does not read
+them: for it the release's `from` decides for every package, and the page
+it opens is `page`. To keep an older copy of one platform from updating in
+place, the release's `from` has to be above that copy's version, which
+holds back every platform's copies of that version.
 
 ## Trust
 
@@ -84,9 +103,24 @@ oa-tool engine-feed write \
   open-annihilation-0.8.7-windows-x64.zip ...
 ```
 
-`--release` overrides the number. `--previous stable.json` copies the
-older releases from an earlier feed in under the new one, newest first,
-five releases in all. A previous release newer than the one being written
+`--release` overrides the number. `--package-from ID=VERSION`, once a
+package, gives that package its own `from`, and `--install-page URL`
+names the page where older copies install by hand:
+
+```
+oa-tool engine-feed write \
+  --version 0.8.12 --date 2026-11-02 --from 0.8.0 \
+  --package-from macos-universal=0.8.12 \
+  --install-page https://example.net/install \
+  --page https://example.net/v0.8.12 \
+  --mirror http://downloads.coreprime.net/v1/engine/0.8.12/ \
+  --out stable.json \
+  open-annihilation-0.8.12-macos-universal.zip ...
+```
+
+A `--package-from` that names no package given is refused.
+`--previous stable.json` copies the older releases from an earlier feed
+in under the new one, newest first, five releases in all. A previous release newer than the one being written
 is refused. `--notes` is a JSON file, an object of language tag to lines.
 `--rollout` defaults to 100, which is what this build publishes.
 `--channel` defaults to `stable`.
@@ -100,7 +134,10 @@ oa-tool engine-feed check stable.json
 
 `sign` refuses a feed the reader would refuse before it opens the key,
 writes `stable.json.sig`, and checks that pair with the key it just used.
-`check` prints `good signature by <id>` and one line a release.
+`check` prints `good signature by <id>` and one line a release: the
+number, the version, the day, `from` and the release's minimum, then each
+package's id and zip size, with `from` and its own minimum when it names
+one, and `install_page` and the address last when the release has one.
 
 Upload the packages to `v1/engine/<version>/` on
 `downloads.coreprime.net`, then the feed and its signature. Those two are

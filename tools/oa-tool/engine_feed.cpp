@@ -328,16 +328,55 @@ int print_refusal(Output& output, const feed::Checked& checked) {
     return exit_failed;
 }
 
-/// Prints the signature and one line for each release.
+/// Prints the signature and one line for each release. A package's own
+/// from follows its size, and the install page ends the line.
 void print_feed(Output& output, const feed::Checked& checked) {
     output.out << "good signature by " << checked.signed_by << '\n';
     for (const feed::Release& release : checked.feed->releases) {
         output.out << release.release << ' ' << release.version_text << ' ' << release.date
                    << " from " << oamod::engine_version_text(release.from);
-        for (const feed::Package& package : release.packages)
+        for (const feed::Package& package : release.packages) {
             output.out << ' ' << package.id << ' ' << package.zip.size;
+            if (package.from)
+                output.out << " from " << oamod::engine_version_text(*package.from);
+        }
+        if (!release.install_page.empty())
+            output.out << " install_page " << release.install_page;
         output.out << '\n';
     }
+}
+
+/// One --package-from: a package id, an equals sign and the oldest version
+/// that may take that package in place.
+struct PackageFrom {
+    std::string id;
+    oamod::EngineVersion from{};
+};
+
+/// Reads the --package-from values. An id named twice is refused.
+std::vector<PackageFrom> read_package_froms(const Arguments& parsed) {
+    std::vector<PackageFrom> read;
+    const auto found = parsed.values.find("package-from");
+    if (found == parsed.values.end())
+        return read;
+    for (const std::string& text : found->second) {
+        const std::size_t equals = text.find('=');
+        if (equals == std::string::npos || !package_id_text(text.substr(0, equals)))
+            throw Failure("a package's from must be a package id, =, and a version");
+        PackageFrom one;
+        one.id = text.substr(0, equals);
+        const std::optional<oamod::EngineVersion> from =
+            oamod::parse_engine_version(std::string_view(text).substr(equals + 1));
+        if (!from)
+            throw Failure("the from for " + one.id + " is not a version");
+        for (const PackageFrom& earlier : read) {
+            if (earlier.id == one.id)
+                throw Failure("two froms for " + one.id);
+        }
+        one.from = *from;
+        read.push_back(std::move(one));
+    }
+    return read;
 }
 
 } // namespace
@@ -348,7 +387,9 @@ int run_engine_feed_write(std::span<const std::string> arguments, Output& output
         {"release", true, false},
         {"date", true, false},
         {"from", true, false},
+        {"package-from", true, true},
         {"page", true, false},
+        {"install-page", true, false},
         {"mirror", true, true},
         {"notes", true, false},
         {"rollout", true, false},
@@ -401,6 +442,13 @@ int run_engine_feed_write(std::span<const std::string> arguments, Output& output
         throw Failure("from is not a version");
     if (!url::parse_http_url(*page_text))
         throw Failure("page is not an http or https address");
+    const std::vector<PackageFrom> package_froms = read_package_froms(*parsed);
+    std::string install_page;
+    if (const std::string* install_text = parsed->value("install-page")) {
+        if (!url::parse_http_url(*install_text))
+            throw Failure("install_page is not an http or https address");
+        install_page = *install_text;
+    }
 
     std::vector<url::Url> mirrors;
     for (const std::string& mirror_text : mirrors_found->second) {
@@ -451,6 +499,7 @@ int run_engine_feed_write(std::span<const std::string> arguments, Output& output
     release.from = *from;
     release.rollout = rollout;
     release.page = *page_text;
+    release.install_page = install_page;
     if (const std::string* notes_text = parsed->value("notes"))
         release.notes = read_notes_file(path_from(*notes_text));
 
@@ -483,6 +532,16 @@ int run_engine_feed_write(std::span<const std::string> arguments, Output& output
     for (const feed::Package& package : release.packages) {
         if (package.zip.file.empty())
             throw Failure("an installer has no zip of its id");
+    }
+    for (const PackageFrom& minimum : package_froms) {
+        feed::Package* named_package = nullptr;
+        for (feed::Package& package : release.packages) {
+            if (package.id == minimum.id)
+                named_package = &package;
+        }
+        if (named_package == nullptr)
+            throw Failure("no package given is " + minimum.id);
+        named_package->from = minimum.from;
     }
     written.releases.push_back(std::move(release));
 
