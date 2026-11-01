@@ -420,6 +420,43 @@ a Windows 95 machine is not part of building the package.
 
 ## The signed feed
 
-A release is offered to players from one signed feed. After the packages
-are built, write the feed, sign it and check it as
+A release is offered to players from signed feeds, one file for each
+channel and for each group of copies that reads it. After the packages
+are built, write each feed, sign it and check it as
 [The engine feed](engine-feed.md) describes.
+
+### Releasing through the testing channel
+
+A release goes to the testing channel first, so that the maintainer's own
+copies take it the way players will, then to the stable channel. Every
+feed is signed with the release key on the signing machine. Upload each
+`.sig` with its feed, the feed first.
+
+1. Upload the packages to `v1/engine/<version>/` on the downloads host.
+2. Write `testing-2.json` with `--channel testing`, the release's
+   packages and `--previous testing-2.json` (the last testing feed; the
+   first time, leave `--previous` out), and the ping options when the
+   release reports checks. Sign it, check it with
+   `oa-tool engine-feed check --channel testing testing-2.json`, upload
+   it, and check it again with `--url`. No copy before 0.8.12 reads a
+   testing file, so `testing.json` is not needed.
+3. Update the maintainer's own installs on the testing channel: the Mac
+   installed from the `.pkg`, a Windows install and a Linux install, each
+   a normal release build. On each, set Settings › Developer › Update
+   channel to Testing (or start it once with `--update-channel testing`),
+   press Check now on Settings › Updates, which names "Testing channel",
+   and install the release. Check that each starts on the new version and
+   reaches the main menu.
+4. Write and sign the stable files with `--channel stable`, and upload
+   them:
+   - `stable-2.json`, read by 0.8.12 and later, with every package of the
+     release, a package's own `--package-from` and the `--install-page`
+     where older copies install by hand, and `--previous stable-2.json`
+     (the first time, `--previous stable.json`);
+   - `stable.json`, read by 0.8.9 to 0.8.11, with the same release but
+     without `macos-universal` while those copies' Mac updater is in use,
+     and `--previous stable.json`.
+
+   Check both with `--url`. Players get the release from here; the
+   maintainer's copies can go back to Stable, which offers nothing until
+   the release after.

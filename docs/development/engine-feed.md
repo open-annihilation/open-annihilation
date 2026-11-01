@@ -144,7 +144,9 @@ single member is read.
 ## Publishing a release
 
 After the packages are built, from the folder they were written to,
-write each file the release goes into.
+write each file the release goes into. The release procedure, through the
+testing channel and then the stable one, is in
+[Releasing through the testing channel](releasing.md#releasing-through-the-testing-channel).
 
 ```
 oa-tool engine-feed write \
