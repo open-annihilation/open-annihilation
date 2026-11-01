@@ -4,8 +4,9 @@
 // The question a verified release asks at the main menu. It waits through a
 // match, Settings and a message box. Skip remembers the release, Later
 // writes nothing, and Update downloads the package where this copy can
-// install it, or opens the release's page. A release held after it failed
-// to install, and one whose package is already downloaded, do not ask.
+// install it, or opens the release's page, or its install page where the
+// release is installed by hand. A release held after it failed to install,
+// and one whose package is already downloaded, do not ask.
 #include "oa/app/runtime.hpp"
 
 #include "oa_layer.hpp"
@@ -144,6 +145,17 @@ bool offered_package_downloaded(const Options& options, const feed::Offer& offer
 }
 #endif
 
+/// The page an offer opens: the install page where the release is installed
+/// by hand, the release's own page otherwise.
+///
+/// @param offer the offer
+/// @return the address; empty when the feed names none
+std::string offer_page(const feed::Offer& offer) {
+    if (offer.by_hand)
+        return std::string(offer.page);
+    return offer.release != nullptr ? offer.release->page : std::string{};
+}
+
 /// The header's second word on an offer: "VERSION 0.8.8 AVAILABLE".
 ///
 /// @param version the release's version
@@ -281,7 +293,7 @@ void Runtime::offer_update() {
             asked.primary_button = 0;
             asked.marked = 0;
         }
-        update_->offered_page = held.offer.release->page;
+        update_->offered_page = offer_page(held.offer);
         update_->offered_release = release_number;
         Runtime* runtime = this;
         const bool open_the_page = notice.open_the_page;
@@ -316,7 +328,12 @@ void Runtime::offer_update() {
     const update::Centre centre = update_centre();
     const update::CentreWords words = update::centre_words(centre, hooks);
     const bool about_offer = centre.target_release == release_number;
-    std::string leading{oa::data::languages::interface_text(kDownloadCaption)};
+    // Installed by hand, the game downloads nothing: the button opens the
+    // install page, and the match's pause is not mentioned.
+    const bool by_hand = held.offer.by_hand;
+    std::string leading{oa::data::languages::interface_text(
+        by_hand ? update::words::open_download_page : kDownloadCaption
+    )};
     std::string skip{oa::data::languages::interface_text(kSkipCaption)};
     std::string later{oa::data::languages::interface_text(kLaterCaption)};
     if (about_offer) {
@@ -348,8 +365,9 @@ void Runtime::offer_update() {
     {
         kit::QuestionPart stay;
         stay.kind = kit::PartKind::text;
-        stay.text = told.paragraphs[1] + " " +
-                    std::string(oa::data::languages::interface_text(kMatchPause));
+        stay.text = told.paragraphs[1];
+        if (!by_hand)
+            stay.text += " " + std::string(oa::data::languages::interface_text(kMatchPause));
         asked.parts.push_back(std::move(stay));
     }
     kit::QuestionButton skip_button{std::move(skip), false, "skip"};
@@ -362,7 +380,7 @@ void Runtime::offer_update() {
     asked.marked = kUpdateButton;
 
     // The page this question opens, taken now, so a later check cannot change it.
-    update_->offered_page = held.offer.release->page;
+    update_->offered_page = offer_page(held.offer);
     update_->offered_release = release_number;
 
     Runtime* runtime = this;
@@ -397,12 +415,17 @@ void Runtime::offer_update() {
     layer.show_when_free(std::move(question));
 }
 
-void Runtime::open_release_page() {
+void Runtime::open_release_page(bool release_notes) {
     std::string page;
-    if (update_ && update_->offered_page.has_value())
-        page = *update_->offered_page;
-    else if (update_ && update_->held.offer.release != nullptr)
+    // The notes are on the release's own page, also where the offer opens
+    // the install page.
+    if (release_notes && update_ && update_->held.offer.by_hand &&
+        update_->held.offer.release != nullptr)
         page = update_->held.offer.release->page;
+    else if (update_ && update_->offered_page.has_value())
+        page = *update_->offered_page;
+    else if (update_ != nullptr)
+        page = offer_page(update_->held.offer);
     if (page.empty())
         page = std::string(update::words::releases_page);
     if (web_address_available()) {

@@ -33,7 +33,8 @@ snapshots. Nothing here installs a package.
   is that hour at the main menu first and then anywhere, and
   `update_notice_shows` is the main menu, never a match.
 - `offer_text` writes the question's title, the size of the offered
-  package's zip, and the reassurance. The notes are the release's own
+  package's zip, or that the release is installed by hand where the offer
+  names an install page, and the reassurance. The notes are the release's own
   lines and are not looked up. `notes_paragraph` joins those lines under
   "New in {version}:", one bulleted line each. `offer_wanted` is false at
   or below the release `read_skipped` names. `write_skipped` remembers
@@ -55,7 +56,9 @@ snapshots. Nothing here installs a package.
   gathers in `CentreInputs`, with the `Act`s that stage allows.
   `centre_words` writes its status, detail, the short form for the menu
   pill and the headers, a note, and each action's caption; the install
-  action names the route (`install_way`). `step_words` and
+  action names the route (`install_way`). A page-only release installed by
+  hand (`CentreInputs::by_hand`) says so, opens the download page, and
+  offers What's new for the release's own page. `step_words` and
   `recovery_steps` write a receipt's steps and the steps that put an
   unfinished recovery right.
 - `read_scheduled`, `write_scheduled` and `clear_scheduled` keep the
@@ -125,7 +128,9 @@ cancel that keeps nothing, a package already downloaded, and each
 failure's kind. `app-update-centre` covers the state each set of facts
 gives and its actions, the English words, the route's install words,
 scheduling and taking it back, Later kept apart from Skip, a held release,
-each failure's words, the time left and the rate. `app-update-receipt`
+each failure's words, a release installed by hand, the time left and the
+rate. `app-update-offer` covers the question's words, a release installed
+by hand, the notes and the skip. `app-update-receipt`
 covers the receipt's names, outcomes, round trip, refusals and file, and
 the state file's quit marker.
 

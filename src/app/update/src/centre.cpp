@@ -25,6 +25,8 @@ constexpr std::string_view is_out_status = "{version} is out";
 constexpr std::string_view skipped_status = "{version} is skipped";
 constexpr std::string_view updated_by_detail = "Updated by {name}";
 constexpr std::string_view you_have_detail = "You have {current}. The update is {size}.";
+constexpr std::string_view by_hand_detail =
+    "You have {current}. This version is installed by hand.";
 constexpr std::string_view stay_note = "Your saved games, settings and mods stay as they are.";
 constexpr std::string_view downloading_status = "Downloading {version}";
 constexpr std::string_view paused_status = "Download paused";
@@ -93,6 +95,7 @@ constexpr std::string_view retry_caption = "Try again";
 constexpr std::string_view details_caption = "Show details";
 constexpr std::string_view show_log_caption = "Show the log";
 constexpr std::string_view open_page_caption = "Open the release page";
+constexpr std::string_view open_install_page_caption = "Open the download page";
 constexpr std::string_view roll_back_caption = "Roll back…";
 constexpr std::string_view whats_new_caption = "What's new";
 
@@ -170,11 +173,14 @@ std::vector<Act> stage_actions(const Centre& centre) {
     case Stage::confirming:
         return {};
     case Stage::offered:
-        if (centre.way == InstallWay::page_only)
+    case Stage::page_only:
+        // Installed by hand, the page is the install page, and What's new
+        // keeps the release's own page in reach.
+        if (centre.by_hand)
+            return {Act::open_page, Act::whats_new, Act::later, Act::skip};
+        if (centre.stage == Stage::page_only || centre.way == InstallWay::page_only)
             return {Act::open_page, Act::later, Act::skip};
         return {Act::download, Act::later, Act::skip};
-    case Stage::page_only:
-        return {Act::open_page, Act::later, Act::skip};
     case Stage::skipped:
         return {Act::try_version, Act::check_now};
     case Stage::downloading:
@@ -417,6 +423,7 @@ Centre centre_state(const CentreInputs& inputs) {
     centre.current_version = inputs.current_version;
     centre.kept_version = inputs.kept_version;
     centre.way = inputs.way;
+    centre.by_hand = inputs.by_hand && inputs.way == InstallWay::page_only;
     centre.manager = inputs.manager;
     const bool offer_known = !inputs.offer_version.empty() && inputs.offer_release > 0;
     const auto about_offer = [&]() {
@@ -577,7 +584,10 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
     case Stage::offered:
     case Stage::page_only:
         words.status = with_target(is_out_status);
-        if (centre.total > 0)
+        if (centre.by_hand)
+            words.detail =
+                library::filled(text, by_hand_detail, {{"current", centre.current_version}});
+        else if (centre.total > 0)
             words.detail = library::filled(
                 text,
                 you_have_detail,
@@ -766,7 +776,13 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
             add_act(words.actions, act, show_log_caption, {}, text);
             break;
         case Act::open_page:
-            add_act(words.actions, act, open_page_caption, {}, text);
+            add_act(
+                words.actions,
+                act,
+                centre.by_hand ? open_install_page_caption : open_page_caption,
+                {},
+                text
+            );
             break;
         case Act::roll_back:
             add_act(words.actions, act, roll_back_caption, {}, text);

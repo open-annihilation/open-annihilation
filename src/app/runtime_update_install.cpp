@@ -1841,6 +1841,7 @@ update::Centre Runtime::update_centre() const {
 #endif
     }
     inputs.way = update_->centre_way;
+    inputs.by_hand = held.offer.by_hand;
     // The offer names the size of the file a download fetches: the
     // installer where the route uses it, the zip otherwise.
     if (held.offer.package != nullptr)
@@ -2032,8 +2033,10 @@ void Runtime::take_update_action(update::Act action) {
         updates_log();
         return;
     case update::Act::open_page:
-    case update::Act::whats_new:
         open_release_page();
+        return;
+    case update::Act::whats_new:
+        open_release_page(true);
         return;
     case update::Act::roll_back: {
         // The question asks once. Roll back and restart quits, and main()

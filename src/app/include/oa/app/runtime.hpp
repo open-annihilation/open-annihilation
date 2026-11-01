@@ -7048,9 +7048,13 @@ class Runtime final : public menu::Host,
     /// Downloads without a prompt and quits, for --update-and-quit.
     void consider_update_and_quit();
 
-    /// Opens the page of the release the question offered. A machine with no
-    /// browser names the page instead of opening it.
-    void open_release_page();
+    /// Opens the page of the release the question offered: its install page
+    /// where it is installed by hand, its own page otherwise. A machine with
+    /// no browser names the page instead of opening it.
+    ///
+    /// @param release_notes open the release's own page, where its notes are,
+    ///        even where it is installed by hand
+    void open_release_page(bool release_notes = false);
 
     /// Asks a running check to stop. A match start calls this.
     void cancel_update_check() noexcept;

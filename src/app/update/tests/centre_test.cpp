@@ -352,6 +352,35 @@ void the_install_words_name_the_route() {
     OA_CHECK(paged.stage == Stage::page_only);
     OA_CHECK((paged.actions == std::vector<Act>{Act::open_page, Act::later, Act::skip}));
     OA_CHECK(caption_of(english(paged), Act::open_page) == "Open the release page");
+    OA_CHECK(!paged.by_hand);
+    OA_CHECK(english(paged).detail == "You have 0.8.7. The update is 24.5 MB.");
+
+    // Below the package's minimum, with an install page: installed by hand.
+    // The page is the install page, and What's new keeps the release's own.
+    update::CentreInputs hand = page;
+    hand.by_hand = true;
+    const update::Centre by_hand = update::centre_state(hand);
+    OA_CHECK(by_hand.stage == Stage::page_only);
+    OA_CHECK(by_hand.by_hand);
+    OA_CHECK(
+        (by_hand.actions == std::vector<Act>{Act::open_page, Act::whats_new, Act::later, Act::skip})
+    );
+    const update::CentreWords hand_words = english(by_hand);
+    OA_CHECK(hand_words.status == "0.8.8 is out");
+    OA_CHECK(hand_words.detail == "You have 0.8.7. This version is installed by hand.");
+    OA_CHECK(hand_words.note == "Your saved games, settings and mods stay as they are.");
+    OA_CHECK(caption_of(hand_words, Act::open_page) == "Open the download page");
+    OA_CHECK(caption_of(hand_words, Act::whats_new) == "What's new");
+
+    // A copy that may take the package in place is not installed by hand.
+    update::CentreInputs in_place = offered_inputs();
+    in_place.by_hand = true;
+    const update::Centre downloadable = update::centre_state(in_place);
+    OA_CHECK(downloadable.stage == Stage::offered && !downloadable.by_hand);
+    OA_CHECK((downloadable.actions == std::vector<Act>{Act::download, Act::later, Act::skip}));
+    // A skipped release installed by hand stays skipped.
+    hand.skipped = 12;
+    OA_CHECK(update::centre_state(hand).stage == Stage::skipped);
 }
 
 void install_way_follows_the_route() {
@@ -713,6 +742,9 @@ void every_word_is_listed() {
     update::CentreInputs page = offered_inputs();
     page.way = update::InstallWay::page_only;
     all.push_back(page);
+    page.by_hand = true;
+    all.push_back(page);
+    page.by_hand = false;
     page.way = update::InstallWay::package_manager;
     all.push_back(page);
     update::CentreInputs handing = downloading_inputs();

@@ -129,6 +129,28 @@ void the_package_size_is_the_library_size() {
     OA_CHECK(text.paragraphs[0] == "You have 0.8.6. The update is 23.4 MB.");
 }
 
+void installed_by_hand() {
+    Sample held = sample(true);
+    held.catalog.releases.front().install_page = "https://example.invalid/install";
+    held.offer.way = feed::Way::page_only;
+    held.offer.by_hand = true;
+    held.offer.page = held.catalog.releases.front().install_page;
+    const update::OfferText text =
+        update::offer_text(held.offer, held.build, "en", library::TextHooks{});
+    OA_CHECK(text.title == "Open Annihilation 9.9.9 is out");
+    OA_CHECK(text.paragraphs.size() == 2);
+    OA_CHECK(text.paragraphs[0] == "You have 0.8.6. This version is installed by hand.");
+    OA_CHECK(text.paragraphs[1] == "Your saved games, settings and mods stay as they are.");
+    OA_CHECK(text.notes.size() == 2);
+    // Page only without an install page still names the size.
+    held.offer.by_hand = false;
+    const update::OfferText paged =
+        update::offer_text(held.offer, held.build, "en", library::TextHooks{});
+    OA_CHECK(paged.paragraphs.size() == 2);
+    OA_CHECK(paged.paragraphs[0].find("The update is") != std::string::npos);
+    OA_CHECK(std::string_view(update::words::open_download_page) == "Open the download page");
+}
+
 void notes_are_one_line_each() {
     const std::vector<std::string> lines = {"Wider bars", "A second English line"};
     const std::string prompt = update::notes_paragraph("9.9.9", lines, library::TextHooks{});
@@ -175,6 +197,7 @@ int main() {
     marked_words_leave_the_notes();
     notes_follow_the_language();
     the_package_size_is_the_library_size();
+    installed_by_hand();
     notes_are_one_line_each();
     wanted_against_the_skip();
     skipped_round_trip();

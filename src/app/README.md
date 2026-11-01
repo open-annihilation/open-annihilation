@@ -1671,7 +1671,9 @@ prompts, Settings › Updates and the headers name one state with one size.
   version write and clear the skip; Try again clears a held release and
   starts the download again, or checks again after a failed check; Show
   details shows the recovery screen; Show the log opens the updates
-  folder; What's new and Open the release page open the release's page;
+  folder; Open the release page opens the release's page, and Open the
+  download page, for a release installed by hand, the feed's install page;
+  What's new opens the release's own page;
   Roll back… asks the roll back question; Keep it ready and Later change
   nothing. Each preference written is flushed at once.
 - **The update screens' header** (`update_header`): every update question
@@ -1686,8 +1688,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   waits through a match, Settings and a message box: the header OPEN
   ANNIHILATION VERSION {version} AVAILABLE, the size, the release's notes in a What's new box and
   the reassurance; Skip this version (quiet, at the left), Later (Escape)
-  and Download update. A release held after it failed to install, and one
-  already downloaded, do not ask.
+  and Download update. A release installed by hand (`feed::Offer::by_hand`:
+  this copy is below the package's or the release's `from` and the feed
+  names an install page) says so in place of the size, leaves out the
+  match's pause, and its last button is Open the download page. A release
+  held after it failed to install, and one already downloaded, do not ask.
 - **The menu pill** (`update-pill`, not modal) shows the update centre's
   short form at the main menu's top right, clear of the game's own
   buttons, or under the OA buttons while an extension's overlay has put

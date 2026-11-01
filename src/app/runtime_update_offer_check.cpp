@@ -3,7 +3,8 @@
 
 // --check-update-offer: the update question against a feed this check
 // serves on 127.0.0.1. The key is made from a fixed seed. The published
-// feed is not requested, and the release page is not opened in a browser.
+// feed is not requested, and neither the release page nor the install page
+// is opened in a browser.
 
 #include "oa/app/runtime.hpp"
 
@@ -18,11 +19,13 @@
 #include "oa/app/update/offer.hpp"
 #include "oa/base/signing/ed25519.hpp"
 #include "oa/data/catalogue/check.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/netgame/http_fixture/server.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/kit/components_more.hpp"
+#include "oa/ui/library/text.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -56,6 +59,7 @@ constexpr std::string_view kSha =
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 constexpr std::string_view kKeyId = "update-offer-check";
 constexpr std::string_view kPage = "https://example.invalid/releases/9.9.9";
+constexpr std::string_view kInstallPage = "https://example.invalid/install";
 constexpr std::string_view kEnglishOne = "Wider bars";
 constexpr std::string_view kEnglishTwo = "A second English line";
 constexpr std::string_view kGermanOne = "Breitere Balken";
@@ -67,8 +71,10 @@ void require(bool ok, std::string_view what) {
         throw std::runtime_error("update-offer: " + std::string(what));
 }
 
-/// One release of the stable feed, with notes in English and German. The mirror is not fetched.
-std::string feed_json(int64_t release, std::string_view package) {
+/// One release of the stable feed, with notes in English and German. The
+/// mirror is not fetched. Installed by hand, the package names 9.9.9 as the
+/// oldest version that takes it in place and the release an install page.
+std::string feed_json(int64_t release, std::string_view package, bool by_hand = false) {
     std::string json = R"({"feed":1,"channel":"stable","releases":[{"release":)";
     json += std::to_string(release);
     json += R"(,"version":"9.9.9","date":"2026-10-25","from":"0.0.1","notes":{"en":[")";
@@ -81,9 +87,16 @@ std::string feed_json(int64_t release, std::string_view package) {
     json += kGermanTwo;
     json += R"("]},"page":")";
     json += kPage;
+    if (by_hand) {
+        json += R"(","install_page":")";
+        json += kInstallPage;
+    }
     json += R"(","packages":{")";
     json += package;
-    json += R"(":{"file":"engine.zip","size":43011223,"sha256":")";
+    json += R"(":{)";
+    if (by_hand)
+        json += R"("from":"9.9.9",)";
+    json += R"("file":"engine.zip","size":43011223,"sha256":")";
     json += kSha;
     json += R"(","mirrors":["http://127.0.0.1/v1/engine/"]}}}]})";
     return json;
@@ -489,6 +502,61 @@ void Runtime::check_update_offer() {
         require(shown_update() == nullptr, "Escape left the question open");
         require(update::read_skipped(preference_values_) == before, "Escape skipped the release");
         std::cout << "update-offer: 8\n";
+        std::cout.flush();
+    }
+
+    // 9. Below the package's own minimum, with an install page: the question
+    // says the release is installed by hand, keeps the notes, leaves out the
+    // match's pause, and its button opens the feed's install page, once.
+    {
+        const int64_t by_hand_release = built.release + 3;
+        const SignedFeed by_hand =
+            sign_feed(feed_json(by_hand_release, built.package, true), kKeyId, 0x61);
+        server.serve_bytes("/v1/engine/stable.json", by_hand.bytes, "application/json");
+        server.serve_bytes("/v1/engine/stable.json.sig", by_hand.signature, "text/plain");
+        if (update_ != nullptr)
+            update_->offered_release.reset();
+        force_check();
+        wait_shown("the release installed by hand did not ask");
+        require(
+            update_ != nullptr && update_->offered_release.has_value() &&
+                *update_->offered_release == by_hand_release && update_->held.offer.by_hand,
+            "the release installed by hand was not the one asked"
+        );
+        const kit::Question& asked = shown_update()->question();
+        const oa::ui::library::TextHooks hooks{
+            nullptr, [](void*, std::string_view english) {
+                return oa::data::languages::interface_text(english);
+            }
+        };
+        const std::string hand = oa::ui::library::filled(
+            hooks, update::words::by_hand, {{"current", built.version_text}}
+        );
+        require(paragraph_has(asked, hand), "the question did not say it is installed by hand");
+        require(
+            paragraph_has(asked, kEnglishOne) || paragraph_has(asked, kGermanOne),
+            "the question installed by hand left out the notes"
+        );
+        const std::string pause{oa::data::languages::interface_text(
+            "Downloads pause during a match and carry on after it."
+        )};
+        require(!paragraph_has(asked, pause), "the question installed by hand named a download");
+        const std::string open_download{
+            oa::data::languages::interface_text(update::words::open_download_page)
+        };
+        require(
+            asked.buttons.size() == 3 && asked.buttons[2].id == "update" &&
+                asked.buttons[2].caption == open_download,
+            "the question's button was not Open the download page"
+        );
+        const std::size_t before = web_links_->requests.size();
+        click_named("oa.prompt.update");
+        require(web_links_->requests.size() == before + 1, "the button did not open one page");
+        require(
+            web_links_->requests.back() == kInstallPage, "the button did not open the install page"
+        );
+        require(shown_update() == nullptr, "the button left the question open");
+        std::cout << "update-offer: 9\n";
         std::cout.flush();
     }
 }

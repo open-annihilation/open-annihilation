@@ -81,7 +81,7 @@ enum class Act : uint8_t {
     retry,           ///< try the check, the download or the install again
     details,         ///< show what happened, step by step
     show_log,        ///< open the folder that holds the log
-    open_page,       ///< open the release's page
+    open_page,       ///< open the release's page, or its install page when it is installed by hand
     roll_back,       ///< put the kept version back
     whats_new,       ///< show the release's notes
 };
@@ -109,8 +109,11 @@ struct CentreInputs {
     uint64_t bytes_per_second{};  ///< how fast it moves; 0 when unknown
     bool handing_over{};          ///< the player chose to install now and the game is closing
     InstallWay way{InstallWay::restart}; ///< how this copy puts a release in place
-    std::string manager;                 ///< who updates this copy, for InstallWay::package_manager
-    std::string updated_from;            ///< this start replaced that version; empty otherwise
+    /// The release is installed by hand from the feed's install page, for
+    /// InstallWay::page_only.
+    bool by_hand{};
+    std::string manager;          ///< who updates this copy, for InstallWay::package_manager
+    std::string updated_from;     ///< this start replaced that version; empty otherwise
     std::string rolled_back_from; ///< this start rolled back from that version; empty otherwise
     bool unconfirmed{};           ///< this build is installed and has not reached the main menu
     std::string kept_version;     ///< the version kept for a roll back; empty for none
@@ -134,8 +137,9 @@ struct Centre {
     int32_t percent{-1};                  ///< 0 to 100 while bytes are known; -1 otherwise
     std::optional<uint64_t> seconds_left; ///< the time the download still needs, when known
     InstallWay way{InstallWay::restart};  ///< how the release goes in
-    std::string manager;                  ///< who updates this copy
-    std::string reason;                   ///< a download's own line, in English, when it stopped
+    bool by_hand{};      ///< the page is the install page, for InstallWay::page_only
+    std::string manager; ///< who updates this copy
+    std::string reason;  ///< a download's own line, in English, when it stopped
     /// The downloaded file was refused, rather than the feed's signature.
     bool refused_file{};
     Action receipt_action{
@@ -153,7 +157,8 @@ struct Centre {
 /// start shows it; then the check: checking, its failures, a skipped,
 /// page-only, managed or offered release, and up to date, which this start's
 /// update turns into updated. The actions follow the state, and Roll back is
-/// added where a version is kept and nothing is under way.
+/// added where a version is kept and nothing is under way. A page-only
+/// release installed by hand offers What's new beside its page.
 ///
 /// @param inputs what the runtime knows
 /// @return the state

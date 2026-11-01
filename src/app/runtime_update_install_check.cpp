@@ -386,6 +386,8 @@ int Runtime::check_update_download() {
         stopped.bytes_per_second = 0;
         update::CentreInputs page_only = offered;
         page_only.way = update::InstallWay::page_only;
+        update::CentreInputs by_hand = page_only;
+        by_hand.by_hand = true;
         update::CentreInputs ready = downloading;
         ready.download = update::DownloadState::ready;
         ready.received = ready.total;
@@ -539,6 +541,25 @@ int Runtime::check_update_download() {
                 capture("update-offer-page-" + size + ".png");
                 clear_screens();
             }
+            // The offer a copy below the package's minimum asks, where the
+            // feed names an install page: installed by hand.
+            update_->pictured = by_hand;
+            update_->held.offer.by_hand = true;
+            update_->held.offer.page = "https://example.invalid/install";
+            update_->offered_release.reset();
+            {
+                const auto deadline = deadline_from(std::chrono::seconds{10});
+                while (!is_update_question(oa_layer().find(QuestionScreen::screen_name))) {
+                    require(
+                        std::chrono::steady_clock::now() < deadline,
+                        "the offer installed by hand did not show on " + size
+                    );
+                    idle_tick();
+                }
+                capture("update-offer-by-hand-" + size + ".png");
+                clear_screens();
+            }
+            settings_picture("by-hand");
             update_->pictured = offered;
             update_->held = {};
             settings_picture("offered");

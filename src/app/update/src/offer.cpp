@@ -32,10 +32,18 @@ OfferText offer_text(
         return written;
     written.title =
         library::filled(text, words::is_out, {{"version", offer.release->version_text}});
-    const std::string size = library::size_text(offer.package->zip.size, text);
-    written.paragraphs.push_back(
-        library::filled(text, words::you_have, {{"current", build.version_text}, {"size", size}})
-    );
+    if (offer.by_hand) {
+        written.paragraphs.push_back(
+            library::filled(text, words::by_hand, {{"current", build.version_text}})
+        );
+    } else {
+        const std::string size = library::size_text(offer.package->zip.size, text);
+        written.paragraphs.push_back(
+            library::filled(
+                text, words::you_have, {{"current", build.version_text}, {"size", size}}
+            )
+        );
+    }
     written.paragraphs.push_back(std::string(library::shown(text, words::stay)));
     if (const feed::Notes* notes = feed::notes_for(*offer.release, language))
         written.notes = notes->lines;

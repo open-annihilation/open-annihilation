@@ -131,6 +131,7 @@ words and the same size for it:
 | Checking | Checking for updates… |
 | Up to date | Up to date |
 | A release is out | {version} is out |
+| A release is out, installed by hand | {version} is out. You have {current}. This version is installed by hand. |
 | Skipped | {version} is skipped |
 | Downloading | Downloading {version}, with the bytes, the share and the time left |
 | Paused by you | Download paused |
@@ -188,6 +189,19 @@ the release, the last button is **Open the release page**, which opens the
 release's page from the signed feed. On a Steam Deck in Game Mode, where
 no browser opens, the question names the page instead of opening it. A
 release that names no page opens the releases page on the project's site.
+
+A release may name the oldest version that updates in place, for every
+platform or for one platform's package. A copy older than that is not
+offered the download. Where the signed feed also names a page to install
+from by hand, the question says "You have {current}. This version is
+installed by hand." in place of the size, keeps the release's notes and
+that your saved games, settings and mods stay as they are, and leaves out
+the line about matches, since nothing is downloaded. The last button is
+**Open the download page**, which opens that page from the feed.
+Settings › Updates shows the same words, with Open the download page,
+**What's new**, which opens the release's own page, and Skip this version.
+Where the feed names no such page, the copy is offered the release page as
+above.
 
 The question waits while a match is being played, while Settings is open,
 or while a message box is open. It does not take a match's input. A match

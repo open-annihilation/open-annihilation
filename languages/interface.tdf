@@ -19450,6 +19450,14 @@
 	it=Spento: OA chiede prima di scaricare.;
 	}
 
+[Open the download page]
+	{
+	de=Downloadseite öffnen;
+	fr=Ouvrir la page de téléchargement;
+	es=Abrir la página de descarga;
+	it=Apri la pagina di download;
+	}
+
 [Open the installer]
 	{
 	de=Installer öffnen;
@@ -19832,6 +19840,14 @@
 	fr=Windows demande la permission.;
 	es=Windows pide permiso.;
 	it=Windows chiede il permesso.;
+	}
+
+[You have {current}. This version is installed by hand.]
+	{
+	de=Du hast {current}. Diese Version wird von Hand installiert.;
+	fr=Tu as {current}. Cette version s'installe à la main.;
+	es=Tienes {current}. Esta versión se instala a mano.;
+	it=Hai {current}. Questa versione si installa a mano.;
 	}
 
 [Your saved games, settings and mods are not touched by this.]

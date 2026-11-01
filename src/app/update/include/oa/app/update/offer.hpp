@@ -25,6 +25,12 @@ namespace words {
 inline constexpr std::string_view is_out = "Open Annihilation {version} is out";
 /// The size sentence. `{current}` is this build's version, `{size}` the package zip.
 inline constexpr std::string_view you_have = "You have {current}. The update is {size}.";
+/// The sentence in place of the size where the release is installed by hand
+/// from the feed's install page. `{current}` is this build's version.
+inline constexpr std::string_view by_hand =
+    "You have {current}. This version is installed by hand.";
+/// The primary button where the release is installed by hand. It opens the install page.
+inline constexpr std::string_view open_download_page = "Open the download page";
 /// The line above the release's notes. `{version}` is the release's version.
 inline constexpr std::string_view new_in = "New in {version}:";
 /// The sentence under the notes.
@@ -68,8 +74,9 @@ struct OfferText {
 /// The title, the size sentence and the reassurance are looked up through
 /// `text` and then filled. The notes are the release's own lines for
 /// `language`, then its first subtag, then English, and are not looked up.
-/// The size is the offered package's zip. An offer with no release, no
-/// package, or way none writes nothing.
+/// The size is the offered package's zip. An offer installed by hand says
+/// so in place of the size. An offer with no release, no package, or way
+/// none writes nothing.
 ///
 /// @param offer the offer
 /// @param build this build, whose version the size sentence names
