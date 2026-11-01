@@ -4919,12 +4919,13 @@ void cast_on_card(
         for (std::size_t at = std::size_t{record.positions} * 3;
              at < (std::size_t{record.positions} + record.position_count) * 3;
              at += 3) {
-            const float across = cards.positions[at];
-            const float down = cards.positions[at + 2] - (cards.positions[at + 1] - base) * 0.5F;
-            left = std::min(left, across);
-            right = std::max(right, across);
-            top = std::min(top, down);
-            bottom = std::max(bottom, down);
+            const float corner_across = cards.positions[at];
+            const float corner_down =
+                cards.positions[at + 2] - (cards.positions[at + 1] - base) * 0.5F;
+            left = std::min(left, corner_across);
+            right = std::max(right, corner_across);
+            top = std::min(top, corner_down);
+            bottom = std::max(bottom, corner_down);
         }
         const float diameter = std::min(right - left, bottom - top) * in.detail_scale;
         opacity *= std::clamp((diameter - 0.25F) / 0.75F, 0.0F, 1.0F);

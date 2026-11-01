@@ -2955,7 +2955,7 @@ void passes_on_threads() {
     for (std::size_t picture = 0; picture < pictures.size(); ++picture) {
         auto& image = pictures[picture].image;
         image = oa::present::create_sprite(
-            static_cast<int32_t>(6 + 3 * picture), static_cast<int32_t>(5 + 4 * picture)
+            static_cast<uint16_t>(6 + 3 * picture), static_cast<uint16_t>(5 + 4 * picture)
         );
         image.sprite.key = 1;
         for (std::size_t pixel = 0; pixel < image.pixels.size(); ++pixel)
@@ -2998,8 +2998,8 @@ void passes_on_threads() {
     std::array<oa::formats::gaf::RenderedFrame, 8> cards{};
     for (std::size_t card = 0; card < cards.size(); ++card) {
         auto& frame = cards[card];
-        frame.width = static_cast<int32_t>(6 + card * 2);
-        frame.height = static_cast<int32_t>(4 + card * 3);
+        frame.width = static_cast<uint16_t>(6 + card * 2);
+        frame.height = static_cast<uint16_t>(4 + card * 3);
         frame.origin_x = frame.width / 2;
         frame.origin_y = frame.height / 2;
         const auto count = static_cast<std::size_t>(frame.width) * frame.height;

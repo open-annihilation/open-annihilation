@@ -119,7 +119,7 @@ void check_kept_transforms() {
         source.offset_from_parent = {unit / 3, unit / 2, -unit / 5};
         source.vertices = {{unit, 0, 0}, {0, -unit, unit / 7}, {unit / 3, unit / 5, -unit}};
     }
-    constexpr std::string_view names[] = {"tip", "barrel", "flare", "turret", "base"};
+    static constexpr std::string_view names[] = {"tip", "barrel", "flare", "turret", "base"};
     auto instance = oa::sim::model_runtime::make_instance(model, 0, names);
     require(instance.pieces().size() == 6, "the kept-transforms model has six pieces");
     Host host(instance);
