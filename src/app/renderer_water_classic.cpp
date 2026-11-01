@@ -615,9 +615,10 @@ void objects(
     // the water as the terrain's art shows the sea bed: it keeps its colours,
     // as the terrain does, so that it blends into the water around it as the
     // game draws it. Effect artwork is an optical halo at its event's height,
-    // which the water tints whole.
-    if (draw.kind != WorldDrawKind::model && !draws.sprites[draw.index].on_map && y < sea &&
-        in.shimmer > 0) {
+    // which the water tints whole; an explosion keeps its colours, as the
+    // game draws it, wherever it goes off.
+    if (draw.kind != WorldDrawKind::model && !draws.sprites[draw.index].on_map &&
+        !draws.sprites[draw.index].explosion && y < sea && in.shimmer > 0) {
         for (std::size_t i = first_vertex; i < frame.vertices.size(); ++i) {
             auto& vertex = frame.vertices[i];
             const auto point = water_position(in, vertex);

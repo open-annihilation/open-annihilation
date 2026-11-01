@@ -71,7 +71,8 @@ void surface(card::CardFrame& frame, const Inputs& in);
 /// its original. A feature's frame (SpriteDraw::on_map) is the map's own
 /// art, which already shows it under the water: it moves with the art and
 /// keeps its colours, as the terrain does; models and effects under the
-/// water take Underwater shimmer.
+/// water take Underwater shimmer, but an explosion (SpriteDraw::explosion)
+/// keeps its colours, as the game draws it.
 void objects(
     card::CardFrame& frame,
     Inputs& in,

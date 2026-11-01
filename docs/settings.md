@@ -673,7 +673,9 @@ the game draws its text and how the modern fonts draw it.
     rotated view, scenery the map draws in its own art, such as an
     underwater metal patch, keeps the colours the map gives it, as the
     water's art around it does, so that it blends into the water as the
-    game draws it. At 0% your own units under the
+    game draws it. Explosions keep their colours too, as the game draws
+    them, even one that goes off on the sea bed, as a hovercraft's does
+    when it dies over water. At 0% your own units under the
     water are darkened and tinted blue as the game draws them at every
     other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible

@@ -449,13 +449,29 @@ int main(int argc, char** argv) {
     draws.sprites[0].world_position->y = 40 * 65536;
     renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
     OA_CHECK(frame.vertices[0].colour.red == 1 && frame.vertices[0].x == 120);
-    // Ordinary explosion artwork is also a halo, not an upright dry-topped feature.
+    // Other effect artwork, such as smoke, is also a halo, not an upright
+    // dry-topped feature.
     draw.kind = WorldDrawKind::sprite;
     draws.sprites[0].world_position->y = 20 * 65536;
     make_ship();
     renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
     for (const auto& vertex : frame.vertices)
         OA_CHECK(vertex.colour.red < 1);
+    // An explosion under the water, its sprite and its flash, keeps its
+    // colours, as the game draws it.
+    draws.sprites[0].explosion = true;
+    for (const auto kind : {WorldDrawKind::sprite, WorldDrawKind::lit_sprite}) {
+        draw.kind = kind;
+        make_ship();
+        renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
+        OA_CHECK(frame.vertices.size() == 4);
+        for (const auto& vertex : frame.vertices) {
+            OA_CHECK(vertex.colour.red == 1 && vertex.colour.green == 1);
+            OA_CHECK(vertex.colour.blue == 1 && vertex.colour.alpha == 1);
+        }
+    }
+    draws.sprites[0].explosion = false;
+    draw.kind = WorldDrawKind::sprite;
     const auto light = renderer_water_effects::source(1, 1, 1, 128, 128, 12, 1, 1);
     OA_CHECK(light[0] < light[2] && light[0] < 1 && light[3] == 0);
     OA_CHECK(light == renderer_water_effects::source(1, 1, 1, 128, 128, 12, 1, 1));

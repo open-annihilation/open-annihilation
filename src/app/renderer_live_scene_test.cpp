@@ -4388,6 +4388,25 @@ void underwater_effect_altitude() {
     }
     OA_CHECK(minimum < 3 && maximum < 16);
     OA_CHECK(std::abs((minimum + maximum) / 2 - 4) < tolerance);
+    // An explosion's flash and sprite stay where they went off, but take no
+    // depth, so the water leaves their colours as the game draws them.
+    sprite.explosion = true;
+    for (const auto kind : {oa::app::WorldDrawKind::lit_sprite, oa::app::WorldDrawKind::sprite}) {
+        fixture.draws.draws[0].kind = kind;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.sprite_count == 1);
+        float lowest = 100, highest = -100;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            lowest = std::min(lowest, vertex.height);
+            highest = std::max(highest, vertex.height);
+            OA_CHECK(vertex.terrain_size == -5 && vertex.terrain_x == 0);
+        }
+        OA_CHECK(highest < 16);
+        OA_CHECK(std::abs((lowest + highest) / 2 - 4) < tolerance);
+    }
+    sprite.explosion = false;
     fixture.draws.draws[0].kind = oa::app::WorldDrawKind::sprite;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices[fixture.scene.terrain_vertex_count].height < 16);

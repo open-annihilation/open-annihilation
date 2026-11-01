@@ -392,6 +392,9 @@ struct SpriteDraw {
     float effect_opacity{1};
     /// Filter only effect art; scenery keeps its original pixel sampling.
     bool soft_effect{};
+    /// An explosion's sprite or flash, which keeps its colours under the
+    /// water: Underwater shimmer leaves it as the game draws it.
+    bool explosion{};
 };
 
 /// A rectangle of scene pixels: the columns from `left` up to `right` and

@@ -2296,6 +2296,7 @@ bool Runtime::draw_match_surface() {
         draw_list.sprites.push_back({decoded, place});
         draw_list.sprites.back().world_position = shown_position;
         draw_list.sprites.back().surface_effect = explosion_pass && !flash;
+        draw_list.sprites.back().explosion = explosion_pass;
         if (!flash && emg_impact_at(item.position) &&
             std::find(emg_impacts.begin(), emg_impacts.end(), item.sequence) != emg_impacts.end()) {
             auto& sprite = draw_list.sprites.back();

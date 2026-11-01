@@ -6495,8 +6495,11 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
             if ((sprite.soft_effect || submerged_effect) && !scenery)
                 result.terrain_size = -1;
             if (submerged_effect) {
+                // The event's depth, which the water tints the whole halo by;
+                // an explosion keeps its colours, as the game draws it, so it
+                // takes none.
                 result.terrain_size = -5;
-                result.terrain_x = in.sea_level - origin_h;
+                result.terrain_x = sprite.explosion ? 0.0F : in.sea_level - origin_h;
             } else if (scenery) {
                 result.terrain_size = sprite.soft_effect ? -7.0F : -6.0F;
                 if (ground_fog && grey_rect) {
