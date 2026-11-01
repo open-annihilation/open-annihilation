@@ -317,15 +317,28 @@ std::string identifier_of(const fs::path& bundle) {
     }
 }
 
+/// The mode opened_mode names for an entry `info` describes.
+///
+/// @param info the entry, read before it was given an owner
+/// @return the permission bits it takes
+mode_t opened_mode_of(const struct stat& info) {
+    return static_cast<mode_t>(
+        opened_mode(static_cast<uint32_t>(info.st_mode & 07777), S_ISDIR(info.st_mode))
+    );
+}
+
 /// Gives every entry under the folder `folder` names the owner `user` and
 /// group `group`, without following a link. A file with another name
 /// elsewhere is left as it is: its other name is not part of the tree.
+/// With `open_to_all`, each folder and file given that owner also takes the
+/// mode opened_mode names; a link keeps its own.
 ///
 /// @param folder an open folder; it is closed
 /// @param user the owner
 /// @param group the group
+/// @param open_to_all open the entries to every account
 /// @return true when every entry was given that owner
-bool own_entries(int folder, uid_t user, gid_t group) {
+bool own_entries(int folder, uid_t user, gid_t group, bool open_to_all) {
     DIR* const listed = ::fdopendir(folder);
     if (listed == nullptr) {
         ::close(folder);
@@ -345,18 +358,27 @@ bool own_entries(int folder, uid_t user, gid_t group) {
             const int child = ::openat(
                 ::dirfd(listed), entry->d_name, O_RDONLY | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC
             );
-            if (child < 0 || ::fchown(child, user, group) != 0) {
+            if (child < 0 || ::fchown(child, user, group) != 0 ||
+                (open_to_all && ::fchmod(child, opened_mode_of(info)) != 0)) {
                 if (child >= 0)
                     ::close(child);
                 owned = false;
                 continue;
             }
-            owned = own_entries(child, user, group) && owned;
+            owned = own_entries(child, user, group, open_to_all) && owned;
             continue;
         }
         if (S_ISREG(info.st_mode) && info.st_nlink > 1)
             continue;
-        if (::fchownat(::dirfd(listed), entry->d_name, user, group, AT_SYMLINK_NOFOLLOW) != 0)
+        if (::fchownat(::dirfd(listed), entry->d_name, user, group, AT_SYMLINK_NOFOLLOW) != 0) {
+            owned = false;
+            continue;
+        }
+        // The folder is already the new owner's, so the name still names
+        // the file that was read; a link is never followed.
+        if (open_to_all && S_ISREG(info.st_mode) &&
+            ::fchmodat(::dirfd(listed), entry->d_name, opened_mode_of(info), AT_SYMLINK_NOFOLLOW) !=
+                0)
             owned = false;
     }
     ::closedir(listed);
@@ -364,20 +386,25 @@ bool own_entries(int folder, uid_t user, gid_t group) {
 }
 
 /// Gives the tree at `top` the owner `user` and group `group`, when `top`
-/// is still what `was` describes.
+/// is still what `was` describes, and with `open_to_all` the modes
+/// opened_mode names.
 ///
 /// @param top the moved tree
 /// @param was what was at the tree's old place before the move
 /// @param user the owner
 /// @param group the group
+/// @param open_to_all open the tree to every account
 /// @return true when the whole tree has that owner
-bool own_tree(const fs::path& top, const struct stat& was, uid_t user, gid_t group) {
+bool own_tree(
+    const fs::path& top, const struct stat& was, uid_t user, gid_t group, bool open_to_all
+) {
     const int opened = ::open(top.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     if (opened < 0)
         return false;
     struct stat now{};
     if (::fstat(opened, &now) != 0 || now.st_ino != was.st_ino || now.st_dev != was.st_dev ||
-        ::fchown(opened, user, group) != 0) {
+        ::fchown(opened, user, group) != 0 ||
+        (open_to_all && ::fchmod(opened, opened_mode_of(now)) != 0)) {
         ::close(opened);
         return false;
     }
@@ -385,7 +412,7 @@ bool own_tree(const fs::path& top, const struct stat& was, uid_t user, gid_t gro
         ::close(opened);
         return true;
     }
-    return own_entries(opened, user, group);
+    return own_entries(opened, user, group, open_to_all);
 }
 
 } // namespace
@@ -605,6 +632,13 @@ bool macos_bundle_is_ours(
     return true;
 }
 
+bool hand_over_tree(const fs::path& top, uint32_t user, uint32_t group, bool open_to_all) {
+    struct stat was{};
+    if (::lstat(top.c_str(), &was) != 0)
+        return false;
+    return own_tree(top, was, static_cast<uid_t>(user), static_cast<gid_t>(group), open_to_all);
+}
+
 bool raised_rename(void* context, const fs::path& from, const fs::path& to) {
     auto* const moves = static_cast<RaisedMoves*>(context);
     struct stat was{};
@@ -615,11 +649,14 @@ bool raised_rename(void* context, const fs::path& from, const fs::path& to) {
     const bool moved = ::rename(from.c_str(), to.c_str()) == 0;
     bool owned = true;
     if (moved && raise && known) {
+        // The bundle in the install's place takes the owner the old one had,
+        // the administrator after the installer package, and is opened to
+        // every account so a player who is not that owner can start it.
         const MovedOwner owner = moved_tree_owner(moves->updates, moves->install, to);
         if (owner == MovedOwner::player)
-            owned = own_tree(to, was, moves->player.user, moves->player.group);
+            owned = own_tree(to, was, moves->player.user, moves->player.group, false);
         else if (owner == MovedOwner::install)
-            owned = own_tree(to, was, moves->install_user, moves->install_group);
+            owned = own_tree(to, was, moves->install_user, moves->install_group, true);
     }
     // Every other file this copy writes must be the player's. A copy that
     // cannot act as the player again stops here; the journal it leaves is

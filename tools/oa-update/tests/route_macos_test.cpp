@@ -3,19 +3,26 @@
 
 // The macOS swap, decided from signatures a test fills in, and the
 // operations that follow; when the moves need an administrator's rights,
-// how macOS is asked for them, and whose a moved bundle becomes; and how
-// the game is started again. Nothing here signs a bundle, asks for a
-// password or starts a program.
+// how macOS is asked for them, and whose a moved bundle becomes; that the
+// bundle put in place is opened to every account and that the player must
+// be able to start it, or the swap is undone; and how the game is started
+// again. Nothing here signs a bundle, asks for a password or starts a
+// program. The administrator cannot be the owner in a test, so another
+// account is the player instead.
 
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/routes.hpp"
 #include "oa/update_helper/run.hpp"
+#include "oa/update_helper/unpack.hpp"
 
 #include "oa/app/update/plan.hpp"
+#include "oa/formats/zip.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/raw_zip.hpp"
 #include "oa/update_helper/paths.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -23,6 +30,7 @@
 #include <vector>
 
 #if !defined(_WIN32)
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -626,6 +634,378 @@ void the_administrators_moves_continue_the_players_journal() {
     OA_CHECK(text == "before");
 }
 
+void a_tree_opened_to_every_account_is_read_and_run_by_all() {
+    // Readable by everyone; runnable by everyone when it is a folder or some
+    // account could already run it.
+    OA_CHECK(helper::opened_mode(0600, false) == 0644);
+    OA_CHECK(helper::opened_mode(0644, false) == 0644);
+    OA_CHECK(helper::opened_mode(0700, false) == 0755);
+    OA_CHECK(helper::opened_mode(0744, false) == 0755);
+    OA_CHECK(helper::opened_mode(0710, false) == 0755);
+    OA_CHECK(helper::opened_mode(0700, true) == 0755);
+    OA_CHECK(helper::opened_mode(0500, true) == 0555);
+    // No set-user, set-group or sticky bit, and nothing the group or others may write.
+    OA_CHECK(helper::opened_mode(04755, false) == 0755);
+    OA_CHECK(helper::opened_mode(02777, false) == 0755);
+    OA_CHECK(helper::opened_mode(0666, false) == 0644);
+    OA_CHECK(helper::opened_mode(01777, true) == 0755);
+}
+
+void the_first_class_that_names_the_account_decides() {
+    helper::PlayerAccount player;
+    player.user = 501;
+    player.group = 20;
+    player.groups = {12, 80};
+    const uint32_t read_and_run = helper::access_read | helper::access_execute;
+    // What 0.8.10 left: the administrator's program, run by its owner alone.
+    OA_CHECK(!helper::mode_allows(0744, 0, 0, player, helper::access_execute));
+    OA_CHECK(helper::mode_allows(0744, 0, 0, player, helper::access_read));
+    OA_CHECK(helper::mode_allows(0755, 0, 0, player, read_and_run));
+    // The player's own file follows the owner's bits.
+    OA_CHECK(helper::mode_allows(0744, 501, 0, player, read_and_run));
+    OA_CHECK(!helper::mode_allows(0055, 501, 20, player, helper::access_read));
+    // A group the player is in follows the group's bits, even where others may.
+    OA_CHECK(!helper::mode_allows(0705, 0, 80, player, helper::access_read));
+    OA_CHECK(helper::mode_allows(0750, 0, 20, player, read_and_run));
+    OA_CHECK(helper::mode_allows(0750, 0, 12, player, read_and_run));
+    OA_CHECK(!helper::mode_allows(0750, 0, 0, player, helper::access_read));
+}
+
+#if !defined(_WIN32)
+/// Gives `path` exactly the permission bits `mode`.
+void set_mode(const fs::path& path, uint32_t mode) {
+    std::error_code io;
+    fs::permissions(path, static_cast<fs::perms>(mode), fs::perm_options::replace, io);
+    OA_CHECK(!io);
+}
+
+/// The permission bits of a file or folder, without its type.
+uint32_t mode_of(const fs::path& path) {
+    struct stat info{};
+    OA_CHECK(::lstat(path.c_str(), &info) == 0);
+    return static_cast<uint32_t>(info.st_mode & 07777);
+}
+
+/// An account that neither owns `path` nor is in its group: the player of
+/// a copy the administrator owns.
+helper::PlayerAccount another_account(const fs::path& path) {
+    struct stat info{};
+    OA_CHECK(::lstat(path.c_str(), &info) == 0);
+    helper::PlayerAccount account;
+    account.user = static_cast<uint32_t>(info.st_uid) + 1;
+    account.group = static_cast<uint32_t>(info.st_gid) + 1;
+    return account;
+}
+
+/// A bundle laid out as the release's: Info.plist, the game and the helper,
+/// folders 0755, the programs 0755 and Info.plist 0644.
+fs::path make_release_app(const fs::path& path, std::string_view plist) {
+    const fs::path macos = path / "Contents" / "MacOS";
+    fs::create_directories(macos);
+    std::ofstream(path / "Contents" / "Info.plist") << plist;
+    std::ofstream(macos / "open-annihilation") << "game";
+    std::ofstream(macos / "oa-update") << "helper";
+    set_mode(path, 0755);
+    set_mode(path / "Contents", 0755);
+    set_mode(macos, 0755);
+    set_mode(path / "Contents" / "Info.plist", 0644);
+    set_mode(macos / "open-annihilation", 0755);
+    set_mode(macos / "oa-update", 0755);
+    return path;
+}
+
+std::string first_line(const fs::path& path) {
+    std::ifstream in(path);
+    std::string line;
+    std::getline(in, line);
+    return line;
+}
+
+void the_player_must_be_able_to_start_the_bundle() {
+    const Scratch scratch("can-run");
+    const fs::path app = make_release_app(scratch.path / "Open Annihilation.app", "new");
+    const fs::path game = app / "Contents" / "MacOS" / "open-annihilation";
+    const helper::PlayerAccount self = helper::effective_account();
+    const helper::PlayerAccount other = another_account(app);
+    std::string why = "uncleared";
+    OA_CHECK(helper::macos_player_can_run(app, self, &why));
+    OA_CHECK(helper::macos_player_can_run(app, other, &why));
+
+    // Run by its owner alone: its owner may start it, another account not.
+    set_mode(game, 0744);
+    OA_CHECK(helper::macos_player_can_run(app, self, &why));
+    OA_CHECK(!helper::macos_player_can_run(app, other, &why));
+    OA_CHECK(why == "Contents/MacOS/open-annihilation cannot be run by the player");
+    set_mode(game, 0700);
+    OA_CHECK(!helper::macos_player_can_run(app, other, &why));
+    OA_CHECK(why == "Contents/MacOS/open-annihilation cannot be read by the player");
+    set_mode(game, 0755);
+
+    const fs::path plist = app / "Contents" / "Info.plist";
+    set_mode(plist, 0600);
+    OA_CHECK(!helper::macos_player_can_run(app, other, &why));
+    OA_CHECK(why == "Contents/Info.plist cannot be read by the player");
+    set_mode(plist, 0644);
+
+    set_mode(app / "Contents" / "MacOS", 0700);
+    OA_CHECK(!helper::macos_player_can_run(app, other, &why));
+    OA_CHECK(why == "Contents/MacOS cannot be opened by the player");
+    set_mode(app / "Contents" / "MacOS", 0755);
+
+    // A missing program, or something else in its place, refuses for every account.
+    fs::remove(app / "Contents" / "MacOS" / "oa-update");
+    OA_CHECK(!helper::macos_player_can_run(app, self, &why));
+    OA_CHECK(why == "Contents/MacOS/oa-update is missing");
+    fs::create_directories(app / "Contents" / "MacOS" / "oa-update");
+    OA_CHECK(!helper::macos_player_can_run(app, self, &why));
+    OA_CHECK(why == "Contents/MacOS/oa-update is not a file");
+    fs::remove(app / "Contents" / "MacOS" / "oa-update");
+    fs::remove(game);
+    OA_CHECK(!helper::macos_player_can_run(app, self, &why));
+    OA_CHECK(why == "Contents/MacOS/open-annihilation is missing");
+    OA_CHECK(!helper::macos_player_can_run(scratch.path / "absent.app", self, &why));
+    OA_CHECK(why == "absent.app is missing");
+}
+
+struct SwapLaidOut {
+    fs::path install;
+    fs::path updates;
+    fs::path application;
+    update::Plan plan;
+};
+
+/// An installed bundle and a staged one under the updates folder, as an
+/// install finds them.
+SwapLaidOut lay_out_swap(const Scratch& scratch) {
+    SwapLaidOut laid;
+    laid.install = make_release_app(scratch.path / "Applications" / "Open Annihilation.app", "old");
+    laid.updates = scratch.path / "updates";
+    const fs::path stage = laid.updates / "2" / "stage";
+    laid.application = make_release_app(
+        stage / "open-annihilation-v0.8.12-macos-universal" / "Open Annihilation.app", "new"
+    );
+    fs::create_directories(laid.updates / "previous");
+    laid.plan.route = update::Route::macos_bundle;
+    laid.plan.install = helper::utf8_of(laid.install);
+    laid.plan.updates = helper::utf8_of(laid.updates);
+    return laid;
+}
+
+/// Swaps the staged bundle in under a journal, as an install does.
+void swap_in(const SwapLaidOut& laid) {
+    std::string why;
+    const std::vector<helper::Operation> operations = helper::macos_bundle_operations(
+        laid.plan, laid.application.parent_path().parent_path(), helper::MacosVolume::same, &why
+    );
+    OA_CHECK(why.empty());
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(laid.updates, operations, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    OA_CHECK(first_line(laid.install / "Contents" / "Info.plist") == "new");
+}
+
+/// The check before an install counts as done: a game the player cannot
+/// run is not kept, and the version that was there comes back.
+void a_bundle_the_player_cannot_start_is_put_back() {
+    const Scratch scratch("put-back");
+    const SwapLaidOut laid = lay_out_swap(scratch);
+    // Run by its owner alone, and the owner is not the player.
+    set_mode(laid.application / "Contents" / "MacOS" / "open-annihilation", 0744);
+    const helper::PlayerAccount player = another_account(laid.application);
+    swap_in(laid);
+    std::string why;
+    OA_CHECK(!helper::keep_swap_the_player_can_run(
+        laid.updates, laid.install, player, helper::JournalHooks{}, &why
+    ));
+    OA_CHECK(why.starts_with(helper::player_cannot_run));
+    OA_CHECK(
+        why.find("Contents/MacOS/open-annihilation cannot be run by the player") !=
+        std::string::npos
+    );
+    OA_CHECK(first_line(laid.install / "Contents" / "Info.plist") == "old");
+    OA_CHECK(first_line(laid.application / "Contents" / "Info.plist") == "new");
+    OA_CHECK(!fs::exists(helper::macos_kept_bundle(laid.updates, laid.install)));
+    OA_CHECK(!fs::exists(laid.updates / "journal.json"));
+    OA_CHECK(helper::line_after_failed_change(laid.updates) == helper::update_failed_put_back);
+}
+
+void a_bundle_the_player_can_start_is_kept() {
+    const Scratch scratch("kept-swap");
+    const SwapLaidOut laid = lay_out_swap(scratch);
+    const helper::PlayerAccount player = another_account(laid.application);
+    swap_in(laid);
+    std::string why = "uncleared";
+    OA_CHECK(
+        helper::keep_swap_the_player_can_run(
+            laid.updates, laid.install, player, helper::JournalHooks{}, &why
+        )
+    );
+    OA_CHECK(why == "uncleared");
+    OA_CHECK(first_line(laid.install / "Contents" / "Info.plist") == "new");
+    // The journal is left for the run, which drops it once the game has started.
+    OA_CHECK(fs::exists(laid.updates / "journal.json"));
+}
+
+/// An entry made on Unix that records `mode`.
+oa::test::raw_zip::RawFile unix_entry(std::string name, std::string_view text, uint32_t mode) {
+    oa::test::raw_zip::RawFile file = oa::test::raw_zip::stored_text(std::move(name), text);
+    file.host = 3;
+    file.external_attributes = mode << 16U;
+    return file;
+}
+
+void write_zip(const fs::path& path, const std::vector<uint8_t>& bytes) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(
+        reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
+    );
+    OA_CHECK(static_cast<bool>(out));
+}
+
+/// Hands the tree to an owner as the copy with an administrator's rights
+/// does once it is in the install's place. The test keeps the tree's own
+/// owner: it cannot give it to the administrator.
+void hand_to_install_owner(const fs::path& app) {
+#if defined(__APPLE__)
+    struct stat info{};
+    OA_CHECK(::lstat(app.c_str(), &info) == 0);
+    OA_CHECK(
+        helper::hand_over_tree(
+            app, static_cast<uint32_t>(info.st_uid), static_cast<uint32_t>(info.st_gid), true
+        )
+    );
+#else
+    (void)app;
+#endif
+}
+
+/// The update that left the player unable to start the game: the release
+/// zip unpacked, the bundle handed to the install's owner, who is not the
+/// player, and the player then had to start it.
+void a_release_installed_for_another_owner_starts_for_the_player() {
+    const Scratch scratch("another-owner");
+    constexpr std::string_view top = "open-annihilation-v0.8.12-macos-universal";
+    const std::vector<std::string> tops = helper::top_folder_names("0.8.12", "macos-universal");
+    const std::string app_name = std::string(top) + "/Open Annihilation.app/";
+    const std::vector<std::string> names = {
+        app_name + "Contents/Info.plist",
+        app_name + "Contents/MacOS/open-annihilation",
+        app_name + "Contents/MacOS/oa-update",
+    };
+    const fs::path stage = scratch.path / "stage";
+    const fs::path app = stage / helper::path_from(app_name);
+
+    // As the release zips record them: folders and programs 0755, the rest 0644.
+    const fs::path recorded = scratch.path / "recorded.zip";
+    write_zip(
+        recorded,
+        oa::test::raw_zip::build_raw_archive(
+            {
+                unix_entry(std::string(top) + "/", "", 040755),
+                unix_entry(app_name, "", 040755),
+                unix_entry(app_name + "Contents/", "", 040755),
+                unix_entry(names[0], "plist", 0100644),
+                unix_entry(app_name + "Contents/MacOS/", "", 040755),
+                unix_entry(names[1], "game", 0100755),
+                unix_entry(names[2], "helper", 0100755),
+            }
+        )
+            .bytes
+    );
+    std::string error;
+    OA_CHECK(helper::unpack_package(recorded, stage, tops, &error));
+    const helper::PlayerAccount player = another_account(app);
+    std::string why;
+    OA_CHECK(helper::macos_player_can_run(app, player, &why));
+    hand_to_install_owner(app);
+    OA_CHECK(helper::macos_player_can_run(app, player, &why));
+    std::error_code removed;
+    fs::remove_all(stage, removed);
+
+    // A zip that records no modes.
+    std::vector<uint8_t> plain_bytes;
+    std::vector<oa::formats::zip::NewEntry> entries;
+    const std::vector<uint8_t> body = {'x'};
+    for (const std::string& name : names)
+        entries.push_back({name, body});
+    oa::formats::zip::ZipError zip_error;
+    OA_CHECK(oa::formats::zip::write_archive(entries, plain_bytes, zip_error));
+    const fs::path plain = scratch.path / "plain.zip";
+    write_zip(plain, plain_bytes);
+    OA_CHECK(helper::unpack_package(plain, stage, tops, &error));
+    OA_CHECK(helper::macos_player_can_run(app, player, &why));
+    hand_to_install_owner(app);
+    OA_CHECK(helper::macos_player_can_run(app, player, &why));
+
+    // The programs as 0.8.10 left them, run by their owner alone: refused,
+    // until the copy in the install's place is opened to every account.
+    set_mode(app / "Contents" / "MacOS" / "open-annihilation", 0744);
+    set_mode(app / "Contents" / "MacOS" / "oa-update", 0744);
+    OA_CHECK(!helper::macos_player_can_run(app, player, &why));
+#if defined(__APPLE__)
+    hand_to_install_owner(app);
+    OA_CHECK(helper::macos_player_can_run(app, player, &why));
+#endif
+}
+#endif
+
+#if defined(__APPLE__)
+/// The bundle put in place is handed to its owner and opened to every
+/// account, whatever modes it arrived with.
+void the_bundle_put_in_place_is_opened_to_every_account() {
+    const Scratch scratch("opened");
+    const fs::path app = scratch.path / "Open Annihilation.app";
+    const fs::path contents = app / "Contents";
+    const fs::path macos = contents / "MacOS";
+    fs::create_directories(macos);
+    fs::create_directories(contents / "Resources");
+    std::ofstream(contents / "Info.plist") << "plist";
+    std::ofstream(macos / "open-annihilation") << "game";
+    std::ofstream(macos / "oa-update") << "helper";
+    std::ofstream(contents / "Resources" / "raised") << "raised";
+    std::ofstream(contents / "Resources" / "shared") << "shared";
+    std::ofstream(scratch.path / "elsewhere") << "elsewhere";
+    std::error_code io;
+    fs::create_hard_link(scratch.path / "elsewhere", contents / "Resources" / "linked", io);
+    OA_CHECK(!io);
+    set_mode(contents / "Info.plist", 0600);
+    set_mode(macos / "open-annihilation", 0744);
+    set_mode(macos / "oa-update", 0700);
+    set_mode(contents / "Resources" / "raised", 04755);
+    set_mode(contents / "Resources" / "shared", 0666);
+    set_mode(scratch.path / "elsewhere", 0600);
+    set_mode(contents / "Resources", 0700);
+    set_mode(macos, 0700);
+    set_mode(contents, 0700);
+    set_mode(app, 0700);
+    struct stat info{};
+    OA_CHECK(::lstat(app.c_str(), &info) == 0);
+    const auto user = static_cast<uint32_t>(info.st_uid);
+    const auto group = static_cast<uint32_t>(info.st_gid);
+
+    // Handed to the player, a tree keeps its modes.
+    OA_CHECK(helper::hand_over_tree(app, user, group, false));
+    OA_CHECK(mode_of(app) == 0700);
+    OA_CHECK(mode_of(macos / "open-annihilation") == 0744);
+
+    OA_CHECK(helper::hand_over_tree(app, user, group, true));
+    OA_CHECK(mode_of(app) == 0755);
+    OA_CHECK(mode_of(contents) == 0755);
+    OA_CHECK(mode_of(macos) == 0755);
+    OA_CHECK(mode_of(contents / "Resources") == 0755);
+    OA_CHECK(mode_of(contents / "Info.plist") == 0644);
+    OA_CHECK(mode_of(macos / "open-annihilation") == 0755);
+    OA_CHECK(mode_of(macos / "oa-update") == 0755);
+    OA_CHECK(mode_of(contents / "Resources" / "raised") == 0755);
+    OA_CHECK(mode_of(contents / "Resources" / "shared") == 0644);
+    // A file with another name outside the tree is left as it is.
+    OA_CHECK(mode_of(contents / "Resources" / "linked") == 0600);
+    OA_CHECK(helper::macos_player_can_run(app, another_account(app), nullptr));
+}
+#endif
+
 void the_game_starts_as_the_finder_starts_it() {
     update::Plan plan;
     plan.route = update::Route::macos_bundle;
@@ -676,5 +1056,16 @@ void test_macos_route() {
     the_prompts_ending_is_read();
     a_moved_bundle_belongs_where_it_lands();
     the_administrators_moves_continue_the_players_journal();
+    a_tree_opened_to_every_account_is_read_and_run_by_all();
+    the_first_class_that_names_the_account_decides();
+#if !defined(_WIN32)
+    the_player_must_be_able_to_start_the_bundle();
+    a_bundle_the_player_cannot_start_is_put_back();
+    a_bundle_the_player_can_start_is_kept();
+    a_release_installed_for_another_owner_starts_for_the_player();
+#endif
+#if defined(__APPLE__)
+    the_bundle_put_in_place_is_opened_to_every_account();
+#endif
     the_game_starts_as_the_finder_starts_it();
 }

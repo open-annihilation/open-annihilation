@@ -5,6 +5,7 @@
 
 #include "oa/update_helper/paths.hpp"
 #include "oa/update_helper/route_windows.hpp"
+#include "oa/update_helper/unpack.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -12,6 +13,7 @@
 #include <utility>
 
 #if !defined(_WIN32)
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -74,6 +76,37 @@ bool may_leave(const fs::path& folder, const fs::path& entry) {
         return false;
     const uid_t user = ::geteuid();
     return folder_info.st_uid == user || entry_info.st_uid == user;
+}
+
+/// One path of a bundle the player must reach, and what the player must do
+/// with it.
+struct NeededEntry {
+    std::string_view name; ///< under the bundle; empty for the bundle itself
+    bool folder{};         ///< a folder, searched; otherwise a file
+    uint32_t wanted{};     ///< access_read and access_execute, or'd together
+};
+
+/// What the player must reach to start a bundle, folders before what they hold.
+constexpr NeededEntry needed_entries[] = {
+    {"", true, access_execute},
+    {"Contents", true, access_execute},
+    {"Contents/Info.plist", false, access_read},
+    {"Contents/MacOS", true, access_execute},
+    {"Contents/MacOS/open-annihilation", false, access_read | access_execute},
+    {"Contents/MacOS/oa-update", false, access_read | access_execute},
+};
+
+/// The `access` mode for wanted access bits.
+///
+/// @param wanted access_read and access_execute, or'd together
+/// @return R_OK and X_OK, or'd together
+int access_mode(uint32_t wanted) {
+    int mode = 0;
+    if ((wanted & access_read) != 0)
+        mode |= R_OK;
+    if ((wanted & access_execute) != 0)
+        mode |= X_OK;
+    return mode;
 }
 #endif
 
@@ -415,6 +448,113 @@ MovedOwner moved_tree_owner(const fs::path& updates, const fs::path& install, co
     if (inside.empty() || inside == "." || *inside.begin() == "..")
         return MovedOwner::unchanged;
     return MovedOwner::player;
+}
+
+uint32_t opened_mode(uint32_t mode, bool folder) noexcept {
+    constexpr uint32_t read_all = 0444;
+    constexpr uint32_t execute_all = 0111;
+    uint32_t opened = (mode & unpacked_mode_limit) | read_all;
+    if (folder || (mode & execute_all) != 0)
+        opened |= execute_all;
+    return opened;
+}
+
+bool mode_allows(
+    uint32_t mode, uint32_t owner, uint32_t group, const PlayerAccount& account, uint32_t wanted
+) noexcept {
+    constexpr uint32_t owner_shift = 6;
+    constexpr uint32_t group_shift = 3;
+    constexpr uint32_t access_bits = 07;
+    uint32_t shift = 0;
+    if (owner == account.user) {
+        shift = owner_shift;
+    } else if (
+        group == account.group ||
+        std::find(account.groups.begin(), account.groups.end(), group) != account.groups.end()
+    ) {
+        shift = group_shift;
+    }
+    const uint32_t allowed = (mode >> shift) & access_bits;
+    return (allowed & wanted) == wanted;
+}
+
+PlayerAccount effective_account() {
+    PlayerAccount account;
+#if !defined(_WIN32)
+    account.user = static_cast<uint32_t>(::geteuid());
+    account.group = static_cast<uint32_t>(::getegid());
+    const int count = ::getgroups(0, nullptr);
+    if (count > 0) {
+        std::vector<gid_t> held(static_cast<std::size_t>(count));
+        const int listed = ::getgroups(count, held.data());
+        for (int index = 0; index < listed; ++index)
+            account.groups.push_back(static_cast<uint32_t>(held[static_cast<std::size_t>(index)]));
+    }
+#endif
+    return account;
+}
+
+bool macos_player_can_run(const fs::path& bundle, const PlayerAccount& account, std::string* why) {
+#if defined(_WIN32)
+    (void)bundle;
+    (void)account;
+    (void)why;
+    return true;
+#else
+    const bool ask_system = account.user == static_cast<uint32_t>(::geteuid());
+    for (const NeededEntry& needed : needed_entries) {
+        const fs::path path = needed.name.empty() ? bundle : bundle / path_from(needed.name);
+        const std::string name =
+            needed.name.empty() ? utf8_of(bundle.filename()) : std::string(needed.name);
+        struct stat info{};
+        if (::lstat(path.c_str(), &info) != 0) {
+            set_why(why, name + " is missing");
+            return false;
+        }
+        if (needed.folder ? !S_ISDIR(info.st_mode) : !S_ISREG(info.st_mode)) {
+            set_why(why, name + (needed.folder ? " is not a folder" : " is not a file"));
+            return false;
+        }
+        const auto mode = static_cast<uint32_t>(info.st_mode);
+        const auto owner = static_cast<uint32_t>(info.st_uid);
+        const auto group = static_cast<uint32_t>(info.st_gid);
+        const bool allowed =
+            mode_allows(mode, owner, group, account, needed.wanted) &&
+            (!ask_system ||
+             ::faccessat(AT_FDCWD, path.c_str(), access_mode(needed.wanted), AT_EACCESS) == 0);
+        if (allowed)
+            continue;
+        if (needed.folder)
+            set_why(why, name + " cannot be opened by the player");
+        else if (
+            (needed.wanted & access_execute) != 0 &&
+            mode_allows(mode, owner, group, account, access_read)
+        )
+            set_why(why, name + " cannot be run by the player");
+        else
+            set_why(why, name + " cannot be read by the player");
+        return false;
+    }
+    return true;
+#endif
+}
+
+bool keep_swap_the_player_can_run(
+    const fs::path& updates,
+    const fs::path& bundle,
+    const PlayerAccount& account,
+    const JournalHooks& hooks,
+    std::string* why
+) {
+    std::string refused;
+    if (macos_player_can_run(bundle, account, &refused))
+        return true;
+    std::string detail = std::string(player_cannot_run) + ": " + refused;
+    std::string undo_error;
+    if (!undo_journal(updates, hooks, &undo_error))
+        detail += "; " + (undo_error.empty() ? std::string("the undo did not finish") : undo_error);
+    set_why(why, std::move(detail));
+    return false;
 }
 
 fs::path macos_kept_bundle(const fs::path& updates, const fs::path& install) {

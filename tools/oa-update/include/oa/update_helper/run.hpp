@@ -26,6 +26,10 @@ inline constexpr int exit_refused = 1;
 inline constexpr int exit_usage = 2;
 /// A step failed, the finished steps were undone, and the old version was started.
 inline constexpr int exit_undone = 3;
+/// Only from the macOS copy with an administrator's rights: the bundle it
+/// put in place could not be started by the player, so every step of the
+/// journal was undone. The run that asked records player_cannot_run.
+inline constexpr int exit_not_runnable = 4;
 
 /// The sentence the window shows when a package cannot be checked.
 inline constexpr std::string_view could_not_check =

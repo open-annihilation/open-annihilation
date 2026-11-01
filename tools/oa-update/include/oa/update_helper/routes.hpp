@@ -155,6 +155,97 @@ struct RaisedMoves {
     Log* log{};                    ///< where a move notes what it did; may be null
 };
 
+/// The mode a file or folder takes when a moved tree is opened to every
+/// account: within unpacked_mode_limit, so no set-user, set-group or sticky
+/// bit and nothing the group or others may write; readable by everyone; and
+/// runnable by everyone when it is a folder or some account could already
+/// run it (`a+rX`).
+///
+/// @param mode the permission bits it has
+/// @param folder it is a folder
+/// @return the permission bits it takes
+[[nodiscard]] uint32_t opened_mode(uint32_t mode, bool folder) noexcept;
+
+/// The account that must be able to start the game.
+struct PlayerAccount {
+    uint32_t user{};                ///< the user id
+    uint32_t group{};               ///< the primary group id
+    std::vector<uint32_t> groups{}; ///< the other groups the account is in
+};
+
+/// The receipt's detail when the player's account cannot start the
+/// version put in place, which is then undone.
+inline constexpr std::string_view player_cannot_run =
+    "the player's account could not start the version put in place";
+
+/// Read permission, for mode_allows.
+inline constexpr uint32_t access_read = 4;
+/// Execute permission, which is search for a folder, for mode_allows.
+inline constexpr uint32_t access_execute = 1;
+
+/// True when a file's permission bits let `account` have every access in
+/// `wanted`. The owner's bits apply when the account owns the file, else
+/// the group's bits when the file's group is the account's group or one of
+/// its other groups, else the others' bits. Only the first that applies is
+/// read, as POSIX reads them.
+///
+/// @param mode the file's mode
+/// @param owner the file's owner
+/// @param group the file's group
+/// @param account the account
+/// @param wanted access_read and access_execute, or'd together
+/// @return true when every wanted access is allowed
+[[nodiscard]] bool mode_allows(
+    uint32_t mode, uint32_t owner, uint32_t group, const PlayerAccount& account, uint32_t wanted
+) noexcept;
+
+/// This process's effective user and group, and the other groups it holds.
+/// An administrator's copy that acts as the player holds the player's
+/// groups. Off POSIX it is empty.
+///
+/// @return the account
+[[nodiscard]] PlayerAccount effective_account();
+
+/// True when `account` can start the application at `bundle`.
+///
+/// The account must be able to search the bundle, `Contents` and
+/// `Contents/MacOS`, to read `Contents/Info.plist`, and to read and run
+/// `Contents/MacOS/open-annihilation` and `Contents/MacOS/oa-update`. Each
+/// is read without following a link: a missing one, a link, or a file of
+/// another kind refuses. The bits are read by mode_allows for `account`,
+/// whoever this process is; when this process's effective user is the
+/// account's, the system is asked as well, as that user, so an access list
+/// that refuses is seen. Off POSIX it is always true.
+///
+/// @param bundle the application put in place
+/// @param account the player's account
+/// @param[out] why which file refused, and how; may be null
+/// @return true when the account can start it
+[[nodiscard]] bool macos_player_can_run(
+    const std::filesystem::path& bundle, const PlayerAccount& account, std::string* why
+);
+
+/// Keeps a swap the player can start, and undoes it otherwise.
+///
+/// When macos_player_can_run refuses `bundle` for `account`, every step of
+/// the journal under `updates` is undone through `hooks`, so the version
+/// that was there is back, and `why` gets player_cannot_run and the file
+/// that refused, then the undo's own failure when it did not finish.
+///
+/// @param updates the data folder's updates directory, holding the journal
+/// @param bundle the application the journal put in place
+/// @param account the player's account
+/// @param hooks the journal hooks the swap used
+/// @param[out] why why the swap was undone; may be null
+/// @return true when the player can start it and nothing was undone
+[[nodiscard]] bool keep_swap_the_player_can_run(
+    const std::filesystem::path& updates,
+    const std::filesystem::path& bundle,
+    const PlayerAccount& account,
+    const JournalHooks& hooks,
+    std::string* why
+);
+
 /// The operations that put a staged package in place for `plan.route`.
 ///
 /// `check-folder` moves the install's top-level entries into
@@ -378,10 +469,26 @@ macos_checked_restore(const oa::app::update::Plan& plan, bool test_key, std::str
     std::string* why
 );
 
+/// Gives the tree at `top` the owner `user` and group `group`, as
+/// raised_rename does after a move. Nothing is followed through a link,
+/// and a file with another name elsewhere is left as it is. With
+/// `open_to_all` every folder and file it gives an owner also takes the
+/// mode opened_mode names.
+///
+/// @param top the tree
+/// @param user the owner
+/// @param group the group
+/// @param open_to_all open the tree to every account
+/// @return true when the whole tree was handed over
+[[nodiscard]] bool
+hand_over_tree(const std::filesystem::path& top, uint32_t user, uint32_t group, bool open_to_all);
+
 /// A JournalHooks::rename for an administrator's copy.
 ///
 /// Takes the administrator's rights, renames, gives the moved tree the
-/// owner moved_tree_owner names, and acts as the player again. The tree
+/// owner moved_tree_owner names, and acts as the player again. A tree that
+/// takes the install's owner is also opened to every account (opened_mode),
+/// so a player who is not that owner can still start the game. The tree
 /// that is given an owner is the one that was renamed: it is opened without
 /// following a link and compared with what was at `from`. A process that
 /// cannot raise renames as it is.

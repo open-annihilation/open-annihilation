@@ -393,9 +393,19 @@ with the administrator's rights: everything the helper writes in your
 Library, the receipt, the log, the copy of your preferences and the record
 of what was kept, stays yours, and the game never starts with those rights.
 The new app takes the owner the old one had, and the kept app becomes
-yours. If you close the prompt, nothing changes, the version you had starts
+yours. Every account on the Mac can read and start the new app, as the
+installer package leaves it, and nothing in it can be changed by another
+account. If you close the prompt, nothing changes, the version you had starts
 again and says "The update was cancelled.", with **Try again**. Rolling
 back such a copy asks the same way.
+
+Before the update counts as installed, the helper checks that your account
+can open the new app: read its `Info.plist` and start the game and the
+helper inside it. If it cannot, or one of them is missing, the helper puts
+the version you had back, the log names the file, the game starts again on
+that version and says "The update failed. {version} was put back.", and the
+receipt's step says "the player's account could not start the version put
+in place".
 
 A copy macOS is running from a protected place asks you to move it to
 Applications first, and is not replaced where it stands.

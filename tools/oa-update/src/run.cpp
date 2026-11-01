@@ -458,6 +458,10 @@ AdministratorRun run_as_administrator(
         run.detail = ran.error;
     } else if (ran.code == exit_swapped) {
         run.ending = AdministratorRun::Ending::moved;
+    } else if (ran.code == exit_not_runnable) {
+        // The copy undid its moves; the log holds which file refused.
+        run.ending = AdministratorRun::Ending::failed;
+        run.detail = std::string(player_cannot_run);
     } else if (ran.code == exit_refused || ran.code == exit_usage) {
         run.ending = AdministratorRun::Ending::refused;
         run.detail = "the copy with an administrator's rights refused the move (exit " +
@@ -862,14 +866,17 @@ void raised_note(void* context, std::string_view line) {
 /// each rename, writes no receipt and starts nothing. It checks the bundles
 /// itself, from the plan and their signatures: each must be signed by the
 /// team that signed this helper and be this game. The moves continue the
-/// journal the asking run began, and a failure undoes all of it.
+/// journal the asking run began, and a failure undoes all of it. Once the
+/// moves have finished, the bundle in the install's place must be one the
+/// player's own user and groups can start; otherwise all of it is undone too.
 ///
 /// @param plan the plan, an install or a roll back
 /// @param player who this copy acts for
 /// @param keys the feed keys this run was given
 /// @param log the log
 /// @param hooks the journal hooks; the note is replaced
-/// @return exit_swapped, exit_refused when nothing moved, or exit_undone
+/// @return exit_swapped, exit_refused when nothing moved, exit_undone, or
+///     exit_not_runnable when the player could not start what was put in place
 int carry_out_as_administrator(
     const update::Plan& plan,
     const ActingPlayer& player,
@@ -919,6 +926,16 @@ int carry_out_as_administrator(
     if (continue_journal(updates, operations, hooks, &error) != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
         return exit_undone;
+    }
+    // Held to the player's user and group, which this copy acts as, never
+    // to the administrator, who may open anything: the bundle now belongs
+    // to the install's owner, and the player must still be able to start it.
+    PlayerAccount account = effective_account();
+    account.user = player.user;
+    account.group = player.group;
+    if (!keep_swap_the_player_can_run(updates, install, account, hooks, &error)) {
+        log.line(error);
+        return exit_not_runnable;
     }
     log.line("moved the bundles with an administrator's rights");
     return exit_swapped;
@@ -1314,6 +1331,18 @@ int carry_out(
             record_failed_change(
                 log, updates, update::Step::swap, error.empty() ? "a step failed" : error
             );
+            remove_stage(stage);
+            window.show(plan.title, line_after_failed_change(updates), 0, true);
+            start_old(plan, log, window, !elevated_swap);
+            return exit_undone;
+        }
+        // The copy with an administrator's rights makes this check itself,
+        // before it lets the moves stand; here this run is the player.
+        if (bundle && !keep_swap_the_player_can_run(
+                          updates, path_from(plan.install), effective_account(), hooks, &error
+                      )) {
+            log.line(error);
+            record_failed_change(log, updates, update::Step::swap, error);
             remove_stage(stage);
             window.show(plan.title, line_after_failed_change(updates), 0, true);
             start_old(plan, log, window, !elevated_swap);
