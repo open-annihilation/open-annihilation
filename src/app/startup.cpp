@@ -2316,4 +2316,28 @@ void write_startup_line(std::string_view text) {
     return result;
 }
 
+bool names_same_file(const fs::path& named, const fs::path& own) noexcept {
+    std::error_code error;
+    if (fs::equivalent(named, own, error) && !error)
+        return true;
+    const fs::path named_absolute = fs::absolute(named, error);
+    if (error)
+        return false;
+    const fs::path own_absolute = fs::absolute(own, error);
+    if (error)
+        return false;
+    return named_absolute.lexically_normal() == own_absolute.lexically_normal();
+}
+
+void forget_own_preferences_file(Options& options) {
+    if (!options.preferences_file || options.unattended || options.headless_check)
+        return;
+    try {
+        if (names_same_file(*options.preferences_file, oa::platform::preferences::default_file()))
+            options.preferences_file.reset();
+    } catch (const std::exception&) {
+        // Without the player's own file the option names another one.
+    }
+}
+
 } // namespace oa::app

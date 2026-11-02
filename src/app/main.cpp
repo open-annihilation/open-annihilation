@@ -2618,6 +2618,9 @@ int main(int argc, char** argv) {
         // named (cat host.oalaunch | open-annihilation).
         allow_piped_launch();
         Options parsed = parse_options(argc, argv, extension);
+        // The restart after an update may name the player's own preferences
+        // file; that start is the player's own, from the guard below on.
+        forget_own_preferences_file(parsed);
         // macOS and Windows count an unconfirmed start before a mod, the
         // game's files or SDL's video are touched. A helper that was started
         // puts the kept version back, and this process leaves.

@@ -1150,6 +1150,27 @@ void release_launch_window();
     const Options& options, oa::ui::engine_settings::HardwareAcceleration setting
 ) noexcept;
 
+/// Whether two paths name one file: the same file on disk when both are
+/// there, else the same absolute path once normalised.
+///
+/// @param named a path a command line gave
+/// @param own the path to compare it with
+/// @return true when they name one file
+[[nodiscard]] bool
+names_same_file(const std::filesystem::path& named, const std::filesystem::path& own) noexcept;
+
+/// Forgets a --preferences-file that names the player's own preferences
+/// file, the one a start without it reads, in a start someone plays. The
+/// restart after an update named that file (copies before 0.8.14 did), and
+/// a start that names a preferences file keeps its folders beside it, as a
+/// check does; a start that names the player's own file is the player's
+/// own, with their own folder, profile and instance lock. A run that is
+/// unattended or a headless check keeps the option, and never looks for
+/// the player's file.
+///
+/// @param[in,out] options the parsed command line
+void forget_own_preferences_file(Options& options);
+
 /// Parses a frame or tick count option's value.
 ///
 /// Throws std::runtime_error unless the whole text is a decimal integer from 0

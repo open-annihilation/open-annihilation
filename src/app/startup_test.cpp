@@ -18,11 +18,13 @@
 #include "oa/app/extension.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/command_line.hpp"
+#include "oa/platform/preferences.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -2365,6 +2367,39 @@ int main() {
                 .preferences_file->u8string() == u8"\u5b58\u6863.conf",
         "--preferences-file reads UTF-8"
     );
+    // The restart after an update names the player's own preferences file:
+    // one file however it is spelled, and that start is the player's own.
+    expect(
+        oa::app::names_same_file("prefs/../folder/p.conf", "folder/./p.conf") &&
+            !oa::app::names_same_file("folder/p.conf", "folder/q.conf"),
+        "a path names the same file however it is spelled"
+    );
+    {
+        oa::app::Options played;
+        played.preferences_file = std::filesystem::path("scratch/p.conf");
+        oa::app::forget_own_preferences_file(played);
+        expect(
+            played.preferences_file.has_value(), "a played start keeps another preferences file"
+        );
+        oa::app::Options check = parse({"--preferences-file", "p.conf", "--headless-check"});
+        oa::app::forget_own_preferences_file(check);
+        expect(check.preferences_file.has_value(), "a headless check keeps its preferences file");
+        std::optional<std::filesystem::path> own;
+        try {
+            own = oa::platform::preferences::default_file();
+        } catch (const std::exception&) {
+            // No player's file to name on this machine.
+        }
+        if (own) {
+            oa::app::Options restarted;
+            restarted.preferences_file = *own;
+            oa::app::forget_own_preferences_file(restarted);
+            expect(
+                !restarted.preferences_file,
+                "a played start that names the player's own preferences file is the player's own"
+            );
+        }
+    }
     expect(
         parse({"--log-dir", "logs", "--headless-check"}).log_dir == std::filesystem::path("logs") &&
             !parse({"--headless-check"}).log_dir,

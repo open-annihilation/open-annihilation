@@ -1084,12 +1084,11 @@ void Runtime::hand_off_update() {
         plan.arguments.push_back("--user-folder");
         plan.arguments.push_back(absolute_utf8(*options_.user_folder));
     }
+    // Only a preferences file this run was started with: the player's own
+    // file, named, would keep the started copy's folders beside it.
     if (options_.preferences_file && !options_.preferences_file->empty()) {
         plan.arguments.push_back("--preferences-file");
         plan.arguments.push_back(absolute_utf8(*options_.preferences_file));
-    } else if (!preference_path_.empty()) {
-        plan.arguments.push_back("--preferences-file");
-        plan.arguments.push_back(absolute_utf8(preference_path_));
     }
     if (options_.log_dir && !options_.log_dir->empty()) {
         plan.arguments.push_back("--log-dir");
@@ -1340,12 +1339,11 @@ void Runtime::hand_off_roll_back() {
         plan.arguments.push_back("--user-folder");
         plan.arguments.push_back(absolute_utf8(*options_.user_folder));
     }
+    // Only a preferences file this run was started with: the player's own
+    // file, named, would keep the started copy's folders beside it.
     if (options_.preferences_file && !options_.preferences_file->empty()) {
         plan.arguments.push_back("--preferences-file");
         plan.arguments.push_back(absolute_utf8(*options_.preferences_file));
-    } else if (!preference_path_.empty()) {
-        plan.arguments.push_back("--preferences-file");
-        plan.arguments.push_back(absolute_utf8(preference_path_));
     }
     if (options_.log_dir && !options_.log_dir->empty()) {
         plan.arguments.push_back("--log-dir");

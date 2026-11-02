@@ -4347,7 +4347,11 @@ they can find: `--user-folder`, else the preferences' `open-annihilation.user-fo
 else `Open Annihilation` in their Documents folder
 (`oa::platform::preferences::default_user_folder`), or beside a named
 `--preferences-file`, so that a check never reaches the Documents folder
-(`choose_user_folder`, `user_folder_beside`). It holds `Saves`,
+(`choose_user_folder`, `user_folder_beside`). A start someone plays that
+names the player's own preferences file, as the restart after an update
+from a copy before 0.8.14 does, is taken as one that names none
+(`forget_own_preferences_file`), and an update's plan names a preferences
+file only when the run was started with one. It holds `Saves`,
 `Screenshots`, `Films` and `Recordings`, each with a folder for each mod,
 named after its id, and `default` for games without a mod's profile, 3.1c's and a mod
 folder's without an `oamod.yaml` (`mod_subfolder_name`; a mod whose id is
