@@ -179,6 +179,7 @@ add_subdirectory(src/platform/app-menu)
 add_subdirectory(src/platform/text-font)
 add_subdirectory(src/platform/job-pool)
 add_subdirectory(src/platform/render-probe)
+add_subdirectory(src/platform/graphics-preference)
 add_subdirectory(src/platform/sound-device)
 add_subdirectory(src/platform/locale)
 add_subdirectory(src/platform/display-modes)
@@ -1659,6 +1660,11 @@ if(OA_BUILD_PLATFORM)
     target_sources(oa-game PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/open-annihilation.rc")
     set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/open-annihilation.rc" APPEND PROPERTY
       OBJECT_DEPENDS "${oa_windows_manifest}")
+    # The values that ask a laptop's graphics drivers for the discrete
+    # graphics card (src/platform/graphics-preference): the drivers read
+    # open-annihilation.exe's own export table, so its object is linked into
+    # the executable itself.
+    target_link_libraries(oa-game PRIVATE oa-platform-graphics-preference)
   endif()
   target_link_libraries(oa-game PRIVATE oa-ui-display-layout oa-ui-gadget-render)
   # The recorded mutators compare a loadout with the text one recording holds.
