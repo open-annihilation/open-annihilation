@@ -432,9 +432,11 @@ struct FrameStatsNotes {
     bool units_as_dots{};               ///< the last frame drew the units as dots
 };
 
-/// What the "+stats" table's renderer row names. The tier, its
-/// anti-aliasing and the driver, joined, and the adapter are each cut to
-/// one of the table's texts, never inside a character (whole_characters).
+/// What the "+stats" table's renderer rows name: the window's renderer and,
+/// while one is open, the graphics device the turned (3D) view draws on.
+/// The tier, its anti-aliasing and the driver, joined, the device's driver
+/// after "3D: ", and each adapter are each cut to one of the table's texts,
+/// never inside a character (whole_characters).
 struct FrameStatsRenderer {
     std::string_view tier{}; ///< the tier frames are drawn in: "standard", "basic" or "full"
     /// The anti-aliasing the full tier draws the battlefield with, "2x" or
@@ -446,6 +448,14 @@ struct FrameStatsRenderer {
     /// names in place of the adapter: "sprite memory full" while the full
     /// tier leaves out of a frame what its pages may not hold; empty for none.
     std::string_view limit{};
+    /// A graphics device the turned view draws on is open, which adds its
+    /// row under the renderer's.
+    bool turned_device{};
+    /// SDL's name for that device's driver ("vulkan", "metal"); empty where
+    /// SDL gave none.
+    std::string_view turned_driver{};
+    /// That device's adapter's name; empty where none was read.
+    std::string_view turned_adapter{};
 };
 
 /// How the game's window shows the screen, as the "+stats" table's display
@@ -501,8 +511,9 @@ inline constexpr std::size_t kFrameStatsMeanColumn = 1;
 inline constexpr std::size_t kFrameStatsMostColumn = 2;
 /// Rows of the "+stats" table: the title, the column names, the frames a
 /// second, one for each measure, the units drawn, the units' picture, the
-/// renderer and the display.
-inline constexpr std::size_t kFrameStatsRowsMost = 3 + kFrameMeasureCount + 4;
+/// renderer, the turned view's graphics device and the display. Without
+/// that device the table has one row fewer.
+inline constexpr std::size_t kFrameStatsRowsMost = 3 + kFrameMeasureCount + 5;
 
 /// Returns the start of a UTF-8 text that fits in a number of bytes and
 /// does not end inside a character: the whole text when it fits, else the
@@ -535,6 +546,10 @@ enum class FrameStatsRowKind : uint8_t {
     /// across the columns as the title does, and the adapter as the note;
     /// the panel cuts the row where it would pass its width
     renderer,
+    /// "3D" and the driver of the graphics device the turned view draws on,
+    /// with its adapter as the note, while such a device is open; it runs on
+    /// and is cut as the renderer row is
+    turned_device,
     /// how the window shows the screen and the size the match is drawn at,
     /// with the display's mode, refresh rate and scale as the note; it runs
     /// on and is cut as the renderer row is
@@ -546,9 +561,10 @@ enum class FrameStatsRowKind : uint8_t {
 /// and keeps no room in the columns.
 ///
 /// @param kind what the row shows
-/// @return true for the renderer and display rows
+/// @return true for the renderer, turned view's device and display rows
 [[nodiscard]] constexpr bool runs_on(FrameStatsRowKind kind) noexcept {
-    return kind == FrameStatsRowKind::renderer || kind == FrameStatsRowKind::display;
+    return kind == FrameStatsRowKind::renderer || kind == FrameStatsRowKind::turned_device ||
+           kind == FrameStatsRowKind::display;
 }
 
 /// One row of the "+stats" table: a label, up to three right-aligned
@@ -581,14 +597,18 @@ struct FrameStatsTable {
 /// renderer: the tier and the render driver as "standard: metal", or the
 /// tier alone without a driver, with the adapter as the note, each cut to
 /// the kFrameStatsTextBytes - 1 bytes of a text, never inside a character;
-/// and the display (display_row_texts). Before the first whole second, and
-/// for a measure with no sample in it, the mean column reads "--".
+/// while a graphics device of the turned view is open, that device under
+/// it: "3D" and its driver as "3D: vulkan", with its adapter as the note,
+/// cut in the same way; and the display (display_row_texts). Before the
+/// first whole second, and for a measure with no sample in it, the mean
+/// column reads "--".
 ///
 /// @param window the statistics
 /// @param notes the rates and counts to show beside them
-/// @param renderer the renderer to name
+/// @param renderer the renderer and the turned view's device to name
 /// @param display the window and the display to name
-/// @return the table, kFrameStatsRowsMost rows
+/// @return the table: kFrameStatsRowsMost rows with the turned view's
+///     device, one fewer without
 [[nodiscard]] FrameStatsTable frame_stats_table(
     const FrameStatsWindow& window,
     const FrameStatsNotes& notes,
@@ -614,11 +634,13 @@ void set_display_row(FrameStatsRow& row, const FrameStatsDisplay& display) noexc
 /// frame_stats_table, each time "000.00", the frames a second "0000" with
 /// "limit 0000", the ticks a second "000/s", and "0000" units with "0000
 /// between ticks". A time of a second or more, or a count past these, runs
-/// past its column. The renderer and display rows hold no text: no room is
-/// kept for them, and the panel cuts their texts where they would pass its
-/// width, so the panel is as wide whatever they name.
+/// past its column. The renderer, turned view's device and display rows hold
+/// no text: no room is kept for them, and the panel cuts their texts where
+/// they would pass its width, so the panel is as wide whatever they name.
 ///
-/// @return the table, kFrameStatsRowsMost rows
-[[nodiscard]] FrameStatsTable frame_stats_widest_table() noexcept;
+/// @param turned_device the table has the turned view's device's row
+///     (FrameStatsRenderer::turned_device)
+/// @return the table, with as many rows as frame_stats_table's
+[[nodiscard]] FrameStatsTable frame_stats_widest_table(bool turned_device = false) noexcept;
 
 } // namespace oa::app::frame_pacing

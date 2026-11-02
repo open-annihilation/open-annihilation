@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 
+struct SDL_GPUDevice;
 struct SDL_Renderer;
 
 namespace oa::platform::render_probe {
@@ -114,6 +115,14 @@ struct AdapterReader {
 /// @param read whether to read the adapter
 /// @return what was found
 [[nodiscard]] AdapterFacts describe(SDL_Renderer* renderer, AdapterRead read);
+
+/// Returns the name of the adapter behind a graphics device SDL made
+/// (SDL_CreateGPUDevice), as the gpu renderer's adapter is read: SDL's name
+/// for the device, which it gives from SDL 3.4, cleaned (clean_name).
+///
+/// @param device the device; null names none
+/// @return the name; empty where SDL gives none, as before SDL 3.4
+[[nodiscard]] std::string gpu_device_adapter(SDL_GPUDevice* device);
 
 /// Says whether an adapter's name, or its PCI identifiers, mark a software
 /// or virtual rasteriser: a name holding, in any letter case, llvmpipe,

@@ -16,6 +16,7 @@
 #include "pad_state.hpp"
 #include "oa/app/frame_pacing.hpp"
 #include "oa/app/match_console.hpp"
+#include "oa/platform/render_probe.hpp"
 #include "oa/ui/console/console.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/gadget_render.hpp"
@@ -323,7 +324,7 @@ void Runtime::show_frame_stats(bool shown) {
     frame_stats_shown_ = shown;
 }
 
-frame_pacing::FrameStatsRenderer Runtime::frame_stats_renderer() const {
+frame_pacing::FrameStatsRenderer Runtime::frame_stats_renderer() {
     frame_pacing::FrameStatsRenderer renderer{};
     renderer.tier = full_presentation()          ? full_tier_name
                     : accelerated_presentation() ? basic_tier_name
@@ -346,6 +347,23 @@ frame_pacing::FrameStatsRenderer Runtime::frame_stats_renderer() const {
     // a frame what it needs past them.
     if (full_presentation() && full_->page_memory_full)
         renderer.limit = "sprite memory full";
+    // The graphics device the turned view draws on, which may be on another
+    // adapter than the window's renderer: named when it opens, and again
+    // only when another takes its place.
+    if (SDL_GPUDevice* const device = turned_view_device(); device != turned_named_device_) {
+        turned_named_device_ = device;
+        turned_driver_.clear();
+        turned_adapter_.clear();
+        if (device != nullptr) {
+            const char* driver = SDL_GetGPUDeviceDriver(device);
+            turned_driver_ = driver != nullptr ? driver : "";
+            turned_adapter_ =
+                stats_device_adapter_name(oa::platform::render_probe::gpu_device_adapter(device));
+        }
+    }
+    renderer.turned_device = turned_named_device_ != nullptr;
+    renderer.turned_driver = turned_driver_;
+    renderer.turned_adapter = turned_adapter_;
     return renderer;
 }
 
@@ -397,15 +415,18 @@ void Runtime::draw_frame_stats() {
     if (font == nullptr)
         return;
     ensure_ui_colors();
+    const frame_pacing::FrameStatsRenderer renderer = frame_stats_renderer();
     const FrameStatsTable table = frame_pacing::frame_stats_table(
-        frame_stats_, frame_stats_notes(), frame_stats_renderer(), frame_stats_display()
+        frame_stats_, frame_stats_notes(), renderer, frame_stats_display()
     );
     LabelFont label_font{font};
     panel::TextWidthHooks measure{};
     measure.context = &label_font;
     measure.width = label_width;
+    // Laid out for the rows the table has, the turned view's device's
+    // among them while it is open.
     const auto layout = panel::lay_out_panel(
-        frame_pacing::frame_stats_widest_table(),
+        frame_pacing::frame_stats_widest_table(renderer.turned_device),
         measure,
         static_cast<int>(oa::formats::fnt::line_height(*font))
     );
@@ -552,8 +573,8 @@ void Runtime::draw_frame_stats() {
             continue;
         }
         if (frame_pacing::runs_on(row.kind)) {
-            // The renderer's names and the display's, cut where they would
-            // pass the panel.
+            // The renderer's names, the turned view's device's and the
+            // display's, cut where they would pass the panel.
             const auto fit = panel::fit_run_on_row(row, measure, layout);
             text(
                 layout.label_x * scale,

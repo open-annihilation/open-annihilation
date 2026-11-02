@@ -20,6 +20,7 @@
 #include "renderer_water_surface.hpp"
 #include "xrgb_conversion.hpp"
 #include "oa/platform/job_pool.hpp"
+#include "oa/platform/render_probe.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
@@ -34,6 +35,9 @@
 #include <vector>
 
 namespace oa::app {
+
+namespace render_probe = oa::platform::render_probe;
+
 namespace {
 /// Camera rotation per logical mouse pixel.
 constexpr float orbit_degrees_per_pixel = 0.25F;
@@ -220,6 +224,14 @@ void Runtime::follow_card_presentation() {
                   << std::flush;
     }
     sdl_.renderer = host.renderer();
+    // The "+stats" overlay names the renderer the window presents through
+    // now: SDL's renderer on the card's device, or the one the walk made.
+    if (host.presenting_on_card()) {
+        const auto facts = render_probe::describe(sdl_.renderer, render_probe::AdapterRead::read);
+        take_renderer_names(facts.renderer, stats_adapter_name(facts));
+    } else {
+        take_renderer_names(host.facts().renderer, stats_adapter_name(host.facts()));
+    }
     // A new renderer waits for the display only once it is asked to.
     vertical_sync_in_effect_ = false;
     apply_vertical_sync();
@@ -509,6 +521,10 @@ bool Runtime::live_renderer_failed() const noexcept {
 
 bool Runtime::live_renderer_unavailable() const noexcept {
     return live_renderer_ && live_renderer_->unavailable;
+}
+
+SDL_GPUDevice* Runtime::turned_view_device() const noexcept {
+    return live_renderer_ ? renderer_live_gpu::opened_device(live_renderer_->gpu) : nullptr;
 }
 
 std::size_t Runtime::live_renderer_vertex_count() const noexcept {

@@ -80,9 +80,8 @@ PanelLayout lay_out_panel(
     layout.row_height = row_height;
     const std::size_t rows = std::min(table.row_count, table.rows.size());
     // The columns' widths, then where they end with the labels at 0. The
-    // title runs across the columns and sets none of them; the renderer and
-    // display rows set nothing, as their texts are fitted where they are
-    // drawn.
+    // title runs across the columns and sets none of them; the rows that
+    // run on set nothing, as their texts are fitted where they are drawn.
     int labels = 0;
     int title = 0;
     std::array<int, kFrameStatsValueColumns> widths{};

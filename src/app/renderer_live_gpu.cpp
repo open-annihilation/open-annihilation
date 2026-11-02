@@ -1596,6 +1596,12 @@ SDL_GPUDevice* device(Context& context) {
     return open_device(context, error) ? context.state->resources.device : nullptr;
 }
 
+SDL_GPUDevice* opened_device(const Context& context) noexcept {
+    if (context.shared_device)
+        return context.shared_device;
+    return context.state ? context.state->resources.device : nullptr;
+}
+
 bool draws_models(const Context& context) noexcept {
     return context.models_allowed && !context.device_unavailable && context.state &&
            context.state->resources.device != nullptr;

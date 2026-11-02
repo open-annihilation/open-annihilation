@@ -8209,6 +8209,10 @@ class Runtime final : public menu::Host,
     [[nodiscard]] bool live_renderer_failed() const noexcept;
     /// Distinguishes an unsupported GPU backend from a rendering error.
     [[nodiscard]] bool live_renderer_unavailable() const noexcept;
+    /// Returns the graphics device the turned view draws on, where the live
+    /// renderer has one open (renderer_live_gpu::opened_device).
+    /// @return the device; null without one
+    [[nodiscard]] SDL_GPUDevice* turned_view_device() const noexcept;
     /// Returns the geometry count of the last built live frame.
     [[nodiscard]] std::size_t live_renderer_vertex_count() const noexcept;
     /// Returns how many vertices in the last live frame carry emitted light.
@@ -21134,12 +21138,14 @@ class Runtime final : public menu::Host,
     ///     as the rate it keeps
     [[nodiscard]] frame_pacing::FrameStatsNotes frame_stats_notes() const;
 
-    /// Returns what the "+stats" overlay's renderer row names: the standard
-    /// tier, and the render driver and adapter the runtime was handed
-    /// (take_renderer_names), or that it named when it made its own.
+    /// Returns what the "+stats" overlay's renderer rows name: the tier, and
+    /// the render driver and adapter the runtime was handed
+    /// (take_renderer_names), or that it named when it made its own; and,
+    /// while the turned view has a graphics device open, that device's
+    /// driver and adapter, named once for each device.
     ///
     /// @return the names, valid while the runtime keeps them
-    [[nodiscard]] frame_pacing::FrameStatsRenderer frame_stats_renderer() const;
+    [[nodiscard]] frame_pacing::FrameStatsRenderer frame_stats_renderer();
 
     /// Returns what the "+stats" overlay's display row names: whether the
     /// window is a window, full screen on the display's desktop mode or at a
@@ -21229,6 +21235,11 @@ class Runtime final : public menu::Host,
     bool frame_stats_shown_ = false; ///< "+stats" shows the overlay
     std::string renderer_driver_{};  ///< SDL's name for the render driver; empty without one
     std::string renderer_adapter_{}; ///< the adapter's name; empty where none was read
+    /// The turned view's graphics device that turned_driver_ and
+    /// turned_adapter_ name; null while none is open.
+    SDL_GPUDevice* turned_named_device_{};
+    std::string turned_driver_{};  ///< SDL's name for that device's driver; empty for none
+    std::string turned_adapter_{}; ///< its adapter's name (stats_device_adapter_name)
     /// Where the last frame drew the "+stats" overlay; empty when it drew none.
     std::optional<FrameStatsPlace> frame_stats_place_{};
     uint64_t frame_time_ns_{};       ///< the time the frame being run stands for

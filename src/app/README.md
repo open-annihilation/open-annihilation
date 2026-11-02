@@ -141,9 +141,21 @@ cocoa (Apple M2), textures up to 16384; standard tier: the processor draws
 everything`. Under `SDL_RENDER_DRIVER` the adapter is not read and the
 brackets are left out, and so they are for SDL's software renderer, which
 has no adapter; no limit reads "textures of any size". The +stats overlay
-names the same renderer. `app-graphics-report` checks the limit and the
-line, and `native-renderer-report` that a start on the dummy video driver
-logs it.
+names the same renderer, and, while the window presents through the
+card's device for the turned 3D view, SDL's renderer on that device and its
+adapter (`follow_card_presentation`). `app-graphics-report` checks the
+limit and the line, and `native-renderer-report` that a start on the dummy
+video driver logs it.
+
+On a Windows laptop with two graphics cards the drivers choose the card a
+program starts on, and the window's renderer is made on the adapter the
+system offers first: the processor's own graphics, unless the program asks
+for the discrete card. `open-annihilation.exe` asks for it
+([graphics preference](../platform/graphics-preference/README.md)); the
+player's choice in Windows' graphics settings or the driver's control panel
+overrides it. The turned view's graphics device asks SDL for the
+high-performance device, a discrete card before the processor's graphics,
+whatever the drivers choose for the window.
 
 ## The start's movies and the menu hum
 
@@ -2869,15 +2881,21 @@ prompts, Settings › Updates and the headers name one state with one size.
   drew the units as dots), the renderer: the tier frames are drawn in and
   the render driver, as in "standard: metal", with the adapter's name, or
   "sprite memory full" while the full tier leaves out of a frame what its
-  pages may not hold, each cut to 23 bytes, never inside a character; and
-  the display
+  pages may not hold, each cut to 23 bytes, never inside a character;
+  while the turned view has a graphics device open
+  (`Runtime::turned_view_device`), that device under it, "3D" and SDL's name
+  for its driver, as in "3D: vulkan", with its adapter's name
+  (`render_probe::gpu_device_adapter`, or "unknown adapter" where SDL gives
+  none), named once for each device and cut in the same way, so that a
+  laptop's report reads, for instance, "full 4x4: direct3d11 Intel(R) UHD
+  Graphic" over "3D: vulkan NVIDIA GeForce RTX 4070"; and the display
   (`set_display_row`, `Runtime::frame_stats_display`): "window", "full
   screen" (on the desktop's mode) or "exclusive" (at a mode of the game's
   own) with the size the match is laid out and drawn at, as in "full screen
   1280x720", then the display's mode, its refresh rate and its scale
   (`SDL_GetWindowDisplayScale`), as in "1728x1117@120 2x". The panel keeps
-  its width whatever the names: it cuts the renderer and display rows, in
-  its font's own widths, where they would pass the panel's padding
+  its width whatever the names: it cuts the renderer, 3D device and display
+  rows, in its font's own widths, where they would pass the panel's padding
   (`fit_run_on_row`). Each
   time is graded as it is taken, against the
   allowance of the frame it belongs to (`frame_allowance_ns`: 1 / the rate
@@ -2894,8 +2912,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   tick and a fainter dotted one at the frame's allowance.
   `frame_stats_panel` lays the panel out in the match label font for the
   widest texts the table shows (`frame_stats_widest_table`, which keeps no
-  room for the renderer and display rows), so nothing in it moves from
-  frame to frame,
+  room for the rows that run on), so nothing in it moves from frame to
+  frame; the 3D device's row makes it a row taller while that device is
+  open, when it reaches a row above the battlefield's bottom right quarter
+  at 640x480 and draws at scale 1 at 1280x960,
   and places it at the HUD's text scale, or
   at the largest whole scale below it at which it fits the battlefield's
   bottom right quarter; it reads the statistics and writes nothing of the

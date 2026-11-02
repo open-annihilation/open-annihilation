@@ -13,8 +13,9 @@
 // video drivers whose windows have a framebuffer of their own; and a
 // Direct3D 9 device's answers read as its states. Then SDL's software
 // renderer on the dummy video driver, described as the game describes it,
-// and its device state, unknown. On Windows, the test's own executable,
-// which links the probe and SDL, imports no graphics library.
+// and its device state, unknown; and the adapter of a graphics device,
+// where the video driver can make one. On Windows, the test's own
+// executable, which links the probe and SDL, imports no graphics library.
 #include "oa/platform/render_probe.hpp"
 
 #include "oa/test/check.hpp"
@@ -471,6 +472,37 @@ void test_software_renderer() {
     SDL_Quit();
 }
 
+/// No device names no adapter. Where SDL's video driver can make a graphics
+/// device, the device's adapter is the name SDL gives it from SDL 3.4,
+/// cleaned. On the dummy video driver the test runs on, which makes none,
+/// that part is skipped; run by hand on a Mac's own driver it names the
+/// Metal device.
+void test_gpu_device_adapter() {
+    OA_CHECK(gpu_device_adapter(nullptr).empty());
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        OA_CHECK(false);
+        return;
+    }
+    SDL_GPUDevice* device =
+        SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+    if (device == nullptr) {
+        std::printf("no graphics device on this video driver: %s\n", SDL_GetError());
+    } else {
+        const std::string adapter = gpu_device_adapter(device);
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        std::printf("graphics device: %s (%s)\n", adapter.c_str(), driver != nullptr ? driver : "");
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+        OA_CHECK(!adapter.empty());
+        OA_CHECK(adapter == clean_name(adapter));
+#else
+        OA_CHECK(adapter.empty());
+#endif
+        SDL_DestroyGPUDevice(device);
+    }
+    SDL_Quit();
+}
+
 #if defined(_WIN32)
 /// The libraries of the graphics interfaces the readers reach, which no
 /// Windows build links: Direct3D 9, 11 and 12, DXGI, OpenGL, OpenGL ES 2
@@ -590,6 +622,7 @@ int main() {
     test_clean_name();
     test_native_window_framebuffer();
     test_software_renderer();
+    test_gpu_device_adapter();
 #if defined(_WIN32)
     test_no_graphics_library_imported();
 #endif

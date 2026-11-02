@@ -21,6 +21,11 @@ only declares `SDL_Renderer`.
   reported_texture_limit, read, reader)` is the same from SDL's names and
   report, with the adapter read through a hook (`AdapterReader`): the part
   of `describe` a test can drive without a graphics interface.
+- `gpu_device_adapter(device)` names the adapter behind one of SDL's
+  graphics devices: the name SDL gives the device from SDL 3.4, cleaned,
+  or nothing where SDL gives none, as on SDL 3.2. The `gpu` renderer's
+  adapter is read through it, and so is that of the device the 3D view
+  draws on, which the game makes itself.
 - `names_software_rasteriser(name, vendor, device)`: true for a name that
   holds, in any letter case, `llvmpipe`, `softpipe`, `lavapipe`, `swrast`,
   `software rasterizer`, `swiftshader`, `gdi generic`, `apple software
@@ -106,8 +111,9 @@ source. Wine is found by `GetProcAddress` of `wine_get_version` in
 
 Start-up describes the renderer it made and logs one line, with the
 texture limit the render policy corrects and the tier the first frame is
-drawn in, and the +stats overlay names the driver and adapter
-([src/app](../../app/README.md)). The walk of the render drivers that makes
+drawn in, and the +stats overlay names the driver and adapter of the
+window's renderer and, while the 3D view's graphics device is open, that
+device's adapter ([src/app](../../app/README.md)). The walk of the render drivers that makes
 it asks `native_window_framebuffer` what to set the framebuffer hint to
 before SDL's software renderer. The render policy reads what the probe
 found (`adapter_needed`, `capable_before_vista`, the classification, the
@@ -127,8 +133,11 @@ the wait for the display, and the class the accelerated tier has been run
 on; the classification and the cleaning of names; what `describe_reported`
 reads through a stand-in reader, for SDL's software renderer and for
 others, with the adapter read or skipped, named, failing or blank; the
-video drivers whose windows have a framebuffer of their own; and SDL's
-software renderer on the dummy video driver described. On Windows it reads
+video drivers whose windows have a framebuffer of their own; SDL's
+software renderer on the dummy video driver described; and that no
+graphics device names no adapter, and a device the video driver makes is
+named, which the dummy driver skips but a Mac's own driver, run by hand,
+names. On Windows it reads
 its own executable's import table, delay-loaded libraries included, and
 finds none of the graphics libraries: Direct3D 9, 11 and 12, DXGI, OpenGL,
 EGL with OpenGL ES 2, and Vulkan.

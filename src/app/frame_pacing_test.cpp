@@ -772,7 +772,8 @@ void test_frame_stats() {
     renderer.adapter = "Apple M2";
     CHECK(!roll_frame_stats(window, kClockStart));
     FrameStatsTable table = oa::app::frame_pacing::frame_stats_table(window, notes, renderer);
-    CHECK(table.row_count == oa::app::frame_pacing::kFrameStatsRowsMost);
+    // Without a graphics device of the turned view, a row fewer than most.
+    CHECK(table.row_count == oa::app::frame_pacing::kFrameStatsRowsMost - 1);
     CHECK(table.row_count == 12);
     CHECK(table.rows[0].kind == FrameStatsRowKind::title);
     CHECK(row_reads(table.rows[0], "Frame stats (ms)", "", "", "", ""));
@@ -797,6 +798,23 @@ void test_frame_stats() {
     // The display row, last: no window was named.
     CHECK(table.rows[11].kind == FrameStatsRowKind::display);
     CHECK(row_reads(table.rows[11], "no window", "", "", "", ""));
+    // With the turned view's graphics device open, its row follows the
+    // renderer's, and the display's is last again.
+    {
+        auto turned = renderer;
+        turned.turned_device = true;
+        turned.turned_driver = "metal";
+        turned.turned_adapter = "Apple M2";
+        const auto with_device = oa::app::frame_pacing::frame_stats_table(window, notes, turned);
+        CHECK(with_device.row_count == oa::app::frame_pacing::kFrameStatsRowsMost);
+        CHECK(with_device.row_count == 13);
+        CHECK(with_device.rows[10].kind == FrameStatsRowKind::renderer);
+        CHECK(row_reads(with_device.rows[10], "standard: metal", "", "", "", "Apple M2"));
+        CHECK(with_device.rows[11].kind == FrameStatsRowKind::turned_device);
+        CHECK(row_reads(with_device.rows[11], "3D: metal", "", "", "", "Apple M2"));
+        CHECK(with_device.rows[12].kind == FrameStatsRowKind::display);
+        CHECK(row_reads(with_device.rows[12], "no window", "", "", "", ""));
+    }
     // A second of 120 frames 8 to 9 ms apart, 30 ticks of 2 to 4 ms.
     for (uint32_t frame = 0; frame < 120; ++frame) {
         note_frame_measure(
@@ -909,7 +927,9 @@ void test_renderer_row() {
     using oa::app::frame_pacing::kFrameStatsTextBytes;
     const oa::app::frame_pacing::FrameStatsWindow window{};
     const oa::app::frame_pacing::FrameStatsNotes notes{120, 120, 0, 0};
-    constexpr std::size_t kRendererRow = kFrameStatsRowsMost - 2;
+    // The renderer's row, before the display's, in a table without a
+    // graphics device of the turned view.
+    constexpr std::size_t kRendererRow = kFrameStatsRowsMost - 3;
     constexpr std::size_t kTextCharacters = kFrameStatsTextBytes - 1;
     FrameStatsRenderer renderer{};
     renderer.tier = "standard";
@@ -956,6 +976,70 @@ void test_renderer_row() {
     CHECK(row_reads(widest, "", "", "", "", ""));
 }
 
+// The turned view's graphics device's row names "3D" and the device's
+// driver, with its adapter as the note, the adapter of a laptop's discrete
+// card beside the window renderer's on the processor's graphics; cuts each
+// as the renderer row's are; reads "3D" alone without a driver; and is in
+// the table, and in the widest table, empty, only with the device.
+void test_turned_device_row() {
+    using oa::app::frame_pacing::FrameStatsRenderer;
+    using oa::app::frame_pacing::kFrameStatsRowsMost;
+    using oa::app::frame_pacing::kFrameStatsTextBytes;
+    using oa::app::frame_pacing::runs_on;
+    const oa::app::frame_pacing::FrameStatsWindow window{};
+    const oa::app::frame_pacing::FrameStatsNotes notes{120, 120, 0, 0};
+    constexpr std::size_t kRendererRow = kFrameStatsRowsMost - 3;
+    constexpr std::size_t kDeviceRow = kFrameStatsRowsMost - 2;
+    constexpr std::size_t kTextCharacters = kFrameStatsTextBytes - 1;
+    FrameStatsRenderer renderer{};
+    renderer.tier = "full";
+    renderer.anti_aliasing = "4x4";
+    renderer.driver = "direct3d11";
+    renderer.adapter = "Intel(R) UHD Graphics";
+    renderer.turned_device = true;
+    renderer.turned_driver = "vulkan";
+    renderer.turned_adapter = "NVIDIA GeForce RTX 4070 Laptop GPU";
+    auto table = oa::app::frame_pacing::frame_stats_table(window, notes, renderer);
+    CHECK(row_reads(
+        table.rows[kRendererRow], "full 4x4: direct3d11", "", "", "", "Intel(R) UHD Graphics"
+    ));
+    auto row = table.rows[kDeviceRow];
+    CHECK(row.kind == FrameStatsRowKind::turned_device);
+    CHECK(runs_on(row.kind));
+    CHECK(row_reads(row, "3D: vulkan", "", "", "", "NVIDIA GeForce RTX 4070"));
+    CHECK(row.note.view().size() == kTextCharacters);
+    // A limit of the full tier takes the window adapter's place alone.
+    renderer.limit = "sprite memory full";
+    table = oa::app::frame_pacing::frame_stats_table(window, notes, renderer);
+    CHECK(table.rows[kRendererRow].note.view() == "sprite memory full");
+    CHECK(table.rows[kDeviceRow].note.view() == "NVIDIA GeForce RTX 4070");
+    renderer.limit = {};
+    // A device SDL named no driver for, and an adapter it could not name.
+    renderer.turned_driver = {};
+    renderer.turned_adapter = "unknown adapter";
+    row = oa::app::frame_pacing::frame_stats_table(window, notes, renderer).rows[kDeviceRow];
+    CHECK(row_reads(row, "3D", "", "", "", "unknown adapter"));
+    // A driver longer than the text holds is cut where the text ends, and a
+    // two-byte character across the cut of the adapter is left out whole.
+    renderer.turned_driver = "a-graphics-driver-with-a-long-name";
+    renderer.turned_adapter = "Radeon Graphics 012345\xc3\xa9t";
+    row = oa::app::frame_pacing::frame_stats_table(window, notes, renderer).rows[kDeviceRow];
+    CHECK(row.label.view() == "3D: a-graphics-driver-w");
+    CHECK(row.label.view().size() == kTextCharacters);
+    CHECK(row.note.view() == "Radeon Graphics 012345");
+    // The widest table keeps the row, empty, only where the table has it.
+    const auto widest = oa::app::frame_pacing::frame_stats_widest_table(true);
+    CHECK(widest.row_count == kFrameStatsRowsMost);
+    CHECK(widest.rows[kDeviceRow].kind == FrameStatsRowKind::turned_device);
+    CHECK(row_reads(widest.rows[kDeviceRow], "", "", "", "", ""));
+    CHECK(widest.rows[kFrameStatsRowsMost - 1].kind == FrameStatsRowKind::display);
+    const auto without = oa::app::frame_pacing::frame_stats_widest_table();
+    CHECK(without.row_count == kFrameStatsRowsMost - 1);
+    CHECK(without.rows[kDeviceRow].kind == FrameStatsRowKind::display);
+    for (std::size_t index = 0; index < without.row_count; ++index)
+        CHECK(without.rows[index].kind != FrameStatsRowKind::turned_device);
+}
+
 // The display row names a window, full screen on the desktop's mode and
 // at a mode of the game's own, the frame the match is drawn at, and the
 // display's mode, refresh rate and scale, leaving out what is not known;
@@ -967,7 +1051,9 @@ void test_display_row() {
     using oa::app::frame_pacing::runs_on;
     const oa::app::frame_pacing::FrameStatsWindow window{};
     const oa::app::frame_pacing::FrameStatsNotes notes{120, 120, 0, 0};
-    constexpr std::size_t kDisplayRow = kFrameStatsRowsMost - 1;
+    // The display's row, last in a table without a graphics device of the
+    // turned view.
+    constexpr std::size_t kDisplayRow = kFrameStatsRowsMost - 2;
     const auto row_of = [&](const FrameStatsDisplay& display) {
         return oa::app::frame_pacing::frame_stats_table(window, notes, {}, display)
             .rows[kDisplayRow];
@@ -1191,6 +1277,7 @@ int main() {
     test_scroll_distance();
     test_frame_stats();
     test_renderer_row();
+    test_turned_device_row();
     test_display_row();
     test_whole_characters();
     test_time_severity();

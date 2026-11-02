@@ -1943,10 +1943,14 @@ void picture_on_card() {
     // device to it.
     SDL_GPUDevice* const shared = device(context);
     OA_CHECK(shared != nullptr);
+    OA_CHECK(opened_device(context) == shared);
     const auto own = frame(false, &lights, 1);
     {
         Context borrowing;
+        // Nothing is open before a device is shared or opened.
+        OA_CHECK(opened_device(borrowing) == nullptr);
         borrowing.shared_device = shared;
+        OA_CHECK(opened_device(borrowing) == shared);
         OA_CHECK(device(borrowing) == shared);
         std::vector<uint8_t> borrowed;
         OA_CHECK(

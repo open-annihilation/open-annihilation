@@ -89,8 +89,9 @@ struct PanelLayout {
     int rule_width{}; ///< columns of the rule, as wide as the table and graph
     /// Each value column's right edge, where its values end.
     std::array<int, frame_pacing::kFrameStatsValueColumns> value_right{};
-    /// Where each row's note starts; label_x for the renderer and display
-    /// rows, whose notes are placed after their labels where they are drawn
+    /// Where each row's note starts; label_x for the rows that run on (the
+    /// renderer's, the turned view's device's and the display's), whose
+    /// notes are placed after their labels where they are drawn
     /// (fit_run_on_row).
     std::array<int, frame_pacing::kFrameStatsRowsMost> note_x{};
     Box graph{}; ///< the bars' area, inside the graph's sunken edge
@@ -112,8 +113,8 @@ struct TextWidthHooks {
 /// across the columns. The three value columns follow, kColumnGap apart,
 /// each as wide as its widest text, every value ending at its column's
 /// right edge. A row's note starts kColumnGap after the last value column
-/// the row fills, or after the labels in a row that fills none. The
-/// renderer and display rows (frame_pacing::runs_on) set no width: their
+/// the row fills, or after the labels in a row that fills none. The rows
+/// that run on (frame_pacing::runs_on) set no width: their
 /// labels and notes run on from the labels' left edge and are cut to the
 /// panel's width where they are drawn (fit_run_on_row). Under the table, kGraphGap below
 /// its last row, the graph holds a column kBarWidth across for each column
@@ -141,8 +142,8 @@ struct RunOnFit {
     std::size_t note_bytes{};  ///< the bytes of the note drawn; 0 when the label was cut
 };
 
-/// Fits a row that runs on, the renderer's or the display's
-/// (frame_pacing::runs_on), to a panel laid out by lay_out_panel, whose width it never changes: its label from the
+/// Fits a row that runs on, the renderer's, the turned view's device's or
+/// the display's (frame_pacing::runs_on), to a panel laid out by lay_out_panel, whose width it never changes: its label from the
 /// labels' left edge (label_x), and its note kColumnGap after the label.
 /// Each is cut, never inside a character (frame_pacing::whole_characters),
 /// where it would pass the panel's padding at the right; a cut label leaves

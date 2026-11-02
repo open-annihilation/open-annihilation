@@ -6,8 +6,9 @@
 // right-aligned in columns as wide as their widest text, each note after
 // its row's last value, the columns moved right together when the graph is
 // the wider, the graph under the table, and the same layout whatever the
-// figures; its place and scale on windows of several sizes; the height of
-// each frame's bar and of the graph's lines; and each grade's colour.
+// figures, and a row taller with the turned view's graphics device; its
+// place and scale on windows of several sizes; the height of each frame's
+// bar and of the graph's lines; and each grade's colour.
 #include "frame_stats_panel.hpp"
 
 #include "oa/app/frame_pacing.hpp"
@@ -318,6 +319,50 @@ void test_renderer_row_fits_the_panel() {
     }
 }
 
+// The turned view's graphics device's row sets no width either: laid out
+// with it, the panel is as wide as without it and a row taller. In the
+// match label font, the name of a laptop's discrete card, cut to one of the
+// table's texts, shows whole after "3D" and the device's driver, under the
+// window's renderer, whose adapter on the processor's graphics is cut where
+// one more character would pass the padding, as before.
+void test_turned_device_row_fits_the_panel() {
+    const panel::TextWidthHooks measure{nullptr, console_width};
+    const auto without =
+        panel::lay_out_panel(frame_pacing::frame_stats_widest_table(), measure, kRowHeight);
+    const auto layout =
+        panel::lay_out_panel(frame_pacing::frame_stats_widest_table(true), measure, kRowHeight);
+    CHECK(layout.width == without.width);
+    CHECK(layout.value_right == without.value_right);
+    CHECK(layout.height == without.height + kRowHeight);
+    const int right = layout.width - kInner;
+    for (const std::string_view driver : {"vulkan", "metal", "direct3d12"}) {
+        frame_pacing::FrameStatsRenderer renderer{};
+        renderer.tier = "full";
+        renderer.anti_aliasing = "4x4";
+        renderer.driver = "direct3d11";
+        renderer.adapter = "Intel(R) UHD Graphics";
+        renderer.turned_device = true;
+        renderer.turned_driver = driver;
+        renderer.turned_adapter = "NVIDIA GeForce RTX 4070 Laptop GPU";
+        const auto table = frame_pacing::frame_stats_table({}, {}, renderer);
+        CHECK(table.row_count == frame_pacing::kFrameStatsRowsMost);
+        const std::size_t device_row = table.row_count - 2;
+        const auto& row = table.rows[device_row];
+        CHECK(row.kind == frame_pacing::FrameStatsRowKind::turned_device);
+        CHECK(layout.note_x[device_row] == layout.label_x);
+        const auto fit = panel::fit_run_on_row(row, measure, layout);
+        CHECK(fit.label_bytes == row.label.view().size());
+        CHECK(row.note.view() == "NVIDIA GeForce RTX 4070");
+        CHECK(fit.note_bytes == row.note.view().size());
+        CHECK(fit.note_x + console_width(nullptr, row.note.view()) <= right);
+        const auto& window_row = table.rows[device_row - 1];
+        CHECK(window_row.kind == frame_pacing::FrameStatsRowKind::renderer);
+        const auto window_fit = panel::fit_run_on_row(window_row, measure, layout);
+        CHECK(window_fit.label_bytes == window_row.label.view().size());
+        CHECK(window_row.note.view().substr(0, window_fit.note_bytes) == "Intel(R) UHD Graphic");
+    }
+}
+
 // In the match label font, the display row of a window or of full screen
 // at the sizes of today's displays shows whole, and the longest it can
 // read never passes the panel's padding: its note is cut, between whole
@@ -386,7 +431,8 @@ void test_without_a_measure() {
 void test_layout_stays_in_place() {
     const panel::TextWidthHooks measure{nullptr, console_width};
     const auto widest = frame_pacing::frame_stats_widest_table();
-    CHECK(widest.row_count == frame_pacing::kFrameStatsRowsMost);
+    // Without a graphics device of the turned view, a row fewer than most.
+    CHECK(widest.row_count == frame_pacing::kFrameStatsRowsMost - 1);
     const auto layout = panel::lay_out_panel(widest, measure, kRowHeight);
     // Every text the table shows in play fits the room the widest kept.
     frame_pacing::FrameStatsWindow window{};
@@ -432,6 +478,27 @@ void test_layout_stays_in_place() {
     constexpr int kQuarterHeight = 208;
     CHECK(layout.width + panel::kInset <= kQuarterWidth);
     CHECK(layout.height + panel::kInset <= kQuarterHeight);
+    // With the turned view's device's row the panel is a row taller: it
+    // reaches that row above the quarter of a 640x480 battlefield, where it
+    // keeps its corner at scale 1, and fits the quarter from 800x600 up.
+    const auto turned =
+        panel::lay_out_panel(frame_pacing::frame_stats_widest_table(true), measure, kRowHeight);
+    CHECK(turned.height == layout.height + kRowHeight);
+    CHECK(turned.height + panel::kInset > kQuarterHeight);
+    namespace display_layout = oa::ui::display_layout;
+    const auto small = display_layout::make_match_layout(640, 480);
+    const auto placed = panel::place_panel(turned, small, 1);
+    CHECK(placed.scale == 1);
+    CHECK(placed.panel.x + placed.panel.width + panel::kInset == 640);
+    CHECK(placed.panel.y + placed.panel.height + panel::kInset == small.bottom_bar_y());
+    CHECK(placed.panel.y >= small.battlefield_y());
+    for (const auto& [width, height] :
+         {std::pair{800, 600}, std::pair{1024, 768}, std::pair{1280, 960}, std::pair{1920, 1080}}) {
+        const auto match = display_layout::make_match_layout(width, height);
+        const auto place = panel::place_panel(turned, match, 2);
+        const auto quarter = panel::battlefield_quarter(match);
+        CHECK(place.panel.x >= quarter.x && place.panel.y >= quarter.y);
+    }
 }
 
 // The panel sits kInset in from the battlefield's bottom right corner, at
@@ -526,6 +593,7 @@ int main() {
     test_without_a_measure();
     test_renderer_row_sets_no_width();
     test_renderer_row_fits_the_panel();
+    test_turned_device_row_fits_the_panel();
     test_display_row_fits_the_panel();
     test_layout_stays_in_place();
     test_panel_place();

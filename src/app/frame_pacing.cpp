@@ -122,9 +122,9 @@ constexpr std::size_t kCountRow = kFirstMeasureRow + kFrameMeasureCount;
 constexpr std::size_t kModelRow = kCountRow + 1;
 /// The row of the renderer.
 constexpr std::size_t kRendererRow = kModelRow + 1;
-/// The row of the window and the display.
-constexpr std::size_t kDisplayRow = kRendererRow + 1;
-static_assert(kDisplayRow + 1 == kFrameStatsRowsMost);
+/// The row of the turned view's graphics device, while one is open.
+constexpr std::size_t kTurnedDeviceRow = kRendererRow + 1;
+static_assert(kTurnedDeviceRow + 2 == kFrameStatsRowsMost);
 /// The top two bits of a UTF-8 byte, which tell a continuation byte.
 constexpr unsigned kUtf8LeadMask = 0xC0;
 /// The top two bits of a UTF-8 continuation byte.
@@ -133,6 +133,8 @@ constexpr unsigned kUtf8Continuation = 0x80;
 constexpr std::string_view kTierDriverJoin = ": ";
 /// What joins the tier and its anti-aliasing in the renderer row's label.
 constexpr std::string_view kTierAntiAliasingJoin = " ";
+/// What the turned view's device's row names it by, before its driver.
+constexpr std::string_view kTurnedDeviceName = "3D";
 /// The characters one of the table's texts holds, its terminating zero
 /// left out.
 constexpr std::size_t kTextCharacters = kFrameStatsTextBytes - 1;
@@ -147,13 +149,22 @@ constexpr std::size_t kModeTextBytes = 2 * kNumberCharacters<int> + kNumberChara
 /// fit: the mode, a space and the scale, its terminating zero included.
 constexpr std::size_t kNoteTextBytes = kModeTextBytes + kFrameStatsTextBytes;
 
+/// Returns the row of the window and the display: the last.
+///
+/// @param turned_device the table has the turned view's device's row
+/// @return the row
+constexpr std::size_t display_row(bool turned_device) noexcept {
+    return turned_device ? kTurnedDeviceRow + 1 : kTurnedDeviceRow;
+}
+
 /// Starts the "+stats" table: every row's kind and label, the title and the
 /// value columns' names.
 ///
+/// @param turned_device the table has the turned view's device's row
 /// @return the table with its values and notes empty
-FrameStatsTable table_rows() noexcept {
+FrameStatsTable table_rows(bool turned_device) noexcept {
     FrameStatsTable table{};
-    table.row_count = kFrameStatsRowsMost;
+    table.row_count = display_row(turned_device) + 1;
     auto& title = table.rows[kTitleRow];
     title.kind = FrameStatsRowKind::title;
     set_text(title.label, "Frame stats (ms)");
@@ -177,9 +188,35 @@ FrameStatsTable table_rows() noexcept {
     table.rows[kModelRow].kind = FrameStatsRowKind::count;
     set_text(table.rows[kModelRow].label, "models");
     table.rows[kRendererRow].kind = FrameStatsRowKind::renderer;
-    table.rows[kDisplayRow].kind = FrameStatsRowKind::display;
+    if (turned_device)
+        table.rows[kTurnedDeviceRow].kind = FrameStatsRowKind::turned_device;
+    table.rows[display_row(turned_device)].kind = FrameStatsRowKind::display;
     return table;
 }
+
+/// A row's label joined from parts, a byte longer than a text holds, so
+/// that the cut can see whether the character at the limit goes on past it.
+struct JoinedLabel {
+    std::array<char, kTextCharacters + 1> bytes{}; ///< the parts so far
+    std::size_t length{};                          ///< bytes of them
+
+    /// Adds a part, cut where the bytes end.
+    ///
+    /// @param part the part
+    void append(std::string_view part) noexcept {
+        const std::size_t taken = std::min(part.size(), bytes.size() - length);
+        std::copy_n(part.data(), taken, bytes.data() + length);
+        length += taken;
+    }
+
+    /// Returns the label cut to one of the table's texts, never inside a
+    /// character.
+    ///
+    /// @return the label
+    [[nodiscard]] std::string_view whole() const noexcept {
+        return whole_characters({bytes.data(), length}, kTextCharacters);
+    }
+};
 
 /// Fills the renderer row: the tier and the driver as its label, and the
 /// adapter, or a limit the tier draws within, as its note, each cut to one
@@ -188,31 +225,40 @@ FrameStatsTable table_rows() noexcept {
 /// @param[out] row the row, its kind already set
 /// @param renderer the renderer to name
 void set_renderer_row(FrameStatsRow& row, const FrameStatsRenderer& renderer) noexcept {
-    // A byte more than a text holds, so that the cut can see whether the
-    // character at the limit goes on past it.
-    std::array<char, kTextCharacters + 1> label{};
-    std::size_t length = 0;
-    const auto append = [&](std::string_view part) {
-        const std::size_t taken = std::min(part.size(), label.size() - length);
-        std::copy_n(part.data(), taken, label.data() + length);
-        length += taken;
-    };
-    append(renderer.tier);
+    JoinedLabel label{};
+    label.append(renderer.tier);
     if (!renderer.anti_aliasing.empty()) {
-        append(kTierAntiAliasingJoin);
-        append(renderer.anti_aliasing);
+        label.append(kTierAntiAliasingJoin);
+        label.append(renderer.anti_aliasing);
     }
     if (!renderer.driver.empty()) {
-        append(kTierDriverJoin);
-        append(renderer.driver);
+        label.append(kTierDriverJoin);
+        label.append(renderer.driver);
     }
-    set_text(row.label, whole_characters({label.data(), length}, kTextCharacters));
+    set_text(row.label, label.whole());
     set_text(
         row.note,
         whole_characters(
             renderer.limit.empty() ? renderer.adapter : renderer.limit, kTextCharacters
         )
     );
+}
+
+/// Fills the turned view's device's row: "3D" and the device's driver as
+/// its label, and the device's adapter as its note, each cut to one of the
+/// table's texts, never inside a character.
+///
+/// @param[out] row the row, its kind already set
+/// @param renderer the device to name
+void set_turned_device_row(FrameStatsRow& row, const FrameStatsRenderer& renderer) noexcept {
+    JoinedLabel label{};
+    label.append(kTurnedDeviceName);
+    if (!renderer.turned_driver.empty()) {
+        label.append(kTierDriverJoin);
+        label.append(renderer.turned_driver);
+    }
+    set_text(row.label, label.whole());
+    set_text(row.note, whole_characters(renderer.turned_adapter, kTextCharacters));
 }
 
 /// Returns a scale as the display row writes it: at most two decimals,
@@ -590,7 +636,7 @@ FrameStatsTable frame_stats_table(
 ) noexcept {
     const bool shown = window.shown_span_ns != 0;
     const uint32_t rate = notes.paced_frames_per_second;
-    FrameStatsTable table = table_rows();
+    FrameStatsTable table = table_rows(renderer.turned_device);
 
     auto& frames_row = table.rows[kRateRow];
     const auto& frames = spread_of(window.shown, FrameMeasure::frame);
@@ -662,15 +708,17 @@ FrameStatsTable frame_stats_table(
             dots
         );
     set_renderer_row(table.rows[kRendererRow], renderer);
-    set_display_row(table.rows[kDisplayRow], display);
+    if (renderer.turned_device)
+        set_turned_device_row(table.rows[kTurnedDeviceRow], renderer);
+    set_display_row(table.rows[display_row(renderer.turned_device)], display);
     return table;
 }
 
-FrameStatsTable frame_stats_widest_table() noexcept {
+FrameStatsTable frame_stats_widest_table(bool turned_device) noexcept {
     // Zeros stand for any digit; a font whose digits differ in width may
     // draw a text a pixel or two past the room kept for it.
     constexpr std::string_view kWidestTime = "000.00";
-    FrameStatsTable table = table_rows();
+    FrameStatsTable table = table_rows(turned_device);
     set_text(table.rows[kRateRow].values[kFrameStatsMeanColumn], "0000");
     set_text(table.rows[kRateRow].note, "limit 0000");
     for (std::size_t measure = 0; measure < kFrameMeasureCount; ++measure)
@@ -683,8 +731,8 @@ FrameStatsTable frame_stats_widest_table() noexcept {
     set_text(table.rows[kCountRow].note, "0000 between ticks");
     set_text(table.rows[kModelRow].values[kFrameStatsMeanColumn], "0000");
     set_text(table.rows[kModelRow].note, "MB of 0000, dots");
-    // The renderer and display rows stay empty: the panel cuts their texts
-    // to its width.
+    // The renderer, turned view's device and display rows stay empty: the
+    // panel cuts their texts to its width.
     return table;
 }
 

@@ -26,6 +26,7 @@ namespace {
 using oa::app::corrected_texture_limit;
 using oa::app::graphics_log_line;
 using oa::app::stats_adapter_name;
+using oa::app::stats_device_adapter_name;
 using oa::platform::render_probe::AdapterFacts;
 using oa::platform::render_probe::AdapterState;
 
@@ -146,7 +147,8 @@ void test_log_line() {
 }
 
 /// The "+stats" overlay names a read adapter, says an unnamed one is
-/// unknown, and names none where none was read.
+/// unknown, and names none where none was read; and names the turned view's
+/// graphics device's adapter, or says it is unknown.
 void test_stats_adapter() {
     OA_CHECK(
         stats_adapter_name(facts_of("metal", "cocoa", AdapterState::read, "Apple M2", 0)) ==
@@ -158,6 +160,13 @@ void test_stats_adapter() {
     );
     OA_CHECK(stats_adapter_name(facts_of("opengl", "x11", AdapterState::skipped, "", 0)).empty());
     OA_CHECK(stats_adapter_name(facts_of("software", "x11", AdapterState::none, "", 0)).empty());
+    // The turned view's graphics device: its adapter as SDL names it, or
+    // unknown where SDL gives no name.
+    OA_CHECK(
+        stats_device_adapter_name("NVIDIA GeForce RTX 4070 Laptop GPU") ==
+        "NVIDIA GeForce RTX 4070 Laptop GPU"
+    );
+    OA_CHECK(stats_device_adapter_name("") == "unknown adapter");
 }
 
 /// The adapter is read where SDL_RENDER_DRIVER names no driver, unset or

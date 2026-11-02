@@ -218,6 +218,10 @@ std::string stats_adapter_name(const render_probe::AdapterFacts& facts) {
     return {};
 }
 
+std::string stats_device_adapter_name(std::string_view adapter) {
+    return std::string(adapter.empty() ? unknown_adapter_name : adapter);
+}
+
 render_probe::AdapterRead adapter_read_for(std::string_view named_driver, bool flags_ask) noexcept {
     return named_driver.empty() || flags_ask ? render_probe::AdapterRead::read
                                              : render_probe::AdapterRead::skip;

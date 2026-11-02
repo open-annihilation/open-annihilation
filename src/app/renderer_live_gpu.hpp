@@ -391,6 +391,14 @@ Result render(
 /// @return the device; null where SDL makes none (Context::device_unavailable)
 SDL_GPUDevice* device(Context& context);
 
+/// Returns the graphics device render() draws on where it is open, without
+/// opening one: Context::shared_device where it is set, else the device
+/// render() or device() opened.
+///
+/// @param context the persistent GPU resources
+/// @return the device; null before one is open, or where SDL made none
+[[nodiscard]] SDL_GPUDevice* opened_device(const Context& context) noexcept;
+
 /// What the processor painted over the turned view, for compose_overlay().
 struct Overlay {
     /// The overlay canvas as ARGB8888 words, as convert_rgb24_keyed_overlay_argb

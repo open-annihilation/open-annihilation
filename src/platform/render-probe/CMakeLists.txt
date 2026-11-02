@@ -33,8 +33,9 @@ if(BUILD_TESTING)
   # accelerated tier has been run on, the classification and cleaning of
   # what a driver reports, what describe reads through a stand-in reader,
   # the video drivers whose windows have a framebuffer of their own, SDL's
-  # software renderer on the dummy video driver described, and on Windows
-  # no graphics library among the executable's imports.
+  # software renderer on the dummy video driver described, the adapter of a
+  # graphics device where the video driver makes one, and on Windows no
+  # graphics library among the executable's imports.
   add_executable(oa-platform-render-probe-test tests/render_probe_test.cpp)
   target_link_libraries(oa-platform-render-probe-test PRIVATE oa-platform-render-probe SDL3::SDL3
     oa-test-support oa-options)

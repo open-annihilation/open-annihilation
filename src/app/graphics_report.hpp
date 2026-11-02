@@ -135,6 +135,15 @@ corrected_texture_limit(const oa::platform::render_probe::AdapterFacts& facts) n
 /// @return the name; empty for none
 [[nodiscard]] std::string stats_adapter_name(const oa::platform::render_probe::AdapterFacts& facts);
 
+/// Returns the adapter the "+stats" overlay names for the graphics device
+/// the turned (3D) view draws on: the name SDL gave the device
+/// (render_probe::gpu_device_adapter), or unknown_adapter_name where it gave
+/// none, as before SDL 3.4.
+///
+/// @param adapter the device's adapter's name; empty for none
+/// @return the name
+[[nodiscard]] std::string stats_device_adapter_name(std::string_view adapter);
+
 /// Says whether the start reads the adapter, from the render driver
 /// SDL_RENDER_DRIVER names: it does where none is named, and not where one
 /// is, which keeps the start the player asked for to SDL's own properties
