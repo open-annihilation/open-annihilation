@@ -1281,7 +1281,10 @@ The Developer section sits at the foot of the column, under the divider.
   player of a network game must have them. While it is on, a network
   game's battle room is told so.
 - **Show performance statistics**, Off by default: the frame and tick
-  times over the battlefield, the renderer in use, and a line saying
+  times over the battlefield, the renderer in use and the graphics card it
+  draws on, the card that draws Full 3D Mode's turned view once it has
+  turned ([which card a laptop uses](troubleshooting.md#a-slow-frame-rate-on-a-laptop)),
+  and a line saying
   whether the game shows in a window, full screen on the desktop's mode or
   full screen at a mode of its own (exclusive), the size it draws the
   battlefield at, and the display's size, refresh rate and scale (2x on a

@@ -13,7 +13,9 @@ input method is composing another script is in [typing.md](typing.md).
 opens the debug commands and the F11 debug keys. It does not allow cheat
 codes when the game has them off.
 
-`+stats` shows or hides the frame times over the battlefield, and saves
-the choice, as the performance setting does. `+stats 1` and `+stats 0`
+`+stats` shows or hides the frame times over the battlefield, with the
+graphics card each part of the picture is drawn on
+([on a laptop](troubleshooting.md#a-slow-frame-rate-on-a-laptop)), and
+saves the choice, as the performance setting does. `+stats 1` and `+stats 0`
 show and hide them for this game without saving. It is an option: it
 needs no passphrase and its echo stays on your machine.
