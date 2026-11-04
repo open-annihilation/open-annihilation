@@ -71,6 +71,12 @@ if(BUILD_TESTING)
   add_test(NAME net-dplay-loopback COMMAND oa-netgame-loopback-test)
   set_tests_properties(net-dplay-loopback PROPERTIES TIMEOUT 60)
 
+  # A client finds and joins a host through installed routes, on free ports.
+  add_executable(oa-netgame-overlay-join-test tests/overlay_join_test.cpp)
+  target_link_libraries(oa-netgame-overlay-join-test PRIVATE oa-netgame)
+  add_test(NAME net-overlay-join COMMAND oa-netgame-overlay-join-test)
+  set_tests_properties(net-overlay-join PROPERTIES TIMEOUT 60)
+
   add_executable(oa-netgame-socket-search-test tests/socket_search_test.cpp)
   target_link_libraries(oa-netgame-socket-search-test PRIVATE oa-netgame)
   add_test(NAME net-socket-search COMMAND oa-netgame-socket-search-test)

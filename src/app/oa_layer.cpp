@@ -21,6 +21,7 @@
 
 #include "oa/app/automation_host.hpp"
 #include "oa/app/frame_coordinates.hpp"
+#include "oa/app/mcp_badge.hpp"
 #include "oa/app/render_policy.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/window_surface.hpp"
@@ -3579,6 +3580,167 @@ void OaLayer::compose_front_end(renderer::Surface& frame) const {
         darken(drawn.picture, above[index], kit::menu_backdrop_opacity);
         stamp_onto_picture(frame, drawn, placed.shown, seen);
     }
+}
+
+namespace {
+
+/// One character of the badge, five dots wide and seven tall. Bit 4 is the left column.
+struct BadgeGlyph {
+    char32_t code{};
+    int advance{};
+    uint8_t rows[7]{};
+};
+
+/// The characters of "MCP · realtime" and "MCP · stepped".
+constexpr BadgeGlyph kBadgeGlyphs[] = {
+    {' ', 4, {0, 0, 0, 0, 0, 0, 0}},
+    {'M', 6, {0b10001, 0b11011, 0b10101, 0b10001, 0b10001, 0b10001, 0b10001}},
+    {'C', 6, {0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110}},
+    {'P', 6, {0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000}},
+    {U'·', 6, {0, 0, 0b00100, 0b01110, 0b00100, 0, 0}},
+    {'a', 6, {0, 0, 0b01110, 0b00001, 0b01111, 0b10001, 0b01111}},
+    {'d', 6, {0, 0b00001, 0b00001, 0b01111, 0b10001, 0b10001, 0b01111}},
+    {'e', 6, {0, 0, 0b01110, 0b10101, 0b11100, 0b10000, 0b01110}},
+    {'i', 6, {0, 0b00100, 0, 0b00100, 0b00100, 0b00100, 0b00100}},
+    {'l', 6, {0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00111}},
+    {'m', 6, {0, 0, 0b11010, 0b10101, 0b10101, 0b10001, 0b10001}},
+    {'p', 6, {0, 0, 0b11110, 0b10001, 0b11110, 0b10000, 0b10000}},
+    {'r', 6, {0, 0, 0b01110, 0b01000, 0b01000, 0b01000, 0b01000}},
+    {'s', 6, {0, 0, 0b01111, 0b10000, 0b01110, 0b00001, 0b11110}},
+    {'t', 6, {0b00100, 0b00100, 0b01110, 0b00100, 0b00100, 0b00100, 0b00011}},
+};
+
+/// The glyph for one character, or null.
+const BadgeGlyph* badge_glyph(char32_t code) noexcept {
+    for (const BadgeGlyph& glyph : kBadgeGlyphs)
+        if (glyph.code == code)
+            return &glyph;
+    return nullptr;
+}
+
+/// The next Unicode scalar in a UTF-8 badge label. Stops at the end.
+char32_t badge_character(std::string_view text, std::size_t& index) noexcept {
+    if (index >= text.size())
+        return 0;
+    const auto lead = static_cast<unsigned char>(text[index]);
+    ++index;
+    if (lead < 0x80U)
+        return static_cast<char32_t>(lead);
+    if ((lead & 0xE0U) == 0xC0U && index < text.size()) {
+        const auto next = static_cast<unsigned char>(text[index]);
+        if ((next & 0xC0U) == 0x80U) {
+            ++index;
+            return (static_cast<char32_t>(lead & 0x1FU) << 6) | static_cast<char32_t>(next & 0x3FU);
+        }
+    }
+    return U'\uFFFD';
+}
+
+/// How wide the label is, in font pixels.
+int badge_text_width(std::string_view text) noexcept {
+    int width = 0;
+    std::size_t index = 0;
+    while (index < text.size()) {
+        const BadgeGlyph* glyph = badge_glyph(badge_character(text, index));
+        width += glyph != nullptr ? glyph->advance : 6;
+    }
+    return width;
+}
+
+/// Fills a rectangle. A failed draw is left; the badge is not worth a thrown frame.
+void fill_badge(SDL_Renderer* renderer, int x, int y, int width, int height) noexcept {
+    if (width <= 0 || height <= 0)
+        return;
+    const SDL_FRect block{
+        static_cast<float>(x),
+        static_cast<float>(y),
+        static_cast<float>(width),
+        static_cast<float>(height)
+    };
+    std::ignore = SDL_RenderFillRect(renderer, &block);
+}
+
+/// Draws the label in the badge colour, one font pixel a square of scale.
+void draw_badge_text(
+    SDL_Renderer* renderer, std::string_view text, int origin_x, int origin_y, int scale
+) noexcept {
+    int cursor = origin_x;
+    std::size_t index = 0;
+    while (index < text.size()) {
+        const BadgeGlyph* glyph = badge_glyph(badge_character(text, index));
+        const int advance = glyph != nullptr ? glyph->advance : 6;
+        if (glyph != nullptr) {
+            for (int row = 0; row < 7; ++row) {
+                const uint8_t bits = glyph->rows[row];
+                int run = 0;
+                int run_at = 0;
+                for (int column = 0; column < 5; ++column) {
+                    const bool lit = (bits & (1U << (4 - column))) != 0;
+                    if (lit) {
+                        if (run == 0)
+                            run_at = column;
+                        ++run;
+                    }
+                    if ((!lit || column == 4) && run > 0) {
+                        fill_badge(
+                            renderer,
+                            cursor + run_at * scale,
+                            origin_y + row * scale,
+                            run * scale,
+                            scale
+                        );
+                        run = 0;
+                    }
+                }
+            }
+        }
+        cursor += advance * scale;
+    }
+}
+
+} // namespace
+
+void OaLayer::present_mcp_badge() noexcept {
+    const std::string_view label =
+        mcp::connected_badge(runtime_.match_running(), runtime_.stepped_clock_holds());
+    SDL_Renderer* renderer = runtime_.sdl_.renderer;
+    if (label.empty() || renderer == nullptr)
+        return;
+    int output_w = 0;
+    int output_h = 0;
+    if (!SDL_GetRenderOutputSize(renderer, &output_w, &output_h) || output_w <= 0 || output_h <= 0)
+        return;
+    int scale = output_h / 240;
+    if (scale < 1)
+        scale = 1;
+    if (scale > 6)
+        scale = 6;
+    const int margin = 4 * scale;
+    const int pad = 3 * scale;
+    const int lamp = 4 * scale;
+    const int gap = 3 * scale;
+    const int text_w = badge_text_width(label) * scale;
+    const int text_h = 7 * scale;
+    const int badge_w = pad + lamp + gap + text_w + pad;
+    const int badge_h = pad + text_h + pad;
+    if (badge_w + margin > output_w || badge_h + margin > output_h)
+        return;
+    const int origin_x = output_w - margin - badge_w;
+    const int origin_y = margin;
+    const RenderState kept(renderer);
+    kept.use_window_pixels();
+    std::ignore = SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    std::ignore = SDL_SetRenderDrawColor(renderer, 0xF0, 0xA4, 0x43, SDL_ALPHA_OPAQUE);
+    fill_badge(renderer, origin_x, origin_y, badge_w, badge_h);
+    std::ignore = SDL_SetRenderDrawColor(renderer, 0x3A, 0x2A, 0x10, SDL_ALPHA_OPAQUE);
+    fill_badge(
+        renderer, origin_x + scale, origin_y + scale, badge_w - 2 * scale, badge_h - 2 * scale
+    );
+    std::ignore = SDL_SetRenderDrawColor(renderer, 0xF0, 0xA4, 0x43, SDL_ALPHA_OPAQUE);
+    const int lamp_y = origin_y + (badge_h - lamp) / 2;
+    fill_badge(renderer, origin_x + pad, lamp_y, lamp, lamp);
+    std::ignore = SDL_SetRenderDrawColor(renderer, 0xF6, 0xDC, 0xAE, SDL_ALPHA_OPAQUE);
+    draw_badge_text(renderer, label, origin_x + pad + lamp + gap, origin_y + pad, scale);
 }
 
 void OaLayer::present(const SDL_FRect* picture_area) {

@@ -553,9 +553,9 @@ GameInstall inspect_game_install(
         install.problem = path_length_problem(root);
         return install;
     }
-    // Files laid over the folder come first, ahead of the mod folder.
-    if (!overlay.empty())
-        install.folders.push_back(overlay);
+    // A mod folder comes first. Files laid over the game folder come next,
+    // ahead of the game folder, so a loose file there wins over the install
+    // and a loose file in the mod still wins over both.
     if (!mod.folder.empty()) {
         if (!fs::is_directory(mod.folder, error)) {
             const auto reason = path_length_problem(mod.folder);
@@ -568,6 +568,8 @@ GameInstall inspect_game_install(
         install.mod_folder = mod.folder;
         install.folders.push_back(mod.folder);
     }
+    if (!overlay.empty())
+        install.folders.push_back(overlay);
     install.folders.push_back(root);
     // The profile is resolved before any archive is mounted; one that cannot
     // be used stops here and never falls back to the base game.
@@ -1286,6 +1288,8 @@ bool roots_hold_movies(std::span<const fs::path> roots) {
     return false;
 }
 
+GameFilesOverlay g_game_files_overlay = nullptr;
+
 oa::data::content_bundles::ContentChoice content_choice_from_preferences(
     const oa::platform::preferences::Values& values,
     std::span<const std::string_view> copied,
@@ -1308,6 +1312,24 @@ oa::data::content_bundles::ContentChoice content_choice_from_preferences(
         }
     }
     return bundles::resolve_content_choice(stored, copied, command_line);
+}
+
+void set_game_files_overlay(GameFilesOverlay overlay) {
+    g_game_files_overlay = overlay;
+}
+
+fs::path game_files_overlay(
+    const fs::path& user_folder,
+    const oa::platform::preferences::Values& values,
+    std::string_view content
+) {
+    if (g_game_files_overlay == nullptr)
+        return {};
+    try {
+        return g_game_files_overlay(user_folder, values, content);
+    } catch (const std::exception&) {
+        return {};
+    }
 }
 
 void remember_content_choice(

@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oamod: 1
+id: boneyards
+name: Boneyards
+version: "0.4.0"
+description: "New screens, the registration code and Core Prime's war map."
+requires: {base: ta-3.1c, catalogue: 1}
+author: {name: "The Open Annihilation Authors"}
+packaging: {revision: 1, date: 2026-10-08, packager: "The Open Annihilation Authors"}

@@ -5,6 +5,7 @@
 #include "launch_binding.hpp"
 
 #include "oa/app/netgame/launch_file.hpp"
+#include "oa/netgame/overlay_route.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include <cstddef>
@@ -160,6 +161,14 @@ int32_t connection_type() noexcept {
 
 void set_hooks(const Hooks& hooks) noexcept {
     oa::app::g_extension_hooks = hooks;
+}
+
+void set_overlay_route(const oa::netgame::sock::OverlayRoute* route) noexcept {
+    oa::netgame::sock::set_overlay_route(route);
+}
+
+uint64_t overlay_direct_packets() noexcept {
+    return oa::netgame::sock::overlay_direct_packets();
 }
 
 } // namespace oa::app::netgame::extension_api

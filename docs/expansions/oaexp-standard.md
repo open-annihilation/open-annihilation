@@ -138,3 +138,13 @@ The archive also holds each file the built-in table names for
 for the same package names `kind`, `id`, `version`, `file`, `sha256`,
 `size` and `extends`, and the file's last segment is the digest plus
 `.oaexp`.
+
+The built-in expansion `boneyards` ("The Boneyards") extends `totala` and
+needs nothing else. It holds `by.ccx` and the game-data files of the
+install's `Boneyards/` folder: the help pages, the profiles and ladders,
+the images and the map. A copy writes them under
+`Expansions/totala/boneyards/`, keeping those folders, so the archive is
+`Expansions/totala/boneyards/by.ccx`. An install that already holds those
+files, including the known `by.ccx`, counts as having the expansion, the
+way a Core Contingency install counts as having that expansion's archives.
+The beta agreement, programs and libraries are not part of it.

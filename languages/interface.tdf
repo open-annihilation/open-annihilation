@@ -10946,6 +10946,22 @@
 	it=L'oamod.yaml di quella cartella non si può leggere.;
 	}
 
+[The Boneyards]
+	{
+	de=The Boneyards;
+	fr=The Boneyards;
+	es=The Boneyards;
+	it=The Boneyards;
+	}
+
+[The Boneyards needs by.ccx and the Boneyards folder.]
+	{
+	de=The Boneyards braucht by.ccx und den Ordner Boneyards.;
+	fr=The Boneyards a besoin de by.ccx et du dossier Boneyards.;
+	es=The Boneyards necesita by.ccx y la carpeta Boneyards.;
+	it=The Boneyards ha bisogno di by.ccx e della cartella Boneyards.;
+	}
+
 [The Library is where you get mods, map packs and languages. Settings is where you change how Open Annihilation looks and plays. Everything else on this menu is the game's own.]
 	{
 	de=In der Bibliothek holst du Mods, Kartenpakete und Sprachen. Unter Einstellungen änderst du, wie Open Annihilation aussieht und spielt. Alles andere in diesem Menü gehört zum Spiel selbst.;

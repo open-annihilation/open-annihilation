@@ -176,7 +176,16 @@ void Runtime::check_pointer_keys() {
             "Numpad4 did not stop left of Single, pointer at " + where()
         );
     }
-    for (int nudge = 0; nudge < 800 && hover_name() != single_name; ++nudge) {
+    // Landing is the gadget under the pointer, or a layer that takes the
+    // point while the pointer is inside Single. The press below still has to
+    // open single player. With no layer, only the gadget counts.
+    const auto over_single = [&] {
+        if (hover_name() == single_name)
+            return true;
+        const bool in_button = pointer_x_ >= band_left && pointer_x_ <= band_right && in_band();
+        return in_button && extension_layer_takes_pointer(pointer_x_, pointer_y_);
+    };
+    for (int nudge = 0; nudge < 800 && !over_single(); ++nudge) {
         if (pointer_y_ > band_bottom)
             tap(SDL_SCANCODE_KP_8, SDLK_KP_8);
         else if (pointer_y_ < band_top)
@@ -187,7 +196,7 @@ void Runtime::check_pointer_keys() {
             tap(SDL_SCANCODE_KP_6, SDLK_KP_6);
     }
     require(
-        hover_name() == single_name,
+        over_single(),
         "Numpad6 did not land on Single, pointer at " + where() + " over " + hover_name()
     );
     std::cout << "pointer keys: menu Numpad6 moved right onto " << single_name << '\n';

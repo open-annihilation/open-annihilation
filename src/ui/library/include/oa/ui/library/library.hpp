@@ -1703,7 +1703,7 @@ struct ActiveContent {
     bool check_good{true};
     /// The base tile's label, as automation reads it.
     std::string read{};
-    /// "EXPANSIONS", or "EXPANSIONS · 5 OF 6 ON".
+    /// "EXPANSIONS", or "EXPANSIONS · 5 OF 7 ON".
     std::string expansions_heading{};
     std::vector<ExpansionPill> pills{};
     /// What an expansion needs, or that a pending change applies when the Library closes.

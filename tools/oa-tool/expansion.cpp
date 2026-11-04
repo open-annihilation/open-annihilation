@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <ostream>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -718,6 +719,20 @@ int check_expansion_package(const fs::path& package, const bundles::Bundle* file
         return exit_failed;
     }
     output.out << "result: ok\n";
+    return exit_done;
+}
+
+int run_expansions(std::span<const std::string> arguments, Output& output) {
+    if (!arguments.empty()) {
+        output.err << "oa-tool expansions: the command takes no arguments\n";
+        output.err << "run 'oa-tool help expansions'\n";
+        return exit_usage;
+    }
+    for (const bundles::Bundle& bundle : bundles::bundles()) {
+        if (bundle.kind != bundles::Kind::expansion)
+            continue;
+        output.out << bundle.id << '\t' << bundle.files.size() << '\n';
+    }
     return exit_done;
 }
 

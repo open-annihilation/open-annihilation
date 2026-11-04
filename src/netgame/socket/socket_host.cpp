@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "oa/netgame/dplay.hpp"
+#include "oa/netgame/overlay_route.hpp"
 #include "oa/netgame/socket_host.hpp"
 #include "oa/netgame/stream_socket.hpp"
 
@@ -479,12 +481,24 @@ void fail(Host* h, const char* what) {
 void init_connection(Connection* c, intptr_t fd, const Address& peer) {
     c->fd = fd;
     c->outbound = c->connecting = c->failed = false;
+    c->carried = c->paired = false;
+    c->pair_slot = 0;
+    c->local_port = 0;
     c->peer = peer;
     c->target = Address{};
     c->rx_used = c->tx_used = 0;
 }
 
 void reset_connection(Host* h, Connection* c) {
+    if (c->carried) {
+        if (c->paired && c->pair_slot < max_connections) {
+            Connection& other = h->connections[c->pair_slot];
+            if (&other != c)
+                other.paired = false;
+        }
+        init_connection(c, invalid_socket, Address{});
+        return;
+    }
     if (socket_valid(c->fd))
         ++h->dropped_connections;
     close_socket(&c->fd);
@@ -526,13 +540,506 @@ void flush(Host* h, Connection* c) {
 
 Connection* free_connection(Host* h) {
     for (auto& c : h->connections)
-        if (!socket_valid(c.fd))
+        if (!socket_valid(c.fd) && !c.carried)
             return &c;
     return nullptr;
 }
 
+/// True when the installed route carries this address.
+///
+/// @param ip the address
+/// @return false when no route is installed or it does not claim ip
+bool route_claims(const uint8_t ip[4]) {
+    const OverlayRoute* route = overlay_route();
+    return route != nullptr && route->claims != nullptr && route->claims(route->context, ip);
+}
+
+/// True when ip is the installed route's own address.
+///
+/// @param ip the address
+/// @return false when no route is installed or the addresses differ
+bool route_is_self(const uint8_t ip[4]) {
+    const OverlayRoute* route = overlay_route();
+    if (route == nullptr || route->self_address == nullptr || ip == nullptr)
+        return false;
+    uint8_t self[4]{};
+    if (!route->self_address(route->context, self))
+        return false;
+    return std::memcmp(self, ip, 4) == 0;
+}
+
+/// Returns the port a socket is bound to.
+///
+/// @param fd the socket
+/// @param fallback the port to return when the system names none
+/// @return the bound port, or fallback
+uint16_t bound_port(intptr_t fd, uint16_t fallback) {
+    if (!socket_valid(fd))
+        return fallback;
+    sockaddr_in local{};
+    socket_len length = sizeof local;
+    if (getsockname(native(fd), reinterpret_cast<sockaddr*>(&local), &length) != 0)
+        return fallback;
+    return ntohs(local.sin_port);
+}
+
+constexpr std::size_t max_route_hosts = 8;
+constexpr std::size_t max_looped_datagrams = 16;
+constexpr int overlay_rounds = 8;
+
+/// One datagram queued for this host, delivered on a later pump.
+struct LoopedDatagram {
+    uint8_t source[4]{};
+    uint16_t source_port{};
+    uint8_t bytes[dplay::max_datagram_bytes]{};
+    std::size_t size{};
+};
+
+/// Loopback queue and ephemeral ports for one host. The host struct stays
+/// as it is; several hosts exist in one process.
+struct HostRouteState {
+    Host* host{};
+    LoopedDatagram looped[max_looped_datagrams]{};
+    uint8_t looped_head{};
+    uint8_t looped_count{};
+    uint16_t next_ephemeral{40000};
+};
+
+HostRouteState g_route_states[max_route_hosts]{};
+
+/// Returns the route state for a host, creating it when this host has none.
+///
+/// @param h the host
+/// @return the state, or null when every slot is in use
+HostRouteState* route_state(Host* h) {
+    HostRouteState* free_slot = nullptr;
+    for (auto& slot : g_route_states) {
+        if (slot.host == h)
+            return &slot;
+        if (slot.host == nullptr && free_slot == nullptr)
+            free_slot = &slot;
+    }
+    if (free_slot == nullptr)
+        return nullptr;
+    free_slot->host = h;
+    free_slot->looped_head = 0;
+    free_slot->looped_count = 0;
+    free_slot->next_ephemeral = 40000;
+    return free_slot;
+}
+
+/// Returns the route state for a host.
+///
+/// @param h the host
+/// @return the state, or null when this host has none
+HostRouteState* find_route_state(Host* h) {
+    for (auto& slot : g_route_states)
+        if (slot.host == h)
+            return &slot;
+    return nullptr;
+}
+
+/// Forgets a host's loopback queue.
+///
+/// @param h the host
+void drop_route_state(Host* h) {
+    for (auto& slot : g_route_states) {
+        if (slot.host == h) {
+            slot.host = nullptr;
+            slot.looped_head = 0;
+            slot.looped_count = 0;
+            slot.next_ephemeral = 40000;
+        }
+    }
+}
+
+/// Appends bytes to a connection's receive buffer.
+///
+/// @param[in,out] connection the connection; failed when the bytes do not fit
+/// @param bytes the bytes
+/// @param size how many
+void append_rx(Connection* connection, const uint8_t* bytes, std::size_t size) {
+    if (size > connection_rx_bytes - connection->rx_used) {
+        connection->failed = true;
+        return;
+    }
+    if (size != 0 && bytes != nullptr)
+        std::memcpy(connection->rx + connection->rx_used, bytes, size);
+    connection->rx_used += static_cast<uint32_t>(size);
+}
+
+/// Hands complete stream messages in a connection's receive buffer to the engine.
+///
+/// @param[in,out] h the host
+/// @param[in,out] connection the connection; failed when a header is malformed
+void consume_stream_messages(Host* h, Connection* connection) {
+    while (connection->rx_used >= 4 && !connection->failed) {
+        const std::size_t size = dplay::stream_message_size(connection->rx);
+        if (size == 0) {
+            connection->failed = true;
+            return;
+        }
+        if (connection->rx_used < size)
+            break;
+        dplay::engine_on_stream(&h->engine, connection->peer, connection->rx, size, host_now_ms(h));
+        std::memmove(
+            connection->rx, connection->rx + size, connection->rx_used - static_cast<uint32_t>(size)
+        );
+        connection->rx_used -= static_cast<uint32_t>(size);
+    }
+}
+
+/// Sends a carried connection's queued bytes through the route, or to its pair.
+///
+/// @param[in,out] h the host
+/// @param[in,out] connection the carried connection
+void flush_carried(Host* h, Connection* connection) {
+    if (!connection->carried || connection->connecting || connection->failed ||
+        connection->tx_used == 0)
+        return;
+    if (connection->paired) {
+        if (connection->pair_slot >= max_connections) {
+            connection->failed = true;
+            return;
+        }
+        Connection& other = h->connections[connection->pair_slot];
+        if (!other.carried || !other.paired ||
+            connection_rx_bytes - other.rx_used < connection->tx_used) {
+            connection->failed = true;
+            return;
+        }
+        append_rx(&other, connection->tx, connection->tx_used);
+        connection->tx_used = 0;
+        h->last_stream_send_ms = host_now_ms(h);
+        h->stream_sent = true;
+        return;
+    }
+    const OverlayRoute* route = overlay_route();
+    if (route == nullptr || route->send_stream == nullptr) {
+        connection->failed = true;
+        return;
+    }
+    if (!route->send_stream(
+            route->context,
+            connection->target.ip,
+            connection->local_port,
+            connection->target.port,
+            connection->tx,
+            connection->tx_used
+        )) {
+        connection->failed = true;
+        return;
+    }
+    h->last_stream_send_ms = host_now_ms(h);
+    h->stream_sent = true;
+    connection->tx_used = 0;
+}
+
+/// Returns an ephemeral port this host is not already sending from.
+///
+/// @param h the host
+/// @return the port, or 0 when none is free
+uint16_t next_ephemeral(Host* h) {
+    HostRouteState* state = route_state(h);
+    if (state == nullptr)
+        return 0;
+    const uint16_t listen = h->engine.config.stream.port;
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        const uint16_t candidate = state->next_ephemeral;
+        state->next_ephemeral = state->next_ephemeral == 65535
+                                    ? static_cast<uint16_t>(40000)
+                                    : static_cast<uint16_t>(state->next_ephemeral + 1);
+        if (candidate == 0 || candidate == listen)
+            continue;
+        bool used = false;
+        for (const auto& existing : h->connections)
+            if (existing.carried && existing.local_port == candidate)
+                used = true;
+        if (!used)
+            return candidate;
+    }
+    return 0;
+}
+
+/// The index of a connection in its host's table.
+///
+/// @param h the host
+/// @param connection a connection of that host
+/// @return the index
+uint8_t connection_slot(const Host* h, const Connection* connection) {
+    return static_cast<uint8_t>(connection - h->connections);
+}
+
+/// Queues one datagram for an address the route claims.
+///
+/// A datagram for this client is kept and delivered on a later pump. Any
+/// other claimed address is handed to the route. Neither calls the system.
+///
+/// @param[in,out] h the host
+/// @param ip the destination address
+/// @param port the destination port
+/// @param bytes the datagram
+/// @param size the datagram length
+/// @return false when the datagram was not taken
+bool carry_datagram(
+    Host* h, const uint8_t ip[4], uint16_t port, const uint8_t* bytes, std::size_t size
+) {
+    if (size > dplay::max_datagram_bytes)
+        return false;
+    const uint16_t from_port = bound_port(h->datagram, h->engine.config.datagram.port);
+    if (route_is_self(ip)) {
+        HostRouteState* state = route_state(h);
+        if (state == nullptr || state->looped_count == max_looped_datagrams)
+            return false;
+        const OverlayRoute* route = overlay_route();
+        uint8_t self[4]{};
+        if (route == nullptr || route->self_address == nullptr ||
+            !route->self_address(route->context, self))
+            return false;
+        const std::size_t slot =
+            (static_cast<std::size_t>(state->looped_head) + state->looped_count) %
+            max_looped_datagrams;
+        LoopedDatagram& item = state->looped[slot];
+        std::memcpy(item.source, self, 4);
+        item.source_port = from_port;
+        if (size != 0 && bytes != nullptr)
+            std::memcpy(item.bytes, bytes, size);
+        item.size = size;
+        ++state->looped_count;
+        return true;
+    }
+    const OverlayRoute* route = overlay_route();
+    if (route == nullptr || route->send_datagram == nullptr)
+        return false;
+    return route->send_datagram(route->context, ip, from_port, port, bytes, size);
+}
+
+/// Opens a carried stream to a claimed address and queues the bytes.
+///
+/// A dial of this client's own listen port pairs two local connections, so
+/// the bytes come back without leaving the process. Any other claimed
+/// address is sent by the route. connecting is clear at once: the route
+/// keeps the bytes until its handshake has finished.
+///
+/// @param[in,out] h the host
+/// @param to the endpoint dialled
+/// @param bytes the bytes
+/// @param size how many
+/// @return false when the bytes were not taken
+bool carry_stream(Host* h, const Address& to, const uint8_t* bytes, std::size_t size) {
+    Connection* connection = nullptr;
+    for (auto& candidate : h->connections)
+        if (candidate.carried && candidate.outbound && !candidate.failed &&
+            dplay::address_equal(candidate.target, to))
+            connection = &candidate;
+    if (connection == nullptr) {
+        if (to.port == 0)
+            return false;
+        const uint16_t ephemeral = next_ephemeral(h);
+        if (ephemeral == 0)
+            return false;
+        Connection* outbound = free_connection(h);
+        if (outbound == nullptr)
+            return false;
+        if (route_is_self(to.ip)) {
+            if (to.port != h->engine.config.stream.port) {
+                return false;
+            }
+            init_connection(outbound, invalid_socket, to);
+            outbound->carried = true;
+            outbound->outbound = true;
+            outbound->target = to;
+            outbound->local_port = ephemeral;
+            Connection* inbound = free_connection(h);
+            if (inbound == nullptr) {
+                init_connection(outbound, invalid_socket, Address{});
+                return false;
+            }
+            Address from{};
+            std::memcpy(from.ip, to.ip, 4);
+            from.port = ephemeral;
+            init_connection(inbound, invalid_socket, from);
+            inbound->carried = true;
+            inbound->local_port = to.port;
+            outbound->paired = true;
+            outbound->pair_slot = connection_slot(h, inbound);
+            inbound->paired = true;
+            inbound->pair_slot = connection_slot(h, outbound);
+            connection = outbound;
+        } else {
+            init_connection(outbound, invalid_socket, to);
+            outbound->carried = true;
+            outbound->outbound = true;
+            outbound->target = to;
+            outbound->local_port = ephemeral;
+            connection = outbound;
+        }
+    }
+    if (connection_tx_bytes - connection->tx_used < size)
+        return false;
+    if (size != 0 && bytes != nullptr)
+        std::memcpy(connection->tx + connection->tx_used, bytes, size);
+    connection->tx_used += static_cast<uint32_t>(size);
+    flush_carried(h, connection);
+    return !connection->failed;
+}
+
+/// Finds the carried stream a packet continues.
+///
+/// @param h the host
+/// @param packet the packet
+/// @return the connection, or null when none matches
+Connection* match_stream(Host* h, const OverlayPacket& packet) {
+    for (auto& candidate : h->connections) {
+        if (!candidate.carried || candidate.failed)
+            continue;
+        if (candidate.outbound) {
+            if (std::memcmp(packet.source, candidate.target.ip, 4) == 0 &&
+                packet.destination_port == candidate.local_port &&
+                packet.source_port == candidate.target.port)
+                return &candidate;
+        } else if (
+            std::memcmp(packet.source, candidate.peer.ip, 4) == 0 &&
+            packet.source_port == candidate.peer.port &&
+            packet.destination_port == candidate.local_port
+        ) {
+            return &candidate;
+        }
+    }
+    return nullptr;
+}
+
+/// Appends one stream packet to the connection it belongs to.
+///
+/// A packet for the listen port with no connection opens an inbound one.
+///
+/// @param[in,out] h the host
+/// @param packet the packet; its bytes are copied
+void deliver_stream_packet(Host* h, const OverlayPacket& packet) {
+    Connection* connection = match_stream(h, packet);
+    if (connection == nullptr) {
+        if (packet.destination_port != h->engine.config.stream.port || route_is_self(packet.source))
+            return;
+        connection = free_connection(h);
+        if (connection == nullptr) {
+            ++h->dropped_connections;
+            return;
+        }
+        Address peer{};
+        std::memcpy(peer.ip, packet.source, 4);
+        peer.port = packet.source_port;
+        init_connection(connection, invalid_socket, peer);
+        connection->carried = true;
+        connection->local_port = packet.destination_port;
+    }
+    append_rx(connection, packet.bytes, packet.size);
+}
+
+/// Delivers datagrams this host sent to itself.
+///
+/// Datagrams queued while one is delivered wait for the next round.
+///
+/// @param[in,out] h the host
+void deliver_looped(Host* h) {
+    HostRouteState* state = find_route_state(h);
+    if (state == nullptr || state->looped_count == 0)
+        return;
+    const uint8_t queued = state->looped_count;
+    for (uint8_t n = 0; n < queued; ++n) {
+        if (state->looped_count == 0)
+            break;
+        LoopedDatagram& item = state->looped[state->looped_head];
+        Address from{};
+        std::memcpy(from.ip, item.source, 4);
+        from.port = item.source_port;
+        uint8_t copy[dplay::max_datagram_bytes];
+        const std::size_t size = item.size > sizeof copy ? 0 : item.size;
+        if (size != 0)
+            std::memcpy(copy, item.bytes, size);
+        state->looped_head = static_cast<uint8_t>(
+            (static_cast<std::size_t>(state->looped_head) + 1) % max_looped_datagrams
+        );
+        --state->looped_count;
+        if (item.size <= sizeof copy)
+            dplay::engine_on_datagram(
+                &h->engine, from, size == 0 ? nullptr : copy, size, host_now_ms(h)
+            );
+    }
+}
+
+/// True when a carried connection or a looped datagram is still waiting.
+///
+/// @param h the host
+/// @return true when a pump should not wait
+bool overlay_pending(const Host* h) {
+    const HostRouteState* state = nullptr;
+    for (const auto& slot : g_route_states)
+        if (slot.host == h)
+            state = &slot;
+    if (state != nullptr && state->looped_count != 0)
+        return true;
+    for (const auto& candidate : h->connections)
+        if (candidate.carried && !candidate.failed &&
+            (candidate.rx_used != 0 || candidate.tx_used != 0))
+            return true;
+    return false;
+}
+
+/// Pumps the route and delivers what it and the loopback queue are holding.
+///
+/// @param[in,out] h the host
+void service_overlay_once(Host* h) {
+    const OverlayRoute* route = overlay_route();
+    if (route == nullptr)
+        return;
+    if (route->pump != nullptr)
+        route->pump(route->context);
+    if (route->take != nullptr) {
+        for (int taken = 0; taken < 64; ++taken) {
+            OverlayPacket packet{};
+            if (!route->take(route->context, &packet))
+                break;
+            if (packet.stream) {
+                deliver_stream_packet(h, packet);
+                continue;
+            }
+            if (packet.size > dplay::max_datagram_bytes ||
+                (packet.bytes == nullptr && packet.size != 0))
+                continue;
+            uint8_t copy[dplay::max_datagram_bytes];
+            if (packet.size != 0)
+                std::memcpy(copy, packet.bytes, packet.size);
+            Address from{};
+            std::memcpy(from.ip, packet.source, 4);
+            from.port = packet.source_port;
+            dplay::engine_on_datagram(
+                &h->engine, from, packet.size == 0 ? nullptr : copy, packet.size, host_now_ms(h)
+            );
+        }
+    }
+    deliver_looped(h);
+    for (auto& candidate : h->connections)
+        if (candidate.carried && !candidate.failed && candidate.tx_used != 0)
+            flush_carried(h, &candidate);
+    for (auto& candidate : h->connections)
+        if (candidate.carried && !candidate.failed)
+            consume_stream_messages(h, &candidate);
+}
+
+/// Services the route for a few rounds, so a reply queued by a delivery is delivered too.
+///
+/// @param[in,out] h the host
+void service_overlay(Host* h) {
+    if (overlay_route() == nullptr)
+        return;
+    for (int round = 0; round < overlay_rounds; ++round)
+        service_overlay_once(h);
+}
+
 bool io_send_stream(void* context, const Address& to, const uint8_t* bytes, std::size_t size) {
     auto* h = static_cast<Host*>(context);
+    if (route_claims(to.ip))
+        return carry_stream(h, to, bytes, size);
     Connection* c = nullptr;
     for (auto& candidate : h->connections)
         if (socket_valid(candidate.fd) && candidate.outbound && !candidate.failed &&
@@ -546,6 +1053,7 @@ bool io_send_stream(void* context, const Address& to, const uint8_t* bytes, std:
         if (!socket_valid(fd))
             return false;
         set_option(fd, IPPROTO_TCP, TCP_NODELAY, 1);
+        note_overlay_direct(to.ip);
         const sockaddr_in s = to_sockaddr(to);
         const int r = connect(native(fd), reinterpret_cast<const sockaddr*>(&s), sizeof s);
         if (r != 0 && !would_block()) {
@@ -683,6 +1191,7 @@ std::size_t list_local_interfaces(Host*, LocalInterface* out, std::size_t capaci
 bool send_datagram_to(
     Host* h, const uint8_t ip[4], uint16_t port, const uint8_t* bytes, std::size_t size
 ) {
+    note_overlay_direct(ip);
     Address to{};
     std::memcpy(to.ip, ip, 4);
     to.port = port;
@@ -713,6 +1222,7 @@ bool probe_local_address(const uint8_t to[4], uint8_t ip[4]) {
     intptr_t fd = open_socket(SOCK_DGRAM);
     if (!socket_valid(fd))
         return false;
+    note_overlay_direct(to);
     Address target{};
     std::memcpy(target.ip, to, 4);
     target.port = dplay::enum_port;
@@ -808,9 +1318,30 @@ bool send_search(Host* h, uint16_t port, const uint8_t* bytes, std::size_t size)
     return limited_sent || copy_sent;
 }
 
+/// True when a datagram is a session search (EnumSessions).
+///
+/// @param bytes the datagram
+/// @param size its length in bytes
+/// @return false for anything else, including player data
+bool is_session_search(const uint8_t* bytes, std::size_t size) {
+    DplayEnvelope envelope{};
+    return decode_dplay_envelope(bytes, size, &envelope, nullptr) == WireError::ok &&
+           envelope.has_play_header &&
+           envelope.command == static_cast<uint16_t>(DplayCommand::enum_sessions);
+}
+
 bool io_send_datagram(void* context, const Address& to, const uint8_t* bytes, std::size_t size) {
     auto* h = static_cast<Host*>(context);
-    if (!socket_valid(h->datagram) || to.port == 0)
+    if (!socket_valid(h->datagram))
+        return false;
+    if (route_claims(to.ip)) {
+        // Every machine on the route answers a session search at the
+        // standard port, whatever port this machine looks for games at
+        // (none, with a DirectPlay port of 0).
+        const uint16_t port = is_session_search(bytes, size) ? dplay::enum_port : to.port;
+        return port != 0 && carry_datagram(h, to.ip, port, bytes, size);
+    }
+    if (to.port == 0)
         return false;
     if (std::memcmp(to.ip, local_networks_ip, 4) == 0)
         return send_search(h, to.port, bytes, size);
@@ -832,9 +1363,11 @@ void read_datagrams(Host* h, intptr_t fd) {
         );
         if (n <= 0)
             return;
+        const Address arrived = from_sockaddr(from);
+        note_overlay_direct(arrived.ip);
         note_in_flight(h, -static_cast<int64_t>(n));
         dplay::engine_on_datagram(
-            &h->engine, from_sockaddr(from), buffer, static_cast<std::size_t>(n), host_now_ms(h)
+            &h->engine, arrived, buffer, static_cast<std::size_t>(n), host_now_ms(h)
         );
     }
 }
@@ -853,6 +1386,8 @@ void accept_connections(Host* h) {
             return;
 #endif
         intptr_t fd = static_cast<intptr_t>(s);
+        const Address arrived = from_sockaddr(from);
+        note_overlay_direct(arrived.ip);
         Connection* c = free_connection(h);
         if (c == nullptr || !set_nonblocking(fd)) {
             close_socket(&fd);
@@ -863,7 +1398,7 @@ void accept_connections(Host* h) {
         set_option(fd, SOL_SOCKET, SO_NOSIGPIPE, 1);
 #endif
         set_option(fd, IPPROTO_TCP, TCP_NODELAY, 1);
-        init_connection(c, fd, from_sockaddr(from));
+        init_connection(c, fd, arrived);
     }
 }
 
@@ -887,18 +1422,9 @@ void read_connection(Host* h, Connection* c) {
             return;
         note_in_flight(h, -static_cast<int64_t>(n));
         c->rx_used += static_cast<uint32_t>(n);
-        while (c->rx_used >= 4 && !c->failed) {
-            const std::size_t size = dplay::stream_message_size(c->rx);
-            if (size == 0) {
-                c->failed = true;
-                return;
-            }
-            if (c->rx_used < size)
-                break;
-            dplay::engine_on_stream(&h->engine, c->peer, c->rx, size, host_now_ms(h));
-            std::memmove(c->rx, c->rx + size, c->rx_used - size);
-            c->rx_used -= static_cast<uint32_t>(size);
-        }
+        consume_stream_messages(h, c);
+        if (c->failed)
+            return;
     }
 }
 
@@ -938,6 +1464,7 @@ int64_t clock_ms() {
 } // namespace
 
 bool host_open(Host* h, const HostConfig& config) noexcept {
+    drop_route_state(h);
     h->config = config;
     h->error[0] = '\0';
     h->clock_origin = clock_ms();
@@ -1036,6 +1563,8 @@ bool host_listen_enumeration(Host* h) noexcept {
 }
 
 void host_pump(Host* h, uint32_t wait_ms) noexcept {
+    if (overlay_route() != nullptr)
+        service_overlay(h);
     SocketWait waits[max_wait_entries]{};
     Connection* owners[max_wait_entries]{};
     std::size_t count = 0;
@@ -1063,9 +1592,10 @@ void host_pump(Host* h, uint32_t wait_ms) noexcept {
     const uint32_t real_wait = !simulated  ? wait_ms
                                : in_flight ? std::min<uint32_t>(wait_ms, 1)
                                            : 0;
+    const uint32_t capped_wait = overlay_route() != nullptr && overlay_pending(h) ? 0 : real_wait;
     int ready = 0;
     if (count != 0)
-        ready = wait_for_sockets(waits, count, real_wait);
+        ready = wait_for_sockets(waits, count, capped_wait);
     if (simulated && ready <= 0) {
         // Bytes that a real wait did not bring were lost (a datagram to a
         // port no host listens on): they no longer hold the clock back.
@@ -1097,11 +1627,16 @@ void host_pump(Host* h, uint32_t wait_ms) noexcept {
             read_connection(h, c);
     }
     for (auto& c : h->connections) {
-        if (socket_valid(c.fd) && !c.failed && !c.connecting)
+        if (c.carried) {
+            if (!c.failed && !c.connecting)
+                flush_carried(h, &c);
+        } else if (socket_valid(c.fd) && !c.failed && !c.connecting)
             flush(h, &c);
         if (c.failed)
             reset_connection(h, &c);
     }
+    if (overlay_route() != nullptr)
+        service_overlay(h);
     dplay::engine_poll(&h->engine, host_now_ms(h));
 }
 
@@ -1170,6 +1705,7 @@ void linger_streams(Host* h) {
 } // namespace
 
 void host_close(Host* h) noexcept {
+    drop_route_state(h);
     dplay::engine_close(&h->engine);
     close_socket(&h->listener);
     close_socket(&h->datagram);
@@ -1232,6 +1768,12 @@ bool local_address_toward(Host* h, const uint8_t to[4], uint8_t ip[4]) noexcept 
     const uint32_t destination = ipv4_value(to);
     if (destination == 0 || destination == ipv4_value(local_networks_ip))
         return false;
+    if (route_claims(to)) {
+        const OverlayRoute* route = overlay_route();
+        if (route == nullptr || route->self_address == nullptr)
+            return false;
+        return route->self_address(route->context, ip);
+    }
     if (ipv4_value(h->config.bind_ip) != 0) {
         std::memcpy(ip, h->config.bind_ip, 4);
         return true;

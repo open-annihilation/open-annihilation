@@ -175,6 +175,9 @@ void update_header(kit::Question& asked, std::string second, std::string lead) {
 void Runtime::offer_update() {
     if (update_ == nullptr)
         return;
+    // An entry into an expansion is asking about this check itself.
+    if (expansion_entry_holds_check())
+        return;
     if (match_ != nullptr || screen_ == Screen::match)
         return;
     // The main menu, including while a dialog or Settings keeps the question

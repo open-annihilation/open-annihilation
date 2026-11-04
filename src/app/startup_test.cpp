@@ -2375,11 +2375,11 @@ int main() {
         "a path names the same file however it is spelled"
     );
     {
-        oa::app::Options played;
-        played.preferences_file = std::filesystem::path("scratch/p.conf");
-        oa::app::forget_own_preferences_file(played);
+        oa::app::Options other_file;
+        other_file.preferences_file = std::filesystem::path("scratch/p.conf");
+        oa::app::forget_own_preferences_file(other_file);
         expect(
-            played.preferences_file.has_value(), "a played start keeps another preferences file"
+            other_file.preferences_file.has_value(), "a played start keeps another preferences file"
         );
         oa::app::Options check = parse({"--preferences-file", "p.conf", "--headless-check"});
         oa::app::forget_own_preferences_file(check);

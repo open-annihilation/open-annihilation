@@ -42,14 +42,16 @@ frame, a match event or a drawn match frame. Every hook the extension
 leaves null keeps the engine's own behaviour, so an extension fills only
 what it needs.
 
-The engine has two extensions of its own, registered in every build:
+The engine has three extensions of its own, registered in every build:
 network play (`oa-app-netgame`, [src/app/netgame](../../src/app/netgame)),
 which takes the 3.1c network switches and runs the multiplayer screens, the
-networked match and the replay of recorded games; and the automation
+networked match and the replay of recorded games; the automation
 endpoint (`oa-app-automation`,
 [src/app/automation](../../src/app/automation/README.md)), which serves
-`--fark`. A project that builds the game may register further extensions
-after them. The engine's code and documents never name such an extension:
+`--fark`; and the MCP server (`oa-app-mcp`,
+[src/app/mcp](../../src/app/mcp/README.md)), which serves `--mcp` and `--mcp-http`.
+A project that builds the game may register further extensions after them.
+The engine's code and documents never name such an extension:
 what one needs that the table does not offer becomes a new hook or a
 declared header, open to every extension.
 

@@ -7,6 +7,8 @@
 #include "input_events.hpp"
 #include "requests.hpp"
 
+#include "oa/app/automation/drive.hpp"
+
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
@@ -344,62 +346,69 @@ class StepMaker {
 /// just before it, as SDL's devices change their state before their event
 /// is queued.
 ///
-/// @param endpoint the endpoint
-/// @param[in,out] state the input state, whose texts keep the text events' characters
+/// @param automation the automation host, which holds keys and buttons
+/// @param frame the frame whose pump this is
+/// @param[in,out] texts the text events' characters, kept until a later pump
+/// @param[in,out] texts_frame the frame whose pump pushed them
+/// @param[in,out] held_now what is held now; replaced by held_after
 /// @param[in,out] steps the events
-/// @param held what the endpoint holds once they are taken
+/// @param held_after what is held once they are taken
 /// @return the events SDL's queue took; fewer than were pushed when it is full
 size_t push_steps(
-    const Endpoint& endpoint, InputState& state, std::vector<Step>& steps, const HeldDevices& held
+    const AutomationHost& automation,
+    uint64_t frame,
+    std::deque<std::string>& texts,
+    uint64_t& texts_frame,
+    HeldDevices& held_now,
+    std::vector<Step>& steps,
+    const HeldDevices& held_after
 ) {
-    const AutomationHost& host = endpoint.automation_host();
-    if (!state.texts.empty() && state.texts_frame != endpoint.frame())
-        state.texts.clear();
-    state.texts_frame = endpoint.frame();
+    if (!texts.empty() && texts_frame != frame)
+        texts.clear();
+    texts_frame = frame;
     size_t taken = 0;
     for (Step& step : steps) {
         if (step.holds_key)
-            host.hold_key(
-                host.context,
+            automation.hold_key(
+                automation.context,
                 static_cast<uint32_t>(step.event.key.scancode),
                 step.event.type == SDL_EVENT_KEY_DOWN
             );
         if (step.holds_buttons) {
             const SDL_MouseButtonFlags mask = SDL_BUTTON_MASK(step.event.button.button);
             const bool down = step.event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-            state.held.buttons = down ? state.held.buttons | mask : state.held.buttons & ~mask;
-            host.hold_buttons(host.context, state.held.buttons);
+            held_now.buttons = down ? held_now.buttons | mask : held_now.buttons & ~mask;
+            automation.hold_buttons(automation.context, held_now.buttons);
         }
         if (!step.pushed) {
             ++taken;
             continue;
         }
         if (step.event.type == SDL_EVENT_TEXT_INPUT)
-            step.event.text.text = state.texts.emplace_back(std::move(step.text)).c_str();
+            step.event.text.text = texts.emplace_back(std::move(step.text)).c_str();
         if (SDL_PushEvent(&step.event))
             ++taken;
     }
-    state.held = held;
+    held_now = held_after;
     return taken;
 }
 
-/// Lets go of every key, button and finger the endpoint holds, with the
-/// events that say so, as a keyboard and mouse unplugged would.
+/// Lets go of every key, button and finger a drive holds, with the events
+/// that say so, as a keyboard and mouse unplugged would.
 ///
-/// @param endpoint the endpoint, served
-/// @param[in,out] state the input state
-void let_go(const Endpoint& endpoint, InputState& state) {
-    HeldDevices& held = state.held;
+/// @param check the check host, for the window
+/// @param automation the automation host, which lets the keys go
+/// @param[in,out] held what the drive holds
+void let_go(const CheckHost& check, const AutomationHost& automation, HeldDevices& held) {
     if (!held.any())
         return;
-    const WindowPlacement placement = window_placement(endpoint);
-    const AutomationHost& host = endpoint.automation_host();
+    const WindowPlacement placement = window_placement(check);
     const uint64_t now = SDL_GetTicksNS();
     for (size_t scancode = 0; scancode < held.keys.size(); ++scancode) {
         if (!held.keys[scancode])
             continue;
         held.keys[scancode] = false;
-        host.hold_key(host.context, static_cast<uint32_t>(scancode), false);
+        automation.hold_key(automation.context, static_cast<uint32_t>(scancode), false);
         SDL_Event up{};
         up.type = SDL_EVENT_KEY_UP;
         up.key.timestamp = now;
@@ -414,7 +423,7 @@ void let_go(const Endpoint& endpoint, InputState& state) {
         if ((held.buttons & SDL_BUTTON_MASK(button)) == 0)
             continue;
         held.buttons &= ~SDL_BUTTON_MASK(button);
-        host.hold_buttons(host.context, held.buttons);
+        automation.hold_buttons(automation.context, held.buttons);
         SDL_Event up{};
         up.type = SDL_EVENT_MOUSE_BUTTON_UP;
         up.button.timestamp = now;
@@ -446,12 +455,19 @@ void let_go(const Endpoint& endpoint, InputState& state) {
     }
 }
 
+/// Lets go of every key, button and finger the endpoint holds.
+///
+/// @param endpoint the endpoint, served
+/// @param[in,out] state the input state
+void let_go(const Endpoint& endpoint, InputState& state) {
+    let_go(endpoint.check_host(), endpoint.automation_host(), state.held);
+}
+
 } // namespace
 
-WindowPlacement window_placement(const Endpoint& endpoint) {
-    const CheckHost& host = endpoint.check_host();
+WindowPlacement window_placement(const CheckHost& check) {
     WindowPlacement placement;
-    placement.window_id = host.window_id(host.context);
+    placement.window_id = check.window_id(check.context);
     placement.window =
         placement.window_id != 0 ? SDL_GetWindowFromID(placement.window_id) : nullptr;
     placement.renderer = placement.window != nullptr ? SDL_GetRenderer(placement.window) : nullptr;
@@ -461,6 +477,10 @@ WindowPlacement window_placement(const Endpoint& endpoint) {
             placement.density = density;
     }
     return placement;
+}
+
+WindowPlacement window_placement(const Endpoint& endpoint) {
+    return window_placement(endpoint.check_host());
 }
 
 bool canvas_to_window(
@@ -536,7 +556,15 @@ void answer_input(Endpoint& endpoint, const Request& request, Answer& answer) {
             return;
         }
     }
-    const size_t taken = push_steps(endpoint, state, maker.steps(), maker.held());
+    const size_t taken = push_steps(
+        endpoint.automation_host(),
+        endpoint.frame(),
+        state.texts,
+        state.texts_frame,
+        state.held,
+        maker.steps(),
+        maker.held()
+    );
     if (taken < maker.steps().size()) {
         answer.refuse(
             "internal",
@@ -578,6 +606,111 @@ void answer_taken_input(Endpoint& endpoint, FrameStage stage) {
     json.integer(endpoint.tick());
     json.end_object();
     endpoint.answer_held(answer);
+}
+
+struct DriveInput::State {
+    HeldDevices held;
+    std::optional<uint64_t> pushed_frame;
+    std::deque<std::string> texts;
+    uint64_t texts_frame{};
+};
+
+DriveInput::DriveInput() : state_(std::make_unique<State>()) {
+}
+
+DriveInput::~DriveInput() = default;
+DriveInput::DriveInput(DriveInput&&) noexcept = default;
+DriveInput& DriveInput::operator=(DriveInput&&) noexcept = default;
+
+std::optional<DriveFailure> DriveInput::push(
+    const CheckHost& check,
+    const AutomationHost& automation,
+    const std::vector<InputEvent>& events,
+    std::string_view expect_screen,
+    uint64_t frame
+) {
+    if (state_ == nullptr)
+        state_ = std::make_unique<State>();
+    if (state_->pushed_frame)
+        return DriveFailure{"busy", "the last input has not been taken"};
+    if (!expect_screen.empty()) {
+        if (check.screen == nullptr)
+            return DriveFailure{"internal", "the game is not running"};
+        const std::string shown = screen_name(check.screen(check.context));
+        if (shown != expect_screen)
+            return DriveFailure{
+                "screen_changed", "the screen is " + shown + ", not " + std::string(expect_screen)
+            };
+    }
+    SDL_TouchID touch = 0;
+    for (const InputEvent& event : events)
+        if (event.kind == InputKind::finger_down || event.kind == InputKind::finger_move ||
+            event.kind == InputKind::finger_up) {
+            touch = touch_screen();
+            if (touch == 0)
+                return DriveFailure{"unsupported", "this machine has no touch screen to touch"};
+            break;
+        }
+    const WindowPlacement placement = window_placement(check);
+    const bool text_taken = placement.window != nullptr && SDL_TextInputActive(placement.window);
+    int32_t cursor_x = 0;
+    int32_t cursor_y = 0;
+    if (check.cursor != nullptr)
+        check.cursor(check.context, &cursor_x, &cursor_y);
+    StepMaker maker(placement, state_->held, cursor_x, cursor_y);
+    for (const InputEvent& event : events) {
+        const bool press =
+            event.kind == InputKind::button_down || event.kind == InputKind::button_up;
+        if (press && event.button == PointerButton::left && event.has_point &&
+            event.space == PointSpace::game &&
+            oa::ui::frontend_multiplayer::multiplayer_list_page_arrow(event.x, event.y)) {
+            if (event.kind == InputKind::button_down)
+                (void)oa::ui::frontend_multiplayer::multiplayer_scroll_list_page(event.x, event.y);
+            continue;
+        }
+        if (!maker.make(event, touch, text_taken))
+            return DriveFailure{
+                "internal", std::string("a point cannot be placed in the window: ") + SDL_GetError()
+            };
+    }
+    const size_t taken = push_steps(
+        automation,
+        frame,
+        state_->texts,
+        state_->texts_frame,
+        state_->held,
+        maker.steps(),
+        maker.held()
+    );
+    if (taken < maker.steps().size())
+        return DriveFailure{
+            "internal",
+            "SDL's event queue took " + std::to_string(taken) + " of " +
+                std::to_string(maker.steps().size()) + " events: " + SDL_GetError()
+        };
+    state_->pushed_frame = frame;
+    return std::nullopt;
+}
+
+bool DriveInput::pending() const noexcept {
+    return state_ != nullptr && state_->pushed_frame.has_value();
+}
+
+bool DriveInput::taken(uint64_t frame) const noexcept {
+    return state_ != nullptr && state_->pushed_frame.has_value() && frame > *state_->pushed_frame;
+}
+
+void DriveInput::finish() noexcept {
+    if (state_ != nullptr)
+        state_->pushed_frame.reset();
+}
+
+void DriveInput::release(const CheckHost& check, const AutomationHost& automation) {
+    if (state_ == nullptr)
+        return;
+    let_go(check, automation, state_->held);
+    state_->held.pointer_known = false;
+    state_->pushed_frame.reset();
 }
 
 } // namespace oa::app::automation

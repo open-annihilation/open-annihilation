@@ -33,7 +33,7 @@ namespace gui = oa::ui::gui_layout;
 
 // How many of an extension's windows, and of their controls, one answer lists.
 constexpr std::size_t kMaxExtensionWindows = 32;
-constexpr std::size_t kMaxExtensionControls = 512;
+constexpr std::size_t kMaxExtensionControls = 1024;
 // How much of a name, a caption or a list row the answer keeps.
 constexpr std::size_t kMaxControlName = 64;
 constexpr std::size_t kMaxControlText = 1024;
@@ -75,6 +75,32 @@ std::optional<AutomationControlKind> mapped_kind(ExtensionControlKind kind) noex
         return AutomationControlKind::image;
     }
     return std::nullopt;
+}
+
+/// Returns the driver's kind for a screen package's control.
+///
+/// @param kind the package's kind
+/// @return the driver's
+AutomationControlKind mapped_window_kind(ScreenWindowKind kind) noexcept {
+    switch (kind) {
+    case ScreenWindowKind::button:
+        return AutomationControlKind::button;
+    case ScreenWindowKind::check_box:
+        return AutomationControlKind::check_box;
+    case ScreenWindowKind::list:
+        return AutomationControlKind::list;
+    case ScreenWindowKind::text_field:
+        return AutomationControlKind::text_field;
+    case ScreenWindowKind::slider:
+        return AutomationControlKind::slider;
+    case ScreenWindowKind::label:
+        return AutomationControlKind::label;
+    case ScreenWindowKind::area:
+        return AutomationControlKind::area;
+    case ScreenWindowKind::image:
+        return AutomationControlKind::image;
+    }
+    return AutomationControlKind::button;
 }
 
 /// Where a panel's gadgets lie on the canvas, and what the collected
@@ -580,6 +606,83 @@ struct AutomationHostAccess {
         game.quit_reason_.clear();
     }
 
+    /// Collects the windows the screen package shown reports
+    /// (AutomationHost::package_windows).
+    ///
+    /// @param context AutomationHost::context
+    /// @param[out] controls replaced by the controls
+    static void package_windows(void* context, std::vector<AutomationControl>* controls) {
+        controls->clear();
+        // screen_context is not const. The call only reads the package shown.
+        Runtime& game = capturing_runtime(context);
+        const ScreenDesc* desc = screen_find(&game.screens_, screen_id(game.screen_));
+        if (desc == nullptr || desc->windows == nullptr)
+            return;
+        ScreenContext ctx = game.screen_context();
+        std::vector<ScreenPackageWindow> windows;
+        desc->windows(&ctx, desc->state, &windows);
+        std::size_t windows_kept = 0;
+        std::size_t controls_kept = 0;
+        for (const ScreenPackageWindow& window : windows) {
+            if (windows_kept >= kMaxExtensionWindows)
+                return;
+            const std::string name = bounded_text(window.name, kMaxControlName);
+            if (name.empty())
+                continue;
+            ++windows_kept;
+            for (const ScreenWindowControl& source : window.controls) {
+                if (controls_kept >= kMaxExtensionControls)
+                    return;
+                const std::string control_name = bounded_text(source.name, kMaxControlName);
+                if (control_name.empty())
+                    continue;
+                AutomationControl control;
+                control.name = control_name;
+                control.kind = mapped_window_kind(source.kind);
+                control.window = name;
+                control.package_window = true;
+                control.x = source.x;
+                control.y = source.y;
+                control.width = source.width;
+                control.height = source.height;
+                control.visible = source.visible;
+                control.enabled = source.enabled;
+                control.focused = source.focused;
+                control.checked = source.checked;
+                control.text = bounded_text(source.text, kMaxControlText);
+                if (source.kind == ScreenWindowKind::list) {
+                    const std::size_t count = std::min(source.items.size(), kMaxListItems);
+                    control.items.reserve(count);
+                    for (std::size_t item = 0; item < count; ++item)
+                        control.items.push_back(bounded_text(source.items[item], kMaxItemText));
+                    control.first_visible = std::max<int32_t>(0, source.first_visible);
+                    control.row_height = source.row_height;
+                    control.rows = source.rows;
+                    control.selected = source.selected;
+                }
+                controls->push_back(std::move(control));
+                ++controls_kept;
+            }
+        }
+    }
+
+    /// Returns the gadget the game has under the pointer (AutomationHost::hovered).
+    ///
+    /// @param context AutomationHost::context
+    /// @return its name, or null when the game names none
+    static const char* hovered(void* context) {
+        const Runtime& game = runtime(context);
+        if (game.screen_ == Screen::match)
+            return game.hovered_gadget_name();
+        if (!game.hovered_ || *game.hovered_ == 0)
+            return nullptr;
+        const auto& gadgets = game.resources_.layout.gadgets;
+        if (*game.hovered_ >= gadgets.size())
+            return nullptr;
+        const std::string& name = gadgets[*game.hovered_].common.name;
+        return name.empty() ? nullptr : name.c_str();
+    }
+
     /// Collects the controls of the windows extensions show (AutomationHost::windows).
     ///
     /// @param context AutomationHost::context
@@ -621,7 +724,14 @@ struct AutomationHostAccess {
                     control.enabled = source.enabled;
                     control.focused = source.focused;
                     control.checked = source.checked;
-                    control.text = bounded_text(source.text, kMaxControlText);
+                    control.masked = source.masked;
+                    control.text_length = source.text_length > 0 ? source.text_length : 0;
+                    if (source.masked)
+                        control.text.clear();
+                    else
+                        control.text = bounded_text(source.text, kMaxControlText);
+                    control.scroll_up = source.scroll_up;
+                    control.scroll_down = source.scroll_down;
                     if (*kind == AutomationControlKind::list) {
                         const std::size_t count = std::min(source.items.size(), kMaxListItems);
                         control.items.reserve(count);
@@ -658,11 +768,13 @@ constexpr AutomationHost kAutomationHostEntries{
     AutomationHostAccess::stop_frame_capture,
     AutomationHostAccess::match_world,
     AutomationHostAccess::match_digest,
-    AutomationHostAccess::quit
+    AutomationHostAccess::quit,
+    AutomationHostAccess::package_windows,
+    AutomationHostAccess::hovered
 };
 
 // The entries above, one for each of the table's after its context.
-constexpr std::size_t kAutomationHostEntryCount = 12;
+constexpr std::size_t kAutomationHostEntryCount = 14;
 static_assert(
     sizeof(AutomationHost) == sizeof(void*) * (1 + kAutomationHostEntryCount),
     "the automation host's entries changed: set every one of them here"
@@ -695,6 +807,74 @@ void set_extension_window_source(Runtime& runtime, void* context, ExtensionWindo
     if (sources.size() >= kMaxSources)
         return;
     sources.push_back({context, source});
+}
+
+namespace {
+
+/// Copies a note into a fixed buffer, cutting it so the buffer stays terminated.
+///
+/// @param[out] into the buffer
+/// @param capacity its size in bytes, including the terminator
+/// @param from the text; null is empty
+void copy_note(char* into, std::size_t capacity, const char* from) {
+    if (capacity == 0)
+        return;
+    if (from == nullptr) {
+        into[0] = '\0';
+        return;
+    }
+    std::size_t index = 0;
+    for (; index + 1 < capacity && from[index] != '\0'; ++index)
+        into[index] = from[index];
+    into[index] = '\0';
+}
+
+} // namespace
+
+void post_extension_note(Runtime& runtime, const char* kind, const char* text) {
+    if (kind == nullptr || kind[0] == '\0')
+        return;
+    if (runtime.extension_note_count_ == Runtime::k_extension_note_cap) {
+        runtime.extension_note_read_ =
+            (runtime.extension_note_read_ + 1) % Runtime::k_extension_note_cap;
+        --runtime.extension_note_count_;
+    }
+    Runtime::ExtensionNote& note = runtime.extension_notes_[runtime.extension_note_write_];
+    copy_note(note.kind, sizeof note.kind, kind);
+    copy_note(note.text, sizeof note.text, text);
+    runtime.extension_note_write_ =
+        (runtime.extension_note_write_ + 1) % Runtime::k_extension_note_cap;
+    ++runtime.extension_note_count_;
+}
+
+void take_extension_notes(
+    void* runtime, std::vector<std::string>& kinds, std::vector<std::string>& texts
+) {
+    if (runtime == nullptr) {
+        kinds.clear();
+        texts.clear();
+        return;
+    }
+    take_extension_notes(*static_cast<Runtime*>(runtime), kinds, texts);
+}
+
+void take_extension_notes(
+    Runtime& runtime, std::vector<std::string>& kinds, std::vector<std::string>& texts
+) {
+    kinds.clear();
+    texts.clear();
+    kinds.reserve(runtime.extension_note_count_);
+    texts.reserve(runtime.extension_note_count_);
+    while (runtime.extension_note_count_ > 0) {
+        const Runtime::ExtensionNote& note = runtime.extension_notes_[runtime.extension_note_read_];
+        kinds.emplace_back(note.kind);
+        texts.emplace_back(note.text);
+        runtime.extension_note_read_ =
+            (runtime.extension_note_read_ + 1) % Runtime::k_extension_note_cap;
+        --runtime.extension_note_count_;
+    }
+    runtime.extension_note_read_ = 0;
+    runtime.extension_note_write_ = 0;
 }
 
 uint32_t extension_clock(const Runtime& runtime) {

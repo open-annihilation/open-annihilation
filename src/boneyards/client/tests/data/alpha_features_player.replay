@@ -1,0 +1,137 @@
+# Rover replies for an offline ordinary login to CorePrime Alpha.
+# Same map and the same search replies as alpha_features_beta.replay.
+# USER_STATUS 1 is an ordinary account: QuickPlay, Locator and Matchmaking
+# stay covered, and the in-game registration form is not offered unless
+# BetaLoginUX was already stored.
+
+# Contact, clearance, then login_confirmed for user id 1.
+progress 4 0 0 0
+progress 7 0 0 0
+progress 8 0 1 0
+
+delay 2
+dossier USER_STATUS int 1
+dossier LOGINNAME string oa_player
+dossier ALLEGIANCE string C
+
+area_name alpha
+
+delay 1
+allegiances CCCCIIIAAACCCCCCAAAAAAAAC
+
+# SYNTHETIC: census and activity, as in alpha_planets.replay.
+# census AREA POPULATION ACTIVITY IN_PROGRESS FORMING CORE_WINS ARM_WINS
+census 1796 12 1 0 1 0 0
+census 1797 7 0 0 0 0 0
+census 1798 5 1 1 0 0 0
+census 1799 9 0 0 0 0 0
+census 1800 21 2 1 1 3 4
+census 1801 34 3 2 1 17 9
+census 1802 16 1 0 2 6 11
+census 1803 8 0 0 0 0 0
+census 1804 4 1 0 1 0 0
+census 1805 11 0 0 0 0 0
+census 1806 6 0 0 0 0 0
+census 1807 3 1 1 0 0 0
+census 1808 2 0 0 0 0 0
+census 1809 5 0 0 0 0 0
+census 1810 8 2 1 1 0 0
+census 1811 4 0 0 0 0 0
+census 1812 10 1 0 1 0 0
+census 1813 3 0 0 0 0 0
+census 1814 7 0 0 0 0 0
+census 1815 2 1 1 0 0 0
+census 1816 6 0 0 0 0 0
+census 1817 9 2 1 1 0 0
+census 1818 1 0 0 0 0 0
+census 1819 5 0 0 0 0 0
+census 1820 13 1 0 1 0 0
+activity 1010231010010020100102001
+
+# SYNTHETIC: the same locate answers as the Beta Tester replay.
+delay 1
+located Ghost_Commander 1 7 3
+located_field area_id uint 1801
+located_field room_id uint 1
+located_field area_name string Slag
+located_field room_name string Main
+
+located Yard_Dog 2 3 1
+located_field area_id uint 1801
+located_field area_name string Slag
+
+located Dan 3 9 2
+located_field area_id uint 1801
+located_field area_name string Slag
+located_field game_name string Rumble
+
+located Wanderer 0 4 0
+
+located Pages 6 8 1
+located_field area_name string Slag
+
+located Away 4 11 1
+located_field server_name string Other Yard
+
+located Nobody 5 0 0
+
+# SYNTHETIC: every planet's frequencies, as in the Beta Tester replay.
+# room AREA ROOM USERS TYPE NEEDS_PW [global] NAME|DESCRIPTION|TAG
+room 1796 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1796 1 0 1 0 P1-1796
+room 1796 60002 4 1 0 global Rally|The sector rally|System
+room 1797 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1797 1 0 1 0 P1-1797
+room 1798 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1798 1 0 1 0 P1-1798
+room 1799 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1799 1 0 1 0 P1-1799
+room 1800 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1800 1 0 1 0 P1-1800
+room 1801 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1801 1 4 1 0 Main|General chat
+room 1801 2 2 2 0 Tactics|Build orders and strategy
+room 1802 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1802 1 0 1 0 P1-1802
+room 1803 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1803 1 0 1 0 P1-1803
+room 1804 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1804 1 0 1 0 P1-1804
+room 1805 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1805 1 0 1 0 P1-1805
+room 1806 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1806 1 0 1 0 P1-1806
+room 1807 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1807 1 0 1 0 P1-1807
+room 1808 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1808 1 0 1 0 P1-1808
+room 1809 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1809 1 0 1 0 P1-1809
+room 1810 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1810 1 0 1 0 P1-1810
+room 1811 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1811 1 0 1 0 P1-1811
+room 1812 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1812 1 0 1 0 P1-1812
+room 1813 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1813 1 0 1 0 P1-1813
+room 1814 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1814 1 0 1 0 P1-1814
+room 1815 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1815 1 0 1 0 P1-1815
+room 1816 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1816 1 0 1 0 P1-1816
+room 1817 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1817 1 0 1 0 P1-1817
+room 1818 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1818 1 0 1 0 P1-1818
+room 1819 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1819 1 0 1 0 P1-1819
+room 1820 60001 11 3 0 Sector Chat|Shared chat for the whole campaign|System
+room 1820 1 0 1 0 P1-1820
+
+# SYNTHETIC: one forming battle on planet 1801.
+# battle AREA GAME_ID TYPE FORMING HOST [pass] [seats N M] NAME
+battle 1801 rumble1 1 1 C Rumble
+battle 1801 seated 1 1 C seats 2 4 Seated
+battle 1801 locked 1 1 C pass Locked

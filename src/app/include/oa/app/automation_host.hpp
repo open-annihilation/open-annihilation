@@ -65,15 +65,18 @@ struct AutomationControl {
     /// The extension window it belongs to, as the extension spells it; empty
     /// for the screen's own controls and a dialog's.
     std::string window;
-    int32_t x{};                    ///< its left column on the canvas
-    int32_t y{};                    ///< its top row on the canvas
-    int32_t width{};                ///< its width in canvas pixels
-    int32_t height{};               ///< its height in canvas pixels
-    bool visible{};                 ///< it is shown
-    bool enabled{};                 ///< it is shown and not grayed out
-    bool focused{};                 ///< it holds the keyboard focus
-    bool checked{};                 ///< a check box is checked
-    std::string text;               ///< its caption, its label's text or a field's typed text
+    int32_t x{};      ///< its left column on the canvas
+    int32_t y{};      ///< its top row on the canvas
+    int32_t width{};  ///< its width in canvas pixels
+    int32_t height{}; ///< its height in canvas pixels
+    bool visible{};   ///< it is shown
+    bool enabled{};   ///< it is shown and not grayed out
+    bool focused{};   ///< it holds the keyboard focus
+    bool checked{};   ///< a check box is checked
+    std::string text; ///< its caption, its label's text or a field's typed text
+    /// A masked field. An answer gives `text_length` and does not give the text.
+    bool masked{};
+    int32_t text_length{};          ///< characters a masked field holds
     std::vector<std::string> items; ///< a list's rows, the words it shows
     /// A list's names, one per `items` entry, when a row's words are not the
     /// name a choice uses. Empty for every other list.
@@ -88,6 +91,10 @@ struct AutomationControl {
     std::string scroll_up;
     /// A list's control that scrolls toward its end, one page of the rows it shows.
     std::string scroll_down;
+    /// The control is on a window a screen package reported, not on an
+    /// extension's window. `window` still names that window. The protocol
+    /// does not write this; the tree uses it to tell the two apart.
+    bool package_window{};
     /// The control's place in the window is known exactly, in the window's
     /// own pixels (window_x to window_height), as for the controls of Open
     /// Annihilation's own screens, which are drawn in the window's pixels
@@ -130,8 +137,8 @@ struct AutomationHost {
     /// (the OA layer: the OA button, Settings, a notice or a prompt) come
     /// right after a stacked dialog's, ahead of the rest, and while one of
     /// them takes every input the controls after them are listed disabled.
-    /// The screens of the screen packages are not among them; their modules
-    /// report their own.
+    /// The screens of the screen packages are not among them. A package
+    /// reports the windows it shows through package_windows.
     ///
     /// @param context AutomationHost::context
     /// @param[out] controls replaced by the controls, in the panel's order
@@ -201,6 +208,24 @@ struct AutomationHost {
     ///
     /// @param context AutomationHost::context
     void (*quit)(void* context){};
+    /// Collects the windows the screen package shown reports
+    /// (ScreenDesc::windows). A package that reports none leaves the list
+    /// empty. Each control's `window` is the window's name and
+    /// `package_window` is set, so the tree places the window under the
+    /// package. Changes nothing.
+    ///
+    /// @param context AutomationHost::context
+    /// @param[out] controls replaced by the controls, the windows in the
+    ///        package's order and each window's controls in its own order
+    void (*package_windows)(void* context, std::vector<AutomationControl>* controls){};
+    /// Returns the name of the gadget the game has under the pointer: a
+    /// match's gadget, or the frontend screen's. Null when the pointer is
+    /// over none the game names. The screen answer uses it when no listed
+    /// control's rectangle holds the pointer.
+    ///
+    /// @param context AutomationHost::context
+    /// @return the name; valid until the runtime next runs a frame; null for none
+    const char* (*hovered)(void* context){};
 };
 
 /// Returns the table through which the automation endpoint reads the running game.

@@ -37,6 +37,14 @@ void test_leave_reason() {
             std::strcmp(leave_reason(game), "You have lost connection with the game") == 0,
         "the local player's reason gives its text"
     );
+    game.players[1].reject_reason = 2;
+    check(leave_reason(game) == nullptr, "a player who left by itself is told nothing");
+    game.players[1].reject_reason = 1;
+    check(
+        leave_reason(game) != nullptr &&
+            std::strcmp(leave_reason(game), "You were rejected from the game") == 0,
+        "a kick still shows"
+    );
     game.local_player_index = 10;
     check(leave_reason(game) == nullptr, "no local player, no text");
 }

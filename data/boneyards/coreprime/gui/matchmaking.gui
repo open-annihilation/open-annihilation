@@ -1,0 +1,607 @@
+// The Matchmaking dialog over Chat or Battle: 150,140 and 340 by 250.
+// Positions are relative to the panel. The glass, the choices, the queue,
+// both faces and the opponent box are this file. ACTIVATE shows the
+// searching face. The search is mocked: the opponent box is built and not
+// opened. Close leaves a search running.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=Matchmaking;
+    xpos=150;
+    ypos=140;
+    width=340;
+    height=250;
+  }
+  panel=Matchmaking;
+  crdefault=Activate;
+  escdefault=Close;
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontBig;
+  }
+  filename=BYHatFontBig84.gaf;
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontMedium;
+  }
+  filename=BYHatFontMedium90.gaf;
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontSmall;
+  }
+  filename=BYHatFontSmall87.gaf;
+}
+[GADGET4]
+{
+  [COMMON]
+  {
+    id=24;
+    name=Fill;
+    xpos=0;
+    ypos=0;
+    width=340;
+    height=250;
+    help=fill 42;
+  }
+}
+[GADGET5]
+{
+  [COMMON]
+  {
+    id=24;
+    name=Outer;
+    xpos=0;
+    ypos=0;
+    width=340;
+    height=250;
+    help=rect 90;
+  }
+}
+[GADGET6]
+{
+  [COMMON]
+  {
+    id=24;
+    name=Inner;
+    xpos=2;
+    ypos=2;
+    width=336;
+    height=246;
+    help=rect 93;
+  }
+}
+[GADGET7]
+{
+  [COMMON]
+  {
+    id=24;
+    name=Rule;
+    xpos=8;
+    ypos=116;
+    width=325;
+    height=1;
+    help=line 93;
+  }
+}
+[GADGET8]
+{
+  [COMMON]
+  {
+    id=24;
+    name=ScanFrame;
+    xpos=248;
+    ypos=120;
+    width=82;
+    height=82;
+    help=rect 93;
+  }
+}
+[GADGET9]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Title;
+    xpos=0;
+    ypos=8;
+    width=340;
+    height=16;
+    attribs=4;
+    fontnumber=1;
+  }
+  text=MATCHMAKING;
+}
+[GADGET10]
+{
+  [COMMON]
+  {
+    id=5;
+    name=GameType;
+    xpos=4;
+    ypos=34;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Game Type;
+}
+[GADGET11]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Duel;
+    xpos=80;
+    ypos=34;
+    width=48;
+    height=14;
+    fontnumber=2;
+    active=1;
+    attribs=5;
+    help=choice:duel|Widgets.gaf Radio_Button 0;
+  }
+  text=Duel;
+}
+[GADGET12]
+{
+  [COMMON]
+  {
+    id=1;
+    name=WinnerTakesAll;
+    xpos=130;
+    ypos=34;
+    width=100;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:winner|Widgets.gaf Radio_Button 0;
+  }
+  text=Winner Takes All;
+}
+[GADGET13]
+{
+  [COMMON]
+  {
+    id=1;
+    name=For Fun;
+    xpos=232;
+    ypos=34;
+    width=90;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:fun|Widgets.gaf Radio_Button 0;
+  }
+  text=For Fun;
+}
+[GADGET14]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Skill;
+    xpos=4;
+    ypos=54;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Skill;
+}
+[GADGET15]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Near mine;
+    xpos=80;
+    ypos=54;
+    width=76;
+    height=14;
+    fontnumber=2;
+    active=1;
+    attribs=5;
+    help=choice:near|Widgets.gaf Radio_Button 0;
+  }
+  text=Near mine;
+}
+[GADGET16]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Any;
+    xpos=160;
+    ypos=54;
+    width=40;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:any|Widgets.gaf Radio_Button 0;
+  }
+  text=Any;
+}
+[GADGET17]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Side;
+    xpos=4;
+    ypos=74;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Side;
+}
+[GADGET18]
+{
+  [COMMON]
+  {
+    id=12;
+    name=ArmMark;
+    xpos=91;
+    ypos=74;
+    width=12;
+    height=12;
+    help=Widgets.gaf ArmCoreLogos 0;
+  }
+}
+[GADGET19]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Arm;
+    xpos=80;
+    ypos=74;
+    width=48;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:arm|Widgets.gaf Radio_Button 0|12;
+  }
+  text=Arm;
+}
+[GADGET20]
+{
+  [COMMON]
+  {
+    id=12;
+    name=CoreMark;
+    xpos=141;
+    ypos=74;
+    width=12;
+    height=12;
+    help=Widgets.gaf ArmCoreLogos 1;
+  }
+}
+[GADGET21]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Core;
+    xpos=130;
+    ypos=74;
+    width=52;
+    height=14;
+    fontnumber=2;
+    active=1;
+    attribs=5;
+    help=choice:core|Widgets.gaf Radio_Button 0|12;
+  }
+  text=Core;
+}
+[GADGET22]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Either;
+    xpos=184;
+    ypos=74;
+    width=70;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:either|Widgets.gaf Radio_Button 0;
+  }
+  text=Either;
+}
+[GADGET23]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Planets;
+    xpos=4;
+    ypos=94;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Planets;
+}
+[GADGET24]
+{
+  [COMMON]
+  {
+    id=1;
+    name=This planet;
+    xpos=80;
+    ypos=94;
+    width=86;
+    height=14;
+    fontnumber=2;
+    active=1;
+    attribs=5;
+    help=choice:planet|Widgets.gaf Radio_Button 0;
+  }
+  text=This planet;
+}
+[GADGET25]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Any planet;
+    xpos=170;
+    ypos=94;
+    width=90;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:anywhere|Widgets.gaf Radio_Button 0;
+  }
+  text=Any planet;
+}
+[GADGET26]
+{
+  [COMMON]
+  {
+    id=5;
+    name=QueueLine;
+    xpos=12;
+    ypos=124;
+    width=230;
+    height=12;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=Commanders queued on Fuel Dump;
+}
+[GADGET27]
+{
+  [COMMON]
+  {
+    id=12;
+    name=QueueMeter;
+    xpos=12;
+    ypos=138;
+    width=104;
+    height=9;
+    help=BY_New.gaf Queue_Meter 4;
+  }
+}
+[GADGET28]
+{
+  [COMMON]
+  {
+    id=5;
+    name=QueueCount;
+    xpos=122;
+    ypos=138;
+    width=16;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+    colorf=233;
+  }
+  text=4;
+}
+[GADGET29]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Scanner;
+    xpos=253;
+    ypos=125;
+    width=72;
+    height=72;
+    help=BY_New.gaf Scanner 0;
+  }
+}
+[GADGET30]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Blurb1;
+    xpos=12;
+    ypos=156;
+    width=230;
+    height=12;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=Matchmaking pairs you with commanders of a;
+}
+[GADGET31]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Blurb2;
+    xpos=12;
+    ypos=168;
+    width=230;
+    height=12;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=similar skill and hosts the battle for you.;
+}
+[GADGET32]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Blurb3;
+    xpos=12;
+    ypos=180;
+    width=230;
+    height=12;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=Keep chatting while it searches.;
+}
+[GADGET33]
+{
+  [COMMON]
+  {
+    id=5;
+    name=SearchLine;
+    xpos=12;
+    ypos=160;
+    width=220;
+    height=14;
+    attribs=5;
+    fontnumber=2;
+    colorf=233;
+  }
+  text=SEARCHING  0:00;
+}
+[GADGET34]
+{
+  [COMMON]
+  {
+    id=5;
+    name=SearchDetail;
+    xpos=12;
+    ypos=176;
+    width=230;
+    height=12;
+    attribs=5;
+    fontnumber=3;
+    colorf=84;
+  }
+  text=Looking for a Duel near Seasoned, as Core.;
+}
+[GADGET35]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Activate;
+    xpos=12;
+    ypos=218;
+    width=99;
+    height=21;
+    help=goto:search|Widgets.gaf Function_Button_Large 0;
+  }
+  text=ACTIVATE;
+}
+[GADGET36]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Deactivate;
+    xpos=12;
+    ypos=218;
+    width=99;
+    height=21;
+    help=goto:settings|Widgets.gaf Function_Button_Large 0;
+  }
+  text=DEACTIVATE;
+}
+[GADGET37]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Close;
+    xpos=322;
+    ypos=6;
+    width=13;
+    height=12;
+    help=back|Widgets.gaf Close_Button 0;
+  }
+}
+[GADGET38]
+{
+  [COMMON]
+  {
+    id=12;
+    name=OfferFace;
+    xpos=-8;
+    ypos=32;
+    width=216;
+    height=136;
+    help=main_console.gaf MessageBox 1;
+  }
+}
+[GADGET39]
+{
+  [COMMON]
+  {
+    id=5;
+    name=OfferText;
+    xpos=5;
+    ypos=38;
+    width=190;
+    height=96;
+    attribs=16;
+  }
+  text=Opponent found:\nArmSniper (Seasoned)\nJoin the Duel?;
+}
+[GADGET40]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Yes;
+    xpos=22;
+    ypos=138;
+    width=57;
+    height=21;
+    help=join|main_console.gaf BlankButton 0;
+  }
+  text=Yes;
+}
+[GADGET41]
+{
+  [COMMON]
+  {
+    id=1;
+    name=No;
+    xpos=122;
+    ypos=138;
+    width=57;
+    height=21;
+    help=decline|main_console.gaf BlankButton 0;
+  }
+  text=No;
+}

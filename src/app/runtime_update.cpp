@@ -332,7 +332,44 @@ const update::CheckSnapshot& Runtime::update_snapshot() const {
     return update_->held;
 }
 
+Runtime::AskedUpdate Runtime::asked_update() {
+    // These runs will not check, welcome or not. The entry goes on in the
+    // same pass instead of waiting for a menu that may never settle.
+    if (!options_.update_feed.has_value() && (options_.unattended || options_.headless_check))
+        return AskedUpdate::pass;
+    if (update::read_check_mode(preference_values_) == update::CheckMode::never)
+        return AskedUpdate::pass;
+    std::string failure;
+    if (!updates_folder(options_, failure)) {
+        if (update_ == nullptr)
+            update_.reset(new UpdateState());
+        if (!update_->logged_folder) {
+            update_->logged_folder = true;
+            std::cerr << "open-annihilation: update check: failed: " << failure << '\n';
+        }
+        return AskedUpdate::pass;
+    }
+    const auto found = preference_values_.find(std::string(oa::ui::first_run::preference_key));
+    const bool preference_done = found != preference_values_.end() &&
+                                 oa::ui::engine_settings::language_notice_trim(found->second) ==
+                                     oa::ui::first_run::preference_done;
+    const bool welcome_blocks = first_run_blocks_language_notice();
+    // A named preferences file, a headless check or a remote run hides the
+    // welcome without recording it done, so an asked check never starts.
+    if (!preference_done && !welcome_blocks)
+        return AskedUpdate::pass;
+    if (match_ != nullptr || screen_ == Screen::match)
+        return AskedUpdate::later;
+    if (!preference_done || welcome_blocks)
+        return AskedUpdate::later;
+    return AskedUpdate::run;
+}
+
 void Runtime::start_update_check(bool asked) {
+    // An asked check that has to wait, or that will not run, leaves the
+    // worker as it is. The caller waits, or goes on.
+    if (asked && asked_update() != AskedUpdate::run)
+        return;
     const bool in_match = match_ != nullptr || screen_ == Screen::match;
     // An asked check still waits out a match. The first automatic check of a
     // run does too: it is the settled main menu.
@@ -396,7 +433,7 @@ void Runtime::start_update_check(bool asked) {
     }
 }
 
-void Runtime::tick_update_check() {
+void Runtime::tick_update_check(bool start_automatic) {
     if (update_ == nullptr)
         update_.reset(new UpdateState());
     // The first menu reads the feed an earlier check stored, once, with no
@@ -483,6 +520,10 @@ void Runtime::tick_update_check() {
     const bool check_running = update_->checker != nullptr &&
                                update_->checker->snapshot().state == update::CheckState::checking;
     const int64_t now = schedule_seconds(update_->schedule_now);
+    // An entry that must not wait reads the stored result above and leaves
+    // the automatic check for a later tick, so this pass does not dial out.
+    if (!start_automatic)
+        return;
     if (!update::automatic_check_starts(
             mode,
             update::read_checked(preference_values_),
@@ -497,6 +538,10 @@ void Runtime::tick_update_check() {
     if (!update_->automatic_began.has_value() && !menu_ready)
         return;
     start_update_check(false);
+}
+
+bool Runtime::update_menu_ready() {
+    return update_ != nullptr && update_menu_settled() && update_->menu_frames >= kUpdateMenuFrames;
 }
 
 namespace {

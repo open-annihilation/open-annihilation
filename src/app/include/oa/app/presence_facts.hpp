@@ -135,4 +135,58 @@ struct PresenceFacts {
 ///         the facts need its simulation hash
 [[nodiscard]] PresenceFacts presence_facts(const Runtime& runtime);
 
+/// One standard hack that is on, with each parameter's value.
+///
+/// The value is the canonical JSON the profile resolves. These values are
+/// not part of the presence told to other machines.
+struct ActiveHack {
+    std::string id{}; ///< the hack's registry id
+
+    /// One parameter and its canonical JSON.
+    struct Value {
+        std::string name{}; ///< the parameter's name
+        std::string json{}; ///< the value, as canonical JSON
+    };
+
+    std::vector<Value> values{}; ///< the parameters, in registry order
+};
+
+/// The mod, the hacks and the mutators a match report reads.
+///
+/// has_mod is false for the base game, including a baseline profile. The
+/// hacks are the standard hacks that are on. The mutators are the ones the
+/// running match applied.
+struct MatchProfileReading {
+    bool has_mod{};            ///< a mod is in play
+    std::string mod_id{};      ///< the mod's id
+    std::string mod_name{};    ///< the mod's display name
+    std::string mod_version{}; ///< the mod's version
+    std::vector<ActiveHack> hacks{};
+
+    /// One mutator the running match applied.
+    struct Mutator {
+        std::string id{};      ///< the mutator's id
+        std::string version{}; ///< the mutator's version
+        std::string name{};    ///< the name the player saw
+    };
+
+    std::vector<Mutator> mutators{}; ///< empty when this match applied none
+};
+
+/// Reads the standard hacks that are on, with each parameter's value.
+///
+/// A hack is on when the played profile's state has it on. While Developer
+/// Mode is on, an override is laid over that state, parameters included.
+///
+/// @param runtime the running app
+/// @return the hacks that are on, in registry order
+[[nodiscard]] std::vector<ActiveHack> active_standard_hacks(const Runtime& runtime);
+
+/// Reads the mod, the active standard hacks and the mutators the running
+/// match applied.
+///
+/// @param runtime the running app
+/// @return the reading; has_mod is false for the base game
+[[nodiscard]] MatchProfileReading match_profile_reading(const Runtime& runtime);
+
 } // namespace oa::app

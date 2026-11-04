@@ -825,6 +825,31 @@ ScreenContext Runtime::screen_context(const ScreenInput* input) {
     return {this, &kRuntimeServices, &assets_, &surface_, match_.get(), input, screen_id(screen_)};
 }
 
+bool Runtime::screen_input_taken(const ScreenInput& input) {
+    const auto current = screen_id(screen_);
+    auto context = screen_context(&input);
+    for (auto index = screens_.overlay_count; index > 0; --index) {
+        auto& overlay = screens_.overlays[index - 1];
+        if (overlay.event != nullptr && overlay_applies(overlay, current) &&
+            overlay.event(&context, overlay.state) != 0)
+            return true;
+    }
+    if (const auto* desc = screen_find(&screens_, current);
+        desc != nullptr && desc->event != nullptr && desc->event(&context, desc->state) != 0)
+        return true;
+    return false;
+}
+
+bool Runtime::extension_layer_takes_pointer(float x, float y) {
+    // The same offer a pointer move makes, so the answer is the one that
+    // keeps the point from the gadgets underneath.
+    ScreenInput input{};
+    input.kind = ScreenInputKind::pointer_move;
+    input.x = x;
+    input.y = y;
+    return screen_input_taken(input);
+}
+
 bool Runtime::dispatch_screen_input(const SDL_Event& event) {
     const auto current = screen_id(screen_);
     const auto* desc = screen_find(&screens_, current);
@@ -842,16 +867,7 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
             input
         ))
         return false;
-    auto context = screen_context(&input);
-    bool taken = false;
-    for (auto index = screens_.overlay_count; !taken && index > 0; --index) {
-        auto& overlay = screens_.overlays[index - 1];
-        taken = overlay.event != nullptr && overlay_applies(overlay, current) &&
-                overlay.event(&context, overlay.state) != 0;
-    }
-    if (!taken)
-        taken =
-            desc != nullptr && desc->event != nullptr && desc->event(&context, desc->state) != 0;
+    const bool taken = screen_input_taken(input);
     // The built-in handler never sees a taken event, so the cursor sprite
     // follows the pointer here, whether an overlay or the screen took it.
     if (taken && (input.kind == ScreenInputKind::pointer_move ||

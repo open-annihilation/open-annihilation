@@ -1,0 +1,1453 @@
+// The Boneyards' own words. A section is the English the screens
+// write. de, fr, it, es and zh-Hans are what the player reads.
+// The game's own words stay out of this file, so its translation wins.
+
+[LOCATOR]
+	{
+	de=ORTUNG;
+	fr=REPÈRE;
+	it=RICERCA;
+	es=BUSCAR;
+	zh-Hans=定位;
+	}
+
+[Locate Player]
+	{
+	de=Spieler;
+	fr=Joueur;
+	it=Giocatore;
+	es=Jugador;
+	zh-Hans=玩家;
+	}
+
+[Locate Planet]
+	{
+	de=Planet;
+	fr=Planète;
+	it=Pianeta;
+	es=Planeta;
+	zh-Hans=星球;
+	}
+
+[Find Battle]
+	{
+	de=Schlacht;
+	fr=Bataille;
+	it=Battaglia;
+	es=Batalla;
+	zh-Hans=战斗;
+	}
+
+[Find Frequency]
+	{
+	de=Frequenz;
+	fr=Fréquence;
+	it=Frequenza;
+	es=Frecuencia;
+	zh-Hans=频道;
+	}
+
+[Server Transfer]
+	{
+	de=Server;
+	fr=Serveur;
+	it=Server;
+	es=Servidor;
+	zh-Hans=换服;
+	}
+
+[Find any player, planet,]
+	{
+	de=Spieler, Planet,;
+	fr=Joueur, planète,;
+	it=Giocatore, pianeta,;
+	es=Jugador, planeta,;
+	zh-Hans=玩家、星球、;
+	}
+
+[battle or frequency by]
+	{
+	de=Kampf, Frequenz,;
+	fr=bataille, fréquence,;
+	it=battaglia, frequenza,;
+	es=batalla, frecuencia,;
+	zh-Hans=战斗或频道，;
+	}
+
+[name, then relocate]
+	{
+	de=dann hinwechseln.;
+	fr=puis y aller.;
+	it=poi spostarsi.;
+	es=y luego ir.;
+	zh-Hans=按名前往。;
+	}
+
+[straight to it.]
+	{
+	de=Direkt hin.;
+	fr=Tout droit.;
+	it=Dritto li.;
+	es=Directo.;
+	zh-Hans=直达。;
+	}
+
+[Player Name]
+	{
+	de=Name;
+	fr=Nom;
+	it=Nome;
+	es=Nombre;
+	zh-Hans=名字;
+	}
+
+[Planet Name]
+	{
+	de=Planet;
+	fr=Planète;
+	it=Pianeta;
+	es=Planeta;
+	zh-Hans=星球;
+	}
+
+[Battle Name]
+	{
+	de=Kampf;
+	fr=Bataille;
+	it=Battaglia;
+	es=Batalla;
+	zh-Hans=战斗;
+	}
+
+[Frequency]
+	{
+	de=Frequenz;
+	fr=Fréquence;
+	it=Frequenza;
+	es=Frecuencia;
+	zh-Hans=频道;
+	}
+
+[SEARCH]
+	{
+	de=SUCHEN;
+	fr=CHERCHER;
+	it=CERCA;
+	es=BUSCAR;
+	zh-Hans=搜索;
+	}
+
+[NAME]
+	{
+	de=NAME;
+	fr=NOM;
+	it=NOME;
+	es=NOM;
+	zh-Hans=名;
+	}
+
+[WHERE]
+	{
+	de=ORT;
+	fr=LIEU;
+	it=DOVE;
+	es=DONDE;
+	zh-Hans=处;
+	}
+
+[STATUS]
+	{
+	de=STATUS;
+	fr=ETAT;
+	it=STATO;
+	es=ESTADO;
+	zh-Hans=状态;
+	}
+
+[ArmSniper is currently chatting on Planet Fuel Dump]
+	{
+	de=ArmSniper plaudert auf Planet Fuel Dump;
+	fr=ArmSniper discute sur Fuel Dump;
+	it=ArmSniper chatta su Fuel Dump;
+	es=ArmSniper charla en Fuel Dump;
+	zh-Hans=ArmSniper 正在 Fuel Dump 聊天;
+	}
+
+[Frequency Tactics.]
+	{
+	de=Frequenz Tactics.;
+	fr=Fréquence Tactics.;
+	it=Frequenza Tactics.;
+	es=Frecuencia Tactics.;
+	zh-Hans=频道 Tactics。;
+	}
+
+[RELOCATE]
+	{
+	de=WECHSELN;
+	fr=ALLER;
+	it=SPOSTA;
+	es=CAMBIAR;
+	zh-Hans=转移;
+	}
+
+[PAGE]
+	{
+	de=SEITE;
+	fr=PAGE;
+	it=PAGINA;
+	es=PAGINA;
+	zh-Hans=分页;
+	}
+
+[JOIN]
+	{
+	de=REIN;
+	fr=REJOINDRE;
+	it=ENTRA;
+	es=UNIRSE;
+	zh-Hans=加入;
+	}
+
+[MATCHMAKING]
+	{
+	de=PARTNERSUCHE;
+	fr=PARTENAIRES;
+	it=ABBINA;
+	es=EMPAREJAR;
+	zh-Hans=配对;
+	}
+
+[Game Type]
+	{
+	de=Spielart;
+	fr=Type;
+	it=Tipo;
+	es=Tipo;
+	zh-Hans=玩法;
+	}
+
+[Duel]
+	{
+	de=Duell;
+	fr=Duel;
+	it=Duello;
+	es=Duelo;
+	zh-Hans=决斗;
+	}
+
+[Winner Takes All]
+	{
+	de=Ein Sieger;
+	fr=Un vainqueur;
+	it=Un vincitore;
+	es=Un ganador;
+	zh-Hans=胜者;
+	}
+
+[For Fun]
+	{
+	de=Zum Spaß;
+	fr=Pour rire;
+	it=Per gioco;
+	es=Por gusto;
+	zh-Hans=娱乐;
+	}
+
+[Skill]
+	{
+	de=Rang;
+	fr=Rang;
+	it=Grado;
+	es=Rango;
+	zh-Hans=段;
+	}
+
+[Near mine]
+	{
+	de=Wie ich;
+	fr=Comme moi;
+	it=Come me;
+	es=Como yo;
+	zh-Hans=近我;
+	}
+
+[Any]
+	{
+	de=Alle;
+	fr=Tous;
+	it=Tutti;
+	es=Todo;
+	zh-Hans=任何;
+	}
+
+[Side]
+	{
+	de=Seite;
+	fr=Camp;
+	it=Lato;
+	es=Bando;
+	zh-Hans=方;
+	}
+
+[Either]
+	{
+	de=Egal;
+	fr=Les deux;
+	it=Misto;
+	es=Ambos;
+	zh-Hans=双方;
+	}
+
+[Planets]
+	{
+	de=Planèten;
+	fr=Planètes;
+	it=Pianeti;
+	es=Planetas;
+	zh-Hans=星球;
+	}
+
+[This planet]
+	{
+	de=Dieser;
+	fr=Ici;
+	it=Qui;
+	es=Aqui;
+	zh-Hans=本星;
+	}
+
+[Any planet]
+	{
+	de=Überall;
+	fr=Partout;
+	it=Ovunque;
+	es=Todos;
+	zh-Hans=任意;
+	}
+
+[Commanders queued on Fuel Dump]
+	{
+	de=Kommandanten auf Fuel Dump;
+	fr=Commandants sur Fuel Dump;
+	it=Comandanti su Fuel Dump;
+	es=Comandantes en Fuel Dump;
+	zh-Hans=指挥官在 Fuel Dump;
+	}
+
+[Commanders queued on %s]
+	{
+	de=Kommandanten auf %s;
+	fr=Commandants sur %s;
+	it=Comandanti su %s;
+	es=Comandantes en %s;
+	zh-Hans=指挥官在 %s;
+	}
+
+[Commanders queued on any planet]
+	{
+	de=Kommandanten, jeder Planet;
+	fr=Commandants, toute planète;
+	it=Comandanti, ogni pianeta;
+	es=Comandantes, todo planeta;
+	zh-Hans=指挥官在任意星球;
+	}
+
+[Matchmaking pairs you with commanders of a]
+	{
+	de=Partner deiner Stärke,;
+	fr=Des partenaires de ton rang,;
+	it=Compagni del tuo grado,;
+	es=Socios de tu rango,;
+	zh-Hans=按相近段位配对，;
+	}
+
+[similar skill and hosts the battle for you.]
+	{
+	de=und eröffnet den Kampf.;
+	fr=et ouvre la bataille.;
+	it=e apre la battaglia.;
+	es=y abre la batalla.;
+	zh-Hans=并代为开战。;
+	}
+
+[Keep chatting while it searches.]
+	{
+	de=Plaudern während der Suche.;
+	fr=Discute pendant la recherche.;
+	it=Chatta mentre cerca.;
+	es=Charla mientras busca.;
+	zh-Hans=搜索时可以聊天。;
+	}
+
+[SEARCHING  0:00]
+	{
+	de=SUCHE  0:00;
+	fr=RECHERCHE  0:00;
+	it=CERCA  0:00;
+	es=BUSCA  0:00;
+	zh-Hans=搜索  0:00;
+	}
+
+[SEARCHING  %d:%02d]
+	{
+	de=SUCHE  %d:%02d;
+	fr=RECHERCHE  %d:%02d;
+	it=CERCA  %d:%02d;
+	es=BUSCA  %d:%02d;
+	zh-Hans=搜索  %d:%02d;
+	}
+
+[Looking for a Duel near Seasoned, as Core.]
+	{
+	de=Suche Duell nahe Seasoned, als Core.;
+	fr=Cherche Duel près de Seasoned, Core.;
+	it=Cerca Duello vicino a Seasoned, Core.;
+	es=Busca Duelo cerca de Seasoned, Core.;
+	zh-Hans=寻找决斗，近 Seasoned，Core。;
+	}
+
+[Looking for a %s %s, %s.]
+	{
+	de=Suche %s %s, %s.;
+	fr=Cherche %s %s, %s.;
+	it=Cerca %s %s, %s.;
+	es=Busca %s %s, %s.;
+	zh-Hans=寻找 %s %s，%s。;
+	}
+
+[at any skill]
+	{
+	de=jeder Rang;
+	fr=tout rang;
+	it=ogni grado;
+	es=todo rango;
+	zh-Hans=任意段;
+	}
+
+[near Seasoned]
+	{
+	de=nahe Seasoned;
+	fr=près de Seasoned;
+	it=vicino a Seasoned;
+	es=cerca de Seasoned;
+	zh-Hans=近 Seasoned;
+	}
+
+[as Arm]
+	{
+	de=als Arm;
+	fr=en Arm;
+	it=come Arm;
+	es=como Arm;
+	zh-Hans=Arm;
+	}
+
+[as Core]
+	{
+	de=als Core;
+	fr=en Core;
+	it=come Core;
+	es=como Core;
+	zh-Hans=Core;
+	}
+
+[either side]
+	{
+	de=jede Seite;
+	fr=les deux;
+	it=ogni lato;
+	es=ambos;
+	zh-Hans=双方;
+	}
+
+[ACTIVATE]
+	{
+	de=STARTEN;
+	fr=LANCER;
+	it=AVVIA;
+	es=ACTIVAR;
+	zh-Hans=开始;
+	}
+
+[DEACTIVATE]
+	{
+	de=STOPPEN;
+	fr=ARRETER;
+	it=FERMA;
+	es=PARAR;
+	zh-Hans=停止;
+	}
+
+[Opponent found:\nArmSniper (Seasoned)\nJoin the Duel?]
+	{
+	de=Gegner:\nArmSniper (Seasoned)\nDuell beitreten?;
+	fr=Adversaire:\nArmSniper (Seasoned)\nRejoindre le duel?;
+	it=Avversario:\nArmSniper (Seasoned)\nUnirsi al duello?;
+	es=Rival:\nArmSniper (Seasoned)\nUnirse al duelo?;
+	zh-Hans=对手:\nArmSniper (Seasoned)\n加入决斗？;
+	}
+
+[QUICKPLAY]
+	{
+	de=SCHNELL;
+	fr=RAPIDE;
+	it=RAPIDA;
+	es=RAPIDA;
+	zh-Hans=速战;
+	}
+
+[Galactic War]
+	{
+	de=Galaxiekrieg;
+	fr=Guerre;
+	it=Guerra;
+	es=Guerra;
+	zh-Hans=星系战;
+	}
+
+[War Training]
+	{
+	de=Übung;
+	fr=Entraînement;
+	it=Esercizio;
+	es=Practica;
+	zh-Hans=演习;
+	}
+
+[Two commanders, one map,]
+	{
+	de=Zwei, eine Karte,;
+	fr=Deux, une carte,;
+	it=Due, una mappa,;
+	es=Dos, un mapa,;
+	zh-Hans=两人一图，;
+	}
+
+[no allies. Ranked on the]
+	{
+	de=ohne Partner. Rang;
+	fr=sans alliés. Classe;
+	it=senza alleati. Grado;
+	es=sin aliados. Rango;
+	zh-Hans=无友军。计榜;
+	}
+
+[Duel ladder.]
+	{
+	de=Duell-Leiter.;
+	fr=échelle Duel.;
+	it=scala Duello.;
+	es=escala Duelo.;
+	zh-Hans=决斗榜。;
+	}
+
+[Three or four commanders,]
+	{
+	de=Drei oder vier,;
+	fr=Trois ou quatre,;
+	it=Tre o quattro,;
+	es=Tres o cuatro,;
+	zh-Hans=三或四人，;
+	}
+
+[one winner. Ranked on the]
+	{
+	de=ein Sieger. Rang auf;
+	fr=un vainqueur. Classe;
+	it=un vincitore. Grado;
+	es=un ganador. Rango;
+	zh-Hans=一个胜者。计榜;
+	}
+
+[Winner Takes All ladder.]
+	{
+	de=der Alles-Leiter.;
+	fr=échelle vainqueur.;
+	it=scala vincitore.;
+	es=escala ganador.;
+	zh-Hans=胜者榜。;
+	}
+
+[A battle that is not]
+	{
+	de=Ein Kampf ohne;
+	fr=Une bataille sans;
+	it=Una battaglia senza;
+	es=Una batalla sin;
+	zh-Hans=一场不计;
+	}
+
+[ranked. Any number of]
+	{
+	de=Wertung. Beliebig;
+	fr=classement. Autant;
+	it=grado. Quanti;
+	es=rango. Cuantos;
+	zh-Hans=排行。人数;
+	}
+
+[commanders may join.]
+	{
+	de=viele dürfen rein.;
+	fr=que l'on veut.;
+	it=se ne vuole.;
+	es=se quiera.;
+	zh-Hans=不限。;
+	}
+
+[Fight for the planet]
+	{
+	de=Kampf um den;
+	fr=Combat pour la;
+	it=Lotta per il;
+	es=Lucha por el;
+	zh-Hans=为所选;
+	}
+
+[you selected. Only on a]
+	{
+	de=Planèten. Nur auf;
+	fr=planète choisie. Sur;
+	it=pianeta scelto. Su;
+	es=planeta elegido. En;
+	zh-Hans=星球而战。仅;
+	}
+
+[contested world.]
+	{
+	de=umkämpfter Welt.;
+	fr=un monde dispute.;
+	it=un mondo conteso.;
+	es=un mundo en lucha.;
+	zh-Hans=争夺中的世界。;
+	}
+
+[Practice on a planet]
+	{
+	de=Üben auf einem;
+	fr=S'entrainer sur;
+	it=Prova su un;
+	es=Practica en un;
+	zh-Hans=在己方;
+	}
+
+[of your own side. The]
+	{
+	de=eigenen Planèten.;
+	fr=une planète a soi.;
+	it=pianeta proprio.;
+	es=planeta propio.;
+	zh-Hans=星球练习。;
+	}
+
+[ladders do not count it.]
+	{
+	de=Leitern zählen es nicht.;
+	fr=Les échelles l'ignorent.;
+	it=Le scale non contano.;
+	es=Las escalas no cuentan.;
+	zh-Hans=榜上不计。;
+	}
+
+[FIND ME A BATTLE]
+	{
+	de=SCHLACHT;
+	fr=BATAILLE;
+	it=BATTAGLIA;
+	es=BATALLA;
+	zh-Hans=找战斗;
+	}
+
+[Where]
+	{
+	de=Wo;
+	fr=Ou;
+	it=Dove;
+	es=Donde;
+	zh-Hans=处;
+	}
+
+[Map]
+	{
+	de=Karte;
+	fr=Carte;
+	it=Mappa;
+	es=Mapa;
+	zh-Hans=图;
+	}
+
+[Fuel Dump only]
+	{
+	de=Nur Fuel Dump;
+	fr=Fuel Dump seul;
+	it=Solo Fuel Dump;
+	es=Solo Fuel Dump;
+	zh-Hans=仅 Fuel Dump;
+	}
+
+[Novice]
+	{
+	de=Neu;
+	fr=Neuf;
+	it=Base;
+	es=Nuevo;
+	zh-Hans=新手;
+	}
+
+[Seasoned]
+	{
+	de=Erfahren;
+	fr=Aguerri;
+	it=Esperto;
+	es=Experto;
+	zh-Hans=老手;
+	}
+
+[Expert]
+	{
+	de=Experte;
+	fr=Expert;
+	it=Maestro;
+	es=Maestro;
+	zh-Hans=专家;
+	}
+
+[Prefer my favorite: %s]
+	{
+	de=Favorit: %s;
+	fr=Favori: %s;
+	it=Preferita: %s;
+	es=Favorito: %s;
+	zh-Hans=偏好: %s;
+	}
+
+[Prefer my favorite: Lava Alley]
+	{
+	de=Favorit: Lava Alley;
+	fr=Favori: Lava Alley;
+	it=Preferita: Lava Alley;
+	es=Favorito: Lava Alley;
+	zh-Hans=偏好: Lava Alley;
+	}
+
+[QuickPlay looks across every planet for a forming battle that fits,]
+	{
+	de=Schnell sucht auf jedem Planèten einen passenden Kampf,;
+	fr=Rapide cherche sur chaque planète une bataille qui convient,;
+	it=Rapida cerca su ogni pianeta una battaglia adatta,;
+	es=Rapida busca en cada planeta una batalla que encaje,;
+	zh-Hans=速战在每个星球找一场合适的战斗，;
+	}
+
+[joins the best one, and hosts a new battle with these settings if]
+	{
+	de=tritt dem besten bei und eröffnet sonst einen neuen;
+	fr=rejoint la meilleure, ou en ouvre une nouvelle si;
+	it=entra nella migliore, o ne apre una nuova se;
+	es=entra en la mejor, o abre una nueva si;
+	zh-Hans=加入最好的一场，否则按这些设置新开，;
+	}
+
+[none turns up within 30 seconds. The Duel and Winner Takes All]
+	{
+	de=wenn in 30 Sekunden keiner da ist. Duell und Ein Sieger;
+	fr=rien n'arrive en 30 secondes. Duel et Un vainqueur;
+	it=nessuna arriva in 30 secondi. Duello e Un vincitore;
+	es=ninguna llega en 30 segundos. Duelo y Un ganador;
+	zh-Hans=若 30 秒内没有。决斗和胜者;
+	}
+
+[ladders count QuickPlay battles like any other.]
+	{
+	de=zählen Schnell-Kämpfe wie andere.;
+	fr=comptent les batailles Rapide.;
+	it=contano le battaglie Rapida.;
+	es=cuentan las batallas Rapida.;
+	zh-Hans=把速战计入榜单。;
+	}
+
+[FIND BATTLE]
+	{
+	de=SUCHEN;
+	fr=CHERCHER;
+	it=CERCARE;
+	es=BUSCAR;
+	zh-Hans=寻找;
+	}
+
+[SEARCHING]
+	{
+	de=SUCHE;
+	fr=RECHERCHE;
+	it=CERCA;
+	es=BUSCA;
+	zh-Hans=搜索;
+	}
+
+[Scanning 25 planets for a Duel at Seasoned skill...]
+	{
+	de=25 Planèten: Duell, Rang Seasoned...;
+	fr=25 planètes: Duel, rang Seasoned...;
+	it=25 pianeti: Duello, grado Seasoned...;
+	es=25 planetas: Duelo, rango Seasoned...;
+	zh-Hans=25 个星球：决斗，段 Seasoned...;
+	}
+
+[Scanning Fuel Dump for a %s at %s skill...]
+	{
+	de=Fuel Dump: %s, Rang %s...;
+	fr=Fuel Dump: %s, rang %s...;
+	it=Fuel Dump: %s, grado %s...;
+	es=Fuel Dump: %s, rango %s...;
+	zh-Hans=Fuel Dump：%s，段 %s...;
+	}
+
+[Scanning 25 planets for a %s at %s skill...]
+	{
+	de=25 Planèten: %s, Rang %s...;
+	fr=25 planètes: %s, rang %s...;
+	it=25 pianeti: %s, grado %s...;
+	es=25 planetas: %s, rango %s...;
+	zh-Hans=25 个星球：%s，段 %s...;
+	}
+
+[Fuel Dump: Brawl at Dawn wants Expert - skipped]
+	{
+	de=Fuel Dump: Brawl at Dawn will Experte - weg;
+	fr=Fuel Dump: Brawl at Dawn veut Expert - passe;
+	it=Fuel Dump: Brawl at Dawn vuole Maestro - salto;
+	es=Fuel Dump: Brawl at Dawn quiere Maestro - fuera;
+	zh-Hans=Fuel Dump: Brawl at Dawn 要专家 - 跳过;
+	}
+
+[Altair: no forming battles]
+	{
+	de=Altair: kein Kampf;
+	fr=Altair: aucune bataille;
+	it=Altair: nessuna battaglia;
+	es=Altair: ninguna batalla;
+	zh-Hans=Altair: 没有战斗;
+	}
+
+[Deadman Alley: Last Stand is Galactic War - skipped]
+	{
+	de=Deadman Alley: Last Stand ist Galaxiekrieg - weg;
+	fr=Deadman Alley: Last Stand est Guerre - passe;
+	it=Deadman Alley: Last Stand e Guerra - salto;
+	es=Deadman Alley: Last Stand es Guerra - fuera;
+	zh-Hans=Deadman Alley: Last Stand 是星系战 - 跳过;
+	}
+
+[Lava Alley: Rumble in the Rubble, 1 of 2 seats, Seasoned]
+	{
+	de=Lava Alley: Rumble in the Rubble, 1 von 2, Seasoned;
+	fr=Lava Alley: Rumble in the Rubble, 1 sur 2, Seasoned;
+	it=Lava Alley: Rumble in the Rubble, 1 di 2, Seasoned;
+	es=Lava Alley: Rumble in the Rubble, 1 de 2, Seasoned;
+	zh-Hans=Lava Alley: Rumble in the Rubble，1/2，Seasoned;
+	}
+
+[CANCEL SEARCH]
+	{
+	de=ABBRECHEN;
+	fr=ANNULER;
+	it=ANNULLA;
+	es=ANULAR;
+	zh-Hans=停止;
+	}
+
+[Rumble in the Rubble\nDuel on Lava Alley\nJoin now?]
+	{
+	de=Rumble in the Rubble\nDuell auf Lava Alley\nJetzt bei?;
+	fr=Rumble in the Rubble\nDuel sur Lava Alley\nRejoindre?;
+	it=Rumble in the Rubble\nDuello su Lava Alley\nEntrare?;
+	es=Rumble in the Rubble\nDuelo en Lava Alley\nUnirse?;
+	zh-Hans=Rumble in the Rubble\nLava Alley 决斗\n现在加入？;
+	}
+
+[REGISTRATION]
+	{
+	de=ANMELDUNG;
+	fr=DOSSIER;
+	it=ISCRIZIONE;
+	es=REGISTRO;
+	zh-Hans=报名;
+	}
+
+[On the web]
+	{
+	de=Im Web;
+	fr=Sur le web;
+	it=Sul sito;
+	es=En la web;
+	zh-Hans=在网页;
+	}
+
+[In the game]
+	{
+	de=Im Spiel;
+	fr=Dans le jeu;
+	it=Nel gioco;
+	es=En el juego;
+	zh-Hans=在游戏;
+	}
+
+[Enlist on Core Prime's]
+	{
+	de=Auf der Seite von;
+	fr=Sur le site de;
+	it=Sul sito di;
+	es=En el sitio de;
+	zh-Hans=在 Core Prime;
+	}
+
+[web site, then log in]
+	{
+	de=Core Prime anmelden.;
+	fr=Core Prime, puis entrer.;
+	it=Core Prime, poi entrare.;
+	es=Core Prime, y entrar.;
+	zh-Hans=然后登录。;
+	}
+
+[with your new name.]
+	{
+	de=Dann mit dem Namen rein.;
+	fr=Avec le nouveau nom.;
+	it=Col nuovo nome.;
+	es=Con el nombre nuevo.;
+	zh-Hans=用新名字进入。;
+	}
+
+[No CD key or proof of]
+	{
+	de=Kein CD-Key und kein;
+	fr=Pas de cle, ni de;
+	it=Niente chiave, ne;
+	es=Sin clave ni prueba;
+	zh-Hans=不需要光盘密钥，;
+	}
+
+[ownership is needed.]
+	{
+	de=Besitznachweis nötig.;
+	fr=preuve de possession.;
+	it=prova di possesso.;
+	es=de posesion.;
+	zh-Hans=无需证明。;
+	}
+
+[ENLIST ON THE WEB]
+	{
+	de=IM WEB;
+	fr=SUR LE WEB;
+	it=SUL SITO;
+	es=EN LA WEB;
+	zh-Hans=网页报名;
+	}
+
+[Scan the code with your phone, or open the address in a browser.]
+	{
+	de=Code mit dem Telefon lesen, oder die Adresse im Browser öffnen.;
+	fr=Lire le code au téléphone, ou ouvrir l'adresse.;
+	it=Leggi il codice col telefono, o apri l'indirizzo.;
+	es=Lee el codigo con el telefono, o abre la direccion.;
+	zh-Hans=用手机扫码，或在浏览器打开地址。;
+	}
+
+[When your dossier is ready, come back and log in.]
+	{
+	de=Wenn der Eintrag fertig ist, zurück und anmelden.;
+	fr=Quand le dossier est prêt, reviens et entre.;
+	it=Quando la scheda e pronta, torna ed entra.;
+	es=Cuando la ficha este lista, vuelve y entra.;
+	zh-Hans=档案就绪后回来登录。;
+	}
+
+[Scan with your phone,]
+	{
+	de=Mit dem Telefon,;
+	fr=Avec le téléphone,;
+	it=Col telefono,;
+	es=Con el telefono,;
+	zh-Hans=用手机扫，;
+	}
+
+[or type the address on]
+	{
+	de=oder die Adresse;
+	fr=ou tape l'adresse;
+	it=o scrivi l'indirizzo;
+	es=o escribe la direccion;
+	zh-Hans=或在其他设备;
+	}
+
+[any device.]
+	{
+	de=auf einem Gerät.;
+	fr=sur un appareil.;
+	it=su un dispositivo.;
+	es=en un aparato.;
+	zh-Hans=输入地址。;
+	}
+
+[OPEN IN BROWSER]
+	{
+	de=IM BROWSER;
+	fr=NAVIGATEUR;
+	it=BROWSER;
+	es=NAVEGADOR;
+	zh-Hans=打开;
+	}
+
+[BACK TO LOGIN]
+	{
+	de=ZUM LOGIN;
+	fr=AU LOGIN;
+	it=AL LOGIN;
+	es=AL INICIO;
+	zh-Hans=返回;
+	}
+
+[Enlist without leaving]
+	{
+	de=Anmelden, ohne das;
+	fr=S'inscrire sans;
+	it=Iscriversi senza;
+	es=Alta sin salir;
+	zh-Hans=不离开游戏;
+	}
+
+[the game.]
+	{
+	de=Spiel zu verlassen.;
+	fr=quitter le jeu.;
+	it=uscire dal gioco.;
+	es=del juego.;
+	zh-Hans=即可报名。;
+	}
+
+[ENLIST IN THE GAME]
+	{
+	de=IM SPIEL;
+	fr=DANS LE JEU;
+	it=NEL GIOCO;
+	es=EN EL JUEGO;
+	zh-Hans=游戏报名;
+	}
+
+[Confirm]
+	{
+	de=Wieder;
+	fr=Encore;
+	it=Ripeti;
+	es=Otra vez;
+	zh-Hans=再输;
+	}
+
+[E-mail]
+	{
+	de=E-Mail;
+	fr=E-mail;
+	it=E-mail;
+	es=Correo;
+	zh-Hans=邮箱;
+	}
+
+[Join Forces of]
+	{
+	de=Seite;
+	fr=Camp;
+	it=Lato;
+	es=Bando;
+	zh-Hans=阵营;
+	}
+
+[Undecided]
+	{
+	de=Offen;
+	fr=Ouvert;
+	it=Aperto;
+	es=Abierto;
+	zh-Hans=未定;
+	}
+
+[I have read the Rules of Conduct]
+	{
+	de=Ich kenne die Regeln;
+	fr=J'ai lu les règles;
+	it=Ho letto le regole;
+	es=Lei las reglas;
+	zh-Hans=我已阅读行为规则;
+	}
+
+[REGISTER]
+	{
+	de=ANMELDEN;
+	fr=INSCRIRE;
+	it=ISCRIVI;
+	es=ALTA;
+	zh-Hans=报名;
+	}
+
+[CANCEL]
+	{
+	de=ABBRUCH;
+	fr=ANNULER;
+	it=ANNULLA;
+	es=ANULAR;
+	zh-Hans=取消;
+	}
+
+[This server does not take\nregistrations from the game yet.\nPlease use the web page.]
+	{
+	de=Dieser Server nimmt\nnoch keine Anmeldung an.\nBitte die Webseite.;
+	fr=Ce serveur ne prend\npas encore d'inscription.\nUtilise la page web.;
+	it=Questo server non\nprende ancora iscrizioni.\nUsa la pagina web.;
+	es=Este servidor aun\nno toma altas.\nUsa la pagina web.;
+	zh-Hans=此服务器还不能\n在游戏中报名。\n请用网页。;
+	}
+
+[Locator needs the Boneyards mod.]
+	{
+	de=Die Ortung braucht das Boneyards-Mod.;
+	fr=Le repere exige le mod Boneyards.;
+	it=La ricerca esige il mod Boneyards.;
+	es=La búsqueda exige el mod Boneyards.;
+	zh-Hans=定位需要 Boneyards 模组。;
+	}
+
+[Matchmaking needs the Boneyards mod.]
+	{
+	de=Die Partnersuche braucht das Boneyards-Mod.;
+	fr=Les partenaires exigent le mod Boneyards.;
+	it=L'abbina esige il mod Boneyards.;
+	es=El emparejar exige el mod Boneyards.;
+	zh-Hans=配对需要 Boneyards 模组。;
+	}
+
+[QuickPlay needs the Boneyards mod.]
+	{
+	de=Schnell braucht das Boneyards-Mod.;
+	fr=Rapide exige le mod Boneyards.;
+	it=Rapida esige il mod Boneyards.;
+	es=Rapida exige el mod Boneyards.;
+	zh-Hans=速战需要 Boneyards 模组。;
+	}
+
+[The Registration console needs the Boneyards mod.]
+	{
+	de=Die Anmeldung braucht das Boneyards-Mod.;
+	fr=Le dossier exige le mod Boneyards.;
+	it=L'iscrizione esige il mod Boneyards.;
+	es=El registro exige el mod Boneyards.;
+	zh-Hans=报名需要 Boneyards 模组。;
+	}
+
+[The registration form needs the Boneyards mod.]
+	{
+	de=Das Formular braucht das Boneyards-Mod.;
+	fr=Le formulaire exige le mod Boneyards.;
+	it=Il modulo esige il mod Boneyards.;
+	es=El formulario exige el mod Boneyards.;
+	zh-Hans=报名表需要 Boneyards 模组。;
+	}
+
+[A newer Open Annihilation is out. Update before entering the Boneyards?]
+	{
+	de=Ein neueres Open Annihilation ist da. Aktualisieren, bevor du die Boneyards betrittst?;
+	fr=Un Open Annihilation plus récent est sorti. Tu mets à jour avant d'entrer dans les Boneyards ?;
+	it=C'è un Open Annihilation più nuovo. Aggiorni prima di entrare nei Boneyards?;
+	es=Hay un Open Annihilation más nuevo. ¿Actualizas antes de entrar en los Boneyards?;
+	zh-Hans=有更新的 Open Annihilation。进入 Boneyards 之前先更新吗？;
+	}
+
+[Could not reach %s. Check your connection, or try again later.]
+	{
+	de=%s ist nicht erreichbar. Prüfe deine Verbindung, oder versuch es später noch einmal.;
+	fr=Impossible de joindre %s. Vérifie ta connexion, ou réessaie plus tard.;
+	it=Impossibile raggiungere %s. Controlla la connessione, o riprova più tardi.;
+	es=No se alcanza %s. Revisa tu conexión, o inténtalo más tarde.;
+	zh-Hans=无法连接 %s。请检查网络，或稍后再试。;
+	}
+
+[Fetching the Boneyards… {percent}%]
+	{
+	de=Die Boneyards werden geholt… {percent} %;
+	fr=Récupération des Boneyards… {percent} %;
+	it=Recupero dei Boneyards… {percent}%;
+	es=Obteniendo los Boneyards… {percent}%;
+	zh-Hans=正在获取 Boneyards… {percent}%;
+	}
+
+[Matchmaking is not open for this account.]
+	{
+	de=Matchmaking ist für dieses Konto nicht offen.;
+	fr=Le matchmaking n'est pas ouvert pour ce compte.;
+	it=Il matchmaking non è aperto per questo account.;
+	es=Matchmaking no está abierto para esta cuenta.;
+	zh-Hans=此账号未开放 Matchmaking。;
+	}
+
+[That battle is not allowed on this planet.]
+	{
+	de=Diese Schlacht ist auf diesem Planeten nicht erlaubt.;
+	fr=Cette bataille n'est pas permise sur cette planète.;
+	it=Quella battaglia non è permessa su questo pianeta.;
+	es=Esa batalla no está permitida en este planeta.;
+	zh-Hans=此行星不允许该战斗。;
+	}
+
+[You are already in a battle.]
+	{
+	de=Du bist schon in einer Schlacht.;
+	fr=Tu es déjà dans une bataille.;
+	it=Sei già in una battaglia.;
+	es=Ya estás en una batalla.;
+	zh-Hans=你已经在一场战斗中。;
+	}
+
+[That battle has filled.]
+	{
+	de=Diese Schlacht ist voll.;
+	fr=Cette bataille est pleine.;
+	it=Quella battaglia è piena.;
+	es=Esa batalla está llena.;
+	zh-Hans=该战斗已满。;
+	}
+
+[Fuel Dump is not in this sector.]
+	{
+	de=Fuel Dump liegt nicht in diesem Sektor.;
+	fr=Fuel Dump n'est pas dans ce secteur.;
+	it=Fuel Dump non è in questo settore.;
+	es=Fuel Dump no está en este sector.;
+	zh-Hans=本星区没有 Fuel Dump。;
+	}
+
+[The queue dropped this search.]
+	{
+	de=Die Warteschlange hat diese Suche verworfen.;
+	fr=La file a abandonné cette recherche.;
+	it=La coda ha lasciato cadere questa ricerca.;
+	es=La cola ha soltado esta búsqueda.;
+	zh-Hans=队列放弃了这次搜索。;
+	}
+
+[Those settings cannot be queued.]
+	{
+	de=Diese Einstellungen kann man nicht einreihen.;
+	fr=Ces réglages ne peuvent pas être mis en file.;
+	it=Quelle impostazioni non si possono mettere in coda.;
+	es=Esos ajustes no se pueden poner en cola.;
+	zh-Hans=这些设置无法排队。;
+	}
+
+[The queue is unavailable.]
+	{
+	de=Die Warteschlange ist nicht erreichbar.;
+	fr=La file n'est pas disponible.;
+	it=La coda non è disponibile.;
+	es=La cola no está disponible.;
+	zh-Hans=队列不可用。;
+	}
+
+[QuickPlay is not open for this account.]
+	{
+	de=QuickPlay ist für dieses Konto nicht offen.;
+	fr=QuickPlay n'est pas ouvert pour ce compte.;
+	it=QuickPlay non è aperto per questo account.;
+	es=QuickPlay no está abierto para esta cuenta.;
+	zh-Hans=此账号未开放 QuickPlay。;
+	}
+
+[The search could not be started.]
+	{
+	de=Die Suche konnte nicht starten.;
+	fr=La recherche n'a pas pu démarrer.;
+	it=La ricerca non è potuta partire.;
+	es=La búsqueda no pudo empezar.;
+	zh-Hans=搜索未能开始。;
+	}
+
+[No games available, host one?]
+	{
+	de=Kein Spiel frei, eins starten?;
+	fr=Aucune partie, tu en ouvres une?;
+	it=Nessuna partita, ne apri una?;
+	es=No hay partidas, abres una?;
+	zh-Hans=没有可加入的战斗，开一局？;
+	}
+
+[Join now?]
+	{
+	de=Jetzt bei?;
+	fr=Rejoindre?;
+	it=Entrare?;
+	es=Unirse?;
+	zh-Hans=现在加入？;
+	}
+
+[%s on %s]
+	{
+	de=%s auf %s;
+	fr=%s sur %s;
+	it=%s su %s;
+	es=%s en %s;
+	zh-Hans=%s 在 %s;
+	}
+
+[Scanning %d planets for a %s at %s skill...]
+	{
+	de=%d Planèten: %s, Rang %s...;
+	fr=%d planètes: %s, rang %s...;
+	it=%d pianeti: %s, grado %s...;
+	es=%d planetas: %s, rango %s...;
+	zh-Hans=%d 个星球：%s，段 %s...;
+	}
+
+[%s: no forming battles]
+	{
+	de=%s: kein Kampf;
+	fr=%s : aucune bataille;
+	it=%s: nessuna battaglia;
+	es=%s: ninguna batalla;
+	zh-Hans=%s: 没有战斗;
+	}
+
+[%s: %s wants %s - skipped]
+	{
+	de=%s: %s will %s - weg;
+	fr=%s : %s veut %s - passe;
+	it=%s: %s vuole %s - salto;
+	es=%s: %s quiere %s - fuera;
+	zh-Hans=%s: %s 要 %s - 跳过;
+	}
+
+[%s: %s is %s - skipped]
+	{
+	de=%s: %s ist %s - weg;
+	fr=%s : %s est %s - passe;
+	it=%s: %s è %s - salto;
+	es=%s: %s es %s - fuera;
+	zh-Hans=%s: %s 是 %s - 跳过;
+	}
+
+[%s: %s - skipped]
+	{
+	de=%s: %s - weg;
+	fr=%s : %s - passe;
+	it=%s: %s - salto;
+	es=%s: %s - fuera;
+	zh-Hans=%s: %s - 跳过;
+	}
+
+[%s: %s, %d of %d seats, %s]
+	{
+	de=%s: %s, %d von %d Plätzen, %s;
+	fr=%s : %s, %d sur %d places, %s;
+	it=%s: %s, %d di %d posti, %s;
+	es=%s: %s, %d de %d puestos, %s;
+	zh-Hans=%s: %s，%d/%d 席，%s;
+	}
+
+[Opponent found:]
+	{
+	de=Gegner gefunden:;
+	fr=Adversaire trouvé :;
+	it=Avversario trovato:;
+	es=Oponente encontrado:;
+	zh-Hans=找到对手：;
+	}
+
+[Join the %s?]
+	{
+	de=Dem %s beitreten?;
+	fr=Tu rejoins le %s ?;
+	it=Ti unisci a %s?;
+	es=¿Te unes al %s?;
+	zh-Hans=加入 %s？;
+	}
+
+[%s (%s)]
+	{
+	de=%s (%s);
+	fr=%s (%s);
+	it=%s (%s);
+	es=%s (%s);
+	zh-Hans=%s (%s);
+	}
+
+[Choose Arm or Core for this sector.]
+	{
+	de=Wähle Arm oder Core für diesen Sektor.;
+	fr=Choisis Arm ou Core pour ce secteur.;
+	it=Scegli Arm o Core per questo settore.;
+	es=Elige Arm o Core para este sector.;
+	zh-Hans=为本星区选择 Arm 或 Core。;
+	}
+
+[You chose Arm in the last sector. Choose a side for this one.]
+	{
+	de=Im letzten Sektor hast du Arm gewählt. Wähle eine Seite für diesen.;
+	fr=Tu as choisi Arm au dernier secteur. Choisis un camp pour celui-ci.;
+	it=Nell'ultimo settore hai scelto Arm. Scegli una fazione per questo.;
+	es=Elegiste Arm en el último sector. Elige un bando para este.;
+	zh-Hans=上一星区你选择了 Arm。为本星区选择一方。;
+	}
+
+[You chose Core in the last sector. Choose a side for this one.]
+	{
+	de=Im letzten Sektor hast du Core gewählt. Wähle eine Seite für diesen.;
+	fr=Tu as choisi Core au dernier secteur. Choisis un camp pour celui-ci.;
+	it=Nell'ultimo settore hai scelto Core. Scegli una fazione per questo.;
+	es=Elegiste Core en el último sector. Elige un bando para este.;
+	zh-Hans=上一星区你选择了 Core。为本星区选择一方。;
+	}
+
+[Choose]
+	{
+	de=Wählen;
+	fr=Choisir;
+	it=Scegli;
+	es=Elegir;
+	zh-Hans=选择;
+	}
+
+[EXIT]
+	{
+	de=BEENDEN;
+	fr=QUITTER;
+	it=ESCI;
+	es=SALIR;
+	zh-Hans=退出;
+	}
+
+[Arm]
+	{
+	de=Arm;
+	fr=Arm;
+	it=Arm;
+	es=Arm;
+	zh-Hans=Arm;
+	}
+
+[Core]
+	{
+	de=Core;
+	fr=Core;
+	it=Core;
+	es=Core;
+	zh-Hans=Core;
+	}
+
+[The password you provided was not correct for the username.  Check the values and try again. Forgot it? Reset it at coreprime.net/forgot]
+	{
+	de=Das Passwort stimmt nicht zum Benutzernamen. Prüfe die Angaben und versuche es noch einmal. Vergessen? Setze es auf coreprime.net/forgot zurück;
+	fr=Le mot de passe ne correspond pas à ce nom. Vérifie les valeurs et réessaie. Oublié ? Réinitialise-le sur coreprime.net/forgot;
+	it=La password non è corretta per questo nome. Controlla i valori e riprova. Dimenticata? Reimpostala su coreprime.net/forgot;
+	es=La contraseña no es correcta para ese nombre. Revisa los valores e inténtalo de nuevo. ¿La olvidaste? Restablécela en coreprime.net/forgot;
+	zh-Hans=提供的密码与用户名不符。请检查后再试。忘记了？请到 coreprime.net/forgot 重置;
+	}
+

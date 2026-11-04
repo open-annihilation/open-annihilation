@@ -58,7 +58,10 @@ expanded and checked, and the notary service's logs.
    the source's notices in `Contents/Resources`, the text fonts in its
    `fonts` folder, each the bootstrap's byte for byte, the built-in
    registries in `registries/` (Core Prime's descriptor the same bytes as
-   the source). `Contents/MacOS` holds the executable and `oa-update`, and
+   the source). When that build's cache has the module on, the same check
+   also accepts `coreprime.ccx`, the module's language file and the page
+   fonts, and with the module off it accepts the same files as before.
+   `Contents/MacOS` holds the executable and `oa-update`, and
    nothing else. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
    `licenses/` that Git tracks; a file Git does not track there, a
    `.DS_Store` for one, stops the script, since the build would put it in
@@ -333,6 +336,11 @@ folder is what the installer packs. It holds `open-annihilation.exe`,
 `oa-intro.exe`, `oa-tool.exe`, `LICENSE`, `ATTRIBUTIONS.md`, `licenses/`,
 `fonts/`, `languages/interface.tdf`, `registries/` and `brains/` with
 Classic packed as `classic.oabrain`. When the folder also holds
+`coreprime.ccx`, the installer packs it and the uninstaller removes it;
+a Windows 95 folder has none, and the installer does not require it.
+Every language file in the folder is installed, and the uninstaller
+removes those files. `fonts/` is copied as a tree, so page-font folders
+in the package are installed and removed with the text fonts. When the folder also holds
 `oa-update.exe`, the installer packs that too. The uninstaller removes
 `oa-update.exe` whether or not this package carried it. The installer
 refuses a folder whose `brains/` has no `classic.oabrain`, and installs

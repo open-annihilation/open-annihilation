@@ -1,0 +1,48 @@
+# Rover replies for an offline login to CorePrime Alpha, replayed by
+# open-annihilation --boneyards-replay and the Boneyards client tests: alpha's 25-planet
+# allegiance string, the server name alpha for the install's server list, and
+# a user id and dossier that stand in for a test account.
+
+# Contact, clearance, then login_confirmed for user id 1.
+progress 4 0 0 0
+progress 7 0 0 0
+progress 8 0 1 0
+
+delay 2
+dossier USER_STATUS int 1
+dossier LOGINNAME string oa_check
+dossier ALLEGIANCE string C
+
+area_name alpha
+
+delay 1
+allegiances CCCCIIIAAACCCCCCAAAAAAAAC
+
+# PLACEHOLDERS: every planet's census and activity below is zero.
+# census AREA POPULATION ACTIVITY IN_PROGRESS FORMING CORE_WINS ARM_WINS
+census 1796 0 0 0 0 0 0
+census 1797 0 0 0 0 0 0
+census 1798 0 0 0 0 0 0
+census 1799 0 0 0 0 0 0
+census 1800 0 0 0 0 0 0
+census 1801 0 0 0 0 0 0
+census 1802 0 0 0 0 0 0
+census 1803 0 0 0 0 0 0
+census 1804 0 0 0 0 0 0
+census 1805 0 0 0 0 0 0
+census 1806 0 0 0 0 0 0
+census 1807 0 0 0 0 0 0
+census 1808 0 0 0 0 0 0
+census 1809 0 0 0 0 0 0
+census 1810 0 0 0 0 0 0
+census 1811 0 0 0 0 0 0
+census 1812 0 0 0 0 0 0
+census 1813 0 0 0 0 0 0
+census 1814 0 0 0 0 0 0
+census 1815 0 0 0 0 0 0
+census 1816 0 0 0 0 0 0
+census 1817 0 0 0 0 0 0
+census 1818 0 0 0 0 0 0
+census 1819 0 0 0 0 0 0
+census 1820 0 0 0 0 0 0
+activity 0000000000000000000000000

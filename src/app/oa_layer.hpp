@@ -1133,6 +1133,11 @@ class OaLayer {
     ///     (SDL_GetRenderLogicalPresentationRect); null in a match
     void present(const SDL_FRect* picture_area);
 
+    /// Draws the MCP badge at the window's top right, in the window's own
+    /// pixels, while a client is connected. Draws nothing otherwise, and
+    /// puts the renderer's state back either way.
+    void present_mcp_badge() noexcept;
+
     /// Tells whether this frame's OA badges are drawn here, at the window's
     /// own pixels, rather than into the 640 by 480 frame.
     ///

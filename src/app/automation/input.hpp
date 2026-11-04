@@ -27,6 +27,12 @@ struct WindowPlacement {
 
 /// Returns where the game's window shows the canvas now.
 ///
+/// @param check the check host
+/// @return the placement
+[[nodiscard]] WindowPlacement window_placement(const CheckHost& check);
+
+/// Returns where the game's window shows the canvas now.
+///
 /// @param endpoint the endpoint, served
 /// @return the placement
 [[nodiscard]] WindowPlacement window_placement(const Endpoint& endpoint);

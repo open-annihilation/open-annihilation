@@ -305,10 +305,21 @@ void collect_controls(
         );
     }
     // An extension's windows take the pointer over the screen and its dialogs.
+    // A screen package's own windows come next: over the screen, under an
+    // extension's.
     std::vector<AutomationControl> windows;
     extension_windows(host, windows);
     if (!windows.empty())
         controls.insert(controls.begin(), windows.begin(), windows.end());
+    std::vector<AutomationControl> package;
+    if (host.package_windows != nullptr)
+        host.package_windows(host.context, &package);
+    if (!package.empty()) {
+        auto place = controls.begin();
+        while (place != controls.end() && !place->window.empty() && !place->package_window)
+            ++place;
+        controls.insert(place, package.begin(), package.end());
+    }
 }
 
 void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& controls) {
@@ -412,7 +423,14 @@ void answer_controls(Endpoint& endpoint, const Request& request, Answer& answer)
         json.key("visible");
         json.boolean(control.visible);
         json.key("text");
-        json.string(control.text);
+        if (control.masked)
+            json.string("");
+        else
+            json.string(control.text);
+        if (control.masked) {
+            json.key("length");
+            json.integer(control.text_length);
+        }
         json.key("focused");
         json.boolean(control.focused);
         if (control.kind == AutomationControlKind::check_box) {

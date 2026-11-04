@@ -109,6 +109,9 @@ def configure_flags(source, build, entries, extra):
         require(entries, "CMAKE_GENERATOR"),
         f"-DCMAKE_PREFIX_PATH={require(entries, 'CMAKE_PREFIX_PATH')}",
         f"-DOA_TEXT_FONTS_DIR={require(entries, 'OA_TEXT_FONTS_DIR')}",
+        # The module's font folder. The scratch tree has none of its own, so
+        # the nested configure uses the folder the running build found.
+        f"-DOA_FONTS_DIR={require(entries, 'OA_FONTS_DIR')}",
     ]
     for key in PASSTHROUGH:
         value = entries.get(key, "")

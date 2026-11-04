@@ -7,7 +7,8 @@ explains them and shows how to follow them.
 ## Running the tests
 
 Build the pinned SDL, FreeType and fonts once
-(`python3 tools/bootstrap_sdl.py` and `python3 tools/bootstrap_text_fonts.py`,
+(`python3 tools/bootstrap_sdl.py`, `python3 tools/bootstrap_text_fonts.py`
+and `python3 tools/bootstrap_page_fonts.py --deps local/deps`,
 see [CONTRIBUTING.md](../../CONTRIBUTING.md#build-and-test)), then:
 
 ```sh
@@ -641,6 +642,29 @@ needs no installation, and `native-mcp-server`
 does and has it start the game on the dummy drivers, go from the main menu
 to Single Player and back, take a picture and quit.
 
+The in-game MCP server (`--mcp`, [mcp.md](../mcp.md),
+[src/app/mcp](../../src/app/mcp/README.md))
+is always built. `mcp-protocol` checks framing, the lifecycle, the tool
+list and the errors a bad message, an unknown tool and a schema mismatch
+produce. `mcp-options` checks `--mcp`, `--mcp=observe`, `--mcp-http`,
+`--mcp-clock` and the options refused beside them. Over the installation
+`OA_GAME_DIR` names, `native-mcp-stdio`
+(`src/app/mcp/tests/check_native_stdio.py`) starts the game with `--mcp`
+on the dummy drivers, initializes, lists the tools, calls `game.status`
+and `game.quit`, and requires the process to exit 0. `mcp-http` checks
+the loopback HTTP framing, the bearer token and a second client being
+refused. `native-mcp-http` (`src/app/mcp/tests/check_native_http.py`)
+starts the game with `--mcp-http` on the dummy drivers, connects to the
+loopback port named in `mcp.json`, calls `game.status` and `game.quit`,
+and requires the process to exit 0. `native-mcp-clock`
+(`src/app/mcp/tests/check_native_clock.py`) runs a skirmish twice with
+`--mcp --mcp-clock stepped`, sets the speed, steps the same ticks, and
+requires the two saved-state hashes to match. `native-mcp-status`
+(`src/app/mcp/tests/check_native_status.py`) starts one such skirmish and
+reads `game.info` and `game.status`: the mod and the engine version, the
+local metal and energy, the unit limit, a clock that advances, and a
+computer player's economy left unread.
+
 ### The renderer
 
 The game makes its renderer by walking SDL's render drivers and makes it
@@ -986,6 +1010,12 @@ window loses focus, the request is held, and the frame hook is called on
 three frames; the request is then released and the loop waits, the hook not
 called again, until the check wakes it. The line it prints starts
 `inactive loop check:`.
+
+A run with its own work to finish first calls `defer_inactive_loop_release`
+before the loop and lets the release go once that work has finished. While
+the release is held off, the check counts no frames and does not release.
+A build without self-checks has nothing to hold off, and the call does
+nothing.
 
 ### A game played alone while the window is away
 

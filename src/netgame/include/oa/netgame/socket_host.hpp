@@ -116,6 +116,14 @@ struct Connection {
     bool outbound{};
     bool connecting{};
     bool failed{};
+    /// Bytes are carried by an overlay route, or looped to another connection
+    /// of this host. fd stays invalid, so the socket is never polled or closed.
+    bool carried{};
+    /// pair_slot is the other end of a stream this host dialled to itself.
+    bool paired{};
+    uint8_t pair_slot{};
+    /// Port the other end sees this connection send from.
+    uint16_t local_port{};
     Address peer{};   // remote end as seen by the socket
     Address target{}; // outbound: the endpoint dialled
     uint32_t rx_used{};
@@ -225,11 +233,13 @@ void host_close(Host* host) noexcept;
 
 /// Finds this machine's address on the way to a destination.
 ///
-/// A host bound to one address always uses it. Otherwise the system is
-/// asked which of this machine's addresses it routes the destination
-/// through (127.0.0.1 for this machine's loopback address), and the answer
-/// is remembered for that destination (the last max_route_entries
-/// destinations). Nothing is sent.
+/// When an overlay route is installed and it claims the destination, the
+/// address is the one the route names for this client, and the system is
+/// not asked. Otherwise a host bound to one address always uses it. With
+/// no such binding the system is asked which of this machine's addresses
+/// it routes the destination through (127.0.0.1 for this machine's
+/// loopback address), and the answer is remembered for that destination
+/// (the last max_route_entries destinations). Nothing is sent.
 ///
 /// @param[in,out] host Open host; its bind address and remembered routes are read and kept.
 /// @param to Destination address.

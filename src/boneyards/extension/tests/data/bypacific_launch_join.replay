@@ -1,0 +1,66 @@
+# Rover replies for a battle the Boneyards launches on the install's BYPacific
+# war map, replayed by --check-boneyards-launch join: a guest login confirmed
+# as user 12 (oa_joiner), the war map's feeds, one forming battle on planet
+# 1801, the launch_game record
+# the Boneyards sends a player who joins battle 0c0ffee0d15ea5e0 on planet 1801
+# (area 0x709), the two debriefing records that follow it, and the debriefing
+# room the return to the Boneyards enters. Every value is made up for the
+# check.
+
+progress 4 0 0 0
+progress 7 0 0 0
+progress 8 0 12 0
+
+delay 2
+dossier USER_STATUS int 1
+dossier LOGINNAME string oa_joiner
+dossier ALLEGIANCE string C
+
+area_name BYPacific
+
+delay 1
+allegiances CCCCIIIAAACCCCCCAAAAAAAAC
+census 1796 0 0 0 0 0 0
+census 1797 0 0 0 0 0 0
+census 1798 0 0 0 0 0 0
+census 1799 0 0 0 0 0 0
+census 1800 0 0 0 0 0 0
+census 1801 0 0 0 0 0 0
+census 1802 0 0 0 0 0 0
+census 1803 0 0 0 0 0 0
+census 1804 0 0 0 0 0 0
+census 1805 0 0 0 0 0 0
+census 1806 0 0 0 0 0 0
+census 1807 0 0 0 0 0 0
+census 1808 0 0 0 0 0 0
+census 1809 0 0 0 0 0 0
+census 1810 0 0 0 0 0 0
+census 1811 0 0 0 0 0 0
+census 1812 0 0 0 0 0 0
+census 1813 0 0 0 0 0 0
+census 1814 0 0 0 0 0 0
+census 1815 0 0 0 0 0 0
+census 1816 0 0 0 0 0 0
+census 1817 0 0 0 0 0 0
+census 1818 0 0 0 0 0 0
+census 1819 0 0 0 0 0 0
+census 1820 0 0 0 0 0 0
+activity 0000000000000000000000000
+
+# One forming Galactic War battle. The joiner picks it from the battle list.
+delay 1
+battle 1801 0c0ffee0d15ea5e0 4 1 A Launch Check
+
+# The launch follows the host or join request by five pumps.
+delay 5
+launch {[Rover<S:command=launch_game><U:area_id=709><S:game_id=0c0ffee0d15ea5e0><S:address=127.0.0.1><S:password=LAUNCHCHECKPASS1><S:session=0c0ffee0d15ea5e0><I:creator=0><I:lockOptions=1><I:result=0><S:mission=Coast To Coast><I:playerlimit=2><I:deathopt=2><I:energy=1000><I:metal=1000><I:location=1><I:los=0><I:mapping=2><I:maxunits=250><I:watching=0><I:cheats=0><I:tournament=0><S:allegiance=C><I:team=0>]}
+delay 1
+record {[Rover<S:command=debriefing><U:area_id=709><S:game_id=0c0ffee0d15ea5e0><U:room_id=5>]}
+record {[Rover<S:command=debriefing><U:area_id=709><S:game_id=0c0ffee0d15ea5e0><U:room_id=5>]}
+
+# The debriefing room, entered on the return to the Boneyards.
+delay 2
+entered 1801 5 0
+member 1801 5 12 40 1 1 C oa_joiner
+member 1801 5 11 40 1 1 A oa_host
+said 1801 5 0 Debriefing for battle 0c0ffee0d15ea5e0

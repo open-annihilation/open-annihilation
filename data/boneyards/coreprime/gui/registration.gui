@@ -1,0 +1,405 @@
+// Registration console. The panel is at its screen position. Every other
+// gadget is relative to that panel, which is how a gadget file is read.
+// The loader builds this screen. The panel draws no picture of its own, so
+// the green console layer shows through it. The rule is the first child, and
+// the font resources are the Hat faces. OPEN IN BROWSER is hidden where no
+// browser can open, and the in-game row is hidden until that route is
+// offered. The address is the build default.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=Registration;
+    xpos=23;
+    ypos=126;
+    width=498;
+    height=313;
+  }
+  panel=Registration;
+  escdefault=Back;
+}
+[GADGET24]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Rule;
+    xpos=123;
+    ypos=3;
+    width=1;
+    height=307;
+    help=line 93;
+  }
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Title;
+    xpos=0;
+    ypos=6;
+    width=124;
+    height=16;
+    attribs=4;
+    fontnumber=1;
+  }
+  text=REGISTRATION;
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=12;
+    name=WebIcon;
+    xpos=3;
+    ypos=24;
+    width=9;
+    height=9;
+    help=Widgets.gaf Icon_Circle 1;
+  }
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=5;
+    name=WebLabel;
+    xpos=17;
+    ypos=25;
+    width=90;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=On the web;
+}
+[GADGET4]
+{
+  [COMMON]
+  {
+    id=12;
+    name=GameIcon;
+    xpos=3;
+    ypos=41;
+    width=9;
+    height=9;
+    help=Widgets.gaf Icon_Circle 2;
+  }
+}
+[GADGET5]
+{
+  [COMMON]
+  {
+    id=5;
+    name=GameLabel;
+    xpos=17;
+    ypos=42;
+    width=90;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=In the game;
+}
+[GADGET6]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Body0;
+    xpos=6;
+    ypos=74;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=Enlist on Core Prime's;
+}
+[GADGET7]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Body1;
+    xpos=6;
+    ypos=86;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=web site, then log in;
+}
+[GADGET8]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Body2;
+    xpos=6;
+    ypos=98;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=with your new name.;
+}
+[GADGET9]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Dim0;
+    xpos=6;
+    ypos=124;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=No CD key or proof of;
+}
+[GADGET10]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Dim1;
+    xpos=6;
+    ypos=136;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=ownership is needed.;
+}
+[GADGET11]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Heading;
+    xpos=137;
+    ypos=10;
+    width=230;
+    height=16;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=ENLIST ON THE WEB;
+}
+[GADGET12]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Scan0;
+    xpos=137;
+    ypos=30;
+    width=330;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=Scan the code with your phone, or open the address in a browser.;
+}
+[GADGET13]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Scan1;
+    xpos=137;
+    ypos=42;
+    width=330;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=When your dossier is ready, come back and log in.;
+}
+[GADGET14]
+{
+  [COMMON]
+  {
+    id=23;
+    name=Qr;
+    xpos=137;
+    ypos=64;
+    width=113;
+    height=113;
+  }
+}
+[GADGET15]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Host;
+    xpos=267;
+    ypos=78;
+    width=230;
+    height=16;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=coreprime.net;
+}
+[GADGET16]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Url;
+    xpos=267;
+    ypos=96;
+    width=230;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=https://coreprime.net/register;
+}
+[GADGET17]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Deck0;
+    xpos=267;
+    ypos=126;
+    width=180;
+    height=14;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=Scan with your phone,;
+}
+[GADGET18]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Deck1;
+    xpos=267;
+    ypos=140;
+    width=180;
+    height=14;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=or type the address on;
+}
+[GADGET19]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Deck2;
+    xpos=267;
+    ypos=154;
+    width=180;
+    height=14;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=any device.;
+}
+[GADGET20]
+{
+  [COMMON]
+  {
+    id=6;
+    name=WebHot;
+    xpos=0;
+    ypos=21;
+    width=107;
+    height=17;
+    help=route:web;
+  }
+}
+[GADGET21]
+{
+  [COMMON]
+  {
+    id=6;
+    name=GameHot;
+    xpos=0;
+    ypos=38;
+    width=107;
+    height=17;
+    help=route:game;
+  }
+}
+[GADGET22]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Open;
+    xpos=267;
+    ypos=122;
+    width=160;
+    height=21;
+    help=open:browser|Widgets.gaf Function_Button_Large 0;
+  }
+  text=OPEN IN BROWSER;
+}
+[GADGET23]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Back;
+    xpos=137;
+    ypos=266;
+    width=160;
+    height=21;
+    help=goto:login_console|Widgets.gaf Function_Button_Large 0;
+  }
+  text=BACK TO LOGIN;
+}
+[GADGET25]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontBig;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontBig84.gaf;
+}
+[GADGET26]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontSmall;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontSmall87.gaf;
+}
+[GADGET27]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontMedium;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontMedium90.gaf;
+}

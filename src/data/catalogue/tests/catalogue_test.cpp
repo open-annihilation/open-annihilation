@@ -905,6 +905,15 @@ void test_expansion() {
             package.file.compare(package.file.size() - 6, 6, ".oaexp") == 0
         );
     }
+    const std::string lobby = expansion_entry("boneyards", true, "\"extends\":[\"totala\"]");
+    const auto lobby_out = read_ok(catalogue_of(lobby));
+    OA_CHECK(lobby_out.packages.size() == 1);
+    OA_CHECK(lobby_out.problems.empty());
+    if (!lobby_out.packages.empty()) {
+        OA_CHECK(lobby_out.packages[0].kind == catalogue::Kind::expansion);
+        OA_CHECK(lobby_out.packages[0].id == "boneyards");
+        OA_CHECK(lobby_out.packages[0].extends == std::vector<std::string>{"totala"});
+    }
     skips_one(expansion_entry("cavedog-units", true, "\"extends\":[\"totala-demo\"]"), "extends");
     skips_one(expansion_entry("ridge", true, "\"extends\":[\"totala\"]"), "not an expansion");
     std::string wrong_suffix = expansion_entry("cavedog-units", true, "\"extends\":[\"totala\"]");

@@ -1,0 +1,911 @@
+// QuickPlay. The panel sits at 23,126 and draws no picture of its own, so
+// the green console layer shows through it. Positions are relative to that
+// panel except the root and the battle-found offer, which are screen
+// positions. FIND BATTLE shows the searching controls. The offer is built
+// and left for the console to keep hidden.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=QuickPlay;
+    xpos=23;
+    ypos=126;
+    width=498;
+    height=313;
+  }
+  panel=QuickPlay;
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Rule;
+    xpos=123;
+    ypos=3;
+    width=1;
+    height=307;
+    help=line 93;
+  }
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Title;
+    xpos=0;
+    ypos=6;
+    width=124;
+    height=16;
+    attribs=4;
+    fontnumber=3;
+  }
+  text=QUICKPLAY;
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Type0;
+    xpos=3;
+    ypos=24;
+    width=13;
+    height=13;
+    help=Widgets.gaf Icon_Circle 2;
+  }
+}
+[GADGET4]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Label0;
+    xpos=17;
+    ypos=25;
+    width=100;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Duel;
+}
+[GADGET5]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Type1;
+    xpos=3;
+    ypos=41;
+    width=13;
+    height=13;
+    help=Widgets.gaf Icon_Circle 2;
+  }
+}
+[GADGET6]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Label1;
+    xpos=17;
+    ypos=42;
+    width=100;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Winner Takes All;
+}
+[GADGET7]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Type2;
+    xpos=3;
+    ypos=58;
+    width=13;
+    height=13;
+    help=Widgets.gaf Icon_Circle 2;
+  }
+}
+[GADGET8]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Label2;
+    xpos=17;
+    ypos=59;
+    width=100;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=For Fun;
+}
+[GADGET9]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Type3;
+    xpos=3;
+    ypos=75;
+    width=13;
+    height=13;
+    help=Widgets.gaf Icon_Circle 2;
+  }
+}
+[GADGET10]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Label3;
+    xpos=17;
+    ypos=76;
+    width=100;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Galactic War;
+}
+[GADGET11]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Type4;
+    xpos=3;
+    ypos=92;
+    width=13;
+    height=13;
+    help=Widgets.gaf Icon_Circle 2;
+  }
+}
+[GADGET12]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Label4;
+    xpos=17;
+    ypos=93;
+    width=100;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=War Training;
+}
+[GADGET13]
+{
+  [COMMON]
+  {
+    id=6;
+    name=Pick0;
+    xpos=0;
+    ypos=21;
+    width=107;
+    height=17;
+  }
+}
+[GADGET14]
+{
+  [COMMON]
+  {
+    id=6;
+    name=Pick1;
+    xpos=0;
+    ypos=38;
+    width=107;
+    height=17;
+  }
+}
+[GADGET15]
+{
+  [COMMON]
+  {
+    id=6;
+    name=Pick2;
+    xpos=0;
+    ypos=55;
+    width=107;
+    height=17;
+  }
+}
+[GADGET16]
+{
+  [COMMON]
+  {
+    id=6;
+    name=Pick3;
+    xpos=0;
+    ypos=72;
+    width=107;
+    height=17;
+  }
+}
+[GADGET17]
+{
+  [COMMON]
+  {
+    id=6;
+    name=Pick4;
+    xpos=0;
+    ypos=89;
+    width=107;
+    height=17;
+  }
+}
+[GADGET18]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Blurb0;
+    xpos=6;
+    ypos=122;
+    width=117;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Two commanders, one map,;
+}
+[GADGET19]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Blurb1;
+    xpos=6;
+    ypos=134;
+    width=117;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=no allies. Ranked on the;
+}
+[GADGET20]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Blurb2;
+    xpos=6;
+    ypos=146;
+    width=117;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Duel ladder.;
+}
+[GADGET21]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Heading;
+    xpos=137;
+    ypos=10;
+    width=160;
+    height=16;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=FIND ME A BATTLE;
+}
+[GADGET22]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Where;
+    xpos=127;
+    ypos=36;
+    width=60;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Where;
+}
+[GADGET23]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Skill;
+    xpos=127;
+    ypos=56;
+    width=60;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Skill;
+}
+[GADGET24]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Side;
+    xpos=127;
+    ypos=76;
+    width=60;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Side;
+}
+[GADGET25]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Map;
+    xpos=127;
+    ypos=96;
+    width=60;
+    height=14;
+    attribs=6;
+    fontnumber=2;
+  }
+  text=Map;
+}
+[GADGET26]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Any planet;
+    xpos=193;
+    ypos=36;
+    width=80;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    active=1;
+    help=choice:any|Widgets.gaf Radio_Button 0;
+  }
+  text=Any planet;
+}
+[GADGET27]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Fuel Dump only;
+    xpos=277;
+    ypos=36;
+    width=120;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:fuel|Widgets.gaf Radio_Button 0;
+  }
+  text=Fuel Dump only;
+}
+[GADGET28]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Novice;
+    xpos=193;
+    ypos=56;
+    width=50;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:novice|Widgets.gaf Radio_Button 0;
+  }
+  text=Novice;
+}
+[GADGET29]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Seasoned;
+    xpos=247;
+    ypos=56;
+    width=60;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    active=1;
+    help=choice:seasoned|Widgets.gaf Radio_Button 0;
+  }
+  text=Seasoned;
+}
+[GADGET30]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Expert;
+    xpos=313;
+    ypos=56;
+    width=70;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    help=choice:expert|Widgets.gaf Radio_Button 0;
+  }
+  text=Expert;
+}
+[GADGET31]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Arm;
+    xpos=193;
+    ypos=76;
+    width=11;
+    height=12;
+    fontnumber=2;
+    help=|Widgets.gaf Radio_Button 0;
+  }
+}
+[GADGET32]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Core;
+    xpos=243;
+    ypos=76;
+    width=11;
+    height=12;
+    fontnumber=2;
+    help=|Widgets.gaf Radio_Button 0;
+  }
+}
+[GADGET33]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Either;
+    xpos=297;
+    ypos=76;
+    width=70;
+    height=14;
+    fontnumber=2;
+    attribs=5;
+    active=1;
+    help=choice:either|Widgets.gaf Radio_Button 0;
+  }
+  text=Either;
+}
+[GADGET34]
+{
+  [COMMON]
+  {
+    id=12;
+    name=ArmLogo;
+    xpos=204;
+    ypos=76;
+    width=12;
+    height=12;
+    help=Widgets.gaf ArmCoreLogos 0;
+  }
+}
+[GADGET35]
+{
+  [COMMON]
+  {
+    id=12;
+    name=CoreLogo;
+    xpos=254;
+    ypos=76;
+    width=12;
+    height=12;
+    help=Widgets.gaf ArmCoreLogos 1;
+  }
+}
+[GADGET36]
+{
+  [COMMON]
+  {
+    id=5;
+    name=ArmName;
+    xpos=216;
+    ypos=76;
+    width=30;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=Arm;
+}
+[GADGET37]
+{
+  [COMMON]
+  {
+    id=5;
+    name=CoreName;
+    xpos=266;
+    ypos=76;
+    width=30;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=Core;
+}
+[GADGET38]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Favorite;
+    xpos=193;
+    ypos=96;
+    width=200;
+    height=11;
+    fontnumber=2;
+    attribs=5;
+    active=1;
+    help=|Widgets.gaf Check_Box 0;
+  }
+  text=Prefer my favorite: Lava Alley;
+}
+[GADGET39]
+{
+  [COMMON]
+  {
+    id=24;
+    name=ScannerWell;
+    xpos=402;
+    ypos=14;
+    width=82;
+    height=82;
+    help=rect 93;
+  }
+}
+[GADGET40]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Scanner;
+    xpos=407;
+    ypos=19;
+    width=72;
+    height=72;
+    help=BY_New.gaf Scanner 0;
+  }
+}
+[GADGET41]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help0;
+    xpos=137;
+    ypos=174;
+    width=330;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=QuickPlay looks across every planet for a forming battle that fits,;
+}
+[GADGET42]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help1;
+    xpos=137;
+    ypos=186;
+    width=330;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=joins the best one, and hosts a new battle with these settings if;
+}
+[GADGET43]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help2;
+    xpos=137;
+    ypos=198;
+    width=330;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=none turns up within 30 seconds. The Duel and Winner Takes All;
+}
+[GADGET44]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help3;
+    xpos=137;
+    ypos=210;
+    width=330;
+    height=12;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=ladders count QuickPlay battles like any other.;
+}
+[GADGET45]
+{
+  [COMMON]
+  {
+    id=1;
+    name=FIND BATTLE;
+    xpos=177;
+    ypos=136;
+    width=160;
+    height=21;
+    fontnumber=2;
+    help=goto:new_quickplay_searching|Widgets.gaf Function_Button_Large 0;
+  }
+  text=FIND BATTLE;
+}
+[GADGET46]
+{
+  [COMMON]
+  {
+    id=5;
+    name=SEARCHING;
+    xpos=137;
+    ypos=132;
+    width=80;
+    height=14;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=SEARCHING;
+}
+[GADGET47]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Timer;
+    xpos=217;
+    ypos=132;
+    width=40;
+    height=14;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=0:07;
+}
+[GADGET48]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Queue;
+    xpos=277;
+    ypos=133;
+    width=104;
+    height=9;
+    help=BY_New.gaf Queue_Meter 6;
+  }
+}
+[GADGET49]
+{
+  [COMMON]
+  {
+    id=24;
+    name=LogWell;
+    xpos=135;
+    ypos=150;
+    width=350;
+    height=104;
+    help=rect 90;
+  }
+}
+[GADGET50]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Line0;
+    xpos=139;
+    ypos=153;
+    width=340;
+    height=14;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Scanning 25 planets for a Duel at Seasoned skill...;
+}
+[GADGET51]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Line1;
+    xpos=139;
+    ypos=167;
+    width=340;
+    height=14;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Fuel Dump: Brawl at Dawn wants Expert - skipped;
+}
+[GADGET52]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Line2;
+    xpos=139;
+    ypos=181;
+    width=340;
+    height=14;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Altair: no forming battles;
+}
+[GADGET53]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Line3;
+    xpos=139;
+    ypos=195;
+    width=340;
+    height=14;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Deadman Alley: Last Stand is Galactic War - skipped;
+}
+[GADGET54]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Line4;
+    xpos=139;
+    ypos=209;
+    width=340;
+    height=14;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=Lava Alley: Rumble in the Rubble, 1 of 2 seats, Seasoned;
+}
+[GADGET55]
+{
+  [COMMON]
+  {
+    id=1;
+    name=CANCEL SEARCH;
+    xpos=177;
+    ypos=266;
+    width=160;
+    height=21;
+    fontnumber=2;
+    help=goto:new_quickplay|Widgets.gaf Function_Button_Large 0;
+  }
+  text=CANCEL SEARCH;
+}
+[GADGET56]
+{
+  [COMMON]
+  {
+    id=0;
+    name=QuickPlayFound;
+    xpos=142;
+    ypos=172;
+    width=216;
+    height=136;
+    help=main_console.gaf MessageBox 1;
+  }
+  panel=QuickPlayFound;
+}
+[GADGET57]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Text;
+    xpos=132;
+    ypos=52;
+    width=190;
+    height=96;
+    attribs=16;
+    assoc=56;
+  }
+  text=Rumble in the Rubble\nDuel on Lava Alley\nJoin now?;
+}
+[GADGET58]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Yes;
+    xpos=149;
+    ypos=152;
+    width=57;
+    height=21;
+    assoc=56;
+    help=|main_console.gaf BlankButton 0;
+  }
+  text=Yes;
+}
+[GADGET59]
+{
+  [COMMON]
+  {
+    id=1;
+    name=No;
+    xpos=249;
+    ypos=152;
+    width=57;
+    height=21;
+    assoc=56;
+    help=|main_console.gaf BlankButton 0;
+  }
+  text=No;
+}
+[GADGET60]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontSmall;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontSmall87.gaf;
+}
+[GADGET61]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontMedium;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontMedium90.gaf;
+}
+[GADGET62]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontBig;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontBig84.gaf;
+}

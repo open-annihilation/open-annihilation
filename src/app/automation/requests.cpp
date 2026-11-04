@@ -10,14 +10,14 @@
 #include "frames.hpp"
 #include "serve_reports.hpp"
 
+#include "oa/app/automation/tree.hpp"
+
 #include "oa/app/app.hpp"
 #include "oa/core/game_state.h"
 #include "oa/app/frame_coordinates.hpp"
-#include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include <SDL3/SDL.h>
 
-#include <array>
 #include <string>
 #include <vector>
 
@@ -27,8 +27,6 @@
 
 namespace oa::app::automation {
 namespace {
-
-namespace mp = oa::ui::frontend_multiplayer;
 
 // The game's canvas: the 640x480 screen the menus are drawn on.
 constexpr int kCanvasWidth = 640;
@@ -78,38 +76,6 @@ constexpr FrameWork kFrameWork[] = {
     send_frame_events,
 };
 
-// A screen and the name the endpoint gives it.
-struct NamedScreen {
-    ScreenId screen{};
-    std::string_view name;
-};
-
-// The screens the endpoint names: the built-in screens by their names in
-// the engine, and the multiplayer screens.
-constexpr std::array kScreenNames = {
-    NamedScreen{screen_id(Screen::main_menu), "main_menu"},
-    NamedScreen{screen_id(Screen::single_player), "single_player"},
-    NamedScreen{screen_id(Screen::skirmish), "skirmish"},
-    NamedScreen{screen_id(Screen::map_selection), "map_selection"},
-    NamedScreen{screen_id(Screen::loading), "loading"},
-    NamedScreen{screen_id(Screen::match), "match"},
-    NamedScreen{screen_id(Screen::options), "options"},
-    NamedScreen{screen_id(Screen::sound), "sound"},
-    NamedScreen{screen_id(Screen::visuals), "visuals"},
-    NamedScreen{screen_id(Screen::speeds), "speeds"},
-    NamedScreen{screen_id(Screen::music), "music"},
-    NamedScreen{screen_id(Screen::new_campaign), "new_campaign"},
-    NamedScreen{screen_id(Screen::any_mission), "any_mission"},
-    NamedScreen{screen_id(Screen::load_game), "load_game"},
-    NamedScreen{screen_id(Screen::campaign_end), "campaign_end"},
-    NamedScreen{screen_id(Screen::briefing), "briefing"},
-    NamedScreen{mp::kScreenProviders, "mp_providers"},
-    NamedScreen{mp::kScreenTcp, "mp_tcp"},
-    NamedScreen{mp::kScreenGameList, "mp_game_list"},
-    NamedScreen{mp::kScreenNewGame, "mp_new_game"},
-    NamedScreen{mp::kScreenBattleroom, "mp_battleroom"},
-};
-
 /// Writes a rectangle as the protocol does: [x, y, width, height].
 ///
 /// @param[in,out] json the JSON being written
@@ -147,13 +113,6 @@ const RequestKind* find_request(std::string_view op) noexcept {
 
 std::span<const FrameWork> frame_work() noexcept {
     return kFrameWork;
-}
-
-std::string screen_name(ScreenId screen) {
-    for (const NamedScreen& named : kScreenNames)
-        if (named.screen == screen)
-            return std::string(named.name);
-    return "screen_" + std::to_string(screen);
 }
 
 void answer_hello(Endpoint& endpoint, const Request& /*request*/, Answer& answer) {
@@ -249,6 +208,18 @@ void answer_screen(Endpoint& endpoint, const Request& /*request*/, Answer& answe
     } else {
         json.null();
     }
+    // The gadget under the pointer. A listed control's rectangle wins, in
+    // the order controls take the pointer; otherwise the gadget the game names.
+    std::string game_hover;
+    if (automation.hovered != nullptr)
+        if (const char* name = automation.hovered(automation.context))
+            game_hover = name;
+    const std::string hovered = hovered_control(controls, pointer_x, pointer_y, game_hover);
+    json.key("hovered");
+    if (hovered.empty())
+        json.null();
+    else
+        json.string(hovered);
 }
 
 void answer_prefs(Endpoint& endpoint, const Request& request, Answer& answer) {

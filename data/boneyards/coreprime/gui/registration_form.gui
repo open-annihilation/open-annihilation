@@ -1,0 +1,735 @@
+// In-game registration form. The panel is at its screen position. Every other
+// gadget is relative to that panel. The loader builds this screen. The panel
+// draws no picture of its own, so the green console layer shows through it;
+// the fields and the status list are outlined in palette 90. Password and
+// Confirm draw a star for each character. The status list is the idle
+// advice; the console replaces it while a request is out.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=Enlist;
+    xpos=23;
+    ypos=126;
+    width=498;
+    height=313;
+  }
+  panel=Enlist;
+  crdefault=Register;
+  escdefault=Cancel;
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Rule;
+    xpos=123;
+    ypos=3;
+    width=1;
+    height=307;
+    help=line 93;
+  }
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Title;
+    xpos=0;
+    ypos=6;
+    width=124;
+    height=16;
+    attribs=4;
+    fontnumber=1;
+  }
+  text=REGISTRATION;
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=12;
+    name=WebIcon;
+    xpos=3;
+    ypos=24;
+    width=9;
+    height=9;
+    help=Widgets.gaf Icon_Circle 2;
+  }
+}
+[GADGET4]
+{
+  [COMMON]
+  {
+    id=5;
+    name=WebLabel;
+    xpos=17;
+    ypos=25;
+    width=90;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=On the web;
+}
+[GADGET5]
+{
+  [COMMON]
+  {
+    id=12;
+    name=GameIcon;
+    xpos=3;
+    ypos=41;
+    width=9;
+    height=9;
+    help=Widgets.gaf Icon_Circle 1;
+  }
+}
+[GADGET6]
+{
+  [COMMON]
+  {
+    id=5;
+    name=GameLabel;
+    xpos=17;
+    ypos=42;
+    width=90;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=In the game;
+}
+[GADGET7]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Body0;
+    xpos=6;
+    ypos=74;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=Enlist without leaving;
+}
+[GADGET8]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Body1;
+    xpos=6;
+    ypos=86;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=the game.;
+}
+[GADGET9]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Dim0;
+    xpos=6;
+    ypos=124;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=No CD key or proof of;
+}
+[GADGET10]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Dim1;
+    xpos=6;
+    ypos=136;
+    width=116;
+    height=12;
+    attribs=5;
+    fontnumber=2;
+  }
+  text=ownership is needed.;
+}
+[GADGET11]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Heading;
+    xpos=137;
+    ypos=10;
+    width=230;
+    height=16;
+    attribs=5;
+    fontnumber=1;
+  }
+  text=ENLIST IN THE GAME;
+}
+[GADGET12]
+{
+  [COMMON]
+  {
+    id=5;
+    name=UserLabel;
+    xpos=152;
+    ypos=38;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=3;
+  }
+  text=Username;
+}
+[GADGET13]
+{
+  [COMMON]
+  {
+    id=24;
+    name=UserBox;
+    xpos=229;
+    ypos=34;
+    width=150;
+    height=21;
+    help=rect 90;
+  }
+}
+[GADGET14]
+{
+  [COMMON]
+  {
+    id=3;
+    name=User;
+    xpos=229;
+    ypos=34;
+    width=150;
+    height=21;
+    attribs=5;
+    fontnumber=2;
+    help=pad:6;
+  }
+  text=;
+}
+[GADGET15]
+{
+  [COMMON]
+  {
+    id=5;
+    name=PassLabel;
+    xpos=152;
+    ypos=62;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=3;
+  }
+  text=Password;
+}
+[GADGET16]
+{
+  [COMMON]
+  {
+    id=24;
+    name=PassBox;
+    xpos=229;
+    ypos=58;
+    width=150;
+    height=21;
+    help=rect 90;
+  }
+}
+[GADGET17]
+{
+  [COMMON]
+  {
+    id=3;
+    name=Pass;
+    xpos=229;
+    ypos=58;
+    width=150;
+    height=21;
+    attribs=5;
+    fontnumber=2;
+    help=mask|pad:6;
+  }
+  text=;
+}
+[GADGET18]
+{
+  [COMMON]
+  {
+    id=5;
+    name=ConfirmLabel;
+    xpos=152;
+    ypos=86;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=3;
+  }
+  text=Confirm;
+}
+[GADGET19]
+{
+  [COMMON]
+  {
+    id=24;
+    name=ConfirmBox;
+    xpos=229;
+    ypos=82;
+    width=150;
+    height=21;
+    help=rect 90;
+  }
+}
+[GADGET20]
+{
+  [COMMON]
+  {
+    id=3;
+    name=Confirm;
+    xpos=229;
+    ypos=82;
+    width=150;
+    height=21;
+    attribs=5;
+    fontnumber=2;
+    help=mask|pad:6;
+  }
+  text=;
+}
+[GADGET21]
+{
+  [COMMON]
+  {
+    id=5;
+    name=EmailLabel;
+    xpos=152;
+    ypos=110;
+    width=70;
+    height=14;
+    attribs=6;
+    fontnumber=3;
+  }
+  text=E-mail;
+}
+[GADGET22]
+{
+  [COMMON]
+  {
+    id=24;
+    name=EmailBox;
+    xpos=229;
+    ypos=106;
+    width=200;
+    height=21;
+    help=rect 90;
+  }
+}
+[GADGET23]
+{
+  [COMMON]
+  {
+    id=3;
+    name=Email;
+    xpos=229;
+    ypos=106;
+    width=200;
+    height=21;
+    attribs=5;
+    fontnumber=2;
+    help=pad:6;
+  }
+  text=;
+}
+[GADGET24]
+{
+  [COMMON]
+  {
+    id=5;
+    name=SideLabel;
+    xpos=142;
+    ypos=136;
+    width=80;
+    height=14;
+    attribs=6;
+    fontnumber=3;
+  }
+  text=Join Forces of;
+}
+[GADGET25]
+{
+  [COMMON]
+  {
+    id=12;
+    name=ArmRadio;
+    xpos=229;
+    ypos=137;
+    width=11;
+    height=11;
+    help=Widgets.gaf Radio_Button 2;
+  }
+}
+[GADGET26]
+{
+  [COMMON]
+  {
+    id=12;
+    name=ArmLogo;
+    xpos=240;
+    ypos=136;
+    width=12;
+    height=12;
+    help=Widgets.gaf ArmCoreLogos 0;
+  }
+}
+[GADGET27]
+{
+  [COMMON]
+  {
+    id=5;
+    name=ArmText;
+    xpos=252;
+    ypos=136;
+    width=28;
+    height=14;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=Arm;
+}
+[GADGET28]
+{
+  [COMMON]
+  {
+    id=12;
+    name=CoreRadio;
+    xpos=279;
+    ypos=137;
+    width=11;
+    height=11;
+    help=Widgets.gaf Radio_Button 1;
+  }
+}
+[GADGET29]
+{
+  [COMMON]
+  {
+    id=12;
+    name=CoreLogo;
+    xpos=290;
+    ypos=136;
+    width=12;
+    height=12;
+    help=Widgets.gaf ArmCoreLogos 1;
+  }
+}
+[GADGET30]
+{
+  [COMMON]
+  {
+    id=5;
+    name=CoreText;
+    xpos=302;
+    ypos=136;
+    width=32;
+    height=14;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=Core;
+}
+[GADGET31]
+{
+  [COMMON]
+  {
+    id=12;
+    name=OpenRadio;
+    xpos=333;
+    ypos=137;
+    width=11;
+    height=11;
+    help=Widgets.gaf Radio_Button 2;
+  }
+}
+[GADGET32]
+{
+  [COMMON]
+  {
+    id=5;
+    name=OpenText;
+    xpos=344;
+    ypos=136;
+    width=70;
+    height=14;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=Undecided;
+}
+[GADGET33]
+{
+  [COMMON]
+  {
+    id=12;
+    name=RulesBox;
+    xpos=229;
+    ypos=159;
+    width=12;
+    height=12;
+    help=Widgets.gaf Check_Box 2;
+  }
+}
+[GADGET34]
+{
+  [COMMON]
+  {
+    id=5;
+    name=RulesText;
+    xpos=241;
+    ypos=158;
+    width=220;
+    height=14;
+    attribs=5;
+    fontnumber=3;
+  }
+  text=I have read the Rules of Conduct;
+}
+[GADGET35]
+{
+  [COMMON]
+  {
+    id=24;
+    name=StatusBox;
+    xpos=137;
+    ypos=210;
+    width=350;
+    height=70;
+    help=rect 90;
+  }
+}
+[GADGET36]
+{
+  [COMMON]
+  {
+    id=2;
+    name=Status;
+    xpos=137;
+    ypos=210;
+    width=346;
+    height=70;
+  }
+  itemheight=14;
+}
+[GADGET37]
+{
+  [COMMON]
+  {
+    id=21;
+    name=Line0;
+    xpos=137;
+    ypos=210;
+    width=346;
+    height=14;
+    fontnumber=2;
+    help=Choose a name of 3 to 15 characters.;
+  }
+}
+[GADGET38]
+{
+  [COMMON]
+  {
+    id=21;
+    name=Line1;
+    xpos=137;
+    ypos=224;
+    width=346;
+    height=14;
+    fontnumber=2;
+    help=Your password travels as a digest, never in clear.;
+  }
+}
+[GADGET39]
+{
+  [COMMON]
+  {
+    id=21;
+    name=Line2;
+    xpos=137;
+    ypos=238;
+    width=346;
+    height=14;
+    fontnumber=2;
+    help=Ready to enlist.;
+  }
+}
+[GADGET40]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Register;
+    xpos=229;
+    ypos=182;
+    width=99;
+    height=21;
+    help=submit|Widgets.gaf Function_Button_Large 0;
+  }
+  text=REGISTER;
+}
+[GADGET41]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Cancel;
+    xpos=337;
+    ypos=182;
+    width=99;
+    height=21;
+    help=goto:login_console|Widgets.gaf Function_Button_Large 0;
+  }
+  text=CANCEL;
+}
+[GADGET42]
+{
+  [COMMON]
+  {
+    id=6;
+    name=WebHot;
+    xpos=0;
+    ypos=21;
+    width=107;
+    height=17;
+    help=route:web;
+  }
+}
+[GADGET43]
+{
+  [COMMON]
+  {
+    id=6;
+    name=GameHot;
+    xpos=0;
+    ypos=38;
+    width=107;
+    height=17;
+    help=route:game;
+  }
+}
+[GADGET44]
+{
+  [COMMON]
+  {
+    id=6;
+    name=ArmHot;
+    xpos=229;
+    ypos=136;
+    width=48;
+    height=16;
+    help=side:arm;
+  }
+}
+[GADGET45]
+{
+  [COMMON]
+  {
+    id=6;
+    name=CoreHot;
+    xpos=279;
+    ypos=136;
+    width=52;
+    height=16;
+    help=side:core;
+  }
+}
+[GADGET46]
+{
+  [COMMON]
+  {
+    id=6;
+    name=OpenHot;
+    xpos=333;
+    ypos=136;
+    width=80;
+    height=16;
+    help=side:undecided;
+  }
+}
+[GADGET47]
+{
+  [COMMON]
+  {
+    id=6;
+    name=RulesHot;
+    xpos=229;
+    ypos=158;
+    width=12;
+    height=14;
+    help=rules:toggle;
+  }
+}
+[GADGET48]
+{
+  [COMMON]
+  {
+    id=6;
+    name=RulesLink;
+    xpos=241;
+    ypos=158;
+    width=170;
+    height=12;
+    help=rules:page;
+  }
+}
+[GADGET49]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontBig;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontBig84.gaf;
+}
+[GADGET50]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontSmall;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontSmall87.gaf;
+}
+[GADGET51]
+{
+  [COMMON]
+  {
+    id=7;
+    name=FontMedium;
+    xpos=0;
+    ypos=0;
+    width=1;
+    height=1;
+  }
+  filename=BYHatFontMedium90.gaf;
+}

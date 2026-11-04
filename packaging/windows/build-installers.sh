@@ -127,6 +127,9 @@ fi
 grep -q 'SetOutPath: "\$INSTDIR\\languages"' "$x64_log" \
     || fail "windows-x64: languages folder was not set"
 grep -q 'File: "interface.tdf"' "$x64_log" || fail "windows-x64: interface.tdf was not stored"
+if grep -q 'File: "coreprime.ccx"' "$x64_log"; then
+    fail "windows-x64: coreprime.ccx was stored though the folder has none"
+fi
 grep -q 'SetOutPath: "\$INSTDIR\\brains"' "$x64_log" \
     || fail "windows-x64: brains folder was not set"
 grep -q 'File: "classic.oabrain"' "$x64_log" || fail "windows-x64: classic.oabrain was not stored"
@@ -151,6 +154,33 @@ build_one() {
 build_one windows-x86 x86-unicode
 build_one windows-arm64 x86-unicode
 build_one windows-95 x86-ansi
+if grep -q 'File: "coreprime.ccx"' "$out/windows-95.log"; then
+    fail "windows-95 packed coreprime.ccx"
+fi
+echo "G82: windows-95 does not pack coreprime.ccx"
+
+# A folder that holds the module's files packs them, including a page-font
+# file with no extension. A folder without them, above, does not.
+module=$out/open-annihilation-$version-windows-x64-module
+lay_out "$module" yes
+printf 'ccx' > "$module/coreprime.ccx"
+module_language="$(find "$repo/languages" -maxdepth 1 -name '*.tdf' ! -name 'interface.tdf' -print)"
+[[ -n "$module_language" ]] || fail "the tree has no module language file"
+cp -p "$module_language" "$module/languages/"
+mkdir -p "$module/fonts/liberation"
+printf 'font' > "$module/fonts/liberation/LiberationSans-Regular.ttf"
+printf 'licence' > "$module/fonts/liberation/LICENSE"
+module_log=$out/module.log
+if ! compile_log windows-x64 "$module" "$module_log" -V4; then
+    cat "$module_log" >&2
+    fail "makensis failed for a package with the module's files"
+fi
+grep -q 'File: "coreprime.ccx"' "$module_log" || fail "module package: coreprime.ccx was not stored"
+module_base="$(basename "$module_language")"
+grep -q "File: \"$module_base\"" "$module_log" || fail "module package: $module_base was not stored"
+grep -q 'LiberationSans-Regular.ttf' "$module_log" || fail "module package: page font was not stored"
+grep -q 'LICENSE' "$module_log" || fail "module package: page-font licence was not stored"
+echo "G82: a package with the module's files stores them"
 
 # oa-update.exe is packed only when the package folder has it. Suite packages
 # gain it later, so a folder without the file must still build.

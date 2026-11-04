@@ -63,10 +63,11 @@ None. The table is fixed for the process. Pointers from `find_bundle`,
 ## Invariants
 
 - The ids are `totala`, `totala-demo`, `campaign`, `core-contingency`,
-  `battle-tactics`, `music`, `cavedog-units` and `cavedog-tilesets`.
-- Campaign, music and the tilesets extend `totala` and need no expansion.
-  Core Contingency and Battle Tactics need the campaign. Cavedog units need
-  Core Contingency. Nothing extends the demo.
+  `battle-tactics`, `music`, `cavedog-units`, `cavedog-tilesets` and
+  `boneyards`.
+- Campaign, music, the tilesets and `boneyards` extend `totala` and need no
+  expansion. Core Contingency and Battle Tactics need the campaign. Cavedog
+  units need Core Contingency. Nothing extends the demo.
 - A file's copy name, or a source name, plus its size, belongs to one file.
 - Results that list bundles follow the table's order.
 - The installer archive `totala3.hpi` and the sample `Example.ufo` are not
@@ -78,7 +79,9 @@ None. The table is fixed for the process. Pointers from `find_bundle`,
 bundle on and off from a set, matches a file by name and case and size,
 checks a known hash and a different one, and checks that the table's own
 dependencies hold. The demo archive's size and hash are the ones
-`demo_1997` checks.
+`demo_1997` checks. The `boneyards` file list is compared with names, sizes
+and hash prefixes held in the test, and a file of that archive's name at
+another size does not count as the expansion.
 
 `data-content-record` writes a record and reads it back, refuses a record
 it does not understand, keeps a record that carries a field it skips, and

@@ -1,0 +1,153 @@
+// The side prompt. A full-screen catcher, a cover over the console, the
+// message-box art, the message, the two side marks and two buttons.
+// Escape is not a way out: there is no escdefault.
+//
+// The cover fills the Main Frame's console area (23,126 498x313), so the
+// login console's controls do not show behind the box. The prompt draws the
+// console's own green on it when it opens.
+//
+// The box is the main_console.gaf MessageBox picture at its own size, 217x135,
+// centred on the console area: 23 + (498 - 217) / 2 = 163 and
+// 126 + (313 - 135) / 2 = 215. Inside it the margins are the message box's:
+// 13 pixels at the sides and 6 at the top. The message is wrapped in the
+// space above the side choices. Arm and Core with their insignia share one
+// row. Choose and EXIT sit on the bottom row, 106 pixels down as a message
+// box's buttons do, each a Function_Button_Large face fitted to 90 pixels.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=SidePrompt;
+    xpos=0;
+    ypos=0;
+    width=640;
+    height=480;
+  }
+  panel=SidePrompt;
+  crdefault=Choose;
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=24;
+    name=Cover;
+    xpos=23;
+    ypos=126;
+    width=498;
+    height=313;
+    help=fill 42;
+  }
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Face;
+    xpos=163;
+    ypos=215;
+    width=217;
+    height=135;
+    help=main_console.gaf MessageBox 1;
+  }
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Message;
+    xpos=176;
+    ypos=221;
+    width=191;
+    height=70;
+    attribs=16;
+  }
+  text=Choose Arm or Core for this sector.;
+}
+[GADGET4]
+{
+  [COMMON]
+  {
+    id=12;
+    name=ArmMark;
+    xpos=208;
+    ypos=299;
+    width=11;
+    height=11;
+    help=Widgets.gaf ArmCoreLogos 0;
+  }
+}
+[GADGET5]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Arm;
+    xpos=196;
+    ypos=297;
+    width=60;
+    height=16;
+    attribs=5;
+    help=choice:arm|Widgets.gaf Radio_Button 0|12;
+  }
+  text=Arm;
+}
+[GADGET6]
+{
+  [COMMON]
+  {
+    id=12;
+    name=CoreMark;
+    xpos=307;
+    ypos=299;
+    width=11;
+    height=11;
+    help=Widgets.gaf ArmCoreLogos 1;
+  }
+}
+[GADGET7]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Core;
+    xpos=295;
+    ypos=297;
+    width=60;
+    height=16;
+    attribs=5;
+    help=choice:core|Widgets.gaf Radio_Button 0|12;
+  }
+  text=Core;
+}
+[GADGET8]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Choose;
+    xpos=176;
+    ypos=321;
+    width=90;
+    height=21;
+    help=goto:choose|Widgets.gaf Function_Button_Large 0;
+  }
+  text=Choose;
+}
+[GADGET9]
+{
+  [COMMON]
+  {
+    id=1;
+    name=EXIT;
+    xpos=277;
+    ypos=321;
+    width=90;
+    height=21;
+    help=goto:exit|Widgets.gaf Function_Button_Large 0;
+  }
+  text=EXIT;
+}

@@ -1234,6 +1234,19 @@ enum class SettingScope : uint8_t {
 /// @param scope when the limit takes effect, and whether the player keeps it
 void set_unit_limit(Runtime& runtime, int32_t units_per_player, SettingScope scope);
 
+/// Answers MULTI when an extension took the press before the menu did.
+///
+/// With no multiplayer map, plays the big-button sound and shows the notice
+/// that multiplayer is not available, then returns true. When the mod cannot
+/// start a game, plays that sound, shows that warning, and returns true.
+/// Otherwise returns false, and the extension opens multiplayer itself.
+///
+/// It is not a hook: the engine does not call it, and no extension fills it.
+///
+/// @param runtime the running app
+/// @return true when the press was answered here
+bool answer_multiplayer_entry(Runtime& runtime);
+
 /// Holds or releases the request that the main loop keep running while the
 /// window is inactive.
 ///
@@ -1249,6 +1262,20 @@ void set_unit_limit(Runtime& runtime, int32_t units_per_player, SettingScope sco
 /// @param runtime the running app
 /// @param hold true to hold the request, false to release it
 void keep_running_while_inactive(Runtime& runtime, bool hold);
+
+/// Holds off the inactive-loop check's release, or lets that release go ahead.
+///
+/// While the release is held off, the check counts no frames and does not
+/// release its request. The call does not hold or release that request
+/// itself. A build without self-checks has nothing to hold off, and the
+/// call does nothing.
+///
+/// It is not a hook: the engine does not call it, and no extension fills it.
+/// It does not read a value the engine resolved, and it does not change the
+/// extension table, so the table's version stays as it is.
+///
+/// @param defer true to hold the release off, false to let it go ahead
+void defer_inactive_loop_release(bool defer);
 
 /// Tells whether this machine can open a web address in the system's browser.
 ///
@@ -1526,22 +1553,29 @@ enum class ExtensionControlKind : uint8_t {
 /// Its place is on the game's canvas, in that canvas's pixels, as the
 /// screen's own controls are placed.
 struct ExtensionControl {
-    std::string name;               ///< as the extension spells it; empty is left out
-    ExtensionControlKind kind{};    ///< what it is
-    int32_t x{};                    ///< its left column on the canvas
-    int32_t y{};                    ///< its top row on the canvas
-    int32_t width{};                ///< its width in canvas pixels
-    int32_t height{};               ///< its height in canvas pixels
-    bool visible{true};             ///< it is shown
-    bool enabled{true};             ///< it takes a click
-    bool focused{};                 ///< it holds the keyboard focus
-    bool checked{};                 ///< a check box is checked
-    std::string text;               ///< its caption, its label's text or a field's typed text
+    std::string name;            ///< as the extension spells it; empty is left out
+    ExtensionControlKind kind{}; ///< what it is
+    int32_t x{};                 ///< its left column on the canvas
+    int32_t y{};                 ///< its top row on the canvas
+    int32_t width{};             ///< its width in canvas pixels
+    int32_t height{};            ///< its height in canvas pixels
+    bool visible{true};          ///< it is shown
+    bool enabled{true};          ///< it takes a click
+    bool focused{};              ///< it holds the keyboard focus
+    bool checked{};              ///< a check box is checked
+    std::string text;            ///< its caption, its label's text or a field's typed text
+    /// A masked field. `text` stays empty. `text_length` is the characters it holds.
+    bool masked{};
+    int32_t text_length{};
     std::vector<std::string> items; ///< a list's rows
     int32_t first_visible{};        ///< a list's first row shown
     int32_t rows{};                 ///< the rows a list shows at once
     int32_t row_height{};           ///< a list's row pitch in canvas pixels
     int32_t selected{-1};           ///< a list's selected row; -1 for none
+    /// A list's control that scrolls toward its start. Empty when it has none.
+    std::string scroll_up;
+    /// A list's control that scrolls toward its end.
+    std::string scroll_down;
 };
 
 /// One window an extension shows over the game, and the controls on it.
@@ -1578,6 +1612,35 @@ using ExtensionWindowSource =
 /// @param context identifies the source; the extension's own, passed back to it
 /// @param source the list of windows; null removes the source for `context`
 void set_extension_window_source(Runtime& runtime, void* context, ExtensionWindowSource source);
+
+/// Posts a short note a program driving the game can read as an event.
+///
+/// `kind` and `text` are copied. At most 256 notes are kept; an older one
+/// is dropped. A null or empty kind is ignored. The call does not throw.
+/// It is not a hook. A call may come from any hook.
+///
+/// @param runtime the running app
+/// @param kind the event kind; read for this call only
+/// @param text the note; null is an empty note; read for this call only
+void post_extension_note(Runtime& runtime, const char* kind, const char* text);
+
+/// Takes the notes post_extension_note kept, oldest first, and clears them.
+///
+/// @param runtime the running app
+/// @param[out] kinds one entry per note
+/// @param[out] texts the notes, parallel to `kinds`
+void take_extension_notes(
+    Runtime& runtime, std::vector<std::string>& kinds, std::vector<std::string>& texts
+);
+
+/// Takes those notes when `runtime` is the running app. A null pointer clears the outputs.
+///
+/// @param runtime the running app, or null
+/// @param[out] kinds one entry per note
+/// @param[out] texts the notes, parallel to `kinds`
+void take_extension_notes(
+    void* runtime, std::vector<std::string>& kinds, std::vector<std::string>& texts
+);
 
 /// Returns the clock an extension's idle work follows, in milliseconds.
 ///

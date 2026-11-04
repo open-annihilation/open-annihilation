@@ -13,6 +13,7 @@
 #include "oa/app/hook_call.hpp"
 #include "oa/app/package_install/inbox.hpp"
 #include "match_clock.hpp"
+#include "oa/sim/scenario/outcome.hpp"
 #include "graphics_report.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
@@ -27,6 +28,7 @@
 #include "oa/platform/job_pool.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/system.hpp"
+#include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/gui_input/gadget_panel.hpp"
 #include <SDL3/SDL.h>
@@ -1674,6 +1676,90 @@ void unit_motion(void* context, uint32_t slot, oa::present::unit_playout::Motion
 
 } // namespace
 
+bool Runtime::stepped_clock_holds() const {
+    if (!stepped_clock_ || !match_running())
+        return false;
+    const uint32_t bits = current_extension_state();
+    if ((bits & extension_state::shared_match) != 0)
+        return false;
+    if ((bits & extension_state::replay) != 0)
+        return false;
+    if ((bits & extension_state::local_watcher) != 0)
+        return false;
+    return true;
+}
+
+void Runtime::snap_held_clock() {
+    if (!match_)
+        return;
+    const uint32_t now_ms = frame_clock_milliseconds();
+    match_timing_.previous_clock = oa::base::game_loop::scaled_clock(now_ms, match_clock_scale());
+    match_timing_.pending_steps = 0;
+    match_timing_.remainder = 0.0F;
+}
+
+bool Runtime::run_one_match_step() {
+    // Each step that runs a tick is timed for the frame statistics,
+    // on the real clock; a step the extension holds runs none.
+    const auto step_start = std::chrono::steady_clock::now();
+    const uint32_t tick_before = match_timing_.tick;
+    // A step the extension fails to run is reported as a simulation
+    // error, and the frame's remaining steps are dropped.
+    const auto effect_capture = capture_match_effect_events();
+    HookError step_error;
+    const bool stepped = call_hook<&Extension::simulation_step>(extension_, step_error, *this);
+    if (step_error.caught) {
+        report_match_tick_error(step_error.message);
+        return false;
+    }
+    if (!stepped) {
+        // The pass that ends the match's load runs at the load's
+        // tick, before the clock reaches the first tick.
+        match_->run_load_pass();
+        ++match_timing_.tick;
+        match_->simulation().tick = match_timing_.tick;
+        // A stage's lines timed for this tick run before it. An order the
+        // stepped clock was holding is given on this tick, before the units
+        // read their queues.
+        run_due_stage_lines();
+        give_held_play_orders();
+        match_->tick();
+    }
+    // A fault the step's tick noted, here or in the extension, ends
+    // the frame's steps, as an error the tick threw did.
+    if (const char* fault = match_->fault()) {
+        report_match_tick_error(fault);
+        match_->clear_fault();
+        return false;
+    }
+    if (match_timing_.tick != tick_before) {
+        const auto tick_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::steady_clock::now() - step_start
+        )
+                                 .count();
+        frame_pacing::note_frame_measure(
+            frame_stats_, frame_pacing::FrameMeasure::tick, static_cast<uint64_t>(tick_ns)
+        );
+        phase_times_.simulation += tick_ns;
+    }
+    // The step's records are applied: the playout of the units of
+    // players this machine does not simulate reads where they are.
+    // It throws nothing, so it costs the match no step.
+    observe_unit_playout();
+    observe_match_effect_tick();
+    return true;
+}
+
+void Runtime::finish_match_steps() {
+    // A computer seat's chat is posted and sent here, after the ticks, so
+    // the log and the network do not run inside a tick.
+    flush_seat_chat();
+    if (match_timing_.pending_steps != 0)
+        oa::sim::messages::expire_oldest_message(match_->state().game);
+    // The map's timed units are placed once a frame, as they come due.
+    step_timed_map_units();
+}
+
 void Runtime::advance_match_clock(uint32_t now_ms) {
     // Every tick rounds with the settings the game started with.
     oa::base::float_precision::restore_program_float_control();
@@ -1689,63 +1775,68 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
     }
     try {
         for (int32_t step = 0; step < match_timing_.pending_steps; ++step) {
-            // Each step that runs a tick is timed for the frame statistics,
-            // on the real clock; a step the extension holds runs none.
-            const auto step_start = std::chrono::steady_clock::now();
-            const uint32_t tick_before = match_timing_.tick;
-            // A step the extension fails to run is reported as a simulation
-            // error, and the frame's remaining steps are dropped.
-            const auto effect_capture = capture_match_effect_events();
-            HookError step_error;
-            const bool stepped =
-                call_hook<&Extension::simulation_step>(extension_, step_error, *this);
-            if (step_error.caught) {
-                report_match_tick_error(step_error.message);
+            if (!run_one_match_step())
                 break;
-            }
-            if (!stepped) {
-                // The pass that ends the match's load runs at the load's
-                // tick, before the clock reaches the first tick.
-                match_->run_load_pass();
-                ++match_timing_.tick;
-                match_->simulation().tick = match_timing_.tick;
-                // A stage's lines timed for this tick run before it.
-                run_due_stage_lines();
-                match_->tick();
-            }
-            // A fault the step's tick noted, here or in the extension, ends
-            // the frame's steps, as an error the tick threw did.
-            if (const char* fault = match_->fault()) {
-                report_match_tick_error(fault);
-                match_->clear_fault();
-                break;
-            }
-            if (match_timing_.tick != tick_before) {
-                const auto tick_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                         std::chrono::steady_clock::now() - step_start
-                )
-                                         .count();
-                frame_pacing::note_frame_measure(
-                    frame_stats_, frame_pacing::FrameMeasure::tick, static_cast<uint64_t>(tick_ns)
-                );
-                phase_times_.simulation += tick_ns;
-            }
-            // The step's records are applied: the playout of the units of
-            // players this machine does not simulate reads where they are.
-            // It throws nothing, so it costs the match no step.
-            observe_unit_playout();
-            observe_match_effect_tick();
         }
     } catch (const std::exception& error) {
         report_match_tick_error(error.what());
     }
-    // A computer seat's chat is posted and sent here, after the ticks, so
-    // the log and the network do not run inside a tick.
-    flush_seat_chat();
-    if (match_timing_.pending_steps != 0)
-        oa::sim::messages::expire_oldest_message(match_->state().game);
-    // The map's timed units are placed once a frame, as they come due.
-    step_timed_map_units();
+    finish_match_steps();
+}
+
+Runtime::GrantedTicks Runtime::run_granted_ticks(uint32_t count) {
+    GrantedTicks grant;
+    if (!match_ || count == 0 || !match_clock_steps())
+        return grant;
+    if ((match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0)
+        return grant;
+    if (match_->outcome() != oa::sim::scenario::Outcome::ongoing) {
+        grant.game_over = true;
+        return grant;
+    }
+    // Every tick rounds with the settings the game started with. The count
+    // is the ticks to run: the wall clock and the match's speed do not scale it.
+    oa::base::float_precision::restore_program_float_control();
+    match_timing_.flags =
+        clock_flags_with_pause(match_timing_.flags, match_->state().game.sim_run_flags);
+    match_timing_.pending_steps = static_cast<int32_t>(count);
+    try {
+        for (uint32_t step = 0; step < count; ++step) {
+            if (match_->outcome() != oa::sim::scenario::Outcome::ongoing) {
+                grant.game_over = true;
+                break;
+            }
+            if (!run_one_match_step())
+                break;
+            grant.ran += 1;
+        }
+    } catch (const std::exception& error) {
+        report_match_tick_error(error.what());
+    }
+    if (match_->outcome() != oa::sim::scenario::Outcome::ongoing)
+        grant.game_over = true;
+    finish_match_steps();
+    snap_held_clock();
+    return grant;
+}
+
+void Runtime::offer_stepped_clock(uint8_t mode) {
+    if (!match_running()) {
+        startup_clock_taken_ = false;
+        stepped_clock_ = false;
+        return;
+    }
+    if (startup_clock_taken_)
+        return;
+    startup_clock_taken_ = true;
+    if (mode != 1)
+        return;
+    const uint32_t bits = current_extension_state();
+    if ((bits & extension_state::shared_match) != 0 || (bits & extension_state::replay) != 0 ||
+        (bits & extension_state::local_watcher) != 0)
+        return;
+    stepped_clock_ = true;
+    snap_held_clock();
 }
 
 void Runtime::observe_unit_playout() noexcept {

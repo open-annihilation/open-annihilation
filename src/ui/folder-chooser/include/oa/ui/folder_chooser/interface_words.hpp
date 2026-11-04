@@ -61,6 +61,8 @@ inline constexpr std::string_view interface_words[] = {
     "Steam · Proton",
     "System",
     "TA demo installer",
+    "The Boneyards",
+    "The Boneyards needs by.ccx and the Boneyards folder.",
     "The installer of the Total Annihilation demo (1997).",
     "Total Annihilation",
     "Total Annihilation demo",

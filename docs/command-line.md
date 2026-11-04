@@ -318,6 +318,10 @@ together.
 | `--fark` | Serves the automation endpoint, through which a program on this machine drives the game ([automation](automation.md)). |
 | `--fark-address 127.0.0.1:PORT\|[::1]:PORT` | The loopback address and port the endpoint listens at. It needs `--fark`. |
 | `--fark-file PATH` | Where the endpoint writes its address and token. It needs `--fark`. |
+| `--mcp` | Speaks the Model Context Protocol on standard input and standard output, so a program that starts the game can drive it. |
+| `--mcp=observe` | The same, listing only the tools that read. |
+| `--mcp-http [127.0.0.1:PORT\|[::1]:PORT]` | Serves the same protocol over HTTP on this machine's loopback address, so a program can attach to a game that is already running. With no address, the game picks a port on 127.0.0.1. |
+| `--mcp-clock stepped\|realtime` | With `--mcp` or `--mcp-http`, `stepped` runs a single-player match only when asked; `realtime` is the wall clock. A shared match refuses the stepped clock. |
 
 `--status-stdout` writes what the game is doing, and how it ended for
 each player, as one JSON object a line on standard output. The game's
@@ -331,6 +335,30 @@ options on.
 A missing file, or a file the game cannot open, is refused, and the game
 ends as it does for any other refused option, before the first line.
 See [what a game reports as it is played](multiplayer/status.md).
+
+`--mcp` speaks the Model Context Protocol on standard input and standard
+output, so a program that starts the game can drive it
+([MCP](mcp.md)). The game's own
+log goes to the log folder. `--mcp=observe` lists only the tools that
+read. Both mark the battle room ` REMOTED`. The protocol is served from
+the main loop, so `--mcp` cannot be used with an option that runs no
+main loop or owns it, the same options `--fark` refuses, nor with
+`--status-stdout`, which also writes standard output, nor with a launch
+read from standard input, nor with `--list-content`. `--mcp-clock stepped`
+holds a single-player match until `clock.step` or `clock.run` asks it to
+tick, and frames keep drawing. `--mcp-clock realtime` is the wall clock,
+which is also the clock when the option is left out. It needs `--mcp` or
+`--mcp-http`. When both are on they share one clock, and a step from either
+client runs it. A shared match refuses the stepped clock.
+
+`--mcp-http` serves the same protocol at `http://127.0.0.1:PORT/mcp` or
+`http://[::1]:PORT/mcp`. The address, a bearer token and the process id
+are written to `mcp.json` beside the preferences file, readable only by
+the user that owns it. One client is served at a time. It marks the
+battle room ` REMOTED`. It can be used with `--mcp`. It cannot be used
+with an option that runs no main loop or owns it. It does not share
+`--mcp`'s refusal of `--status-stdout`, a launch read from standard
+input, or `--list-content`.
 
 ### Recordings and video
 
@@ -536,7 +564,7 @@ one, for the engine's developers.
 | `--save-after TICK` | Saves the headless run once it reaches that tick. |
 | `--save-file PATH.sav` | Where `--save-after` saves. |
 | `--load PATH.sav` | Starts the headless run from a saved game. |
-| `--give-orders` | Gives the units orders in a headless run. |
+| `--give-orders` | Gives the units orders in a headless run. With `--mcp` it also gives those orders when a skirmish starts. |
 | `--seed N` | Starts the random numbers from `N`, so two runs play alike. |
 | `--brain-match A,B` | Plays a two-seat headless skirmish. Each seat is an installed brain id, a brain folder, or `builtin`. It needs `--headless-check`, `--match-ticks` and `--brain-map`. [Below](#--brain-match). |
 | `--brain-levels L1,L2` | The level of each `--brain-match` seat. A built-in level is `easy`, `medium` or `hard`, and `hard` when the word is left out. A brain's level is a level id from its manifest, and its first level when the word is left out. |

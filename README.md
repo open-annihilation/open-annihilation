@@ -101,6 +101,8 @@ These documents set out how the project is run and how changes are made:
 | Contributors | Credits | [View Document](CONTRIBUTORS.md) |
 | Agent instructions | Instructions for AI coding agents working in the repository | [View Document](AGENTS.md) |
 
+A checkout builds after the pinned SDL, the text fonts and the page fonts are fetched, as the [contributing guide](CONTRIBUTING.md#build-and-test) lists.
+
 ## Related projects
 
 Open Annihilation is part of a family of projects for Total Annihilation and

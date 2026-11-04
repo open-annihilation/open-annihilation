@@ -1068,6 +1068,10 @@ void Runtime::capture_render_target() {
     // A lost device has no picture to read.
     if (render_run_ && render_run_->device_lost)
         return;
+    // After the frame, before it is shown, on the front end and in a match.
+    // With no client connected this draws nothing, so a frame that is not
+    // driven is unchanged. The read below then includes the badge.
+    oa_layer().present_mcp_badge();
     if (video_capture_)
         video_capture_->add_frame(sdl_.renderer);
     if (capture_frame_ == nullptr)

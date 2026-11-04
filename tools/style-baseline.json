@@ -3,6 +3,344 @@
   "src/base/game-loop/include/oa/base/game_loop.hpp": {
    "tier-virtual": 15
   },
+  "src/boneyards/checks/boneyards_check.hpp": {
+   "qualified-fixed-width": 1
+  },
+  "src/boneyards/checks/runtime_boneyards_chat_check.cpp": {
+   "path-narrow": 1
+  },
+  "src/boneyards/checks/runtime_boneyards_check.cpp": {
+   "member-initializer": 5,
+   "path-narrow": 3,
+   "qualified-fixed-width": 10
+  },
+  "src/boneyards/client/include/oa/boneyards/maia_update.hpp": {
+   "member-initializer": 3
+  },
+  "src/boneyards/client/include/oa/boneyards/network_link.hpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/client/include/oa/boneyards/rover_calls.hpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/client/include/oa/boneyards/rover_replay.hpp": {
+   "member-initializer": 27
+  },
+  "src/boneyards/client/include/oa/boneyards/rover_session.hpp": {
+   "member-initializer": 3
+  },
+  "src/boneyards/client/src/rover_files.cpp": {
+   "path-narrow": 5
+  },
+  "src/boneyards/client/src/rover_replay.cpp": {
+   "member-initializer": 152,
+   "path-narrow": 1
+  },
+  "src/boneyards/client/src/rover_session.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/client/tests/rover_replay_test.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/client/tests/rover_session_test.cpp": {
+   "member-initializer": 6
+  },
+  "src/boneyards/console/app/console_screens.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/console/app/console_screens_test.cpp": {
+   "qualified-fixed-width": 27
+  },
+  "src/boneyards/console/include/oa/boneyards/console/gui_screen.hpp": {
+   "member-initializer": 11
+  },
+  "src/boneyards/console/include/oa/boneyards/console/images.hpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/console/include/oa/boneyards/console/status_widget.hpp": {
+   "member-initializer": 140
+  },
+  "src/boneyards/console/src/battle_console.cpp": {
+   "member-initializer": 8
+  },
+  "src/boneyards/console/src/battle_console.hpp": {
+   "member-initializer": 45
+  },
+  "src/boneyards/console/src/battle_panes.cpp": {
+   "member-initializer": 1
+  },
+  "src/boneyards/console/src/chat_view.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/console/src/console_state.hpp": {
+   "doc-block": 2,
+   "member-initializer": 145
+  },
+  "src/boneyards/console/src/contents_view.cpp": {
+   "member-initializer": 24
+  },
+  "src/boneyards/console/src/galaxy_graphics.cpp": {
+   "qualified-fixed-width": 1
+  },
+  "src/boneyards/console/src/galaxy_panel.cpp": {
+   "member-initializer": 6
+  },
+  "src/boneyards/console/src/gui_screen.cpp": {
+   "member-initializer": 19
+  },
+  "src/boneyards/console/src/html_view.hpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/console/src/locator.cpp": {
+   "member-initializer": 13
+  },
+  "src/boneyards/console/src/main_frame.cpp": {
+   "member-initializer": 9
+  },
+  "src/boneyards/console/src/profile_tabs_view.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/console/src/profile_tabs_view.hpp": {
+   "member-initializer": 46
+  },
+  "src/boneyards/console/src/quickplay.cpp": {
+   "member-initializer": 38
+  },
+  "src/boneyards/console/src/recon_view.cpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/console/src/registration.cpp": {
+   "member-initializer": 44
+  },
+  "src/boneyards/console/src/screen_views.cpp": {
+   "member-initializer": 20
+  },
+  "src/boneyards/console/tests/boneyards_navigation_test.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/console/tests/galaxy_fixture.hpp": {
+   "doc-block": 2
+  },
+  "src/boneyards/console/tests/galaxy_graphics_test.cpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/console/tests/language_fonts_test.cpp": {
+   "member-initializer": 3
+  },
+  "src/boneyards/console/tests/locator_test.cpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/console/tests/map_loading_test.cpp": {
+   "member-initializer": 1
+  },
+  "src/boneyards/console/tests/status_widget_test.cpp": {
+   "member-initializer": 1
+  },
+  "src/boneyards/extension/boneyards_extension.cpp": {
+   "path-narrow": 5
+  },
+  "src/boneyards/extension/boneyards_launch.hpp": {
+   "doc-block": 1
+  },
+  "src/boneyards/html/host/src/host_fonts.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/html/include/oa/boneyards/html.hpp": {
+   "member-initializer": 70
+  },
+  "src/boneyards/html/include/oa/boneyards/html_fnt.hpp": {
+   "member-initializer": 11
+  },
+  "src/boneyards/html/include/oa/boneyards/html_fonts.hpp": {
+   "member-initializer": 22
+  },
+  "src/boneyards/html/include/oa/boneyards/html_scripts.hpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/html/src/draw.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/html/src/font_service.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/html/src/image.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/html/src/parse.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/html/tests/font_service_test.cpp": {
+   "member-initializer": 3
+  },
+  "src/boneyards/html/tests/test_support.hpp": {
+   "doc-block": 8,
+   "member-initializer": 6
+  },
+  "src/boneyards/platform/tests/fonts_test.cpp": {
+   "member-initializer": 3
+  },
+  "src/boneyards/rover/src/games.cpp": {
+   "member-initializer": 12
+  },
+  "src/boneyards/rover/src/lobby_handlers.h": {
+   "doc-block": 5
+  },
+  "src/boneyards/rover/src/platform_posix.cpp": {
+   "member-initializer": 6
+  },
+  "src/boneyards/rover/src/platform_win32.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/rover/src/requests.cpp": {
+   "flags-raw-mask": 4
+  },
+  "src/boneyards/rover/src/sector_map.cpp": {
+   "member-initializer": 16
+  },
+  "src/boneyards/rover/tests/rover_link_test.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/rover/tests/rover_lobby_test.cpp": {
+   "member-initializer": 70
+  },
+  "src/boneyards/rover/tests/rover_login_reference_test.cpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/rover/tests/rover_platform_test.cpp": {
+   "member-initializer": 9
+  },
+  "src/boneyards/rover/tests/rover_records_test.cpp": {
+   "member-initializer": 8
+  },
+  "src/boneyards/rover/tests/rover_sector_map_test.cpp": {
+   "member-initializer": 1
+  },
+  "src/boneyards/rover/tests/rover_session_test.cpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/screens/include/oa/boneyards/message_box.hpp": {
+   "member-initializer": 6
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/battle_list.hpp": {
+   "member-initializer": 53
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/chat.hpp": {
+   "member-initializer": 97
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/contents.hpp": {
+   "member-initializer": 20
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/galaxy.hpp": {
+   "member-initializer": 126
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/lobby_widgets.hpp": {
+   "member-initializer": 38
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/login.hpp": {
+   "member-initializer": 16
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/navigator.hpp": {
+   "member-initializer": 8
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/profile.hpp": {
+   "member-initializer": 117
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/quickplay.hpp": {
+   "member-initializer": 9
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/registration.hpp": {
+   "member-initializer": 23
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/update_pass.hpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/screens/include/oa/boneyards/screens/widgets.hpp": {
+   "member-initializer": 6
+  },
+  "src/boneyards/screens/include/oa/boneyards/service.hpp": {
+   "member-initializer": 178
+  },
+  "src/boneyards/screens/src/chat.cpp": {
+   "member-initializer": 1,
+   "qualified-fixed-width": 52
+  },
+  "src/boneyards/screens/src/contents.cpp": {
+   "qualified-fixed-width": 13
+  },
+  "src/boneyards/screens/src/profile.cpp": {
+   "qualified-fixed-width": 20
+  },
+  "src/boneyards/screens/src/profile_record.cpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/screens/src/profile_tabs.cpp": {
+   "member-initializer": 2
+  },
+  "src/boneyards/screens/src/text.hpp": {
+   "doc-block": 9
+  },
+  "src/boneyards/screens/src/widgets.cpp": {
+   "qualified-fixed-width": 19
+  },
+  "src/boneyards/screens/tests/chat_test.cpp": {
+   "member-initializer": 2,
+   "qualified-fixed-width": 40
+  },
+  "src/boneyards/screens/tests/check.hpp": {
+   "doc-block": 3
+  },
+  "src/boneyards/screens/tests/galaxy_test.cpp": {
+   "member-initializer": 3
+  },
+  "src/boneyards/screens/tests/profile_record_test.cpp": {
+   "member-initializer": 6
+  },
+  "src/boneyards/screens/tests/screens_test.cpp": {
+   "qualified-fixed-width": 1
+  },
+  "src/boneyards/screens/tests/share/profile_reply.hpp": {
+   "doc-block": 7,
+   "member-initializer": 2
+  },
+  "src/boneyards/screens/tests/widgets_test.cpp": {
+   "qualified-fixed-width": 3
+  },
+  "src/boneyards/tests/coreprime/coreprime_ccx.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/toolkit/include/oa/boneyards/font_atlases.hpp": {
+   "member-initializer": 6
+  },
+  "src/boneyards/toolkit/include/oa/boneyards/toolkit.hpp": {
+   "member-initializer": 278
+  },
+  "src/boneyards/toolkit/include/oa/boneyards/utf8.hpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/toolkit/src/dock_bar.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/toolkit/src/resources.cpp": {
+   "member-initializer": 49
+  },
+  "src/boneyards/toolkit/tests/controls_test.cpp": {
+   "member-initializer": 8
+  },
+  "src/boneyards/toolkit/tests/driver_windows_test.cpp": {
+   "member-initializer": 1
+  },
+  "src/boneyards/toolkit/tests/gamepad_focus_test.cpp": {
+   "member-initializer": 4
+  },
+  "src/boneyards/toolkit/tests/modern_chat_test.cpp": {
+   "member-initializer": 5
+  },
+  "src/boneyards/toolkit/tests/share/test_data.hpp": {
+   "doc-block": 2
+  },
+  "src/boneyards/toolkit/tests/window_test.cpp": {
+   "member-initializer": 6
+  },
   "src/data/campaign/src/campaign_assets.cpp": {
    "tier-heap-container": 2
   },
@@ -184,6 +522,9 @@
   },
   "src/sim/world-environment/include/oa/sim/world_environment/wind.hpp": {
    "tier-virtual": 3
+  },
+  "tools/boneyards/rasterize_font_atlas.cpp": {
+   "path-narrow": 2
   }
  },
  "version": 2

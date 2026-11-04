@@ -16,6 +16,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace oa {
 class AssetStore;
@@ -195,6 +197,44 @@ using ScreenFn = void (*)(ScreenContext* ctx, void* state);
 using ScreenEventFn = int (*)(ScreenContext* ctx, void* state); // nonzero = consumed
 using ScreenBackgroundFn = const char* (*)(ScreenContext* ctx, void* state);
 
+/// What a control on a window a screen package shows is.
+enum class ScreenWindowKind : uint8_t {
+    button,     ///< a push button
+    check_box,  ///< a button that flips between checked and not
+    list,       ///< a list of rows
+    text_field, ///< a field that takes typed text
+    slider,     ///< a scroll bar
+    label,      ///< text that takes no pointer
+    area,       ///< a surface that takes the pointer
+    image,      ///< a picture that takes no pointer
+};
+
+/// One control of a window a screen package shows.
+struct ScreenWindowControl {
+    std::string name;               ///< as the package spells it; empty is left out
+    ScreenWindowKind kind{};        ///< what it is
+    int32_t x{};                    ///< its left column on the canvas
+    int32_t y{};                    ///< its top row on the canvas
+    int32_t width{};                ///< its width in canvas pixels
+    int32_t height{};               ///< its height in canvas pixels
+    bool visible{true};             ///< it is shown
+    bool enabled{true};             ///< it takes a click
+    bool focused{};                 ///< it holds the keyboard focus
+    bool checked{};                 ///< a check box is checked
+    std::string text;               ///< its caption, its label's text or a field's typed text
+    std::vector<std::string> items; ///< a list's rows
+    int32_t first_visible{};        ///< a list's first row shown
+    int32_t rows{};                 ///< the rows a list shows at once
+    int32_t row_height{};           ///< a list's row pitch in canvas pixels
+    int32_t selected{-1};           ///< a list's selected row; -1 for none
+};
+
+/// One window a screen package shows, and the controls on it.
+struct ScreenPackageWindow {
+    std::string name;                          ///< as the package spells it; empty is left out
+    std::vector<ScreenWindowControl> controls; ///< its controls, in the package's order
+};
+
 // GUI resources loaded before `enter`. A null layout means `enter` supplies
 // its own resources.
 struct ScreenAssets {
@@ -216,6 +256,18 @@ struct ScreenDesc {
     ScreenFn tick;                 // once per frame
     ScreenFn draw;                 // after the GUI is composed, before the cursor
     void* state{};
+    /// Lists the windows this package shows, for a program driving the game.
+    ///
+    /// Null reports none, as a package that draws no windows of its own
+    /// does. Called on the thread that runs main(), while the controls are
+    /// listed, with a context that lives only for the call. The vector is
+    /// empty on entry. The function must not change the game and must not
+    /// throw.
+    ///
+    /// @param ctx the package context, valid for the call
+    /// @param state ScreenDesc::state
+    /// @param[out] windows receives the windows; empty on entry
+    void (*windows)(ScreenContext* ctx, void* state, std::vector<ScreenPackageWindow>* windows){};
 };
 
 // Drawn over every screen matching `screen` (or kScreenAny) in ascending z;

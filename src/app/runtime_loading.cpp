@@ -241,6 +241,9 @@ void Runtime::draw_loading_screen() {
 }
 
 void Runtime::teardown_match() {
+    // Orders a stepped clock still holds go with the match. The bag is
+    // keyed by this runtime, so a later match at the same address starts clear.
+    drop_held_play_orders();
     // Director mode holds the match's sound hooks and camera paths; it
     // gives them back before the match goes.
     leave_director_mode();

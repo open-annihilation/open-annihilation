@@ -161,7 +161,19 @@ under them, so the maps pane keeps a row.
   is not mounted while the Library stays open. One that no registry
   offers reads "Campaign · ADD FROM…", and that press is the control that
   will open the locator; this tab does not open it. The heading counts
-  them, "EXPANSIONS · 5 OF 6 ON". A game
+  them, "EXPANSIONS · 5 OF 7 ON". The expansion `boneyards` ("The Boneyards")
+  extends Total Annihilation 3.1c and needs nothing else. It holds `by.ccx`
+  and the game-data files of the install's `Boneyards/` folder, and the
+  Library offers and installs it as it does the Cavedog units. An install
+  that already holds those files, including the known `by.ccx`, counts as
+  having it. Enter Boneyards on the main menu, the B key and starting
+  with -y ask before they open it. When a newer Open Annihilation is
+  offered, the game asks whether to update first. When this expansion is
+  not already in the game folder, the game downloads and installs it from
+  the Library, shows the fetch on the menu, turns it on and mounts the
+  archive without leaving the menu, then opens the Boneyards. Until
+  `by.ccx` is mounted the main-menu strip is drawn from the graphic
+  embedded in the game, and from that archive once it is. A game
   with none says "EXPANSIONS" and "This game has no expansions." A hint
   under the pills names what the first expansion that is off still needs
   ("Core Contingency needs Campaign."). Pressing a pill follows the

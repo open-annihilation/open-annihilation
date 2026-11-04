@@ -34,13 +34,55 @@ namespace oa::app::automation {
 using oa::formats::json::JsonWriter;
 #endif
 
+/// Whose economy a match answer includes.
+enum class EconomyView : uint8_t {
+    player, ///< the local player, and each player allied with it
+    all,    ///< every seated player
+};
+
 /// Writes a match's members of the match answer: whether a match runs, its
-/// tick, pause and speed, its players, the local player, and its outcome.
+/// tick, pause and speed, its unit limit and clock while it runs, its
+/// players, the local player, and its outcome.
+///
+/// Each player's economy is written for the local player and for a player
+/// allied with it. `shown` all writes every seated player's economy. An
+/// enemy's economy is null. The rates are the resource bar's per-second
+/// figures. A call that omits `shown` keeps the player's view.
 ///
 /// @param[in,out] json the answer's object, open
 /// @param match the running match's world; null while no match runs
 /// @param digest the match's saved-state digest, written as state_hash; nothing writes none
-void write_match(JsonWriter& json, const oa::World* match, std::optional<uint64_t> digest);
+/// @param shown whose economy is written
+void write_match(
+    JsonWriter& json,
+    const oa::World* match,
+    std::optional<uint64_t> digest,
+    EconomyView shown = EconomyView::player
+);
+
+/// Writes the map a running match plays: its name, width and height.
+///
+/// The name is the setup's map name, null when that field is empty.
+///
+/// @param[in,out] json the answer being written
+/// @param match the running match
+void write_map(JsonWriter& json, const oa::World& match);
+
+/// Writes the rules a running match plays, into an object that is already open:
+/// commander, line of sight, mapping, starting metal and energy, and the unit limit.
+///
+/// The words are the battle room's. The values are the session's, which is
+/// what the match plays.
+///
+/// @param[in,out] json the rules object, open
+/// @param match the running match
+void write_rule_fields(JsonWriter& json, const oa::World& match);
+
+/// Writes each seated player's side and team.
+///
+/// @param[in,out] json the answer being written
+/// @param match the running match
+void write_seated_sides(JsonWriter& json, const oa::World& match);
 
 /// Writes the battle room's members of the room answer: whether the room
 /// shows, the game's name, its host, its players, its map, the host's

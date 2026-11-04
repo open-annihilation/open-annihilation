@@ -1,0 +1,31 @@
+# Rover replies for an offline login to CorePrime Alpha replayed by
+# open-annihilation --boneyards-replay for the News, Ladders and Help
+# console checks. The login, dossier, area_name and allegiance lines are
+# those of alpha_post_login.replay.
+
+# Contact, clearance, then login_confirmed for user id 1.
+progress 4 0 0 0
+progress 7 0 0 0
+progress 8 0 1 0
+
+delay 2
+dossier USER_STATUS int 1
+dossier LOGINNAME string oa_check
+dossier ALLEGIANCE string C
+
+area_name alpha
+
+delay 1
+allegiances CCCCIIIAAACCCCCCAAAAAAAAC
+
+# SYNTHETIC: the content servers and every download below were made up for
+# the checks; the files under news/ and ladders/ stand in for the server's
+# news list, news pages and ladder pages.
+file_server news news.example 80
+file_server ladder ladders.example 8080
+
+delay 3
+http http://news.example:80/boneyards/ta/news/news.def news/news.def
+http http://news.example:80/boneyards/ta/news/news1.htm news/news1.htm
+http http://news.example:80/boneyards/ta/news/news2.htm news/news2.htm
+http http://ladders.example:8080/Boneyards/TA/Ladders/DUEL1.htm ladders/DUEL1.htm

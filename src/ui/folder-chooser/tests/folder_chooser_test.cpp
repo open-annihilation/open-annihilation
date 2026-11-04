@@ -137,7 +137,7 @@ void check_recognition() {
     OA_CHECK(macos.what == "GOG installer (macOS)");
     OA_CHECK(macos.title == "GOG installer for macOS");
     OA_CHECK(macos.recognised && macos.choosable && !macos.directory);
-    OA_CHECK(macos.bundles.size() == 7);
+    OA_CHECK(macos.bundles.size() == 8);
     OA_CHECK(macos.bundles.front() == "Total Annihilation");
 
     const chooser::SourceAccount windows =

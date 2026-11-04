@@ -24,6 +24,10 @@ in this repository or in the release packages.
 | [Noto Sans CJK](#noto-sans-cjk) | 2.004, SC Bold, cut to the languages' own names and the language notice | SIL Open Font License 1.1 | font file | font file | font file |
 | [Noto Emoji](#noto-emoji) | 3.002, monochrome | SIL Open Font License 1.1 | font file | font file | font file |
 | [Barlow](#barlow) | 1.422, Barlow Regular, Medium, SemiBold and Bold, Barlow Condensed SemiBold and Bold | SIL Open Font License 1.1 | font files | font files | font files |
+| [Liberation fonts](#liberation-fonts) | 2.1.5, Liberation Sans and Liberation Serif | SIL Open Font License 1.1 | font files | font files | font files |
+| [Saira ExtraCondensed ExtraBold](#saira-extracondensed-extrabold) | 0.072 | SIL Open Font License 1.1 | font file | font file | font file |
+| [Fira Sans Extra Condensed SemiBold](#fira-sans-extra-condensed-semibold) | the pinned file | SIL Open Font License 1.1 | drawn into the analogue atlas | drawn into the analogue atlas | drawn into the analogue atlas |
+| [Noto Sans CJK Medium](#noto-sans-cjk-medium) | 2.004, SC Medium, drawn into the analogue atlas, not shipped as a file | SIL Open Font License 1.1 | atlas | atlas | atlas |
 | [stb_vorbis](#stb_vorbis) | 1.22, changed | public domain or MIT | static | static | static |
 | [dr_mp3 and dr_flac](#dr_mp3-and-dr_flac) | 0.7.3 and 0.13.3, with later fixes | public domain or MIT No Attribution | static | static | static |
 | [Monocypher](#monocypher) | 4.0.2 | BSD-2-Clause | static | static | static |
@@ -333,9 +337,11 @@ Noto Emoji 3.002, the monochrome emoji font, unmodified, from
 <https://github.com/google/fonts/tree/main/ofl/notoemoji> at commit
 `b979dba422e445492b0eb9951ac52ee0b4d648c3` (`NotoEmoji[wght].ttf`, SHA-256
 `de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551`), shipped
-as `NotoEmoji.ttf`, draws emoji in the colour of the text. Copyright 2013
-Google LLC. It is licensed under the SIL Open Font License, Version 1.1; the
-text is in [`licenses/NotoEmoji-OFL.txt`](licenses/NotoEmoji-OFL.txt).
+as `NotoEmoji.ttf`, draws emoji in the colour of the text. The analogue
+atlas also draws this file, at 13 pixels and weight 500, in one bit.
+Copyright 2013 Google LLC. It is licensed under the SIL Open Font License,
+Version 1.1; the text is in
+[`licenses/NotoEmoji-OFL.txt`](licenses/NotoEmoji-OFL.txt).
 
 ## Barlow
 
@@ -357,6 +363,147 @@ Open Annihilation's own screens in the modern look. Copyright 2017 The
 Barlow Project Authors (https://github.com/jpt/barlow). It is licensed
 under the SIL Open Font License, Version 1.1; the text is in
 [`licenses/Barlow-OFL.txt`](licenses/Barlow-OFL.txt).
+
+## Page fonts and the analogue atlas
+
+The pages name Windows fonts. Those fonts cannot be redistributed, so the
+game ships the closest freely licensed fonts in their place (see
+`src/boneyards/platform/src/font_faces.cpp`). Liberation Sans and Serif and
+Saira ExtraCondensed ExtraBold are copied into the game's `fonts/` folder,
+unmodified. The bitmap faces' analogue glyphs ship as
+`fonts/boneyards-analogues.bin`. That file is committed at
+`data/boneyards/fonts/boneyards-analogues.bin` and copied into the game's
+files; the build does not draw it. It is a rasterisation of Fira Sans Extra
+Condensed, Noto Sans CJK SC Medium and the engine's Noto Emoji. Those three
+source files are not in this repository and are not copied into `fonts/`.
+Noto Sans CJK Medium is not shipped as its own file: pages draw Chinese,
+Japanese and Korean from the engine's text faces (the endonym cut of Noto
+Sans CJK, above, and a language pack's faces when one is installed).
+
+The source records some numeric metrics of Arial and Haettenschweiler to
+reproduce the old layout: the ascent and descent Windows reports for each
+size from 8 to 32 pixels per em, the fonts' OS/2 Windows ascent and descent
+and units per em (`src/boneyards/platform/src/font_faces.cpp`) and, in a
+test, Arial's advance widths for printable ASCII and sums of its device
+widths at 12, 13 and 16 pixels per em
+(`src/boneyards/platform/tests/fonts_test.cpp`). No font file, outline,
+hinting instruction or other glyph program of those fonts is included.
+
+Arial, Haettenschweiler and MS Sans Serif are trademarks of their respective
+owners. They are named only to identify the faces the bundled fonts replace.
+
+### Liberation fonts
+
+Liberation Sans stands in for Arial, the pages' default face and the
+fallback for faces the game does not have, and for MS Sans Serif. It is
+metric-compatible with Arial. Liberation Serif stands in for Times New
+Roman and keeps its own vertical metrics.
+
+- Files: `fonts/liberation/LiberationSans-Regular.ttf`,
+  `LiberationSans-Bold.ttf`, `LiberationSans-Italic.ttf`,
+  `LiberationSans-BoldItalic.ttf`, `LiberationSerif-Regular.ttf`,
+  `LiberationSerif-Bold.ttf`, `LiberationSerif-Italic.ttf` and
+  `LiberationSerif-BoldItalic.ttf`. The licence is
+  `fonts/liberation/LICENSE`, copied with the fonts.
+- Copyright: Digitized data copyright (c) 2010 Google Corporation with
+  Reserved Font Names Arimo, Tinos and Cousine. Copyright (c) 2012 Red Hat,
+  Inc. with Reserved Font Name Liberation.
+- Licence: SIL Open Font License 1.1. Reserved Font Names: Liberation;
+  Arimo, Tinos and Cousine.
+- Liberation is a trademark of Red Hat, Inc. It is named here only to
+  attribute the fonts.
+- Source: `liberation-fonts-ttf-2.1.5.tar.gz`, attached to the release notes
+  of tag 2.1.5 (commit `4b0192046158094654e865245832c66d2104219e`),
+  <https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz>,
+  SHA-256 `7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0`.
+
+| File | SHA-256 |
+|---|---|
+| LiberationSans-Regular.ttf | `76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8` |
+| LiberationSans-Bold.ttf | `788abee4c806d660e8aee46689dd8540cd4bb98da03dcc9d171ce3efd99a9173` |
+| LiberationSans-Italic.ttf | `e5bae5c4cde31f22142753855f4f8fb86da6ff39955ed3c0a11248b0d16948b0` |
+| LiberationSans-BoldItalic.ttf | `698da70fc191cc5f33ad4d6d3fe830fe4624b898ea2e3169955928b7c491f1ee` |
+| LiberationSerif-Regular.ttf | `058ea80864aef09a23f45cbec2bb5400bc3dfbdea01c3f10538a21fcb497fb74` |
+| LiberationSerif-Bold.ttf | `d754ba427cfe0bca54ae052384baa8f842da5bd6550ad4da024ac441e7a7d5ce` |
+| LiberationSerif-Italic.ttf | `0e3dea9f8d613e006ccfa62201f33e265d19167bd0907725c3e145368b04fc2e` |
+| LiberationSerif-BoldItalic.ttf | `f17db8af71e24d2066b587546021d4f0b296be389512b658dec3c09affeb11a7` |
+| LICENSE | `93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b` |
+
+### Saira ExtraCondensed ExtraBold
+
+Stands in for Haettenschweiler, the face of the contents list's "waiting"
+page. It is set at the same size.
+
+- File: `fonts/saira-extracondensed/SairaExtraCondensed-ExtraBold.ttf`. The
+  licence is `fonts/saira-extracondensed/OFL.txt`, copied with the font.
+- Copyright 2016 The Saira Project Authors (omnibus.type@gmail.com), with
+  reserved font name "Saira".
+- Licence: SIL Open Font License 1.1. Reserved Font Name: Saira.
+- Source: google/fonts at commit `679bd07fa26e1d0a05dc8d3fb45234564841ca7a`,
+  `ofl/sairaextracondensed/`.
+
+| File | SHA-256 |
+|---|---|
+| SairaExtraCondensed-ExtraBold.ttf | `0e282d00d8036c8a09576e3485b854dfad0fa8b1019dff41712df37cfe102594` |
+| OFL.txt | `0e2ccc5da1dd979f08ba82bca2fb61592506a1e58d3cbfc26d904f0db71bd812` |
+
+### Fira Sans Extra Condensed SemiBold
+
+The analogue for the characters the three Haettenschweiler bitmap faces and
+the message boxes' Hattfont12 do not themselves contain: Latin beyond those
+faces, Greek, Cyrillic and Vietnamese. It is drawn into the shared atlas at
+the capital height of the face, unsmoothed, and coloured as that face's ink
+is. `tools/boneyards/bootstrap_fonts.py` fetches the file unmodified into
+`font-sources/fira-sans-extra-condensed/` of the deps directory. It is not
+copied into the game's `fonts/` folder. The copyright notice here travels
+with the game in this file.
+
+- Copyright, from the font: Digitized data copyright 2012-2016, The Mozilla
+  Foundation and Telefonica S.A. The licence file's notice says Copyright
+  (c) 2012-2015, The Mozilla Foundation and Telefonica S.A.
+- Licence: SIL Open Font License 1.1. The text is `OFL.txt` beside the font
+  in the deps directory.
+- Source: google/fonts at commit `a8eaa3ebfc21d9c4b7d830a84ce7ba2f16eec1e1`,
+  `ofl/firasansextracondensed/`.
+
+| File | SHA-256 |
+|---|---|
+| FiraSansExtraCondensed-SemiBold.ttf | `54fc425c016631fbaa1ae2aa1f59f53e46e9c3805fa1df5a217613d8b6228ec7` |
+| OFL.txt | `8f24842e9174beda18a556c2ae7d54f5dc444340c19a3a9ef77e23bca366adbd` |
+
+### Noto Sans CJK Medium
+
+The analogue for Chinese, Japanese and Korean, and for the check mark,
+after Fira Sans Extra Condensed. The atlas draws the Simplified Chinese
+face, Noto Sans CJK SC Medium, at 13 pixels. The collection is fetched
+unmodified and is not cut down. `tools/boneyards/bootstrap_fonts.py` fetches
+it into `font-sources/noto-sans-cjk/` of the deps directory. It is not
+copied into the game's `fonts/` folder. The bitmap atlas is drawn from it
+once and committed; the build copies that file. The copyright notice here
+travels with the game in this file.
+
+- Copyright: © 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark
+  of Google Inc.
+- Licence: SIL Open Font License 1.1, the same text as the engine's Noto
+  Sans CJK licence,
+  [`licenses/NotoSansCJK-OFL.txt`](licenses/NotoSansCJK-OFL.txt).
+- Source: the `NotoSansCJK-Medium.ttc` collection of
+  <https://github.com/notofonts/noto-cjk> at the release tag `Sans2.004`.
+
+| File | SHA-256 |
+|---|---|
+| NotoSansCJK-Medium.ttc | `197d5e1e019faca33a4d55931c7d68b8056f3b97cb862049f5cb8de9efdfb8ce` |
+| NotoSansCJK-2.004-LICENSE | `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` |
+
+## Digests
+
+The Rover login digest is this module's own implementation of the RSA Data
+Security, Inc. MD5 Message-Digest Algorithm (RFC 1321).
+
+## Trademarks
+
+Boneyards is a trademark of its owner. This project is not affiliated with
+or endorsed by it.
 
 ## mingw-w64 runtime and winpthreads
 

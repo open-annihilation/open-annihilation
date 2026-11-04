@@ -216,7 +216,7 @@ void test_commands(const Scratch& scratch) {
 
 void test_help() {
     const auto table = oa::tool::commands();
-    OA_CHECK(table.size() == 14);
+    OA_CHECK(table.size() == 15);
     OA_CHECK(table[0].name == "list");
     OA_CHECK(table[1].name == "extract");
     OA_CHECK(table[2].name == "asset-extract");
@@ -230,7 +230,8 @@ void test_help() {
     OA_CHECK(table[10].name == "catalogue");
     OA_CHECK(table[11].name == "engine-feed");
     OA_CHECK(table[12].name == "registry");
-    OA_CHECK(table[13].name == "interface-words");
+    OA_CHECK(table[13].name == "expansions");
+    OA_CHECK(table[14].name == "interface-words");
     // mutator diff is the fourth subcommand. tools-oa-tool checks this list.
     OA_CHECK(table[7].subcommands.size() == 4);
     OA_CHECK(table[7].subcommands[0].name == "pack");
@@ -306,6 +307,14 @@ void test_help() {
     OA_CHECK(contains(missing.err, "oa-tool list:"));
     OA_CHECK(missing.out.empty());
 
+    const auto expansions = run({"expansions"});
+    OA_CHECK(expansions.status == oa::tool::exit_done);
+    OA_CHECK(expansions.err.empty());
+    OA_CHECK(contains(expansions.out, "boneyards\t110\n"));
+    OA_CHECK(contains(expansions.out, "cavedog-units\t6\n"));
+    const auto expansions_extra = run({"expansions", "ridge"});
+    OA_CHECK(expansions_extra.status == oa::tool::exit_usage);
+    OA_CHECK(contains(expansions_extra.err, "run 'oa-tool help expansions'\n"));
     const auto words = run({"interface-words", "--json"});
     OA_CHECK(words.status == oa::tool::exit_done);
     OA_CHECK(words.err.empty());

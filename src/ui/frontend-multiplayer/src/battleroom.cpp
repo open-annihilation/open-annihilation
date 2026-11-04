@@ -558,11 +558,13 @@ void apply_launch_seat(Lobby& lobby, Player& me, PlayerSetupInfo& info) noexcept
 
 /// Applies an active launch's options to the local player as the battle room opens.
 ///
-/// The host takes the unit limit, the lock, the commander rule, the resources,
-/// line of sight, cheats, start positions, mapping and watching. A joiner
-/// takes none of them; the host's rules stay the host's. Both then take the
-/// seat (apply_launch_seat). Energy and metal become the sliders' first
-/// values. A field that is 0 leaves its setting alone.
+/// The host takes the unit limit, the commander rule, the resources, line of
+/// sight, cheats, start positions, mapping and watching. A joiner takes none
+/// of them; the host's rules stay the host's. Both take the lock. Each
+/// machine's launch block carries lockOptions, and nothing else copies that
+/// bit onto a joiner; the match reads it from this machine's option word.
+/// Both then take the seat (apply_launch_seat). Energy and metal become the
+/// sliders' first values. A field that is 0 leaves its setting alone.
 ///
 /// @param[in,out] lobby Lobby state; its launch must be active.
 /// @param[in,out] me the local player
@@ -574,18 +576,18 @@ void apply_launch_options(
     Lobby& lobby, Player& me, PlayerSetupInfo& info, int32_t& energy, int32_t& metal, bool host
 ) noexcept {
     const auto& block = *lobby.launch_link.block;
+    auto& game = *lobby.game;
+    uint16_t word = lobby_option_word(game);
+    set_option_bit(word, kSetupOptionsLocked, block.lock_options != 0);
+    lobby_option_word(game) = word;
     if (!host) {
         apply_launch_seat(lobby, me, info);
         return;
     }
-    auto& game = *lobby.game;
     if (block.max_units != 0) {
         info.max_units = static_cast<uint16_t>(block.max_units);
         lobby_max_units(game) = static_cast<uint16_t>(block.max_units);
     }
-    uint16_t word = lobby_option_word(game);
-    set_option_bit(word, kSetupOptionsLocked, block.lock_options != 0);
-    lobby_option_word(game) = word;
     if (block.death_option >= kLaunchDeathFirst && block.death_option <= kLaunchDeathLast) {
         const auto rule = static_cast<uint32_t>(block.death_option - kLaunchDeathFirst);
         std::memcpy(game_bytes(game, kCommanderOptionOffset), &rule, sizeof(rule));

@@ -768,25 +768,23 @@ void check_frame(const fixture::NamedFrame& named) {
     OA_CHECK(mod_line != nullptr && mod_line->text == "Highland 0.4.0");
     const kit::Control* language_line = fixture::named(active_list, "library.active.language");
     OA_CHECK(language_line != nullptr && language_line->text == "Polski 1.0");
-    // Folded title, then pack: Atoll, Ridgeline, Twin Rivers. On a small
-    // window the tiles can leave the maps off the page. Scrolling brings
-    // every map into view. Once the page is scrolled as far as it goes,
-    // four rows fit under the heading.
+    // Folded title, then pack: Atoll, Ridgeline, Twin Rivers. On Compact, and
+    // on Regular's least window once seven expansions are offered, the tiles
+    // leave the maps off the page. Scrolling brings every map into view. Once
+    // the page is scrolled as far as it goes, four rows fit under the heading.
     lib::ScreenState at_maps;
-    kit::DisplayList maps_list = active_list;
-    if (compact) {
-        for (int32_t step = 0; step < 40; ++step) {
-            const kit::Control* sample = fixture::named(maps_list, "library.active.map.1");
-            const kit::Item* twin = text_item(maps_list, "Twin Rivers");
-            if (sample != nullptr && twin != nullptr && twin->rect.y >= sample->clip.y &&
-                twin->rect.y + twin->rect.height <= sample->clip.y + sample->clip.height)
-                break;
-            const int32_t before = at_maps.maps_scroll;
-            at_maps.maps_scroll = before + kit::compact_metrics.small_line;
-            maps_list = laid_out(active, at_maps, frame);
-            if (at_maps.maps_scroll == before)
-                break;
-        }
+    kit::DisplayList maps_list = laid_out(active, at_maps, frame);
+    for (int32_t step = 0; step < 80; ++step) {
+        const kit::Control* sample = fixture::named(maps_list, "library.active.map.1");
+        const kit::Item* twin = text_item(maps_list, "Twin Rivers");
+        if (sample != nullptr && twin != nullptr && twin->rect.y >= sample->clip.y &&
+            twin->rect.y + twin->rect.height <= sample->clip.y + sample->clip.height)
+            break;
+        const int32_t before = at_maps.maps_scroll;
+        at_maps.maps_scroll = before + kit::compact_metrics.small_line;
+        maps_list = laid_out(active, at_maps, frame);
+        if (at_maps.maps_scroll == before)
+            break;
     }
     const kit::Control* first_map = fixture::named(maps_list, "library.active.map.1");
     OA_CHECK(first_map != nullptr && first_map->text == "Atoll · 6 players · 20x20");
@@ -2056,7 +2054,7 @@ void active_base_game_is_a_tile() {
         const kit::Control* change = fixture::named(list, "library.active.change");
         OA_CHECK(change != nullptr && change->enabled && change->text == "Change…");
         const kit::Control* expansions = fixture::named(list, "library.active.expansions");
-        OA_CHECK(expansions != nullptr && expansions->text == "EXPANSIONS · 0 OF 6 ON");
+        OA_CHECK(expansions != nullptr && expansions->text == "EXPANSIONS · 0 OF 7 ON");
         OA_CHECK(text_starts(list, "Core Contingency needs"));
         const kit::Control* add = fixture::named(list, "library.active.expansion.campaign");
         OA_CHECK(add != nullptr && add->text.find("Add from…") != std::string::npos);
@@ -3841,6 +3839,34 @@ const kit::Item* maps_heading(const kit::DisplayList& list) {
     return nullptr;
 }
 
+/// Scrolls the Active page until a control is laid out. Compact, and Regular's
+/// least window once seven expansions are offered, leave the first map row
+/// below the page until the page moves.
+///
+/// @param library the model
+/// @param[in,out] state the screen's state; its maps scroll advances
+/// @param frame the frame
+/// @param name the control to bring in
+/// @return the layout that shows it, or the last layout when the page ends first
+kit::DisplayList reveal(
+    const lib::Library& library,
+    lib::ScreenState& state,
+    const kit::Frame& frame,
+    std::string_view name
+) {
+    kit::DisplayList list = laid_out(library, state, frame);
+    for (int32_t step = 0; step < 80; ++step) {
+        if (fixture::named(list, name) != nullptr)
+            return list;
+        const int32_t before = state.maps_scroll;
+        state.maps_scroll = before + kit::compact_metrics.small_line;
+        list = laid_out(library, state, frame);
+        if (state.maps_scroll == before)
+            return list;
+    }
+    return list;
+}
+
 /// The maps pane fills the room under the MAPS heading at every size class,
 /// five hundred maps scroll, and the search filters by map and by pack.
 void active_maps_fill_scroll_and_filter() {
@@ -3863,10 +3889,10 @@ void active_maps_fill_scroll_and_filter() {
         OA_CHECK(search->rect.x > heading->rect.x);
         OA_CHECK(heading->rect.y >= search->rect.y);
         OA_CHECK(heading->rect.y < search->rect.y + search->rect.height);
-        // Compact can leave the maps below the page until it scrolls. The
-        // other frames keep a maps pane under the tiles.
+        // Compact, and Regular's least window, leave the maps below the page
+        // until it scrolls. Large keeps a maps pane under the tiles.
         if (map == nullptr) {
-            OA_CHECK(named.frame.size_class == kit::SizeClass::compact);
+            OA_CHECK(named.frame.size_class != kit::SizeClass::large);
             continue;
         }
         const int32_t pane_bottom = map->clip.y + map->clip.height;
@@ -3899,6 +3925,7 @@ void active_maps_fill_scroll_and_filter() {
     OA_CHECK(lib::library_text(library, state, list, "atoll").redraw);
     list = laid_out(library, state, regular);
     OA_CHECK(text_item(list, "1 of 3") != nullptr);
+    list = reveal(library, state, regular, "library.active.map.1");
     OA_CHECK(fixture::named(list, "library.active.map.1") != nullptr);
     OA_CHECK(fixture::named(list, "library.active.map.2") == nullptr);
     OA_CHECK(fixture::named(list, "library.active.mod") != nullptr);
@@ -3912,6 +3939,7 @@ void active_maps_fill_scroll_and_filter() {
     list = laid_out(library, state, regular);
     OA_CHECK(text_item(list, "2 of 3") != nullptr);
     OA_CHECK(fixture::named(list, "library.active.map.1") == nullptr);
+    list = reveal(library, state, regular, "library.active.map.2");
     OA_CHECK(fixture::named(list, "library.active.map.2") != nullptr);
     OA_CHECK(fixture::named(list, "library.active.mod") != nullptr);
     // Regular's maps pane shows one tile under Kit 2's shell: the second
@@ -3924,11 +3952,13 @@ void active_maps_fill_scroll_and_filter() {
     }
 
     state.maps_search = {};
+    state.maps_scroll = 0;
     list = laid_out(library, state, regular);
     state = focused_on(list, "library.active.search");
     OA_CHECK(lib::library_text(library, state, list, "river").redraw);
     list = laid_out(library, state, regular);
     OA_CHECK(text_item(list, "1 of 3") != nullptr);
+    list = reveal(library, state, regular, "library.active.map.3");
     OA_CHECK(
         fixture::named(list, "library.active.map.3") != nullptr &&
         fixture::named(list, "library.active.map.3")->text == "Twin Rivers · 2 players · 12x12"
@@ -3936,6 +3966,7 @@ void active_maps_fill_scroll_and_filter() {
     OA_CHECK(fixture::named(list, "library.active.map.1") == nullptr);
 
     state.maps_search = {};
+    state.maps_scroll = 0;
     list = laid_out(library, state, regular);
     state = focused_on(list, "library.active.search");
     OA_CHECK(lib::library_text(library, state, list, "zzz").redraw);
@@ -3949,6 +3980,7 @@ void active_maps_fill_scroll_and_filter() {
     OA_CHECK(state.maps_search.text.empty());
     list = laid_out(library, state, regular);
     OA_CHECK(text_item(list, "0 of 3") == nullptr);
+    list = reveal(library, state, regular, "library.active.map.1");
     OA_CHECK(fixture::named(list, "library.active.map.1") != nullptr);
     {
         lib::ScreenState scrolled = state;
@@ -3964,7 +3996,8 @@ void active_maps_fill_scroll_and_filter() {
     list = laid_out(library, state, regular);
     static_cast<void>(click(library, state, list, "library.tab.active"));
     OA_CHECK(state.maps_search.text == "river");
-    list = laid_out(library, state, regular);
+    state.maps_scroll = 0;
+    list = reveal(library, state, regular, "library.active.map.3");
     OA_CHECK(fixture::named(list, "library.active.map.3") != nullptr);
     OA_CHECK(fixture::named(list, "library.active.map.1") == nullptr);
     OA_CHECK(text_item(list, "1 of 3") != nullptr);
@@ -3985,27 +4018,42 @@ void active_maps_fill_scroll_and_filter() {
     const std::string last_name = "library.active.map." + std::to_string(count);
     const kit::Control* mod_before = fixture::named(packed, "library.active.mod");
     OA_CHECK(mod_before != nullptr);
+    // Read now: `packed` is replaced below, and the control with it.
+    const bool has_mod = mod_before != nullptr;
+    const int32_t mod_top = has_mod ? mod_before->rect.y : 0;
+    // Regular's least window scrolls the tiles and the maps as one page, so
+    // the first row starts below the fold. Scrolling brings it in. While the
+    // page still has a maps pane, the row is already there.
+    const bool page = fixture::named(packed, "library.active.map.1") == nullptr;
+    packed = reveal(many, scrolled, regular, "library.active.map.1");
     OA_CHECK(fixture::named(packed, "library.active.map.1") != nullptr);
     OA_CHECK(fixture::named(packed, last_name) == nullptr);
-    if (mod_before == nullptr)
+    if (!has_mod)
         return;
-    const int32_t mod_top = mod_before->rect.y;
     const kit::Control* top_map = fixture::named(packed, "library.active.map.1");
     OA_CHECK(top_map != nullptr);
     if (top_map != nullptr) {
-        // The drag starts in the middle of the maps' view. At Regular's
-        // least window the view is a strip, and the first map's line can
-        // lie under its edge.
-        const kit::Point on_map{
-            top_map->clip.x + top_map->clip.width / 2, top_map->clip.y + top_map->clip.height / 2
-        };
+        // The drag starts in the middle of the maps' view. On the scrolling
+        // page that view is the whole page, so the press is the map's own
+        // line. In the pane the line can lie under the strip's edge, and the
+        // press is the middle of the strip.
+        const kit::Point on_map =
+            page ? kit::Point{
+                       top_map->rect.x + std::max(top_map->rect.width, int32_t{0}) / 2,
+                       top_map->rect.y + std::max(top_map->rect.height, int32_t{0}) / 2
+                   }
+                 : kit::Point{
+                       top_map->clip.x + top_map->clip.width / 2,
+                       top_map->clip.y + top_map->clip.height / 2
+                   };
+        const int32_t scroll_before = scrolled.maps_scroll;
         static_cast<void>(
             lib::library_pointer(many, scrolled, packed, lib::PointerKind::down, 1, on_map, 12)
         );
         static_cast<void>(lib::library_pointer(
             many, scrolled, packed, lib::PointerKind::move, 0, {on_map.x, on_map.y - 40}, 12
         ));
-        OA_CHECK(scrolled.maps_scroll > 0);
+        OA_CHECK(scrolled.maps_scroll > scroll_before);
         static_cast<void>(lib::library_pointer(
             many, scrolled, packed, lib::PointerKind::up, 1, {on_map.x, on_map.y - 40}, 12
         ));
@@ -4017,7 +4065,10 @@ void active_maps_fill_scroll_and_filter() {
     OA_CHECK(fixture::named(packed, last_name) != nullptr);
     OA_CHECK(fixture::named(packed, "library.active.map.1") == nullptr);
     const kit::Control* mod_after = fixture::named(packed, "library.active.mod");
-    OA_CHECK(mod_after != nullptr && mod_after->rect.y == mod_top);
+    // The pane keeps the tiles put. The scrolling page moves them with the maps.
+    OA_CHECK(
+        mod_after != nullptr && (page ? mod_after->rect.y < mod_top : mod_after->rect.y == mod_top)
+    );
     const kit::Item* bar = nullptr;
     for (const kit::Item& item : packed.items)
         if (item.role == kit::Role::scroll_bar)

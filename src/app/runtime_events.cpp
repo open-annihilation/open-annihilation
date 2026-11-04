@@ -5,6 +5,7 @@
 #include "oa/app/runtime.hpp"
 #include "gui_actions.hpp"
 #include "oa/app/hook_call.hpp"
+#include "oa/app/mcp_quit.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/media/intro_player.hpp"
 #include "oa/present/typed_text.hpp"
@@ -63,6 +64,26 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
     if (event.type == SDL_EVENT_KEY_DOWN)
         answered_key_ = 0;
     if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+        // SIGTERM with nothing the player can answer, or while --mcp-http is
+        // served, leaves as game.quit does. The window's close button still
+        // asks. A shown window without --mcp-http asks too.
+        if (event.type == SDL_EVENT_QUIT) {
+            const char* driver = SDL_GetCurrentVideoDriver();
+            const bool hidden = sdl_.window != nullptr &&
+                                (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_HIDDEN) != 0;
+            const bool shown = mcp::window_shown_to_player(
+                sdl_.window != nullptr,
+                options_.headless_check,
+                hidden,
+                driver != nullptr ? std::string_view(driver) : std::string_view{}
+            );
+            if (mcp::system_quit_leaves(shown, mcp::http_serving())) {
+                quit_requested_ = true;
+                quit_reason_.clear();
+                running = false;
+                return;
+            }
+        }
         // Closing the window, or the system's quit while there is one, in a
         // running match asks whether to surrender first, as in 3.1c; every
         // other screen ends the run at once.

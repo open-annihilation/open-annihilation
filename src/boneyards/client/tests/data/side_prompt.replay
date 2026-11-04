@@ -1,0 +1,13 @@
+# A login whose dossier names no side for this sector, the last sector's
+# side Core, and the lock still open. No area name, so the dossier completes
+# without a sector fetch.
+
+progress 4 0 0 0
+progress 7 0 0 0
+progress 8 0 7 1
+
+delay 2
+dossier USER_STATUS int 1
+dossier LOGINNAME string SideCommander
+dossier ALLEGIANCE_PREVIOUS string CORE
+dossier ALLEGIANCE_LOCKED int 0

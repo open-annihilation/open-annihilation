@@ -478,6 +478,18 @@ class Failure : public std::runtime_error {
 /// @throws Failure when the registry cannot be read
 [[nodiscard]] int run_registry_mirror(std::span<const std::string> arguments, Output& output);
 
+// The expansion listing, defined in expansion.cpp.
+
+/// Prints each built-in expansion's id and how many files it holds.
+///
+/// One line per expansion, in the table's order: the id, a tab and the
+/// count. The command takes no arguments.
+///
+/// @param arguments none
+/// @param[in,out] output receives the lines, or a usage line
+/// @return exit_done, or exit_usage when an argument is given
+[[nodiscard]] int run_expansions(std::span<const std::string> arguments, Output& output);
+
 // The interface-word command, defined in interface_words.cpp.
 
 /// Prints the English texts the build passes to the interface catalogue.

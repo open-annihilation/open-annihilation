@@ -1,0 +1,78 @@
+# Rover replies for an offline login to CorePrime Alpha with a populated
+# galactic map, replayed by open-annihilation --boneyards-replay for
+# the planet and console checks. The login, dossier, area_name and
+# allegiance lines are those of alpha_post_login.replay.
+
+# Contact, clearance, then login_confirmed for user id 1.
+progress 4 0 0 0
+progress 7 0 0 0
+progress 8 0 1 0
+
+delay 2
+dossier USER_STATUS int 1
+dossier LOGINNAME string oa_check
+dossier ALLEGIANCE string C
+
+area_name alpha
+
+delay 1
+allegiances CCCCIIIAAACCCCCCAAAAAAAAC
+
+# SYNTHETIC: the census and activity lines below were made up for the
+# checks; every planet has a nonzero population and the contested planets
+# (1800-1802 by the allegiance line) have wins.
+# census AREA POPULATION ACTIVITY IN_PROGRESS FORMING CORE_WINS ARM_WINS
+census 1796 12 1 0 1 0 0
+census 1797 7 0 0 0 0 0
+census 1798 5 1 1 0 0 0
+census 1799 9 0 0 0 0 0
+census 1800 21 2 1 1 3 4
+census 1801 34 3 2 1 17 9
+census 1802 16 1 0 2 6 11
+census 1803 8 0 0 0 0 0
+census 1804 4 1 0 1 0 0
+census 1805 11 0 0 0 0 0
+census 1806 6 0 0 0 0 0
+census 1807 3 1 1 0 0 0
+census 1808 2 0 0 0 0 0
+census 1809 5 0 0 0 0 0
+census 1810 8 2 1 1 0 0
+census 1811 4 0 0 0 0 0
+census 1812 10 1 0 1 0 0
+census 1813 3 0 0 0 0 0
+census 1814 7 0 0 0 0 0
+census 1815 2 1 1 0 0 0
+census 1816 6 0 0 0 0 0
+census 1817 9 2 1 1 0 0
+census 1818 1 0 0 0 0 0
+census 1819 5 0 0 0 0 0
+census 1820 13 1 0 1 0 0
+activity 1010231010010020100102001
+
+# SYNTHETIC: the locator's answer below was made up for the chat check
+# (+locate Ghost_Commander).
+located Ghost_Commander 1 7 3
+located_field area_id uint 1801
+located_field room_id uint 1
+located_field area_name string Slag
+located_field room_name string Main
+
+# SYNTHETIC: the chat rooms of planet 1801 below were made up for the chat
+# checks. Main is the only public (type 1) room, so the console's default
+# pick enters it.
+delay 1
+# room AREA ROOM USERS TYPE NEEDS_PW NAME|DESCRIPTION|TAG
+room 1801 1 4 1 0 Main|General chat
+room 1801 2 2 2 0 Tactics|Build orders and strategy
+room 1801 3 1 2 1 War_Room
+entered 1801 1 0
+entered 1801 2 0
+# member AREA ROOM USER_ID LATENCY ICON RANK ALLEGIANCE NAME
+member 1801 1 1 1 1 0 C oa_check
+member 1801 1 7 2 8 0 C Ghost_Commander
+member 1801 1 9 1 17 0 A Dan
+member 1801 1 3 1 23 0 U Yard_Dog
+# said AREA ROOM USER_ID TEXT
+said 1801 1 3 Welcome to planet 1801, commanders.
+said 1801 1 7 Anyone up for a 1v1?
+said 1801 1 9 Sure, host it and I'll join.
