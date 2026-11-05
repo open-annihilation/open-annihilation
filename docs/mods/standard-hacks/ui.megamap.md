@@ -71,6 +71,11 @@ distance in the OKLab colour space) or, with `dither`, a checkerboard of the
 two nearest. The picture is shaded by what the viewer has mapped and sees,
 as the minimap is.
 
+The picture is made as the match starts, and as the Mouse wheel zoom
+setting is turned off during one, so that the megamap shows at once when it
+first opens. A window resized since makes it again the next time the
+megamap opens.
+
 With `feature-blobs`, the map's indestructible features that cannot be
 reclaimed, such as rocks, vents and metal patches made of features, are
 drawn on the picture as the map placed them. Each is the first frame of its
@@ -218,7 +223,9 @@ match hash and every machine's simulation stay as they are.
   the minimap's picture back when the setting changes in a match.
 - Test: `ui-hud-megamap` (`src/ui/hud/tests/megamap_test.cpp`) covers the
   layout, the terrain downscale by red, green and blue and among the map's
-  own colours as they look, the features drawn and the marks' colours, a
+  own colours as they look, each pixel as the plain search of the colours
+  finds it, on the drawing threads or not and read by rows or by pixels,
+  the features drawn and the marks' colours, a
   picture shrunk, placed and laid over the terrain, the icon file, the
   icon choice and the ring minimums.
 - Test: `native-megamap-clicks` (`src/app/runtime_megamap_check.cpp`)

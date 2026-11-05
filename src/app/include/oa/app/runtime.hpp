@@ -14928,6 +14928,27 @@ class Runtime final : public menu::Host,
     /// @param layout where the picture goes
     void build_megamap_terrain(const oa::ui::hud::MegamapLayout& layout);
 
+    /// Returns where the megamap shows the map now: fitted into the
+    /// overlays' area (overlay_area), on the battlefield's layer, whose
+    /// origin is the battlefield's corner.
+    ///
+    /// @return the layout; empty without a match
+    [[nodiscard]] oa::ui::hud::MegamapLayout current_megamap_layout() const;
+
+    /// Tells whether the megamap's terrain picture was made for a layout.
+    ///
+    /// @param layout the layout the megamap is to be drawn in
+    /// @return true when the picture is made and fits it
+    [[nodiscard]] bool megamap_terrain_fits(const oa::ui::hud::MegamapLayout& layout) const;
+
+    /// Makes what the megamap draws ready before it first opens, while
+    /// ui.megamap acts (megamap_on): its icons and features
+    /// (prepare_megamap) and its terrain picture for the present layout
+    /// (build_megamap_terrain), so that opening it shows the map at once. A
+    /// layout changed since, as a resized window changes it, makes the
+    /// picture again as the megamap is drawn.
+    void prepare_megamap_picture();
+
     /// Opens or closes the megamap, with its interface sound.
     ///
     /// @param open true to open
