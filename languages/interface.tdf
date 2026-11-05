@@ -22828,12 +22828,12 @@
 	it=Chiudi megamappa;
 	}
 
-[Closes the megamap and centres on the pointer]
+[Closes the megamap and zooms in at the pointer]
 	{
-	de=Schließt die Großkarte und zentriert auf den Zeiger;
-	fr=Ferme la mégacarte et centre sur le pointeur;
-	es=Cierra el megamapa y centra en el puntero;
-	it=Chiude la megamappa e centra sul puntatore;
+	de=Schließt die Großkarte und zoomt am Zeiger hinein;
+	fr=Ferme la mégacarte et zoome sur le pointeur;
+	es=Cierra el megamapa y acerca la vista en el puntero;
+	it=Chiude la megamappa e ingrandisce sul puntatore;
 	}
 
 [Megamap jump]
