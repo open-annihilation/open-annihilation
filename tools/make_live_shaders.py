@@ -86,6 +86,13 @@ TOOLS = ("glslangValidator", "spirv-val", "spirv-cross")
 MSL_VERSION = "20100"
 # Bytes of SPIR-V on each line of the file.
 BYTES_PER_LINE = 16
+# The most bytes of MSL one raw string of the file holds; a longer stage is
+# written as adjacent raw strings, which the compiler joins. Visual C++ takes
+# no single string literal longer than 16380 bytes.
+MSL_PIECE_BYTES = 16000
+# The most bytes of MSL a stage may hold: what Visual C++ takes in adjacent
+# string literals joined.
+MSL_STAGE_BYTES = 65535
 SKIPPED = 77
 
 
@@ -129,6 +136,30 @@ def compile_stage(name, stage, scratch):
     return spirv.read_bytes(), msl.read_text()
 
 
+def msl_pieces(lines):
+    """Splits a stage's MSL into the raw strings the file writes it as.
+
+    Each piece ends at the end of a line and holds at most MSL_PIECE_BYTES,
+    a newline before the first line among them, so that the pieces joined
+    are the stage's text after one newline.
+
+    @param lines the MSL's lines
+    @return each piece's lines; a piece after the first carries on the line
+            its raw string opens on
+    """
+    pieces = [[]]
+    size = 1
+    for line in lines:
+        if len(line) + 1 > MSL_PIECE_BYTES:
+            raise RuntimeError(f"a line of MSL is longer than {MSL_PIECE_BYTES} bytes")
+        if pieces[-1] and size + len(line) + 1 > MSL_PIECE_BYTES:
+            pieces.append([])
+            size = 0
+        pieces[-1].append(line)
+        size += len(line) + 1
+    return pieces
+
+
 def file_text(versions, forms):
     """Writes the file the renderer includes.
 
@@ -148,6 +179,9 @@ def file_text(versions, forms):
     for name, spirv, msl in forms:
         if ")msl\"" in msl:
             raise RuntimeError(f"{name}: the MSL holds the raw string's end")
+        lines = msl.rstrip("\n").split("\n")
+        if sum(len(line) + 1 for line in lines) + 1 > MSL_STAGE_BYTES:
+            raise RuntimeError(f"{name}: the MSL is longer than {MSL_STAGE_BYTES} bytes")
         out.append("")
         out.append(f"/// {name}.glsl as SPIR-V for Vulkan 1.0.")
         out.append(f"alignas(4) constexpr unsigned char {name}_spirv[] = {{")
@@ -157,8 +191,14 @@ def file_text(versions, forms):
         out.append("};")
         out.append(f"/// {name}.glsl as Metal shading language; its entry point is main0.")
         out.append(f"constexpr char {name}_msl[] = R\"msl(")
-        out += msl.rstrip("\n").split("\n")
-        out.append(")msl\";")
+        pieces = msl_pieces(lines)
+        for index, piece in enumerate(pieces):
+            if index == 0:
+                out += piece
+            else:
+                out.append("R\"msl(" + piece[0])
+                out += piece[1:]
+            out.append(")msl\";" if index == len(pieces) - 1 else ")msl\"")
     return "\n".join(out) + "\n"
 
 
