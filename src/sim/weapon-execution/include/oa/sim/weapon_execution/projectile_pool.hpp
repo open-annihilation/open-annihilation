@@ -65,7 +65,7 @@ void retire_projectile(World& world, Projectile& projectile) noexcept;
 /// That path runs in linear time; the caller allocates scratch before simulation ticks.
 ///
 /// @param[in,out] world projectile pool and camera follow state
-/// @param scratch old-to-new indices; empty retains the fixed-pool compatibility behavior
+/// @param scratch old-to-new indices covering the live count; otherwise keeps compatibility
 /// @quirk Without scratch, a record before the first retired one keeps its reference even when its target
 ///        moved, and a reference to a retired record is left as it was.
 void compact_projectiles(World& world, std::span<int16_t> scratch = {}) noexcept;
@@ -75,8 +75,10 @@ void compact_projectiles(World& world, std::span<int16_t> scratch = {}) noexcept
 /// @param[in,out] world projectile pool
 /// @param source unit whose spawners are cancelled
 /// @param scratch old-to-new indices passed to compact_projectiles
-/// @quirk The scan continues at the next index after each compaction, so the record that
-///        slid into a cancelled spawner's place is not examined.
+/// With scratch covering the live prefix, all matching spawners retire before one compaction.
+///
+/// @quirk Without scratch the scan continues at the next index after each compaction, so the
+///        record that slid into a cancelled spawner's place is not examined.
 void cancel_burst_spawners(World& world, oa_ref32 source, std::span<int16_t> scratch = {}) noexcept;
 
 } // namespace oa::sim::weapon_execution

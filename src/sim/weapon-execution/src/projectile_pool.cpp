@@ -127,6 +127,20 @@ void compact_projectiles(World& world, std::span<int16_t> scratch) noexcept {
 }
 
 void cancel_burst_spawners(World& world, oa_ref32 source, std::span<int16_t> scratch) noexcept {
+    const int32_t count = live_count(world);
+    if (!scratch.empty() && scratch.size() >= static_cast<std::size_t>(count)) {
+        bool retired = false;
+        for (int32_t index = 0; index < count; ++index) {
+            Projectile& shot = world.projectiles[index];
+            if (shot.burst_remaining == 0 || shot.source != source)
+                continue;
+            retire_projectile(world, shot);
+            retired = true;
+        }
+        if (retired)
+            compact_projectiles(world, scratch);
+        return;
+    }
     for (int32_t index = 0; index < live_count(world); ++index) {
         Projectile& shot = world.projectiles[index];
         if (shot.burst_remaining == 0 || shot.source != source)

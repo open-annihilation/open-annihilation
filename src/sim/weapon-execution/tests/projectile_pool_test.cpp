@@ -219,6 +219,23 @@ void expanded_interception() {
     CHECK(find_interceptor_target(*f.w, unit, 0) == 0);
 }
 
+/// Cancels adjacent Enhanced spawners together without removing their flying children.
+void expanded_burst_spawners() {
+    constexpr uint32_t count = 512;
+    Fixture f(count);
+    std::vector<int16_t> scratch(count);
+    for (uint32_t index = 0; index < count; ++index) {
+        auto& shot = f.add(index);
+        shot.source = 2;
+    }
+    f.w->projectiles[400].burst_remaining = 2;
+    f.w->projectiles[401].burst_remaining = 1;
+    cancel_burst_spawners(*f.w, 2, scratch);
+    CHECK(f.w->game.projectile_count == static_cast<int32_t>(count - 2));
+    CHECK(f.w->projectiles[399].burst_tick == 399 && f.w->projectiles[400].burst_tick == 402);
+    CHECK(f.w->projectiles[count - 3].burst_tick == count - 1);
+}
+
 void burst_spawners() {
     Fixture f;
     constexpr oa_ref32 dead = 2;
@@ -247,6 +264,7 @@ int main() {
     expanded_allocation();
     expanded_compaction();
     expanded_interception();
+    expanded_burst_spawners();
     if (failures != 0)
         return EXIT_FAILURE;
     std::puts("projectile pool passed");
