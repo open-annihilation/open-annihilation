@@ -480,6 +480,59 @@ void test_recording_without_limits_sector() {
     );
 }
 
+/// Checks the version's byte order, full range and recording round trip.
+void test_enhanced_mode_sector_round_trips() {
+    constexpr uint32_t version = 0x78563412;
+    const auto body = tad::encode_enhanced_mode_sector(version);
+    require(body == std::array<uint8_t, 4>{0x12, 0x34, 0x56, 0x78}, "version byte order");
+    Fixture fixture;
+    fixture.demo.sectors.push_back({static_cast<uint32_t>(tad::SectorType::enhanced_mode), body});
+    const Bytes bytes = encoded(fixture.demo);
+    const auto result = tad::parse(bytes);
+    require(result.ok(), "Enhanced Mode sector parses");
+    const auto* sector = tad::find_sector(*result.demo, tad::SectorType::enhanced_mode);
+    require(sector != nullptr, "Enhanced Mode sector present");
+    const auto decoded = tad::decode_enhanced_mode_sector(*sector);
+    require(decoded && *decoded == version, "Enhanced Mode version");
+    require(encoded(*result.demo) == bytes, "Enhanced Mode sector round trip");
+    for (const uint32_t one : {uint32_t{1}, UINT32_MAX}) {
+        const auto encoded_version = tad::encode_enhanced_mode_sector(one);
+        const tad::Sector round_trip{
+            static_cast<uint32_t>(tad::SectorType::enhanced_mode), encoded_version
+        };
+        require(tad::decode_enhanced_mode_sector(round_trip) == one, "nonzero version range");
+    }
+}
+
+/// Refuses empty, truncated, oversized, zero-version and wrongly typed sectors.
+void test_enhanced_mode_sector_refuses() {
+    const auto reject = [](Bytes body) {
+        const tad::Sector sector{static_cast<uint32_t>(tad::SectorType::enhanced_mode), body};
+        return !tad::decode_enhanced_mode_sector(sector).has_value();
+    };
+    require(reject({}), "empty Enhanced Mode sector");
+    require(reject({1, 0, 0}), "truncated Enhanced Mode sector");
+    require(reject({1, 0, 0, 0, 0}), "oversized Enhanced Mode sector");
+    require(reject({0, 0, 0, 0}), "zero version Enhanced Mode sector");
+    const auto body = tad::encode_enhanced_mode_sector(1);
+    const tad::Sector other{static_cast<uint32_t>(tad::SectorType::limits), body};
+    require(!tad::decode_enhanced_mode_sector(other), "wrong Enhanced Mode sector type");
+}
+
+/// Leaves recordings without Enhanced Mode metadata unchanged.
+void test_recording_without_enhanced_mode_sector() {
+    const Fixture fixture;
+    const Bytes bytes = encoded(fixture.demo);
+    const auto result = tad::parse(bytes);
+    require(result.ok(), "recording without Enhanced Mode parses");
+    require(result.demo->sectors.size() == 3, "no Enhanced Mode sector added");
+    require(
+        tad::find_sector(*result.demo, tad::SectorType::enhanced_mode) == nullptr,
+        "Enhanced Mode sector absent"
+    );
+    require(encoded(*result.demo) == bytes, "recording without Enhanced Mode round trip");
+}
+
 void test_wide_records_split_only_when_asked() {
     Bytes payload{tad::payload_marker, 0x06, 0xE0};
     payload.insert(payload.end(), 36, 0);
@@ -535,6 +588,9 @@ int main() {
         test_limits_sector_round_trips();
         test_limits_sector_refuses();
         test_recording_without_limits_sector();
+        test_enhanced_mode_sector_round_trips();
+        test_enhanced_mode_sector_refuses();
+        test_recording_without_enhanced_mode_sector();
         test_wide_records_split_only_when_asked();
         test_unknown_sector_is_kept();
         std::cout << "tad-format: ok\n";

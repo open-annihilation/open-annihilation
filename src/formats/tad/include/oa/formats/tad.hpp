@@ -101,6 +101,10 @@ enum class SectorType : uint32_t {
     /// Open Annihilation's own type, the bytes 1 L A O on disk. Other readers
     /// skip it.
     limits = 0x4f414c31,
+    /// The Enhanced Mode rules version, a nonzero little-endian count.
+    /// Open Annihilation's own type, the bytes 1 E A O on disk. A recording
+    /// without this sector plays with Enhanced Mode off.
+    enhanced_mode = 0x4f414531,
 };
 
 /// Weapon types a recording names when the profile leaves them at 3.1c's count.
@@ -124,6 +128,8 @@ struct RecordedLimits {
 
 /// Bytes of a limits sector: weapon types, then sides, each a little-endian count.
 inline constexpr std::size_t limits_sector_bytes = 8;
+/// Bytes of an Enhanced Mode sector: one little-endian rules version.
+inline constexpr std::size_t enhanced_mode_sector_bytes = 4;
 
 /// Which record lengths a recording's packets are split with.
 ///
@@ -267,6 +273,22 @@ encode_limits_sector(const RecordedLimits& limits);
 /// @param sector Sector to read.
 /// @return The two limits, or nothing when the sector does not hold them.
 [[nodiscard]] std::optional<RecordedLimits> decode_limits_sector(const Sector& sector);
+
+/// Writes an Enhanced Mode sector's rules version in little-endian order.
+///
+/// @param version nonzero rules version; zero is represented by omitting the sector
+/// @return the four sector bytes
+[[nodiscard]] std::array<uint8_t, enhanced_mode_sector_bytes>
+encode_enhanced_mode_sector(uint32_t version);
+
+/// Reads an Enhanced Mode sector's rules version.
+///
+/// Supported rules versions are checked by the application, so a newer
+/// nonzero version remains readable here.
+///
+/// @param sector sector with the Enhanced Mode type and exactly four bytes
+/// @return the nonzero version, or nothing when the type, length or version is invalid
+[[nodiscard]] std::optional<uint32_t> decode_enhanced_mode_sector(const Sector& sector);
 
 /// Splits the unit-check chunk into its 14-byte 0x1a records.
 ///

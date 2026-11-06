@@ -23,6 +23,8 @@ constexpr uint8_t address_mask = 0x2a;
 constexpr std::size_t empty_unit_state_bytes = 11;
 constexpr uint8_t first_player_number = 1;
 constexpr uint32_t no_sender = 0;
+/// Recorder, date, loadout, brains, limits and Enhanced Mode sectors.
+constexpr std::size_t most_metadata_sectors = 6;
 
 void put_u16(std::vector<uint8_t>& out, uint16_t value) {
     out.push_back(static_cast<uint8_t>(value));
@@ -131,8 +133,8 @@ tad::WriteResult recording_write(const DemoRecording& recording) {
     // The views below point into storage that lives until the write returns.
     std::vector<std::vector<uint8_t>> storage;
     // Recorder text, date, the loadout sector, the brains sector, the limits
-    // sector, then an address and a status per player.
-    storage.reserve(setup.players.size() * 2 + 5);
+    // sector, the Enhanced Mode sector, then an address and a status per player.
+    storage.reserve(setup.players.size() * 2 + most_metadata_sectors);
     const auto keep = [&](std::vector<uint8_t> bytes) -> std::span<const uint8_t> {
         storage.push_back(std::move(bytes));
         return storage.back();
@@ -164,6 +166,13 @@ tad::WriteResult recording_write(const DemoRecording& recording) {
         const auto encoded = formats::tad::encode_limits_sector(*setup.limits);
         demo.sectors.push_back(
             {static_cast<uint32_t>(tad::SectorType::limits), keep({encoded.begin(), encoded.end()})}
+        );
+    }
+    if (setup.enhanced_mode_version != 0) {
+        const auto encoded = formats::tad::encode_enhanced_mode_sector(setup.enhanced_mode_version);
+        demo.sectors.push_back(
+            {static_cast<uint32_t>(tad::SectorType::enhanced_mode),
+             keep({encoded.begin(), encoded.end()})}
         );
     }
     for (std::size_t i = 0; i < setup.players.size(); ++i) {

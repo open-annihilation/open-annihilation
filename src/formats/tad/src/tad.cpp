@@ -381,6 +381,23 @@ std::optional<RecordedLimits> decode_limits_sector(const Sector& sector) {
     return limits;
 }
 
+std::array<uint8_t, enhanced_mode_sector_bytes> encode_enhanced_mode_sector(uint32_t version) {
+    return {
+        static_cast<uint8_t>(version),
+        static_cast<uint8_t>(version >> 8),
+        static_cast<uint8_t>(version >> 16),
+        static_cast<uint8_t>(version >> 24)
+    };
+}
+
+std::optional<uint32_t> decode_enhanced_mode_sector(const Sector& sector) {
+    if (sector.type != static_cast<uint32_t>(SectorType::enhanced_mode) ||
+        sector.data.size() != enhanced_mode_sector_bytes)
+        return std::nullopt;
+    const uint32_t version = base::bytes::load_le32(sector.data.data());
+    return version != 0 ? std::optional<uint32_t>{version} : std::nullopt;
+}
+
 std::vector<std::span<const uint8_t>> unit_check_records(const Demo& demo) {
     std::vector<std::span<const uint8_t>> records;
     for (std::size_t at = 0; at + layout::unit_check_record_bytes <= demo.unit_checks.size();

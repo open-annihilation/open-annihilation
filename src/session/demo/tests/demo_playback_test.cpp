@@ -1707,6 +1707,48 @@ void recording_carries_limits() {
     }
 }
 
+/// Records a nonzero Enhanced Mode version after the limits and omits version zero.
+void recording_carries_enhanced_mode() {
+    constexpr uint32_t version = 1;
+    DemoRecording recorded;
+    recording_begin(&recorded, live_setup(2, false));
+    const auto plain = recording_write(recorded);
+    CHECK(plain.ok());
+    recorded.setup.limits = formats::tad::RecordedLimits{1024, 10};
+    recorded.setup.enhanced_mode_version = version;
+    const auto written = recording_write(recorded);
+    CHECK(written.ok());
+    const auto parsed = formats::tad::parse(written.bytes);
+    CHECK(parsed.ok());
+    if (parsed.ok()) {
+        const auto* sector =
+            formats::tad::find_sector(*parsed.demo, formats::tad::SectorType::enhanced_mode);
+        CHECK(sector != nullptr);
+        if (sector != nullptr)
+            CHECK(formats::tad::decode_enhanced_mode_sector(*sector) == version);
+        int limits_at = -1;
+        int enhanced_at = -1;
+        for (std::size_t at = 0; at < parsed.demo->sectors.size(); ++at) {
+            const auto type = parsed.demo->sectors[at].type;
+            if (type == static_cast<uint32_t>(formats::tad::SectorType::limits))
+                limits_at = static_cast<int>(at);
+            if (type == static_cast<uint32_t>(formats::tad::SectorType::enhanced_mode))
+                enhanced_at = static_cast<int>(at);
+        }
+        CHECK(limits_at >= 0 && enhanced_at == limits_at + 1);
+    }
+    recorded.setup.limits.reset();
+    recorded.setup.enhanced_mode_version = 0;
+    const auto disabled = recording_write(recorded);
+    CHECK(disabled.ok() && disabled.bytes == plain.bytes);
+    const auto off = formats::tad::parse(disabled.bytes);
+    CHECK(off.ok());
+    if (off.ok())
+        CHECK(
+            formats::tad::find_sector(*off.demo, formats::tad::SectorType::enhanced_mode) == nullptr
+        );
+}
+
 // The container's wide lengths are the wire's.
 void tad_wide_lengths_match_the_wire() {
     CHECK(formats::tad::wide_record_lengths.size() == wide_record_type_count);
@@ -1851,6 +1893,7 @@ int main() {
     recording_carries_loadout_text();
     recording_carries_brains_text();
     recording_carries_limits();
+    recording_carries_enhanced_mode();
     tad_wide_lengths_match_the_wire();
     wide_records_reach_the_binding();
     limits_verdicts();

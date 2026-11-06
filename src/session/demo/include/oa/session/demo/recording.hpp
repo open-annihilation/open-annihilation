@@ -59,6 +59,8 @@ struct RecordingSetup {
     /// The two limits of a game played under a profile that raises either.
     /// Absent writes no sector.
     std::optional<formats::tad::RecordedLimits> limits;
+    /// The Enhanced Mode rules version; zero writes no sector.
+    uint32_t enhanced_mode_version{};
     std::vector<RecordingPlayer> players; ///< the recording machine's player first; at most 10
     std::vector<std::array<uint8_t, formats::tad::layout::unit_check_record_bytes>> unit_checks;
     bool compress{}; ///< packets stored compressed (marker 4)
