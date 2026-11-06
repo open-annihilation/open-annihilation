@@ -494,6 +494,7 @@ void launch_helpers() {
     // Enhanced ranges skip a watcher whose id sorts first and preserve
     // ownership across sparse slots, while both armies have 10,000 places.
     constexpr uint16_t enhanced_limit = 10000;
+    constexpr uint16_t enhanced_players = (1u << 3) | (1u << 9);
     world = world_create();
     const WorldCapacity enhanced_capacity{2 * enhanced_limit + 1, 2, 0};
     CHECK(world != nullptr && world_alloc_tables(world, &enhanced_capacity) != 0);
@@ -515,7 +516,7 @@ void launch_helpers() {
     world->game.players[3].player_id = 0x300;
     world->game.players[9].player_id = 0x200;
     world->player_info[0].options = OA_SETUP_OPTION_WATCHER;
-    CHECK(match_assign_enhanced_unit_ranges(world));
+    CHECK(match_assign_enhanced_unit_ranges(world, enhanced_players));
     CHECK(world->game.players[3].base_unit_id == 1);
     CHECK(world->game.players[3].last_unit_id == enhanced_limit);
     CHECK(world->game.players[9].base_unit_id == enhanced_limit + 1);
@@ -538,14 +539,21 @@ void launch_helpers() {
     // Player ids do not reorder Enhanced ranges: saved allocation masks
     // reconstruct the same physical ids from original player slots.
     std::swap(world->game.players[3].player_id, world->game.players[9].player_id);
-    CHECK(match_assign_enhanced_unit_ranges(world));
+    CHECK(match_assign_enhanced_unit_ranges(world, enhanced_players));
     CHECK(world->game.players[3].base_unit_id == 1);
     CHECK(world->game.players[9].base_unit_id == enhanced_limit + 1);
     // A changed roster is refused before any range is changed.
-    world->player_info[0].options = 0;
-    CHECK(!match_assign_enhanced_unit_ranges(world));
+    CHECK(!match_assign_enhanced_unit_ranges(world, enhanced_players | 1u));
     CHECK(world->game.players[3].base_unit_id == 1);
     CHECK(world->game.players[0].first_unit == 0);
+    // Dropping an allocated participant preserves its physical range.
+    world->game.players[3].in_use = 0;
+    world->game.players[3].status = OA_PLAYER_STATUS_FREE;
+    CHECK(match_assign_enhanced_unit_ranges(world, enhanced_players));
+    CHECK(world->game.players[3].base_unit_id == 1);
+    CHECK(world->game.players[9].base_unit_id == enhanced_limit + 1);
+    CHECK(!match_assign_enhanced_unit_ranges(world, 0));
+    CHECK(!match_assign_enhanced_unit_ranges(world, 1u << OA_PLAYER_COUNT));
     world_destroy(world);
 }
 

@@ -205,21 +205,21 @@ void match_assign_unit_ranges(World* world) noexcept {
     }
 }
 
-bool match_assign_enhanced_unit_ranges(World* world) noexcept {
-    if (world == nullptr || world->units == nullptr)
+bool match_assign_enhanced_unit_ranges(World* world, uint16_t player_mask) noexcept {
+    constexpr uint16_t player_slot_mask = (1u << OA_PLAYER_COUNT) - 1u;
+    if (world == nullptr || world->units == nullptr || player_mask == 0 ||
+        (player_mask & ~player_slot_mask) != 0)
         return false;
     uint8_t order[OA_PLAYER_COUNT]{};
     uint32_t participants = 0;
     for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
-        const auto& player = world->game.players[slot];
-        if (player.in_use != 0 && slot_live(player.status) && !match_slot_watcher(world, slot))
+        if ((player_mask & (1u << slot)) != 0)
             order[participants++] = slot;
     }
     const auto per_player = static_cast<uint32_t>(world->game.units_per_player);
     const auto total = static_cast<uint64_t>(per_player) * participants + 1;
     constexpr uint32_t wire_unit_slot_capacity = 1u << 15;
-    if (participants == 0 || per_player == 0 || total > wire_unit_slot_capacity ||
-        total != world->unit_slot_count)
+    if (per_player == 0 || total > wire_unit_slot_capacity || total != world->unit_slot_count)
         return false;
     for (auto& player : world->game.players) {
         player.first_unit = player.last_unit = 0;

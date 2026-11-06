@@ -1105,7 +1105,7 @@ void match_binding_init(MatchBinding* b, sim::match_runtime::Match* match, NetMa
     b->refused_creates = 0;
     b->creates_past_table = 0;
     if (match->rules().setup.enhanced_mode.enabled) {
-        if (!match_assign_enhanced_unit_ranges(&match->state())) {
+        if (!match_assign_enhanced_unit_ranges(&match->state(), match->unit_player_mask())) {
             match->note_fault("Enhanced Mode network participants do not match the unit pool");
             return;
         }

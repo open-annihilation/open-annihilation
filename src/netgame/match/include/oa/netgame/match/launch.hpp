@@ -109,11 +109,13 @@ void match_assign_unit_ranges(World* world) noexcept;
 
 /// Gives Enhanced Mode participants dense ranges in original player-slot order.
 ///
-/// Observers and absent slots own no range. The pool must contain exactly
-/// one reserved record plus a full range for each seated nonwatching player.
+/// The original allocation also includes players defeated or dropped later.
+/// The pool must contain exactly one reserved record plus a full range for
+/// each allocated player; observers and slots absent at launch have none.
 ///
 /// @param[in,out] world match world whose players and units are updated
+/// @param player_mask original participating player slots, bits 0 through 9
 /// @return false without changes if the participants do not fit the pool
-bool match_assign_enhanced_unit_ranges(World* world) noexcept;
+bool match_assign_enhanced_unit_ranges(World* world, uint16_t player_mask) noexcept;
 
 } // namespace oa::netgame::match
