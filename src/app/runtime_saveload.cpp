@@ -765,9 +765,9 @@ uint16_t Runtime::SaveLoadState::run_unit_limit(Runtime& runtime) {
 
 /// Returns a unit limit as units per player when a unit pool can be built for it.
 ///
+/// @param runtime the runtime holding the mode selected for this load
 /// @param limit units per player, as a save holds it
-/// @return the limit, or nullopt when it is not positive or its pool would pass
-///     65535 slots
+/// @return the limit, or nullopt when it exceeds the selected mode's capacity
 std::optional<uint16_t>
 Runtime::SaveLoadState::buildable_unit_limit(Runtime& runtime, int32_t limit) {
     if (limit <= 0 || limit > std::numeric_limits<uint16_t>::max())
