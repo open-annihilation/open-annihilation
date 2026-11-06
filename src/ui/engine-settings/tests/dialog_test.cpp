@@ -2498,7 +2498,8 @@ void the_footer_buttons_restore_cancel_and_keep() {
 
     // Left and Right move along the footer; Space presses.
     settings::open_dialog(dialog, current, defaults, {}, "v0.2.0", Page::common_tweaks);
-    for (int32_t step = 0; step < 4; ++step)
+    // Four editable rows precede Restore defaults.
+    for (int32_t step = 0; step < 5; ++step)
         CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::restore_control);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::none);
@@ -2858,8 +2859,17 @@ void the_mod_limits_rows_show_the_counts_and_take_no_input() {
     CHECK(find_part(parts, "Sides", settings::no_control) != nullptr);
     CHECK(shows_wrapped(parts, "Set by the mod. Every player in a game has the same.", dialog));
     auto open = geometry::open_rows(dialog);
-    const settings::LayoutPart* weapons = value_part(parts, open.rows.rows[4].value);
-    const settings::LayoutPart* sides = value_part(parts, open.rows.rows[5].value);
+    const auto count_part = [&parts, &open](Setting setting) -> const settings::LayoutPart* {
+        const auto row = std::find_if(
+            open.rows.rows.begin(), open.rows.rows.end(), [setting](const geometry::Row& row) {
+                return row.setting == setting;
+            }
+        );
+        CHECK(row != open.rows.rows.end());
+        return row == open.rows.rows.end() ? nullptr : value_part(parts, row->value);
+    };
+    const settings::LayoutPart* weapons = count_part(Setting::weapon_types);
+    const settings::LayoutPart* sides = count_part(Setting::sides);
     CHECK(weapons != nullptr && weapons->text == "256");
     CHECK(sides != nullptr && sides->text == "5");
     CHECK(find_part(parts, "256 of 256", settings::no_control) == nullptr);
@@ -2869,8 +2879,8 @@ void the_mod_limits_rows_show_the_counts_and_take_no_input() {
     at_end(dialog);
     parts = settings::dialog_layout(dialog);
     open = geometry::open_rows(dialog);
-    weapons = value_part(parts, open.rows.rows[4].value);
-    sides = value_part(parts, open.rows.rows[5].value);
+    weapons = count_part(Setting::weapon_types);
+    sides = count_part(Setting::sides);
     CHECK(weapons != nullptr && weapons->text == "1024");
     CHECK(sides != nullptr && sides->text == "10");
 
@@ -2878,24 +2888,26 @@ void the_mod_limits_rows_show_the_counts_and_take_no_input() {
     at_end(dialog);
     parts = settings::dialog_layout(dialog);
     open = geometry::open_rows(dialog);
-    weapons = value_part(parts, open.rows.rows[4].value);
-    sides = value_part(parts, open.rows.rows[5].value);
+    weapons = count_part(Setting::weapon_types);
+    sides = count_part(Setting::sides);
     CHECK(weapons != nullptr && weapons->text == "312 of 1024");
     CHECK(sides != nullptr && sides->text == "7 of 10");
 
     const oa::ui::kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
-    for (int32_t index = 3; index <= 5; ++index) {
-        CHECK(kit::control_of(list, settings::first_row_control + index) == nullptr);
+    for (const auto& row : open.rows.rows) {
+        if (row.setting != Setting::mod_limits_heading && row.setting != Setting::weapon_types &&
+            row.setting != Setting::sides)
+            continue;
+        CHECK(kit::control_of(list, row.control) == nullptr);
         CHECK(
-            std::find(
-                list.tab_order.begin(), list.tab_order.end(), settings::first_row_control + index
-            ) == list.tab_order.end()
+            std::find(list.tab_order.begin(), list.tab_order.end(), row.control) ==
+            list.tab_order.end()
         );
     }
     settings::Dialog keys = opened(Page::common_tweaks);
-    for (int32_t step = 0; step < 3; ++step)
+    for (int32_t step = 0; step < 4; ++step)
         CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
-    CHECK(keys.focused == settings::first_row_control + 2);
+    CHECK(keys.focused == settings::first_row_control + 3);
     CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
     CHECK(keys.focused == settings::restore_control);
 
