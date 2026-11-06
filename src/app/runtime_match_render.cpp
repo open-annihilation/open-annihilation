@@ -2673,8 +2673,11 @@ bool Runtime::draw_match_surface() {
             oa::present::world_renderer::scene_line_thickness(1.0F, match_zoom());
     }
     // The card draws every kind of the list in the Full tier; the bands
-    // draw nothing there.
-    if (!card_world && !live_world)
+    // draw nothing there. The open megamap covers the whole battlefield
+    // (draw_megamap), so under it the processor draws neither the list nor
+    // the fog: the planning above still runs, for what reads it.
+    const bool covered = !directed && megamap_shown();
+    if (!card_world && !live_world && !covered)
         draw_world_bands(models, frame_draw, draw_pool_.get());
     mark(Stage::match_post);
     oa::present::bind_display(bound_display);
@@ -2699,7 +2702,7 @@ bool Runtime::draw_match_surface() {
     fog_shading_.dither_even =
         scaling.method == SceneMethod::magnify ||
         (scaling.method == SceneMethod::nearest && draw_scale != match_zoom());
-    if (!live_world)
+    if (!live_world && !covered)
         fog_pass(FogPasses::both);
     // The dots over the fog, as the minimap shows its units over its own.
     if (dots)

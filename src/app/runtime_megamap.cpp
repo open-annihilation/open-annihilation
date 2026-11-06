@@ -60,6 +60,8 @@ constexpr int32_t tile_side = 32;
 constexpr std::size_t tile_pixels = 32U * 32U;
 /// Map pixels of a sight cell of the radar's grids.
 constexpr int32_t kSightCellPixels = 32;
+/// Rows of the picture each band of its shading holds.
+constexpr uint32_t kShadedBandRows = 32;
 /// Battlefield pixels the pointer may move and still click.
 constexpr int32_t kClickSlack = 3;
 /// Palette index of the bars beside the map's picture: a dark grey.
@@ -479,11 +481,18 @@ void Runtime::draw_megamap() {
         return;
     if (!megamap_terrain_fits(layout))
         build_megamap_terrain(layout);
-    // The bars, across the whole battlefield, then the terrain shaded by
-    // what the viewer has mapped and sees.
+    // The bars, across the battlefield around the picture, then the terrain
+    // shaded by what the viewer has mapped and sees.
     const uint8_t unexplored = game.ui_colors[wr::ui_color_unexplored];
+    const int32_t battlefield_w = match_layout_.battlefield_width();
+    const int32_t battlefield_h = match_layout_.battlefield_height();
+    const int32_t picture_right = layout.left + layout.width;
+    const int32_t picture_bottom = layout.top + layout.height;
+    fill_hud_rect(0, 0, battlefield_w, layout.top, bar_color);
+    fill_hud_rect(0, picture_bottom, battlefield_w, battlefield_h - picture_bottom, bar_color);
+    fill_hud_rect(0, layout.top, layout.left, layout.height, bar_color);
     fill_hud_rect(
-        0, 0, match_layout_.battlefield_width(), match_layout_.battlefield_height(), bar_color
+        picture_right, layout.top, battlefield_w - picture_right, layout.height, bar_color
     );
     auto& target = paint_target();
     const auto& radar = radar_state_;
@@ -501,10 +510,12 @@ void Runtime::draw_megamap() {
         column_cells[static_cast<std::size_t>(x - first_x)] =
             static_cast<std::size_t>(std::min(grid_w - 1, map_x / kSightCellPixels));
     }
-    for (int32_t y = 0; y < layout.height; ++y) {
+    // Each row of the picture is shaded alone, so the rows are shared out in
+    // bands on the drawing threads.
+    const auto shade_row = [&](int32_t y) {
         const int32_t py = layout.top + y;
         if (py < 0 || py >= static_cast<int32_t>(target.height) || first_x >= end_x)
-            continue;
+            return;
         const auto map_z =
             static_cast<int32_t>(static_cast<int64_t>(y) * layout.map_height / layout.height);
         const int gy = std::min(grid_h - 1, map_z / kSightCellPixels);
@@ -525,7 +536,19 @@ void Runtime::draw_megamap() {
             out[1] = match_palette_[pal + 1];
             out[2] = match_palette_[pal + 2];
         }
-    }
+    };
+    namespace job_pool = oa::platform::job_pool;
+    job_pool::run_bands(
+        draw_pool_.get(),
+        job_pool::bands_of_rows(static_cast<uint32_t>(layout.height), kShadedBandRows),
+        [&](uint32_t band) {
+            const auto first = static_cast<int32_t>(band * kShadedBandRows);
+            const int32_t end =
+                std::min(layout.height, first + static_cast<int32_t>(kShadedBandRows));
+            for (int32_t y = first; y < end; ++y)
+                shade_row(y);
+        }
+    );
     // The units the minimap shows, by their icons; the hovered one is found as they are drawn.
     const bool full_radar = (game.console_flags & wr::console_flag_full_radar) != 0;
     const bool limited = (game.visibility_flags & wr::visibility_flags_radar_limited) != 0;
