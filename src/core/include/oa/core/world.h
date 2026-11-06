@@ -45,7 +45,8 @@ typedef struct World {
      * or frees them. */
     Side* extra_sides;
     uint32_t extra_side_count;
-    Projectile* projectiles;                             /* OA_PROJECTILE_CAPACITY records */
+    Projectile* projectiles;      /* projectile_capacity records; 0 keeps OA_PROJECTILE_CAPACITY */
+    uint32_t projectile_capacity; /* native pool capacity, outside the packed game records */
     UnitEconomy player_economy[OA_PLAYER_COUNT];         /* targets of Player.economy */
     PlayerSetupInfo player_info[OA_PLAYER_RECORD_COUNT]; /* targets of Player.info */
     MapPlot* plots;           /* target of Game.map_cells: map_width * map_height */
@@ -93,6 +94,7 @@ static inline void world_free_tables(World* world) {
     world->unit_defs = NULL;
     world->feature_defs = NULL;
     world->projectiles = NULL;
+    world->projectile_capacity = 0u;
     world->extra_weapon_defs = NULL;
     world->unit_slot_count = 0u;
     world->unit_def_count = 0u;
@@ -136,6 +138,7 @@ static inline int world_alloc_tables(World* world, const WorldCapacity* capacity
         world_free_tables(world);
         return 0;
     }
+    world->projectile_capacity = OA_PROJECTILE_CAPACITY;
     world->unit_slot_count = capacity->unit_slots;
     world->unit_def_count = capacity->unit_defs;
     world->feature_def_count = capacity->feature_defs;
@@ -398,13 +401,21 @@ static inline FeatureDef* world_feature_def(World* world, oa_ref32 ref) {
     return ref != 0u && ref <= world->feature_def_count ? &world->feature_defs[ref - 1u] : NULL;
 }
 
+/// Returns the native projectile pool capacity, retaining the fixed pool for unbound metadata.
+///
+/// @param world World holding the projectile pool
+/// @return the bound record count, or OA_PROJECTILE_CAPACITY when no capacity was bound
+static inline uint32_t world_projectile_capacity(const World* world) {
+    return world->projectile_capacity != 0u ? world->projectile_capacity : OA_PROJECTILE_CAPACITY;
+}
+
 /// Resolves a projectile reference.
 ///
 /// @param world World holding the projectile pool
 /// @param ref projectile reference; 0 is null
-/// @return the projectile, or NULL before the pool exists or past OA_PROJECTILE_CAPACITY
+/// @return the projectile, or NULL before the pool exists or past its native capacity
 static inline Projectile* world_projectile(World* world, oa_ref32 ref) {
-    return world->projectiles != NULL && ref != 0u && ref <= OA_PROJECTILE_CAPACITY
+    return world->projectiles != NULL && ref != 0u && ref <= world_projectile_capacity(world)
                ? &world->projectiles[ref - 1u]
                : NULL;
 }

@@ -4,10 +4,12 @@
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
 
 #include "oa/core/weapon_def.h"
+#include "oa/sim/weapon_execution/interceptor.hpp"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 using namespace oa;
 using namespace oa::sim::weapon_execution;
@@ -27,11 +29,18 @@ constexpr oa_ref32 held_def = 1;
 struct Fixture {
     World* w{};
 
-    Fixture() {
+    explicit Fixture(uint32_t capacity = OA_PROJECTILE_CAPACITY) {
         w = world_create();
         WorldCapacity cap{4, 1, 0};
         if (w == nullptr || !world_alloc_tables(w, &cap))
             std::abort();
+        if (capacity != OA_PROJECTILE_CAPACITY) {
+            std::free(w->projectiles);
+            w->projectiles = static_cast<Projectile*>(std::calloc(capacity, sizeof(Projectile)));
+            if (w->projectiles == nullptr)
+                std::abort();
+            w->projectile_capacity = capacity;
+        }
         w->game.weapon_defs[held_def - 1].hold_time = 45;
     }
 
@@ -136,6 +145,80 @@ void compaction() {
     CHECK(pool[3].intercept_target == 2);
 }
 
+/// Exercises the native budget through its last record and checks overflow telemetry.
+void expanded_allocation() {
+    Fixture f(maximum_projectile_capacity);
+    ProjectilePoolUsage usage;
+    for (uint32_t index = 0; index < maximum_projectile_capacity; ++index)
+        CHECK(allocate_projectile(*f.w, &usage) == f.w->projectiles + index);
+    CHECK(f.w->game.projectile_count == static_cast<int32_t>(maximum_projectile_capacity));
+    CHECK(usage.high_water == maximum_projectile_capacity && usage.allocation_failures == 0);
+    CHECK(allocate_projectile(*f.w, &usage) == nullptr);
+    CHECK(usage.allocation_failures == 1);
+    CHECK(
+        world_projectile(f.w, maximum_projectile_capacity) ==
+        f.w->projectiles + maximum_projectile_capacity - 1
+    );
+    CHECK(world_projectile(f.w, maximum_projectile_capacity + 1) == nullptr);
+    auto& followed = f.w->projectiles[maximum_projectile_capacity - 1];
+    followed.def = held_def;
+    followed.position = {0x40000, 0x50000, 0x60000};
+    f.w->game.follow_target = maximum_projectile_capacity;
+    retire_projectile(*f.w, followed);
+    CHECK(f.w->game.follow_target == 0 && f.w->game.follow_point_ticks == 45);
+}
+
+/// Keeps every surviving interceptor attached to its original target above the fixed pool.
+void expanded_compaction() {
+    constexpr uint32_t count = 1024;
+    Fixture f(count);
+    std::vector<int16_t> scratch(count);
+    for (uint32_t index = 0; index < count; ++index)
+        f.add(index);
+    f.w->projectiles[0].intercept_target = count;
+    f.w->projectiles[500].intercept_target = 1;
+    f.w->projectiles[501].intercept_target = 2;
+    f.w->projectiles[1].flags = OA_PROJECTILE_FLAG_RETIRED;
+    f.w->projectiles[400].flags = OA_PROJECTILE_FLAG_RETIRED;
+    f.w->game.follow_target = count;
+    compact_projectiles(*f.w, scratch);
+    CHECK(f.w->game.projectile_count == static_cast<int32_t>(count - 2));
+    CHECK(f.w->projectiles[0].intercept_target == count - 2);
+    CHECK(f.w->projectiles[498].burst_tick == 500 && f.w->projectiles[498].intercept_target == 1);
+    CHECK(f.w->projectiles[499].burst_tick == 501 && f.w->projectiles[499].intercept_target == 0);
+    CHECK(f.w->projectiles[count - 3].burst_tick == count - 1);
+    CHECK(f.w->game.follow_target == count - 2);
+    CHECK(allocate_projectile(*f.w) == f.w->projectiles + count - 2);
+}
+
+/// Searches and guides to a target beyond the fixed pool boundary.
+void expanded_interception() {
+    constexpr uint32_t count = 512;
+    Fixture f(count);
+    f.w->game.weapon_defs[0].coverage = 100;
+    f.w->game.weapon_defs[1].flags = OA_WEAPON_FLAG_TARGETABLE;
+    auto& unit = f.w->units[1];
+    unit.position = {0x100000, 0, 0x100000};
+    unit.weapons[0].def = held_def;
+    unit.weapons[0].stockpile = 1;
+    f.w->units[2].id = 99;
+    for (uint32_t index = 0; index < count; ++index)
+        f.add(index);
+    auto& target = f.w->projectiles[count - 1];
+    target.def = 2;
+    target.owner_index = 1;
+    target.source = oa_unit_ref_from_slot(2);
+    target.target = unit.position;
+    target.position = {0x200000, 0x400000, 0x300000};
+    CHECK(find_interceptor_target(*f.w, unit, 0) == count);
+    CHECK(find_intercept_target_fired_by(*f.w, unit.position, 99) == count);
+    auto& interceptor = f.w->projectiles[0];
+    interceptor.intercept_target = count;
+    const auto aim = projectile_aim_point(*f.w, interceptor, nullptr, nullptr);
+    CHECK(aim.x == target.position.x && aim.y == target.position.y && aim.z == target.position.z);
+    CHECK(find_interceptor_target(*f.w, unit, 0) == 0);
+}
+
 void burst_spawners() {
     Fixture f;
     constexpr oa_ref32 dead = 2;
@@ -161,6 +244,9 @@ int main() {
     retirement();
     compaction();
     burst_spawners();
+    expanded_allocation();
+    expanded_compaction();
+    expanded_interception();
     if (failures != 0)
         return EXIT_FAILURE;
     std::puts("projectile pool passed");

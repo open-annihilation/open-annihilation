@@ -44,3 +44,11 @@ spawners. The match runtime flies its projectiles through the pool, contact and
 interceptor code; `projectile_plot_contact` takes the plot fields directly
 because the match's plots are not canonical yet. The match's damage path runs
 retaliation.
+
+The native projectile pool keeps 300 records in the normal mode. Enhanced Mode
+may bind up to 32,767 records without changing the packed projectile or game
+records. Its match-owned compaction scratch maps old indices to new indices in
+linear time, keeping every interceptor attached to its original surviving target
+and clearing references to retired targets. The normal mode retains its existing
+compaction behavior. Pool usage records the occupied high-water count and rejected
+allocations so benchmarks report when the projectile budget constrains a battle.

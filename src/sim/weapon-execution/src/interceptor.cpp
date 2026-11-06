@@ -6,6 +6,7 @@
 #include "oa/core/weapon_def.h"
 #include "oa/base/game_math.hpp"
 
+#include <algorithm>
 #include <bit>
 
 namespace oa::sim::weapon_execution {
@@ -16,7 +17,7 @@ int32_t live_projectile_count(const World& world) noexcept {
     const int32_t count = world.game.projectile_count;
     if (world.projectiles == nullptr || count < 0)
         return 0;
-    return count > OA_PROJECTILE_CAPACITY ? OA_PROJECTILE_CAPACITY : count;
+    return std::min(count, static_cast<int32_t>(world_projectile_capacity(&world)));
 }
 
 oa_ref32 projectile_ref(const World& world, const Projectile& shot) noexcept {
