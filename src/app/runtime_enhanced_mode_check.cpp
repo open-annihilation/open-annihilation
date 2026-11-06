@@ -91,6 +91,10 @@ void Runtime::check_enhanced_mode() {
     leave_match();
     load(Screen::main_menu);
     require(enhanced_mode_version(*this) == mode::off_version, "leaving kept the recorded mode");
+    require(
+        frontend_game().max_units_setting <= oa::data::limits::highest_units_per_player,
+        "the enhanced save left an unsupported classic unit limit"
+    );
 
     chosen.unit_limit = kept.unit_limit;
     apply_engine_settings(chosen);

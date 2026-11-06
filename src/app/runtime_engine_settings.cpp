@@ -1516,6 +1516,13 @@ void Runtime::play_latest_profile() noexcept {
             ? profile->limits.units_per_player
         : options_.mod_profile ? options_.mod_profile->limits.units_per_player
                                : oa::data::limits::Limits{}.units_per_player;
+    if ((!profile || oa::data::enhanced_mode::rules_version(profile->rules) == 0) &&
+        frontend_game().max_units_setting > oa::data::limits::highest_units_per_player)
+        frontend_game().max_units_setting = std::clamp(
+            state.current.unit_limit,
+            limits_.units_per_player.minimum,
+            settings::highest_offered_unit_limit(limits_.units_per_player)
+        );
 }
 
 const oa::data::mod_profile::UiRules& Runtime::ui_rules() const noexcept {
