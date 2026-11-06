@@ -922,9 +922,40 @@ void enhanced_mode_changes_only_the_new_game_rules_choice() {
     OA_CHECK(dialog.chosen == before);
 }
 
+void a_loaded_match_shows_its_mode_without_writing_the_preference() {
+    for (const bool enabled : {false, true}) {
+        for (const Lock lock : {Lock::in_game, Lock::set_by_host}) {
+            settings::EngineSettings current{};
+            current.enhanced_mode = !enabled;
+            Locks locks{};
+            locks.enhanced_mode = lock;
+            settings::Dialog dialog;
+            settings::open_dialog(
+                dialog, current, {}, locks, "v0.9.0", settings::Page::common_tweaks
+            );
+            dialog.match_enhanced_mode = enabled;
+            OA_CHECK(
+                kit::row_on(geometry::row_spec(Setting::enhanced_mode), model_of(dialog)) == enabled
+            );
+            OA_CHECK(dialog.opened == current && dialog.chosen == current);
+            oa::platform::preferences::Values values;
+            settings::write_settings(values, dialog.opened, dialog.chosen, dialog.defaults, false);
+            OA_CHECK(values.empty());
+            dialog.locks = {};
+            OA_CHECK(
+                kit::row_on(geometry::row_spec(Setting::enhanced_mode), model_of(dialog)) ==
+                current.enhanced_mode
+            );
+            settings::open_dialog(dialog, current, {}, {}, "v0.9.0", settings::Page::common_tweaks);
+            OA_CHECK(!dialog.match_enhanced_mode.has_value());
+        }
+    }
+}
+
 } // namespace
 
 int main() {
+    a_loaded_match_shows_its_mode_without_writing_the_preference();
     enhanced_mode_changes_only_the_new_game_rules_choice();
     every_setting_has_its_row();
     accessibility_captions_name_both_ends();

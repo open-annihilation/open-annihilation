@@ -807,6 +807,20 @@ constexpr Spec engine_switch(std::string_view id, std::string_view label, Hint h
     return kit::toggle(id, label, &engine_flag<Flag>, &set_engine_flag<Flag>, hint);
 }
 
+/// Returns the running match's Enhanced Mode while its row is locked,
+/// otherwise the preference for new games.
+///
+/// @param model the settings and dialog shown
+/// @return the mode shown by the row
+bool enhanced_mode_on(const SettingsModel& model) {
+    if (model.dialog != nullptr && model.dialog->match_enhanced_mode.has_value()) {
+        const Lock lock = model.dialog->locks.enhanced_mode;
+        if (lock == Lock::in_game || lock == Lock::set_by_host)
+            return *model.dialog->match_enhanced_mode;
+    }
+    return model.settings->enhanced_mode;
+}
+
 /// Makes the row of a switch of the mod options.
 template <bool ModOptions::* Flag>
 constexpr Spec option_switch(std::string_view id, std::string_view label, Hint hint) noexcept {
@@ -3130,8 +3144,9 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                          update_channel_level_width,
                          {"Testing builds come first and may be unfinished.", {}})},
     {.setting = S::enhanced_mode,
-     .spec = engine_switch<&E::enhanced_mode>(
+     .spec = kit::toggle(
          "enhanced-mode", "Enhanced Mode",
+         &enhanced_mode_on, &set_engine_flag<&E::enhanced_mode>,
          {"Use the enhanced rules preset. Applies from the next game."}),
      .lock = &Locks::enhanced_mode,
      .copy = &copy_field<&E::enhanced_mode>},

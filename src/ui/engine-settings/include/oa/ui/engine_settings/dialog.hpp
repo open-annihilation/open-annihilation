@@ -1149,10 +1149,14 @@ struct PracticePad {
 /// developer between openings; section_hooks is set only by tests and
 /// checks; the other members after them are the dialog's own.
 struct Dialog {
-    EngineSettings opened{};           ///< in effect as it opened; Cancel puts them back
-    EngineSettings chosen{};           ///< what it shows; in effect as they change
-    EngineSettings defaults{};         ///< what Restore defaults sets
-    Locks locks{};                     ///< what cannot be changed now
+    EngineSettings opened{};   ///< in effect as it opened; Cancel puts them back
+    EngineSettings chosen{};   ///< what it shows; in effect as they change
+    EngineSettings defaults{}; ///< what Restore defaults sets
+    Locks locks{};             ///< what cannot be changed now
+    /// The running match's Enhanced Mode, shown while its row is locked
+    /// by the match. Empty shows the next-game preference. This never
+    /// changes opened, chosen or defaults.
+    std::optional<bool> match_enhanced_mode{};
     AccelerationStatus acceleration{}; ///< Hardware acceleration's status
     std::string version;               ///< the header's version text
     /// A note beside the version, already translated. Empty shows none.
