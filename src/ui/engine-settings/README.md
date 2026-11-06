@@ -38,6 +38,7 @@ the locks a running game puts on them (`settings_locks`).
 | Engine Limits | Unit limit | 50 to 1500 per player, steps of 50, or on to a mod's higher maximum | the installation's `totala.ini` UnitLimit, else 250 or a mod's default | `open-annihilation.unit-limit` |
 | | Pathfinding cycles | 1× to 8× of 1333 path nodes a tick, or of a mod's budget | 1× | `open-annihilation.path-search-nodes` |
 | | Skirmish players: how many player rows the skirmish setup shows. The dialog's working copy of the setup's own count; OK stores it only when the slider moved, and the setup's key codes write the same count | 2 to 10; a stored count outside that shows as it is until the slider moves | 10 when none is stored | `NumSkirmishPlayers` |
+| | Enhanced Mode: chooses the enhanced rules preset for new games; locked during a match | Off, On | Off | `open-annihilation.enhanced-mode` (`0` or `1`) |
 | | Set by the mod: the heading over Weapon types and Sides. It keeps no setting | | | |
 | | Weapon types: how many weapon types the mod allows. In a match it shows how many of that limit the match loaded, as "312 of 4096". The same for every player. It takes no input | the mod's limit; the base game allows 256 | the mod's limit | |
 | | Sides: how many sides the mod allows. In a match it shows how many of that limit the match loaded, as "7 of 10". The same for every player. It takes no input | the mod's limit; the base game has 5 | the mod's limit | |
@@ -417,8 +418,8 @@ in the application), which no profile's kebab-case id can be either.
 
 Developer Mode is described [below](#developer-mode).
 
-With every default the game plays as it does without the settings. Pathfinding
-cycles, Unit limit and Mod are locked during a game; a shared game or a replay
+With every default the game plays as it does without the settings. Enhanced
+Mode, Pathfinding cycles, Unit limit and Mod are locked during a game; a shared game or a replay
 always plays at 1× pathfinding and the host's unit limit. Vertical sync is
 locked during a shared game or a replay, its value set before the game kept
 in effect; Hardware acceleration never is, so that it can always be set to
@@ -539,7 +540,7 @@ a switch's, its thumb as tall as the view's share of the section and never
 under 16 pixels. At Compact, Graphics is taller than its view by 988
 pixels, Controls, with the key layout card, by 383, User Interface, with
 Window size and Reset window positions, by 230, Language & Text by 204,
-Engine Limits by 149 and Touch by 137; a section that fits draws as if
+Engine Limits by 196 and Touch by 137; a section that fits draws as if
 there were no scrolling, with no bar. While the dialog's words are drawn in the modern fonts, as in
 Simplified Chinese, whose ideographs stand as tall as a hint line, the
 lines of a hint or a notice lie three pixels further apart

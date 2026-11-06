@@ -28,6 +28,8 @@ namespace oa::ui::engine_settings {
 /// The preferences keys of the settings. 3.1c's own SwitchAlt keeps its key
 /// in the game's section, which the frontend's preferences read and write.
 namespace key {
+/// 1 or 0 (EngineSettings::enhanced_mode). Absent means off.
+inline constexpr std::string_view enhanced_mode = "open-annihilation.enhanced-mode";
 /// Path nodes a game tick, decimal (EngineSettings::path_search_nodes).
 inline constexpr std::string_view path_search_nodes = "open-annihilation.path-search-nodes";
 /// 1 or 0 (EngineSettings::wheel_zoom).
@@ -1308,6 +1310,8 @@ enum class OrderWheel : uint8_t {
 
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
+    /// Uses the enhanced rules preset from the next game.
+    bool enhanced_mode{false};
     /// Path nodes the path search may visit in a game tick, all players
     /// together: base_path_search_nodes times the Pathfinding cycles.
     int32_t path_search_nodes{base_path_search_nodes};
@@ -2110,6 +2114,7 @@ struct GameState {
 
 /// What the dialog cannot change, and what its header says of the game.
 struct Locks {
+    Lock enhanced_mode{};         ///< Enhanced Mode
     Lock water_effects{};         ///< Requires Full hardware acceleration.
     Lock unlocked_camera{};       ///< Requires Allow Full 3D Mode.
     Lock path_search{};           ///< Pathfinding cycles
@@ -2147,8 +2152,8 @@ struct Locks {
 
 /// Returns the locks a game state puts on the settings.
 ///
-/// Pathfinding cycles, Unit limit and Skirmish players are locked during any
-/// game, as set_by_host in a shared game or a replay; the maximum frame rate is
+/// Enhanced Mode, Pathfinding cycles, Unit limit and Skirmish players are
+/// locked during any game, as set_by_host in a shared game or a replay; the maximum frame rate is
 /// locked while --max-fps decides it. Hardware acceleration is locked
 /// command_line while a flag decides it, else unavailable when nothing in
 /// the game could help, and never by a game, so that it can always be set

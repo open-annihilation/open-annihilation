@@ -683,6 +683,8 @@ EngineSettings read_settings(
 ) {
     EngineSettings settings = default_settings(inputs);
     settings.switch_alt = switch_alt;
+    if (const auto number = stored_number(values, key::enhanced_mode))
+        settings.enhanced_mode = *number > 0;
     if (const auto number = stored_number(values, key::path_search_nodes))
         settings.path_search_nodes =
             clamped(*number, base_path_search_nodes, highest_path_search_nodes);
@@ -902,6 +904,14 @@ void write_settings(
     // A picked folder is forgotten once it is no longer the mod stored.
     if (remembered_picked_folder(values).empty())
         values.erase(std::string{key::picked_mod_directory});
+    store(
+        values,
+        key::enhanced_mode,
+        switch_text(chosen.enhanced_mode),
+        chosen.enhanced_mode != opened.enhanced_mode,
+        chosen.enhanced_mode == defaults.enhanced_mode,
+        restored
+    );
     store(
         values,
         key::path_search_nodes,
@@ -1704,6 +1714,7 @@ Locks settings_locks(const GameState& state) noexcept {
     const Lock game_lock = !state.in_game                      ? Lock::none
                            : state.shared_game || state.replay ? Lock::set_by_host
                                                                : Lock::in_game;
+    locks.enhanced_mode = game_lock;
     locks.path_search = game_lock;
     locks.unit_limit = game_lock;
     locks.skirmish_players = game_lock;

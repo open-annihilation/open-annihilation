@@ -46,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::update_channel) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::enhanced_mode) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -97,12 +97,13 @@ constexpr std::array<Setting, 16> kControlsModRows{
     Setting::group_keys_centre,
 };
 /// Engine Limits' rows: the unit limit, pathfinding, then how many player
-/// rows the skirmish setup shows, then the heading and the two rows for the
-/// limits the mod fixes.
-constexpr std::array<Setting, 6> kEngineLimitsRows{
+/// rows the skirmish setup shows, Enhanced Mode, then the heading and the
+/// two rows for the limits the mod fixes.
+constexpr std::array<Setting, 7> kEngineLimitsRows{
     Setting::unit_limit,
     Setting::path_search,
     Setting::skirmish_players,
+    Setting::enhanced_mode,
     Setting::mod_limits_heading,
     Setting::weapon_types,
     Setting::sides,
@@ -3128,6 +3129,12 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                          LevelStrip<UpdateChannel, 2, update_channel_choices, &E::update_channel, kUpdateChannelCaptions, &table_word<update_channel_words, UpdateChannel>>::stepper(),
                          update_channel_level_width,
                          {"Testing builds come first and may be unfinished.", {}})},
+    {.setting = S::enhanced_mode,
+     .spec = engine_switch<&E::enhanced_mode>(
+         "enhanced-mode", "Enhanced Mode",
+         {"Use the enhanced rules preset. Applies from the next game."}),
+     .lock = &Locks::enhanced_mode,
+     .copy = &copy_field<&E::enhanced_mode>},
 }};
 // clang-format on
 
@@ -3263,6 +3270,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "invert-mouse-zoom",
     "look",
     "update-channel",
+    "enhanced-mode",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

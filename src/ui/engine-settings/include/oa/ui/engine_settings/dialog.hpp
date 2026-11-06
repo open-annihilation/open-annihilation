@@ -65,7 +65,7 @@ inline constexpr uint32_t ingame_backdrop_opacity = oa::ui::kit::ingame_backdrop
 /// each kind lists alone.
 enum class Page : uint8_t {
     controls,      ///< Controls
-    common_tweaks, ///< Engine Limits: the unit limit, pathfinding and skirmish players
+    common_tweaks, ///< Engine Limits: capacities, pathfinding, players and Enhanced Mode
     language,      ///< Language & Text: the language and how game text is drawn
     graphics,      ///< Graphics
     /// User Interface: menu scaling, the window's frame, HUD scaling,
@@ -410,6 +410,7 @@ enum class Setting : uint8_t {
     /// Update channel: a strip of Stable and Testing, Developer's last row
     /// over its list; it takes changes whatever Developer Mode is
     update_channel,
+    enhanced_mode, ///< Enhanced Mode: a switch for new games, on Engine Limits
 };
 
 /// Returns the settings a section shows, top to bottom.

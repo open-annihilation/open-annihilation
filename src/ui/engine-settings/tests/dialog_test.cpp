@@ -750,14 +750,15 @@ void each_section_shows_its_rows() {
         settings::key_layout_summary_text("OA default", 4) == "OA default · 4 changes of your own"
     );
     // Engine Limits: the unit limit, pathfinding, the skirmish player count,
-    // then the heading and the two rows the mod fixes.
-    CHECK(settings::page_settings(Page::common_tweaks).size() == 6);
+    // Enhanced Mode, then the heading and the two rows the mod fixes.
+    CHECK(settings::page_settings(Page::common_tweaks).size() == 7);
     CHECK(settings::page_settings(Page::common_tweaks)[0] == Setting::unit_limit);
     CHECK(settings::page_settings(Page::common_tweaks)[1] == Setting::path_search);
     CHECK(settings::page_settings(Page::common_tweaks)[2] == Setting::skirmish_players);
-    CHECK(settings::page_settings(Page::common_tweaks)[3] == Setting::mod_limits_heading);
-    CHECK(settings::page_settings(Page::common_tweaks)[4] == Setting::weapon_types);
-    CHECK(settings::page_settings(Page::common_tweaks)[5] == Setting::sides);
+    CHECK(settings::page_settings(Page::common_tweaks)[3] == Setting::enhanced_mode);
+    CHECK(settings::page_settings(Page::common_tweaks)[4] == Setting::mod_limits_heading);
+    CHECK(settings::page_settings(Page::common_tweaks)[5] == Setting::weapon_types);
+    CHECK(settings::page_settings(Page::common_tweaks)[6] == Setting::sides);
     // System: Your files, then Welcome setup, then the switches where the
     // game registers file types at run time, or the text row where the app
     // declares them.
@@ -949,12 +950,13 @@ void each_section_shows_its_rows() {
     parts = settings::dialog_layout(opened(Page::common_tweaks));
     CHECK(find_part(parts, "ENGINE LIMITS", settings::no_control) != nullptr);
     const auto tweaks = geometry::place_rows(Page::common_tweaks, {});
-    CHECK(tweaks.rows.size() == 6);
+    CHECK(tweaks.rows.size() == 7);
     CHECK(tweaks.rows[0].label.y < tweaks.rows[1].label.y);
     CHECK(tweaks.rows[1].label.y < tweaks.rows[2].label.y);
     CHECK(tweaks.rows[2].label.y < tweaks.rows[3].label.y);
     CHECK(tweaks.rows[3].label.y < tweaks.rows[4].label.y);
     CHECK(tweaks.rows[4].label.y < tweaks.rows[5].label.y);
+    CHECK(tweaks.rows[5].label.y < tweaks.rows[6].label.y);
     CHECK(find_part(parts, "Skirmish players", settings::no_control) != nullptr);
     CHECK(
         find_part(parts, "The skirmish setup shows that many player rows.", settings::no_control) !=
@@ -2588,7 +2590,7 @@ void locks_show_their_text_and_hold_their_settings() {
         DialogAction::none
     );
     CHECK(dialog.chosen.path_search_nodes == settings::base_path_search_nodes);
-    // The three sliders are locked, so the focus passes over them to the footer.
+    // The three sliders and Enhanced Mode are locked, so focus reaches the footer.
     CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::restore_control);
     // A locked slider takes no part a press can find.
@@ -2596,7 +2598,8 @@ void locks_show_their_text_and_hold_their_settings() {
         CHECK(
             part.control != settings::first_row_control &&
             part.control != settings::first_row_control + 1 &&
-            part.control != settings::first_row_control + 2
+            part.control != settings::first_row_control + 2 &&
+            part.control != settings::first_row_control + 3
         );
 
     const auto shared = settings::settings_locks(settings::GameState{true, true, false, false});
@@ -2618,6 +2621,7 @@ void locks_show_their_text_and_hold_their_settings() {
 
     // Restore defaults leaves what is locked as it is.
     settings::EngineSettings current{};
+    current.enhanced_mode = true;
     current.path_search_nodes = 4 * settings::base_path_search_nodes;
     current.unit_limit = 900;
     current.skirmish_players = 6;
@@ -2627,6 +2631,7 @@ void locks_show_their_text_and_hold_their_settings() {
     all_locked.max_frame_rate = Lock::command_line;
     settings::open_dialog(dialog, current, {}, all_locked, "v0.2.0", Page::developer);
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+    CHECK(dialog.chosen.enhanced_mode == current.enhanced_mode);
     CHECK(dialog.chosen.path_search_nodes == current.path_search_nodes);
     CHECK(dialog.chosen.unit_limit == current.unit_limit);
     CHECK(dialog.chosen.skirmish_players == current.skirmish_players);
@@ -2772,8 +2777,8 @@ void sections_that_fit_do_not_scroll() {
     // Double-click selects' drop-down, Window edge's strip, Edge stickiness's
     // slider, When the window loses focus's drop-down and Group keys centre
     // the view's drop-down are 957.
-    // Engine Limits' three sliders, the mod's heading and its two
-    // rows are 369. Graphics' twenty-two rows are 1267, Language's
+    // Engine Limits' three sliders, Enhanced Mode, the mod's heading and
+    // its two rows are 416. Graphics' twenty-two rows are 1267, Language's
     // drop-down, five switches and slider 424, and User Interface's five
     // strips and switches with the Interface and Window size rows and Reset
     // window positions are 497. All of them scroll. Developer's list scrolls
@@ -2781,8 +2786,8 @@ void sections_that_fit_do_not_scroll() {
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{957, 369, 1267, 424, 497};
-    const std::array<int32_t, 5> limits{737, 149, 1047, 204, 277};
+    const std::array<int32_t, 5> content{957, 416, 1267, 424, 497};
+    const std::array<int32_t, 5> limits{737, 196, 1047, 204, 277};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -10693,7 +10698,7 @@ void the_arrows_move_by_geometry() {
                                                   row + 14}
                                              )
     );
-    CHECK(tab_round(opened(Page::common_tweaks)) == then_rest({row, row + 1, row + 2}));
+    CHECK(tab_round(opened(Page::common_tweaks)) == then_rest({row, row + 1, row + 2, row + 3}));
     // Language: Text size waits for the modern fonts.
     CHECK(
         tab_round(opened(Page::language)) ==

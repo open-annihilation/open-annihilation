@@ -81,6 +81,7 @@ settings::EngineSettings read_one(std::string_view key, std::string value) {
 
 void defaults_play_as_without_the_settings() {
     const auto defaults = settings::default_settings({});
+    CHECK(!defaults.enhanced_mode);
     CHECK(defaults.path_search_nodes == settings::base_path_search_nodes);
     CHECK(defaults.wheel_zoom);
     CHECK(defaults.middle_click_pan);
@@ -93,6 +94,36 @@ void defaults_play_as_without_the_settings() {
     CHECK(defaults.hardware_acceleration == HardwareAcceleration::off);
     CHECK(!defaults.vertical_sync);
     CHECK(defaults == settings::EngineSettings{});
+}
+
+void enhanced_mode_round_trips_without_changing_the_renderer() {
+    CHECK(settings::key::enhanced_mode == "open-annihilation.enhanced-mode");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(!defaults.enhanced_mode);
+        CHECK(!settings::read_settings({}, inputs, false).enhanced_mode);
+        CHECK(!settings::read_settings(
+                   one_key(settings::key::enhanced_mode, "invalid"), inputs, false
+        )
+                   .enhanced_mode);
+        auto chosen = defaults;
+        chosen.enhanced_mode = true;
+        Values values;
+        values["unrelated"] = "kept";
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.at(std::string{settings::key::enhanced_mode}) == "1");
+        CHECK(values.size() == 2);
+        CHECK(settings::read_settings(values, inputs, false) == chosen);
+        CHECK(chosen.hardware_acceleration == defaults.hardware_acceleration);
+        settings::write_settings(values, chosen, defaults, defaults, false);
+        CHECK(values.at(std::string{settings::key::enhanced_mode}) == "0");
+        CHECK(settings::read_settings(values, inputs, false) == defaults);
+        settings::write_settings(values, defaults, defaults, defaults, true);
+        CHECK(values.size() == 1 && values.at("unrelated") == "kept");
+    }
+    CHECK(!read_one(settings::key::enhanced_mode, "0").enhanced_mode);
+    CHECK(!read_one(settings::key::enhanced_mode, "-1").enhanced_mode);
+    CHECK(read_one(settings::key::enhanced_mode, "1").enhanced_mode);
 }
 
 void hardware_acceleration_defaults_to_full_for_the_players_own_file_on_every_machine() {
@@ -883,22 +914,26 @@ void the_skirmish_player_count_is_not_an_engine_key() {
 
 void a_game_locks_the_next_game_settings() {
     const auto alone = settings::settings_locks({true, false, false, false});
+    CHECK(alone.enhanced_mode == settings::Lock::in_game);
     CHECK(alone.path_search == settings::Lock::in_game);
     CHECK(alone.unit_limit == settings::Lock::in_game);
     CHECK(alone.skirmish_players == settings::Lock::in_game);
     CHECK(alone.max_frame_rate == settings::Lock::none);
     CHECK(!alone.shared_game);
     const auto shared = settings::settings_locks({true, true, false, false});
+    CHECK(shared.enhanced_mode == settings::Lock::set_by_host);
     CHECK(shared.path_search == settings::Lock::set_by_host);
     CHECK(shared.unit_limit == settings::Lock::set_by_host);
     CHECK(shared.skirmish_players == settings::Lock::set_by_host);
     CHECK(shared.shared_game);
     const auto replay = settings::settings_locks({true, false, true, false});
+    CHECK(replay.enhanced_mode == settings::Lock::set_by_host);
     CHECK(replay.path_search == settings::Lock::set_by_host);
     CHECK(replay.unit_limit == settings::Lock::set_by_host);
     CHECK(replay.skirmish_players == settings::Lock::set_by_host);
     CHECK(!replay.shared_game);
     const auto menu = settings::settings_locks({});
+    CHECK(menu.enhanced_mode == settings::Lock::none);
     CHECK(menu.path_search == settings::Lock::none);
     CHECK(menu.unit_limit == settings::Lock::none);
     CHECK(menu.skirmish_players == settings::Lock::none);
@@ -3416,6 +3451,7 @@ int main() {
     effects_take_their_own_defaults();
     unset_effects_follow_a_runs_acceleration();
     defaults_play_as_without_the_settings();
+    enhanced_mode_round_trips_without_changing_the_renderer();
     escape_opens_the_menu_by_default_only_on_macos_with_the_players_own_file();
     the_unit_limit_defaults_to_the_installations_with_the_players_own_file();
     a_raspberry_pi_starts_at_60_frames_without_anti_aliasing();

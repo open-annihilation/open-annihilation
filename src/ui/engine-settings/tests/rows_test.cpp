@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 129> kExpected{{
+constexpr std::array<Expected, 130> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -202,33 +202,23 @@ constexpr std::array<Expected, 129> kExpected{{
     {Setting::invert_mouse_zoom, RowKind::toggle, "Invert mouse zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
     {Setting::update_channel, RowKind::levels, "Update channel", 1, 1, 2, 56, 2, false, Lock::none, nullptr},
+    {Setting::enhanced_mode, RowKind::toggle, "Enhanced Mode", 1, 1, 0, 0, 0, false, Lock::in_game, &Locks::enhanced_mode},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::update_channel) + 1,
+    kExpected.size() == static_cast<std::size_t>(Setting::enhanced_mode) + 1,
     "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.
-constexpr std::array<Lock Locks::*, 18> kLockFields{
-    &Locks::path_search,
-    &Locks::unit_limit,
-    &Locks::skirmish_players,
-    &Locks::max_frame_rate,
-    &Locks::hardware_acceleration,
-    &Locks::vertical_sync,
-    &Locks::mex_snap,
-    &Locks::wreck_snap,
-    &Locks::text_size,
-    &Locks::language,
-    &Locks::modern_fonts,
-    &Locks::unicode_chat,
-    &Locks::native_density,
-    &Locks::zoomed_out_after,
-    &Locks::edge_stickiness,
-    &Locks::unlocked_camera,
-    &Locks::water_effects,
+constexpr std::array<Lock Locks::*, 19> kLockFields{
+    &Locks::enhanced_mode,    &Locks::path_search,     &Locks::unit_limit,
+    &Locks::skirmish_players, &Locks::max_frame_rate,  &Locks::hardware_acceleration,
+    &Locks::vertical_sync,    &Locks::mex_snap,        &Locks::wreck_snap,
+    &Locks::text_size,        &Locks::language,        &Locks::modern_fonts,
+    &Locks::unicode_chat,     &Locks::native_density,  &Locks::zoomed_out_after,
+    &Locks::edge_stickiness,  &Locks::unlocked_camera, &Locks::water_effects,
     &Locks::welcome_setup,
 };
 
@@ -910,9 +900,32 @@ void accessibility_captions_name_both_ends() {
     OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "Choose…");
 }
 
+void enhanced_mode_changes_only_the_new_game_rules_choice() {
+    settings::Dialog dialog;
+    settings::open_dialog(dialog, {}, {}, {}, "v0.9.0", settings::Page::common_tweaks);
+    for (int row = 0; row < 4; ++row)
+        static_cast<void>(settings::dialog_key(dialog, settings::DialogKey::tab));
+    OA_CHECK(dialog.focused == settings::first_row_control + 3);
+    const settings::EngineSettings before = dialog.chosen;
+    OA_CHECK(
+        settings::dialog_key(dialog, settings::DialogKey::space) == settings::DialogAction::changed
+    );
+    auto expected = before;
+    expected.enhanced_mode = true;
+    OA_CHECK(dialog.chosen == expected);
+    OA_CHECK(
+        settings::dialog_key(dialog, settings::DialogKey::space) == settings::DialogAction::changed
+    );
+    OA_CHECK(dialog.chosen == before);
+    dialog.locks = settings::settings_locks(settings::GameState{true});
+    static_cast<void>(settings::dialog_key(dialog, settings::DialogKey::space));
+    OA_CHECK(dialog.chosen == before);
+}
+
 } // namespace
 
 int main() {
+    enhanced_mode_changes_only_the_new_game_rules_choice();
     every_setting_has_its_row();
     accessibility_captions_name_both_ends();
     each_row_reads_its_own_lock();
