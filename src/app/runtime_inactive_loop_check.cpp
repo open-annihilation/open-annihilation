@@ -42,6 +42,9 @@ struct InactiveLoopCheck {
     std::atomic<uint32_t> frames_while_held{};
     std::atomic<uint32_t> frames_after_release{};
     std::atomic<bool> released{};
+    // While set, the check counts no frames and does not release. The run
+    // that asked for the check clears it once its own work has finished.
+    std::atomic<bool> defer_release{};
     std::atomic<uint8_t> fault{static_cast<uint8_t>(Fault::none)};
     // The engine's own thread, as on every system it supports.
     oa::base::threads::Thread thread{};
@@ -83,6 +86,10 @@ void watch_inactive_loop(void* argument) {
 
 } // namespace
 
+void apply_inactive_loop_deferral(bool defer) {
+    inactive_loop_check().defer_release.store(defer);
+}
+
 void Runtime::begin_inactive_loop_check() {
     InactiveLoopCheck& state = inactive_loop_check();
     // The check's window stays inactive whatever a later event reports, so
@@ -114,6 +121,10 @@ void Runtime::begin_inactive_loop_check() {
 
 void Runtime::note_inactive_loop_frame() {
     InactiveLoopCheck& state = inactive_loop_check();
+    // Held off until the run that asked for the check says its own work is
+    // done. Counting here would release after three frames, before that work.
+    if (state.defer_release.load())
+        return;
     if (!state.count_frames || state.woke)
         return;
     if (state.holding) {

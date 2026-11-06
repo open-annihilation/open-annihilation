@@ -216,3 +216,39 @@ SPDX-License-Identifier = "GPL-3.0-only"
 path = "src/data/mutators/tests/map_rules/**.ota"
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
 SPDX-License-Identifier = "GPL-3.0-only"
+
+# The built-in module's files that carry no header of their own: recorded
+# replies, test fixtures, the unused export list, the frame pictures and
+# their tables, the archive's sources, and the language catalogue. A file's
+# own header takes precedence. The analogue atlas is a rasterisation of
+# other faces and is annotated on its own, below.
+[[annotations]]
+path = [
+    "src/boneyards/**.replay",
+    "src/boneyards/**/tests/data/**",
+    "art/boneyards/**",
+    "data/boneyards/**.byd",
+    "data/boneyards/**.def",
+    "data/boneyards/**.gui",
+    "data/boneyards/**.htm",
+    "data/boneyards/**.md",
+    "data/boneyards/**.yaml",
+    "languages/boneyards.tdf",
+]
+SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# The analogue font atlas, data/boneyards/fonts/boneyards-analogues.bin.
+# It is a rasterisation of Fira Sans Extra Condensed SemiBold, Noto Sans
+# CJK SC Medium and Noto Emoji, each under the SIL Open Font License 1.1.
+# The notices are the fonts' own, as ATTRIBUTIONS.md records them. The
+# font files themselves are not in this repository.
+[[annotations]]
+path = "data/boneyards/fonts/boneyards-analogues.bin"
+precedence = "override"
+SPDX-FileCopyrightText = [
+    "Digitized data copyright 2012-2016, The Mozilla Foundation and Telefonica S.A.",
+    "© 2014-2021 Adobe (http://www.adobe.com/)",
+    "Copyright 2013 Google LLC",
+]
+SPDX-License-Identifier = "OFL-1.1"

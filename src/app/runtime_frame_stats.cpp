@@ -224,6 +224,18 @@ uint32_t Runtime::frame_clock_milliseconds() const {
 }
 
 void Runtime::step_match_frame() {
+    // A stepped clock draws this frame and does not take wall-clock time.
+    // The ticks it runs were granted earlier in the frame. Snapping the
+    // clock's reading keeps a return to the wall clock from catching up
+    // the time the clock was held, and leaves the tick and the adaptation
+    // where they are. A run that never asks does not take this branch.
+    if (stepped_clock_holds()) {
+        const uint32_t ticks_before = match_timing_.tick;
+        snap_held_clock();
+        present_frame_between_ticks(false, ticks_before);
+        place_tracking_camera();
+        return;
+    }
     bool stepped = match_clock_steps();
     const uint32_t ticks_before = match_timing_.tick;
     const uint32_t now_ms = frame_clock_milliseconds();
@@ -294,7 +306,13 @@ void Runtime::pace_next_frame(bool& running) {
             capped_frame_rate(paced_frames_per_second_, vsync_frame_cap(display_refresh_rate()));
     const bool idle = !activity.match_advancing && !activity.camera_moving &&
                       !activity.input_recent && !activity.unattended;
-    frame_wait_ = idle && sdl_.window != nullptr ? FrameWait::idle : FrameWait::precise;
+    // A remote-controlled run, and a run that asked to keep going while the
+    // window is inactive, still draws at the idle rate, but it does not park
+    // in the event wait. A click that arrives while the thread is inside that
+    // wait is not taken until the window is in front again.
+    const bool stay_awake = options_.remote_controlled || keep_running_while_inactive_;
+    frame_wait_ =
+        idle && sdl_.window != nullptr && !stay_awake ? FrameWait::idle : FrameWait::precise;
     const uint64_t wait = end_paced_frame(frame_pacer_, frame_clock_ns(), paced_frames_per_second_);
     if (wait == 0)
         return;

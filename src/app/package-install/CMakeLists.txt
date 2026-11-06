@@ -142,8 +142,10 @@ if(BUILD_TESTING)
     "${oa_pseudo_pack}")
   set_tests_properties(app-package-install-oalang PROPERTIES TIMEOUT 60)
   # An expansion: the built-in table refuses the fixture and writes nothing;
-  # the test table installs it, a reinstall drops a stray file, uninstall
-  # leaves a sibling, and a link in the expansion's place is left alone.
+  # the test table installs it with the package in its record, a reinstall
+  # replaces it file by file and keeps what the game wrote beside it,
+  # uninstall leaves a sibling, and a link in the expansion's place is left
+  # alone.
   add_executable(oa-app-package-install-oaexp-test tests/oaexp_test.cpp)
   target_link_libraries(oa-app-package-install-oaexp-test PRIVATE oa-app-package-install
     oa-data-content-bundles oa-formats-zip oa-base-sha256 ZLIB::ZLIB oa-test-support oa-options)

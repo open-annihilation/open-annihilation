@@ -1,0 +1,37 @@
+{[Help<S:command=category><I:id=1><S:name=Getting Started><I:sort=0>]}
+{[Help<S:command=category><I:id=2><S:name=Galactic War Help><I:sort=1>]}
+{[Help<S:command=category><I:id=3><S:name=TA Help><I:sort=2>]}
+{[Help<S:command=category><I:id=11><S:name=Screen Help><I:sort=3>]}
+{[Help<S:command=category><I:id=12><S:name=Getting Addl. Help><I:sort=4>]}
+{[Help<S:command=category><I:id=13><S:name=Rules of Conduct><I:sort=5>]}
+{[Help<S:command=headline><I:id=47><S:headline=Where to begin><I:category=1><I:sort=0><S:file=Boneyards/Help/Help47.htm>]}
+{[Help<S:command=headline><I:id=46><S:headline=Roaming the galaxy><I:category=1><I:sort=1><S:file=Boneyards/Help/Help46.htm>]}
+{[Help<S:command=headline><I:id=42><S:headline=Chat><I:category=1><I:sort=2><S:file=Boneyards/Help/Help42.htm>]}
+{[Help<S:command=headline><I:id=38><S:headline=Ladders and ratings><I:category=1><I:sort=3><S:file=Boneyards/Help/Help38.htm>]}
+{[Help<S:command=headline><I:id=41><S:headline=Waging the war><I:category=1><I:sort=4><S:file=Boneyards/Help/Help41.htm>]}
+{[Help<S:command=headline><I:id=124><S:headline=When login fails><I:category=1><I:sort=5><S:file=Boneyards/Help/Help124.htm>]}
+{[Help<S:command=headline><I:id=45><S:headline=Editing a profile><I:category=1><I:sort=6><S:file=Boneyards/Help/Help45.htm>]}
+{[Help<S:command=headline><I:id=57><S:headline=The war><I:category=2><I:sort=0><S:file=Boneyards/Help/Help57.htm>]}
+{[Help<S:command=headline><I:id=226><S:headline=Register><I:category=2><I:sort=1><S:file=Boneyards/Help/Help226.htm>]}
+{[Help<S:command=headline><I:id=53><S:headline=Fighting the war><I:category=2><I:sort=2><S:file=Boneyards/Help/Help53.htm>]}
+{[Help<S:command=headline><I:id=50><S:headline=Battle results><I:category=2><I:sort=3><S:file=Boneyards/Help/Help50.htm>]}
+{[Help<S:command=headline><I:id=201><S:headline=When the front moves><I:category=2><I:sort=4><S:file=Boneyards/Help/Help201.htm>]}
+{[Help<S:command=headline><I:id=48><S:headline=Ranks><I:category=2><I:sort=5><S:file=Boneyards/Help/Help48.htm>]}
+{[Help<S:command=headline><I:id=125><S:headline=The screens><I:category=2><I:sort=6><S:file=Boneyards/Help/Help125.htm>]}
+{[Help<S:command=headline><I:id=59><S:headline=Playing other people><I:category=3><I:sort=0><S:file=Boneyards/Help/Help59.htm>]}
+{[Help<S:command=headline><I:id=60><S:headline=A first game><I:category=3><I:sort=1><S:file=Boneyards/Help/Help60.htm>]}
+{[Help<S:command=headline><I:id=123><S:headline=Keys><I:category=3><I:sort=2><S:file=Boneyards/Help/Help123.htm>]}
+{[Help<S:command=headline><I:id=227><S:headline=Community sites><I:category=3><I:sort=3><S:file=Boneyards/Help/Help227.htm>]}
+{[Help<S:command=headline><I:id=66><S:headline=Help screen><I:category=11><I:sort=0><S:file=Boneyards/Help/Help66.htm>]}
+{[Help<S:command=headline><I:id=75><S:headline=Login><I:category=11><I:sort=1><S:file=Boneyards/Help/Help75.htm>]}
+{[Help<S:command=headline><I:id=74><S:headline=The galactic map><I:category=11><I:sort=2><S:file=Boneyards/Help/Help74.htm>]}
+{[Help<S:command=headline><I:id=67><S:headline=Profile screen><I:category=11><I:sort=3><S:file=Boneyards/Help/Help67.htm>]}
+{[Help<S:command=headline><I:id=69><S:headline=Ladders><I:category=11><I:sort=6><S:file=Boneyards/Help/Help69.htm>]}
+{[Help<S:command=headline><I:id=70><S:headline=News><I:category=11><I:sort=7><S:file=Boneyards/Help/Help70.htm>]}
+{[Help<S:command=headline><I:id=71><S:headline=Battles><I:category=11><I:sort=8><S:file=Boneyards/Help/Help71.htm>]}
+{[Help<S:command=headline><I:id=72><S:headline=Chat screen><I:category=11><I:sort=9><S:file=Boneyards/Help/Help72.htm>]}
+{[Help<S:command=headline><I:id=73><S:headline=Recon><I:category=11><I:sort=10><S:file=Boneyards/Help/Help73.htm>]}
+{[Help<S:command=headline><I:id=112><S:headline=Update screen><I:category=11><I:sort=11><S:file=Boneyards/Help/Help112.htm>]}
+{[Help<S:command=headline><I:id=115><S:headline=Support><I:category=12><I:sort=0><S:file=Boneyards/Help/Help115.htm>]}
+{[Help<S:command=headline><I:id=114><S:headline=Moderators><I:category=12><I:sort=1><S:file=Boneyards/Help/Help114.htm>]}
+{[Help<S:command=headline><I:id=128><S:headline=Conduct><I:category=13><I:sort=104><S:file=Boneyards/Help/Help128.htm>]}

@@ -62,11 +62,16 @@ enum class Status : uint8_t {
 // The text a handler reads after its switch letter: what is attached to the
 // letter (possibly empty) and, through next_token, the tokens after it. A
 // token taken this way is not parsed as a switch; next_token returns null
-// past the last one.
+// past the last one. peek_token looks at that same next token without
+// taking it, so a handler can decline the letter and leave the token for
+// the handler that follows. A null peek_token cannot look ahead. The text
+// it returns is valid until the next peek on these tokens, or until the
+// parse returns.
 struct SwitchArguments {
     const char* attached{};
     const char* (*next_token)(void* tokens){};
     void* tokens{};
+    const char* (*peek_token)(void* tokens){};
 };
 
 // Effects a handler asks the parse to apply for a switch it took.

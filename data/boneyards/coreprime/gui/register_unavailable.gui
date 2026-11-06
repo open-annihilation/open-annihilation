@@ -1,0 +1,57 @@
+// The registration-unavailable box: 142,172 and 216 by 136, the message
+// inset by 13,6 in a 190 by 96 area, and one Ok button at 222,278.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=RegBox;
+    xpos=142;
+    ypos=172;
+    width=216;
+    height=136;
+  }
+  panel=RegBox;
+  crdefault=Ok;
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Face;
+    xpos=0;
+    ypos=0;
+    width=216;
+    height=136;
+    help=main_console.gaf MessageBox 1;
+  }
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Text;
+    xpos=13;
+    ypos=6;
+    width=190;
+    height=96;
+    attribs=16;
+  }
+  text=This server does not take\nregistrations from the game yet.\nPlease use the web page.;
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Ok;
+    xpos=80;
+    ypos=106;
+    width=57;
+    height=21;
+    help=goto:new_register_beta|main_console.gaf BlankButton 0;
+  }
+  text=Ok;
+}

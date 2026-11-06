@@ -6,7 +6,7 @@
 
 // The OAMOD registry as constant tables (registry.hpp describes them).
 
-constexpr std::array<Literal, 452> literals{{
+constexpr std::array<Literal, 455> literals{{
     {.kind = LiteralKind::string, .text = "totala.ini"},
     {.kind = LiteralKind::string, .text = "\123\157\146\164\167\141\162\145\134\103\141\166\145\144\157\147\040\105\156\164\145\162\164\141\151\156\155\145\156\164"},
     {.kind = LiteralKind::number, .number = {false, 3u, 0, true}},
@@ -459,6 +459,9 @@ constexpr std::array<Literal, 452> literals{{
     {.kind = LiteralKind::string, .text = "3.zrb"},
     {.kind = LiteralKind::string, .text = "4.zrb"},
     {.kind = LiteralKind::string, .text = "5.zrb"},
+    {.kind = LiteralKind::string, .text = "auto"},
+    {.kind = LiteralKind::number, .number = {false, 497u, 0, true}},
+    {.kind = LiteralKind::number, .number = {false, 8u, 0, true}},
 }};
 
 constexpr std::array<std::string_view, 90> enum_values{{
@@ -843,7 +846,7 @@ constexpr std::array<Constraint, 5> constraints{{
     {.left = 2, .comparison = Comparison::less_equal, .right = 3, .text = "wreck-default <= wreck-max"},
 }};
 
-constexpr std::array<Entry, 156> entries{{
+constexpr std::array<Entry, 159> entries{{
     {.id = "identity.settings-file", .kind = EntryKind::identity, .scope = Scope::view, .key = "settings-file", .value = {.type = ValueType::string, .scope = Scope::view, .max_length = 64, .baseline = 0}, .summary = "Name of the configuration INI the game and its add-on libraries read.", .area = "paths"},
     {.id = "identity.registry-root", .kind = EntryKind::identity, .scope = Scope::view, .key = "registry-root", .value = {.type = ValueType::string, .scope = Scope::view, .max_length = 128, .baseline = 1}, .summary = "Registry root for TA settings renamed.", .area = "paths"},
     {.id = "identity.network-version", .kind = EntryKind::identity, .scope = Scope::sim, .key = "network-version", .value = {.type = ValueType::integer_list, .scope = Scope::sim, .has_minimum = true, .minimum = {false, 0u, 0, true}, .has_maximum = true, .maximum = {false, 255u, 0, true}, .has_length = true, .length_minimum = 2, .length_maximum = 2, .baseline = 4}, .summary = "Multiplayer version bytes; peers must match, and replays present their own version.", .area = "network"},
@@ -1000,6 +1003,9 @@ constexpr std::array<Entry, 156> entries{{
     {.id = "media.movies.ending-a", .kind = EntryKind::media, .scope = Scope::view, .key = "movies.ending-a", .value = {.type = ValueType::string, .scope = Scope::view, .max_length = 12, .pattern = "^(?!\\.\\.?$)[^/\\\\:]*$", .baseline = 449}, .summary = "First campaign ending movie.", .area = "ui"},
     {.id = "media.movies.ending-b", .kind = EntryKind::media, .scope = Scope::view, .key = "movies.ending-b", .value = {.type = ValueType::string, .scope = Scope::view, .max_length = 12, .pattern = "^(?!\\.\\.?$)[^/\\\\:]*$", .baseline = 450}, .summary = "Second campaign ending movie.", .area = "ui"},
     {.id = "media.movies.credits", .kind = EntryKind::media, .scope = Scope::view, .key = "movies.credits", .value = {.type = ValueType::string, .scope = Scope::view, .max_length = 12, .pattern = "^(?!\\.\\.?$)[^/\\\\:]*$", .baseline = 451}, .summary = "Credits movie.", .area = "ui"},
+    {.id = "media.boneyards-entry.mode", .kind = EntryKind::media, .scope = Scope::view, .key = "boneyards-entry.mode", .value = {.type = ValueType::string, .scope = Scope::view, .max_length = 6, .pattern = "^(auto|strip|button|none)$", .baseline = 452}, .summary = "How the main menu shows the way into the Boneyards: auto draws the Boneyards strip across the menu's bottom 102 rows when the menu's art there is the base game's and only the strip's ENTER plate otherwise; strip, button and none choose.", .area = "ui"},
+    {.id = "media.boneyards-entry.x", .kind = EntryKind::media, .scope = Scope::view, .key = "boneyards-entry.x", .value = {.type = ValueType::integer, .scope = Scope::view, .has_minimum = true, .minimum = {false, 0u, 0, true}, .has_maximum = true, .maximum = {false, 505u, 0, true}, .baseline = 453}, .summary = "The Boneyards ENTER plate's left column on the 640x480 main menu, 0 to 505 so the 135-pixel plate stays on it; given with y. Used in button mode only. Unwritten, the plate stands at the top right, 8 pixels in: 497.", .area = "ui"},
+    {.id = "media.boneyards-entry.y", .kind = EntryKind::media, .scope = Scope::view, .key = "boneyards-entry.y", .value = {.type = ValueType::integer, .scope = Scope::view, .has_minimum = true, .minimum = {false, 0u, 0, true}, .has_maximum = true, .maximum = {false, 414u, 0, true}, .baseline = 454}, .summary = "The Boneyards ENTER plate's top row on the 640x480 main menu, 0 to 414 so the 66-pixel plate stays on it; given with x. Used in button mode only. Unwritten, the plate stands at the top right, 8 pixels in: 8.", .area = "ui"},
 }};
 
 constexpr std::array<AreaTitle, 16> area_titles{{

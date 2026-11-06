@@ -128,6 +128,17 @@ void keep_running_while_inactive(Runtime& runtime, bool hold) {
     runtime.keep_running_while_inactive_ = hold;
 }
 
+// Defined with the inactive-loop check. A build without self-checks does not
+// link that file: there is nothing to hold off, and the call below is left out.
+void apply_inactive_loop_deferral(bool defer);
+
+void defer_inactive_loop_release(bool defer) {
+    if constexpr (self_checks_built)
+        apply_inactive_loop_deferral(defer);
+    else
+        (void)defer;
+}
+
 AwayAction Runtime::away_action() const {
     using oa::ui::engine_settings::FocusLost;
     const uint32_t extension = current_extension_state();

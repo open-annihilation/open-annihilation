@@ -8,6 +8,9 @@
 #include <cstdint>
 #include <fstream>
 #include <limits>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -140,6 +143,27 @@ take_prefix(std::string_view line, std::string_view prefix, std::string_view& re
     return name.find('\n') == std::string_view::npos && name.find('\r') == std::string_view::npos;
 }
 
+/// Reads a package line's fields: a SHA-256, one space and a release.
+///
+/// @param text what follows "package "
+/// @return the package, or nothing when the fields are not those
+[[nodiscard]] std::optional<ContentRecordPackage> parse_package(std::string_view text) {
+    const std::size_t space = text.find(' ');
+    if (space == std::string_view::npos)
+        return std::nullopt;
+    const auto digest = base::sha256::parse_hex(text.substr(0, space));
+    if (!digest)
+        return std::nullopt;
+    uint64_t release = 0;
+    if (!parse_u64(text.substr(space + 1), release) ||
+        release > static_cast<uint64_t>(content_record_release_limit))
+        return std::nullopt;
+    ContentRecordPackage package;
+    package.sha256 = *digest;
+    package.release = static_cast<int64_t>(release);
+    return package;
+}
+
 void append_line(std::string& text, std::string_view line) {
     text.append(line);
     text.push_back('\n');
@@ -192,6 +216,7 @@ ContentRecord parse_content_record(std::string_view text) {
         return record;
     bool saw_bundle = false;
     bool saw_source = false;
+    std::optional<ContentRecordPackage> package;
     std::vector<ContentRecordFile> files;
     for (std::size_t index = 1; index < lines.size();) {
         const std::string_view line = lines[index];
@@ -203,6 +228,16 @@ ContentRecord parse_content_record(std::string_view text) {
         if (line == "not-in-source") {
             if (!files.empty())
                 files.back().not_in_source = true;
+            ++index;
+            continue;
+        }
+        // Written after the source, for an expansion installed from a
+        // package. Older readers skip it as a field they do not know, and a
+        // line this reader cannot use is skipped the same way.
+        std::string_view package_text;
+        if (take_prefix(line, "package ", package_text)) {
+            if (saw_source && !package)
+                package = parse_package(package_text);
             ++index;
             continue;
         }
@@ -266,6 +301,7 @@ ContentRecord parse_content_record(std::string_view text) {
     if (!saw_bundle || !saw_source)
         return record;
     record.valid = true;
+    record.package = package;
     record.files = std::move(files);
     return record;
 }
@@ -280,6 +316,16 @@ std::optional<std::string> format_content_record(const ContentRecord& record) {
     append_line(text, "oa-content 1");
     append_line(text, "bundle " + record.bundle_id);
     append_line(text, "source " + escape_field(record.source));
+    if (record.package) {
+        if (record.package->release < 0 || record.package->release > content_record_release_limit)
+            return std::nullopt;
+        const auto package_hex = base::sha256::to_hex(record.package->sha256);
+        std::string package_line = "package ";
+        package_line.append(package_hex.data(), package_hex.size());
+        package_line.push_back(' ');
+        append_u64(package_line, static_cast<uint64_t>(record.package->release));
+        append_line(text, package_line);
+    }
     for (const ContentRecordFile& item : record.files) {
         append_line(text, "file " + item.copy_name);
         std::string size_line = "size ";
@@ -376,6 +422,18 @@ bool record_complete(const Bundle& bundle, const ContentRecord& record) {
     if (!record.valid || record.bundle_id != bundle.id || bundle.files.empty())
         return false;
     return files_not_recorded(bundle, record).empty();
+}
+
+PackageCheck check_installed_package(
+    const Bundle& bundle, const ContentRecord& record, const base::sha256::Digest& offered
+) {
+    if (!record_complete(bundle, record))
+        return PackageCheck::missing;
+    if (!record.package)
+        return PackageCheck::unrecorded;
+    if (record.package->sha256 != offered)
+        return PackageCheck::changed;
+    return PackageCheck::current;
 }
 
 } // namespace oa::data::content_bundles

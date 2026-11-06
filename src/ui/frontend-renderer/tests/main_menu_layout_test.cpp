@@ -9,6 +9,7 @@
 // ones. A mod folder's MAINMENU.GUI that moves a button has it drawn and hit
 // where the layout says.
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/frontend_renderer/main_menu_art.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/ui/gui_input.hpp"
 #include "oa/test/game_assets.hpp"
@@ -332,8 +333,16 @@ int single_x(const renderer::MainMenuResources& menu) {
 /// @param without_overlay SINGLE's x expected with no overlay drawn
 /// @param with_overlay SINGLE's x expected with an overlay drawn
 /// @param what the case, for the failure line
-void check_case(oa::AssetStore& assets, int without_overlay, int with_overlay, const char* what) {
-    const auto base = renderer::load_main_menu(assets, renderer::MainMenuLayout::base_game);
+/// @param mod_folder the played mod's folder; empty when no mod is played
+void check_case(
+    oa::AssetStore& assets,
+    int without_overlay,
+    int with_overlay,
+    const char* what,
+    const std::filesystem::path& mod_folder = {}
+) {
+    const auto base =
+        renderer::load_main_menu(assets, renderer::MainMenuLayout::base_game, mod_folder);
     const auto overlaid = renderer::load_main_menu(assets, renderer::MainMenuLayout::with_overlay);
     if (single_x(base) != without_overlay || single_x(overlaid) != with_overlay) {
         std::fprintf(
@@ -417,7 +426,48 @@ void check_layout_rule(const oa::AssetStore& installed) {
         const auto art = mod.write("art.ccx", archive_of({{kBackground, &background}}));
         const auto addon = game.write("layout.ccx", archive_of({{kLayout, &overlay_layout}}));
         auto assets = store_with_mod(mod, {art}, game, {addon}, installed);
-        check_case(assets, 139, 82, "a mod's background without a layout");
+        check_case(assets, 139, 82, "a mod's background without a layout", mod.path());
+    }
+    {
+        // An expansion's folder layered between a mod's and the game's is
+        // the game's own: its layout made for an overlay is passed over, so a
+        // mod with art of its own and no layout keeps the installed one.
+        ScratchFolder mod;
+        ScratchFolder expansion;
+        ScratchFolder game;
+        const auto art = mod.write("art.ccx", archive_of({{kBackground, &background}}));
+        const auto addon = expansion.write("layout.ccx", archive_of({{kLayout, &overlay_layout}}));
+        oa::AssetStore assets(
+            std::vector<std::filesystem::path>{mod.path(), expansion.path(), game.path()}
+        );
+        assets.mount(art);
+        assets.mount(addon);
+        for (const auto& archive : installed.mount_paths())
+            assets.mount(archive);
+        check_case(assets, 139, 82, "a mod's background over an expansion's layout", mod.path());
+        const auto menu =
+            renderer::load_main_menu(assets, renderer::MainMenuLayout::base_game, mod.path());
+        check(
+            has_rect(menu, "SINGLE", {139, 393, 96, 20}),
+            "a mod over an expansion's layout keeps SINGLE at 139,393"
+        );
+        check(
+            renderer::from_mod_folder(assets, kBackground, mod.path()) &&
+                !renderer::from_mod_folder(assets, kLayout, mod.path()),
+            "the mod's background is the mod's and the expansion's layout is not"
+        );
+        // With no mod played the expansion's layout is passed over too.
+        oa::AssetStore plain(std::vector<std::filesystem::path>{expansion.path(), game.path()});
+        plain.mount(addon);
+        for (const auto& archive : installed.mount_paths())
+            plain.mount(archive);
+        check_case(plain, 139, 82, "an expansion's layout with no mod");
+        check(!renderer::from_mod_folder(plain, kBackground, {}), "with no mod nothing is a mod's");
+        const auto base = renderer::base_game_main_menu_background(assets, mod.path());
+        check(
+            base.has_value() && base->source == *installed_archive,
+            "the base game's FrontendX is the installation's, past the mod's"
+        );
     }
 }
 
@@ -446,9 +496,10 @@ void check_mod_layout(const oa::AssetStore& installed) {
     const auto own = mod.write("layout.ufo", archive_of({{kLayout, &mod_layout}}));
     const auto addon = game.write("layout.ccx", archive_of({{kLayout, &overlay_layout}}));
     auto assets = store_with_mod(mod, {own}, game, {addon}, installed);
-    check_case(assets, moved.x, moved.x, "a mod's own layout");
+    check_case(assets, moved.x, moved.x, "a mod's own layout", mod.path());
 
-    const auto menu = renderer::load_main_menu(assets, renderer::MainMenuLayout::base_game);
+    const auto menu =
+        renderer::load_main_menu(assets, renderer::MainMenuLayout::base_game, mod.path());
     check(has_rect(menu, "SINGLE", moved), "the mod's SINGLE keeps its layout's rectangle");
     check(has_rect(menu, "MULTI", {139, 430, 96, 20}), "the mod's MULTI stays in place");
     const auto* buttons = sequence_named(menu.shared_sprites, "BUTTONS0");

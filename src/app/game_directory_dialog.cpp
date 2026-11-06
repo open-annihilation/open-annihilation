@@ -219,6 +219,8 @@ struct NativeHost {
     ModChoice mod;
     /// The preferences the stored folder and the mod come from; the mod choice points here.
     oa::platform::preferences::Values values{};
+    /// `--content` for this run; empty when the run names none.
+    std::string content;
 };
 
 // Without the folder dialog in the build, the host offers none
@@ -254,7 +256,8 @@ bool ask_native_user(void* context, Notice kind, std::string_view text, std::str
 GameInstall inspect(void* context, const fs::path& folder) {
     const auto& host = *static_cast<NativeHost*>(context);
     const fs::path& demo_root = host.user_folder.empty() ? host.data_folder : host.user_folder;
-    auto install = inspect_game_install(folder, demo_root, demo_1997, host.mod);
+    const fs::path overlay = game_files_overlay(host.user_folder, host.values, host.content);
+    auto install = inspect_game_install(folder, demo_root, demo_1997, host.mod, overlay);
     if (install.demo.outcome == DemoOutcome::unpack_failed && host.data_folder.empty())
         install.demo.problem += " (" + host.data_folder_problem + ")";
     return install;
@@ -391,6 +394,7 @@ find_game_directory(const Options& options, GameFilesNeeded* needed, bool defer_
     request.defer_dialog = defer_dialog;
     NativeHost native;
     prepare_native_host(options, request.unattended, true, native);
+    native.content = options.content;
     if (request.argument.empty())
         request.stored = stored_game_directory(native.values);
     take_platform_folder(request);

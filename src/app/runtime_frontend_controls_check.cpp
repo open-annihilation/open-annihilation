@@ -5,11 +5,12 @@
 // quick keys, then the setup screens' options clicked through the SDL
 // presenter as a player does: each click changes its setting and what the
 // screen shows for it before Start, the help line follows the pointer, and the
-// chosen options tab shows pressed. Alt+Enter switches the window to full
-// screen and back on a menu and in a match. In a match's window Window edge
-// Capture keeps the pointer in the window until a menu, Escape or a lost
-// focus, Sticky puts it back on an edge until a push as firm as Edge
-// stickiness lets it go, and Free leaves it free.
+// chosen options tab shows pressed. A button a layer covers is proved by the
+// screen a press opens: the gadget under the layer never sees the pointer.
+// Alt+Enter switches the window to full screen and back on a menu and in a
+// match. In a match's window Window edge Capture keeps the pointer in the
+// window until a menu, Escape or a lost focus, Sticky puts it back on an edge
+// until a push as firm as Edge stickiness lets it go, and Free leaves it free.
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/languages/translation.hpp"
@@ -53,6 +54,8 @@ constexpr int32_t kParkY = 0;
 constexpr int32_t kMessageBoxWidth = 300;
 // A text list's rows start this many pixels below its top.
 constexpr int32_t kListRowsTop = 2;
+// The intro the main menu plays: its follow-up movie, then the menu again.
+constexpr std::string_view kIntroMovie = "2.zrb";
 
 [[noreturn]] void fail(std::string_view what) {
     throw std::runtime_error("frontend controls check: " + std::string(what));
@@ -358,16 +361,40 @@ void Runtime::check_frontend_controls() {
             menu_buttons.push_back(gadget.common.name);
     }
     require(!menu_buttons.empty(), "MAINMENU.GUI has no buttons");
+    // Buttons whose gadget the pointer reaches, and buttons a layer covers.
+    // The press drawing below stays on the first button when the gadget
+    // itself takes the pointer, as it does with no layer over the menu.
+    std::vector<std::string> covered_buttons;
+    bool front_gadget_hovered = false;
+    const auto gadget_hovered = [&](std::string_view name) {
+        return hovered_ && *hovered_ < resources_.layout.gadgets.size() &&
+               resources_.layout.gadgets[*hovered_].common.name == name;
+    };
     for (const auto& name : menu_buttons) {
-        hover(name);
-        const auto pixels = repainted(idle_menu, frame_without_cursor(), name);
-        std::cout << "frontend controls check: over " << name << ", " << pixels
-                  << " pixels of it redrawn\n";
-        expect(pixels == 0, name + " changes under the pointer");
-        if (name == menu_buttons.front())
-            shown_snapshot("menu-hover");
+        const auto box = box_of(name);
+        const auto x = box.x + box.width / 2;
+        const auto y = box.y + box.height / 2;
+        send(SDL_EVENT_MOUSE_MOTION, x, y, 0);
+        if (gadget_hovered(name)) {
+            const auto pixels = repainted(idle_menu, frame_without_cursor(), name);
+            std::cout << "frontend controls check: over " << name << ", " << pixels
+                      << " pixels of it redrawn\n";
+            expect(pixels == 0, name + " changes under the pointer");
+            if (name == menu_buttons.front()) {
+                front_gadget_hovered = true;
+                shown_snapshot("menu-hover");
+            }
+            continue;
+        }
+        // The motion above is the point the layers were offered, in render
+        // space. A layer that takes it is what kept the gadget from hovering.
+        require(
+            extension_layer_takes_pointer(pointer_x_, pointer_y_), "the pointer is not over " + name
+        );
+        covered_buttons.push_back(name);
+        std::cout << "frontend controls check: a layer covers " << name << '\n';
     }
-    {
+    if (front_gadget_hovered) {
         const auto& name = menu_buttons.front();
         const auto box = box_of(name);
         const auto x = box.x + box.width / 2;
@@ -432,10 +459,85 @@ void Runtime::check_frontend_controls() {
         return screen_ == Screen::main_menu && state_.state == frontend::state_id::main_menu &&
                dialogs::dialog_count() == 0;
     };
+    // EXIT ends the run. A layer over the button also drops the menu's
+    // gadgets on that press, and the pass that ends the run takes the layer
+    // down. The saved dispatcher state holds neither, so the check loads the
+    // menu again, which runs the layer's return, and then puts that state back.
+    const auto resume_after_exit = [&](const frontend::State& menu_state) {
+        exit_requested_ = false;
+        running = true;
+        frontend_pass_requested_ = false;
+        load(Screen::main_menu);
+        state_ = menu_state;
+    };
     const auto single_key = quick_key(menu::resource_name(menu::Button::single_player));
     const auto multi_key = quick_key(menu::resource_name(menu::Button::multiplayer));
     const auto intro_key = quick_key(menu::resource_name(menu::Button::intro));
     const auto exit_key = quick_key(menu::resource_name(menu::Button::exit));
+    // A covered button is not the gadget's to hover. Pressing it opens the
+    // screen that button opens, and the check comes back to the menu before
+    // the quick keys, which still press the gadgets themselves.
+    const auto leave_what_multi_opened = [&] {
+        if (dialogs::dialog_count() != 0) {
+            auto context = screen_context();
+            require(dialogs::dialog_click(&context, "OK"), "MULTI's notice has no OK");
+            run_pending_notice_return();
+        } else
+            type_key(SDLK_ESCAPE);
+        require(on_main_menu(), "what MULTI opened did not return to the main menu");
+    };
+    for (const auto& covered : covered_buttons) {
+        const auto single_name = menu::resource_name(menu::Button::single_player);
+        const auto multi_name = menu::resource_name(menu::Button::multiplayer);
+        const auto intro_name = menu::resource_name(menu::Button::intro);
+        const auto exit_name = menu::resource_name(menu::Button::exit);
+        if (covered == single_name) {
+            click(covered);
+            require(screen_ == Screen::single_player, "SINGLE's press did not open single player");
+            click(entry::resource_name(entry::Button::previous_menu));
+            require(on_main_menu(), "single player did not return to the main menu");
+        } else if (covered == multi_name) {
+            click(covered);
+            require(
+                screen_ != Screen::main_menu || dialogs::dialog_count() != 0,
+                "MULTI's press opened nothing"
+            );
+            leave_what_multi_opened();
+        } else if (covered == intro_name) {
+            // One frame, without waiting out the movie: the press has to
+            // start the intro, and the menu is back before the quick keys.
+            const auto saved_limit = options_.frame_limit;
+            const auto saved_headless = options_.headless_check;
+            options_.frame_limit = std::size_t{1};
+            options_.headless_check = true;
+            check_frontend_movie_.clear();
+            const auto box = box_of(covered);
+            const auto column = box.x + box.width / 2;
+            const auto row = box.y + box.height / 2;
+            send(SDL_EVENT_MOUSE_MOTION, column, row, 0);
+            send(SDL_EVENT_MOUSE_BUTTON_DOWN, column, row, kLeft);
+            send(SDL_EVENT_MOUSE_BUTTON_UP, column, row, kLeft);
+            const std::string movie = check_frontend_movie_;
+            options_.frame_limit = saved_limit;
+            options_.headless_check = saved_headless;
+            require(movie == kIntroMovie, "INTRO's press did not start the intro");
+            // The press plays the intro and asks for the pass that shows the
+            // menu again. One tick runs that pass.
+            idle_tick();
+            for (int pass = 0; pass < 4 && !on_main_menu(); ++pass)
+                idle_tick();
+            require(on_main_menu(), "the intro did not return to the main menu");
+        } else if (covered == exit_name) {
+            const auto menu_state = state_;
+            click(covered);
+            const bool exited = exit_requested_;
+            resume_after_exit(menu_state);
+            require(exited, "EXIT's press did not end the run");
+            require(on_main_menu(), "EXIT's press did not leave the main menu");
+        } else
+            fail(covered + " is covered and its screen is not checked");
+        std::cout << "frontend controls check: pressing " << covered << " opened its screen\n";
+    }
     for (const bool shifted : {false, true}) {
         type_key(single_key, shifted);
         require(screen_ == Screen::single_player, "SINGLE's quick key did not open SINGLE.GUI");
@@ -475,10 +577,9 @@ void Runtime::check_frontend_controls() {
         const auto menu_state = state_;
         type_key(exit_key);
         const bool exited = exit_requested_;
-        exit_requested_ = false;
-        running = true;
-        state_ = menu_state;
+        resume_after_exit(menu_state);
         require(exited, "EXIT's quick key did not end the run");
+        require(on_main_menu(), "EXIT's quick key did not leave the main menu");
     }
     std::cout << "frontend controls check: MAINMENU.GUI's quick keys press SINGLE, MULTI, INTRO "
                  "and EXIT, and SINGLE.GUI's PrevMenu\n";

@@ -124,6 +124,12 @@ int status_exit_code(int played) noexcept;
 void write_started_output(std::string_view line);
 } // namespace oa::app::automation
 
+// MCP on standard input and output (mcp/stdio.hpp).
+namespace oa::app::mcp {
+bool stdio_wanted() noexcept;
+void capture_stdio();
+} // namespace oa::app::mcp
+
 namespace oa::app {
 namespace {
 
@@ -2651,14 +2657,21 @@ int main(int argc, char** argv) {
             return run_installer_check(parsed.check_installer);
         // --status-stdout keeps the standard output the process was started
         // with, then the log takes both streams, so the status lines are the
-        // only text on that output. --log-dir names the folder for any run.
-        // A game started for play, from a terminal or the desktop, logs to the
-        // logs folder. Checks, benchmarks and other scripted runs keep their
-        // output where it goes, and so does a run whose output another
-        // program captures, such as a test or a script. --list-content keeps
-        // that standard output too, for its listing, whatever takes the log.
-        if (automation::status_stdout_wanted()) {
-            automation::capture_status_stdout();
+        // only text on that output. --mcp keeps both standard streams the
+        // same way, so the protocol is the only text on that output and the
+        // game's log does not take the pipe a client is reading. --log-dir
+        // names the folder for any run. A game started for play, from a
+        // terminal or the desktop, logs to the logs folder. Checks,
+        // benchmarks and other scripted runs keep their output where it
+        // goes, and so does a run whose output another program captures,
+        // such as a test or a script. --list-content keeps that standard
+        // output too, for its listing, whatever takes the log.
+        const bool mcp_stdio = oa::app::mcp::stdio_wanted();
+        if (automation::status_stdout_wanted() || mcp_stdio) {
+            if (automation::status_stdout_wanted())
+                automation::capture_status_stdout();
+            if (mcp_stdio)
+                oa::app::mcp::capture_stdio();
             oa::platform::log_files::hold_lines_for_log();
         } else if (netgame_context().options.list_content) {
             automation::capture_status_stdout();
@@ -2666,8 +2679,9 @@ int main(int argc, char** argv) {
         if (parsed.log_dir)
             start_log_in(*parsed.log_dir);
         else if (
-            automation::status_stdout_wanted() || (!parsed.headless_check && !parsed.unattended &&
-                                                   !oa::platform::log_files::output_captured())
+            automation::status_stdout_wanted() || mcp_stdio ||
+            (!parsed.headless_check && !parsed.unattended &&
+             !oa::platform::log_files::output_captured())
         )
             start_log();
         oa::platform::log_files::note_timing_at("process start", process_started_ms);

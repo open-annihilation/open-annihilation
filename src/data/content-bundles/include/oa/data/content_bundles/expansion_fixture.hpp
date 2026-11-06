@@ -5,7 +5,8 @@
 // units, so one manifest is valid against the built-in table. Its only file
 // is four bytes the built-in table does not know. The game installs with the
 // built-in table and refuses this package. Tests pass test_bundle() to the
-// functions that take a table.
+// functions that take a table. folder_bundle() is the same expansion shaped
+// as one with an archive beside a folder of files.
 #pragma once
 
 #include "oa/base/sha256.hpp"
@@ -82,6 +83,56 @@ inline const oa::data::content_bundles::Bundle& test_bundle() {
         std::span<const std::string_view>(extends_items, 1),
         std::span<const std::string_view>(needs_items, 1),
         std::span<const ContentFile>(files, 1),
+    };
+    return bundle;
+}
+
+/// The second file folder_bundle() names, `efgh`, in the folder `Units`.
+///
+/// @return those four bytes
+inline std::span<const uint8_t> folder_bytes() noexcept {
+    static constexpr uint8_t bytes[] = {'e', 'f', 'g', 'h'};
+    return std::span<const uint8_t>(bytes, 4);
+}
+
+/// The test table shaped as an archive beside a folder: `unit.fbi` holds
+/// unit_bytes() and `Units/arm.fbi` holds folder_bytes(). The pointer stays
+/// valid for the process.
+///
+/// @return the bundle
+inline const oa::data::content_bundles::Bundle& folder_bundle() {
+    using oa::data::content_bundles::Bundle;
+    using oa::data::content_bundles::ContentFile;
+    using oa::data::content_bundles::Kind;
+    static constexpr std::string_view id = "cavedog-units";
+    static constexpr std::string_view english = "Cavedog units";
+    static constexpr std::string_view extends_items[] = {"totala"};
+    static constexpr std::string_view needs_items[] = {"core-contingency"};
+    static constexpr std::string_view unit_sources[] = {"unit.fbi"};
+    static constexpr std::string_view folder_sources[] = {"Units/arm.fbi"};
+    static const oa::base::sha256::Digest unit_hashes[] = {
+        oa::base::sha256::digest_of(unit_bytes())
+    };
+    static const oa::base::sha256::Digest folder_hashes[] = {
+        oa::base::sha256::digest_of(folder_bytes())
+    };
+    static const ContentFile files[] = {
+        {"unit.fbi",
+         std::span<const std::string_view>(unit_sources, 1),
+         uint64_t{4},
+         std::span<const oa::base::sha256::Digest>(unit_hashes, 1)},
+        {"Units/arm.fbi",
+         std::span<const std::string_view>(folder_sources, 1),
+         uint64_t{4},
+         std::span<const oa::base::sha256::Digest>(folder_hashes, 1)},
+    };
+    static const Bundle bundle{
+        id,
+        english,
+        Kind::expansion,
+        std::span<const std::string_view>(extends_items, 1),
+        std::span<const std::string_view>(needs_items, 1),
+        std::span<const ContentFile>(files, 2),
     };
     return bundle;
 }

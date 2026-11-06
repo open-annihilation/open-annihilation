@@ -180,6 +180,8 @@ uint32_t Runtime::query(frontend::Query query, frontend::State&) {
 void Runtime::play_movie(frontend::State&, std::string_view filename) {
     // The mod profile names each movie's file (media.movies); an empty name
     // plays none, and the frontend goes straight on to what follows.
+    if (options_.check_frontend_controls)
+        check_frontend_movie_ = std::string(filename);
     const auto file = movie_file_of(mod_profile(), filename);
     if (!file.empty())
         play_movie_resource(file);

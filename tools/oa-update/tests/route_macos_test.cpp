@@ -679,8 +679,9 @@ void set_mode(const fs::path& path, uint32_t mode) {
     OA_CHECK(!io);
 }
 
-/// The permission bits of a file or folder, without its type.
-uint32_t mode_of(const fs::path& path) {
+/// The permission bits of a file or folder, without its type. Only the macOS
+/// checks read it.
+[[maybe_unused]] uint32_t mode_of(const fs::path& path) {
     struct stat info{};
     OA_CHECK(::lstat(path.c_str(), &info) == 0);
     return static_cast<uint32_t>(info.st_mode & 07777);

@@ -4,6 +4,7 @@
 // Bounded checks of the stacked frontend dialogs: headless over a frontend
 // screen, and over a live match through the SDL presenter.
 #include "oa/app/game_directory.hpp"
+#include "oa/app/mcp_quit.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/base/text/line_break.hpp"
 #include "oa/data/defs/layout.hpp"
@@ -1671,10 +1672,32 @@ void Runtime::check_match_dialogs() {
     if (match_paused_)
         resume_match_pause();
 
-    // The system's quit asks too; CHOICE1 surrenders and ends the run.
-    require(send(close_request(SDL_EVENT_QUIT)) && confirming(), "the system's quit did not ask");
-    activate_pause_gadget("CHOICE1");
-    require(exit_requested_ && !match_, "CHOICE1 did not leave the match and end the run");
+    // The system's quit asks when a window is shown. With nothing the player
+    // can answer, including the dummy driver, it leaves the match as game.quit
+    // does. CHOICE1 is that question's surrender.
+    {
+        const char* driver = SDL_GetCurrentVideoDriver();
+        const bool hidden =
+            sdl_.window != nullptr && (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_HIDDEN) != 0;
+        const bool shown = mcp::window_shown_to_player(
+            sdl_.window != nullptr,
+            options_.headless_check,
+            hidden,
+            driver != nullptr ? std::string_view(driver) : std::string_view{}
+        );
+        if (mcp::system_quit_leaves(shown, mcp::http_serving())) {
+            require(
+                !send(close_request(SDL_EVENT_QUIT)) && exit_requested_ && !match_,
+                "the system's quit with no window shown did not leave the match"
+            );
+        } else {
+            require(
+                send(close_request(SDL_EVENT_QUIT)) && confirming(), "the system's quit did not ask"
+            );
+            activate_pause_gadget("CHOICE1");
+            require(exit_requested_ && !match_, "CHOICE1 did not leave the match and end the run");
+        }
+    }
     // Enter answers a close request as Yes: it surrenders and ends the run.
     exit_requested_ = false;
     load(Screen::main_menu);

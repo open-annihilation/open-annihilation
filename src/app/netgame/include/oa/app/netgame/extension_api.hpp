@@ -16,6 +16,7 @@
 #pragma once
 
 #include "oa/core/world.h"
+#include "oa/netgame/overlay_route.hpp"
 #include "oa/ui/frontend_multiplayer/launch_block.hpp"
 
 #include <cstdint>
@@ -27,7 +28,7 @@
 /// Raise it by one in the change that alters the contract: a function or
 /// hook added, removed or renamed, or its parameters, its effect or when
 /// network play calls it. A change to wording alone keeps it.
-#define OA_NET_EXTENSION_API_VERSION 2
+#define OA_NET_EXTENSION_API_VERSION 3
 
 namespace oa::data::campaign {
 struct CampaignFile;
@@ -193,5 +194,21 @@ struct Hooks {
 ///
 /// @param hooks the hooks, copied
 void set_hooks(const Hooks& hooks) noexcept;
+
+/// Installs a route for one battle, or removes it when route is null.
+///
+/// The route is copied. Datagrams and streams whose destination it claims
+/// are carried by it instead of by the system. Installing one clears the
+/// direct-packet count. Removing one leaves that count as it is.
+///
+/// @param route the route, or null
+void set_overlay_route(const oa::netgame::sock::OverlayRoute* route) noexcept;
+
+/// Returns how many datagrams and streams the sockets sent or received
+/// directly, to or from a claimed address or this machine's loopback, while
+/// a route was installed.
+///
+/// @return the count since the route was installed
+[[nodiscard]] uint64_t overlay_direct_packets() noexcept;
 
 } // namespace oa::app::netgame::extension_api

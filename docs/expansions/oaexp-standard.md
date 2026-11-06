@@ -91,12 +91,25 @@ The folder holds the expansion's files and a `.oa-content` record. The
 record's bundle id is the expansion's id. Its source is `registry <id>`
 when the package came from a registry, using that registry's id. When the
 player opened the file, the source is the file's path. A registry id that
-holds a newline is refused.
+holds a newline is refused. After the source, the line `package <sha256>
+<release>` names the package the files came from: the whole `.oaexp`'s
+SHA-256, as a catalogue lists it, and the catalogue's release, or 0 for a
+file the player opened. A reader before 0.9 skips the line, and no other
+bundle's record holds one. A catalogue entry fetches the package again
+only when the catalogue's SHA-256 is another one, the copy is missing, or
+the record has no package line.
 
-Installing again replaces that folder when the record already names this
-expansion. A file the table does not name, left in the folder, is removed
-with the old folder. A link in the expansion's place is left where it is,
-and so is a folder whose record names something else.
+Installing again over a folder whose record already names this expansion
+replaces its files where they are. A file that already holds the
+package's bytes is left as it is, and the folders stay, so a file sync
+sees no folder go and come back. A file the table does not name, such as
+one the game wrote beside the package's own, is kept. A file the old
+record named that the package no longer holds is removed, and so is an
+empty numbered copy of one of the package's folders ("Help 2") a file sync
+left. The record is written without its package line first, and with the
+new one last, so an install that stops part way is fetched again. A link
+in the expansion's place is left where it is, and so is a folder whose
+record names something else.
 
 Uninstalling removes `Expansions/<game>/<id>` when the record's bundle id
 is that expansion. Another expansion's folder is left in place. A link is
@@ -138,3 +151,13 @@ The archive also holds each file the built-in table names for
 for the same package names `kind`, `id`, `version`, `file`, `sha256`,
 `size` and `extends`, and the file's last segment is the digest plus
 `.oaexp`.
+
+The built-in expansion `boneyards` ("The Boneyards") extends `totala` and
+needs nothing else. It holds `by.ccx` and the game-data files of the
+install's `Boneyards/` folder: the help pages, the profiles and ladders,
+the images and the map. A copy writes them under
+`Expansions/totala/boneyards/`, keeping those folders, so the archive is
+`Expansions/totala/boneyards/by.ccx`. An install that already holds those
+files, including the known `by.ccx`, counts as having the expansion, the
+way a Core Contingency install counts as having that expansion's archives.
+The beta agreement, programs and libraries are not part of it.

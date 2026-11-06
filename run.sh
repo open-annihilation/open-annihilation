@@ -186,6 +186,12 @@ if [[ ! -f "$repo_dir/local/deps/text-fonts/build-settings.json" || ! -f "${free
     choose_python
     "${python[@]}" "$repo_dir/tools/bootstrap_text_fonts.py"
 fi
+# Page fonts the module copies beside the game. A build with the module off
+# does not read them; fetching them here keeps a clean checkout able to configure.
+if [[ ! -f "$repo_dir/local/deps/fonts/liberation/LiberationSans-Regular.ttf" ]]; then
+    printf 'Fetching the pinned page fonts under local/deps...\n'
+    python3 "$repo_dir/tools/bootstrap_page_fonts.py" --deps "$repo_dir/local/deps"
+fi
 prefix_path="$sdl_prefix"
 if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then prefix_path="$prefix_path;$CMAKE_PREFIX_PATH"; fi
 printf 'Building current native code in %s...\n' "$build_dir"

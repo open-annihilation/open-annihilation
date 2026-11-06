@@ -82,7 +82,9 @@ CMake 3.24 or newer, a C++20 compiler, zlib and Python 3.12 or newer. The
 engine decodes the movies and the music itself. SDL3 is built
 locally by `tools/bootstrap_sdl.py`, and FreeType and the fonts that travel
 with the game by `tools/bootstrap_text_fonts.py`, into the ignored
-`local/deps` directory; nothing is installed globally. The fonts bootstrap
+`local/deps` directory; nothing is installed globally. The page fonts the
+module copies beside the game are fetched by `tools/bootstrap_page_fonts.py`
+into that same directory. The fonts bootstrap
 installs the fontTools it cuts the CJK font with into a virtual environment
 there, which needs Python's `venv` module. On macOS the Xcode Command Line Tools provide
 the compiler and zlib.
@@ -95,6 +97,7 @@ run every test:
 ```sh
 python3 tools/bootstrap_sdl.py
 python3 tools/bootstrap_text_fonts.py
+python3 tools/bootstrap_page_fonts.py --deps local/deps
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_PREFIX_PATH="$PWD/local/deps/sdl-install" \
     -DOA_GAME_DIR="/path/to/Total Annihilation"
@@ -140,7 +143,8 @@ ctest --test-dir build-core --output-on-failure
 
 On Windows, install zlib with `vcpkg install zlib:x64-windows`, build SDL with
 `python tools/bootstrap_sdl.py`, FreeType and the fonts with
-`python tools/bootstrap_text_fonts.py`, and configure with the vcpkg
+`python tools/bootstrap_text_fonts.py`, the page fonts with
+`python tools/bootstrap_page_fonts.py --deps local/deps`, and configure with the vcpkg
 toolchain:
 
 ```powershell

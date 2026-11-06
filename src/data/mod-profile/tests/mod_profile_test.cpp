@@ -1894,6 +1894,117 @@ void test_weapon_and_side_limits() {
     }
 }
 
+/// Checks media.boneyards-entry: every mode, the plate's place at its edges,
+/// the values refused, x and y given together, and a key that stays out of
+/// the sim hash and, at its baseline, out of the full hash.
+void test_boneyards_entry() {
+    const ResolveResult left_out = resolve(profile_text("minimal"));
+    OA_CHECK(left_out.resolution.has_value());
+    if (left_out.resolution) {
+        const auto& entry = left_out.resolution->profile.media.boneyards_entry;
+        OA_CHECK(entry.mode == "auto" && entry.x == 497 && entry.y == 8);
+        OA_CHECK(left_out.resolution->canonical.find("boneyards-entry") == std::string::npos);
+        OA_CHECK(
+            text_of(at(*left_out.resolution, {"media", "boneyards-entry", "mode"})) == "\"auto\""
+        );
+        OA_CHECK(source_of(*left_out.resolution, "media.boneyards-entry.x") == "baseline");
+    }
+    // The baseline written out hashes as the profile that leaves it out.
+    const ResolveResult written =
+        resolve(profile_text("minimal", "media:\n  boneyards-entry: {mode: auto, x: 497, y: 8}\n"));
+    OA_CHECK(written.errors.empty() && written.resolution.has_value());
+    if (written.resolution && left_out.resolution) {
+        OA_CHECK(written.resolution->profile.full_hash == left_out.resolution->profile.full_hash);
+        OA_CHECK(written.resolution->profile.sim_hash == left_out.resolution->profile.sim_hash);
+        OA_CHECK(written.resolution->canonical.find("boneyards-entry") == std::string::npos);
+    }
+
+    struct Place {
+        int32_t x;
+        int32_t y;
+    };
+
+    for (const std::string_view mode : {"auto", "strip", "button", "none"}) {
+        for (const Place place : {Place{497, 8}, Place{0, 0}, Place{505, 414}, Place{172, 377}}) {
+            const std::string body = "media:\n  boneyards-entry: {mode: " + std::string(mode) +
+                                     ", x: " + std::to_string(place.x) +
+                                     ", y: " + std::to_string(place.y) + "}\n";
+            const ResolveResult chosen = resolve(profile_text("minimal", body));
+            OA_CHECK(chosen.errors.empty() && chosen.resolution.has_value());
+            if (!chosen.resolution || !left_out.resolution)
+                continue;
+            const auto& entry = chosen.resolution->profile.media.boneyards_entry;
+            OA_CHECK(entry.mode == mode && entry.x == place.x && entry.y == place.y);
+            OA_CHECK(source_of(*chosen.resolution, "media.boneyards-entry.mode") == "profile");
+            OA_CHECK(source_of(*chosen.resolution, "media.boneyards-entry.y") == "profile");
+            // A view key: the rules every machine shares do not move.
+            OA_CHECK(chosen.resolution->profile.sim_hash == left_out.resolution->profile.sim_hash);
+            const bool at_baseline = mode == "auto" && place.x == 497 && place.y == 8;
+            OA_CHECK(
+                (chosen.resolution->profile.full_hash == left_out.resolution->profile.full_hash) ==
+                at_baseline
+            );
+        }
+    }
+    // The mode alone keeps the place at its baseline, the top right.
+    const ResolveResult mode_only =
+        resolve(profile_text("minimal", "media:\n  boneyards-entry: {mode: button}\n"));
+    OA_CHECK(mode_only.resolution.has_value());
+    if (mode_only.resolution) {
+        const auto& entry = mode_only.resolution->profile.media.boneyards_entry;
+        OA_CHECK(entry.mode == "button" && entry.x == 497 && entry.y == 8);
+        OA_CHECK(
+            mode_only.resolution->canonical.find(
+                "\"boneyards-entry\":{\"mode\":\"button\",\"x\":497,\"y\":8}"
+            ) != std::string::npos
+        );
+    }
+    // A place alone keeps the mode at auto.
+    const ResolveResult place_only =
+        resolve(profile_text("minimal", "media:\n  boneyards-entry: {x: 8, y: 8}\n"));
+    OA_CHECK(place_only.resolution.has_value());
+    if (place_only.resolution) {
+        const auto& entry = place_only.resolution->profile.media.boneyards_entry;
+        OA_CHECK(entry.mode == "auto" && entry.x == 8 && entry.y == 8);
+    }
+    for (const std::string_view body :
+         {"media:\n  boneyards-entry: {mode: Strip}\n",
+          "media:\n  boneyards-entry: {mode: hidden}\n",
+          "media:\n  boneyards-entry: {x: -1, y: 8}\n",
+          "media:\n  boneyards-entry: {x: 506, y: 8}\n",
+          "media:\n  boneyards-entry: {x: 497, y: 415}\n",
+          "media:\n  boneyards-entry: {x: 10.5, y: 8}\n",
+          "media:\n  boneyards-entry: {x: left, y: 8}\n"}) {
+        const ResolveResult refused = resolve(profile_text("minimal", body));
+        OA_CHECK(!refused.resolution && !refused.errors.empty());
+    }
+    // x and y are one place: either alone is refused.
+    for (const std::string_view body :
+         {"media:\n  boneyards-entry: {x: 8}\n",
+          "media:\n  boneyards-entry: {mode: button, y: 8}\n"}) {
+        const ResolveResult half = resolve(profile_text("minimal", body));
+        OA_CHECK(!half.resolution && !half.errors.empty());
+        if (!half.errors.empty()) {
+            OA_CHECK(half.errors.front().message == "x and y must be given together");
+            OA_CHECK(half.errors.front().path == "media.boneyards-entry");
+        }
+    }
+    // The corner of earlier builds is no member.
+    const ResolveResult unknown =
+        resolve(profile_text("minimal", "media:\n  boneyards-entry: {corner: top-left}\n"));
+    OA_CHECK(!unknown.resolution && !unknown.errors.empty());
+    if (!unknown.errors.empty())
+        OA_CHECK(unknown.errors.front().message == "unknown key");
+    // A mode written alone says the group is a mapping, not that it is unknown.
+    const ResolveResult plain =
+        resolve(profile_text("minimal", "media:\n  boneyards-entry: button\n"));
+    OA_CHECK(!plain.resolution && !plain.errors.empty());
+    if (!plain.errors.empty()) {
+        OA_CHECK(plain.errors.front().message == "must be a mapping of mode, x, y");
+        OA_CHECK(plain.errors.front().path == "media.boneyards-entry");
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view{argv[1]} == "--references")
         return test_references();
@@ -1915,5 +2026,6 @@ int main(int argc, char** argv) {
     test_description();
     test_package_keys();
     test_content_needs();
+    test_boneyards_entry();
     return oa::test::check_exit_status();
 }

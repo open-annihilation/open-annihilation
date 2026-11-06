@@ -502,6 +502,122 @@ std::size_t count_sent(uint16_t command, const Node* to = nullptr) {
     return n;
 }
 
+/// Command word of one in-flight or sent packet, or 0 when it is not a control message.
+///
+/// @param packet Packet to read.
+/// @return The command word.
+uint16_t packet_command(const Wire::Packet& packet) {
+    Message m{};
+    if (decode_message(packet.bytes.data(), packet.bytes.size(), &m) != ParseError::ok)
+        return 0;
+    return m.command;
+}
+
+/// Delivers one packet to its machine.
+///
+/// @param packet Packet to deliver.
+/// @param now Current time in milliseconds.
+void deliver_packet(const Wire::Packet& packet, uint32_t now) {
+    if (packet.to == nullptr || packet.to->silent)
+        return;
+    if (packet.stream)
+        engine_on_stream(
+            &packet.to->engine, packet.from, packet.bytes.data(), packet.bytes.size(), now
+        );
+    else
+        engine_on_datagram(
+            &packet.to->engine, packet.from, packet.bytes.data(), packet.bytes.size(), now
+        );
+}
+
+/// Delivers the first in-flight packet.
+///
+/// @param now Current time in milliseconds.
+void deliver_front(uint32_t now) {
+    if (g_wire->in_flight.empty())
+        return;
+    const Wire::Packet packet = g_wire->in_flight.front();
+    g_wire->in_flight.erase(g_wire->in_flight.begin());
+    deliver_packet(packet, now);
+}
+
+/// Delivers in-flight packets except those `hold` keeps, which stay in order at the front.
+///
+/// Packets sent while delivering are delivered or held by the same rule.
+///
+/// @param hold Tells which packets to keep.
+/// @param now Current time in milliseconds.
+void deliver_except(bool (*hold)(const Wire::Packet&), uint32_t now) {
+    std::vector<Wire::Packet> held;
+    for (int guard = 0; guard < 1000 && !g_wire->in_flight.empty(); ++guard) {
+        const Wire::Packet packet = g_wire->in_flight.front();
+        g_wire->in_flight.erase(g_wire->in_flight.begin());
+        if (hold != nullptr && hold(packet)) {
+            held.push_back(packet);
+            continue;
+        }
+        deliver_packet(packet, now);
+    }
+    g_wire->in_flight.insert(g_wire->in_flight.begin(), held.begin(), held.end());
+}
+
+/// Tells whether a packet is a request to be admitted.
+///
+/// @param packet Packet to test.
+/// @return True for an AddForwardRequest.
+bool is_admission(const Wire::Packet& packet) {
+    return packet_command(packet) == command::add_forward_request;
+}
+
+/// Tells whether a packet is an admission or a player announcement.
+///
+/// @param packet Packet to test.
+/// @return True for an AddForwardRequest or a CreatePlayer.
+bool is_admission_or_announcement(const Wire::Packet& packet) {
+    const uint16_t word = packet_command(packet);
+    return word == command::add_forward_request || word == command::create_player;
+}
+
+/// Tells whether a roster packet names a player.
+///
+/// @param packet SuperEnumPlayersReply to read.
+/// @param id Player id.
+/// @return True when the roster lists the id.
+bool roster_names(const Wire::Packet& packet, uint32_t id) {
+    Message m{};
+    if (decode_message(packet.bytes.data(), packet.bytes.size(), &m) != ParseError::ok)
+        return false;
+    for (uint32_t i = 0; i < m.roster_count; ++i)
+        if (m.roster[i].id == id)
+            return true;
+    return false;
+}
+
+/// Tells whether a machine was sent a CreatePlayer for an id.
+///
+/// @param to Machine addressed.
+/// @param id Player id.
+/// @return True when such an announcement was sent.
+bool announced_player_to(const Node* to, uint32_t id) {
+    Message m{};
+    for (const auto& packet : g_wire->sent)
+        if (packet.to == to &&
+            decode_message(packet.bytes.data(), packet.bytes.size(), &m) == ParseError::ok &&
+            m.command == command::create_player && m.player.id == id)
+            return true;
+    return false;
+}
+
+/// Tells whether a machine holds an application player.
+///
+/// @param e Engine to search.
+/// @param id Player id.
+/// @return True when that player is present and is not a system player.
+bool has_application_player(const Engine& e, uint32_t id) {
+    const EnginePlayer* player = engine_find_player(&e, id);
+    return player != nullptr && (player->info.flags & player_flag::system_player) == 0;
+}
+
 /// Runs the ping timer of every machine still answering, then delivers what they sent.
 ///
 /// @param now Current time in milliseconds.
@@ -1220,6 +1336,145 @@ void a_search_finds_only_a_game_under_its_application_guid() {
     }
 }
 
+// A host and one joiner exchange one player announcement: the joiner's own.
+// The host's players travel in the roster, and admitting the joiner tells
+// no further machine.
+void a_two_player_game_announces_the_joining_player_once() {
+    current_test = "a_two_player_game_announces_the_joining_player_once";
+    Wire wire;
+    g_wire = &wire;
+    auto host = make_node(1, 2300, 81);
+    auto joiner = make_node(2, 2301, 83);
+    wire.nodes[0] = host.get();
+    wire.nodes[1] = joiner.get();
+    uint32_t host_player = 0;
+    uint32_t joiner_player = 0;
+    CHECK(host_with_player(host.get(), session_flag::migrate_host, &host_player));
+    wire.sent.clear();
+    CHECK(join_with_player(joiner.get(), &joiner_player));
+    CHECK(count_sent(command::create_player) == 1);
+    Message m{};
+    CHECK(last_sent(command::create_player, &m));
+    CHECK(m.player.id == joiner_player);
+    CHECK((m.player.flags & player_flag::system_player) == 0);
+    CHECK(has_application_player(host->engine, joiner_player));
+    CHECK(has_application_player(joiner->engine, host_player));
+    g_wire = nullptr;
+}
+
+// Three machines ask to join before the host has admitted any of them. One
+// creates its player while the host is admitting another, and that player's
+// announcement is still on its way to the host when the new machine's roster
+// is built. Each machine that already has a player sends it straight to the
+// machine it has just met, and every machine ends with every player.
+void a_player_created_during_another_join_reaches_every_machine() {
+    current_test = "a_player_created_during_another_join_reaches_every_machine";
+    Wire wire;
+    g_wire = &wire;
+    auto host = make_node(1, 2300, 91);
+    auto ann = make_node(2, 2301, 93);
+    auto bee = make_node(3, 2302, 95);
+    auto cam = make_node(4, 2303, 97);
+    wire.nodes[0] = host.get();
+    wire.nodes[1] = ann.get();
+    wire.nodes[2] = bee.get();
+    wire.nodes[3] = cam.get();
+    uint32_t host_player = 0;
+    CHECK(host_with_player(host.get(), session_flag::migrate_host, &host_player));
+
+    Node* joiners[3] = {ann.get(), bee.get(), cam.get()};
+    for (Node* joiner : joiners) {
+        CHECK(
+            engine_enum_sessions(&joiner->engine, game_application(), everywhere, 0) == result::ok
+        );
+    }
+    deliver_all(0);
+    for (Node* joiner : joiners) {
+        CHECK(joiner->engine.session_count == 1);
+        CHECK(
+            engine_join(&joiner->engine, joiner->engine.sessions[0].instance, nullptr, 0) ==
+            result::ok
+        );
+    }
+    // All three admissions sit at the host. None has been taken yet.
+    deliver_except(is_admission, 0);
+    CHECK(g_wire->in_flight.size() == 3);
+    CHECK(is_admission(g_wire->in_flight[0]));
+    CHECK(is_admission(g_wire->in_flight[1]));
+    CHECK(is_admission(g_wire->in_flight[2]));
+
+    // Admit the first. Its roster carries the host's player; it has none yet.
+    deliver_front(0);
+    deliver_except(is_admission, 0);
+    CHECK(engine_join_status(&ann->engine) == result::ok);
+    CHECK(g_wire->in_flight.size() == 2);
+
+    // The first creates its player while the other two are still waiting to
+    // be admitted. Hold that announcement so the host's next roster is built
+    // without the player.
+    uint32_t ann_player = 0;
+    CHECK(
+        engine_create_player(&ann->engine, "ann", "ann", nullptr, 0, 0, &ann_player) ==
+        result::connecting
+    );
+    deliver_except(is_admission_or_announcement, 0);
+    CHECK(engine_create_player_status(&ann->engine, &ann_player) == result::ok);
+    CHECK(g_wire->in_flight.size() == 3);
+    CHECK(is_admission(g_wire->in_flight[0]));
+    CHECK(is_admission(g_wire->in_flight[1]));
+    CHECK(packet_command(g_wire->in_flight[2]) == command::create_player);
+    CHECK(g_wire->in_flight[2].to == host.get());
+    Message held{};
+    CHECK(
+        decode_message(
+            g_wire->in_flight[2].bytes.data(), g_wire->in_flight[2].bytes.size(), &held
+        ) == ParseError::ok
+    );
+    CHECK(held.player.id == ann_player);
+    CHECK((held.player.flags & player_flag::system_player) == 0);
+    CHECK(engine_find_player(&host->engine, ann_player) == nullptr);
+
+    // Admit the second while that announcement has not reached the host.
+    deliver_front(0);
+    const Wire::Packet* bee_roster = nullptr;
+    for (const auto& packet : g_wire->in_flight)
+        if (packet.to == bee.get() && packet_command(packet) == command::super_enum_players_reply)
+            bee_roster = &packet;
+    CHECK(bee_roster != nullptr && !roster_names(*bee_roster, ann_player));
+    deliver_all(0);
+
+    // The straight announcement, not the roster, is what told the others.
+    CHECK(announced_player_to(bee.get(), ann_player));
+    CHECK(announced_player_to(cam.get(), ann_player));
+    CHECK(has_application_player(host->engine, ann_player));
+    CHECK(has_application_player(bee->engine, ann_player));
+    CHECK(has_application_player(cam->engine, ann_player));
+    CHECK(engine_join_status(&bee->engine) == result::ok);
+    CHECK(engine_join_status(&cam->engine) == result::ok);
+
+    uint32_t bee_player = 0;
+    uint32_t cam_player = 0;
+    CHECK(
+        engine_create_player(&bee->engine, "bee", "bee", nullptr, 0, 0, &bee_player) ==
+        result::connecting
+    );
+    deliver_all(0);
+    CHECK(engine_create_player_status(&bee->engine, &bee_player) == result::ok);
+    CHECK(
+        engine_create_player(&cam->engine, "cam", "cam", nullptr, 0, 0, &cam_player) ==
+        result::connecting
+    );
+    deliver_all(0);
+    CHECK(engine_create_player_status(&cam->engine, &cam_player) == result::ok);
+
+    const uint32_t players[4] = {host_player, ann_player, bee_player, cam_player};
+    const Engine* machines[4] = {&host->engine, &ann->engine, &bee->engine, &cam->engine};
+    for (const Engine* machine : machines)
+        for (uint32_t id : players)
+            CHECK(has_application_player(*machine, id));
+    g_wire = nullptr;
+}
+
 } // namespace
 
 int main() {
@@ -1238,6 +1493,8 @@ int main() {
     player_name_and_data_changes_reach_the_other_machines();
     name_server_and_player_change_messages_round_trip();
     a_search_finds_only_a_game_under_its_application_guid();
+    a_two_player_game_announces_the_joining_player_once();
+    a_player_created_during_another_join_reaches_every_machine();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

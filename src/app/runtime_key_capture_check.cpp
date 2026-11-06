@@ -38,6 +38,21 @@
 namespace oa::app {
 namespace {
 
+// Whether the prompt's times are held to their budget. A build with the
+// address sanitizer checks every memory access and runs several times
+// slower, so there the times are printed and not compared.
+#if defined(__SANITIZE_ADDRESS__)
+constexpr bool prompt_times_compared = false;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+constexpr bool prompt_times_compared = false;
+#else
+constexpr bool prompt_times_compared = true;
+#endif
+#else
+constexpr bool prompt_times_compared = true;
+#endif
+
 namespace fs = std::filesystem;
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
@@ -458,10 +473,12 @@ void Runtime::check_key_capture() {
     }
     std::cout << "key capture check: Choose what happens… took " << open_ms
               << " ms, the slowest move over the question " << slowest_ms << " ms\n";
-    require(open_ms < 100, "Choose what happens… took " + std::to_string(open_ms) + " ms");
-    require(
-        slowest_ms < 100, "a move over the question took " + std::to_string(slowest_ms) + " ms"
-    );
+    if (prompt_times_compared) {
+        require(open_ms < 100, "Choose what happens… took " + std::to_string(open_ms) + " ms");
+        require(
+            slowest_ms < 100, "a move over the question took " + std::to_string(slowest_ms) + " ms"
+        );
+    }
     cancel_prompt();
 
     note("Escape held 1100 ms for Attack offers the clash with Back");

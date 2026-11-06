@@ -6,6 +6,7 @@
 
 #include "app.hpp"
 #include "director_presentation.hpp"
+#include "expansion_entry.hpp"
 #include "extension.hpp"
 #include "frame_pacing.hpp"
 #include "middle_pan.hpp"
@@ -21,6 +22,7 @@
 #include "web_link.hpp"
 #include "world_scaling.hpp"
 #include "far_view.hpp"
+#include "presence_facts.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/audio/sdl_audio.hpp"
 #include "oa/base/game_loop.hpp"
@@ -248,7 +250,6 @@ struct RecordSample;
 
 namespace oa::app {
 
-struct PresenceFacts;
 enum class AwayAction : uint8_t;
 
 /// Loads the session palette, PALETTE.PAL, through the palette file loader.
@@ -586,6 +587,10 @@ enum class Act : uint8_t;
 /// @param options the options already parsed, including the data folder
 /// @return 0 when the helper was started, otherwise -1
 [[nodiscard]] int guard_unconfirmed_start(int argc, char** argv, const Options& options);
+
+/// Drives one entry. Defined with the entry, so the question's host can call
+/// back without the runtime header naming the question screen.
+struct EntryDriver;
 
 class Runtime final : public menu::Host,
                       public entry::SinglePlayerHost,
@@ -1702,6 +1707,69 @@ class Runtime final : public menu::Host,
     /// @param now_ms clock_milliseconds() of this frame
     void advance_match_clock(uint32_t now_ms);
 
+    /// Tells whether this single-player match is held for the stepped clock.
+    ///
+    /// True only when the clock was asked to step (stepped_clock_) and a match
+    /// is on screen that is not shared, not a replay and not watched. A run
+    /// that never asks leaves stepped_clock_ false, and this stays false.
+    ///
+    /// @return true when step_match_frame draws and does not take wall-clock time
+    [[nodiscard]] bool stepped_clock_holds() const;
+
+    /// Sets the match clock's previous reading to this frame and clears the
+    /// time it owes, so a later return to the wall clock does not catch up
+    /// the time the clock was held. Does not change the tick, the speed or
+    /// the adaptation. Does nothing without a match.
+    void snap_held_clock();
+
+    /// Runs one simulation step, as advance_match_clock runs each owed step.
+    ///
+    /// A step the extension takes is the extension's. A step it does not take
+    /// runs the match's tick. A step that fails, or a fault the tick noted,
+    /// is reported and the remaining steps of this grant should stop.
+    ///
+    /// @return false when this step failed and the grant's remaining steps stop
+    bool run_one_match_step();
+
+    /// Gives the orders a stepped clock is holding, on the tick this step is running.
+    ///
+    /// Called after the game tick is published and before the match ticks, so
+    /// an order's issue tick is that tick. A later tick of the same grant
+    /// finds them already given. Does nothing when none are held.
+    void give_held_play_orders();
+
+    /// Forgets orders a stepped clock was holding. teardown_match calls this
+    /// before the match goes, so a later match at this address starts clear.
+    void drop_held_play_orders();
+
+    /// Posts a computer seat's chat, retires one message line when steps were
+    /// owed, and places the map's timed units. advance_match_clock and a
+    /// granted run share this, after their steps.
+    void finish_match_steps();
+
+    /// How many ticks a granted run of the stepped clock actually ran.
+    struct GrantedTicks {
+        uint32_t ran{};   ///< simulation ticks that completed
+        bool game_over{}; ///< the match's outcome left ongoing
+    };
+
+    /// Runs up to count simulation ticks. The match's speed does not scale
+    /// the count. Stops early when a step fails or the match's outcome leaves
+    /// ongoing. Returns none when the pause is on, a menu holds the clock, or
+    /// no match is running. The wall clock is not consulted.
+    ///
+    /// @param count how many ticks to run
+    /// @return how many ran, and whether the match ended
+    GrantedTicks run_granted_ticks(uint32_t count);
+
+    /// Starts the match on screen on the stepped clock when mode is 1, once
+    /// (PlayHost::offer_startup_clock). A shared match, a replay and a watcher
+    /// stay on the wall clock. While no match is on screen the choice is
+    /// forgotten and the clock returns to the wall clock.
+    ///
+    /// @param mode 1 to start stepped, 0 to start on the wall clock
+    void offer_stepped_clock(uint8_t mode);
+
     /// Has the unit playout (unit_playout_) read the match once its step's
     /// records are applied: where the units of players this machine does not
     /// simulate are, and how far their owners' records have come. Reads the
@@ -2540,6 +2608,15 @@ class Runtime final : public menu::Host,
     // The automation host's entries (automation_host.hpp,
     // runtime_automation_host.cpp).
     friend struct AutomationHostAccess;
+    // The match view's entries (match_view.hpp, runtime_match_view.cpp).
+    friend struct MatchViewAccess;
+    // The play host's entries (play_host.hpp, runtime_play_host.cpp).
+    // oa-app-mcp is the only caller. The entries change the match through
+    // the speed keys, the Pause key, the stepped clock, the match's own
+    // order calls, the order panel's standing orders and the player's
+    // selection. A stepped clock holds an order until a step runs it. The
+    // camera entries move the view and the view's limits hold it.
+    friend struct PlayHostAccess;
     // Network play's state for one runtime (src/app/netgame/network_play.hpp),
     // which its extension owns and through which its hooks reach the
     // runtime; to be replaced by hooks and declared headers
@@ -2552,6 +2629,12 @@ class Runtime final : public menu::Host,
     /// @param units_per_player the limit, in units per player
     /// @param scope when it takes effect, and whether the player keeps it
     friend void set_unit_limit(Runtime& runtime, int32_t units_per_player, SettingScope scope);
+    /// Answers MULTI when an extension took the press (answer_multiplayer_entry
+    /// in extension.hpp).
+    ///
+    /// @param runtime the running app
+    /// @return true when the press was answered here
+    friend bool answer_multiplayer_entry(Runtime& runtime);
     /// Tells the input method where the focused text field is
     /// (set_focused_text_field in extension.hpp).
     ///
@@ -2574,6 +2657,12 @@ class Runtime final : public menu::Host,
     /// @param source the list of windows; null removes it
     friend void
     set_extension_window_source(Runtime& runtime, void* context, ExtensionWindowSource source);
+    /// Posts one note for a program driving the game (post_extension_note).
+    friend void post_extension_note(Runtime& runtime, const char* kind, const char* text);
+    /// Takes those notes, oldest first (take_extension_notes).
+    friend void take_extension_notes(
+        Runtime& runtime, std::vector<std::string>& kinds, std::vector<std::string>& texts
+    );
     /// Returns the clock an extension's idle work follows (extension_clock
     /// in extension.hpp).
     ///
@@ -2611,6 +2700,13 @@ class Runtime final : public menu::Host,
     /// @param runtime the running app
     /// @return those facts
     friend PresenceFacts presence_facts(const Runtime& runtime);
+    /// Reads the standard hacks that are on, with each parameter's value
+    /// (active_standard_hacks in presence_facts.hpp). The values stay off
+    /// the presence told to other machines.
+    ///
+    /// @param runtime the running app
+    /// @return the hacks that are on, in registry order
+    friend std::vector<ActiveHack> active_standard_hacks(const Runtime& runtime);
     /// Returns the battle room's source of installed pack maps
     /// (pack_map_source in pack_map_source.hpp).
     ///
@@ -3757,6 +3853,23 @@ class Runtime final : public menu::Host,
     /// @param event event to offer
     /// @return true when a package took it
     bool dispatch_screen_input(const SDL_Event& event);
+
+    /// Offers one already-translated input to the overlays, topmost first, then to the screen.
+    ///
+    /// @param input the input, in the space the packages see
+    /// @return true when a package took it
+    bool screen_input_taken(const ScreenInput& input);
+
+    /// Reports whether a layer over the current screen takes the pointer at a point.
+    ///
+    /// The point is in render space, where the pointer is drawn. The answer is
+    /// the one that keeps the point from the gadgets underneath: the layers
+    /// are offered a pointer move there.
+    ///
+    /// @param x column
+    /// @param y row
+    /// @return true when a layer takes the point
+    bool extension_layer_takes_pointer(float x, float y);
 
     /// Ticks the overlays and the current screen's package, then runs a pending ending and any
     /// requested screen change.
@@ -6194,6 +6307,93 @@ class Runtime final : public menu::Host,
     /// @return those seats
     [[nodiscard]] const oa::data::brain_library::Seats& loaded_brain_seats() const noexcept;
 
+    /// Starts an entry: the update check, then the package when it is not
+    /// already in the game folder.
+    ///
+    /// A call while a check or a download from this entry is running does
+    /// nothing. The sentences in `ask` are shown as given.
+    ///
+    /// @param ask the package and the sentences
+    void begin_expansion_entry(const ExpansionEntryAsk& ask);
+
+    /// Moves an entry on by one step.
+    ///
+    /// @return where the entry stands
+    [[nodiscard]] ExpansionEntryStatus advance_expansion_entry();
+
+    /// Answers the update question.
+    ///
+    /// Update downloads the offered release where this copy installs it in
+    /// place, with the one-shot entry saved, and installs it once it is
+    /// ready; a release offered only on its page opens the page and the
+    /// entry stops. Cancel stays on the menu. A call while that question is
+    /// not open does nothing.
+    ///
+    /// @param take_update true for Update, false for Cancel
+    void answer_expansion_entry(bool take_update);
+
+    /// Ends the run so the next one enters, once a ready entry found its
+    /// newly installed package not in use (expansion_entry.hpp).
+    ///
+    /// @param notice the sentence shown when the run will not restart
+    void restart_expansion_entry(const std::string& notice);
+
+    /// Turns the update check and the catalogue check on where they are
+    /// Never, tells the catalogues and Settings, and saves the preferences.
+    ///
+    /// Settings › Updates' Check for updates (`open-annihilation.update-check`)
+    /// and the Library's check for content updates
+    /// (`open-annihilation.content-updates`) each become Automatically. A
+    /// check already on keeps what the player chose.
+    void turn_on_online_checks();
+
+    /// Tells a running entry whether to draw its fetch on the caller's screen.
+    ///
+    /// @param on_screen true to leave the menu question closed
+    void expansion_entry_show_on_screen(bool on_screen);
+
+    /// Reports whether this entry is holding the update question back.
+    ///
+    /// @return true while the entry's own check has not been answered
+    [[nodiscard]] bool expansion_entry_holds_check() const noexcept;
+
+    /// Reports whether an entry is in the middle of a check or a download.
+    ///
+    /// @return true while a new entry would be ignored
+    [[nodiscard]] bool expansion_entry_busy() const noexcept;
+
+    /// Asks whether to switch a remembered mod back on.
+    ///
+    /// A call while an entry is busy does nothing. The sentences are already
+    /// translated.
+    ///
+    /// @param question the sentence
+    /// @param on_label the button that switches the mod on
+    /// @param later_label the button that leaves it off
+    void ask_remembered_mod(
+        const std::string& question, const std::string& on_label, const std::string& later_label
+    );
+
+    /// Reports whether the remembered-mod question is open.
+    ///
+    /// @return true while that question is waiting
+    [[nodiscard]] bool remembered_mod_question_open() const noexcept;
+
+    /// Answers the remembered-mod question.
+    ///
+    /// @param switch_on true to switch the remembered mod on
+    void answer_remembered_mod(bool switch_on);
+
+    /// Reports whether the question about switching a mod off is open.
+    ///
+    /// @return true while that question is waiting
+    [[nodiscard]] bool expansion_mod_question_open() const noexcept;
+
+    /// Answers the question about switching a mod off.
+    ///
+    /// @param switch_off true to switch the mod off and enter
+    void answer_expansion_mod_question(bool switch_off);
+
   private:
 
     /// Remembers the mutators that stopped a start, for "Start without X?".
@@ -6945,6 +7145,88 @@ class Runtime final : public menu::Host,
     /// @param state state to free; null is allowed
     static void destroy_update_state(UpdateState* state) noexcept;
 
+    /// One entry into an expansion (runtime_update_entry.cpp).
+    struct EntryState;
+
+    /// Frees an entry.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_entry_state(EntryState* state) noexcept;
+
+    /// The entry's question host (runtime_update_entry.cpp).
+    friend struct EntryDriver;
+
+    /// The language an extension's entry reads (expansion_entry.hpp).
+    friend const oa::data::languages::Language& expansion_entry_language(const Runtime& runtime);
+
+    /// The mod an extension's entry reads and switches (expansion_entry.hpp).
+    friend ActiveMod active_mod(const Runtime& runtime);
+
+    /// Stores one preference under its own key, with no mod prefix (expansion_entry.hpp).
+    friend void
+    keep_expansion_preference(Runtime& runtime, std::string_view key, std::string_view value);
+
+    /// Reads one preference stored under its own key (expansion_entry.hpp).
+    friend std::optional<std::string>
+    expansion_preference(const Runtime& runtime, std::string_view key);
+
+    /// Switches to a mod folder, or to none when the folder is empty (expansion_entry.hpp).
+    friend bool switch_active_mod(Runtime& runtime, std::string_view folder, std::string& refusal);
+
+    /// Reports whether the run will start again (expansion_entry.hpp).
+    friend bool expansion_will_restart(const Runtime& runtime) noexcept;
+
+    /// Saves the preferences (expansion_entry.hpp).
+    friend void save_expansion_preferences(Runtime& runtime);
+
+    /// Ends the run (expansion_entry.hpp).
+    friend void end_expansion_run(Runtime& runtime);
+
+    /// How many mutators the running match carries (expansion_entry.hpp).
+    friend uint32_t active_mutator_count(const Runtime& runtime);
+
+    /// Forgets the question the entry was showing, when it is the one that closed.
+    ///
+    /// A question closed after the entry put up the next one leaves that one known.
+    ///
+    /// @param runtime the runtime; null does nothing
+    /// @param closing the question that closed
+    static void entry_question_closed(Runtime* runtime, const void* closing) noexcept;
+
+    /// Closes the entry's question when a match starts.
+    ///
+    /// @param runtime the runtime
+    /// @return true when the question must close
+    static bool entry_question_tick(Runtime* runtime);
+
+    /// Takes the update question's button.
+    ///
+    /// Update is button 0. Any other button stays on the menu. A call while
+    /// that question is not open leaves the entry as it is and still closes
+    /// the question.
+    ///
+    /// @param runtime the runtime
+    /// @param button the button, from 0
+    /// @return true when the question closes
+    static bool entry_update_answered(Runtime* runtime, int32_t button);
+
+    /// Whether an asked check can start on this frame.
+    enum class AskedUpdate : uint8_t {
+        run,   ///< an asked check may start
+        later, ///< the welcome is unfinished, or a match is on, and a check may still run
+        pass,  ///< Never, no feed on a quiet run, or the updates folder cannot be made
+    };
+
+    /// The early returns of an asked check.
+    ///
+    /// The same decisions `start_update_check` makes before it publishes a
+    /// check. A missing updates folder is logged once. Never, a quiet run
+    /// with no feed, a missing folder, and a welcome that will not appear
+    /// are `pass` even when setup is unfinished: that run will not check.
+    ///
+    /// @return run, later or pass
+    [[nodiscard]] AskedUpdate asked_update();
+
     /// Starts one check for a new release.
     ///
     /// `asked` ignores the hour and Only when I ask. Never, a run whose
@@ -6962,7 +7244,9 @@ class Runtime final : public menu::Host,
     /// reached the server. The first of a run waits for the settled main
     /// menu. An hour later one starts wherever the player is. A release
     /// found during a match waits for the next main menu.
-    void tick_update_check();
+    ///
+    /// @param start_automatic false reads a stored result and does not start a check
+    void tick_update_check(bool start_automatic = true);
 
     /// Queues the update question when a verified check offers a release the
     /// player has not skipped and the main menu is up. A match, Settings or
@@ -6981,6 +7265,13 @@ class Runtime final : public menu::Host,
     ///
     /// @return true when a prompt may be shown there
     [[nodiscard]] bool update_menu_settled();
+
+    /// The settled main menu, for as many frames as the first check of a run waits.
+    ///
+    /// `tick_update_check` counts those frames. Call it on this frame first.
+    ///
+    /// @return true when that count has been reached
+    [[nodiscard]] bool update_menu_ready();
 
     /// Downloads the offered package where this install has a route.
     ///
@@ -7321,6 +7612,20 @@ class Runtime final : public menu::Host,
     /// @param[out] refusal why it cannot be played, in a few words
     /// @return true when the run ends to play it
     bool switch_to_mod_folder(const fs::path& folder, std::string& refusal);
+
+    /// Stores one preference under its own key, with no mod prefix.
+    ///
+    /// An empty value removes the key. A value already stored is left as it is.
+    ///
+    /// @param key the key
+    /// @param value the value; empty removes the key
+    void keep_plain_string(std::string_view key, std::string_view value);
+
+    /// Reads one preference stored under its own key, with no mod prefix.
+    ///
+    /// @param key the key
+    /// @return the value; nothing when the key is missing or empty
+    [[nodiscard]] std::optional<std::string> plain_string(std::string_view key) const;
 
     /// Rolls a folder of the player's own Mods folder back to the version
     /// its .backup keeps, which must be playable: at once, or, for the mod
@@ -20608,6 +20913,9 @@ class Runtime final : public menu::Host,
     // pointer is over it, and only its release over it acts on it.
     std::optional<std::size_t> match_hud_held_;
     bool exit_requested_ = false;
+    // The movie file the frontend controls check last saw requested. Empty
+    // except while that check is running and a movie has been asked for.
+    std::string check_frontend_movie_;
     // An extension asked the loop to keep running while the window is inactive
     // (keep_running_while_inactive). Released until an extension holds it.
     bool keep_running_while_inactive_ = false;
@@ -20627,6 +20935,19 @@ class Runtime final : public menu::Host,
     };
 
     std::vector<ExtensionWindowSourceSlot> extension_window_sources_;
+
+    // Notes an extension posts for a program driving the game
+    // (post_extension_note). A ring of 256; a newer note drops the oldest.
+    struct ExtensionNote {
+        char kind[24]{};
+        char text[240]{};
+    };
+
+    static constexpr uint32_t k_extension_note_cap = 256;
+    ExtensionNote extension_notes_[k_extension_note_cap]{};
+    uint32_t extension_note_read_{};
+    uint32_t extension_note_write_{};
+    uint32_t extension_note_count_{};
     // Frames of a run a program on this machine controls, one a frame of
     // idle_tick, before that frame's hooks. extension_clock advances by the
     // fixed step once a frame from this. 0 before the first frame.
@@ -21998,6 +22319,10 @@ class Runtime final : public menu::Host,
     std::unique_ptr<UpdateState, void (*)(UpdateState*) noexcept> update_{
         nullptr, destroy_update_state
     };
+    // One entry into an expansion; null until one begins.
+    std::unique_ptr<EntryState, void (*)(EntryState*) noexcept> entry_{
+        nullptr, destroy_entry_state
+    };
     // The state of the renderer borrowed with its host; null without one,
     // as in a headless run, on a window of the runtime's own or in the
     // second runtime of a loopback check.
@@ -22082,6 +22407,14 @@ class Runtime final : public menu::Host,
     std::map<const oa::formats::gaf::Frame*, oa::formats::gaf::RenderedFrame>
         overlay_sprite_frames_{};
     oa::base::game_loop::Timing match_timing_{};
+    // The stepped clock (--mcp-clock stepped, or clock.mode). False unless a
+    // single-player match was asked to tick only when told. A run that never
+    // asks stays on the wall clock, and this stays false, so the clock, a
+    // save and the state hash are unchanged.
+    bool stepped_clock_{};
+    // offer_stepped_clock has already chosen this match's starting mode, so
+    // a clock the player switched is not put back.
+    bool startup_clock_taken_{};
     // The playout of the units of players this machine does not simulate
     // (oa/present/unit_playout.hpp): advance_match_clock feeds it after each
     // step, the match draws and picks those units where it has them

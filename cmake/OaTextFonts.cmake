@@ -80,7 +80,11 @@ message(STATUS "Text fonts: FreeType ${OA_FREETYPE_VERSION}, fonts from ${OA_TEX
 # makes <target> depend on the staging. Programs that share a directory must
 # pass the same <directory> text, generator expressions included: one rule
 # then owns the folder. The rule empties the folder before it copies, so a
-# font the list drops is not left where a program could open it, and nothing
+# font the list drops is not left where a program could open it. A module
+# that also ships fonts there records them on
+# OA_TEXT_FONT_STAGE_FOLLOWS_<target>, a list of COMMAND arguments, before
+# this function runs for that target. Those commands run after the text
+# fonts, in the same step, so the emptying cannot leave them out. Nothing
 # else deletes a folder this rule writes.
 #
 # The directory is often $<TARGET_FILE_DIR:...> or another target generator
@@ -108,10 +112,18 @@ function(oa_copy_text_fonts target directory)
     foreach(font IN LISTS OA_TEXT_FONT_FILES)
       list(APPEND sources "${OA_TEXT_FONTS_DIR}/${font}")
     endforeach()
+    # Empty when nobody recorded copies. An unset property reads back as
+    # NOTFOUND, which must not become a command.
+    set(oa_font_follows "")
+    get_property(oa_font_follows_set GLOBAL PROPERTY "OA_TEXT_FONT_STAGE_FOLLOWS_${target}" SET)
+    if(oa_font_follows_set)
+      get_property(oa_font_follows GLOBAL PROPERTY "OA_TEXT_FONT_STAGE_FOLLOWS_${target}")
+    endif()
     add_custom_target(${oa_font_stage_target}
       COMMAND ${CMAKE_COMMAND} -E rm -rf "${directory}/fonts"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${directory}/fonts"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different ${sources} "${directory}/fonts"
+      ${oa_font_follows}
       DEPENDS ${sources}
       COMMENT "Staging text fonts"
       JOB_POOL oa_text_fonts

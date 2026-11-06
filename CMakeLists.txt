@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.8.14 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.9.0 LANGUAGES C CXX)
 # The version's label. A build of a tree whose label is not empty is a
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
@@ -1335,6 +1335,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_endgame.cpp src/app/runtime_radar.cpp
   src/app/runtime_kill_board.cpp
   src/app/runtime_check_host.cpp src/app/check_host_input.cpp src/app/runtime_automation_host.cpp
+  src/app/runtime_match_view.cpp
+  src/app/runtime_play_host.cpp
   src/app/runtime_notices.cpp src/app/web_link.cpp
   src/app/web_address.cpp
   src/app/game_file.cpp
@@ -1343,6 +1345,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mod_warning.cpp
   src/app/runtime_presence_card.cpp
   src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_update.cpp
+  src/app/runtime_update_entry.cpp
   src/app/runtime_update_offer.cpp
   src/app/runtime_update_install.cpp
   src/app/runtime_challenge.cpp
@@ -5485,6 +5488,14 @@ add_subdirectory(src/app/automation)
 if(TARGET oa-app-automation)
   oa_add_extension(oa-app-automation INIT oa_extension_init_automation)
 endif()
+# MCP on standard input and output. Registered after the automation
+# endpoint, so the endpoint's option check binds --status-stdout before
+# --mcp refuses sharing standard output with it, and a switch is offered
+# to MCP first.
+add_subdirectory(src/app/mcp)
+if(TARGET oa-app-mcp)
+  oa_add_extension(oa-app-mcp INIT oa_extension_init_mcp)
+endif()
 # The tests' view of the installation network play's tests read
 # (oa/test/netgame_installs.hpp), and network play's launch bound to a
 # record, for tests that check what a caller of network play's API asked
@@ -5532,6 +5543,16 @@ if(TARGET oa-game)
   target_compile_definitions(oa-extension-sdk INTERFACE ${oa_runtime_members_definition})
   target_compile_definitions(oa-game PRIVATE ${oa_runtime_members_definition})
   target_sources(oa-game PRIVATE src/app/extension_members.cpp)
+  option(OA_BONEYARDS "Build the Boneyards into the game" ON)
+  # Desktop packages only. Windows 95 cannot link the module. iOS and Android
+  # leave it out so the phone and tablet main menu stays the desktop game's.
+  # Forcing the cache corrects a tree configured while the default was on.
+  if(OA_WINDOWS_95 OR CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(OA_BONEYARDS OFF CACHE BOOL "Build the Boneyards into the game" FORCE)
+  endif()
+  if(OA_BONEYARDS)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/OaBoneyards.cmake")
+  endif()
   # The registered extensions are listed and linked when the configure ends.
   oa_schedule_extension_list()
 endif()

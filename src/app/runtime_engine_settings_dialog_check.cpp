@@ -2303,6 +2303,10 @@ void Runtime::check_engine_settings_window_sizes() {
             throw std::runtime_error(std::string("SDL_SetWindowSize: ") + SDL_GetError());
         load(Screen::main_menu);
         require(screen_ == Screen::main_menu, "the main menu did not open" + on);
+        // A main menu that comes back may have an extension build its overlay
+        // again, which raises the flag. This loop reads the bare menu's
+        // corner; the overlay checks above set the flag for themselves.
+        main_menu_overlay_ = false;
         int window_width = 0;
         int window_height = 0;
         SDL_GetWindowSizeInPixels(sdl_.window, &window_width, &window_height);

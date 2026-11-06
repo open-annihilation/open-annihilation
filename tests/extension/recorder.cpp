@@ -78,7 +78,7 @@ namespace kit = oa::ui::kit;
 // so the hook count is unchanged. Version 18 adds the kit's key pictures,
 // not a hook, so the hook count is unchanged. Version 19 is Kit 2's look in
 // the kit's headers, not a hook, so the hook count is unchanged.
-constexpr uint32_t kExtensionApiVersionRecorded = 19;
+constexpr uint32_t kExtensionApiVersionRecorded = 20;
 constexpr std::size_t kHookCount = 41;
 static_assert(
     extension_api_version == kExtensionApiVersionRecorded,

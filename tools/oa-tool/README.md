@@ -69,6 +69,7 @@ same. `--` ends options. A command takes its options through
 | `engine-feed check (FEED [--sig SIG] \| --url URL) [--channel stable\|testing] [--key ID=ed25519:BASE64]...` | Checks FEED against its signature, or fetches URL and URL plus `.sig`. Without `--key` the keys are this build's pinned keys. Each `--key` replaces those keys. The feed must name `--channel`, `stable` when it is not given, or it is refused as `wrong_channel`. Prints `good signature by <id>`, `ping <url> registry <id>` when the feed names a ping, and one line a release, with `from` and the version after a package that names its own and `install_page` and the address at the end, and exits 0 when the feed can be used. A refused feed prints the verdict and exits 1. |
 | `registry init FOLDER --id ID --name NAME --base-url URL --key KEY_FILE [--passphrase-file FILE] [--homepage URL]` | Makes a direct registry in FOLDER: `registry.yaml`, an empty catalogue signed for 30 days, its signature, and `v1/p/` and `v1/i/`. FOLDER must be missing or empty. `--base-url` is the http address the registry is served at, with no trailing slash. Prints the descriptor's path and the key's fingerprint. |
 | `registry mirror URL FOLDER [--key ed25519:<base64>]` | Copies the registry at URL into FOLDER, laid out as on the host that served it. The signature is checked, a sequence lower than the one FOLDER holds stops the copy, and each package and picture is checked by SHA-256. A `.part` is resumed with a Range request. A tokens registry is copied through its download API. The catalogue and its signature are written last, byte for byte. |
+| `expansions` | Prints one line per built-in expansion, in the table's order: the id, a tab and how many files it holds. Takes no arguments. Exit 0. Any argument exits 2. |
 | `interface-words --json` | Prints a JSON array of every English text this build passes to the interface catalogue, sorted, with each text once. The texts are the lists the modules that look them up export. |
 
 ## brain check
@@ -152,6 +153,8 @@ given, so a test can capture every line.
   catalogue check's own. A file is kept only after its SHA-256 matches.
 - A repeating option keeps every value, in the order given. An option that
   does not repeat, and every flag, is refused the second time.
+- `expansions` prints one line per built-in expansion: the id, a tab and how
+  many files it holds, in the table's order. Any argument exits 2.
 - `interface-words --json` prints one JSON array of the texts the modules
   export for the interface catalogue. The array is sorted and holds each
   text once. Any other arguments exit 2.

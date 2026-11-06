@@ -13,7 +13,12 @@ const char* leave_reason(const oa::Game& game) noexcept {
     if (game.local_player_index >= OA_PLAYER_COUNT)
         return nullptr;
     const uint8_t reason = game.players[game.local_player_index].reject_reason;
-    return reason != 0 ? oa::ui::frontend_multiplayer::reject_reason_text(reason) : nullptr;
+    // Reason 2 is a player who left by itself. The game list tells them
+    // nothing. A kick (reason 1) and every named reason still show.
+    constexpr uint8_t left_by_itself = 2;
+    if (reason == 0 || reason == left_by_itself)
+        return nullptr;
+    return oa::ui::frontend_multiplayer::reject_reason_text(reason);
 }
 
 CloseHandler app_mode_close_handler(int32_t mode) noexcept {

@@ -156,6 +156,10 @@ Every document in the repository, by what you want to do.
   and the ` REMOTED` line in the battle room. Status lines for a
   launcher, without the endpoint, are
   [multiplayer/status.md](multiplayer/status.md).
+- [mcp.md](mcp.md): driving the game with the Model Context Protocol,
+  `--mcp`, `--mcp-http` and `--mcp-clock`, the tools and their schemas,
+  the badge shown while a client is connected, and the Claude Code and
+  Claude Desktop setup.
 - [mods/README.md](mods/README.md): mod support: installing a mod from the
   Library, in a mod folder or as a copied install, its updates and rolling
   them back, choosing it in the settings or with

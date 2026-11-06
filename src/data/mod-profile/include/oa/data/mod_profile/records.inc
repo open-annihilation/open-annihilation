@@ -664,9 +664,29 @@ struct MediaMovies {
     bool operator==(const MediaMovies&) const = default;
 };
 
+/// The media values under boneyards-entry.
+struct MediaBoneyardsEntry {
+    /// media.boneyards-entry.mode: How the main menu shows the way into the Boneyards: auto draws
+    /// the Boneyards strip across the menu's bottom 102 rows when the menu's art there is the base
+    /// game's and only the strip's ENTER plate otherwise; strip, button and none choose. 3.1c:
+    /// auto.
+    std::string mode{"auto"};
+    /// media.boneyards-entry.x: The Boneyards ENTER plate's left column on the 640x480 main menu, 0
+    /// to 505 so the 135-pixel plate stays on it; given with y. Used in button mode only.
+    /// Unwritten, the plate stands at the top right, 8 pixels in: 497. 3.1c: 497.
+    int32_t x{497};
+    /// media.boneyards-entry.y: The Boneyards ENTER plate's top row on the 640x480 main menu, 0 to
+    /// 414 so the 66-pixel plate stays on it; given with x. Used in button mode only. Unwritten,
+    /// the plate stands at the top right, 8 pixels in: 8. 3.1c: 8.
+    int32_t y{8};
+    /// Compares every field.
+    bool operator==(const MediaBoneyardsEntry&) const = default;
+};
+
 /// The profile's media values; a default-constructed record holds 3.1c's.
 struct Media {
     MediaMovies movies{};
+    MediaBoneyardsEntry boneyards_entry{};
     /// Compares every field.
     bool operator==(const Media&) const = default;
 };

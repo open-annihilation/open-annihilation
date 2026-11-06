@@ -113,6 +113,11 @@ struct Tokens {
     char* next{};
     char* end{};        // past the last word's NUL, for whole words
     bool whole_words{}; // the copy holds words ended by NULs, not one line
+    // A copy of the token peek_next_token last looked at. A token of a line
+    // still being split is not yet its own string, and a whole word may
+    // still have blanks the take trims, so the peek cannot hand out either
+    // in place.
+    char peek_storage[kMaximumLineBytes]{};
 
     /// Returns the next token, terminating it in place.
     ///
@@ -170,6 +175,61 @@ const char* take_next_token(void* tokens) noexcept {
     return static_cast<Tokens*>(tokens)->take(nullptr);
 }
 
+/// Copies `length` characters of `text` into the peek storage.
+///
+/// @param parsed The parse's tokens, whose peek storage receives the copy.
+/// @param text The characters to copy.
+/// @param length How many characters to copy, cut to the storage.
+/// @return The copy, NUL-terminated.
+const char* store_peek(Tokens& parsed, const char* text, std::size_t length) noexcept {
+    if (length >= kMaximumLineBytes)
+        length = kMaximumLineBytes - 1;
+    std::memcpy(parsed.peek_storage, text, length);
+    parsed.peek_storage[length] = '\0';
+    return parsed.peek_storage;
+}
+
+/// Looks at the next token without taking it (SwitchArguments::peek_token).
+///
+/// The text matches what take would return: blanks and tabs at either end
+/// of a whole word are left out, and a word of only those is skipped. It
+/// is a copy, valid until the next peek on these tokens or until the parse
+/// returns.
+///
+/// @param tokens The parse's Tokens.
+/// @return The next token, or null when none follows.
+const char* peek_next_token(void* tokens) noexcept {
+    Tokens& parsed = *static_cast<Tokens*>(tokens);
+    if (parsed.whole_words) {
+        char* at = parsed.next;
+        if (at == nullptr)
+            return nullptr;
+        while (at < parsed.end) {
+            char* word_end = at + std::strlen(at);
+            char* const following = word_end + 1;
+            while (at < word_end && is_delimiter(*at))
+                ++at;
+            while (word_end > at && is_delimiter(word_end[-1]))
+                --word_end;
+            if (at < word_end)
+                return store_peek(parsed, at, static_cast<std::size_t>(word_end - at));
+            at = following;
+        }
+        return nullptr;
+    }
+    const char* at = parsed.next;
+    if (at == nullptr)
+        return nullptr;
+    while (*at != '\0' && is_delimiter(*at))
+        ++at;
+    if (*at == '\0')
+        return nullptr;
+    std::size_t length = 0;
+    while (at[length] != '\0' && !is_delimiter(at[length]) && length + 1 < kMaximumLineBytes)
+        ++length;
+    return store_peek(parsed, at, length);
+}
+
 /// Offers a switch to the handler, and applies the effects it asks for when it takes it.
 ///
 /// @param handler The handler; null takes nothing.
@@ -183,7 +243,7 @@ bool offer(
 ) noexcept {
     if (handler == nullptr || handler->take == nullptr)
         return false;
-    const SwitchArguments arguments{token + 2, take_next_token, &tokens};
+    const SwitchArguments arguments{token + 2, take_next_token, &tokens, peek_next_token};
     uint32_t effects = 0;
     if (handler->take(handler->context, letter, &arguments, &effects) == 0)
         return false;

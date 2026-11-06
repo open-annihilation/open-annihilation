@@ -5591,11 +5591,17 @@ struct ExpansionWrap {
 
 /// Returns the points between two expansion pills, side by side or one
 /// line under another: the kit's gap between chips, as a row's tags keep.
+/// Compact puts one pill on each line. With every built-in expansion those
+/// gaps set UNLOAD MOD over the footer, where no arrow can pass it, so the
+/// lines sit together.
 ///
-/// @param metrics the class's metrics
+/// @param building the layout
+/// @param pills how many pills are wrapping
 /// @return the points
-int32_t expansion_line_gap(const kit::Metrics& metrics) {
-    return metrics.chip_gap;
+int32_t expansion_line_gap(const Building& building, std::size_t pills) {
+    if (building.size_class == kit::SizeClass::compact && pills > 6)
+        return 0;
+    return building.metrics->chip_gap;
 }
 
 /// Wraps the expansion pills into a width.
@@ -5609,7 +5615,7 @@ wrap_expansions(const Building& building, const ActiveContent& content, int32_t 
     const kit::Metrics& metrics = *building.metrics;
     ExpansionWrap wrap;
     const int32_t room = std::max(inner, int32_t{0});
-    const int32_t gap = expansion_line_gap(metrics);
+    const int32_t gap = expansion_line_gap(building, content.pills.size());
     const int32_t pill_height = chip_height(metrics);
     ExpansionRow row;
     int32_t across = 0;
@@ -5640,7 +5646,7 @@ wrap_expansions(const Building& building, const ActiveContent& content, int32_t 
         wrap.rows.push_back(std::move(row));
     for (std::size_t row_index = 0; row_index < wrap.rows.size(); ++row_index) {
         if (row_index != 0)
-            wrap.rows_height += expansion_line_gap(metrics);
+            wrap.rows_height += expansion_line_gap(building, content.pills.size());
         wrap.rows_height += wrap.rows[row_index].band;
     }
     wrap.hint = !content.hint.empty();
@@ -5747,7 +5753,7 @@ void place_expansions(
             const ExpansionPill& pill = content.pills[index];
             const int32_t width = row.widths[place];
             if (width <= 0 || index >= controls::most_expansions) {
-                column += width + expansion_line_gap(metrics);
+                column += width + expansion_line_gap(building, content.pills.size());
                 continue;
             }
             const kit::ControlId id =
@@ -5791,9 +5797,9 @@ void place_expansions(
             control.focusable = pressable;
             control.enabled = pressable;
             tab_stop(building, control);
-            column += width + expansion_line_gap(metrics);
+            column += width + expansion_line_gap(building, content.pills.size());
         }
-        row_y += band + expansion_line_gap(metrics);
+        row_y += band + expansion_line_gap(building, content.pills.size());
     }
     // After the last row of pills, row_y is a line gap below it. The lock
     // and the hint each stand slider_gap below what is above them, as
@@ -5801,7 +5807,7 @@ void place_expansions(
     // hint's step apart (hint_step).
     bool placed = !wrap.rows.empty();
     if (placed)
-        row_y -= expansion_line_gap(metrics);
+        row_y -= expansion_line_gap(building, content.pills.size());
     const int32_t step = hint_step(building);
     const std::vector<std::string> lock_lines =
         expansion_lock_lines(building, content.lock, inner_width);

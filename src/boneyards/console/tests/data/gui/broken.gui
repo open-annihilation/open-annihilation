@@ -1,0 +1,14 @@
+// Not a screen: the first record is a button, so the load is rejected.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Nope;
+    xpos=0;
+    ypos=0;
+    width=10;
+    height=10;
+  }
+  text=Nope;
+}

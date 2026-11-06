@@ -7,7 +7,9 @@
 # OA_MINGW_TRIPLE=i686-w64-mingw32, and with --xp for executables that also
 # run on Windows XP. zlib, SDL3 and FreeType are built for the target into
 # local/deps/<name> on first use, and the text fonts, the same for every
-# target, into local/deps/text-fonts; the tree (or the project that --source
+# target, into local/deps/text-fonts. The page fonts go into local/deps/fonts
+# the same way; a Windows 95 build leaves the module off and does not copy
+# them. The tree (or the project that --source
 # names, which adds this one) is configured in build-<name> with
 # cmake/toolchains/<triple>.cmake and every target is compiled. <name> is
 # windows for x86-64 and windows-i686 for 32-bit x86, with -xp added for
@@ -195,6 +197,11 @@ mkdir -p "$deps"
 printf '%s\n' "$target" >"$deps_record"
 python3 "$repo_dir/tools/bootstrap_windows_deps.py" "${bootstrap_args[@]}"
 python3 "$repo_dir/tools/bootstrap_text_fonts.py" --fonts-only
+python3 "$repo_dir/tools/bootstrap_page_fonts.py" --deps "$repo_dir/local/deps"
+page_font_args=()
+if [[ "$windows_95" != ON ]]; then
+    page_font_args=("-DOA_FONTS_DIR=$repo_dir/local/deps/fonts")
+fi
 
 # A cross build cannot run the oa-tool it compiles. Classic is packed with
 # the host build's oa-tool when one is named. An empty OA_HOST_OA_TOOL is
@@ -232,6 +239,7 @@ cmake -S "$source_dir" -B "$build_dir" ${generator_args[@]+"${generator_args[@]}
     "-DCMAKE_BUILD_TYPE=$build_type" "-DOA_WINDOWS_DEPS=$deps" "-DOA_WINDOWS_XP=$windows_xp" \
     "-DOA_WINDOWS_95=$windows_95" \
     -DOA_BUILD_PLATFORM=ON -DOA_BUILD_INTRO_PLAYER=ON "-DBUILD_TESTING=$testing" \
+    ${page_font_args[@]+"${page_font_args[@]}"} \
     ${host_tool_args[@]+"${host_tool_args[@]}"} \
     ${launcher_args[@]+"${launcher_args[@]}"}
 

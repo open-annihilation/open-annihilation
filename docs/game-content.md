@@ -1,6 +1,6 @@
 # Game content
 
-Open Annihilation knows two base games and six expansions. A game uses one
+Open Annihilation knows two base games and seven expansions. A game uses one
 base game. Each expansion adds to Total Annihilation 3.1c and is left out
 of the demo. A managed copy keeps every bundle in its own folder, under
 the game's documents folder: `Games/totala` and `Games/totala-demo` for the
@@ -78,8 +78,11 @@ tilesets stay as they were: each was waiting on 3.1c, not on the campaign.
 
 Turning an expansion off also turns off every expansion that needs it.
 Turning the campaign off turns off Core Contingency, Battle Tactics and
-the Cavedog units. Music and the tilesets stay on. Choosing the demo, or
-otherwise leaving 3.1c, turns off all six.
+the Cavedog units. Music and the tilesets stay on, and so does any other
+expansion that needs only 3.1c. Choosing the demo, or otherwise leaving
+3.1c, turns off all seven. One further expansion extends 3.1c and needs
+nothing else. The Library offers it with the others. Its id, its name and
+the files it holds are in the [expansion standard](expansions/oaexp-standard.md).
 
 ## What a copy leaves out
 

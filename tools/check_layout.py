@@ -27,7 +27,9 @@ defined (--targets, written by cmake/OaLayout.cmake), and fails on:
   layer        a link from a module library to a library of a later layer
                (the order is core; base; platform and formats, which may
                not use each other; data; sim, which may not use platform;
-               present, audio and media; ui, netgame and session; app),
+               present, audio and media; ui, netgame and session; app;
+               boneyards, which may use every earlier layer and which no
+               other layer may use),
                unless
                tools/layout-baseline.json lists it
   stale        a baseline entry for a link that no longer exists, which
@@ -85,7 +87,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "tools" / "layout-baseline.json"
 LAYERS = {"core": 1, "base": 2, "platform": 3, "formats": 3, "data": 4, "sim": 5, "present": 6, "audio": 6,
-          "media": 6, "ui": 7, "netgame": 7, "session": 7, "app": 8}
+          "media": 6, "ui": 7, "netgame": 7, "session": 7, "app": 8, "boneyards": 9}
 # Pairs of groups in one layer that may not use each other.
 APART = {("platform", "formats"), ("formats", "platform")}
 # Groups a group may not use although they come earlier.
@@ -1060,6 +1062,15 @@ class Checker:
             include = path[len(module) + len("/include/"):]
             prefix = f"oa/{group}" if sub is None else f"oa/{group}/{sub.replace('-', '_')}"
             good = include.startswith(prefix + "/") or (sub is not None and posixpath.splitext(include)[0] == prefix)
+            # The fold keeps the include paths the sources already use
+            # (oa/boneyards/..., oa/rover/..., the test installs and the
+            # pages' font header) instead of moving 131k lines of includes.
+            if not good and group == "boneyards":
+                stem = posixpath.splitext(include)[0]
+                good = (include.startswith("oa/boneyards/") or stem == "oa/boneyards"
+                        or include.startswith("oa/rover/") or stem == "oa/rover"
+                        or include.startswith("oa/boneyards_test/")
+                        or include == "oa/platform/fonts.hpp")
             if not good:
                 self.report("name", path, f"is included as {include}; headers of {module} belong under {prefix}")
 

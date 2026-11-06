@@ -104,7 +104,11 @@ who made the mod and who packaged it, when and in which revision.
 weapon types and `limits.sides` at its baseline of five sides are left out
 of the canonical form, so a profile that writes either at that baseline
 keeps both hashes of a profile that never wrote it. `--print-profile` still
-prints the effective profile, which holds both limits.
+prints the effective profile, which holds both limits. `media.boneyards-entry`
+(how the main menu shows the way into the Boneyards, and where its ENTER
+plate stands in button mode) is left out the same way at mode `auto`, x
+497 and y 8, and is view scope, so it never reaches the sim hash. Its x and
+y are given together or not at all.
 
 
 `baseline_profile_text` writes the profile that turns on every limit and

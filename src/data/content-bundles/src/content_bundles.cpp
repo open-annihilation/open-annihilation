@@ -3,9 +3,10 @@
 
 // The built-in bundles. The file table is bundle_table.inc, generated from
 // the names, sizes and SHA-256s of the 3.1c install and the three Commander
-// Pack installers. The demo's unpacked archive uses the size and SHA-256
-// that demo_1997 already checks; the installer's own size, hash and
-// resource stay in demo_installer.hpp.
+// Pack installers. Further rows are printed by tools/bundle_table_entries.py
+// from an install; only names, sizes and SHA-256s are kept. The demo's
+// unpacked archive uses the size and SHA-256 that demo_1997 already checks;
+// the installer's own size, hash and resource stay in demo_installer.hpp.
 #include "oa/data/content_bundles.hpp"
 
 #include <stddef.h>

@@ -1159,6 +1159,24 @@ show the same short words beside the version where they fit, such as
 [Updates](updates.md) says what the check reads, what it sends, and what
 it keeps.
 
+### What entering the Boneyards turns on
+
+The Boneyards needs both online features: the check for updates, so the
+game it plays is the latest Open Annihilation, and the check for content
+updates, so its expansion is the latest package. When either is Never,
+entering the Boneyards asks "The Boneyards needs Open Annihilation's online
+features: update checks and the content catalogue. Turn them on and
+continue?" **Turn on** sets each one that is Never to Automatically,
+stores it and goes on; one already on keeps the choice you made, so Only
+when I ask, or Only when I open the Library, stays as it was. **Cancel**
+changes nothing and stays on the main menu. The two settings are
+`open-annihilation.update-check` (Check for updates: `automatically`,
+`when-asked` or `never`) and `open-annihilation.content-updates` (Check for
+content updates: `automatically`, `library` or `never`). A run with nobody
+to answer, such as `-y`, a headless run or a check, is not asked and
+changes neither setting; its log says what a player would have been asked
+([Entering the Boneyards](boneyards/entry.md#what-enter-does)).
+
 ## Game Content
 
 ![The top of Game Content: the copy in Documents, then Total Annihilation, Core Contingency and Battle Tactics, each "All files match", and the top of Total Annihilation Music.](images/settings/game-content.png)

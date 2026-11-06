@@ -1,0 +1,15 @@
+# Matchmaking replies. delay 0 is delivered in the pump that sent the command.
+# `then` is delivered with the reply it follows. launch answers host_game and join_game,
+# and is not taken by a matchmaking command.
+delay 0
+reply {[Rover<S:command=matchmaking_status><I:count=4><I:meter=4><I:queued=0><I:result=0>]}
+reply {[Rover<S:command=matchmaking_status><I:count=4><I:meter=4><I:queued=1><I:result=0>]}
+then {[Rover<U:area_id=2><S:command=matchmaking_found><I:game_type=1><S:name=ArmSniper><S:offer_id=a1b2c3d4e5f607><I:role=1><I:side=0><I:skill=1>]}
+reply {[Rover<S:command=matchmaking_go><S:offer_id=a1b2c3d4e5f607><I:result=1><I:role=1>]}
+reply {[Rover<U:area_id=2><S:command=matchmaking_found><I:game_type=1><S:name=ArmSniper><S:offer_id=a1b2c3d4e5f607><I:role=1><I:side=0><I:skill=1>]}
+reply {[Rover<U:area_id=2><S:command=matchmaking_go><I:game_type=1><S:name=ArmSniper><S:offer_id=a1b2c3d4e5f607><I:on_death=2><I:result=0><I:role=1><I:seats=2><I:side=0><I:skill=1>]}
+launch {[Rover<S:command=launch_game><U:area_id=2><S:game_id=c0ffee0a11b223><S:address=127.0.0.1><S:password=QWERTY><S:session=c0ffee0a11b223><I:creator=1><I:result=0>]}
+reply {[Rover<U:area_id=2><S:command=matchmaking_found><I:game_type=1><S:name=ArmSniper><S:offer_id=a1b2c3d4e5f607><I:role=0><I:side=1><I:skill=1>]}
+reply {[Rover<U:area_id=2><S:command=matchmaking_go><S:game_id=c0ffee0a11b223><S:offer_id=a1b2c3d4e5f607><I:result=0><I:role=0><I:side=1>]}
+launch {[Rover<S:command=launch_game><U:area_id=2><S:game_id=c0ffee0a11b223><S:address=127.0.0.1><S:password=QWERTY><S:session=c0ffee0a11b223><I:creator=0><I:result=0>]}
+reply {[Rover<S:command=matchmaking_status><I:count=0><I:meter=0><I:queued=0><I:result=0>]}

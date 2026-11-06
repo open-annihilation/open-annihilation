@@ -634,6 +634,17 @@ const Command command_table[] = {
         registry_commands,
     },
     {
+        "expansions",
+        "",
+        "List the built-in expansions.",
+        "Prints one line per built-in expansion, in the table's order: the id, a tab and how "
+        "many files it holds. Takes no arguments.",
+        0,
+        0,
+        run_expansions,
+        {},
+    },
+    {
         "interface-words",
         "--json",
         "List the English texts the interface catalogue is given.",

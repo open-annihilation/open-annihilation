@@ -108,8 +108,8 @@ been served and `tick` is the running match's (0 outside a match), or
 | Request | Answer |
 |---|---|
 | `hello` | `version` (1), `engine` (`version`), `automation` (1), `window` (`width`, `height` in the window's pixels), `canvas` (`width`, `height`, and `rect`, `[x, y, w, h]`, where the game's canvas lies in the window: the 640x480 screen on the menus, the whole window in a match), `tick_rate` (30), `fixed_clock` |
-| `screen` | `screen` (`main_menu`, `single_player`, `skirmish`, `map_selection`, `loading`, `match`, `options`, `load_game`, `briefing`, `mp_providers`, `mp_tcp`, `mp_game_list`, `mp_new_game`, `mp_battleroom` and the like; `screen_<id>` for one without a name), `frontend_state`, `dialogs` (the dialogs over the screen whose controls take the pointer, the top one first, by their GUI file's name: `selmap`, `tcp`, `yesorno`, `msgbox` and the like, or for Open Annihilation's own screens `oa.settings`, `oa.notice`, `oa.prompt`), `focused` (the name of the control that takes the keys, or null), `pointer` (`x`, `y` on the canvas), and in a match `camera` (`x`, `y`, the map pixel at the battlefield's top-left corner; null elsewhere) |
-| `controls` | `screen`, and `controls`: an extension's windows first (they take the pointer over the screen), then a message box's, then Open Annihilation's own screens' ([below](#oas-own-screens)), then those of the panel that takes the pointer, a dialog's first while one is up (a message box's before the dialog it is over). Each has `name` (as the GUI file spells it, or as the extension spells it), `kind` (`button`, `check box`, `list`, `text field`, `slider`, `label`, `area`, `image`), `dialog` (null for the screen's own and for an extension's), `window` (the extension window's name, or null), `rect` (`[x, y, w, h]` on the canvas), `window_rect` (in the window's pixels: an Open Annihilation screen's control's exact rectangle, the others' worked out from `rect`), `enabled`, `visible`, `text` and `focused`; a check box adds `checked`; a list adds `items`, `first_visible`, `rows`, `row_height`, `selected` (-1 for none), `scroll_up` and `scroll_down`, and a map list and the Campaign list also add `item_keys` (the row's name, a campaign's file name, beside the words `items` shows; `select_item` takes either, exactly, the words first) (the controls that move the list one page toward its start and its end; null when every row fits or the list has no scroll bar; [below](#a-lists-scroll-arrows)). With `screen`, refused `screen_changed` when another is shown |
+| `screen` | `screen` (`main_menu`, `single_player`, `skirmish`, `map_selection`, `loading`, `match`, `options`, `load_game`, `briefing`, `mp_providers`, `mp_tcp`, `mp_game_list`, `mp_new_game`, `mp_battleroom` and the like; `screen_<id>` for one without a name), `frontend_state`, `dialogs` (the dialogs over the screen whose controls take the pointer, the top one first, by their GUI file's name: `selmap`, `tcp`, `yesorno`, `msgbox` and the like, or for Open Annihilation's own screens `oa.settings`, `oa.notice`, `oa.prompt`), `focused` (the name of the control that takes the keys, or null), `pointer` (`x`, `y` on the canvas), in a match `camera` (`x`, `y`, the map pixel at the battlefield's top-left corner; null elsewhere), and `hovered` (the name of the control under the pointer, or of the gadget the game has there when no listed control's rectangle holds the point; null when neither) |
+| `controls` | `screen`, and `controls`: an extension's windows first (they take the pointer over the screen), then a screen package's windows when it reports any, then a message box's, then Open Annihilation's own screens' ([below](#oas-own-screens)), then those of the panel that takes the pointer, a dialog's first while one is up (a message box's before the dialog it is over). Each has `name` (as the GUI file spells it, or as the extension spells it), `kind` (`button`, `check box`, `list`, `text field`, `slider`, `label`, `area`, `image`), `dialog` (null for the screen's own and for an extension's), `window` (the extension window's name, or a screen package's window's, or null), `rect` (`[x, y, w, h]` on the canvas), `window_rect` (in the window's pixels: an Open Annihilation screen's control's exact rectangle, the others' worked out from `rect`), `enabled`, `visible`, `text` and `focused`; a check box adds `checked`; a list adds `items`, `first_visible`, `rows`, `row_height`, `selected` (-1 for none), `scroll_up` and `scroll_down`, and a map list and the Campaign list also add `item_keys` (the row's name, a campaign's file name, beside the words `items` shows; `select_item` takes either, exactly, the words first) (the controls that move the list one page toward its start and its end; null when every row fits or the list has no scroll bar; [below](#a-lists-scroll-arrows)). With `screen`, refused `screen_changed` when another is shown |
 | `input` | `consumed` (`frame`, `tick`): the frame and tick at which the game took the events. See below |
 | `prefs` | `path`, the preferences file, and `values`, the preferences as the game holds them now, whether written to the file yet or not; with `names`, a list of keys, only those |
 | `quit` | nothing more; once the answer is written the game quits as the main menu's Exit does (`AutomationHost::quit`): at once from the menus, and from a match by leaving it first, as the surrender question's Yes leaves it, without asking; a match being loaded stops loading |
@@ -175,6 +175,47 @@ could take over a simulation step, resources, a departing player or a
 close request, and the one that tells the session's kind. Nothing of it
 goes to other machines, and it has no request that reads or writes files,
 starts programs or reaches the network.
+
+### The shared core
+
+`oa-app-automation-core` holds what this endpoint and the MCP server share:
+the control listing, input injection, frame capture and its encoding, and
+the events learned by comparing what the game holds from frame to frame.
+The endpoint's handlers call it. A `--fark` answer is still the handler's,
+and gains nothing but `screen`'s `hovered`.
+
+`screen_name` (`screen.cpp`) is the name both give a screen. The MCP server
+reads the listing through `screen_object` and `tree_object` (`view.cpp`),
+and clicks a control at the centre `control_centre` gives. `chord_events`
+and `action_events` (`chords.cpp`) turn a chord or an action id into key
+events. An action uses the first key the action registry gives it. A mouse,
+wheel or pad binding is refused. When the registry gives no chord, the five
+chords `input`'s `action` uses stand in: `order.attack` A, `order.stop` S,
+`select.builders` Ctrl+B, `select.all` Ctrl+A, `select.commander` Ctrl+C.
+That is the registry's default, not the keys a player has laid out.
+`DriveInput` (in `input.cpp`) pushes those events on its own hold, beside
+this endpoint's, so `--mcp` and `--fark` do not share a pending request.
+`ShotBuffer` (`shots.cpp`) encodes a presented or composed frame as a PNG,
+whole or a region, scaled by an integer percent or limited by a width.
+None of the tree, the chords or a picture is written into a `--fark` answer.
+
+Beside the flat list, `control_listing`
+(`include/oa/app/automation/tree.hpp`) gives each control its parent and a
+tree. A control's parent is the dialog it belongs to, the window a screen
+package reported, the screen package shown, or the extension window it is
+on. Extension windows are roots. The screen package is a root after them,
+present even when it holds nothing, and a dialog and a package's window are
+groups under it. The tree is not written into a `--fark` answer, and the
+flat `controls` answer gains no field.
+
+`hovered` is the name of the first visible control whose rectangle holds
+the pointer, in the order the controls are listed, or the gadget the game
+itself has under the pointer when none does.
+
+A screen package reports the windows it shows through `ScreenDesc::windows`.
+Null, which every package leaves, reports none. When a package reports
+windows they are listed after an extension's and before the screen's own,
+and the tree places each window under the package.
 
 ### Input
 
@@ -328,12 +369,17 @@ text in a code page that is not UTF-8 comes out so: the four bytes of
 | `token.cpp` | the token and its comparison |
 | `endpoint.cpp` | the listener, the connections, the handshake, the order of requests, the answers waiting to be written |
 | `requests.cpp` | the table of operations and their handlers, and the work done each time the endpoint is served |
-| `controls.cpp` | `controls`, and the dialogs and focus `screen` gives: the automation host's controls, the multiplayer screens' from their panel with Open Annihilation's own screens over them, and the windows extensions show |
-| `input.cpp` | `input`: the SDL events pushed, the keys and buttons held, the answer once they are taken |
+| `controls.cpp` | `controls`, and the dialogs and focus `screen` gives: the automation host's controls, the multiplayer screens' from their panel with Open Annihilation's own screens over them, the windows extensions show, and a screen package's windows when it reports any (`oa-app-automation-core`) |
+| `tree.cpp` | each control's parent and the tree beside the flat list (`oa-app-automation-core`; `include/oa/app/automation/tree.hpp`) |
+| `screen.cpp` | the name both servers give a screen (`include/oa/app/automation/screen.hpp`) |
+| `view.cpp` | the screen object, the control tree as JSON, and the point a named control is clicked at (`include/oa/app/automation/view.hpp`) |
+| `input.cpp` | `input`: the SDL events pushed, the keys and buttons held, the answer once they are taken; `DriveInput`, the MCP server's own hold (`oa-app-automation-core`) |
+| `chords.cpp` | a chord or an action id as key events (`include/oa/app/automation/chords.hpp`) |
 | `input_events.cpp` | the device events of an input request, read and checked |
-| `frames.cpp` | the frame request |
+| `frames.cpp` | the frame request (`oa-app-automation-core`) |
+| `shots.cpp` | a PNG of a presented or composed frame, for the MCP server (`include/oa/app/automation/shots.hpp`) |
 | `reports.cpp` | what `match` and `room` answer, from a match's world and the lobby (`oa-app-automation-reports`) |
-| `events.cpp` | the kinds of event and the watch that learns them (`oa-app-automation-reports`) |
+| `events.cpp` | the kinds of event and the watch that learns them (`oa-app-automation-core`) |
 | `serve_reports.cpp` | `match`, `room` and `subscribe`, and the work that sends the events of a frame, a load and a match's end |
 | `protocol.cpp` | the codec's frames |
 
@@ -383,6 +429,15 @@ system's sockets elsewhere.
   with its fields and their defaults, and refuses those that cannot be
   read: no list, too many events, an unknown kind, missing or out-of-range
   fields, text too long or with a zero character.
+- `automation-tree` checks each control's parent (an extension's window, a
+  screen package's window, a dialog, the screen package) and the tree: an
+  extension's window as a root, a dialog and a package's window grouped
+  under the screen, and the control under the pointer where a dialog covers
+  the screen.
+- `automation-chords` checks a tap of A, Ctrl+A, a press that stays down,
+  a chord and a repeat that cannot be pressed, `order.attack` and
+  `select.all` from the registry's defaults, a mouse binding refused, and
+  an unknown action.
 - `native-automation-menus` (`tools/check_native_automation.py`) starts the
   game with `--fark` on SDL's dummy drivers, over the installation
   `OA_GAME_DIR` names: the file and its mode, a connection that speaks no

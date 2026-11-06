@@ -5,4 +5,4 @@
 # streams' (stream_socket.hpp), the one source that calls the system's
 # socket functions. The system library they need on Windows is linked where
 # oa-netgame is defined, as every link of a target is.
-target_sources(oa-netgame PRIVATE socket_host.cpp)
+target_sources(oa-netgame PRIVATE socket_host.cpp overlay_route.cpp)

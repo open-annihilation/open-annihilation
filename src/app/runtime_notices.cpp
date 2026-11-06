@@ -90,6 +90,20 @@ main_menu_settled(Screen screen, const oa::ui::frontend_state::State& state, boo
 
 } // namespace
 
+bool answer_multiplayer_entry(Runtime& runtime) {
+    // The same two answers the menu's own MULTI gives before it opens.
+    if (runtime.eligible_map_names_.empty()) {
+        runtime.play_menu_sound(menu::Sound::big_button);
+        runtime.show_missing_content(Runtime::MissingContent::multiplayer_maps);
+        return true;
+    }
+    if (runtime.refuse_incomplete_mod_start()) {
+        runtime.play_menu_sound(menu::Sound::big_button);
+        return true;
+    }
+    return false;
+}
+
 void Runtime::show_missing_content(MissingContent missing) {
     std::string_view text;
     switch (missing) {

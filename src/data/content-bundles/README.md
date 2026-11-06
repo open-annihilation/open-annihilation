@@ -44,7 +44,10 @@ size, hash or resource.
   take bytes and return bytes. `read_bundle_folder_record` reads the record
   in one bundle folder. A field the reader does not know is ignored. A
   file the source did not hold is marked `not-in-source`, and one it held
-  at another size also keeps that size, `source-size`.
+  at another size also keeps that size, `source-size`. An expansion
+  installed from a package names it, `package <sha256> <release>`, and
+  `check_installed_package` compares that with the package a catalogue
+  offers: current, missing, unrecorded or changed.
   `files_not_recorded` lists a bundle's files its record does not name yet,
   and `record_complete` says whether it names them all, copied or not in
   the source: only such a bundle is played.
@@ -63,10 +66,11 @@ None. The table is fixed for the process. Pointers from `find_bundle`,
 ## Invariants
 
 - The ids are `totala`, `totala-demo`, `campaign`, `core-contingency`,
-  `battle-tactics`, `music`, `cavedog-units` and `cavedog-tilesets`.
-- Campaign, music and the tilesets extend `totala` and need no expansion.
-  Core Contingency and Battle Tactics need the campaign. Cavedog units need
-  Core Contingency. Nothing extends the demo.
+  `battle-tactics`, `music`, `cavedog-units`, `cavedog-tilesets` and
+  `boneyards`.
+- Campaign, music, the tilesets and `boneyards` extend `totala` and need no
+  expansion. Core Contingency and Battle Tactics need the campaign. Cavedog
+  units need Core Contingency. Nothing extends the demo.
 - A file's copy name, or a source name, plus its size, belongs to one file.
 - Results that list bundles follow the table's order.
 - The installer archive `totala3.hpi` and the sample `Example.ufo` are not
@@ -78,12 +82,16 @@ None. The table is fixed for the process. Pointers from `find_bundle`,
 bundle on and off from a set, matches a file by name and case and size,
 checks a known hash and a different one, and checks that the table's own
 dependencies hold. The demo archive's size and hash are the ones
-`demo_1997` checks.
+`demo_1997` checks. The `boneyards` file list is compared with names, sizes
+and hash prefixes held in the test, and a file of that archive's name at
+another size does not count as the expansion.
 
 `data-content-record` writes a record and reads it back, refuses a record
 it does not understand, keeps a record that carries a field it skips, and
 tells a record that names every file of its bundle, in any case, from one
-a stopped copy left.
+a stopped copy left. It writes and reads the package line, skips one it
+cannot use, writes none for another bundle, and decides a package that is
+current, missing, unrecorded or changed.
 
 `data-content-choice` turns an expansion on and off, chooses a base game,
 clears a mod whose required expansion went off, reads a player with no

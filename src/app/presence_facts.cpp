@@ -12,6 +12,7 @@
 #include "oa/app/package_install/origin.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
+#include "oa/data/saves/content_record.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -20,6 +21,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -222,6 +224,68 @@ PresenceFacts presence_facts(const Runtime& runtime) {
         }
     }
     return facts;
+}
+
+std::vector<ActiveHack> active_standard_hacks(const Runtime& runtime) {
+    namespace profiles = oa::data::mod_profile;
+    std::vector<ActiveHack> listed;
+    const auto* state = runtime.engine_settings_ ? runtime.engine_settings_.get() : nullptr;
+    if (state == nullptr)
+        return listed;
+    const auto hacks = profiles::standard_hacks();
+    const auto count =
+        hacks.size() < state->profile_hacks.size() ? hacks.size() : state->profile_hacks.size();
+    const auto overrides = std::span<const profiles::HackOverride>{state->current.hack_overrides};
+    const bool developer = runtime.developer_mode();
+    for (std::size_t index = 0; index < count; ++index) {
+        const profiles::registry::Entry* hack = hacks[index];
+        if (hack == nullptr)
+            continue;
+        profiles::HackState resolved = state->profile_hacks[index];
+        if (developer) {
+            const profiles::HackOverride* found = profiles::find_override(overrides, hack->id);
+            resolved = profiles::overridden_state(*hack, resolved, found);
+        }
+        if (!resolved.on)
+            continue;
+        ActiveHack reading;
+        reading.id = std::string(hack->id);
+        const auto parameters = profiles::registry::parameters_of(*hack);
+        const std::size_t value_count =
+            parameters.size() < resolved.values.size() ? parameters.size() : resolved.values.size();
+        reading.values.reserve(value_count);
+        for (std::size_t parameter = 0; parameter < value_count; ++parameter) {
+            ActiveHack::Value hack_value;
+            hack_value.name = std::string(parameters[parameter].name);
+            hack_value.json = profiles::canonical_json(resolved.values[parameter]);
+            reading.values.push_back(std::move(hack_value));
+        }
+        listed.push_back(std::move(reading));
+    }
+    return listed;
+}
+
+MatchProfileReading match_profile_reading(const Runtime& runtime) {
+    namespace profiles = oa::data::mod_profile;
+    MatchProfileReading reading;
+    reading.hacks = active_standard_hacks(runtime);
+    if (const profiles::ModProfile* profile = runtime.mod_profile()) {
+        const bool baseline = profile->id == "base-game" || profile->id == profiles::base_game_id;
+        if (!baseline) {
+            reading.has_mod = true;
+            reading.mod_id = profile->id;
+            reading.mod_name = profile->name;
+            reading.mod_version = profile->version;
+        }
+    }
+    for (const oa::data::saves::ContentMutator& mutator : runtime.played_mutators()) {
+        MatchProfileReading::Mutator item;
+        item.id = mutator.id;
+        item.version = mutator.version;
+        item.name = mutator.name;
+        reading.mutators.push_back(std::move(item));
+    }
+    return reading;
 }
 
 } // namespace oa::app

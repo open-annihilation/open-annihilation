@@ -21,6 +21,13 @@ if(BUILD_TESTING)
   target_link_libraries(oa-scroll-bars-test PRIVATE oa-ui-frontend-renderer)
   add_test(NAME frontend-scroll-bars COMMAND oa-scroll-bars-test)
 
+  # The main menu's picture against the base game's, the records an
+  # overlay's band covers, undrawn buttons and the corners of OA's buttons,
+  # all with made-up pictures and layouts.
+  add_executable(oa-main-menu-art-test tests/main_menu_art_test.cpp)
+  target_link_libraries(oa-main-menu-art-test PRIVATE oa-ui-frontend-renderer oa-options)
+  add_test(NAME frontend-main-menu-art COMMAND oa-main-menu-art-test)
+
   add_executable(oa-gadget-draw-test tests/gadget_draw_test.cpp)
   target_link_libraries(oa-gadget-draw-test PRIVATE oa-ui-frontend-renderer)
   add_test(NAME frontend-gadget-draw COMMAND oa-gadget-draw-test)

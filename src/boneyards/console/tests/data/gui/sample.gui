@@ -1,0 +1,204 @@
+// Sample screen. Every widget the loader builds, at absolute positions
+// because the panel origin is 0,0. A list row joins the list above it.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=Sample;
+    xpos=0;
+    ypos=0;
+    width=640;
+    height=480;
+  }
+  panel=Sample;
+  crdefault=Go;
+  escdefault=Spot;
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=20;
+    name=Green;
+    xpos=8;
+    ypos=8;
+    width=200;
+    height=120;
+  }
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Go;
+    xpos=8;
+    ypos=140;
+    width=96;
+    height=20;
+    help=goto:sample_next;
+  }
+  text=Go;
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Title;
+    xpos=120;
+    ypos=140;
+    width=80;
+    height=16;
+    help=goto:sample_label;
+  }
+  text=Title;
+}
+[GADGET4]
+{
+  [COMMON]
+  {
+    id=2;
+    name=Rows;
+    xpos=8;
+    ypos=180;
+    width=160;
+    height=68;
+  }
+  itemheight=17;
+}
+[GADGET5]
+{
+  [COMMON]
+  {
+    id=21;
+    name=Alpha;
+    xpos=8;
+    ypos=180;
+    width=143;
+    height=17;
+    help=Alpha|page:alpha;
+  }
+}
+[GADGET6]
+{
+  [COMMON]
+  {
+    id=3;
+    name=Name;
+    xpos=180;
+    ypos=180;
+    width=100;
+    height=21;
+  }
+  text=Vex;
+  maxchars=12;
+}
+[GADGET7]
+{
+  [COMMON]
+  {
+    id=4;
+    name=Meter;
+    xpos=300;
+    ypos=180;
+    width=16;
+    height=68;
+  }
+  range=10;
+  thick=16;
+  knobpos=0;
+  knobsize=8;
+  text=track;
+}
+[GADGET8]
+{
+  [COMMON]
+  {
+    id=22;
+    name=Mark;
+    xpos=330;
+    ypos=180;
+    width=11;
+    height=11;
+    help=BY_New.gaf Locator_Icons 0;
+  }
+}
+[GADGET9]
+{
+  [COMMON]
+  {
+    id=23;
+    name=Code;
+    xpos=360;
+    ypos=180;
+    width=113;
+    height=113;
+  }
+}
+[GADGET10]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Badge;
+    xpos=490;
+    ypos=180;
+    width=11;
+    height=11;
+    help=BY_New.gaf Locator_Icons 3;
+  }
+}
+[GADGET11]
+{
+  [COMMON]
+  {
+    id=6;
+    name=Spot;
+    xpos=520;
+    ypos=180;
+    width=40;
+    height=20;
+    help=goto:sample_hot;
+  }
+  hotornot=1;
+}
+[GADGET12]
+{
+  [COMMON]
+  {
+    id=7;
+    name=Font;
+    xpos=8;
+    ypos=400;
+    width=10;
+    height=10;
+  }
+  filename=anims\Hattfont12.gaf;
+}
+[GADGET13]
+{
+  [COMMON]
+  {
+    id=8;
+    name=File;
+    xpos=24;
+    ypos=400;
+    width=10;
+    height=10;
+  }
+  filename=BY_New.gaf;
+}
+[GADGET14]
+{
+  [COMMON]
+  {
+    id=9;
+    name=Spare;
+    xpos=8;
+    ypos=420;
+    width=10;
+    height=10;
+  }
+}

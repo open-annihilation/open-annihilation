@@ -61,6 +61,11 @@ Y opens the picker. Enter or Space opens it while the button has the
 focus. While the host's launch locks the room's options, the button is
 greyed as the screen's own greyed buttons are.
 
+A battle whose launch bars mutators starts with no mutators and a locked
+picker, whether or not that launch locked the room's other options. The
+set remembered for other battle rooms is not applied. Picks for a skirmish
+and a campaign stay as they are.
+
 The picker is headed **Mutators**, with the setup and the mod beside it,
 such as "Skirmish · No Mod". The filters are **All**, **Installed** and
 **Downloads**, with **TAGS** and "Search mutators". Two lists follow.

@@ -11,6 +11,8 @@
 
 #include "endpoint.hpp"
 
+#include "oa/app/automation/screen.hpp"
+
 #include <span>
 #include <string_view>
 
@@ -84,12 +86,5 @@ void answer_prefs(Endpoint& endpoint, const Request& request, Answer& answer);
 /// @param request the request
 /// @param[in,out] answer the answer
 void answer_quit(Endpoint& endpoint, const Request& request, Answer& answer);
-
-/// Returns the name the endpoint gives a screen.
-///
-/// @param screen the screen's registry id
-/// @return main_menu, single_player, skirmish, mp_battleroom and the like;
-///         screen_<id> for a screen without a name
-[[nodiscard]] std::string screen_name(ScreenId screen);
 
 } // namespace oa::app::automation

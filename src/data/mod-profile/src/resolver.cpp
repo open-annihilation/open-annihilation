@@ -798,6 +798,39 @@ class Resolver {
         return nullptr;
     }
 
+    /// Names the keys nested under a group, such as `mode, x, y` under
+    /// `boneyards-entry`.
+    ///
+    /// @param kind the block's kind of entry
+    /// @param group the group's key
+    /// @return the nested keys, comma separated; empty when the key is no group
+    static std::string nested_keys(EntryKind kind, std::string_view group) {
+        std::string names;
+        for (const Entry& entry : registry::table().entries) {
+            if (entry.kind != kind || entry.key.size() <= group.size() + 1 ||
+                entry.key.compare(0, group.size(), group) != 0 || entry.key[group.size()] != '.')
+                continue;
+            if (!names.empty())
+                names += ", ";
+            names += entry.key.substr(group.size() + 1);
+        }
+        return names;
+    }
+
+    /// Checks the members of a group that only mean something together:
+    /// `media.boneyards-entry`'s x and y, the ENTER plate's place.
+    ///
+    /// @param block the block the group is in
+    /// @param group the group's mapping
+    void check_paired(const std::string& block, const Node& group) {
+        if (block != "media" || group.key.text != "boneyards-entry")
+            return;
+        const bool column = formats::oamod::find_entry(group, "x") != nullptr;
+        const bool row = formats::oamod::find_entry(group, "y") != nullptr;
+        if (column != row)
+            error(group.position, block + "." + group.key.text, "x and y must be given together");
+    }
+
     void normalise_values(const Node& root, EntryKind kind) {
         const std::string block{value_block(kind)};
         const Node* values = block_of(root, block);
@@ -809,6 +842,7 @@ class Resolver {
             if (entry.kind == NodeKind::mapping && kind != EntryKind::identity) {
                 for (const Node& inner : entry.children)
                     check_given(kind, block, entry.key.text + "." + inner.key.text, inner, given);
+                check_paired(block, entry);
             } else {
                 check_given(kind, block, entry.key.text, entry, given);
             }
@@ -825,7 +859,12 @@ class Resolver {
         const Entry* entry = value_entry(kind, key);
         const std::string path = block + "." + key;
         if (entry == nullptr) {
-            error(node.key.position, path, "unknown key");
+            // A group of keys given one value, such as `boneyards-entry: button`.
+            const std::string inner = nested_keys(kind, key);
+            if (!inner.empty() && node.kind != NodeKind::mapping)
+                error(node.position, path, "must be a mapping of " + inner);
+            else
+                error(node.key.position, path, "unknown key");
             return;
         }
         Value normal{};
@@ -2069,16 +2108,18 @@ class Resolver {
 
     /// Returns the profile the hashes read, when it is not the effective one.
     ///
-    /// Seven keys were added after grammar 1's first release: an empty
+    /// Eight keys were added after grammar 1's first release: an empty
     /// `layout.installation-archives` list mounts nothing, an
     /// `identity.watcher-side-frame` of 2 shows 3.1c's watcher art, an empty
     /// `identity.skirmish-hidden-sides` or `battle-room-hidden-sides` list
     /// hides no side, and an empty `identity.computer-player-sides` list lets
     /// computer players take every side. A `limits.weapon-types` of 256
     /// weapon types and a `limits.sides` of five sides number and load what
-    /// 3.1c does. Each of those is what a profile that never wrote the key
-    /// does, so the canonical form leaves each out at that value, and existing
-    /// profiles keep both hashes. Any other value stays, and the effective
+    /// 3.1c does. A `media.boneyards-entry` of mode `auto` at x 497 and y 8
+    /// shows the Boneyards' way in as the game does unasked. Each of
+    /// those is what a profile that never wrote the key does, so the
+    /// canonical form leaves each out at that value, and existing profiles
+    /// keep both hashes. Any other value stays, and the effective
     /// profile is read as it is, uncopied, when none of the keys is at its
     /// baseline. The effective profile itself still holds every key.
     ///
@@ -2091,7 +2132,7 @@ class Resolver {
             bool (*at_baseline)(const Value&);
         };
 
-        static constexpr std::array<LateKey, 7> late_keys{{
+        static constexpr std::array<LateKey, 8> late_keys{{
             {"layout",
              "installation-archives",
              [](const Value& value) {
@@ -2129,13 +2170,28 @@ class Resolver {
                         formats::oamod::integer_value(types->number, numbered) &&
                         numbered == limits::base_weapon_types;
              }},
-            {"limits", "sides", [](const Value& value) {
+            {"limits",
+             "sides",
+             [](const Value& value) {
                  const Value* count = find_member(value, "count");
                  int64_t loaded = 0;
                  return value.kind == ValueKind::map && count != nullptr &&
                         count->kind == ValueKind::number &&
                         formats::oamod::integer_value(count->number, loaded) &&
                         loaded == limits::base_sides;
+             }},
+            {"media", "boneyards-entry", [](const Value& value) {
+                 const Value* mode = find_member(value, "mode");
+                 const Value* x = find_member(value, "x");
+                 const Value* y = find_member(value, "y");
+                 int64_t column = 0;
+                 int64_t row = 0;
+                 return value.kind == ValueKind::map && mode != nullptr &&
+                        mode->kind == ValueKind::string && mode->text == "auto" && x != nullptr &&
+                        x->kind == ValueKind::number &&
+                        formats::oamod::integer_value(x->number, column) && column == 497 &&
+                        y != nullptr && y->kind == ValueKind::number &&
+                        formats::oamod::integer_value(y->number, row) && row == 8;
              }},
         }};
         std::optional<Value> copy;

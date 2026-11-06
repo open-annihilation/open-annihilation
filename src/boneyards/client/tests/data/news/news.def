@@ -1,0 +1,5 @@
+{[News<S:command=category><I:id=1><S:name=Front Line><I:sort=0>]}
+{[News<S:command=category><I:id=2><S:name=Galactic War><I:sort=1>]}
+{[News<S:command=headline><I:id=11><I:category=1><S:headline=Ladder Season Opens><I:sort=1><S:file=#Remote#/boneyards/ta/news/news2.htm>]}
+{[News<S:command=headline><I:id=10><I:category=1><S:headline=Servers Restored><I:sort=0><S:file=#Remote#/boneyards/ta/news/news1.htm>]}
+{[News<S:command=headline><I:id=20><I:category=2><S:headline=Front Report><I:sort=0><S:file=#Remote#/boneyards/ta/news/news3.htm>]}

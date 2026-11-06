@@ -12,6 +12,8 @@
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 
 #include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -91,12 +93,211 @@ void write_team(JsonWriter& json, uint8_t team) {
         json.null();
 }
 
+// The simulation's tick rate, which the in-game clock divides by.
+constexpr uint32_t kTicksPerSecond = 30;
+
+/// Writes one real number as JSON, in the units the resource bar reads.
+///
+/// A value that is not finite is null. Trailing zeros after the decimal
+/// are dropped, and a negative zero is written as 0.
+///
+/// @param[in,out] json the JSON being written
+/// @param value the number
+void write_real(JsonWriter& json, double value) {
+    if (!std::isfinite(value)) {
+        json.null();
+        return;
+    }
+    char text[128];
+    const int written = std::snprintf(text, sizeof text, "%.6f", value);
+    if (written <= 0 || static_cast<std::size_t>(written) >= sizeof text) {
+        json.null();
+        return;
+    }
+    for (char* cursor = text; *cursor != '\0'; ++cursor) {
+        if (*cursor == ',')
+            *cursor = '.';
+    }
+    char* finish = text + written;
+    char* point = nullptr;
+    for (char* cursor = text; cursor != finish; ++cursor) {
+        if (*cursor == '.')
+            point = cursor;
+    }
+    if (point != nullptr) {
+        while (finish > point + 1 && finish[-1] == '0')
+            --finish;
+        if (finish > point && finish[-1] == '.')
+            --finish;
+        *finish = '\0';
+    }
+    if (text[0] == '-' && text[1] == '0' && text[2] == '\0') {
+        json.raw("0");
+        return;
+    }
+    json.raw(text);
+}
+
+/// Writes the clock the match shows: the tick, the whole seconds, and h:mm:ss.
+///
+/// @param[in,out] json the JSON being written
+/// @param tick the match's tick
+void write_clock(JsonWriter& json, uint32_t tick) {
+    const uint32_t whole_seconds = tick / kTicksPerSecond;
+    const unsigned hours = whole_seconds / 3600u;
+    const unsigned minutes = (whole_seconds / 60u) % 60u;
+    const unsigned remain = whole_seconds % 60u;
+    char display[32];
+    const int written =
+        std::snprintf(display, sizeof display, "%02u:%02u:%02u", hours, minutes, remain);
+    json.begin_object();
+    json.key("tick");
+    json.integer(static_cast<int64_t>(tick));
+    json.key("seconds");
+    json.integer(static_cast<int64_t>(whole_seconds));
+    json.key("display");
+    if (written > 0 && static_cast<std::size_t>(written) < sizeof display)
+        json.string(display);
+    else
+        json.null();
+    json.end_object();
+}
+
+/// Tells whether a seat's economy is shown.
+///
+/// The local player is shown, and so is a player allied with the local
+/// player. all shows every seat.
+///
+/// @param game the match
+/// @param slot the seat
+/// @param shown whose economy is written
+/// @return true when the economy is written
+bool economy_visible(const oa::Game& game, uint8_t slot, EconomyView shown) {
+    if (shown == EconomyView::all)
+        return true;
+    const uint8_t local = game.local_player_index;
+    if (slot == local)
+        return true;
+    if (local >= OA_PLAYER_COUNT)
+        return false;
+    return game.players[local].allied_by[slot] != 0;
+}
+
+/// Writes one resource: amount, storage, the shared store when it is shared,
+/// the bar's income and expense, and the totals.
+///
+/// storage is the player's store as the bar reads it. shared_storage is
+/// written beside it when the player shares allies' storage, and is not
+/// added into storage.
+///
+/// @param[in,out] json the JSON being written
+/// @param amount the store
+/// @param storage the storage the bar reads
+/// @param shared the allies' shared storage
+/// @param shares the player shares allies' storage
+/// @param income produced per second
+/// @param expense requested per second
+/// @param produced the produced total
+/// @param requested the requested total
+/// @param wasted the wasted total
+void write_store(
+    JsonWriter& json,
+    float amount,
+    float storage,
+    float shared,
+    bool shares,
+    float income,
+    float expense,
+    double produced,
+    double requested,
+    double wasted
+) {
+    json.begin_object();
+    json.key("amount");
+    write_real(json, amount);
+    json.key("storage");
+    write_real(json, storage);
+    if (shares) {
+        json.key("shared_storage");
+        write_real(json, shared);
+    }
+    json.key("income");
+    write_real(json, income);
+    json.key("expense");
+    write_real(json, expense);
+    json.key("produced_total");
+    write_real(json, produced);
+    json.key("requested_total");
+    write_real(json, requested);
+    json.key("wasted_total");
+    write_real(json, wasted);
+    json.end_object();
+}
+
+/// Writes a player's metal and energy.
+///
+/// @param[in,out] json the JSON being written
+/// @param player the player
+void write_economy(JsonWriter& json, const oa::Player& player) {
+    const bool shares = (player.resource_flags & OA_PLAYER_RESOURCE_SHARES_STORAGE) != 0;
+    json.begin_object();
+    json.key("metal");
+    write_store(
+        json,
+        player.metal,
+        player.metal_storage,
+        player.shared_metal_storage,
+        shares,
+        player.metal_produced,
+        player.metal_requested,
+        player.metal_produced_total,
+        player.metal_requested_total,
+        player.metal_wasted_total
+    );
+    json.key("energy");
+    write_store(
+        json,
+        player.energy,
+        player.energy_storage,
+        player.shared_energy_storage,
+        shares,
+        player.energy_produced,
+        player.energy_requested,
+        player.energy_produced_total,
+        player.energy_requested_total,
+        player.energy_wasted_total
+    );
+    json.end_object();
+}
+
+/// Returns the setup the match's rules are read from: the local player's,
+/// or the first seated player's when the local player has none.
+///
+/// @param world the match
+/// @return the setup; null when no seated player has one
+const oa::PlayerSetupInfo* match_setup(const oa::World& world) {
+    const oa::Game& game = world.game;
+    if (game.local_player_index < OA_PLAYER_COUNT) {
+        if (const oa::PlayerSetupInfo* info =
+                oa::world_player_info(&world, &game.players[game.local_player_index]))
+            return info;
+    }
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        if (!player_seated(game.players[slot]))
+            continue;
+        if (const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &game.players[slot]))
+            return info;
+    }
+    return nullptr;
+}
+
 /// Writes one player of a match.
 ///
 /// @param[in,out] json the JSON being written
 /// @param world the match
 /// @param slot the player's slot
-void write_match_player(JsonWriter& json, const oa::World& world, uint8_t slot) {
+/// @param shown whose economy is written
+void write_match_player(JsonWriter& json, const oa::World& world, uint8_t slot, EconomyView shown) {
     const oa::Game& game = world.game;
     const oa::Player& player = game.players[slot];
     const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
@@ -134,6 +335,15 @@ void write_match_player(JsonWriter& json, const oa::World& world, uint8_t slot) 
     json.integer(player.kills);
     json.key("losses");
     json.integer(player.losses);
+    json.key("units_created");
+    json.integer(static_cast<int64_t>(player.units_created));
+    json.key("board_row");
+    json.integer(player.board_row);
+    json.key("economy");
+    if (economy_visible(game, slot, shown))
+        write_economy(json, player);
+    else
+        json.null();
     json.end_object();
 }
 
@@ -435,7 +645,74 @@ void write_result_fields(JsonWriter& json, const MatchResults& results, bool wri
     json.integer(results.tick);
 }
 
-void write_match(JsonWriter& json, const oa::World* match, std::optional<uint64_t> digest) {
+void write_map(JsonWriter& json, const oa::World& match) {
+    const oa::Game& game = match.game;
+    const oa::PlayerSetupInfo* setup = match_setup(match);
+    json.begin_object();
+    json.key("name");
+    const std::string name =
+        setup != nullptr ? game_text(setup->map_name, sizeof setup->map_name) : std::string{};
+    if (!name.empty())
+        json.string(name);
+    else
+        json.null();
+    json.key("width");
+    json.integer(static_cast<int64_t>(game.map_width));
+    json.key("height");
+    json.integer(static_cast<int64_t>(game.map_height));
+    json.end_object();
+}
+
+void write_rule_fields(JsonWriter& json, const oa::World& match) {
+    const oa::Game& game = match.game;
+    const oa::PlayerSetupInfo* setup = match_setup(match);
+    json.key("commander");
+    if (game.session_rules < 0 ||
+        static_cast<std::size_t>(game.session_rules) >= std::size(kCommanderRules))
+        json.null();
+    else
+        json.string(kCommanderRules[static_cast<std::size_t>(game.session_rules)]);
+    const uint8_t flags = game.visibility_flags;
+    json.key("line_of_sight");
+    if ((flags & OA_VISIBILITY_LINE_OF_SIGHT) == 0)
+        json.string("permanent");
+    else if ((flags & OA_VISIBILITY_ALTITUDE_SIGHT) != 0)
+        json.string("true");
+    else
+        json.string("circular");
+    json.key("mapped");
+    json.boolean((flags & OA_VISIBILITY_MAPPING) == 0);
+    json.key("metal");
+    json.integer(setup != nullptr ? int64_t{setup->metal_hundreds} * 100 : int64_t{0});
+    json.key("energy");
+    json.integer(setup != nullptr ? int64_t{setup->energy_hundreds} * 100 : int64_t{0});
+    json.key("unit_limit");
+    json.integer(static_cast<int64_t>(game.max_units_setting));
+}
+
+void write_seated_sides(JsonWriter& json, const oa::World& match) {
+    const oa::Game& game = match.game;
+    json.begin_array();
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const oa::Player& player = game.players[slot];
+        if (!player_seated(player))
+            continue;
+        const oa::PlayerSetupInfo* info = oa::world_player_info(&match, &player);
+        const uint8_t side_index = info != nullptr ? info->side : 0;
+        json.begin_object();
+        json.key("slot");
+        json.integer(slot);
+        write_side(json, oa::world_side(&match, side_index), side_index);
+        json.key("team");
+        write_team(json, player.team);
+        json.end_object();
+    }
+    json.end_array();
+}
+
+void write_match(
+    JsonWriter& json, const oa::World* match, std::optional<uint64_t> digest, EconomyView shown
+) {
     json.key("in_match");
     json.boolean(match != nullptr);
     if (match == nullptr) {
@@ -461,11 +738,15 @@ void write_match(JsonWriter& json, const oa::World* match, std::optional<uint64_
     json.boolean((game.sim_run_flags & kRunFlagPaused) != 0);
     json.key("speed");
     json.integer(game.requested_speed);
+    json.key("unit_limit");
+    json.integer(static_cast<int64_t>(game.max_units_setting));
+    json.key("clock");
+    write_clock(json, game.tick);
     json.key("players");
     json.begin_array();
     for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
         if (player_seated(game.players[slot]))
-            write_match_player(json, *match, slot);
+            write_match_player(json, *match, slot, shown);
     json.end_array();
     json.key("local_player");
     if (game.local_player_index < OA_PLAYER_COUNT)

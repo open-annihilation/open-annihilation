@@ -69,6 +69,9 @@ def check(root, source):
     freetype_config = repo / "local/deps/freetype-install-any/lib/cmake/freetype"
     freetype_config.mkdir(parents=True)
     (freetype_config / "freetype-config.cmake").touch()
+    # The page fonts, already fetched.
+    (repo / "local/deps/fonts/liberation").mkdir(parents=True)
+    (repo / "local/deps/fonts/liberation/LiberationSans-Regular.ttf").touch()
     (root / "bin").mkdir()
     (root / "build").mkdir()
     # The installation lies beside the checkout, where a workspace might keep

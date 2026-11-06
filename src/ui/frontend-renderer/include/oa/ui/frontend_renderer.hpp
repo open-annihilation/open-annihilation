@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -109,6 +110,10 @@ struct ScreenResources {
     // whose bitmap carries no palette; empty when the screen was not loaded by
     // load_screen.
     std::optional<PaletteBytes> game_palette;
+    /// Buttons that keep their place and their press but draw nothing, by
+    /// record name: a base-game picture a screen leaves off art of a mod's
+    /// own. Empty, as every loader leaves it, draws every button.
+    std::vector<std::string> undrawn_buttons;
 };
 
 using MainMenuResources = ScreenResources;
@@ -235,13 +240,17 @@ enum class MainMenuLayout : uint8_t { with_overlay, base_game };
 /// @param assets Asset store.
 /// @param layout with_overlay takes the top copy of MAINMENU.GUI; base_game
 ///        takes a loose copy first, then the first archived copy whose
-///        archive also holds FrontendX or lies in a mod's folder (a folder of
-///        the store above the game folder), and the top copy when no archive
-///        qualifies.
+///        archive also holds FrontendX or lies directly in the played mod's
+///        folder, and the top copy when no archive qualifies. An expansion's
+///        folder, which the store also layers over the game folder, is not a
+///        mod's: its layout made for an overlay is passed over.
+/// @param mod_folder The played mod's folder; empty when no mod is played.
 /// @return The loaded resources.
 /// @throws std::runtime_error when a resource is missing or malformed, or
 ///         FrontendX is not 640x480.
-[[nodiscard]] MainMenuResources load_main_menu(AssetStore& assets, MainMenuLayout layout);
+[[nodiscard]] MainMenuResources load_main_menu(
+    AssetStore& assets, MainMenuLayout layout, const std::filesystem::path& mod_folder = {}
+);
 
 /// Draws the main menu screen.
 ///

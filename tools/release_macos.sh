@@ -23,6 +23,7 @@ version=""
 jobs=6
 app=""
 unsigned=0
+check_only=0
 allow_changes=0
 game_dir=""
 save_file=""
@@ -32,7 +33,7 @@ usage() {
     cat <<'USAGE'
 Usage: tools/release_macos.sh [--version vX.Y.Z] [--out DIR] [--build-dir DIR]
                               [--deps DIR] [--jobs N] [--allow-local-changes]
-                              [--app BUNDLE] [--unsigned]
+                              [--app BUNDLE] [--unsigned] [--check-only]
                               [--game-dir DIR [--save FILE]] [--previous-zip ZIP]
 
 Builds the macOS release of Open Annihilation and writes, in DIR:
@@ -49,7 +50,9 @@ The game is a Release build for arm64 and x86_64 and macOS 11.0 or later,
 without tests or the game's self-checks (OA_SELF_CHECKS=OFF), with its
 executable stripped of its symbols, with zlib, SDL3 and FreeType linked in from
 tools/bootstrap_macos_deps.py, and the text fonts of
-tools/bootstrap_text_fonts.py in its Resources/fonts. The application is signed inside-out with the
+tools/bootstrap_text_fonts.py in its Resources/fonts. When the module is
+built, that folder also holds the page fonts, and Resources holds
+coreprime.ccx and the module's language file. The application is signed inside-out with the
 hardened runtime, notarized and stapled, and so is the installer package;
 then both are checked. Nothing is installed.
 
@@ -70,6 +73,8 @@ then both are checked. Nothing is installed.
                          never for release
   --unsigned             sign ad hoc and leave the installer package unsigned,
                          whatever the environment says
+  --check-only           check the resources of --app against --build-dir's
+                         cache and --deps, and exit before signing
   --game-dir DIR         start the packaged game headless over this 3.1c
                          installation, under each architecture this Mac runs
   --save FILE            with --game-dir: load this saved game under each of
@@ -115,6 +120,7 @@ while [[ $# -gt 0 ]]; do
         --save) require_value "$@"; save_file="$(absolute "$2")"; shift 2 ;;
         --previous-zip) require_value "$@"; previous_zip="$(absolute "$2")"; shift 2 ;;
         --unsigned) unsigned=1; shift ;;
+        --check-only) check_only=1; shift ;;
         --allow-local-changes) allow_changes=1; shift ;;
         *) printf 'release_macos.sh: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
@@ -142,9 +148,30 @@ check_notices() {
     [[ -z "$others" ]] || fail "$dir holds notices Git does not track: $(tr '\n' ' ' <<<"$others")"
 }
 
+# The module's resource lists. The file is the only one of its name under tools.
+source_module_resource_check() {
+    local found count
+    found="$(find "$repo_dir/tools" -mindepth 2 -maxdepth 2 -name check_macos_resources.sh -print)"
+    count="$(printf '%s\n' "$found" | sed '/^$/d' | wc -l | tr -d ' ')"
+    [[ "$count" == 1 ]] || fail "expected one module resource check under tools, found: ${found:-none}"
+    # shellcheck disable=SC1090
+    source "$found"
+}
+
 [[ "$(uname -s)" == Darwin ]] || fail "the macOS release is built on macOS"
 [[ -z "$save_file" || -n "$game_dir" ]] || fail "--save needs --game-dir"
 if [[ -z "$out_dir" ]]; then out_dir="$build_dir/package"; fi
+
+# The resource check, and nothing after it: no build, no signature.
+if [[ "$check_only" == 1 ]]; then
+    [[ -n "$app" ]] || fail "--check-only needs --app"
+    [[ -d "$app" ]] || fail "no application bundle at $app"
+    step "check the build"
+    source_module_resource_check
+    check_macos_resources "$app" "$build_dir" "$deps_dir" "$repo_dir"
+    echo "resource check passed"
+    exit 0
+fi
 
 # The signing and notary settings. This script never prints them, but the
 # checks' tools print the name of the certificate that signed a package
@@ -238,6 +265,7 @@ if [[ -z "$app" ]]; then
     # The text fonts, the same for every architecture; FreeType is the
     # prefix's.
     python3 "$repo_dir/tools/bootstrap_text_fonts.py" --deps "$deps_dir" --fonts-only
+    python3 "$repo_dir/tools/bootstrap_page_fonts.py" --deps "$deps_dir"
     text_fonts="$deps_dir/text-fonts"
 
     # A Release build without tests, for both architectures and the oldest
@@ -269,6 +297,7 @@ if [[ -z "$app" ]]; then
         -DOA_GAME_DIR= -DOA_DEMO_INSTALLER= \
         "-DSDL3_DIR=$prefix/sdl/lib/cmake/SDL3" \
         "-Dfreetype_DIR=$prefix/freetype/lib/cmake/freetype" "-DOA_TEXT_FONTS_DIR=$text_fonts" \
+        "-DOA_FONTS_DIR=$deps_dir/fonts" \
         "-DZLIB_INCLUDE_DIR=$prefix/zlib/include" "-DZLIB_LIBRARY=$prefix/zlib/lib/libz.a"
 
     step "build"
@@ -297,38 +326,11 @@ app_version="$(plist_value "$app" CFBundleShortVersionString)"
 if [[ "$release_build" == 1 ]]; then
     step "check the build"
     binary="$app/Contents/MacOS/$app_executable"
-    resources="$(ls -A "$app/Contents/Resources" | LC_ALL=C sort | tr '\n' ' ')"
-    # Classic, packed beside the game, when the source ships it.
-    shipped_brains=""
-    [[ -f "$repo_dir/brains/classic/oabrain.yaml" ]] && shipped_brains="brains"
-    expected="$(printf '%s\n' ATTRIBUTIONS.md LICENSE fonts languages licenses registries ${shipped_brains:+"$shipped_brains"} \
-        "$(plist_value "$app" CFBundleIconFile)" | LC_ALL=C sort | tr '\n' ' ')"
-    [[ "$resources" == "$expected" ]] || fail "unexpected files in Contents/Resources: $resources"
-    if [[ -n "$shipped_brains" ]]; then
-        [[ "$(ls -A "$app/Contents/Resources/brains")" == "classic.oabrain" ]] \
-            || fail "Contents/Resources/brains holds more than classic.oabrain"
-    fi
-    cmp -s "$repo_dir/registries/coreprime.yaml" "$app/Contents/Resources/registries/coreprime.yaml" \
-        || fail "Contents/Resources/registries/coreprime.yaml differs from the source"
-    # The engine's own words in its built-in languages, and nothing else in
-    # languages/: the engine ships no language pack.
-    [[ "$(ls -A "$app/Contents/Resources/languages")" == "interface.tdf" ]] \
-        || fail "Contents/Resources/languages holds more than interface.tdf"
-    cmp -s "$repo_dir/languages/interface.tdf" "$app/Contents/Resources/languages/interface.tdf" \
-        || fail "Contents/Resources/languages/interface.tdf differs from the source"
-    # The fonts this version ships, read from the bootstrap's FONT_FILES.
-    # The fonts folder may hold more than that, for older checkouts.
-    shipped_fonts="$(
-        cd "$repo_dir" && python3 -c 'import sys; sys.path.insert(0, "tools"); import bootstrap_text_fonts as b; print("\n".join(b.FONT_FILES))'
-    )"
-    fonts="$(ls -A "$app/Contents/Resources/fonts" | LC_ALL=C sort | tr '\n' ' ')"
-    expected_fonts="$(printf '%s\n' "$shipped_fonts" | LC_ALL=C sort | tr '\n' ' ')"
-    [[ "$fonts" == "$expected_fonts" ]] || fail "Contents/Resources/fonts holds $fonts, not $expected_fonts"
-    while IFS= read -r font; do
-        [[ -n "$font" ]] || continue
-        cmp -s "$text_fonts/$font" "$app/Contents/Resources/fonts/$font" \
-            || fail "Contents/Resources/fonts/$font differs from $text_fonts/$font"
-    done <<< "$shipped_fonts"
+    # Classic, the notices, the fonts and, when the module was built, its files.
+    # The list is the module's, read from this build's cache, so a build with
+    # the module off keeps the check this script used before the module.
+    source_module_resource_check
+    check_macos_resources "$app" "$build_dir" "$deps_dir" "$repo_dir"
     lipo -info "$binary"
     for arch in "${architectures[@]}"; do
         lipo "$binary" -verify_arch "$arch" || fail "the game has no $arch code"
@@ -349,8 +351,7 @@ if [[ "$release_build" == 1 ]]; then
     [[ "$(plist_value "$app" LSMinimumSystemVersion)" == "$macos_minimum" ]] \
         || fail "the Info.plist's LSMinimumSystemVersion is not $macos_minimum"
     check_notices "$app/Contents/Resources"
-    echo "${architectures[*]}, macOS $macos_minimum or later, system libraries only, the source's notices,"
-    echo "the text fonts: $fonts"
+    echo "${architectures[*]}, macOS $macos_minimum or later, system libraries only, the source's notices"
     echo "$bundle_id $app_version"
 fi
 

@@ -126,7 +126,10 @@ A new kind is wired in five places, and nowhere in the generic files:
 
 An expansion is the exception to the generic unpack. Its `plan` refuses
 that unpack, and the runtime copies it with `install_oaexp`, which writes
-the table's files and the `.oa-content` record.
+the table's files and the `.oa-content` record, with the package's
+SHA-256 and catalogue release (`PackageFrom`). Over a copy already in
+place it replaces the files where they are and keeps the files the game
+wrote beside them ([the standard](../../../docs/expansions/oaexp-standard.md)).
 
 A kind's own refusals go at the end of `Refusal`, worded by its
 `KindPrompts::refusal_text`.

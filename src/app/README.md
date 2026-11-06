@@ -1780,15 +1780,16 @@ prompts, Settings › Updates and the headers name one state with one size.
 
 ## Files
 
-- `app.hpp`, `runtime.hpp`, `runtime.cpp`, `runtime_frontend_host.cpp`,
+- `app.hpp`, `expansion_entry.hpp`, `runtime.hpp`, `runtime.cpp`, `runtime_frontend_host.cpp`,
   `runtime_builtin_screens.cpp`, `screen_registry.*`: the screen registry,
   screen loading and the host of the frontend dispatcher. Lines are only
   ever added to `screens.inc`.
 - `runtime_update.cpp`: looks for a new release at every start and every
   hour while the game runs, on the channel the run reads, keeps the signed
   feed it accepted, reports a check to the address that feed names at most
-  once an hour, and reads the feed again at the first menu of each start; `runtime_update_offer.cpp` and
-  `runtime_update_install.cpp` are its screens ([Updates](#updates)).
+  once an hour, and reads the feed again at the first menu of each start; `runtime_update_entry.cpp`
+  asks before an expansion is entered and fetches a missing package from the Library;
+  `runtime_update_offer.cpp` and `runtime_update_install.cpp` are its screens ([Updates](#updates)).
 - `runtime_menu_audio.cpp`: the main menu's hum, and when it starts and
   stops (The start's movies and the menu hum, above).
 - `runtime_world_draw.cpp`, `runtime_camera.cpp`: world rendering and the
@@ -5310,10 +5311,11 @@ replay, console commands and checks. Each such library is an extension.
 The extension API's chapter for an extension's author is
 [docs/extensions/README.md](../../docs/extensions/README.md), and the OA UI
 kit's for extensions [docs/extensions/ui-kit.md](../../docs/extensions/ui-kit.md).
-The engine registers its own, network play ([below](#network-play)) and
-the automation endpoint ([below](#the-automation-endpoint)); a project
-that builds the game registers further ones after adding the engine, each
-with the function that fills its table:
+The engine registers its own, network play ([below](#network-play)),
+the automation endpoint ([below](#the-automation-endpoint)) and the MCP
+server ([below](#the-mcp-server)); a project that builds the game
+registers further ones after adding the engine, each with the function
+that fills its table:
 
 ```cmake
 oa_add_extension(<target> INIT <function> [SWITCHES <letters>] [GAME_FILES <COMMAND ...>])
@@ -5430,6 +5432,14 @@ leaves it held, and releasing it while it is released leaves it released.
 It is not a hook, and no extension fills it.
 `native-running-while-inactive` checks both sides
 ([testing.md](../../docs/development/testing.md#the-main-loop-while-inactive)).
+
+An extension calls `defer_inactive_loop_release` to hold off that check's
+release, or to let the release go ahead. It does not hold or release the
+request itself. The check counts no frames and does not release while the
+release is held off. A build without self-checks has nothing to hold off,
+and the call does nothing. It is not a hook, and no extension fills it. It
+does not read a value the engine resolved, and it does not change the
+extension table.
 
 An extension calls `web_address_available` to ask whether this machine can
 open a web address in the system's browser. The answer is no on a Steam
@@ -5622,6 +5632,20 @@ SDL's event queue alone; and which have the game copy each frame it
 presents, just before it shows it, into a surface the endpoint keeps,
 until the endpoint stops it. Like the check host it is not part of the
 extension table.
+
+The MCP server changes a running match through the play host
+(`play_host.hpp`, `runtime_play_host.cpp`): `play_host(runtime)` returns a
+table whose entries set the speed, pause and resume, each through the path
+the keys use, move the view and let the view's limits hold it, set a
+realtime or stepped clock, run a granted number of ticks, give orders and
+standing orders and select units, through the match's own order calls and
+the order panel's path, and read whether the match is a replay, a watcher
+or a shared match. Orders and selection apply to the units this machine
+plays. A replay and a watcher may move the view; the director's view is
+refused. A shared match refuses the stepped clock. A stepped clock holds an
+order until a step runs it. A camera move does not wait for a step. It is
+not part of the extension table. The automation endpoint does not use it,
+so `--fark` stays read-only.
 
 An extension reaches `oa-game` only through these hooks and declared
 headers. When it needs something the table does not offer, add a hook or
@@ -6095,3 +6119,27 @@ program may control this machine's game.
 [automation/README.md](automation/README.md) describes the options, the
 protocol and the tests, and [docs/automation.md](../../docs/automation.md)
 the endpoint for those who write a program that drives the game.
+
+## The MCP server
+
+`mcp/` is the MCP server's extension, `oa-app-mcp`, which the engine
+always builds and registers after the automation endpoint. Without
+`--mcp` or `--mcp-http` it does nothing: standard input is not read,
+standard output is not written, and no socket is opened. With `--mcp`, a
+program that starts the game speaks the Model Context Protocol on those
+streams. With `--mcp-http`, a program on this machine speaks it over
+loopback HTTP. The server is served from the frame hook on the main
+thread, never waiting. `game.status` reads the running match.
+`game.speed`, `game.pause` and the clock tools change it through the play
+host, and the camera tools point the view. Both transports share one clock,
+and a step from either client runs it. `game.quit` leaves the game.
+`orders.issue`, `orders.state` and `units.select` command this machine's
+units through the play host. `units.list`, `units.get`, `units.orders` and
+`units.types` read the units, their orders and their types through the match
+view (`match_view.hpp`, `runtime_match_view.cpp`). `map.info`,
+`map.visibility` and `map.radar` read the map, one player's sight and that
+player's contacts through the same view. `--mcp=observe` lists only the
+tools that read. While either option is on, the battle room's engine line
+ends in ` REMOTED`.
+[mcp/README.md](mcp/README.md) describes the options, the protocol and
+the tests.

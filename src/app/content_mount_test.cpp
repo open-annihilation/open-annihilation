@@ -41,8 +41,8 @@ namespace fs = std::filesystem;
 using namespace oa::app;
 namespace bundles = oa::data::content_bundles;
 
-constexpr std::string_view kEveryExpansion =
-    "totala:campaign,core-contingency,battle-tactics,music,cavedog-units,cavedog-tilesets";
+constexpr std::string_view kEveryExpansion = "totala:campaign,core-contingency,battle-tactics,"
+                                             "music,cavedog-units,cavedog-tilesets,boneyards";
 
 /// Compares two strings without regard to ASCII case.
 ///
@@ -251,7 +251,7 @@ void check_composed_mount(const fs::path& scratch) {
     OA_CHECK(every->mod_folder.empty());
     OA_CHECK(every->profile == nullptr);
     OA_CHECK(file_names(every->archives) == scanned);
-    OA_CHECK(every->folders.size() == 7);
+    OA_CHECK(every->folders.size() == 8);
     OA_CHECK(path_to_utf8(every->folders.back().filename()) == "totala");
 
     const std::vector<std::string> hpis = hpi_names(file_names(every->archives));

@@ -619,11 +619,11 @@ void Runtime::check_update_offer() {
                     return oa::data::languages::interface_text(english);
                 }
             };
-            const std::string named = oa::ui::library::filled(
+            const std::string installed_line = oa::ui::library::filled(
                 hooks, "Installed {version} · Testing channel", {{"version", built.version_text}}
             );
             require(
-                engine_settings_dialog()->updates.card_installed == named,
+                engine_settings_dialog()->updates.card_installed == installed_line,
                 "Settings › Updates did not name the testing channel: " +
                     engine_settings_dialog()->updates.card_installed
             );

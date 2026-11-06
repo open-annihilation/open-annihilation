@@ -882,11 +882,18 @@ void Runtime::tell_mod_installs() {
         if (kind.name == "expansion") {
             install::Problem problem{};
             fs::path installed;
-            const std::string_view registry_id = state.origin.kind == install::OriginKind::catalogue
-                                                     ? std::string_view(state.origin.registry)
-                                                     : std::string_view{};
+            const bool from_catalogue = state.origin.kind == install::OriginKind::catalogue;
+            const std::string_view registry_id =
+                from_catalogue ? std::string_view(state.origin.registry) : std::string_view{};
+            // The record names the package, so the next entry fetches it
+            // again only when the catalogue lists another one.
+            install::oaexp::PackageFrom from;
+            if (from_catalogue) {
+                from.sha256 = state.origin.sha256;
+                from.release = state.origin.release;
+            }
             const bool placed = install::oaexp::install_oaexp(
-                readable, user_folder_, registry_id, &installed, problem
+                readable, user_folder_, registry_id, &installed, problem, from
             );
             if (!placed) {
                 log_line(
@@ -1479,6 +1486,28 @@ bool Runtime::switch_to_mod_folder(const fs::path& folder, std::string& refusal)
     }
     request_soft_restart();
     return true;
+}
+
+void Runtime::keep_plain_string(std::string_view key, std::string_view value) {
+    const std::string name(key);
+    if (value.empty()) {
+        if (preference_values_.erase(name) != 0)
+            preferences_dirty_ = true;
+        return;
+    }
+    const std::string text(value);
+    const auto found = preference_values_.find(name);
+    if (found != preference_values_.end() && found->second == text)
+        return;
+    preference_values_[name] = text;
+    preferences_dirty_ = true;
+}
+
+std::optional<std::string> Runtime::plain_string(std::string_view key) const {
+    const auto found = preference_values_.find(std::string(key));
+    if (found == preference_values_.end() || found->second.empty())
+        return std::nullopt;
+    return found->second;
 }
 
 bool Runtime::roll_back_mod_folder(const fs::path& folder, std::string& refusal) {

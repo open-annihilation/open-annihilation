@@ -248,6 +248,9 @@ Section "Open Annihilation" SecProgram
   !endif
   File "${OA_PACKAGE_DIR}/LICENSE"
   File "${OA_PACKAGE_DIR}/ATTRIBUTIONS.md"
+  !if /FileExists "${OA_PACKAGE_DIR}/coreprime.ccx"
+    File "${OA_PACKAGE_DIR}/coreprime.ccx"
+  !endif
 
   SetOutPath "$INSTDIR\licenses"
   File /r "${OA_PACKAGE_DIR}/licenses/*.*"
@@ -259,7 +262,7 @@ Section "Open Annihilation" SecProgram
   File "${OA_PACKAGE_DIR}/brains/classic.oabrain"
 
   SetOutPath "$INSTDIR\languages"
-  File "${OA_PACKAGE_DIR}/languages/interface.tdf"
+  File "${OA_PACKAGE_DIR}/languages/*.tdf"
 
   SetOutPath "$INSTDIR\registries"
   File /r "${OA_PACKAGE_DIR}/registries/*.*"
@@ -526,7 +529,8 @@ Section "Uninstall"
   Delete "$INSTDIR\ATTRIBUTIONS.md"
   Delete "$INSTDIR\brains\classic.oabrain"
   RMDir "$INSTDIR\brains"
-  Delete "$INSTDIR\languages\interface.tdf"
+  Delete "$INSTDIR\coreprime.ccx"
+  Delete "$INSTDIR\languages\*.tdf"
   RMDir "$INSTDIR\languages"
   RMDir /r "$INSTDIR\licenses"
   RMDir /r "$INSTDIR\fonts"

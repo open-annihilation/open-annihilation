@@ -1,0 +1,507 @@
+// Locator console: 23,126 and 498 by 313. Child positions are relative to that
+// panel. The player search is the one shown: its icon is lit, and PAGE is up.
+// The panel draws no picture of its own, so the green console layer shows
+// through it. The name field and the results are outlined in palette 90; the
+// divider and the rule under the headings are palette 93.
+[GADGET0]
+{
+  [COMMON]
+  {
+    id=0;
+    name=Locator;
+    xpos=23;
+    ypos=126;
+    width=498;
+    height=313;
+  }
+  panel=Locator;
+  crdefault=Search;
+}
+[GADGET1]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Title;
+    xpos=0;
+    ypos=6;
+    width=124;
+    height=16;
+    attribs=4;
+  }
+  text=LOCATOR;
+}
+[GADGET2]
+{
+  [COMMON]
+  {
+    id=22;
+    name=icon_0;
+    xpos=3;
+    ypos=24;
+    width=11;
+    height=11;
+    help=BY_New.gaf Locator_Icons 1;
+  }
+}
+[GADGET3]
+{
+  [COMMON]
+  {
+    id=22;
+    name=icon_1;
+    xpos=3;
+    ypos=41;
+    width=11;
+    height=11;
+    help=BY_New.gaf Locator_Icons 2;
+  }
+}
+[GADGET4]
+{
+  [COMMON]
+  {
+    id=22;
+    name=icon_2;
+    xpos=3;
+    ypos=58;
+    width=11;
+    height=11;
+    help=BY_New.gaf Locator_Icons 4;
+  }
+}
+[GADGET5]
+{
+  [COMMON]
+  {
+    id=22;
+    name=icon_3;
+    xpos=3;
+    ypos=75;
+    width=11;
+    height=11;
+    help=BY_New.gaf Locator_Icons 6;
+  }
+}
+[GADGET6]
+{
+  [COMMON]
+  {
+    id=22;
+    name=icon_4;
+    xpos=3;
+    ypos=92;
+    width=11;
+    height=11;
+    help=BY_New.gaf Locator_Icons 8;
+  }
+}
+[GADGET7]
+{
+  [COMMON]
+  {
+    id=6;
+    name=row_0;
+    xpos=0;
+    ypos=21;
+    width=107;
+    height=17;
+  }
+  hotornot=1;
+}
+[GADGET8]
+{
+  [COMMON]
+  {
+    id=6;
+    name=row_1;
+    xpos=0;
+    ypos=38;
+    width=107;
+    height=17;
+  }
+  hotornot=1;
+}
+[GADGET9]
+{
+  [COMMON]
+  {
+    id=6;
+    name=row_2;
+    xpos=0;
+    ypos=55;
+    width=107;
+    height=17;
+  }
+  hotornot=1;
+}
+[GADGET10]
+{
+  [COMMON]
+  {
+    id=6;
+    name=row_3;
+    xpos=0;
+    ypos=72;
+    width=107;
+    height=17;
+  }
+  hotornot=1;
+}
+[GADGET11]
+{
+  [COMMON]
+  {
+    id=6;
+    name=row_4;
+    xpos=0;
+    ypos=89;
+    width=107;
+    height=17;
+  }
+  hotornot=1;
+}
+[GADGET12]
+{
+  [COMMON]
+  {
+    id=5;
+    name=kind_0;
+    xpos=17;
+    ypos=25;
+    width=100;
+    height=12;
+    attribs=5;
+  }
+  text=Locate Player;
+}
+[GADGET13]
+{
+  [COMMON]
+  {
+    id=5;
+    name=kind_1;
+    xpos=17;
+    ypos=42;
+    width=100;
+    height=12;
+    attribs=5;
+  }
+  text=Locate Planet;
+}
+[GADGET14]
+{
+  [COMMON]
+  {
+    id=5;
+    name=kind_2;
+    xpos=17;
+    ypos=59;
+    width=100;
+    height=12;
+    attribs=5;
+  }
+  text=Find Battle;
+}
+[GADGET15]
+{
+  [COMMON]
+  {
+    id=5;
+    name=kind_3;
+    xpos=17;
+    ypos=76;
+    width=100;
+    height=12;
+    attribs=5;
+  }
+  text=Find Frequency;
+}
+[GADGET16]
+{
+  [COMMON]
+  {
+    id=5;
+    name=kind_4;
+    xpos=17;
+    ypos=93;
+    width=100;
+    height=12;
+    attribs=5;
+  }
+  text=Server Transfer;
+}
+[GADGET17]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help0;
+    xpos=6;
+    ypos=122;
+    width=168;
+    height=12;
+    attribs=5;
+  }
+  text=Find any player, planet,;
+}
+[GADGET18]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help1;
+    xpos=6;
+    ypos=134;
+    width=168;
+    height=12;
+    attribs=5;
+  }
+  text=battle or frequency by;
+}
+[GADGET19]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help2;
+    xpos=6;
+    ypos=146;
+    width=168;
+    height=12;
+    attribs=5;
+  }
+  text=name, then relocate;
+}
+[GADGET20]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Help3;
+    xpos=6;
+    ypos=158;
+    width=168;
+    height=12;
+    attribs=5;
+  }
+  text=straight to it.;
+}
+[GADGET21]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Field;
+    xpos=127;
+    ypos=14;
+    width=80;
+    height=16;
+    attribs=6;
+  }
+  text=Player Name;
+}
+[GADGET22]
+{
+  [COMMON]
+  {
+    id=24;
+    name=NameBox;
+    xpos=213;
+    ypos=10;
+    width=150;
+    height=21;
+    help=rect 90;
+  }
+}
+[GADGET23]
+{
+  [COMMON]
+  {
+    id=3;
+    name=Name;
+    xpos=213;
+    ypos=10;
+    width=150;
+    height=21;
+    help=pad:6;
+  }
+  text=ArmSniper;
+  maxchars=63;
+}
+[GADGET24]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Search;
+    xpos=373;
+    ypos=10;
+    width=99;
+    height=21;
+    help=|Widgets.gaf Function_Button_Large 0;
+  }
+  text=SEARCH;
+}
+[GADGET25]
+{
+  [COMMON]
+  {
+    id=24;
+    name=Panel;
+    xpos=135;
+    ypos=40;
+    width=350;
+    height=150;
+    help=rect 90;
+  }
+}
+[GADGET26]
+{
+  [COMMON]
+  {
+    id=5;
+    name=HdrName;
+    xpos=143;
+    ypos=44;
+    width=40;
+    height=12;
+    attribs=5;
+  }
+  text=NAME;
+}
+[GADGET27]
+{
+  [COMMON]
+  {
+    id=5;
+    name=HdrWhere;
+    xpos=277;
+    ypos=44;
+    width=80;
+    height=12;
+    attribs=5;
+  }
+  text=WHERE;
+}
+[GADGET28]
+{
+  [COMMON]
+  {
+    id=5;
+    name=HdrStatus;
+    xpos=407;
+    ypos=44;
+    width=70;
+    height=12;
+    attribs=5;
+  }
+  text=STATUS;
+}
+[GADGET29]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Rule;
+    xpos=136;
+    ypos=56;
+    width=348;
+    height=1;
+    help=line 93;
+  }
+}
+[GADGET30]
+{
+  [COMMON]
+  {
+    id=20;
+    name=Results;
+    xpos=136;
+    ypos=58;
+    width=348;
+    height=130;
+  }
+}
+[GADGET31]
+{
+  [COMMON]
+  {
+    id=12;
+    name=Divider;
+    xpos=123;
+    ypos=3;
+    width=1;
+    height=307;
+    help=line 93;
+  }
+}
+[GADGET32]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Detail0;
+    xpos=137;
+    ypos=198;
+    width=340;
+    height=12;
+    attribs=5;
+  }
+  text=ArmSniper is currently chatting on Planet Fuel Dump;
+}
+[GADGET33]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Detail1;
+    xpos=137;
+    ypos=210;
+    width=340;
+    height=12;
+    attribs=5;
+  }
+  text=Frequency Tactics.;
+}
+[GADGET34]
+{
+  [COMMON]
+  {
+    id=5;
+    name=Detail2;
+    xpos=137;
+    ypos=222;
+    width=340;
+    height=12;
+    attribs=5;
+  }
+}
+[GADGET35]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Relocate;
+    xpos=137;
+    ypos=266;
+    width=99;
+    height=21;
+    help=|Widgets.gaf Function_Button_Large 0;
+  }
+  text=RELOCATE;
+}
+[GADGET36]
+{
+  [COMMON]
+  {
+    id=1;
+    name=Page;
+    xpos=247;
+    ypos=266;
+    width=99;
+    height=21;
+    help=|Widgets.gaf Function_Button_Large 0;
+  }
+  text=PAGE;
+}
