@@ -70,7 +70,9 @@ void check_enabled_composition() {
     const auto& profile = first.resolution->profile;
     OA_CHECK(profile.id == normal.resolution->profile.id);
     OA_CHECK(profile.name == "Chosen Mod");
-    OA_CHECK(profile.limits == normal.resolution->profile.limits);
+    auto expected_limits = normal.resolution->profile.limits;
+    expected_limits.units_per_player.maximum = oa::data::limits::highest_enhanced_units_per_player;
+    OA_CHECK(profile.limits == expected_limits);
     OA_CHECK(profile.limits.units_per_player.default_limit == 1100);
     OA_CHECK(
         profile.rules.units.id_reuse_delay == normal.resolution->profile.rules.units.id_reuse_delay
@@ -80,6 +82,31 @@ void check_enabled_composition() {
     OA_CHECK(profile.sim_hash == second.resolution->profile.sim_hash);
     OA_CHECK(first.resolution->canonical == second.resolution->canonical);
     OA_CHECK(first.resolution->canonical.find("setup.enhanced-mode") != std::string::npos);
+}
+
+/// Checks that a large host choice survives the preset and is refused while Off.
+void check_enhanced_capacity() {
+    profiles::ResolveOptions options{};
+    options.match.push_back({"limits.units-per-player.default", "10000", "host", true});
+    const auto on =
+        enhanced::resolve_profile(bytes(mod_text), "chosen", options, enhanced::current_version);
+    OA_CHECK(on.resolution.has_value());
+    if (on.resolution) {
+        OA_CHECK(on.resolution->profile.limits.units_per_player.default_limit == 10000);
+        OA_CHECK(on.resolution->profile.limits.units_per_player.maximum == 10000);
+        OA_CHECK(on.resolution->canonical.find("10000") != std::string::npos);
+    }
+    std::string large_profile{mod_text};
+    const auto maximum = large_profile.find("max: 1500");
+    OA_CHECK(maximum != std::string::npos);
+    large_profile.replace(maximum, std::string_view{"max: 1500"}.size(), "max: 10000");
+    const auto off =
+        enhanced::resolve_profile(bytes(large_profile), "chosen", {}, enhanced::off_version);
+    OA_CHECK(!off.resolution);
+    OA_CHECK(!off.errors.empty());
+    const auto large_on =
+        enhanced::resolve_profile(bytes(large_profile), "chosen", {}, enhanced::current_version);
+    OA_CHECK(large_on.resolution.has_value());
 }
 
 /// Checks strict version and opt-in validation at the profile boundary.
@@ -136,6 +163,7 @@ int main() {
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
     check_off_identity();
     check_enabled_composition();
+    check_enhanced_capacity();
     check_refusals();
     check_required_version();
     return oa::test::check_exit_status();

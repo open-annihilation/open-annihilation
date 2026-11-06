@@ -9,10 +9,13 @@ adding or changing options, so an existing profile keeps its canonical
 form and hashes. A profile that requires Enhanced Mode cannot run with
 Off: resolution returns an error rather than enabling it silently.
 
-`current_version` is one. Version 1 establishes the preset's identity as
-the simulation-scoped `setup.enhanced-mode` rule. It leaves the released
-movement, capacities and simulation behavior in place. Graphics settings
-are independent and never enter this module. Later preset versions can
+`current_version` is one. Version 1 records the simulation-scoped
+`setup.enhanced-mode` rule and raises the unit ceiling to 10,000 per
+participating player. The compact pool permits at most 32,767 units across
+all participants, and the projectile pool holds 32,767 shots. Scanner and
+jammer queries share a prepared spatial index within each contact-picture
+pass. Graphics settings are independent and never enter this module.
+Later preset versions can
 introduce enhanced behavior without changing what a recording of an
 earlier version means.
 

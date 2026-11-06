@@ -9,9 +9,10 @@ namespace {
 /// Tests a unit limit against the range every limit keeps.
 ///
 /// @param limit units per player
-/// @return true for 1..highest_units_per_player
-[[nodiscard]] bool unit_limit_in_range(uint16_t limit) noexcept {
-    return limit >= 1 && limit <= highest_units_per_player;
+/// @param maximum the unit capacity of the selected mode
+/// @return true for 1..maximum
+[[nodiscard]] bool unit_limit_in_range(uint16_t limit, uint16_t maximum) noexcept {
+    return limit >= 1 && limit <= maximum;
 }
 
 /// Tests a type-bit count against the range of type bitsets and category masks.
@@ -33,10 +34,14 @@ namespace {
 
 } // namespace
 
-LimitsError check_limits(const Limits& limits) noexcept {
+LimitsError check_limits(const Limits& limits, bool enhanced_mode) noexcept {
     const UnitsPerPlayer& units = limits.units_per_player;
-    if (!unit_limit_in_range(units.default_limit) || !unit_limit_in_range(units.minimum) ||
-        !unit_limit_in_range(units.maximum) || !unit_limit_in_range(units.limits_screen_fallback) ||
+    const uint16_t maximum =
+        enhanced_mode ? highest_enhanced_units_per_player : highest_units_per_player;
+    if (!unit_limit_in_range(units.default_limit, maximum) ||
+        !unit_limit_in_range(units.minimum, maximum) ||
+        !unit_limit_in_range(units.maximum, maximum) ||
+        !unit_limit_in_range(units.limits_screen_fallback, maximum) ||
         units.minimum > units.default_limit || units.default_limit > units.maximum)
         return LimitsError::units_per_player;
     if (!type_bits_in_range(limits.unit_types.bitset_bits))

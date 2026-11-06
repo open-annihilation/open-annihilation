@@ -11,8 +11,10 @@ It rejects a population that cannot fit rather than clipping positions or
 placing fewer units. The caller must check terrain, footprints and occupancy;
 the layout alone makes no claim that a unit can stand on each point.
 `maximum_layout_units` returns the smaller half's grid capacity, bounded by
-the supported per-side population, so the caller can test candidate terrain
-points before choosing its army's final positions.
+one million candidate positions per side, so blocked terrain does not
+consume the requested army population. The command accepts at most 10,000
+units per side; its caller checks the selected mode and match capacity
+before spawning.
 
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
 minimum, mean, maximum and nearest-rank p50, p95 and p99. Empty samples give
@@ -24,6 +26,9 @@ the scenario and seed, requested and observed populations, successful tick
 counts, Enhanced Mode and its version, simulation identity and timing facts.
 Movement, damage, projectile high-water and activity-observed facts state
 whether a labelled workload did corresponding work and when it was sampled.
+Spatial projection preparations, projected slots, bucket queries and bucket
+candidates describe query work. Projectile capacity and failed allocations
+expose a saturated shot pool.
 Its default renderer is `none`: a simulation-only benchmark does not draw.
 Strings are UTF-8, control bytes are escaped and numbers use the classic
 locale. A non-finite mean is written as `null`.

@@ -35,7 +35,7 @@ char me_method_token;
 char me_values_token;
 
 constexpr std::size_t most_members =
-    static_cast<std::size_t>(data::limits::highest_units_per_player);
+    static_cast<std::size_t>(data::limits::highest_enhanced_units_per_player);
 constexpr uint64_t geometry_charge = 4;
 
 void push_nil(lua_State* lua) {

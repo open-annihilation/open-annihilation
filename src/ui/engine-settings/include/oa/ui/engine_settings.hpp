@@ -1644,10 +1644,18 @@ struct Inputs {
 /// Returns the highest unit limit the setting offers and keeps.
 ///
 /// @param units the unit limits the game allows
-/// @return highest_unit_limit, or the limits' maximum when that is higher
-[[nodiscard]] constexpr uint16_t
-highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexcept {
-    return units.maximum > highest_unit_limit ? units.maximum : highest_unit_limit;
+/// @param enhanced_mode offers the participating-player capacity
+/// @return the mode's unit ceiling, retaining the setting's ordinary highest stop
+[[nodiscard]] constexpr uint16_t highest_offered_unit_limit(
+    const oa::data::limits::UnitsPerPlayer& units, bool enhanced_mode = false
+) noexcept {
+    if (enhanced_mode)
+        return oa::data::limits::highest_enhanced_units_per_player;
+    const uint16_t offered =
+        units.maximum > highest_unit_limit ? units.maximum : highest_unit_limit;
+    return offered < oa::data::limits::highest_units_per_player
+               ? offered
+               : oa::data::limits::highest_units_per_player;
 }
 
 /// Returns the settings a player has before changing any.

@@ -60,6 +60,16 @@ void test_highest_values_pass() {
     OA_CHECK(type_words(highest_type_bits) == 2048 && type_words(512) == 16);
 }
 
+void test_enhanced_unit_capacity_requires_opt_in() {
+    Limits limits;
+    limits.units_per_player.maximum = highest_enhanced_units_per_player;
+    limits.units_per_player.default_limit = highest_enhanced_units_per_player;
+    OA_CHECK(check_limits(limits) == LimitsError::units_per_player);
+    OA_CHECK(check_limits(limits, true) == LimitsError::none);
+    limits.units_per_player.maximum = highest_enhanced_units_per_player + 1;
+    OA_CHECK(check_limits(limits, true) == LimitsError::units_per_player);
+}
+
 void test_each_value_just_outside_fails() {
     Limits limits = highest_limits();
     limits.units_per_player.maximum = highest_units_per_player + 1;
@@ -128,6 +138,7 @@ void test_each_value_just_outside_fails() {
 int main() {
     test_defaults_are_the_base_game();
     test_highest_values_pass();
+    test_enhanced_unit_capacity_requires_opt_in();
     test_each_value_just_outside_fails();
     return oa::test::check_exit_status();
 }

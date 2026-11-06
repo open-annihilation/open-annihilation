@@ -1267,6 +1267,7 @@ class Resolver {
         apply_settings();
         apply_overrides();
         apply_match_options();
+        apply_enhanced_unit_capacity();
         apply_default_from();
         apply_clamps();
         check_constraints("final");
@@ -1650,6 +1651,25 @@ class Resolver {
             if (!present)
                 provenance += " (turned on)";
             resolved->sources[static_cast<size_t>(index)] = std::move(provenance);
+        }
+    }
+
+    /// Raises the unit ceiling when the resolved rules select Enhanced Mode.
+    /// The capacity enters the canonical profile before clamps and hashing.
+    void apply_enhanced_unit_capacity() {
+        if (!present_.contains("setup.enhanced-mode"))
+            return;
+        const Entry* entry = registry::find_entry("limits.units-per-player");
+        ResolvedEntry* resolved = find_resolved(entry);
+        if (resolved == nullptr)
+            return;
+        const auto parameters = registry::parameters_of(*entry);
+        for (size_t index = 0; index < parameters.size(); ++index) {
+            if (parameters[index].name == "max") {
+                resolved->values[index] = make_integer(limits::highest_enhanced_units_per_player);
+                resolved->sources[index] = "Enhanced Mode";
+                break;
+            }
         }
     }
 
@@ -2078,8 +2098,9 @@ class Resolver {
         // The registry's ranges and constraints keep every limit in the range
         // the engine's storage holds; a limit outside it would be a registry
         // that disagrees with the engine.
-        if (const limits::LimitsError limits_error =
-                limits::check_limits(resolution.profile.limits);
+        if (const limits::LimitsError limits_error = limits::check_limits(
+                resolution.profile.limits, resolution.profile.rules.setup.enhanced_mode.enabled
+            );
             limits_error != limits::LimitsError::none) {
             error(
                 {},

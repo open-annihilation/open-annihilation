@@ -225,10 +225,10 @@ entries:
     scope: sim
     mutator: true
     params:
-      default: {type: int, min: 1, max: 6553, unit: units, baseline: 250, default: 1500, adjustable: match, scope: sim, setting: {registry: UnitLimit}, clamp-between: [min, max]}
-      min: {type: int, min: 1, max: 6553, unit: units, baseline: 20, default: 20, adjustable: fixed, scope: sim}
-      max: {type: int, min: 1, max: 6553, unit: units, baseline: 500, default: 1500, adjustable: fixed, scope: sim}
-      limits-screen-fallback: {type: int, min: 1, max: 6553, unit: units, baseline: 101, default: 1500, adjustable: install, scope: view, setting: {ini: Preferences/UnitLimit}}
+      default: {type: int, min: 1, max: 10000, unit: units, baseline: 250, default: 1500, adjustable: match, scope: sim, setting: {registry: UnitLimit}, clamp-between: [min, max]}
+      min: {type: int, min: 1, max: 10000, unit: units, baseline: 20, default: 20, adjustable: fixed, scope: sim}
+      max: {type: int, min: 1, max: 10000, unit: units, baseline: 500, default: 1500, adjustable: fixed, scope: sim}
+      limits-screen-fallback: {type: int, min: 1, max: 10000, unit: units, baseline: 101, default: 1500, adjustable: install, scope: view, setting: {ini: Preferences/UnitLimit}}
     constraints: [min <= default, default <= max]
     presets:
       baseline: {default: 250, min: 20, max: 500, limits-screen-fallback: 101}
@@ -902,7 +902,7 @@ entries:
     title: Enhanced Mode
     implemented: true
     area: setup
-    summary: "Records the Enhanced Mode rules version for a match; version 1 establishes the preset identity and keeps the released simulation and capacities."
+    summary: "Version 1 allocates unit slots only for participating players, permits 10000 units per player and expands the projectile pool to 32767; graphics settings remain independent."
     ownership: all-machines
     scope: sim
     mutator: true

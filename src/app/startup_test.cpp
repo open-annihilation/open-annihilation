@@ -750,10 +750,15 @@ void enhanced_benchmark_options() {
             chosen.match_ticks == 60u && chosen.seed == 7u,
         "battle benchmark options preserve the chosen scenario and counts"
     );
-    for (const char* value : {"0", "6554", "10000"})
+    expect(
+        parse({"--battle-benchmark", "report.json", "--benchmark-units", "10000"})
+                .benchmark_units == 10000,
+        "the enhanced battle population parses before runtime mode validation"
+    );
+    for (const char* value : {"0", "10001", "65536"})
         expect(
             rejection({"--battle-benchmark", "report.json", "--benchmark-units", value}) ==
-                "--benchmark-units expects 1 through 6553 units per side",
+                "--benchmark-units expects 1 through 10000 units per side",
             "unsupported populations are refused"
         );
     expect(

@@ -27,7 +27,9 @@ limit a player starts with.
 `highest_*` and `lowest_*` constants, and returns the first one out of range
 as a `LimitsError`. The highest values are the largest each capacity's
 storage holds: 6,553 units per player (65,531 unit slots, within 16-bit unit
-ids), 65,536 type ids, weapon types from 256 to 65,536, sides from 5 to 32,
+ids) in classic mode. Enhanced Mode permits 10,000 per participating
+player with a compact pool of at most 32,767 units. Other limits include
+65,536 type ids, weapon types from 256 to 65,536, sides from 5 to 32,
 a million emitters a layer and ten million in the pool, ten million path
 nodes a tick, 1,024 build-list entries and an 8,192 pixel composite side.
 

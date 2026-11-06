@@ -199,9 +199,10 @@ enum class LimitsError : uint8_t {
 /// Checks every value of a Limits record against its range.
 ///
 /// @param limits the record to check
+/// @param enhanced_mode permits the compact participating-player unit capacity
 /// @return LimitsError::none when every value is in its range, else the
 ///     first value out of range, in the order of LimitsError
-[[nodiscard]] LimitsError check_limits(const Limits& limits) noexcept;
+[[nodiscard]] LimitsError check_limits(const Limits& limits, bool enhanced_mode = false) noexcept;
 
 /// Returns the words of 32 type bits that hold a count of type ids.
 ///

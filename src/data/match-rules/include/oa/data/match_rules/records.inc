@@ -632,8 +632,9 @@ struct SetupTeamStartPositions {
     bool operator==(const SetupTeamStartPositions&) const = default;
 };
 
-/// setup.enhanced-mode: Records the Enhanced Mode rules version for a match; version 1 establishes
-/// the preset identity and keeps the released simulation and capacities.
+/// setup.enhanced-mode: Version 1 allocates unit slots only for participating players, permits
+/// 10000 units per player and expands the projectile pool to 32767; graphics settings remain
+/// independent.
 struct SetupEnhancedMode {
     bool enabled{}; ///< the profile turns the hack on
     /// version; 3.1c: 1

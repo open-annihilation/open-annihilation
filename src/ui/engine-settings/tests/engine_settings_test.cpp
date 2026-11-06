@@ -881,6 +881,29 @@ void a_mods_unit_limits_set_the_range_and_the_default() {
     CHECK(settings::highest_offered_unit_limit({}) == settings::highest_unit_limit);
 }
 
+void enhanced_mode_keeps_large_unit_preferences() {
+    settings::Inputs inputs{};
+    oa::platform::preferences::Values values;
+    values.emplace(settings::key::enhanced_mode, "1");
+    values.emplace(settings::key::unit_limit, "10000");
+    const auto enhanced = settings::read_settings(values, inputs, false);
+    CHECK(enhanced.enhanced_mode);
+    CHECK(enhanced.unit_limit == oa::data::limits::highest_enhanced_units_per_player);
+    values[std::string{settings::key::enhanced_mode}] = "0";
+    CHECK(
+        settings::read_settings(values, inputs, false).unit_limit == settings::highest_unit_limit
+    );
+    inputs.units_per_player.maximum = oa::data::limits::highest_enhanced_units_per_player;
+    CHECK(
+        settings::read_settings(values, inputs, false).unit_limit ==
+        oa::data::limits::highest_units_per_player
+    );
+    CHECK(
+        settings::highest_offered_unit_limit({}, true) ==
+        oa::data::limits::highest_enhanced_units_per_player
+    );
+}
+
 void a_mods_path_budget_scales_the_credit() {
     settings::EngineSettings chosen{};
     chosen.path_search_nodes = 3 * settings::base_path_search_nodes;
@@ -3470,6 +3493,7 @@ int main() {
     the_path_credit_shows_as_whole_cycles();
     shared_games_and_replays_search_at_one_cycle();
     a_mods_unit_limits_set_the_range_and_the_default();
+    enhanced_mode_keeps_large_unit_preferences();
     a_mods_path_budget_scales_the_credit();
     the_skirmish_player_count_is_not_an_engine_key();
     a_game_locks_the_next_game_settings();

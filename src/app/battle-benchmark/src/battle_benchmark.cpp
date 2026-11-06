@@ -92,7 +92,7 @@ std::size_t maximum_layout_units(
     if (!grid)
         return 0;
     return static_cast<std::size_t>(
-        std::min<uint64_t>(maximum_units_per_side, grid->columns * grid->rows)
+        std::min<uint64_t>(maximum_layout_candidates, grid->columns * grid->rows)
     );
 }
 
@@ -104,8 +104,8 @@ LayoutResult plan_layout(
     uint32_t margin,
     uint32_t gap
 ) {
-    if (per_side > maximum_units_per_side)
-        return {{}, "army exceeds the supported unit capacity"};
+    if (per_side > maximum_layout_candidates)
+        return {{}, "placement exceeds the supported candidate capacity"};
     if (width > maximum_map_extent || height > maximum_map_extent)
         return {{}, "map dimensions exceed positive 16.16 coordinates"};
     if (spacing == 0 || margin == 0 || gap == 0)
@@ -184,6 +184,12 @@ std::string report_json(const Report& report) {
     number("moved_unit_ticks", report.moved_unit_ticks);
     number("damaged_unit_ticks", report.damaged_unit_ticks);
     number("projectile_high_water", report.projectile_high_water);
+    number("projectile_capacity", report.projectile_capacity);
+    number("projectile_allocation_failures", report.projectile_allocation_failures);
+    number("projection_preparations", report.projection_preparations);
+    number("projected_slots", report.projected_slots);
+    number("bucket_queries", report.bucket_queries);
+    number("bucket_candidates", report.bucket_candidates);
     out << ",\n  \"activity_observed\": " << (report.activity_observed ? "true" : "false");
     text("activity_sampling_scope", report.activity_sampling_scope);
     out << ",\n  \"enhanced_mode\": " << (report.enhanced_mode ? "true" : "false");

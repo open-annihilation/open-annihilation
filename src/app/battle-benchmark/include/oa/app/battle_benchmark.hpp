@@ -14,7 +14,9 @@
 namespace oa::app::battle_benchmark {
 
 inline constexpr uint32_t report_schema_version = 1;
-inline constexpr std::size_t maximum_units_per_side = 6553;
+inline constexpr std::size_t maximum_units_per_side = 10'000;
+/// Bounds placement candidates so blocked terrain can be skipped before spawning.
+inline constexpr std::size_t maximum_layout_candidates = 1'000'000;
 inline constexpr uint32_t default_spacing = 32; ///< map pixels between unit centres
 inline constexpr uint32_t default_margin = 64;  ///< map pixels kept clear at map edges
 inline constexpr uint32_t default_gap = 96;     ///< map pixels between the two fronts
@@ -37,7 +39,7 @@ struct LayoutResult {
     std::string error{};
 };
 
-/// Counts the units each half-map can hold, bounded by maximum_units_per_side.
+/// Counts candidate positions per half-map, bounded by maximum_layout_candidates.
 ///
 /// @param width map width in whole pixels, at most 32767
 /// @param height map height in whole pixels, at most 32767
@@ -57,7 +59,7 @@ struct LayoutResult {
 ///
 /// @param width map width in whole pixels, at most 32767
 /// @param height map height in whole pixels, at most 32767
-/// @param per_side number of added units in each army, at most maximum_units_per_side
+/// @param per_side candidate positions in each army, at most maximum_layout_candidates
 /// @param spacing positive distance between unit centres in map pixels
 /// @param margin positive distance kept inside each map edge in map pixels
 /// @param gap positive minimum distance between opposing fronts in map pixels
@@ -107,6 +109,12 @@ struct Report {
     uint64_t moved_unit_ticks{};
     uint64_t damaged_unit_ticks{};
     uint64_t projectile_high_water{};
+    uint64_t projectile_capacity{};
+    uint64_t projectile_allocation_failures{};
+    uint64_t projection_preparations{};
+    uint64_t projected_slots{};
+    uint64_t bucket_queries{};
+    uint64_t bucket_candidates{};
     bool activity_observed{};
     std::string activity_sampling_scope{"after_each_successful_warmup_and_measured_tick"};
     bool enhanced_mode{};

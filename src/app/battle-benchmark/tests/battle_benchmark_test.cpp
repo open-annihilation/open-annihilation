@@ -53,7 +53,8 @@ void timings() {
 void layouts() {
     constexpr uint32_t width = 8192;
     constexpr uint32_t height = 8192;
-    CHECK(benchmark::maximum_layout_units(width, height) == benchmark::maximum_units_per_side);
+    CHECK(benchmark::maximum_layout_units(width, height) > benchmark::maximum_units_per_side);
+    CHECK(benchmark::maximum_layout_units(32767, 32767, 1) == benchmark::maximum_layout_candidates);
     CHECK(benchmark::maximum_layout_units(128, 128) == 0);
     CHECK(benchmark::maximum_layout_units(width, height, 0) == 0);
     CHECK(benchmark::maximum_layout_units(256, 256) == 5);
@@ -83,7 +84,17 @@ void layouts() {
         CHECK(right.x - left.x >= static_cast<int32_t>(benchmark::default_gap));
     }
     CHECK(benchmark::plan_layout(width, height, 0).layout.has_value());
-    CHECK(!benchmark::plan_layout(width, height, benchmark::maximum_units_per_side + 1).layout);
+    CHECK(benchmark::plan_layout(width, height, benchmark::maximum_units_per_side + 1).layout);
+    CHECK(
+        !benchmark::plan_layout(32767, 32767, benchmark::maximum_layout_candidates + 1, 1).layout
+    );
+    const auto all_candidates =
+        benchmark::plan_layout(width, height, benchmark::maximum_layout_units(width, height));
+    CHECK(all_candidates.layout.has_value());
+    if (all_candidates.layout) {
+        // Even discarding every second terrain candidate leaves room for a full army.
+        CHECK(all_candidates.layout->armies[0].size() / 2 >= benchmark::maximum_units_per_side);
+    }
     CHECK(!benchmark::plan_layout(128, 128, 1).layout);
     CHECK(!benchmark::plan_layout(256, 256, 100).layout);
     CHECK(!benchmark::plan_layout(width, height, 1, 0).layout);
@@ -129,6 +140,12 @@ void reports() {
     report.moved_unit_ticks = 40;
     report.damaged_unit_ticks = 3;
     report.projectile_high_water = 12;
+    report.projectile_capacity = 32767;
+    report.projectile_allocation_failures = 2;
+    report.projection_preparations = 300;
+    report.projected_slots = 6000000;
+    report.bucket_queries = 2000;
+    report.bucket_candidates = 4000;
     report.activity_observed = true;
     report.enhanced_mode = true;
     report.enhanced_version = 1;
@@ -149,6 +166,12 @@ void reports() {
     CHECK(json.find("\"moved_unit_ticks\": 40") != std::string::npos);
     CHECK(json.find("\"damaged_unit_ticks\": 3") != std::string::npos);
     CHECK(json.find("\"projectile_high_water\": 12") != std::string::npos);
+    CHECK(json.find("\"projectile_capacity\": 32767") != std::string::npos);
+    CHECK(json.find("\"projectile_allocation_failures\": 2") != std::string::npos);
+    CHECK(json.find("\"projection_preparations\": 300") != std::string::npos);
+    CHECK(json.find("\"projected_slots\": 6000000") != std::string::npos);
+    CHECK(json.find("\"bucket_queries\": 2000") != std::string::npos);
+    CHECK(json.find("\"bucket_candidates\": 4000") != std::string::npos);
     CHECK(json.find("\"activity_observed\": true") != std::string::npos);
     CHECK(json.find("after_each_successful_warmup_and_measured_tick") != std::string::npos);
     report.completed = false;

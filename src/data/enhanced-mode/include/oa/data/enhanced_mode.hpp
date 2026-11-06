@@ -36,8 +36,8 @@ inline constexpr uint32_t current_version = 1;
 /// Off delegates to the normal resolver unchanged, then refuses a profile
 /// that enables Enhanced Mode itself. An enabled preset follows existing
 /// match choices and must resolve completely at the requested version.
-/// Version 1 records the preset identity; it adds no movement, capacity or
-/// rendering changes. Errors leave no usable resolution.
+/// Version 1 permits 10000 units per participating player and 32767
+/// projectiles. Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes
 /// @param source the name used by profile diagnostics

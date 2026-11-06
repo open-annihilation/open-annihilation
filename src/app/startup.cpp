@@ -3,6 +3,7 @@
 
 // Command-line parsing for oa-game.
 #include "oa/app/app.hpp"
+#include "oa/data/limits.hpp"
 #include "oa/app/brain_match.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/app/extension.hpp"
@@ -1246,8 +1247,9 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
     if (argument == "--benchmark-units") {
         options.benchmark_options_named = true;
         options.benchmark_units = parse_count(option_value(cursor));
-        if (options.benchmark_units == 0 || options.benchmark_units > 6553)
-            throw std::runtime_error("--benchmark-units expects 1 through 6553 units per side");
+        if (options.benchmark_units == 0 ||
+            options.benchmark_units > data::limits::highest_enhanced_units_per_player)
+            throw std::runtime_error("--benchmark-units expects 1 through 10000 units per side");
         return true;
     }
     if (argument == "--benchmark-warmup") {

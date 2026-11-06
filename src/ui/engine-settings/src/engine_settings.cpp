@@ -727,11 +727,16 @@ EngineSettings read_settings(
         values, key::double_click_selects, double_click_selects_words, settings.double_click_selects
     );
     read_word(values, key::focus_lost, focus_lost_words, settings.focus_lost);
+    settings.unit_limit = clamped(
+        settings.unit_limit,
+        inputs.units_per_player.minimum,
+        highest_offered_unit_limit(inputs.units_per_player, settings.enhanced_mode)
+    );
     if (const auto number = stored_number(values, key::unit_limit))
         settings.unit_limit = clamped(
             *number,
             inputs.units_per_player.minimum,
-            highest_offered_unit_limit(inputs.units_per_player)
+            highest_offered_unit_limit(inputs.units_per_player, settings.enhanced_mode)
         );
     if (const auto number = stored_number(values, key::max_frame_rate))
         settings.max_frame_rate = clamped(*number, lowest_frame_rate, highest_frame_rate);
