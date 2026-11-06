@@ -79,17 +79,16 @@ uint8_t saved_stockpile(const World& world, const Unit& unit, uint32_t slot) noe
         return held;
 
     const oa_ref32 source = world_unit_ref(&world, &unit);
-    const int32_t live_count = world.game.projectile_count < OA_PROJECTILE_CAPACITY
-                                   ? world.game.projectile_count
-                                   : OA_PROJECTILE_CAPACITY;
+    const int32_t live_count = std::min(
+        world.game.projectile_count, static_cast<int32_t>(world_projectile_capacity(&world))
+    );
+    if (held >= saved_stockpile_limit)
+        return held;
 
-    struct InFlightRound {
-        oa_ref32 def;
-        oa_ref32 source;
-        uint32_t created_tick;
-    };
-
-    std::array<InFlightRound, OA_PROJECTILE_CAPACITY> rounds{};
+    // Only launch ticks distinguish rounds of this unit and weapon. The save
+    // cannot refund more than saved_stockpile_limit rounds, so its scratch
+    // remains bounded even when the projectile pool is larger.
+    std::array<uint32_t, saved_stockpile_limit> launch_ticks{};
     uint32_t round_count = 0;
     for (int32_t index = 0; index < live_count; ++index) {
         const Projectile& shot = world.projectiles[index];
@@ -99,16 +98,17 @@ uint8_t saved_stockpile(const World& world, const Unit& unit, uint32_t slot) noe
             continue;
         bool already = false;
         for (uint32_t seen = 0; seen < round_count; ++seen) {
-            if (rounds[seen].def == shot.def && rounds[seen].source == shot.source &&
-                rounds[seen].created_tick == shot.created_tick) {
+            if (launch_ticks[seen] == shot.created_tick) {
                 already = true;
                 break;
             }
         }
         if (already)
             continue;
-        rounds[round_count] = InFlightRound{shot.def, shot.source, shot.created_tick};
+        launch_ticks[round_count] = shot.created_tick;
         ++round_count;
+        if (static_cast<uint32_t>(held) + round_count >= saved_stockpile_limit)
+            return saved_stockpile_limit;
     }
 
     const uint32_t total = static_cast<uint32_t>(held) + round_count;

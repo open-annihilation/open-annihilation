@@ -163,6 +163,31 @@ void test_digest_stable() {
     world_destroy(b);
 }
 
+void test_extended_projectile_digest() {
+    World* world = make_world();
+    constexpr uint32_t capacity = OA_PROJECTILE_CAPACITY + 1;
+    std::free(world->projectiles);
+    world->projectiles = static_cast<Projectile*>(std::calloc(capacity, sizeof(Projectile)));
+    if (world->projectiles == nullptr)
+        std::abort();
+    world->projectile_capacity = capacity;
+    world->game.projectile_count = static_cast<int32_t>(capacity);
+    const Sides sides = make_sides();
+    const auto section = static_cast<size_t>(Section::projectiles);
+    const TickDigest before = tick_digest(*world, sides.slot, {});
+    CHECK(before.sections[section].items == capacity);
+    world->projectiles[capacity - 1].position.x = 1;
+    const TickDigest after = tick_digest(*world, sides.slot, {});
+    CHECK(before.sections[section].value != after.sections[section].value);
+    world->game.projectile_count += 1;
+    CHECK(
+        tick_digest(*world, sides.slot, {}).sections[section].value == after.sections[section].value
+    );
+    world->projectile_capacity = 0;
+    CHECK(tick_digest(*world, sides.slot, {}).sections[section].items == OA_PROJECTILE_CAPACITY);
+    world_destroy(world);
+}
+
 // Changes one field and reports which sections moved.
 template <typename Change>
 uint32_t moved_sections(Change change, RandomState random = {1, 2}) {
@@ -278,6 +303,7 @@ int main() {
     test_folds();
     test_tick_record();
     test_digest_stable();
+    test_extended_projectile_digest();
     test_digest_sensitive();
     test_format_unit();
     test_encoding();

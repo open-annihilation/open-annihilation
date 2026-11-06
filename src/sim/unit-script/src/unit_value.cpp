@@ -61,7 +61,10 @@ constexpr uint32_t unit_record_bytes = 0x118;
 
 // The highest unit id unit.max-id reports: the unit limit the game
 // recorded times 10, or the active limit's when the world records none.
-uint32_t highest_unit_id(const World* world) {
+// Enhanced Mode uses only the participating players' allocated ranges.
+uint32_t highest_unit_id(const World* world, bool enhanced) {
+    if (enhanced)
+        return world->unit_slot_count != 0 ? world->unit_slot_count - 1U : 0;
     const uint32_t limit = world->game.max_units_setting != 0 ? world->game.max_units_setting
                                                               : world->game.units_per_player;
     return limit * 10U;
@@ -70,11 +73,12 @@ uint32_t highest_unit_id(const World* world) {
 // The slot an extension's unit-id argument names, by its low 16 bits.
 // Under exact fidelity any slot inside the table up to the highest unit id
 // is read, live or not; under safe fidelity only a live unit is.
-const Unit* extension_slot(const World* world, uint32_t argument, ScriptFidelity fidelity) {
+const Unit*
+extension_slot(const World* world, uint32_t argument, ScriptFidelity fidelity, bool enhanced) {
     const uint32_t slot = argument & 0xffffU;
     if (fidelity == ScriptFidelity::safe)
         return live_unit(world, slot);
-    return slot <= highest_unit_id(world) ? world_unit_at(world, slot) : nullptr;
+    return slot <= highest_unit_id(world, enhanced) ? world_unit_at(world, slot) : nullptr;
 }
 
 // The slot unit.build-percent-left-of reads: the whole argument times the
@@ -103,7 +107,8 @@ int32_t extension_value(
     const Unit* unit,
     ScriptExtension extension,
     uint32_t argument,
-    ScriptFidelity fidelity
+    ScriptFidelity fidelity,
+    bool enhanced
 ) {
     uint32_t value = 0;
     switch (extension) {
@@ -116,13 +121,13 @@ int32_t extension_value(
         value = 1;
         break;
     case ScriptExtension::unit_max_id:
-        value = highest_unit_id(world);
+        value = highest_unit_id(world, enhanced);
         break;
     case ScriptExtension::unit_my_id:
         value = unit->id;
         break;
     case ScriptExtension::unit_owner_of:
-        if (const Unit* target = extension_slot(world, argument, fidelity))
+        if (const Unit* target = extension_slot(world, argument, fidelity, enhanced))
             value = target->owner_index;
         break;
     case ScriptExtension::unit_build_percent_left_of:
@@ -130,14 +135,14 @@ int32_t extension_value(
             value = build_percent_left(*target);
         break;
     case ScriptExtension::unit_allied_with: {
-        const Unit* target = extension_slot(world, argument, fidelity);
+        const Unit* target = extension_slot(world, argument, fidelity, enhanced);
         const Player* caller_owner = owner_player(world, unit->owner_index);
         if (target != nullptr && caller_owner != nullptr && target->owner_index < OA_PLAYER_COUNT)
             value = caller_owner->alliance[target->owner_index] != 0 ? 1U : 0U;
         break;
     }
     case ScriptExtension::unit_is_local:
-        if (const Unit* target = extension_slot(world, argument, fidelity))
+        if (const Unit* target = extension_slot(world, argument, fidelity, enhanced))
             if (const Player* owner = owner_player(world, target->owner_index))
                 value = owner->status == OA_PLAYER_STATUS_LOCAL ||
                                 owner->status == OA_PLAYER_STATUS_COMPUTER
@@ -253,7 +258,8 @@ int32_t unit_script_get_value(
                 unit,
                 rules.script_get.find(static_cast<uint16_t>(selector)),
                 argument,
-                rules.script_fidelity
+                rules.script_fidelity,
+                rules.setup.enhanced_mode.enabled
             );
         break;
     }

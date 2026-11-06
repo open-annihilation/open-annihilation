@@ -526,7 +526,8 @@ void detonate_projectile(
 ) {
     auto& b = self(context);
     const int32_t projectile_count = world->game.projectile_count;
-    const auto count = std::min<int32_t>(projectile_count, OA_PROJECTILE_CAPACITY);
+    const auto count =
+        std::min(projectile_count, static_cast<int32_t>(world_projectile_capacity(world)));
     for (int32_t i = 0; i < count; ++i) {
         auto& shot = world->projectiles[i];
         const auto* weapon = world_weapon_def(world, shot.def);

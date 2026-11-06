@@ -773,6 +773,25 @@ void stockpile_refunds() {
     CHECK(saved_stockpile_byte(both, 2) == 7);
     CHECK(silo.weapons[0].stockpile == 5);
     CHECK(silo.weapons[2].stockpile == 7);
+
+    // Rounds past the ordinary pool's last slot are refunded when the world
+    // owns a larger pool. A repeated launch tick still counts only once.
+    std::vector<Projectile> extended_pool(OA_PROJECTILE_CAPACITY + 2);
+    fixture.world_state->projectiles = extended_pool.data();
+    fixture.world_state->projectile_capacity = static_cast<uint32_t>(extended_pool.size());
+    fixture.game->projectile_count = static_cast<int32_t>(extended_pool.size());
+    auto& late = extended_pool[OA_PROJECTILE_CAPACITY];
+    late.def = silo.weapons[0].def;
+    late.source = silo_ref;
+    late.created_tick = 80;
+    extended_pool.back() = late;
+    CHECK(saved_stockpile_byte(encode(), 0) == 6);
+    extended_pool.back().created_tick = 81;
+    CHECK(saved_stockpile_byte(encode(), 0) == 7);
+    extended_pool.back().flags = OA_PROJECTILE_FLAG_RETIRED;
+    CHECK(saved_stockpile_byte(encode(), 0) == 6);
+    fixture.world_state->projectile_capacity = 0;
+    CHECK(saved_stockpile_byte(encode(), 0) == 5);
 }
 
 // A weapon id of 300 is stored in the slot's two id bytes. Restoring it as

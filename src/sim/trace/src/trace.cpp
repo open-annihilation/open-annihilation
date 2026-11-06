@@ -156,8 +156,9 @@ void fold_projectiles(SectionDigest& digest, const World& world) noexcept {
     int32_t count = world.projectiles != nullptr ? world.game.projectile_count : 0;
     if (count < 0)
         count = 0;
-    if (count > OA_PROJECTILE_CAPACITY)
-        count = OA_PROJECTILE_CAPACITY;
+    const auto capacity = static_cast<int32_t>(world_projectile_capacity(&world));
+    if (count > capacity)
+        count = capacity;
     for (int32_t index = 0; index < count; ++index) {
         const Projectile& shot = world.projectiles[index];
         fold_section(digest, static_cast<uint32_t>(index));

@@ -131,6 +131,27 @@ void caller_values() {
     OA_CHECK(get(ranges, 3, 70, 0, &table) == 20);
 }
 
+void enhanced_max_id_follows_allocated_ranges() {
+    constexpr uint32_t limit = 10000;
+    constexpr uint32_t slots = 2 * limit + 1;
+    us::test::WorldFixture fixture{slots};
+    oa::World* world = fixture.world;
+    world->game.units_per_player = limit;
+    world->game.max_units_setting = limit;
+    mr::MatchRules rules{};
+    rules.script_get = community_table();
+    us::UnitValueServices services{};
+    services.rules.match = &rules;
+    const auto highest = [&] {
+        return us::unit_script_get_value(world, &world->units[1], 70, 0, 0, services);
+    };
+    OA_CHECK(highest() == limit * OA_PLAYER_COUNT);
+    rules.setup.enhanced_mode.enabled = true;
+    OA_CHECK(highest() == slots - 1);
+    world->unit_slot_count = 0;
+    OA_CHECK(highest() == 0);
+}
+
 void owner_of_reads_the_slot() {
     Ranges ranges;
     const mr::ScriptExtensionTable table = community_table();
@@ -370,6 +391,7 @@ int main() {
     unmounted_indices_read_zero();
     extensions_mount_at_any_index();
     caller_values();
+    enhanced_max_id_follows_allocated_ranges();
     owner_of_reads_the_slot();
     build_percent_left_of_reads_another_unit();
     allied_with_is_one_way();

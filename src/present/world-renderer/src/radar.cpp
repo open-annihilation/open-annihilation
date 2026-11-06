@@ -105,8 +105,8 @@ void draw_projectiles(
     if (world.projectiles == nullptr)
         return;
     const auto viewer = game.viewpoint_player;
-    const auto count = game.projectile_count < OA_PROJECTILE_CAPACITY ? game.projectile_count
-                                                                      : OA_PROJECTILE_CAPACITY;
+    const auto count =
+        std::min(game.projectile_count, static_cast<int32_t>(world_projectile_capacity(&world)));
     for (int32_t index = 0; index < count; ++index) {
         const Projectile& shot = world.projectiles[index];
         const WeaponDef* weapon = world_weapon_def(&world, shot.def);
