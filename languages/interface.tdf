@@ -3834,6 +3834,14 @@
 	it=Inglese;
 	}
 
+[Enhanced Mode]
+	{
+	de=Erweiterter Modus;
+	fr=Mode amélioré;
+	es=Modo mejorado;
+	it=Modalità avanzata;
+	}
+
 [Enhanced anti-aliasing]
 	{
 	de=Verbesserte Kantenglättung;
@@ -12808,6 +12816,14 @@
 	fr=Polices modernes pour le jeu;
 	es=Fuentes modernas para el juego;
 	it=Usa font moderni per il testo di gioco;
+	}
+
+[Use the enhanced rules preset. Applies from the next game.]
+	{
+	de=Das erweiterte Regelprofil verwenden. Gilt ab dem nächsten Spiel.;
+	fr=Utiliser le préréglage de règles améliorées. S’applique à partir de la prochaine partie.;
+	es=Usar el conjunto de reglas mejoradas. Se aplica a partir de la próxima partida.;
+	it=Usa il profilo di regole avanzate. Si applica dalla prossima partita.;
 	}
 
 [Use the system picker…]

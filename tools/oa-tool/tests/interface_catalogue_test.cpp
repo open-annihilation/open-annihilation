@@ -144,6 +144,9 @@ constexpr std::pair<std::string_view, std::string_view> kGermanWords[] = {
     {"Library", "Bibliothek"},
     {"Cancel", "Abbrechen"},
     {"Settings", "Einstellungen"},
+    {"Enhanced Mode", "Erweiterter Modus"},
+    {"Use the enhanced rules preset. Applies from the next game.",
+     "Das erweiterte Regelprofil verwenden. Gilt ab dem nächsten Spiel."},
 };
 
 /// The mutator buttons other texts name. A text that names one shows it
