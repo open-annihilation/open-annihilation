@@ -1745,9 +1745,8 @@ struct NetworkPlay::NetHost {
         if (setup.enhanced_mode_version != 0) {
             // Playback preserves the compact pool's range order. Watchers
             // own no range and have no unit commands to record.
-            const auto mask = runtime.match_->unit_player_mask();
             for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
-                if ((mask & static_cast<uint16_t>(1U << slot)) != 0)
+                if (world.game.players[slot].first_unit != 0)
                     add_player(slot);
         } else {
             for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
