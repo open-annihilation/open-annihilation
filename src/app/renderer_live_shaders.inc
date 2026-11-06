@@ -2396,7 +2396,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Camera& camera [[buf
                                     float3 _1862 = _1852.xyz / float3(_1854);
                                     float4 _2553 = _1852;
                                     _2553.x = _1862.x;
-                                    _2553.y = _1862.y;
+)msl"
+R"msl(                                    _2553.y = _1862.y;
                                     _2553.z = _1862.z;
                                     _2657 = _2553;
                                 }
