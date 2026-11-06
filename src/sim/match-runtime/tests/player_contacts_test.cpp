@@ -10,6 +10,7 @@
 #include "oa/sim/state_hash.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -517,9 +518,12 @@ struct Digests {
 /// Fights two switched-on units for 40 ticks, optionally keeping both pictures.
 ///
 /// @param keep whether both players' pictures are kept before the units exist
+/// @param enhanced whether contact scans reuse spatial projections
 /// @return each tick's total digest and the final state digest
-Digests fight(bool keep) {
-    Fixture f;
+Digests fight(bool keep, bool enhanced = false) {
+    Options options;
+    options.rules.setup.enhanced_mode.enabled = enhanced;
+    Fixture f(options);
     if (keep) {
         f.match->keep_player_contacts(0, true);
         f.match->keep_player_contacts(1, true);
@@ -553,7 +557,194 @@ void kept_pictures_change_nothing() {
     CHECK(plain.totals.size() == 40);
     CHECK(plain.totals == kept.totals);
     CHECK(plain.state == kept.state);
+    const Digests enhanced = fight(true, true);
+    CHECK(enhanced.totals == kept.totals);
+    CHECK(enhanced.state == kept.state);
     std::cout << "kept pictures change nothing passed\n";
+}
+
+/// Keeps a contact scan's result and measured work for mode comparisons.
+struct ScanSample {
+    std::vector<uint8_t> picture;
+    std::vector<uint32_t> flags;
+    uint32_t pool_slots{};
+    sim::match_runtime::SpatialQueryCounters work{};
+    uint64_t elapsed_nanoseconds{};
+};
+
+/// Scans an army of active radar, sonar and jammer units without ticking it.
+///
+/// @param enhanced whether one projection refresh serves each picture pass
+/// @param units_per_side active scanners on player 1 and active jammers on player 0
+/// @param allied_vision whether a third player's scanners share vision
+/// @param allied_jammers whether the viewer ignores allied jammers
+/// @param viewpoint whether to scan the viewpoint's canonical contact flags
+/// @param dense whether each query reaches more than the classic visited-list capacity
+/// @return the contact bytes and work done by one complete player scan
+ScanSample sample_scan(
+    bool enhanced,
+    uint16_t units_per_side,
+    bool allied_vision,
+    bool allied_jammers,
+    bool viewpoint = false,
+    bool dense = false
+) {
+    auto options = picture_options(allied_vision, allied_jammers);
+    options.per_player_limit = units_per_side;
+    options.unit_player_mask = allied_vision ? 7 : 3;
+    options.rules.setup.enhanced_mode.enabled = enhanced;
+    Fixture f(options);
+    if (dense)
+        give_ranges(f, 400, 400, 400, 400);
+    else
+        give_ranges(f, 80, 50, 36, 24);
+    const uint8_t viewer = viewpoint ? 0 : 1;
+    const uint8_t enemy = viewpoint ? 1 : 0;
+    f.match->keep_player_contacts(viewer, true);
+    for (uint32_t i = 0; i < units_per_side; ++i) {
+        // Spread the units across bucket boundaries and include submerged and
+        // cloaked targets, so all four stamp/jam visitors do useful work.
+        const auto x = 8U + (i % 15U) * 16U;
+        const auto z = 8U + ((i / 15U) % 15U) * 16U;
+        auto& scanner = place(f, viewer, x, z);
+        auto& jammer = place(f, enemy, x + 1U, z + 1U);
+        switch_on(scanner);
+        switch_on(jammer);
+        if (i % 3U == 0)
+            submerge(f, jammer);
+        if (i % 5U == 0)
+            cloak(jammer);
+    }
+    if (allied_vision) {
+        seat_third_player(f);
+        ally(f, 2, viewer);
+        auto& allied_scanner = place(f, 2, 128, 128);
+        switch_on(allied_scanner);
+    }
+    if (allied_jammers)
+        ally(f, viewer, enemy);
+
+    const auto units_before = snap_units(f);
+    const auto sightings_before = snap_sightings(f);
+    const auto random_before = f.match->random_state();
+    const auto counters_before = f.match->spatial_query_counters();
+    const auto start = std::chrono::steady_clock::now();
+    if (viewpoint)
+        f.match->scan_contacts();
+    else
+        f.match->scan_player_contacts(viewer);
+    const auto finish = std::chrono::steady_clock::now();
+    const auto counters_after = f.match->spatial_query_counters();
+    if (!viewpoint)
+        CHECK(same_units(units_before, snap_units(f)));
+    CHECK(same_sightings(sightings_before, snap_sightings(f)));
+    CHECK(f.match->random_state() == random_before);
+    CHECK(f.match->fault() == nullptr);
+    const auto picture = f.match->player_contact_bits(viewer);
+    ScanSample sample;
+    const auto& world = f.match->state();
+    sample.pool_slots = world.unit_slot_count;
+    const auto participant_slots = uint32_t{units_per_side} * (allied_vision ? 3U : 2U) + 1U;
+    CHECK(participant_slots <= picture.size());
+    sample.picture.assign(picture.begin(), picture.begin() + participant_slots);
+    for (uint32_t slot = 0; slot < participant_slots; ++slot) {
+        sample.flags.push_back(world.units[slot].flags);
+        if (viewpoint)
+            sample.picture[slot] = flags_as_picture(world.units[slot].flags);
+    }
+    sample.work = {
+        counters_after.projection_preparations - counters_before.projection_preparations,
+        counters_after.projected_slots - counters_before.projected_slots,
+        counters_after.bucket_queries - counters_before.bucket_queries,
+        counters_after.bucket_candidates - counters_before.bucket_candidates
+    };
+    sample.elapsed_nanoseconds = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count()
+    );
+    return sample;
+}
+
+/// Checks that Enhanced Mode retains every contact while preparing once per
+/// immutable picture pass, including separate allied passes.
+void enhanced_scans_reuse_projections() {
+    for (const bool allied_vision : {false, true}) {
+        for (const bool allied_jammers : {false, true}) {
+            constexpr uint16_t scanners = 16;
+            const auto classic = sample_scan(false, scanners, allied_vision, allied_jammers);
+            const auto enhanced = sample_scan(true, scanners, allied_vision, allied_jammers);
+            CHECK(classic.picture == enhanced.picture);
+            CHECK(classic.flags == enhanced.flags);
+            CHECK(classic.work.bucket_queries == enhanced.work.bucket_queries);
+            CHECK(classic.work.bucket_candidates == enhanced.work.bucket_candidates);
+            CHECK(classic.work.projection_preparations == classic.work.bucket_queries);
+            CHECK(enhanced.work.projection_preparations == (allied_vision ? 2U : 1U));
+            CHECK(
+                classic.work.projected_slots ==
+                classic.pool_slots * classic.work.projection_preparations
+            );
+            CHECK(
+                enhanced.work.projected_slots ==
+                enhanced.pool_slots * enhanced.work.projection_preparations
+            );
+            CHECK(enhanced.work.projected_slots < classic.work.projected_slots);
+
+            const auto classic_view =
+                sample_scan(false, scanners, allied_vision, allied_jammers, true);
+            const auto enhanced_view =
+                sample_scan(true, scanners, allied_vision, allied_jammers, true);
+            CHECK(classic_view.picture == enhanced_view.picture);
+            CHECK(classic_view.flags == enhanced_view.flags);
+            CHECK(classic_view.work.bucket_queries == enhanced_view.work.bucket_queries);
+            CHECK(classic_view.work.bucket_candidates == enhanced_view.work.bucket_candidates);
+            CHECK(enhanced_view.work.projection_preparations == (allied_vision ? 4U : 2U));
+        }
+    }
+    std::cout << "enhanced scans reuse projections passed\n";
+}
+
+/// Checks the viewpoint scan beyond its classic 1024-visit list: each dense
+/// query reaches every live unit and would trigger another full preparation.
+void enhanced_dense_viewpoint_scans_reuse_projections() {
+    constexpr uint16_t scanners = 600;
+    const auto classic = sample_scan(false, scanners, false, false, true, true);
+    const auto enhanced = sample_scan(true, scanners, false, false, true, true);
+    CHECK(classic.picture == enhanced.picture);
+    CHECK(classic.flags == enhanced.flags);
+    CHECK(classic.work.bucket_queries == uint64_t{scanners} * 3U);
+    CHECK(classic.work.bucket_queries == enhanced.work.bucket_queries);
+    CHECK(classic.work.bucket_candidates == enhanced.work.bucket_candidates);
+    CHECK(classic.work.projection_preparations == classic.work.bucket_queries);
+    CHECK(enhanced.work.projection_preparations == 2);
+    CHECK(classic.work.projected_slots == classic.pool_slots * classic.work.bucket_queries);
+    CHECK(enhanced.work.projected_slots == uint64_t{enhanced.pool_slots} * 2U);
+    std::cout << "dense viewpoint units_per_side=" << scanners
+              << " bucket_candidates=" << enhanced.work.bucket_candidates
+              << " classic_projected_slots=" << classic.work.projected_slots
+              << " enhanced_projected_slots=" << enhanced.work.projected_slots
+              << " classic_ns=" << classic.elapsed_nanoseconds
+              << " enhanced_ns=" << enhanced.elapsed_nanoseconds << '\n';
+}
+
+/// Measures growing contact scans without a timing pass threshold: work
+/// counters prove the scaling change while timings describe this machine.
+void benchmark_enhanced_scans() {
+    for (const uint16_t scanners : {32U, 128U, 512U}) {
+        const auto classic = sample_scan(false, scanners, false, false);
+        const auto enhanced = sample_scan(true, scanners, false, false);
+        CHECK(classic.picture == enhanced.picture);
+        CHECK(classic.work.bucket_queries == uint64_t{scanners} * 3U);
+        CHECK(classic.work.bucket_queries == enhanced.work.bucket_queries);
+        CHECK(classic.work.bucket_candidates == enhanced.work.bucket_candidates);
+        CHECK(enhanced.work.projection_preparations == 1);
+        CHECK(classic.work.projected_slots == uint64_t{classic.pool_slots} * scanners * 3U);
+        CHECK(enhanced.work.projected_slots == enhanced.pool_slots);
+        std::cout << "contact scan units_per_side=" << scanners
+                  << " bucket_candidates=" << enhanced.work.bucket_candidates
+                  << " classic_projected_slots=" << classic.work.projected_slots
+                  << " enhanced_projected_slots=" << enhanced.work.projected_slots
+                  << " classic_ns=" << classic.elapsed_nanoseconds
+                  << " enhanced_ns=" << enhanced.elapsed_nanoseconds << '\n';
+    }
 }
 
 } // namespace
@@ -565,6 +756,9 @@ int main() {
         pictures_leave_the_simulation_alone();
         scans_follow_the_deadline();
         kept_pictures_change_nothing();
+        enhanced_scans_reuse_projections();
+        benchmark_enhanced_scans();
+        enhanced_dense_viewpoint_scans_reuse_projections();
     } catch (const std::exception& error) {
         std::cerr << "player contacts: " << error.what() << '\n';
         return 1;

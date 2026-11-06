@@ -180,6 +180,8 @@ struct Options {
     int32_t maximum_wind{};
     // Unit slots of each player (OfflineInputs::per_player_limit).
     uint16_t per_player_limit = 4;
+    // Enhanced Mode's participating unit owners (players 0 and 1 by default).
+    uint16_t unit_player_mask = 3;
     // The type's maximum health (MaxDamage); 0 makes a type with none.
     uint32_t maximum_health = 1000;
     // Weapon slots the registry accepts, from 0. 256 is 3.1c's table.
@@ -438,6 +440,7 @@ struct Fixture {
         input.resuming_saved_game = options.resuming_saved_game;
         input.limits = options.limits;
         input.rules = options.rules;
+        input.unit_player_mask = options.unit_player_mask;
         input.unit_type_rules = options.unit_type_rules;
         input.weapon_rules = options.weapon_rules;
         input.profile_sim_hash = options.profile_sim_hash;

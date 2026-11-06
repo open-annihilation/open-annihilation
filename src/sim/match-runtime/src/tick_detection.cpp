@@ -83,6 +83,7 @@ void Match::walk_units_in_radius(
     void (*visit)(void* context, sim::unit_spawn::Slot& slot),
     void* context
 ) {
+    ++spatial_query_counters_.bucket_queries;
     const auto clamp = [](int32_t value, uint32_t count) -> uint32_t {
         if (static_cast<uint32_t>(value) < count)
             return static_cast<uint32_t>(value);
@@ -98,6 +99,7 @@ void Match::walk_units_in_radius(
     const auto right = clamp(add_fixed(centre[0], radius) >> bucket_shift, width);
     const auto bottom = clamp(add_fixed(centre[2], radius) >> bucket_shift, height);
     const auto reach = squared_high(radius);
+    uint64_t candidates = 0;
     for (auto z = top; z <= bottom; ++z)
         for (auto x = left; x <= right; ++x) {
             const auto bucket = static_cast<std::size_t>(z) * width + x;
@@ -108,6 +110,7 @@ void Match::walk_units_in_radius(
                  id = spatial_units_[id].next_in_bucket) {
                 if (id >= slots_.size())
                     break;
+                ++candidates;
                 auto& slot = slots_[id];
                 const auto dx = sub_fixed(slot.record.position.x, centre[0]);
                 const auto dz = sub_fixed(slot.record.position.z, centre[2]);
@@ -115,6 +118,7 @@ void Match::walk_units_in_radius(
                     visit(context, slot);
             }
         }
+    spatial_query_counters_.bucket_candidates += candidates;
 }
 
 void Match::scan_contacts() {
@@ -209,11 +213,22 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
         bool visits_fit{true};
     } walk;
 
+    // The bucket walk reads canonical positions and projected links only.
+    // Stamp and jam visitors change flags, so Enhanced Mode can retain the
+    // links throughout the pass without the bounded visited-list fallback.
+    const bool reuse_projections = rules().setup.enhanced_mode.enabled;
     walk.match = this;
     const auto walk_radius = [&](const sim::ground_orders::Point& centre,
                                  int32_t radius,
                                  void (*visit)(void* context, sim::unit_spawn::Slot& slot),
                                  void* context) {
+        if (reuse_projections) {
+            if (!walk.projected)
+                prepare_spatial_state();
+            walk.projected = true;
+            walk_units_in_radius(centre, radius, visit, context);
+            return;
+        }
         if (!walk.projected || !walk.visits_fit)
             prepare_spatial_state();
         else
@@ -324,6 +339,10 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
             point_seen_by(viewer.index, fixed_words(unit.position)))
             unit.flags |= detection::radar_contact;
     }
+    // Keep the projections current after the flag-changing passes without
+    // copying the whole pool between individual radius queries.
+    if (reuse_projections && walk.projected)
+        prepare_spatial_state();
 }
 
 void Match::keep_player_contacts(uint8_t player, bool keep) {
@@ -448,6 +467,22 @@ void Match::scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool sc
         std::size_t slot_count;
     };
 
+    // These visitors write only the picture's byte row. No unit flags,
+    // positions or bucket links change during the pass, so Enhanced Mode
+    // prepares the projections at its first query and reuses them for every
+    // later scanner and jammer, in the same bucket order.
+    const bool reuse_projections = rules().setup.enhanced_mode.enabled;
+    bool projected = false;
+    const auto scan_radius = [&](const sim::ground_orders::Point& centre,
+                                 int32_t radius,
+                                 void (*visit)(void* context, sim::unit_spawn::Slot& slot),
+                                 void* context) {
+        if (!reuse_projections || !projected)
+            prepare_spatial_state();
+        projected = true;
+        walk_units_in_radius(centre, radius, visit, context);
+    };
+
     uint32_t owned = 0;
     auto* units = scan_own_units ? oa::world_player_units(&world, &viewer, &owned) : nullptr;
     if (units != nullptr)
@@ -470,7 +505,7 @@ void Match::scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool sc
             stamp.scan.sonar_range_squared = static_cast<int32_t>(sonar) * sonar;
             stamp.scan.position = scanner.position;
             const int16_t reach = radar <= sonar ? sonar : radar;
-            for_each_unit_in_radius(
+            scan_radius(
                 {scanner.position.x, scanner.position.y, scanner.position.z},
                 whole_to_fixed(reach),
                 [](void* context, sim::unit_spawn::Slot& slot) {
@@ -509,7 +544,7 @@ void Match::scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool sc
             jammer.position.x, jammer.position.y, jammer.position.z
         };
         if (def->radar_distance_jam != 0)
-            for_each_unit_in_radius(
+            scan_radius(
                 centre,
                 whole_to_fixed(def->radar_distance_jam),
                 [](void* context, sim::unit_spawn::Slot& slot) {
@@ -521,7 +556,7 @@ void Match::scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool sc
                 &row
             );
         if (def->sonar_distance_jam != 0)
-            for_each_unit_in_radius(
+            scan_radius(
                 centre,
                 whole_to_fixed(def->sonar_distance_jam),
                 [](void* context, sim::unit_spawn::Slot& slot) {

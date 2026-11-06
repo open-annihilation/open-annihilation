@@ -96,6 +96,29 @@ A yard with no level cell, such as a shipyard's or a floating torpedo
 launcher's, floats its waterline below the sea. Any other type keeps its
 point, and its creation fits its height to the ground or the water.
 
+## Contact-query scaling
+
+Enhanced Mode prepares unit projections once per player's contact-picture
+pass, then reuses the spatial bucket links for that pass's radar, sonar and
+jammer queries. The queries write only the player's contact-byte row; no
+unit flags, positions or links change between them. Each allied pass
+prepares separately, preserving the same pass order and contact bytes.
+The viewpoint scan also reuses the links, then refreshes projections after
+its flag changes. Dense queries no longer overflow its classic 1024-entry
+visited list into another full preparation before each scanner.
+With Enhanced Mode off, the picture's per-query preparation and the
+viewpoint's bounded visited-list behavior remain unchanged.
+
+`Match::spatial_query_counters()` reports full preparations, copied slots,
+bucket queries and candidate units. These diagnostic counters affect no
+save or simulation digest. `match-player-contacts` compares both modes,
+including allied vision and jammers, and prints work counts and local scan
+timings for 32, 128 and 512 active units per side, plus a dense viewpoint
+scan of 600 per side that exceeds the classic visited list. It retains the
+same bucket candidates while reducing copied slots from queries times pool
+size to one copy per picture pass and two per viewpoint pass. These scan
+timings do not measure whole-battle frame rate.
+
 ## Rules
 
 A mod's profile reaches the match through `OfflineInputs`: `limits` (the
