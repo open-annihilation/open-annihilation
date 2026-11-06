@@ -6,8 +6,8 @@ add_library(oa-boneyards-console ${oa_boneyards_console_sources})
 add_library(oa::boneyards::console ALIAS oa-boneyards-console)
 target_include_directories(oa-boneyards-console PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(oa-boneyards-console PUBLIC oa-boneyards-toolkit oa-boneyards-screens oa-boneyards-client
-  oa-formats-gaf oa-boneyards-html PRIVATE oa-formats-png ZLIB::ZLIB oa-options oa-formats-tdf
-  oa-ui-gui-layout oa-data-languages oa-platform-shims)
+  oa-formats-gaf oa-boneyards-html oa-ui-frontend-renderer PRIVATE oa-formats-png ZLIB::ZLIB oa-options
+  oa-formats-tdf oa-ui-gui-layout oa-data-languages oa-platform-shims)
 target_compile_features(oa-boneyards-console PUBLIC cxx_std_20)
 
 # Headers beside the console sources (galaxy drawing, the console's state).

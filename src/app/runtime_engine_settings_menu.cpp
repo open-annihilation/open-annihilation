@@ -18,6 +18,7 @@
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/frontend_renderer/menu_buttons.hpp"
 #include "render_state.hpp"
 
 #include "oa/formats/gaf.hpp"
@@ -45,18 +46,17 @@ namespace oa::app {
 
 namespace settings = oa::ui::engine_settings;
 namespace artless = oa::ui::frontend_renderer;
+namespace renderer = oa::ui::frontend_renderer;
 namespace kit = oa::ui::kit;
 namespace paint = oa::ui::paint;
 
 namespace {
 
-/// The Settings button's gap to the picture's right edge, and the buttons'
-/// gap to its bottom edge (top edge while an extension's overlay stands
-/// over the main menu), in source pixels.
-constexpr int32_t kButtonInset = 12;
-/// The gap between the OA button and the Settings button: a quarter of a
-/// button's side, in source pixels.
-constexpr int32_t kButtonGap = settings::menu_button_side / 4;
+// The pair's places come from the renderer's table of the main menu's
+// corners, which an overlay adding a button to the group reads too.
+static_assert(renderer::menu_button_side == settings::menu_button_side);
+static_assert(renderer::menu_picture_width == kCanvasWidth);
+static_assert(renderer::menu_picture_height == kCanvasHeight);
 /// The button overlay's z: under the extensions' overlays, which draw over
 /// the button and see input before it.
 constexpr int16_t kButtonOverlayZ = -100;
@@ -326,16 +326,28 @@ bool Runtime::EngineSettingsMenuHost::button_shown(Runtime& runtime) {
            runtime.engine_settings_fonts() != nullptr;
 }
 
+namespace {
+
+/// Returns the corner the pair sits in, as 0.8.14 put it on every menu: the
+/// bottom right, and the top right while an extension's overlay stands over
+/// the main menu's bottom rows. No mod's profile moves it.
+///
+/// @param overlay_drawn an extension's overlay stands over the main menu
+/// @return the corner
+renderer::MenuCorner pair_corner(bool overlay_drawn) {
+    return renderer::menu_group_corner(renderer::MenuCorner::bottom_right, overlay_drawn);
+}
+
+} // namespace
+
 artless::SourceRect Runtime::EngineSettingsMenuHost::button_rect(const Runtime& runtime) {
-    const artless::SourceRect beside = settings_button_rect(runtime);
-    return {beside.x - kButtonGap - beside.width, beside.y, beside.width, beside.height};
+    const renderer::MenuCorner corner = pair_corner(runtime.main_menu_overlay_);
+    return renderer::menu_pair_places(corner).library;
 }
 
 artless::SourceRect Runtime::EngineSettingsMenuHost::settings_button_rect(const Runtime& runtime) {
-    constexpr int32_t side = settings::menu_button_side;
-    const int32_t y =
-        runtime.main_menu_overlay_ ? kButtonInset : kCanvasHeight - kButtonInset - side;
-    return {kCanvasWidth - kButtonInset - side, y, side, side};
+    const renderer::MenuCorner corner = pair_corner(runtime.main_menu_overlay_);
+    return renderer::menu_pair_places(corner).settings;
 }
 
 artless::RgbaPicture Runtime::EngineSettingsMenuHost::settings_icon(Runtime& runtime) {

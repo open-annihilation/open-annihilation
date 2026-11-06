@@ -228,6 +228,39 @@ void Runtime::check_megamap_clicks() {
         "the enemy is not in the mover's sight and on the radar"
     );
     check_megamap_picture();
+    {
+        // The wheel rolled away over the megamap closes it with the map
+        // point under the pointer still under it on the battlefield, rather
+        // than brought to the battlefield's middle. The point lies off the
+        // picture's middle and far from the map's edges, where the view's
+        // limits do not hold the camera.
+        set_megamap_open(true);
+        render_match_surface();
+        const auto& layout = megamap_.layout;
+        const auto pixel = hud::megamap_point(
+            layout, map_width / 2 + map_width / 8, map_height / 2 + map_height / 8
+        );
+        const auto pointed = hud::megamap_map_point(layout, pixel[0], pixel[1]);
+        require(pointed.has_value(), "the point rolled at lies off the megamap's picture");
+        const auto x = static_cast<float>(match_layout_.left + pixel[0]);
+        const auto y = static_cast<float>(match_layout_.top + pixel[1]);
+        require(megamap_wheel(1.0F, x, y) && !megamap_open_, "the wheel did not close the megamap");
+        render_match_surface();
+        const auto under = map_pixel_drawn_at(
+            live_viewport(match_camera_x_, match_camera_z_),
+            {static_cast<int32_t>(x), static_cast<int32_t>(y)}
+        );
+        if (!under || under->x != (*pointed)[0] || under->y != (*pointed)[1])
+            fail(
+                "the wheel closed the megamap over map pixel (" + std::to_string((*pointed)[0]) +
+                ", " + std::to_string((*pointed)[1]) + "), and the battlefield shows " +
+                (under ? "(" + std::to_string(under->x) + ", " + std::to_string(under->y) + ")"
+                       : std::string("nothing")) +
+                " under the pointer"
+            );
+        std::cout << "megamap click check: the wheel closes the megamap with the map point under "
+                     "the pointer still under it\n";
+    }
 
     bool running = true;
     const auto send = [&](SDL_EventType type, uint8_t button, float x, float y) {

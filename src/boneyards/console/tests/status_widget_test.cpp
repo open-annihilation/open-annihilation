@@ -1039,6 +1039,11 @@ void test_battle_launch(GameData* data, const oa::Palette* palette) {
         g_launch.launches == 0 && !boneyards_status_widget_launched_game(widget),
         "the refusal does not enter the battle"
     );
+    check(
+        g_launch.left_battles.size() == 1 && g_launch.left_battles[0] == 709,
+        "a refused launch leaves the battle"
+    );
+    g_launch.left_battles.clear();
     {
         ScopedServices scope(widget);
         MessageBox* box = message_box_find_open(&widget->desktop);

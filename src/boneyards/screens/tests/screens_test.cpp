@@ -452,6 +452,8 @@ void test_navigation() {
     // enters a frequency only when it opens.
     CHECK(boneyards_open(&s, ByScreen::chat_frequencies) == ByScreen::chat_frequencies);
     CHECK(!s.chat.visible && !s.chat.enter_default_room);
+    // Chat opens on a planet. With no map loaded, the session's area is kept.
+    s.session.area_id = 1816;
     chat_open_on_planet(&s.chat);
     CHECK(s.chat.visible && s.chat.enter_default_room);
     CHECK(boneyards_open(&s, ByScreen::profile_console) == ByScreen::profile_console);

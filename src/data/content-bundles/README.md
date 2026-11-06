@@ -44,7 +44,10 @@ size, hash or resource.
   take bytes and return bytes. `read_bundle_folder_record` reads the record
   in one bundle folder. A field the reader does not know is ignored. A
   file the source did not hold is marked `not-in-source`, and one it held
-  at another size also keeps that size, `source-size`.
+  at another size also keeps that size, `source-size`. An expansion
+  installed from a package names it, `package <sha256> <release>`, and
+  `check_installed_package` compares that with the package a catalogue
+  offers: current, missing, unrecorded or changed.
   `files_not_recorded` lists a bundle's files its record does not name yet,
   and `record_complete` says whether it names them all, copied or not in
   the source: only such a bundle is played.
@@ -86,7 +89,9 @@ another size does not count as the expansion.
 `data-content-record` writes a record and reads it back, refuses a record
 it does not understand, keeps a record that carries a field it skips, and
 tells a record that names every file of its bundle, in any case, from one
-a stopped copy left.
+a stopped copy left. It writes and reads the package line, skips one it
+cannot use, writes none for another bundle, and decides a package that is
+current, missing, unrecorded or changed.
 
 `data-content-choice` turns an expansion on and off, chooses a base game,
 clears a mod whose required expansion went off, reads a player with no

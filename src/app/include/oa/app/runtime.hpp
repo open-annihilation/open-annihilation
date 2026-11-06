@@ -6323,13 +6323,29 @@ class Runtime final : public menu::Host,
 
     /// Answers the update question.
     ///
-    /// Update starts the download the update centre offers and stays on the
-    /// menu. Not now, for a player, goes on to the package and does not
-    /// remember a skip. A headless or unattended run stays on the menu. A call
-    /// while that question is not open does nothing.
+    /// Update downloads the offered release where this copy installs it in
+    /// place, with the one-shot entry saved, and installs it once it is
+    /// ready; a release offered only on its page opens the page and the
+    /// entry stops. Cancel stays on the menu. A call while that question is
+    /// not open does nothing.
     ///
-    /// @param take_update true to download the offered release
+    /// @param take_update true for Update, false for Cancel
     void answer_expansion_entry(bool take_update);
+
+    /// Ends the run so the next one enters, once a ready entry found its
+    /// newly installed package not in use (expansion_entry.hpp).
+    ///
+    /// @param notice the sentence shown when the run will not restart
+    void restart_expansion_entry(const std::string& notice);
+
+    /// Turns the update check and the catalogue check on where they are
+    /// Never, tells the catalogues and Settings, and saves the preferences.
+    ///
+    /// Settings › Updates' Check for updates (`open-annihilation.update-check`)
+    /// and the Library's check for content updates
+    /// (`open-annihilation.content-updates`) each become Automatically. A
+    /// check already on keeps what the player chose.
+    void turn_on_online_checks();
 
     /// Tells a running entry whether to draw its fetch on the caller's screen.
     ///
@@ -6345,6 +6361,38 @@ class Runtime final : public menu::Host,
     ///
     /// @return true while a new entry would be ignored
     [[nodiscard]] bool expansion_entry_busy() const noexcept;
+
+    /// Asks whether to switch a remembered mod back on.
+    ///
+    /// A call while an entry is busy does nothing. The sentences are already
+    /// translated.
+    ///
+    /// @param question the sentence
+    /// @param on_label the button that switches the mod on
+    /// @param later_label the button that leaves it off
+    void ask_remembered_mod(
+        const std::string& question, const std::string& on_label, const std::string& later_label
+    );
+
+    /// Reports whether the remembered-mod question is open.
+    ///
+    /// @return true while that question is waiting
+    [[nodiscard]] bool remembered_mod_question_open() const noexcept;
+
+    /// Answers the remembered-mod question.
+    ///
+    /// @param switch_on true to switch the remembered mod on
+    void answer_remembered_mod(bool switch_on);
+
+    /// Reports whether the question about switching a mod off is open.
+    ///
+    /// @return true while that question is waiting
+    [[nodiscard]] bool expansion_mod_question_open() const noexcept;
+
+    /// Answers the question about switching a mod off.
+    ///
+    /// @param switch_off true to switch the mod off and enter
+    void answer_expansion_mod_question(bool switch_off);
 
   private:
 
@@ -7111,10 +7159,39 @@ class Runtime final : public menu::Host,
     /// The language an extension's entry reads (expansion_entry.hpp).
     friend const oa::data::languages::Language& expansion_entry_language(const Runtime& runtime);
 
-    /// Forgets the question the entry was showing.
+    /// The mod an extension's entry reads and switches (expansion_entry.hpp).
+    friend ActiveMod active_mod(const Runtime& runtime);
+
+    /// Stores one preference under its own key, with no mod prefix (expansion_entry.hpp).
+    friend void
+    keep_expansion_preference(Runtime& runtime, std::string_view key, std::string_view value);
+
+    /// Reads one preference stored under its own key (expansion_entry.hpp).
+    friend std::optional<std::string>
+    expansion_preference(const Runtime& runtime, std::string_view key);
+
+    /// Switches to a mod folder, or to none when the folder is empty (expansion_entry.hpp).
+    friend bool switch_active_mod(Runtime& runtime, std::string_view folder, std::string& refusal);
+
+    /// Reports whether the run will start again (expansion_entry.hpp).
+    friend bool expansion_will_restart(const Runtime& runtime) noexcept;
+
+    /// Saves the preferences (expansion_entry.hpp).
+    friend void save_expansion_preferences(Runtime& runtime);
+
+    /// Ends the run (expansion_entry.hpp).
+    friend void end_expansion_run(Runtime& runtime);
+
+    /// How many mutators the running match carries (expansion_entry.hpp).
+    friend uint32_t active_mutator_count(const Runtime& runtime);
+
+    /// Forgets the question the entry was showing, when it is the one that closed.
+    ///
+    /// A question closed after the entry put up the next one leaves that one known.
     ///
     /// @param runtime the runtime; null does nothing
-    static void entry_question_closed(Runtime* runtime) noexcept;
+    /// @param closing the question that closed
+    static void entry_question_closed(Runtime* runtime, const void* closing) noexcept;
 
     /// Closes the entry's question when a match starts.
     ///
@@ -7535,6 +7612,20 @@ class Runtime final : public menu::Host,
     /// @param[out] refusal why it cannot be played, in a few words
     /// @return true when the run ends to play it
     bool switch_to_mod_folder(const fs::path& folder, std::string& refusal);
+
+    /// Stores one preference under its own key, with no mod prefix.
+    ///
+    /// An empty value removes the key. A value already stored is left as it is.
+    ///
+    /// @param key the key
+    /// @param value the value; empty removes the key
+    void keep_plain_string(std::string_view key, std::string_view value);
+
+    /// Reads one preference stored under its own key, with no mod prefix.
+    ///
+    /// @param key the key
+    /// @return the value; nothing when the key is missing or empty
+    [[nodiscard]] std::optional<std::string> plain_string(std::string_view key) const;
 
     /// Rolls a folder of the player's own Mods folder back to the version
     /// its .backup keeps, which must be playable: at once, or, for the mod
@@ -14388,7 +14479,9 @@ class Runtime final : public menu::Host,
     /// press on open ground moves the selection and one on an own unit guards
     /// it, an armed ATTACK is given by a left click, and an armed MOVE given
     /// on an own unit guards it. Before the clicks it checks the megamap's picture
-    /// (check_megamap_picture). Prints a line and checks nothing with
+    /// (check_megamap_picture), and that the wheel rolled away over a point of
+    /// the megamap closes it with that map point under the pointer on the
+    /// battlefield. Prints a line and checks nothing with
     /// ui.megamap off. With --snapshot, writes each surface's frame just
     /// before and just after each click beside the snapshot. Throws
     /// std::runtime_error on a failure.
@@ -15142,6 +15235,27 @@ class Runtime final : public menu::Host,
     /// @param layout where the picture goes
     void build_megamap_terrain(const oa::ui::hud::MegamapLayout& layout);
 
+    /// Returns where the megamap shows the map now: fitted into the
+    /// overlays' area (overlay_area), on the battlefield's layer, whose
+    /// origin is the battlefield's corner.
+    ///
+    /// @return the layout; empty without a match
+    [[nodiscard]] oa::ui::hud::MegamapLayout current_megamap_layout() const;
+
+    /// Tells whether the megamap's terrain picture was made for a layout.
+    ///
+    /// @param layout the layout the megamap is to be drawn in
+    /// @return true when the picture is made and fits it
+    [[nodiscard]] bool megamap_terrain_fits(const oa::ui::hud::MegamapLayout& layout) const;
+
+    /// Makes what the megamap draws ready before it first opens, while
+    /// ui.megamap acts (megamap_on): its icons and features
+    /// (prepare_megamap) and its terrain picture for the present layout
+    /// (build_megamap_terrain), so that opening it shows the map at once. A
+    /// layout changed since, as a resized window changes it, makes the
+    /// picture again as the megamap is drawn.
+    void prepare_megamap_picture();
+
     /// Opens or closes the megamap, with its interface sound.
     ///
     /// @param open true to open
@@ -15158,8 +15272,10 @@ class Runtime final : public menu::Host,
     bool take_megamap_toggle(const SDL_KeyboardEvent& key);
 
     /// Takes the wheel for ui.megamap: rolled toward the player it opens the
-    /// megamap; rolled away it closes it, the camera centred where the
-    /// pointer was.
+    /// megamap; rolled away it closes it, the battlefield's view placed so
+    /// that the map point under the pointer stays under it, held within the
+    /// view's limits (set_camera_position). Off the map's picture the view
+    /// stays where it was.
     ///
     /// @param amount the wheel's roll, negative toward the player
     /// @param x pointer column on the canvas

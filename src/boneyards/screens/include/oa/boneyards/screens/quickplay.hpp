@@ -107,6 +107,9 @@ struct QuickPlay {
     uint32_t offer_area{};
     char offer_map[kQuickPlayMapBytes]{};
     bool offer_map_known{};
+    // Why the offer just closed. Empty until a withdrawal of the offer on screen. The next log
+    // line is then "Searching again…", and the search keeps running.
+    char withdrawn_status[kQuickPlayTextCapacity]{};
 };
 
 /// What applying one inbound record, or answering the offer, asks the console to do.
@@ -200,9 +203,11 @@ void quickplay_find(QuickPlay* play);
 
 /// Stops the search, closes the offer and returns the card to its settings.
 ///
-/// The console sends quickplay_cancel when the player presses CANCEL SEARCH, and when the
-/// console is destroyed during a search. Giving up after five seconds with no status uses this
-/// and sends nothing.
+/// The console sends quickplay_cancel when the player presses CANCEL SEARCH, when the console
+/// is hidden or the Boneyards session ends during a search, and when the console is destroyed
+/// during a search. An open offer is answered No before that cancel. A Yes that is launching a
+/// battle does not cancel. Giving up after five seconds with no status uses this and sends
+/// nothing.
 ///
 /// @param[in,out] play card; null does nothing
 void quickplay_cancel(QuickPlay* play);
@@ -282,6 +287,20 @@ const char* quickplay_result_text(int32_t result);
 /// @return "The search could not be started."
 const char* quickplay_unavailable_text();
 
+/// Returns the English a withdrawal shows for its reason.
+///
+/// Reasons 0, 1 and 3, and any other reason, say the battle has filled. Reason 2 says it was
+/// abandoned. The words are the catalogue keys.
+///
+/// @param reason the withdrawal's reason
+/// @return the English sentence
+const char* quickplay_withdrawn_text(int32_t reason);
+
+/// Returns the English shown on the line after a withdrawal.
+///
+/// @return "Searching again…"
+const char* quickplay_searching_again_text();
+
 /// True when a search has been waiting for its first status for five seconds.
 ///
 /// @param play card; null is not overdue
@@ -317,6 +336,17 @@ void quickplay_apply_scan(QuickPlay* play, const QuickPlayScanNotice* scan);
 /// @param found the offer; null is ignored
 /// @return what the console should show
 QuickPlayEffect quickplay_apply_found(QuickPlay* play, const QuickPlayFoundNotice* found);
+
+/// Closes the offer the prompt is showing when the withdrawal names that offer.
+///
+/// The search stays on. The log's next two lines say why, then that the search is going again.
+/// A withdrawal for an offer the prompt is not showing, or for a different offer, changes nothing.
+///
+/// @param[in,out] play card; null, or one that is not searching, is ignored
+/// @param withdrawn the withdrawal; null is ignored
+/// @return what the console should show
+QuickPlayEffect
+quickplay_apply_withdrawn(QuickPlay* play, const QuickPlayWithdrawnNotice* withdrawn);
 
 /// Closes the offer. Yes on a join asks for join_game. Yes on a host asks for host_game.
 ///

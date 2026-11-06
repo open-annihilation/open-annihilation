@@ -209,6 +209,20 @@ void open_chat(void* user, uint32_t area_id, uint32_t room_id, const char* page_
     screens::BoneyardsScreens* navigation = host->owner->navigation;
     if (area_id != 0)
         navigation->session.area_id = area_id;
+    // Opening chat on a planet looks at that planet, so the room list is
+    // the one the player asked for and not whichever planet was selected.
+    if (area_id != 0) {
+        screens::GalaxyView* galaxy = &navigation->galaxy;
+        const int32_t count = static_cast<int32_t>(galaxy->planet_count);
+        for (int32_t i = 0; i < count; ++i) {
+            if (galaxy->planets[i].id != static_cast<int32_t>(area_id))
+                continue;
+            uint32_t selected = 0;
+            if (screens::galaxy_select_planet(galaxy, i, &selected))
+                navigation->session.area_id = area_id;
+            break;
+        }
+    }
     if (room_id != 0)
         navigation->session.room_id = room_id;
     const bool page = page_line != nullptr && page_line[0] != '\0';

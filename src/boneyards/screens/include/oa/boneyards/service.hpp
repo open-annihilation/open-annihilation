@@ -554,6 +554,15 @@ struct QuickPlayScanNotice {
     char battle[kQuickPlayBattleBytes]{};
 };
 
+/// One quickplay_withdrawn. game_id is set when the offer named a battle.
+/// reason is 0 the battle filled, 1 it started, 2 it was abandoned, 3 the seat reservation lapsed.
+struct QuickPlayWithdrawnNotice {
+    char offer_id[kMatchmakingIdCapacity]{};
+    char game_id[kMatchmakingIdCapacity]{};
+    bool game_known{};
+    int32_t reason{};
+};
+
 /// One quickplay_found. game_id is set for a join. seats and on_death are set for a host.
 struct QuickPlayFoundNotice {
     char offer_id[kMatchmakingIdCapacity]{};
@@ -572,7 +581,13 @@ struct QuickPlayFoundNotice {
 };
 
 /// Which inbound QuickPlay record a notice carries.
-enum class QuickPlayNoticeKind : int32_t { none = 0, status = 1, scan = 2, found = 3 };
+enum class QuickPlayNoticeKind : int32_t {
+    none = 0,
+    status = 1,
+    scan = 2,
+    found = 3,
+    withdrawn = 4,
+};
 
 /// One inbound QuickPlay record, copied out of the pump that delivered it.
 struct QuickPlayNotice {
@@ -580,6 +595,7 @@ struct QuickPlayNotice {
     QuickPlayStatusNotice status{};
     QuickPlayScanNotice scan{};
     QuickPlayFoundNotice found{};
+    QuickPlayWithdrawnNotice withdrawn{};
 };
 
 /// Which inbound matchmaking record a notice carries.

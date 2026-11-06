@@ -9,6 +9,26 @@ The library is `oa-boneyards-console`. Sources under `src/` that are not in
 the public include tree are visible to this module through
 `oa-boneyards-console-private`.
 
+`oa/boneyards/console/menu_entry.hpp` holds how the way in stands on a
+main menu: `choose_menu_entry_mode` (the strip while at most a tenth of
+the strip's rows of the menu's art differ from the base game's, the ENTER
+plate above that, or the mode the mod's profile names in
+`media.boneyards-entry`), `entry_plate` (the strip's riveted ENTER panel,
+135 by 66 from (253,380) of the strip), `entry_plate_default_place` (the
+top right, 8 pixels in: 497,8), `entry_plate_place` (the profile's x and y,
+kept so the whole plate stays on the menu) and `entry_plate_covers` (for
+the log line when the plate covers a gadget or one of Open Annihilation's
+buttons). The overlay chooses once a runtime, as the strip is first
+built, from the played mod's own folder only (an expansion's folder is the
+game's), logs the mode and the share, and in button mode draws the strip's
+rows off screen and copies the plate's rectangle to its place in the base
+game's palette inside a one-pixel dark line. Pointer input on the plate is
+moved by the plate's offset and given to the strip, so ENTER presses, greys
+and lights its lamps as on the strip. The strip takes the pointer only
+while it is drawn, and the plate only while it is shown.
+[docs/boneyards/entry.md](../../../docs/boneyards/entry.md) describes both
+forms.
+
 ## State
 
 Reads the screen services, the client session and the page fonts. Writes the
@@ -50,7 +70,14 @@ screen's keys, so Return is not wired there.
 ## Tests
 
 `boneyards-console-*`, including the navigation, registration and gamepad
-checks. Several read `coreprime.ccx` and the language catalogue.
+checks. `boneyards-console-menu-entry` chooses the mode from made-up
+pictures on both sides of the limit, and places the plate at the default
+place, at the profile's place and kept on the menu; `boneyards-console-screens` checks that the drawn strip
+takes every pointer event on its rows, Credits still mirrored, and that in
+button mode only the plate is drawn, pixel for pixel the strip's, at the
+default place or the profile's, its ENTER asks the entry through the moved
+pointer and its lamps run, and that without a palette nothing of the strip
+takes the pointer. Several read `coreprime.ccx` and the language catalogue.
 `boneyards-console-quickplay`, `boneyards-console-matchmaking` and
 `boneyards-console-locator` open their consoles as on a profile that does not
 mount the mod, so the layouts and the new art come through the client

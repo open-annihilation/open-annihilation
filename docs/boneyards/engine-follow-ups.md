@@ -19,7 +19,7 @@ records the additions made for them.
 ## Versions
 
 The module checks the version of the engine's extension table
-(`OA_EXTENSION_API_VERSION`, now 19) and
+(`OA_EXTENSION_API_VERSION`, now 20) and
 of network play's API (`OA_NET_EXTENSION_API_VERSION`, now 3) with
 `static_assert` in
 `src/boneyards/extension/boneyards_extension.cpp` (`kExtensionApiVersionFollowed`,

@@ -69,6 +69,15 @@ screens::QuickPlay* quickplay_console_model(Window* console);
 /// @param ms milliseconds to add; zero or negative leaves the clock
 void quickplay_console_advance(Window* console, int32_t ms);
 
+/// Ends a running QuickPlay search because this console is no longer showing.
+///
+/// An open offer is answered No, then the search is cancelled the way CANCEL
+/// SEARCH cancels it, and the card shows FIND BATTLE. A Yes that is launching
+/// a battle is left alone. A console that is not searching is left alone.
+///
+/// @param console QuickPlay console; null or another window does nothing
+void quickplay_console_end_search(Window* console);
+
 /// Builds the Locator console in the Main Frame's info area.
 ///
 /// The window is the screen in gui/locator.gui. It is named Locator and starts

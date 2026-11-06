@@ -243,7 +243,7 @@ void update_local_settings(ProfileConsole* c) {
 } // namespace
 
 void profile_record_init(ProfileRecord* r) {
-    std::memset(r, 0, sizeof *r);
+    std::memset(static_cast<void*>(r), 0, sizeof *r);
     r->allegiance = 'U';
     r->allegiance_locked = -1;
     r->status = static_cast<int32_t>(ProfileStatus::active);

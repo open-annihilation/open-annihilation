@@ -9,6 +9,7 @@
 #include "oa/data/languages/translation.hpp"
 
 #include "oa/ui/frontend_renderer/gadget_draw.hpp"
+#include "oa/ui/frontend_renderer/main_menu_art.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
 
@@ -27,15 +28,16 @@
 #include <system_error>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace oa::ui::frontend_renderer {
 namespace {
 
 constexpr std::string_view main_menu_layout_file = "mainmenu.gui";
-constexpr std::string_view main_menu_background = "bitmaps/frontendx.pcx";
+constexpr std::string_view main_menu_background = main_menu_background_path;
 constexpr std::string_view main_menu_palette = "palettes/guipal.pal";
-constexpr std::string_view main_menu_sprites = "anims/mainmenu.gaf";
+constexpr std::string_view main_menu_sprites = main_menu_sprites_path;
 constexpr std::string_view shared_gui_sprites = "anims/commongui.gaf";
 constexpr std::string_view default_gui_font = "anims/hattfont12.gaf";
 constexpr std::string_view label_gui_font = "anims/hattfont11.gaf";
@@ -1235,25 +1237,26 @@ bool holds_file(const HpiArchive& archive, std::string_view path) {
     return node && !archive.nodes()[*node].directory();
 }
 
-/// Returns whether a mounted archive lies in a mod's folder: directly in a
-/// folder of the store above the last one, the game folder.
+/// Returns whether a mounted archive lies directly in the played mod's folder.
 ///
-/// @param assets the asset store
+/// Only that folder counts: an expansion's folder, which the store also
+/// layers over the game folder, is the game's own.
+///
 /// @param archive the archive's mount path
-/// @return true when a mod's folder holds the archive
-bool in_mod_folder(const AssetStore& assets, const std::filesystem::path& archive) {
-    const auto folders = assets.loose_roots();
-    for (std::size_t folder = 0; folder + 1 < folders.size(); ++folder) {
-        std::error_code error;
-        for (std::filesystem::directory_iterator entry{folders[folder], error}, last;
-             !error && entry != last;
-             entry.increment(error)) {
-            // Mount paths are canonical, so a linked file is its target.
-            std::error_code resolve_error;
-            const auto resolved = std::filesystem::weakly_canonical(entry->path(), resolve_error);
-            if (!resolve_error && resolved == archive)
-                return true;
-        }
+/// @param mod_folder the played mod's folder; empty when no mod is played
+/// @return true when the mod's folder holds the archive
+bool in_mod_folder(const std::filesystem::path& archive, const std::filesystem::path& mod_folder) {
+    if (mod_folder.empty())
+        return false;
+    std::error_code error;
+    for (std::filesystem::directory_iterator entry{mod_folder, error}, last;
+         !error && entry != last;
+         entry.increment(error)) {
+        // Mount paths are canonical, so a linked file is its target.
+        std::error_code resolve_error;
+        const auto resolved = std::filesystem::weakly_canonical(entry->path(), resolve_error);
+        if (!resolve_error && resolved == archive)
+            return true;
     }
     return false;
 }
@@ -1261,20 +1264,24 @@ bool in_mod_folder(const AssetStore& assets, const std::filesystem::path& archiv
 /// Finds the MAINMENU.GUI the main menu takes with no overlay drawn over it.
 ///
 /// Walks the mounted archives in lookup order and takes the first copy whose
-/// archive also holds FrontendX or lies in a mod's folder. A copy in another
-/// archive brings a layout without a background, as a layout made for an
-/// overlay drawn over the menu does, and is passed over.
+/// archive also holds FrontendX or lies in the played mod's folder. A copy in
+/// another archive, an expansion's among them, brings a layout without a
+/// background, as a layout made for an overlay drawn over the menu does, and
+/// is passed over.
 ///
 /// @param assets the asset store
+/// @param mod_folder the played mod's folder; empty when no mod is played
 /// @return the bytes and their archive, or nullopt when no copy qualifies
-std::optional<AssetData> main_menu_layout_without_overlay(const AssetStore& assets) {
+std::optional<AssetData> main_menu_layout_without_overlay(
+    const AssetStore& assets, const std::filesystem::path& mod_folder
+) {
     const auto layout = oa::data::defs::gui_path(main_menu_layout_file);
     const auto mounts = assets.mount_paths();
     for (std::size_t index = 0; index < mounts.size(); ++index) {
         const auto& mounted = assets.mounted(index);
         if (!holds_file(mounted, layout))
             continue;
-        if (!holds_file(mounted, main_menu_background) && !in_mod_folder(assets, mounts[index]))
+        if (!holds_file(mounted, main_menu_background) && !in_mod_folder(mounts[index], mod_folder))
             continue;
         auto bytes = ui::decoded::require(mounted.read_node(*mounted.lookup(layout)), layout);
         return AssetData{std::move(bytes), mounts[index], true};
@@ -1284,13 +1291,14 @@ std::optional<AssetData> main_menu_layout_without_overlay(const AssetStore& asse
 
 } // namespace
 
-MainMenuResources load_main_menu(AssetStore& assets, MainMenuLayout layout) {
+MainMenuResources
+load_main_menu(AssetStore& assets, MainMenuLayout layout, const std::filesystem::path& mod_folder) {
     const auto main_menu_layout = oa::data::defs::gui_path(main_menu_layout_file);
     auto gui = assets.read(main_menu_layout);
     // With no overlay, an archived layout made for one is passed over; a
     // loose layout comes first, as loose files do.
     if (layout == MainMenuLayout::base_game && gui.archived)
-        if (auto own = main_menu_layout_without_overlay(assets))
+        if (auto own = main_menu_layout_without_overlay(assets, mod_folder))
             gui = std::move(*own);
     auto result = load_screen_with_layout(
         assets,
@@ -1305,6 +1313,167 @@ MainMenuResources load_main_menu(AssetStore& assets, MainMenuLayout layout) {
         throw std::runtime_error("FrontendX must be the game's 640x480 image");
     }
     return result;
+}
+
+MenuArtDifference
+compare_menu_art(const Image& shown, const Image& base, int32_t top, int32_t rows) noexcept {
+    MenuArtDifference difference;
+    const std::size_t pixels = static_cast<std::size_t>(shown.width) * shown.height;
+    if (shown.width != base.width || shown.height != base.height || top < 0 || rows <= 0 ||
+        shown.rgb.size() < pixels * 3U || base.rgb.size() < pixels * 3U)
+        return difference;
+    const uint32_t first = static_cast<uint32_t>(top);
+    const uint32_t last = std::min(shown.height, first + static_cast<uint32_t>(rows));
+    for (uint32_t row = first; row < last; ++row) {
+        for (uint32_t column = 0; column < shown.width; ++column) {
+            const std::size_t at = (static_cast<std::size_t>(row) * shown.width + column) * 3U;
+            bool differs = false;
+            for (std::size_t channel = 0; channel < 3U; ++channel) {
+                const int32_t gap = static_cast<int32_t>(shown.rgb[at + channel]) -
+                                    static_cast<int32_t>(base.rgb[at + channel]);
+                differs = differs || gap > menu_art_tolerance || -gap > menu_art_tolerance;
+            }
+            ++difference.compared;
+            if (differs)
+                ++difference.differing;
+        }
+    }
+    return difference;
+}
+
+MenuArtDifference
+compare_button_art(const ScreenResources& resources, std::string_view name, const Image& picture) {
+    MenuArtDifference difference;
+    const Image& background = resources.background;
+    if (picture.width != background.width || picture.height != background.height ||
+        picture.rgb.size() < static_cast<std::size_t>(picture.width) * picture.height * 3U)
+        return difference;
+    const auto named = std::find_if(
+        resources.layout.gadgets.begin(),
+        resources.layout.gadgets.end(),
+        [name](const ui::gui_layout::Gadget& gadget) {
+            return gadget.common.name.size() == name.size() &&
+                   std::equal(
+                       name.begin(), name.end(), gadget.common.name.begin(), [](char a, char b) {
+                           return std::tolower(static_cast<unsigned char>(a)) ==
+                                  std::tolower(static_cast<unsigned char>(b));
+                       }
+                   );
+        }
+    );
+    if (named == resources.layout.gadgets.end() ||
+        named->common.type != ui::gui_layout::GadgetType::button)
+        return difference;
+    const auto binding = resolve_button_sprite(resources, *named);
+    if (binding.sequence == nullptr || binding.base_frame >= binding.sequence->frames.size())
+        return difference;
+    formats::gaf::RenderResult rendered;
+    const auto pixels = frame_pixels(binding.sequence->frames[binding.base_frame], rendered);
+    if (!pixels || pixels->pixels.size() != pixels->coverage.size())
+        return difference;
+    const PaletteBytes& palette =
+        background.palette.has_value() ? *background.palette : resources.gui_palette;
+    for (std::size_t row = 0; row < pixels->height; ++row) {
+        for (std::size_t column = 0; column < pixels->width; ++column) {
+            const std::size_t at = row * pixels->width + column;
+            const int64_t x = int64_t{named->common.x} + static_cast<int64_t>(column);
+            const int64_t y = int64_t{named->common.y} + static_cast<int64_t>(row);
+            if (pixels->coverage[at] == 0 || x < 0 || y < 0 || x >= int64_t{picture.width} ||
+                y >= int64_t{picture.height})
+                continue;
+            const uint8_t* drawn =
+                palette.data() + static_cast<std::size_t>(pixels->pixels[at]) * palette_entry_bytes;
+            const uint8_t* under =
+                picture.rgb.data() +
+                (static_cast<std::size_t>(y) * picture.width + static_cast<std::size_t>(x)) * 3U;
+            bool differs = false;
+            for (std::size_t channel = 0; channel < 3U; ++channel) {
+                const int32_t gap =
+                    static_cast<int32_t>(drawn[channel]) - static_cast<int32_t>(under[channel]);
+                differs = differs || gap > menu_art_tolerance || -gap > menu_art_tolerance;
+            }
+            ++difference.compared;
+            if (differs)
+                ++difference.differing;
+        }
+    }
+    return difference;
+}
+
+bool in_main_menu_band(const ui::gui_layout::Gadget& gadget) noexcept {
+    const auto& common = gadget.common;
+    if (common.width <= 0 || common.height <= 0)
+        return false;
+    return common.x >= 0 && common.y >= main_menu_band_top &&
+           common.x + common.width <= main_menu_band_width &&
+           common.y + common.height <= main_menu_band_top + main_menu_band_rows;
+}
+
+std::size_t cover_main_menu_band(
+    ui::gui_layout::Layout& layout, std::span<const std::string_view> kept
+) noexcept {
+    const auto same_name = [](std::string_view left, std::string_view right) {
+        return left.size() == right.size() &&
+               std::equal(left.begin(), left.end(), right.begin(), [](char a, char b) {
+                   const auto lower = [](char c) {
+                       return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+                   };
+                   return lower(a) == lower(b);
+               });
+    };
+    std::size_t covered = 0;
+    for (std::size_t index = 1; index < layout.gadgets.size(); ++index) {
+        auto& gadget = layout.gadgets[index];
+        if (!in_main_menu_band(gadget))
+            continue;
+        if (std::any_of(kept.begin(), kept.end(), [&](std::string_view name) {
+                return same_name(gadget.common.name, name);
+            }))
+            continue;
+        gadget.common.attributes = static_cast<int32_t>(
+            static_cast<uint32_t>(gadget.common.attributes) | ui::gui_layout::attribute::no_focus
+        );
+        if (auto* button = std::get_if<ui::gui_layout::ButtonFields>(&gadget.fields))
+            button->quick_key = 0;
+        ++covered;
+    }
+    return covered;
+}
+
+std::optional<AssetData>
+base_game_main_menu_background(const AssetStore& assets, const std::filesystem::path& mod_folder) {
+    const auto mounts = assets.mount_paths();
+    for (std::size_t index = 0; index < mounts.size(); ++index) {
+        const auto& mounted = assets.mounted(index);
+        if (!holds_file(mounted, main_menu_background) || in_mod_folder(mounts[index], mod_folder))
+            continue;
+        auto bytes = ui::decoded::require(
+            mounted.read_node(*mounted.lookup(main_menu_background)), main_menu_background
+        );
+        return AssetData{std::move(bytes), mounts[index], true};
+    }
+    return std::nullopt;
+}
+
+bool from_mod_folder(
+    const AssetStore& assets, std::string_view path, const std::filesystem::path& mod_folder
+) {
+    if (mod_folder.empty())
+        return false;
+    if (const auto loose = assets.loose_file(path)) {
+        // A loose file is the mod's when it lies under the mod's folder.
+        std::error_code error;
+        const auto folder = std::filesystem::weakly_canonical(mod_folder, error);
+        if (error)
+            return false;
+        const auto file = std::filesystem::weakly_canonical(*loose, error);
+        if (error)
+            return false;
+        const auto relative = file.lexically_relative(folder);
+        return !relative.empty() && *relative.begin() != "..";
+    }
+    const auto archive = assets.providing_archive(path);
+    return archive && in_mod_folder(*archive, mod_folder);
 }
 
 Surface render_screen(
@@ -1425,6 +1594,12 @@ void render_screen_into(
             continue;
         const auto condition = state == nullptr ? ButtonCondition::normal : state->condition;
         if (condition == ButtonCondition::hidden)
+            continue;
+        if (std::find(
+                resources.undrawn_buttons.begin(),
+                resources.undrawn_buttons.end(),
+                gadget.common.name
+            ) != resources.undrawn_buttons.end())
             continue;
         const auto text_stage =
             state != nullptr && state->text_stage.has_value() ? *state->text_stage : 0;

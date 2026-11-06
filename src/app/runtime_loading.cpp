@@ -404,6 +404,9 @@ void Runtime::enter_match_view() {
     apply_match_hud_for_selection();
     render_match_surface();
     touch_match_started();
+    // The megamap's picture is made with the match, so that its first open
+    // shows at once.
+    prepare_megamap_picture();
 }
 
 void Runtime::select_local_commander() {

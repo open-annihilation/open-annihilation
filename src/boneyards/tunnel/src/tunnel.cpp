@@ -3,8 +3,10 @@
 
 // The client connection: one non-blocking TCP socket, the handshake, and the
 // resend of anything the relay has not acknowledged. A full receive queue is
-// left unread. A record ahead of the next one is kept until the gap closes, or
-// the tunnel connects again and the replay fills it.
+// left unread. A record ahead of the next one is kept until the gap closes.
+// The tunnel connects again on its own when the connection is lost, or when
+// nothing arrives while a record is still unacknowledged, and it stops after
+// the relay's resume window.
 #include "oa/boneyards/tunnel.hpp"
 
 #include "oa/boneyards/tunnel/stream.hpp"
@@ -170,9 +172,18 @@ struct Tunnel::Impl {
     /// Passed to `now_ms`.
     void* clock_context{};
     /// Records that arrived ahead of the next sequence, kept until it arrives.
+    /// A reconnect leaves them in place so the replay can fill the gap.
     std::vector<ReorderSlot> reorder{};
     /// Clock value when the current gap was first seen. Zero when there is no gap.
     uint64_t reorder_since{};
+    /// True from the loss until the next handshake succeeds.
+    bool outage_{};
+    /// Clock value when the current outage started.
+    uint64_t lost_since_{};
+    /// True when the resume window has passed and pump must not connect again.
+    bool stopped_{};
+    /// Clock value when the stall interval started. Zero when it is not running.
+    uint64_t stall_since_{};
 
     /// Returns the clock, in milliseconds.
     ///
@@ -183,23 +194,71 @@ struct Tunnel::Impl {
         return steady_now_ms();
     }
 
-    /// Drops the socket, forgets partial reads and writes, and schedules a retry.
+    /// Tells whether the relay's resume window has passed since the loss.
     ///
-    /// Sequences and the resend ring stay: the next handshake replays every
-    /// record the relay has not acknowledged. An immediate retry does not count
-    /// as another attempt.
+    /// @return true when retries must stop
+    bool resume_expired() const {
+        if (!outage_)
+            return false;
+        const uint64_t current = now();
+        if (current < lost_since_)
+            return false;
+        return current - lost_since_ > resume_window_ms;
+    }
+
+    /// Stops retrying and reports a lost connection.
     ///
-    /// @param why the fault to report
-    /// @param immediate true to retry on the next pump
-    void fail(Fault why, bool immediate) {
+    /// The relay no longer keeps the session. Packets already in the receive
+    /// queue stay until take. A record held for a gap is dropped here: nothing
+    /// will replay it. pump does not open another connection.
+    void give_up() {
         socket.close();
         outbound.clear();
         outbound_sent = 0;
         inbound.clear();
         reorder.clear();
         reorder_since = 0;
-        fault = why;
+        stall_since_ = 0;
+        retry_armed = false;
+        stopped_ = true;
+        fault = Fault::connection_lost;
+        state = State::waiting;
+    }
+
+    /// Drops the socket, forgets partial reads and writes, and schedules a retry.
+    ///
+    /// Sequences and the resend ring stay, and so does a record held for a gap:
+    /// the next handshake replays every record the relay has not acknowledged,
+    /// and the held record is delivered when the gap fills. An immediate retry
+    /// does not count as another attempt. Once the resume window has passed,
+    /// the loss is reported and no retry is scheduled.
+    ///
+    /// @param why the fault to report
+    /// @param immediate true to retry on the next pump
+    void fail(Fault why, bool immediate) {
+        if (stopped_)
+            return;
+        // Only a session that reached open can be resumed. A connection that
+        // never opened keeps its own fault and keeps trying. Once that session
+        // has been lost, later failures stay inside the same window.
+        const bool resumable = outage_ || state == State::open;
+        socket.close();
+        outbound.clear();
+        outbound_sent = 0;
+        inbound.clear();
+        stall_since_ = 0;
         const uint64_t current = now();
+        if (resumable) {
+            if (!outage_) {
+                outage_ = true;
+                lost_since_ = current;
+            }
+            if (resume_expired()) {
+                give_up();
+                return;
+            }
+        }
+        fault = why;
         if (immediate) {
             retry_armed = true;
             retry_at = current;
@@ -296,6 +355,8 @@ struct Tunnel::Impl {
                 fail(Fault::connection_lost, false);
                 return false;
             }
+            // Any arrival starts the stall interval over.
+            stall_since_ = 0;
             inbound.insert(inbound.end(), buffer, buffer + got);
         }
         return true;
@@ -367,6 +428,16 @@ struct Tunnel::Impl {
         attempt = 0;
         fault = Fault::none;
         retry_armed = false;
+        outage_ = false;
+        lost_since_ = 0;
+        stopped_ = false;
+        stall_since_ = 0;
+        // A gap that survived the reconnect gets a fresh wait. Leaving the old
+        // stamp would connect again on the next pump.
+        if (reorder.empty())
+            reorder_since = 0;
+        else
+            reorder_since = now();
         state = State::open;
         return true;
     }
@@ -441,7 +512,8 @@ struct Tunnel::Impl {
     /// Connects again when a gap has stayed open long enough to be a loss.
     ///
     /// The missing records were not acknowledged, so the sender's replay fills
-    /// the gap in order. A gap that closes before the wait does not connect.
+    /// the gap in order. Records already held stay held. A gap that closes
+    /// before the wait does not connect.
     void recover_reorder() {
         if (reorder_since == 0 || state != State::open)
             return;
@@ -453,10 +525,36 @@ struct Tunnel::Impl {
         fail(Fault::connection_lost, true);
     }
 
+    /// Connects again when records are unacknowledged and nothing has arrived.
+    ///
+    /// The delay is the same backoff as a lost connection. An arrival, or a
+    /// stretch with nothing outstanding, starts the interval over. An idle
+    /// connection stays up.
+    void watch_stall() {
+        if (state != State::open)
+            return;
+        if (stream.buffered() == 0) {
+            stall_since_ = 0;
+            return;
+        }
+        const uint64_t current = now();
+        if (stall_since_ == 0) {
+            stall_since_ = current;
+            return;
+        }
+        if (current < stall_since_)
+            return;
+        if (current - stall_since_ < stall_ms)
+            return;
+        fail(Fault::connection_lost, false);
+    }
+
     /// Delivers one data record, holds one that arrived early, or notes a duplicate.
     ///
     /// The next record is not acknowledged while the receive queue is full.
     /// It stays at the front of the read buffer, and the sender keeps it.
+    /// A record for this client is acknowledged only after it has been stored
+    /// for take. take is the only way that packet leaves the queue.
     ///
     /// @param frame one encoded stream record
     /// @return `full` when the queue cannot take the next record, `dropped_link`
@@ -545,6 +643,12 @@ struct Tunnel::Impl {
     void pump() {
         if (state == State::idle || state == State::closed)
             return;
+        if (stopped_)
+            return;
+        if (outage_ && resume_expired()) {
+            give_up();
+            return;
+        }
         if (state == State::waiting) {
             if (!retry_armed || now() < retry_at)
                 return;
@@ -565,6 +669,8 @@ struct Tunnel::Impl {
         drain();
         if (state == State::authenticating || state == State::open)
             flush_writes();
+        if (state == State::open)
+            watch_stall();
     }
 
     /// Queues one data frame, and writes it when the handshake has succeeded.
@@ -582,7 +688,7 @@ struct Tunnel::Impl {
         uint16_t destination_port,
         std::span<const uint8_t> bytes
     ) {
-        if (state == State::idle || state == State::closed)
+        if (stopped_ || state == State::idle || state == State::closed)
             return false;
         if (bytes.size() > max_payload_bytes)
             return false;
@@ -631,6 +737,10 @@ bool Tunnel::connect(
     impl_->incoming.clear();
     impl_->reorder.clear();
     impl_->reorder_since = 0;
+    impl_->outage_ = false;
+    impl_->lost_since_ = 0;
+    impl_->stopped_ = false;
+    impl_->stall_since_ = 0;
     impl_->attempt = 0;
     impl_->fault = Fault::none;
     impl_->retry_armed = false;
@@ -703,7 +813,9 @@ void Tunnel::close() {
     impl_->inbound.clear();
     impl_->reorder.clear();
     impl_->reorder_since = 0;
+    impl_->stall_since_ = 0;
     impl_->retry_armed = false;
+    impl_->stopped_ = true;
     impl_->state = State::closed;
 }
 

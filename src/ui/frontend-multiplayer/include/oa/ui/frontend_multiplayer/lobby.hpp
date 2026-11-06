@@ -749,6 +749,23 @@ void slot_set_status(Lobby& lobby, Player& player, uint8_t status) noexcept;
 /// @return True while the host's option controls stay locked.
 [[nodiscard]] bool lobby_options_locked(Lobby& lobby) noexcept;
 
+/// Tells whether the mutator picker stays locked.
+///
+/// Locked when the room's options are locked, or when the launch bars
+/// mutators (LaunchBlock::bar_mutators). Either one is enough.
+///
+/// @param options_locked lobby_options_locked
+/// @param bar_mutators LaunchBlock::bar_mutators; nonzero bars mutators
+/// @return true when the picker stays locked
+[[nodiscard]] bool mutators_bar_locks_picker(bool options_locked, uint32_t bar_mutators) noexcept;
+
+/// Tells whether this launch bars mutators: the picker stays locked and the
+/// room starts with none, whether or not the launch locked the other options.
+///
+/// @param lobby Lobby state and its launch link.
+/// @return True while the active launch block's bar_mutators is set.
+[[nodiscard]] bool lobby_mutators_barred(const Lobby& lobby) noexcept;
+
 /// Tells whether a launch is active (LaunchLink::launch_active).
 ///
 /// @param lobby Lobby state and its launch link.

@@ -3,12 +3,17 @@
 
 // --check-strip-buttons. A real pointer click, button down then up, on the
 // strip's SINGLE, MULTI and EXIT, and on the part of MULTI the strip does
-// not cover. The running game is driven through the check host. No button
-// is activated by its name.
+// not cover. --check-boneyards-menu-modes: the way in a mod's main menu
+// shows, the strip's art over a hidden button, and the strip's ENTER plate. The
+// running game is driven through the check host. No button is activated
+// by its name.
 #include "boneyards_strip_click_check.hpp"
+
+#include "boneyards_check.hpp"
 
 #include "oa/app/app.hpp"
 #include "oa/app/check_host.hpp"
+#include "oa/boneyards/console/menu_entry.hpp"
 #include "oa/boneyards/console/status_widget.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/frontend_state/dispatcher.hpp"
@@ -24,6 +29,13 @@
 namespace oa::app {
 
 oa::boneyards::console::StatusWidget* boneyards_console_status_widget();
+bool boneyards_console_menu_entry(
+    oa::boneyards::console::MenuEntryMode* mode,
+    int32_t* x,
+    int32_t* y,
+    int32_t* width,
+    int32_t* height
+);
 
 namespace {
 
@@ -41,11 +53,24 @@ constexpr int32_t k_empty_x = 320;
 constexpr int32_t k_empty_y = 200;
 constexpr uint8_t k_single_click = 1;
 
+/// The passes the plate's ENTER has to open the Boneyards in.
+constexpr int k_entry_passes = 90;
+/// Where the base game's MAINMENU.GUI has SINGLE: a menu with art of its own
+/// and no layout of its own keeps it there, with or without the expansion.
+constexpr int32_t k_base_single_x = 139;
+constexpr int32_t k_base_single_y = 393;
+/// A point of the strip's plain art, at its bottom right, over no button.
+constexpr int32_t k_strip_art_x = 620;
+constexpr int32_t k_strip_art_y = 470;
+
+/// What the failures of the check that runs say first.
+std::string_view g_check_name = "strip buttons check";
+
 /// Fails the strip check.
 ///
 /// @param what Failure text.
 [[noreturn]] void fail(std::string_view what) {
-    throw std::runtime_error("strip buttons check: " + std::string(what));
+    throw std::runtime_error(std::string(g_check_name) + ": " + std::string(what));
 }
 
 /// Fails the strip check unless a condition holds.
@@ -171,6 +196,104 @@ int check_strip_buttons(const CheckHost& host) {
 
     std::cout << "strip buttons check: SINGLE opens single player, MULTI opens SELECT "
                  "CONNECTION, and EXIT ends the run\n";
+    return 0;
+}
+
+int check_boneyards_menu_modes(const CheckHost& host, bool button) {
+    g_check_name = "boneyards menu modes check";
+    void* const game = host.context;
+    require(on_main_menu(host), "not on the main menu");
+    by_console::MenuEntryMode mode = by_console::MenuEntryMode::strip;
+    int32_t enter_x = 0;
+    int32_t enter_y = 0;
+    int32_t enter_width = 0;
+    int32_t enter_height = 0;
+    require(
+        boneyards_console_menu_entry(&mode, &enter_x, &enter_y, &enter_width, &enter_height),
+        "the main menu never built the strip"
+    );
+    // A motion over nothing, which reaches the run only while it goes on.
+    const auto still_running = [&host] {
+        return host.pointer(host.context, SDL_EVENT_MOUSE_MOTION, k_empty_x, k_empty_y, 1);
+    };
+    if (!button) {
+        require(
+            mode == by_console::MenuEntryMode::strip, "the menu on the base game's art has no strip"
+        );
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t width = 0;
+        int32_t height = 0;
+        require(host.gadget(game, "EXIT", &x, &y, &width, &height), "the mod's EXIT is missing");
+        require(
+            y >= by_console::overlay_layout::y &&
+                y + height <= by_console::overlay_layout::y + by_console::overlay_layout::height,
+            "the mod's EXIT is not under the strip"
+        );
+        click_at(host, x + width / 2, y + height / 2, "the strip's art over the mod's EXIT");
+        require(still_running(), "the strip's art over the mod's EXIT ended the run");
+        require(on_main_menu(host), "the strip's art over the mod's EXIT left the main menu");
+        click_at(host, k_strip_art_x, k_strip_art_y, "the strip's plain art");
+        require(still_running(), "the strip's plain art ended the run");
+        require(on_main_menu(host), "the strip's plain art left the main menu");
+        std::cout << "boneyards menu modes check: strip: the menu on the base game's art shows "
+                     "the strip, and its art over the mod's hidden EXIT takes the click\n";
+        return 0;
+    }
+    require(
+        mode == by_console::MenuEntryMode::button, "the menu with art of its own has no button"
+    );
+    require(enter_width > 0 && enter_height > 0, "the ENTER plate has no place");
+    int32_t single_x = 0;
+    int32_t single_y = 0;
+    int32_t single_width = 0;
+    int32_t single_height = 0;
+    require(
+        host.gadget(game, "SINGLE", &single_x, &single_y, &single_width, &single_height),
+        "the mod's SINGLE is missing"
+    );
+    require(
+        single_x == k_base_single_x && single_y == k_base_single_y,
+        "the menu does not keep the base game's layout: SINGLE is at " + std::to_string(single_x) +
+            ',' + std::to_string(single_y)
+    );
+    click_named(host, "SINGLE", "the mod's SINGLE");
+    require(
+        host.screen(game) == screen_id(Screen::single_player) &&
+            host.frontend_state(game) == frontend::state_id::single_player_menu,
+        "the mod's SINGLE did not open single player"
+    );
+    click_named(host, "PrevMenu", "single player's back button");
+    require(on_main_menu(host), "single player's back button did not return");
+    // ENTER where it stands on the plate, as on the strip.
+    const int32_t press_x = enter_x + by_console::overlay_layout::enter_x -
+                            by_console::entry_plate.x + by_console::overlay_layout::enter_width / 2;
+    const int32_t press_y = enter_y + by_console::overlay_layout::enter_y -
+                            by_console::entry_plate.y +
+                            by_console::overlay_layout::enter_height / 2;
+    click_at(host, press_x, press_y, "the plate's ENTER");
+    host.hold_clock(game, host.clock(game));
+    // Button mode only shows on a mod's own art, so a mod is always on here.
+    // The entry then asks about it, or, for this check's command-line mod in
+    // a quiet run, logs that the mod must be left off the command line and
+    // stays on the menu. The test reads that line, which only the entry
+    // writes, as the proof that the plate's ENTER was pressed.
+    const auto entry_asked = [] {
+        return by_console::boneyards_status_widget_message_open(boneyards_console_status_widget());
+    };
+    for (int pass = 0;
+         pass < k_entry_passes && !host.frame_owned_by_package(game) && !entry_asked();
+         ++pass)
+        static_cast<void>(boneyards_pass(host));
+    const bool opened = host.frame_owned_by_package(game);
+    const bool asked = entry_asked();
+    std::cout << "boneyards menu modes check: button: the menu with art of its own keeps the "
+                 "base game's SINGLE at "
+              << single_x << ',' << single_y << ", and ENTER on the plate at " << enter_x << ','
+              << enter_y << " was pressed"
+              << (opened  ? "; the Boneyards opened\n"
+                  : asked ? "; the entry asked about the mod\n"
+                          : "; the menu stayed\n");
     return 0;
 }
 

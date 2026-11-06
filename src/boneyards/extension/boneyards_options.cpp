@@ -69,9 +69,11 @@ BoneyardsOptionContext& context_of(void* context) {
 /// imply a headless check that skips the intro; --check-boneyards-launch,
 /// --check-boneyards-features, --check-boneyards-overlay and
 /// --check-boneyards-entry skip the intro of an unattended run.
-/// --check-strip-buttons is a headless check that skips the intro.
-/// --check-boneyards-shortcut skips the intro and is neither a headless
-/// check nor an unattended run. A missing or malformed value throws
+/// --check-strip-buttons and --check-boneyards-menu-modes are headless checks
+/// that skip the intro.
+/// --check-boneyards-shortcut and --check-boneyards-mod-entry skip the intro
+/// and are neither a headless check nor an unattended run. A missing or
+/// malformed value throws
 /// std::runtime_error.
 ///
 /// @param context The BoneyardsOptionContext whose options receive the value.
@@ -150,8 +152,17 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
     } else if (argument == "--check-strip-buttons") {
         result.check_strip_buttons = true;
         effects |= option_effect::headless_check | option_effect::skip_intro;
+    } else if (argument == "--check-boneyards-menu-modes") {
+        const std::string mode(value());
+        if (mode != "strip" && mode != "button")
+            throw std::runtime_error("--check-boneyards-menu-modes expects strip or button");
+        result.check_menu_modes = mode == "strip" ? MenuModesCheck::strip : MenuModesCheck::button;
+        effects |= option_effect::headless_check | option_effect::skip_intro;
     } else if (argument == "--check-boneyards-shortcut") {
         result.check_boneyards_shortcut = true;
+        effects |= option_effect::skip_intro;
+    } else if (argument == "--check-boneyards-mod-entry") {
+        result.check_boneyards_mod_entry = true;
         effects |= option_effect::skip_intro;
     } else
         return false;
@@ -201,42 +212,62 @@ void check_options(void* context) {
         throw std::runtime_error(
             "--check-boneyards-features plays in the running game: drop --enter-boneyards"
         );
-    if (result.boneyards_features && (result.boneyards_launch || result.check_boneyards_login))
+    if (result.boneyards_features && (result.boneyards_launch || result.check_boneyards_login ||
+                                      result.check_boneyards_mod_entry))
         throw std::runtime_error(
             "--check-boneyards-features plays on its own: drop the other checks"
         );
     if (result.check_boneyards_unit_limit &&
         (result.check_boneyards_login || result.enter_boneyards_ticks || result.boneyards_launch ||
          result.boneyards_features || result.boneyards_overlay ||
-         result.boneyards_entry != BoneyardsEntryCheck::none || result.check_boneyards_shortcut))
+         result.boneyards_entry != BoneyardsEntryCheck::none || result.check_boneyards_shortcut ||
+         result.check_boneyards_mod_entry))
         throw std::runtime_error(
             "--check-boneyards-unit-limit applies the Profile on its own: drop the other checks"
         );
     if (result.boneyards_overlay &&
         (result.check_boneyards_login || result.enter_boneyards_ticks || result.boneyards_launch ||
          result.boneyards_features || result.check_boneyards_unit_limit ||
-         result.boneyards_entry != BoneyardsEntryCheck::none || result.check_boneyards_shortcut))
+         result.boneyards_entry != BoneyardsEntryCheck::none || result.check_boneyards_shortcut ||
+         result.check_boneyards_mod_entry))
         throw std::runtime_error(
             "--check-boneyards-overlay shows the main menu on its own: drop the other checks"
         );
     if (result.boneyards_entry != BoneyardsEntryCheck::none &&
         (result.check_boneyards_login || result.enter_boneyards_ticks || result.boneyards_launch ||
          result.boneyards_features || result.check_boneyards_unit_limit ||
-         result.boneyards_overlay || result.check_boneyards_shortcut))
+         result.boneyards_overlay || result.check_boneyards_shortcut ||
+         result.check_boneyards_mod_entry))
         throw std::runtime_error("--check-boneyards-entry runs on its own: drop the other checks");
     if (result.check_strip_buttons &&
         (result.check_boneyards_login || result.enter_boneyards_ticks || result.boneyards_launch ||
          result.boneyards_features || result.check_boneyards_unit_limit ||
          result.boneyards_overlay || result.boneyards_entry != BoneyardsEntryCheck::none ||
-         result.check_boneyards_shortcut))
+         result.check_boneyards_shortcut || result.check_boneyards_mod_entry))
         throw std::runtime_error("--check-strip-buttons runs on its own: drop the other checks");
+    if (result.check_menu_modes &&
+        (result.check_boneyards_login || result.enter_boneyards_ticks || result.boneyards_launch ||
+         result.boneyards_features || result.check_boneyards_unit_limit ||
+         result.boneyards_overlay || result.boneyards_entry != BoneyardsEntryCheck::none ||
+         result.check_boneyards_shortcut || result.check_strip_buttons))
+        throw std::runtime_error(
+            "--check-boneyards-menu-modes runs on its own: drop the other checks"
+        );
     if (result.check_boneyards_shortcut &&
         (result.check_boneyards_login || result.enter_boneyards_ticks || result.boneyards_launch ||
          result.boneyards_features || result.check_boneyards_unit_limit ||
          result.boneyards_overlay || result.boneyards_entry != BoneyardsEntryCheck::none ||
-         result.check_strip_buttons))
+         result.check_strip_buttons || result.check_boneyards_mod_entry))
         throw std::runtime_error(
             "--check-boneyards-shortcut runs on its own: drop the other checks"
+        );
+    if (result.check_boneyards_mod_entry &&
+        (result.check_boneyards_login || result.enter_boneyards_ticks || result.boneyards_launch ||
+         result.boneyards_features || result.check_boneyards_unit_limit ||
+         result.boneyards_overlay || result.boneyards_entry != BoneyardsEntryCheck::none ||
+         result.check_strip_buttons || result.check_boneyards_shortcut))
+        throw std::runtime_error(
+            "--check-boneyards-mod-entry runs on its own: drop the other checks"
         );
 }
 
@@ -359,7 +390,9 @@ const char* text(void* /*context*/, ExtensionText which) {
            "[--check-boneyards-overlay basic|full] "
            "[--check-boneyards-entry install|update] "
            "[--check-boneyards-shortcut] "
-           "[--check-strip-buttons] ";
+           "[--check-boneyards-mod-entry] "
+           "[--check-strip-buttons] "
+           "[--check-boneyards-menu-modes strip|button] ";
 }
 
 } // namespace

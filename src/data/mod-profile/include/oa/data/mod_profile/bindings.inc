@@ -262,6 +262,9 @@ template <class Visitor, class Profile> void visit_bindings(Visitor& visitor, Pr
     visitor.value("media.movies.ending-a", profile.media.movies.ending_a);
     visitor.value("media.movies.ending-b", profile.media.movies.ending_b);
     visitor.value("media.movies.credits", profile.media.movies.credits);
+    visitor.value("media.boneyards-entry.mode", profile.media.boneyards_entry.mode);
+    visitor.value("media.boneyards-entry.x", profile.media.boneyards_entry.x);
+    visitor.value("media.boneyards-entry.y", profile.media.boneyards_entry.y);
     visitor.data_key("weapons.not-to-air", profile.data_keys.weapons_not_to_air);
     visitor.data_key("weapons.surface-fire", profile.data_keys.weapons_surface_fire);
     visitor.data_key("weapons.not-to-underwater", profile.data_keys.weapons_not_to_underwater);

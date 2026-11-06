@@ -463,7 +463,7 @@ void ROVER_CALL release_client() {
     drop_profile_requests();
     rover_matchmaking_set_handlers(nullptr, nullptr, nullptr);
     clear_match_notices();
-    rover_quickplay_set_handlers(nullptr, nullptr, nullptr);
+    rover_quickplay_set_handlers(nullptr, nullptr, nullptr, nullptr);
     clear_quick_notices();
     s->pump_enabled = 0;
     s->record.level = SessionLevel::offline;
@@ -1578,6 +1578,18 @@ void on_quickplay_found(const RoverQuickPlayFound* found) {
     push_quick_notice(notice);
 }
 
+void on_quickplay_withdrawn(const RoverQuickPlayWithdrawn* withdrawn) {
+    if (withdrawn == nullptr)
+        return;
+    QuickPlayNotice notice{};
+    notice.kind = QuickPlayNoticeKind::withdrawn;
+    copy_match_id(notice.withdrawn.offer_id, sizeof notice.withdrawn.offer_id, withdrawn->offer_id);
+    copy_match_id(notice.withdrawn.game_id, sizeof notice.withdrawn.game_id, withdrawn->game_id);
+    notice.withdrawn.game_known = withdrawn->game_known;
+    notice.withdrawn.reason = withdrawn->reason;
+    push_quick_notice(notice);
+}
+
 RoverQuickPlayQuery wire_quick_query(const QuickPlayQuery* query) {
     RoverQuickPlayQuery wire{};
     if (query == nullptr)
@@ -1703,7 +1715,9 @@ BoneyardsService rover_session_service() {
     // A test that zeroes the session does not clear these queues. Installing the service does.
     rover_matchmaking_set_handlers(on_matchmaking_status, on_matchmaking_found, on_matchmaking_go);
     clear_match_notices();
-    rover_quickplay_set_handlers(on_quickplay_status, on_quickplay_scan, on_quickplay_found);
+    rover_quickplay_set_handlers(
+        on_quickplay_status, on_quickplay_scan, on_quickplay_found, on_quickplay_withdrawn
+    );
     clear_quick_notices();
     boneyards_service_fill_offline(&service);
     return service;

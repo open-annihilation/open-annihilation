@@ -27,8 +27,14 @@ enum class BoneyardsConsole : uint8_t { recon, chat, battle, news, ladders, prof
 /// What --check-boneyards-entry asks the main menu to do.
 enum class BoneyardsEntryCheck : uint8_t {
     none,    ///< the flag was not given
-    install, ///< the expansion is fetched, then the Boneyards open
-    update,  ///< an offered update is declined, and the Boneyards stay closed
+    install, ///< the expansion is fetched, then the Boneyards open with it in use
+    update,  ///< an offered update is noted, the latest package is in use, and the Boneyards open
+};
+
+/// Which way in --check-boneyards-menu-modes expects the mod's main menu to show.
+enum class MenuModesCheck : uint8_t {
+    strip,  ///< a menu on the base game's art: the strip, which takes every click on its rows
+    button, ///< a menu with art of its own: the strip's ENTER plate, the menu's own buttons kept
 };
 inline constexpr const char* kBoneyardsConsoleNames[] = {
     "recon", "chat", "battle", "news", "ladders", "profile", "help"
@@ -102,19 +108,27 @@ struct BoneyardsOptions {
     // unattended and skips the intro, and it keeps its window. The tier
     // flag itself is the engine's --hardware-acceleration.
     std::optional<OverlayCheckTier> boneyards_overlay;
-    // Fetches a missing expansion, or asks about an offered update, then
-    // opens. The run is unattended and skips the intro, and it keeps its
-    // window. install has no expansion in the game folder. update is offered
-    // a newer game and stays on the menu.
+    // Enters as a quiet run: brings the expansion up to date, opens the
+    // Boneyards and checks that they read the installed expansion, then ends
+    // the run. The run is unattended and skips the intro, and it keeps its
+    // window. install fetches the expansion with both online checks off.
+    // update is offered a newer game and goes on without it.
     BoneyardsEntryCheck boneyards_entry = BoneyardsEntryCheck::none;
     // Headless: pointer clicks on the strip's SINGLE, MULTI and EXIT, and
     // on the old MULTI column. Implies headless_check and skip_intro.
     bool check_strip_buttons = false;
+    // Headless: the way in a mod's main menu shows, and what clicks on it
+    // do. Implies headless_check and skip_intro.
+    std::optional<MenuModesCheck> check_menu_modes;
     // Shows the main menu the way a windowed start does. It skips the intro
     // and is neither a headless check nor an unattended run, so a finished
     // welcome still asks the update check. With "-y", the login opens with
     // no input and leaving it ends the run.
     bool check_boneyards_shortcut = false;
+    // Switches a made-up mod off, then enters, across soft restarts. It
+    // skips the intro and is neither a headless check nor an unattended run,
+    // so the question is shown and answered by the check. It runs on its own.
+    bool check_boneyards_mod_entry = false;
 };
 
 // The Boneyards extension's option context: what the command line gave it
@@ -142,9 +156,10 @@ struct BoneyardsOptionContext {
 /// --enter-boneyards imply a headless check that skips the intro,
 /// --check-boneyards-launch, --check-boneyards-features,
 /// --check-boneyards-overlay and --check-boneyards-entry skip the intro of
-/// an unattended run, --check-strip-buttons is a headless check that skips
-/// the intro, --check-boneyards-shortcut skips the intro of a windowed run
-/// and is neither headless nor unattended, and a missing or malformed value throws
+/// an unattended run, --check-strip-buttons and --check-boneyards-menu-modes
+/// are headless checks that skip the intro, --check-boneyards-shortcut and
+/// --check-boneyards-mod-entry skip the intro of a windowed run and are
+/// neither headless nor unattended, and a missing or malformed value throws
 /// std::runtime_error. check_options
 /// refuses the options that come without the ones they need, each with its
 /// own message. The switch handler takes "-y", and "-c" when it names the

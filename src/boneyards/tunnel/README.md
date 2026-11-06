@@ -52,12 +52,16 @@ a session for a key identifier, so a new session uses a new identifier.
   a drain notice, and is not kept for resend.
 - The client delivers the next sequence only. A duplicate is ignored. A record
   that arrives ahead of the next one is kept, up to 64 records and no further
-  ahead than that, and delivered when the missing records arrive. A gap still
-  open after half a second drops the connection; the next handshake is a resume
-  and the replay fills the gap. Each record is delivered once, in order.
+  ahead than that, and delivered when the missing records arrive. The hold
+  survives a reconnect. A gap still open after half a second drops the
+  connection; the next handshake is a resume and the replay fills the gap.
+  Each record is delivered once, in order.
+- A record for this client is acknowledged only once it is stored for `take`.
+  `take` is the only way out of that queue, so a record is never acknowledged
+  and then discarded. A full queue is not read further.
 - The receive queue holds 512 packets. A full queue is not read further, and a
-  record that does not fit is not acknowledged, so the sender keeps it. The
-  queue never discards a packet it has acknowledged.
+  record that does not fit is not acknowledged, so the sender keeps it and
+  retries. The queue never discards a packet it has acknowledged.
 - The resend ring holds 256 records. A full ring drops the oldest. One inner
   record is at most 2048 bytes, so a payload is at most 2031 bytes.
 - `pump` never blocks. The socket is non-blocking. There is one connection and
@@ -77,7 +81,11 @@ and a drain notice reconnects in time for a later datagram. A burst of 200
 records queued between takes is delivered in order. Records past the receive
 queue stay unacknowledged until `take` makes room. A record one ahead of a gap
 is delivered when the missing record arrives, without connecting again. A gap
-that does not fill connects again on its own.
+that does not fill connects again on its own, and the record it was holding is
+delivered when the missing one then arrives. Silence for the stall interval,
+while a record is still unacknowledged, connects again and that record arrives
+once. A peer that accepts nothing more is reported as a lost connection after
+the resume window, and is not dialled again.
 
 ## Limitations
 
@@ -85,11 +93,17 @@ IPv4 only. The relay is the only path: there is no direct path and no ICE.
 This module does not read launch fields. A battle installs it to carry the match.
 
 One connection, retried with a delay that starts at a quarter of a second,
-doubles and stops at four seconds, plus a fraction of a second of jitter. A
-record larger than 2048 bytes is refused. The ring drops an unacknowledged
-record once 256 newer ones are waiting. The receive queue holds 512 packets
-and then stops reading. A gap that stays open for half a second connects again
-instead of waiting for the caller.
+doubles and stops at four seconds, plus a fraction of a second of jitter. The
+retries stop six minutes after the connection was lost, which is as long as
+the relay keeps the session. The resume uses the same key identifier. It sends
+again from the last acknowledged sequence, and the acknowledgement it presents
+asks the relay to replay from the first missing one. While a record is still
+unacknowledged, five seconds with nothing arriving connects again in the same
+way. A record larger than 2048 bytes is refused. The ring drops an
+unacknowledged record once 256 newer ones are waiting. The receive queue holds
+512 packets and then stops reading. A gap that stays open for half a second
+connects again instead of waiting for the caller. The record it was holding is
+kept.
 
 An idle connection stays up until the relay closes it or `close` is called.
 `close` sends no frame: the protocol has no end or goodbye. Kind 3 is the

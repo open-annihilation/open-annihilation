@@ -3,7 +3,9 @@
 
 #include "oa/boneyards/screens/chat.hpp"
 
+#include "oa/boneyards/screens/galaxy.hpp"
 #include "oa/boneyards/screens/player_pane.hpp"
+#include "oa/platform/log_files.hpp"
 #include "text.hpp"
 
 #include <algorithm>
@@ -370,6 +372,98 @@ void blank_pane(PlayerPane* p) {
         value = widget_value::disabled;
 }
 
+// True when the map has planets to choose.
+bool map_names_planets(const GalaxyView* galaxy) {
+    return galaxy != nullptr && galaxy->planet_count > 0;
+}
+
+// Area of the planet the map has selected, or 0 when none is.
+uint32_t selected_planet_area(const GalaxyView* galaxy) {
+    if (!map_names_planets(galaxy) || galaxy->selected == kNoPlanet)
+        return 0;
+    if (static_cast<std::size_t>(galaxy->selected) >= galaxy->planet_count)
+        return 0;
+    const int32_t id = galaxy->planets[galaxy->selected].id;
+    if (id <= 0)
+        return 0;
+    return static_cast<uint32_t>(id);
+}
+
+// True when `area` is a planet on the map.
+bool area_on_map(const GalaxyView* galaxy, uint32_t area) {
+    if (!map_names_planets(galaxy) || area == 0)
+        return false;
+    return galaxy_find_planet(galaxy, static_cast<int32_t>(area)) != kNoPlanet;
+}
+
+// The planet CHAT asks about.
+//
+// The map's selected planet wins over an area a session record put back
+// (the home planet) or a debriefing left behind. An area of 0, or one the
+// map does not name, uses that selected planet, or the home planet when
+// none is selected. With no map, a non-zero area is kept and 0 falls back
+// to the home planet.
+void adopt_chat_area(ChatConsole* c) {
+    ChatSession* s = c->session;
+    const GalaxyView* galaxy = c->galaxy;
+    const uint32_t selected = selected_planet_area(galaxy);
+    if (!map_names_planets(galaxy)) {
+        if (s->area_id == 0 && s->home_area_id != 0)
+            s->area_id = s->home_area_id;
+        return;
+    }
+    if (s->area_id == 0 || !area_on_map(galaxy, s->area_id)) {
+        if (selected != 0)
+            s->area_id = selected;
+        else if (area_on_map(galaxy, s->home_area_id))
+            s->area_id = s->home_area_id;
+        else
+            s->area_id = 0;
+        return;
+    }
+    if (selected == 0 || selected == s->area_id)
+        return;
+    const bool home_left = s->home_area_id != 0 && s->area_id == s->home_area_id;
+    const bool debrief_left = s->debrief_area_id != 0 && s->area_id == s->debrief_area_id;
+    if (home_left || debrief_left)
+        s->area_id = selected;
+}
+
+// One log line for a default-room entry that found no planetary default
+// with room to spare: the area, then each listed row's id, type and population.
+void log_no_default_room(const ChatConsole* c) {
+    char line[2048];
+    int used = std::snprintf(
+        line,
+        sizeof line,
+        "chat: no default room in area %u; %zu rows",
+        c->session->area_id,
+        c->room_total
+    );
+    if (used < 0)
+        return;
+    for (std::size_t i = 0; i < c->room_total; ++i) {
+        if (static_cast<std::size_t>(used) >= sizeof line)
+            break;
+        const ChatRoom& row = c->rooms[i];
+        const int next = std::snprintf(
+            line + used,
+            sizeof line - static_cast<std::size_t>(used),
+            "%s%u type %d pop %d",
+            i == 0 ? ": " : ", ",
+            row.room_id,
+            row.type,
+            row.population
+        );
+        if (next < 0)
+            break;
+        if (static_cast<std::size_t>(used) + static_cast<std::size_t>(next) >= sizeof line)
+            break;
+        used += next;
+    }
+    oa::platform::log_files::write_line(line);
+}
+
 void remember_area_room(ChatConsole* c, std::uint32_t area_id, std::uint32_t room_id) {
     for (std::size_t i = 0; i < c->area_room_count; ++i) {
         if (c->area_rooms[i].area_id == area_id) {
@@ -445,7 +539,7 @@ void chat_room_info_build(ChatConsole* c) {
 void chat_console_init(
     ChatConsole* c, ChatSession* session, const BoneyardsService* service, ChatUi ui
 ) {
-    std::memset(c, 0, sizeof *c);
+    std::memset(static_cast<void*>(c), 0, sizeof *c);
     c->session = session;
     c->service = service;
     c->ui = ui;
@@ -886,6 +980,7 @@ void chat_on_room_listed(
     if (!last)
         return;
     if (c->default_candidate_count == 0) {
+        log_no_default_room(c);
         show_message(c, "Unable to enter chat on this planet. Please try another.");
         return;
     }
@@ -999,6 +1094,17 @@ void chat_open_on_planet(ChatConsole* c) {
     c->selected_room = -1;
     set_activity(c, true);
     s->room_id = 0;
+    if (!s->debriefing_pending)
+        adopt_chat_area(c);
+    // Area 0 is the shared rooms, which have no planetary default. Asking
+    // for them with a default entry raises the alert on every open.
+    if (!s->debriefing_pending && s->area_id == 0) {
+        c->enter_default_room = false;
+        set_activity(c, false);
+        c->input_focused = true;
+        c->visible = true;
+        return;
+    }
     const char* label = nullptr;
     if (!s->debriefing_pending) {
         const std::uint32_t preferred = preferred_area_room(c, s->area_id);

@@ -18,7 +18,8 @@ namespace oa::app {
 ///
 /// At start --check-boneyards-login, or --check-boneyards-unit-limit, which
 /// applies that limit from the Profile and reads it back from the engine's
-/// unit limit preference. Headless, --check-strip-buttons clicks the strip;
+/// unit limit preference. Headless, --check-strip-buttons clicks the strip,
+/// --check-boneyards-menu-modes the way in a mod's menu shows;
 /// --enter-boneyards follows, and writes preferences.
 ///
 /// @param runtime The running app.
@@ -42,6 +43,12 @@ bool run_boneyards_self_checks(Runtime& runtime, RunPhase phase, int& exit_code)
     case RunPhase::headless: {
         if (options.check_strip_buttons) {
             exit_code = check_strip_buttons(check_host(runtime));
+            return true;
+        }
+        if (options.check_menu_modes) {
+            exit_code = check_boneyards_menu_modes(
+                check_host(runtime), *options.check_menu_modes == MenuModesCheck::button
+            );
             return true;
         }
         if (!options.enter_boneyards_ticks)

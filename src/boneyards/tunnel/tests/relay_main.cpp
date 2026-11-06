@@ -515,6 +515,9 @@ class Relay {
         conns_[conn_index].authed = true;
         conns_[conn_index].session = session_at;
         if (resumed) {
+            // The acknowledgement in the response is where the client asked
+            // the replay to start. Records at or below it are not sent again.
+            sessions_[session_at].stream.observe_acknowledge(client_ack);
             append_record(session_at, conn_index, 0, {});
             std::array<uint64_t, tunnel::resend_capacity> sequences{};
             std::size_t count = 0;

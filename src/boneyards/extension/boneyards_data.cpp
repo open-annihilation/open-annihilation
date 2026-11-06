@@ -6,6 +6,7 @@
 #include "boneyards_data.hpp"
 
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -42,10 +43,58 @@ DataVerdict refused_verdict() noexcept {
     return DataVerdict{false, kBoneyardsDataRefusal};
 }
 
+/// The profile id the facts name, from the field or from an `id:` line.
+///
+/// @param facts what is known about the data
+/// @return the id; empty when none is named
+std::string named_profile_id(const DataFacts& facts) {
+    if (!facts.profile_id.empty())
+        return facts.profile_id;
+    std::string_view text = facts.profile_text;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        const std::size_t end = text.find('\n', at);
+        const std::size_t stop = end == std::string_view::npos ? text.size() : end;
+        std::string_view line = text.substr(at, stop - at);
+        if (!line.empty() && line.back() == '\r')
+            line.remove_suffix(1);
+        constexpr std::string_view key = "id:";
+        if (line.size() >= key.size() && line.substr(0, key.size()) == key) {
+            std::string_view value = line.substr(key.size());
+            while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
+                value.remove_prefix(1);
+            if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+                value = value.substr(1, value.size() - 2);
+            return std::string(value);
+        }
+        if (end == std::string_view::npos)
+            break;
+        at = end + 1;
+    }
+    return {};
+}
+
+/// A profile other than the Boneyards' own, or a mod folder with no profile.
+///
+/// @param facts what is known about the data
+/// @return true when the match is not plain 3.1c or the Boneyards' own files
+bool foreign_mod(const DataFacts& facts) {
+    const std::string id = named_profile_id(facts);
+    if (id == "boneyards")
+        return false;
+    if (!id.empty())
+        return true;
+    return facts.mod_folder;
+}
+
 } // namespace
 
 DataVerdict boneyards_data_verdict(const DataFacts& facts) {
     if (facts.unreadable)
+        return refused_verdict();
+    // A mutator, a profile other than the Boneyards' own, or a mod folder
+    // with no profile is refused even when the simulation hash matches.
+    if (facts.mutator_count > 0 || foreign_mod(facts))
         return refused_verdict();
     // The engine's simulation_hash is the profile in play, with every
     // Developer Mode override that changes the simulation already applied.

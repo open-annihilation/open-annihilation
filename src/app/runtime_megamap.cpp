@@ -12,6 +12,7 @@
 
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/present/world_renderer.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/sim/selection/shortcuts.hpp"
 #include "oa/ui/hud/megamap.hpp"
@@ -54,10 +55,14 @@ constexpr const char* kDefaultUnknownIcon = "UNKNOWN.PCX";
 /// Interface sounds of opening and closing the megamap.
 constexpr const char* kOpenSound = "Options";
 constexpr const char* kCloseSound = "Previous";
+/// Map pixels across and down one of the map's tiles.
+constexpr int32_t tile_side = 32;
 /// Palette indices of one of the map's tiles, 32 by 32 pixels.
 constexpr std::size_t tile_pixels = 32U * 32U;
 /// Map pixels of a sight cell of the radar's grids.
 constexpr int32_t kSightCellPixels = 32;
+/// Rows of the picture each band of its shading holds.
+constexpr uint32_t kShadedBandRows = 32;
 /// Battlefield pixels the pointer may move and still click.
 constexpr int32_t kClickSlack = 3;
 /// Palette index of the bars beside the map's picture: a dark grey.
@@ -86,6 +91,67 @@ void add_type(const oa::data::defs::CategoryMask& mask, uint16_t type_id) {
     const uint32_t word = type_id >> 5;
     if (word < mask.word_count)
         mask.words[word] |= 1u << (type_id & 31u);
+}
+
+/// Returns one map pixel's palette index from the map's tiles: 0 past the
+/// tile table or the tiles' pixels, and tile 0's for a tile past the tiles.
+///
+/// @param map the map
+/// @param map_x map pixel column, from 0
+/// @param map_z map pixel row, from 0
+/// @return the index
+uint8_t terrain_pixel(const oa::formats::tnt::Map& map, int32_t map_x, int32_t map_z) {
+    const auto tiles_per_row = static_cast<int32_t>(map.tile_width);
+    const auto tile_slot =
+        static_cast<std::size_t>((map_z / tile_side) * tiles_per_row + map_x / tile_side);
+    if (tile_slot >= map.tile_indices.size())
+        return 0;
+    auto tile = static_cast<std::size_t>(map.tile_indices[tile_slot]);
+    if (tile >= map.tile_count)
+        tile = 0;
+    const auto at = tile * tile_pixels +
+                    static_cast<std::size_t>((map_z % tile_side) * tile_side + map_x % tile_side);
+    return at < map.tile_palette_indices.size() ? map.tile_palette_indices[at] : uint8_t{0};
+}
+
+/// Copies a run of one map row's palette indices from the map's tiles, each
+/// the one terrain_pixel reads, a tile's row at a time.
+///
+/// @param map the map
+/// @param map_z map pixel row, from 0
+/// @param map_x the run's first map pixel column, from 0
+/// @param count map pixels in the run
+/// @param[out] out the run's indices, `count` of them
+void terrain_row(
+    const oa::formats::tnt::Map& map, int32_t map_z, int32_t map_x, int32_t count, uint8_t* out
+) {
+    const auto tiles_per_row = static_cast<int32_t>(map.tile_width);
+    const auto& pixels = map.tile_palette_indices;
+    const int32_t end = map_x + count;
+    for (int32_t x = map_x; x < end;) {
+        const int32_t across = x % tile_side;
+        const int32_t run = std::min(tile_side - across, end - x);
+        const auto tile_slot =
+            static_cast<std::size_t>((map_z / tile_side) * tiles_per_row + x / tile_side);
+        if (tile_slot >= map.tile_indices.size()) {
+            std::fill(out, out + run, uint8_t{0});
+        } else {
+            auto tile = static_cast<std::size_t>(map.tile_indices[tile_slot]);
+            if (tile >= map.tile_count)
+                tile = 0;
+            const auto at = tile * tile_pixels +
+                            static_cast<std::size_t>((map_z % tile_side) * tile_side + across);
+            if (at + static_cast<std::size_t>(run) <= pixels.size())
+                std::memcpy(out, pixels.data() + at, static_cast<std::size_t>(run));
+            else
+                for (int32_t index = 0; index < run; ++index) {
+                    const auto from = at + static_cast<std::size_t>(index);
+                    out[index] = from < pixels.size() ? pixels[from] : uint8_t{0};
+                }
+        }
+        out += run;
+        x += run;
+    }
 }
 
 } // namespace
@@ -240,16 +306,7 @@ void Runtime::prepare_megamap() {
 }
 
 uint8_t Runtime::map_terrain_pixel(int32_t map_x, int32_t map_z) const {
-    const auto& map = *selected_tnt_;
-    const auto tiles_per_row = static_cast<int32_t>(map.tile_width);
-    const auto tile_slot = static_cast<std::size_t>((map_z / 32) * tiles_per_row + map_x / 32);
-    if (tile_slot >= map.tile_indices.size())
-        return 0;
-    auto tile = static_cast<std::size_t>(map.tile_indices[tile_slot]);
-    if (tile >= map.tile_count)
-        tile = 0;
-    const auto at = tile * 1024U + static_cast<std::size_t>((map_z % 32) * 32 + map_x % 32);
-    return at < map.tile_palette_indices.size() ? map.tile_palette_indices[at] : uint8_t{0};
+    return terrain_pixel(*selected_tnt_, map_x, map_z);
 }
 
 std::vector<uint8_t> Runtime::downscale_megamap_terrain(const oa::ui::hud::MegamapLayout& layout) {
@@ -264,9 +321,12 @@ std::vector<uint8_t> Runtime::downscale_megamap_terrain(const oa::ui::hud::Megam
         match_palette_, std::span<const uint8_t>(map.tile_palette_indices.data(), tile_bytes)
     );
     hud::TerrainSource source{};
-    source.user = this;
+    source.user = const_cast<oa::formats::tnt::Map*>(&map);
     source.pixel = [](void* user, int32_t x, int32_t z) {
-        return static_cast<const Runtime*>(user)->map_terrain_pixel(x, z);
+        return terrain_pixel(*static_cast<const oa::formats::tnt::Map*>(user), x, z);
+    };
+    source.row = [](void* user, int32_t z, int32_t x, int32_t count, uint8_t* out) {
+        terrain_row(*static_cast<const oa::formats::tnt::Map*>(user), z, x, count, out);
     };
     return hud::downscale_terrain(
         source,
@@ -276,7 +336,8 @@ std::vector<uint8_t> Runtime::downscale_megamap_terrain(const oa::ui::hud::Megam
         layout.height,
         match_palette_,
         ui_rules().megamap.dither,
-        &colours
+        &colours,
+        draw_pool_.get()
     );
 }
 
@@ -334,6 +395,39 @@ void Runtime::build_megamap_terrain(const oa::ui::hud::MegamapLayout& layout) {
     }
 }
 
+oa::ui::hud::MegamapLayout Runtime::current_megamap_layout() const {
+    // The map is drawn in the overlays' area (the battlefield, or with the
+    // touch controls on, the part of it they leave clear), on the
+    // battlefield's layer, whose origin is the battlefield's corner.
+    if (!match_)
+        return {};
+    const auto& game = match_->state().game;
+    const auto area = overlay_area();
+    return hud::megamap_layout(
+        area.x - match_layout_.battlefield_x(),
+        area.y - match_layout_.battlefield_y(),
+        area.width,
+        area.height,
+        game.map_pixel_width,
+        game.map_pixel_height
+    );
+}
+
+bool Runtime::megamap_terrain_fits(const oa::ui::hud::MegamapLayout& layout) const {
+    const auto& made = megamap_.layout;
+    return !megamap_.terrain.empty() && layout.width == made.width &&
+           layout.height == made.height && layout.left == made.left && layout.top == made.top;
+}
+
+void Runtime::prepare_megamap_picture() {
+    if (!megamap_on() || !selected_tnt_)
+        return;
+    prepare_megamap();
+    const auto layout = current_megamap_layout();
+    if (layout.width > 0 && !megamap_terrain_fits(layout))
+        build_megamap_terrain(layout);
+}
+
 void Runtime::set_megamap_open(bool open) {
     if (open == megamap_open_ || !megamap_on())
         return;
@@ -360,14 +454,23 @@ bool Runtime::megamap_wheel(float amount, float x, float y) {
     }
     if (!megamap_open_)
         return false;
-    // Rolled away: back to the battlefield, centred where the pointer was.
+    // Rolled away: back to the battlefield, the map point under the pointer
+    // kept under it, as zooming in about the pointer keeps it, the view held
+    // within its limits as any jump is.
     const auto point = hud::megamap_map_point(
         megamap_.layout,
         static_cast<int32_t>(x) - match_layout_.left,
         static_cast<int32_t>(y) - match_layout_.top
     );
     set_megamap_open(false);
-    if (point)
+    // The map pixel the battlefield shows under the pointer from a camera at
+    // the map's corner, which the camera moves by.
+    const auto under = oa::present::world_renderer::screen_to_map_pixel(
+        live_viewport(0, 0), {static_cast<int32_t>(x), static_cast<int32_t>(y)}
+    );
+    if (point && under)
+        set_camera_position((*point)[0] - under->x, (*point)[1] - under->y, 0);
+    else if (point)
         set_camera_position(
             (*point)[0] - visible_map_width() / 2, (*point)[1] - visible_map_height() / 2, 0
         );
@@ -381,29 +484,25 @@ void Runtime::draw_megamap() {
     auto& state = megamap_;
     auto& world = match_->state();
     const auto& game = world.game;
-    // The map is drawn in the overlays' area (the battlefield, or with the
-    // touch controls on, the part of it they leave clear), on the
-    // battlefield's layer, whose origin is the battlefield's corner.
-    const auto area = overlay_area();
-    const auto layout = hud::megamap_layout(
-        area.x - match_layout_.battlefield_x(),
-        area.y - match_layout_.battlefield_y(),
-        area.width,
-        area.height,
-        game.map_pixel_width,
-        game.map_pixel_height
-    );
+    // The picture made as the match began (prepare_megamap_picture) serves
+    // until the overlays' area changes, as a resized window changes it.
+    const auto layout = current_megamap_layout();
     if (layout.width <= 0)
         return;
-    if (state.terrain.empty() || layout.width != state.layout.width ||
-        layout.height != state.layout.height || layout.left != state.layout.left ||
-        layout.top != state.layout.top)
+    if (!megamap_terrain_fits(layout))
         build_megamap_terrain(layout);
-    // The bars, across the whole battlefield, then the terrain shaded by
-    // what the viewer has mapped and sees.
+    // The bars, across the battlefield around the picture, then the terrain
+    // shaded by what the viewer has mapped and sees.
     const uint8_t unexplored = game.ui_colors[wr::ui_color_unexplored];
+    const int32_t battlefield_w = match_layout_.battlefield_width();
+    const int32_t battlefield_h = match_layout_.battlefield_height();
+    const int32_t picture_right = layout.left + layout.width;
+    const int32_t picture_bottom = layout.top + layout.height;
+    fill_hud_rect(0, 0, battlefield_w, layout.top, bar_color);
+    fill_hud_rect(0, picture_bottom, battlefield_w, battlefield_h - picture_bottom, bar_color);
+    fill_hud_rect(0, layout.top, layout.left, layout.height, bar_color);
     fill_hud_rect(
-        0, 0, match_layout_.battlefield_width(), match_layout_.battlefield_height(), bar_color
+        picture_right, layout.top, battlefield_w - picture_right, layout.height, bar_color
     );
     auto& target = paint_target();
     const auto& radar = radar_state_;
@@ -421,10 +520,12 @@ void Runtime::draw_megamap() {
         column_cells[static_cast<std::size_t>(x - first_x)] =
             static_cast<std::size_t>(std::min(grid_w - 1, map_x / kSightCellPixels));
     }
-    for (int32_t y = 0; y < layout.height; ++y) {
+    // Each row of the picture is shaded alone, so the rows are shared out in
+    // bands on the drawing threads.
+    const auto shade_row = [&](int32_t y) {
         const int32_t py = layout.top + y;
         if (py < 0 || py >= static_cast<int32_t>(target.height) || first_x >= end_x)
-            continue;
+            return;
         const auto map_z =
             static_cast<int32_t>(static_cast<int64_t>(y) * layout.map_height / layout.height);
         const int gy = std::min(grid_h - 1, map_z / kSightCellPixels);
@@ -445,7 +546,19 @@ void Runtime::draw_megamap() {
             out[1] = match_palette_[pal + 1];
             out[2] = match_palette_[pal + 2];
         }
-    }
+    };
+    namespace job_pool = oa::platform::job_pool;
+    job_pool::run_bands(
+        draw_pool_.get(),
+        job_pool::bands_of_rows(static_cast<uint32_t>(layout.height), kShadedBandRows),
+        [&](uint32_t band) {
+            const auto first = static_cast<int32_t>(band * kShadedBandRows);
+            const int32_t end =
+                std::min(layout.height, first + static_cast<int32_t>(kShadedBandRows));
+            for (int32_t y = first; y < end; ++y)
+                shade_row(y);
+        }
+    );
     // The units the minimap shows, by their icons; the hovered one is found as they are drawn.
     const bool full_radar = (game.console_flags & wr::console_flag_full_radar) != 0;
     const bool limited = (game.visibility_flags & wr::visibility_flags_radar_limited) != 0;
@@ -853,6 +966,8 @@ void Runtime::megamap_wheel_zoom_changed() {
         megamap_open_ = false;
         megamap_.pressed = false;
     }
+    // Turned on, the hack makes its picture now rather than as it first opens.
+    prepare_megamap_picture();
     const auto& rules = ui_rules().megamap;
     if (!rules.enabled || !rules.enhanced_minimap || radar_state_.surfaces.picture == nullptr)
         return;

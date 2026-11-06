@@ -50,8 +50,16 @@ bool read_asset(void* user, const char* path, std::vector<uint8_t>* out) {
     }
 }
 
+struct NamedSound {
+    std::string category;
+    std::string file;
+};
+
 struct Log {
     std::vector<std::string> sounds;
+    // "name CATEGORY" and "play NAME", in the order the host heard them.
+    std::vector<std::string> sound_order;
+    std::vector<NamedSound> named;
     std::vector<uint32_t> census;
     int32_t state = -1;
     int32_t signal = -1;
@@ -66,6 +74,14 @@ Log g_log;
 
 void host_sound(void*, const char* name) {
     g_log.sounds.emplace_back(name);
+    g_log.sound_order.emplace_back(std::string("play ") + name);
+}
+
+void host_register_sound(void*, const char* category, const char* file) {
+    g_log.named.push_back(
+        NamedSound{category != nullptr ? category : "", file != nullptr ? file : ""}
+    );
+    g_log.sound_order.emplace_back(std::string("name ") + (category != nullptr ? category : ""));
 }
 
 void host_state(void*, uint8_t state) {
@@ -663,6 +679,7 @@ void test_alerts(Data* data) {
     config.files = FileReader{data, read_asset};
     config.palette = &data->palette;
     config.host.play_sound = host_sound;
+    config.host.register_sound = host_register_sound;
     config.host.battle_message = host_battle_line;
     config.service.network_available = service_network;
     config.service.activate = service_activate;
@@ -673,6 +690,8 @@ void test_alerts(Data* data) {
     if (widget == nullptr)
         return;
     g_log.sounds.clear();
+    g_log.sound_order.clear();
+    g_log.named.clear();
     click_window(widget, boneyards_status_widget_part(widget, OverlayPart::enter));
     MainFrame* frame = widget->system.main_frame;
     check(frame != nullptr, "Main Frame for the alerts");
@@ -697,6 +716,20 @@ void test_alerts(Data* data) {
     check(
         std::find(g_log.sounds.begin(), g_log.sounds.end(), "MESSAGE") != g_log.sounds.end(),
         "the welcome goes through the alert handler, which sounds MESSAGE"
+    );
+    const auto message_named =
+        std::find(g_log.sound_order.begin(), g_log.sound_order.end(), "name MESSAGE");
+    const auto message_played =
+        std::find(g_log.sound_order.begin(), g_log.sound_order.end(), "play MESSAGE");
+    const auto message_file =
+        std::find_if(g_log.named.begin(), g_log.named.end(), [](const NamedSound& sound) {
+            return sound.category == "MESSAGE";
+        });
+    check(
+        message_named != g_log.sound_order.end() && message_played != g_log.sound_order.end() &&
+            message_named < message_played && message_file != g_log.named.end() &&
+            message_file->file == "hovsmsl1",
+        "the welcome's MESSAGE is registered as hovsmsl1 before it plays"
     );
 
     // A step every sixth pulse, one character further on.

@@ -23,6 +23,13 @@ the battle room, the console shows FIND BATTLE. When the battle is refused
 (it filled, or it could not be hosted), the queue goes on searching, and
 the console goes back to the search when the queue says so.
 
+When the seat on the prompt is gone, the prompt closes by itself. The
+search log says "That battle has filled." when the battle filled, started,
+or the seat reservation lapsed, and "That battle was abandoned." when the
+battle was abandoned. The next line says "Searching again…". The search
+keeps running, so FIND BATTLE is not pressed again. A withdrawal for an
+offer the prompt is no longer showing is ignored.
+
 A battle started on a planet other than the one the Main Frame has selected
 is left on the planet the launch named. The settings, the players and the
 score of that battle go out for that planet too.

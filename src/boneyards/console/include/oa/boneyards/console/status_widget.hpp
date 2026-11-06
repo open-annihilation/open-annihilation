@@ -650,6 +650,16 @@ struct UpdateCheckPicture {
 /// @return the lines, the bar, and whether the entry stops, asks or finishes
 UpdateCheckPicture boneyards_update_picture(const UpdateCheckFacts& facts);
 
+/// Names the eight sounds the Boneyards' consoles play to the host.
+///
+/// GREEN_SLIDE, MESSAGE, GALACTIC_BUTTON and the rest each name a WAV of
+/// the game's sounds/ folder. The overlay names them once it is built, and
+/// the Main Frame build names them again, so a console opened from any path
+/// plays them. A name the host already holds keeps its sound.
+///
+/// @param widget status widget; null does nothing
+void boneyards_status_widget_register_sounds(const StatusWidget* widget);
+
 /// Starts the real update screen on this widget, before its console is built.
 ///
 /// The placeholder pass is not used after this. Lines set before the console

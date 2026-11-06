@@ -578,6 +578,8 @@ void on_launch(void* user, const LaunchReport* launch) {
     if (host.launch_permitted != nullptr) {
         const char* refusal = nullptr;
         if (!host.launch_permitted(host.user, &refusal)) {
+            if (widget->config.service.leave_battles != nullptr)
+                widget->config.service.leave_battles(widget->config.service.user, launch->area_id);
             if (widget->system.gui_ready != 0 && refusal != nullptr && refusal[0] != '\0')
                 message_box_create(refusal, message_box_buttons::ok, nullptr, nullptr, nullptr);
             return;

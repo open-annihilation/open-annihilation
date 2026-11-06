@@ -695,11 +695,13 @@ void locator_on_game_located(Locator* locator, const GameLocateReport* report) {
                 );
             }
             row->bright = bright_status(row->status);
-            if (row->where[0] != '\0')
-                std::snprintf(
-                    row->detail, sizeof row->detail, "%s on %s.", report->name, row->where
-                );
-            else
+            if (row->where[0] != '\0') {
+                // row->where and row->detail share the row, which GCC's
+                // restrict check counts as one object: format apart first.
+                char detail[sizeof row->detail];
+                std::snprintf(detail, sizeof detail, "%s on %s.", report->name, row->where);
+                copy_field(row->detail, sizeof row->detail, detail);
+            } else
                 std::snprintf(row->detail, sizeof row->detail, "%s.", report->name);
             row->area_id = report->area_id;
             row->battle_type = report->type;

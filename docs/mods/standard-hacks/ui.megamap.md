@@ -47,7 +47,10 @@ hacks:
 
 Tab opens and closes the megamap, playing the interface's open and close
 sounds. Rolling the wheel toward the player opens it; rolling it away closes
-it and centres the battlefield view on the map point under the pointer.
+it and zooms the battlefield in at the pointer: the map point under the
+pointer on the megamap stays under it on the battlefield, unless the view's
+limits at the map's edges hold the view back, as they hold any jump. Off
+the map's picture the view stays where it was.
 
 #### With Mouse wheel zoom on
 
@@ -70,6 +73,11 @@ the colour that looks nearest among those the map's tiles use (the least
 distance in the OKLab colour space) or, with `dither`, a checkerboard of the
 two nearest. The picture is shaded by what the viewer has mapped and sees,
 as the minimap is.
+
+The picture is made as the match starts, and as the Mouse wheel zoom
+setting is turned off during one, so that the megamap shows at once when it
+first opens. A window resized since makes it again the next time the
+megamap opens.
 
 With `feature-blobs`, the map's indestructible features that cannot be
 reclaimed, such as rocks, vents and metal patches made of features, are
@@ -218,7 +226,9 @@ match hash and every machine's simulation stay as they are.
   the minimap's picture back when the setting changes in a match.
 - Test: `ui-hud-megamap` (`src/ui/hud/tests/megamap_test.cpp`) covers the
   layout, the terrain downscale by red, green and blue and among the map's
-  own colours as they look, the features drawn and the marks' colours, a
+  own colours as they look, each pixel as the plain search of the colours
+  finds it, on the drawing threads or not and read by rows or by pixels,
+  the features drawn and the marks' colours, a
   picture shrunk, placed and laid over the terrain, the icon file, the
   icon choice and the ring minimums.
 - Test: `native-megamap-clicks` (`src/app/runtime_megamap_check.cpp`)
@@ -228,6 +238,8 @@ match hash and every machine's simulation stay as they are.
   rather than a flat mark, while the reclaimable and destructible ones leave
   it as it is; moving the main view leaves the megamap as it was, with no
   rectangle for the view; and the bars beside the map are the dark grey.
+  It rolls the wheel away over a point of the megamap and checks that the
+  battlefield then shows that map point under the pointer.
   Then it makes the same clicks on the battlefield and on the megamap in both
   interface types and checks that each leaves the same selection, armed
   command and orders: moves, an attack, a guard, selecting, deselecting,
@@ -303,7 +315,7 @@ hacks:
 | --- | --- | --- |
 | `megamap.toggle` | `Tab` | The megamap on or off |
 | `megamap.open-wheel` | `WheelDown` | Opens the megamap |
-| `megamap.close-wheel` | `WheelUp` | Closes the megamap and centres on the pointer |
+| `megamap.close-wheel` | `WheelUp` | Closes the megamap and zooms in at the pointer |
 | `megamap.jump` | `—` | Jumps the view to a point of the megamap |
 <!-- END GENERATED: keys -->
 

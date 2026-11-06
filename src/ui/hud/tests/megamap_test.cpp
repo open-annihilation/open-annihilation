@@ -3,7 +3,8 @@
 
 // ui.megamap's pieces: the fitted layout and its two-way mapping, the
 // downscaled terrain snapped or dithered, by red, green and blue or as it
-// looks among the map's own colours; the features it draws, their pictures
+// looks among the map's own colours, the same as the plain search finds
+// them with the rows on threads or not; the features it draws, their pictures
 // shrunk, placed and laid over the terrain, and the marks of those without
 // one; the icon file, the icon chosen for a unit and its recoloured pixels,
 // and the rings with their minimums.
@@ -12,7 +13,9 @@
 #include "check.hpp"
 #include "fixtures.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -77,6 +80,107 @@ void map_colours() {
     CHECK(picture[0] == 20 && picture[1] == 10);
     // No pixels: every entry of the palette.
     CHECK(perceptual_palette(palette, {}).entries.size() == 256);
+}
+
+/// A palette of colours spread over the cube from a fixed sequence, entries
+/// 200 to 209 the colours of 100 to 109 again, so that some colours tie.
+std::vector<uint8_t> varied_palette() {
+    std::vector<uint8_t> palette(256 * 4);
+    uint32_t state = 12345;
+    for (std::size_t entry = 0; entry < 256; ++entry)
+        for (std::size_t channel = 0; channel < 3; ++channel) {
+            state = state * 1103515245U + 12345U;
+            palette[entry * 4 + channel] = static_cast<uint8_t>(state >> 16);
+        }
+    std::memcpy(&palette[200 * 4], &palette[100 * 4], 10 * 4);
+    return palette;
+}
+
+/// A map pixel of a 70x95 map drawn from 96 of the varied palette's entries,
+/// with the twins among them and a plain stretch at the top.
+uint8_t varied_pixel(void*, int32_t x, int32_t z) {
+    if (z < 12)
+        return 104;
+    const auto at = static_cast<uint32_t>(x * 31 + z * 17 + x * z);
+    const uint32_t pick = at % 96U;
+    return static_cast<uint8_t>(pick < 86U ? pick + 60U : pick + 114U);
+}
+
+void map_colours_exactly() {
+    // Each picture pixel takes the entries the plain search of the map's
+    // colours finds: the nearest, and dithered on odd squares the nearest
+    // of the others, ties to the earlier entry; with the rows shared out on
+    // threads too.
+    const auto palette = varied_palette();
+    constexpr int32_t map_width = 70, map_height = 95, width = 23, height = 40;
+    std::vector<uint8_t> tiles;
+    for (int32_t z = 0; z < map_height; ++z)
+        for (int32_t x = 0; x < map_width; ++x)
+            tiles.push_back(varied_pixel(nullptr, x, z));
+    const auto colours = perceptual_palette(palette, tiles);
+    CHECK(colours.entries.size() == 96);
+    TerrainSource source{};
+    source.pixel = varied_pixel;
+    const auto plain =
+        downscale_terrain(source, map_width, map_height, width, height, palette, false, &colours);
+    const auto dithered =
+        downscale_terrain(source, map_width, map_height, width, height, palette, true, &colours);
+    CHECK(plain.size() == static_cast<std::size_t>(width * height));
+    std::size_t differ = 0;
+    for (int32_t y = 0; y < height; ++y) {
+        const int32_t z0 = y * map_height / height;
+        const int32_t z1 = std::max(z0 + 1, (y + 1) * map_height / height);
+        for (int32_t x = 0; x < width; ++x) {
+            const int32_t x0 = x * map_width / width;
+            const int32_t x1 = std::max(x0 + 1, (x + 1) * map_width / width);
+            std::array<int32_t, 3> sum{};
+            int32_t count = 0;
+            for (int32_t z = z0; z < z1; ++z)
+                for (int32_t column = x0; column < x1; ++column, ++count)
+                    for (std::size_t channel = 0; channel < 3; ++channel)
+                        sum[channel] += palette[varied_pixel(nullptr, column, z) * 4U + channel];
+            const int32_t r = sum[0] / count, g = sum[1] / count, b = sum[2] / count;
+            const uint8_t nearest = nearest_perceptual(colours, r, g, b);
+            PerceptualPalette others;
+            for (std::size_t index = 0; index < colours.entries.size(); ++index)
+                if (colours.entries[index] != nearest) {
+                    others.entries.push_back(colours.entries[index]);
+                    others.lab.push_back(colours.lab[index]);
+                }
+            const uint8_t second = nearest_perceptual(others, r, g, b);
+            const auto at = static_cast<std::size_t>(y * width + x);
+            differ += plain[at] != nearest ? 1U : 0U;
+            differ += dithered[at] != (((x + y) & 1) != 0 ? second : nearest) ? 1U : 0U;
+        }
+    }
+    CHECK(differ == 0);
+    oa::platform::job_pool::Pool pool(4);
+    CHECK(
+        downscale_terrain(
+            source, map_width, map_height, width, height, palette, false, &colours, &pool
+        ) == plain
+    );
+    CHECK(
+        downscale_terrain(
+            source, map_width, map_height, width, height, palette, true, &colours, &pool
+        ) == dithered
+    );
+    CHECK(
+        downscale_terrain(
+            source, map_width, map_height, width, height, palette, true, nullptr, &pool
+        ) == downscale_terrain(source, map_width, map_height, width, height, palette, true, nullptr)
+    );
+    // A source that reads its rows a run at a time gives the same picture.
+    TerrainSource rows = source;
+    rows.row = [](void*, int32_t z, int32_t x, int32_t count, uint8_t* out) {
+        for (int32_t index = 0; index < count; ++index)
+            out[index] = varied_pixel(nullptr, x + index, z);
+    };
+    CHECK(
+        downscale_terrain(
+            rows, map_width, map_height, width, height, palette, true, &colours, &pool
+        ) == dithered
+    );
 }
 
 void features() {
@@ -275,6 +379,7 @@ int main() {
     layout();
     terrain();
     map_colours();
+    map_colours_exactly();
     features();
     feature_pictures();
     icon_file();

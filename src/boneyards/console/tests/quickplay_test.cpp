@@ -933,6 +933,108 @@ void test_search_records() {
     EXPECT_TEXT(screens::quickplay_result_text(4), "You are already in a battle.");
 }
 
+QuickPlayWithdrawnNotice withdrawal(const char* offer_id, const char* game_id, int32_t reason) {
+    QuickPlayWithdrawnNotice notice{};
+    std::snprintf(
+        notice.offer_id, sizeof notice.offer_id, "%s", offer_id != nullptr ? offer_id : ""
+    );
+    if (game_id != nullptr && game_id[0] != '\0') {
+        std::snprintf(notice.game_id, sizeof notice.game_id, "%s", game_id);
+        notice.game_known = true;
+    }
+    notice.reason = reason;
+    return notice;
+}
+
+void expect_withdrawn_lines(const screens::QuickPlay* play, const char* reason) {
+    char line[screens::kQuickPlayTextCapacity];
+    screens::quickplay_scan_line(play, 1, line, sizeof line);
+    EXPECT_TEXT(line, reason);
+    screens::quickplay_scan_line(play, 2, line, sizeof line);
+    EXPECT_TEXT(line, screens::quickplay_searching_again_text());
+}
+
+void test_withdrawn() {
+    EXPECT_TEXT(screens::quickplay_withdrawn_text(0), "That battle has filled.");
+    EXPECT_TEXT(screens::quickplay_withdrawn_text(1), "That battle has filled.");
+    EXPECT_TEXT(screens::quickplay_withdrawn_text(3), "That battle has filled.");
+    EXPECT_TEXT(screens::quickplay_withdrawn_text(2), "That battle was abandoned.");
+    EXPECT_TEXT(screens::quickplay_searching_again_text(), "Searching again…");
+
+    screens::QuickPlay play{};
+    screens::quickplay_init(&play);
+    screens::quickplay_find(&play);
+    QuickPlayStatusNotice status{};
+    status.queued = 1;
+    status.planets = 25;
+    screens::quickplay_apply_status(&play, &status);
+    const QuickPlayFoundNotice join = join_offer();
+    screens::quickplay_apply_found(&play, &join);
+    CHECK(play.offer_open && play.searching);
+    const int32_t sent = play.requests_sent;
+
+    const QuickPlayWithdrawnNotice other = withdrawal("bbbbbbbbbbbbbb", "c0ffee0a11b223", 2);
+    screens::QuickPlayEffect effect = screens::quickplay_apply_withdrawn(&play, &other);
+    CHECK(!effect.close_offer && play.offer_open && play.withdrawn_status[0] == '\0');
+    CHECK(play.searching && play.requests_sent == sent);
+
+    const QuickPlayWithdrawnNotice filled = withdrawal("a1b2c3d4e5f607", "c0ffee0a11b223", 0);
+    const int32_t elapsed = play.elapsed_ms;
+    effect = screens::quickplay_apply_withdrawn(&play, &filled);
+    CHECK(effect.close_offer && !play.offer_open && play.searching);
+    CHECK(play.elapsed_ms == elapsed && play.requests_sent == sent);
+    EXPECT_TEXT(play.withdrawn_status, "That battle has filled.");
+    expect_withdrawn_lines(&play, "That battle has filled.");
+    store_scan(&play, 1, 1, 0, "Altair", "", 0, 0, 0, 0);
+    screens::quickplay_advance(&play, 1400);
+    CHECK(play.searching && screens::quickplay_visible_lines(&play) >= 3);
+
+    for (const int32_t reason : {1, 3}) {
+        screens::quickplay_cancel(&play);
+        screens::quickplay_find(&play);
+        screens::quickplay_apply_found(&play, &join);
+        const QuickPlayWithdrawnNotice again =
+            withdrawal("a1b2c3d4e5f607", "c0ffee0a11b223", reason);
+        effect = screens::quickplay_apply_withdrawn(&play, &again);
+        CHECK(effect.close_offer && play.searching && !play.offer_open);
+        EXPECT_TEXT(play.withdrawn_status, "That battle has filled.");
+        expect_withdrawn_lines(&play, "That battle has filled.");
+    }
+
+    screens::quickplay_cancel(&play);
+    screens::quickplay_find(&play);
+    screens::quickplay_apply_found(&play, &join);
+    const QuickPlayWithdrawnNotice abandoned = withdrawal("a1b2c3d4e5f607", "c0ffee0a11b223", 2);
+    effect = screens::quickplay_apply_withdrawn(&play, &abandoned);
+    CHECK(effect.close_offer && play.searching && !play.offer_open);
+    EXPECT_TEXT(play.withdrawn_status, "That battle was abandoned.");
+    expect_withdrawn_lines(&play, "That battle was abandoned.");
+
+    // The prompt has been answered, so a withdrawal of that offer is ignored.
+    screens::quickplay_cancel(&play);
+    screens::quickplay_find(&play);
+    screens::quickplay_apply_found(&play, &join);
+    screens::quickplay_decide(&play, 0);
+    CHECK(!play.offer_open && play.searching);
+    effect = screens::quickplay_apply_withdrawn(&play, &filled);
+    CHECK(!effect.close_offer && play.withdrawn_status[0] == '\0' && play.searching);
+
+    // A later offer is a different one. Withdrawing the earlier offer leaves it up.
+    screens::quickplay_cancel(&play);
+    screens::quickplay_find(&play);
+    screens::quickplay_apply_found(&play, &join);
+    QuickPlayFoundNotice replaced = join_offer();
+    std::snprintf(replaced.offer_id, sizeof replaced.offer_id, "bbbbbbbbbbbbbb");
+    std::snprintf(replaced.game_id, sizeof replaced.game_id, "dddddddddddddd");
+    screens::quickplay_apply_found(&play, &replaced);
+    effect = screens::quickplay_apply_withdrawn(&play, &filled);
+    CHECK(!effect.close_offer && play.offer_open && play.withdrawn_status[0] == '\0');
+    EXPECT_TEXT(play.offer_id, "bbbbbbbbbbbbbb");
+    effect = screens::quickplay_apply_withdrawn(&play, &other);
+    CHECK(effect.close_offer && !play.offer_open && play.searching);
+    EXPECT_TEXT(play.withdrawn_status, "That battle was abandoned.");
+}
+
 void reread(Window* console) {
     console->visible = 0;
     {
@@ -1131,6 +1233,21 @@ bool logged(const char* text) {
     return false;
 }
 
+int32_t call_count(const char* text) {
+    int32_t count = 0;
+    for (const std::string& call : g_log.calls)
+        count += call == text ? 1 : 0;
+    return count;
+}
+
+int32_t call_at(const char* text) {
+    for (int32_t i = 0; i < static_cast<int32_t>(g_log.calls.size()); ++i) {
+        if (g_log.calls[static_cast<std::size_t>(i)] == text)
+            return i;
+    }
+    return -1;
+}
+
 void push_status(int32_t result, int32_t queued, int32_t meter, int32_t planets) {
     QuickPlayNotice notice{};
     notice.kind = QuickPlayNoticeKind::status;
@@ -1146,6 +1263,13 @@ void push_found(const QuickPlayFoundNotice& found) {
     QuickPlayNotice notice{};
     notice.kind = QuickPlayNoticeKind::found;
     notice.found = found;
+    g_qp.push_back(notice);
+}
+
+void push_withdrawn(const char* offer_id, const char* game_id, int32_t reason) {
+    QuickPlayNotice notice{};
+    notice.kind = QuickPlayNoticeKind::withdrawn;
+    notice.withdrawn = withdrawal(offer_id, game_id, reason);
     g_qp.push_back(notice);
 }
 
@@ -1233,6 +1357,48 @@ void check_console_protocol(Window* console, screens::QuickPlay* model, Window* 
     advance(console, 0);
     CHECK(!model->offer_open);
 
+    // The prompt is already gone, so withdrawing that offer changes nothing.
+    const int32_t sent_at_stale = model->requests_sent;
+    push_withdrawn("a1b2c3d4e5f607", "c0ffee0a11b223", 0);
+    advance(console, 0);
+    CHECK(model->searching && !model->offer_open && offer->visible == 0);
+    CHECK(model->requests_sent == sent_at_stale && model->withdrawn_status[0] == '\0');
+    CHECK(!logged("cancel"));
+
+    // A withdrawal of a different offer leaves the one on screen.
+    QuickPlayFoundNotice other = join_offer();
+    std::snprintf(other.offer_id, sizeof other.offer_id, "bbbbbbbbbbbbbb");
+    std::snprintf(other.game_id, sizeof other.game_id, "dddddddddddddd");
+    push_found(other);
+    advance(console, 0);
+    CHECK(model->offer_open && offer->visible != 0);
+    push_withdrawn("a1b2c3d4e5f607", "c0ffee0a11b223", 2);
+    advance(console, 0);
+    CHECK(model->offer_open && offer->visible != 0 && model->withdrawn_status[0] == '\0');
+
+    // The offer on screen closes. The log says why, and the search carries on.
+    const int32_t sent_before_withdraw = model->requests_sent;
+    g_log.calls.clear();
+    push_withdrawn("bbbbbbbbbbbbbb", "dddddddddddddd", 2);
+    advance(console, 0);
+    CHECK(model->searching && !model->offer_open && offer->visible == 0);
+    CHECK(model->requests_sent == sent_before_withdraw);
+    CHECK(g_log.calls.empty());
+    EXPECT_TEXT(model->withdrawn_status, "That battle was abandoned.");
+    CHECK(text_of(named(console, "Line1")).find("That battle was abandoned.") != std::string::npos);
+    CHECK(text_of(named(console, "Line2")).find("Searching again…") != std::string::npos);
+    expect_visible(console, "FIND BATTLE", false);
+    expect_visible(console, "CANCEL SEARCH", true);
+
+    push_found(other);
+    advance(console, 0);
+    CHECK(model->offer_open);
+    push_withdrawn("bbbbbbbbbbbbbb", nullptr, 1);
+    advance(console, 0);
+    CHECK(model->searching && !model->offer_open && offer->visible == 0);
+    EXPECT_TEXT(model->withdrawn_status, "That battle has filled.");
+    CHECK(text_of(named(console, "Line1")).find("That battle has filled.") != std::string::npos);
+
     g_log.calls.clear();
     push_status(1, 0, 0, 0);
     advance(console, 0);
@@ -1257,6 +1423,86 @@ void check_console_protocol(Window* console, screens::QuickPlay* model, Window* 
     g_log.calls.clear();
     click_window(named(console, "FIND BATTLE"));
     CHECK(model->searching);
+}
+
+void open_console(MainFrame* frame, Window* button) {
+    click_window(button);
+    finish_slide(frame);
+}
+
+void expect_idle_card(Window* console, const screens::QuickPlay* model) {
+    CHECK(model != nullptr && !model->searching && !model->offer_open && !model->launch_pending);
+    expect_visible(console, "FIND BATTLE", true);
+    expect_visible(console, "CANCEL SEARCH", false);
+    expect_visible(console, "SEARCHING", false);
+    expect_visible(console, "QuickPlayFound", false);
+}
+
+// FIND BATTLE then Chat cancels once and the card is idle on return. An open
+// offer is declined before that cancel. Yes, while it is launching, is not
+// cancelled by a switch. Leaving the Boneyards sends the same cancel.
+void check_leaving(MainFrame* frame, Window* console, screens::QuickPlay* model) {
+    Window* chat = frame->console_buttons[static_cast<int32_t>(ConsoleButton::chat)];
+    g_qp.clear();
+    g_log.calls.clear();
+    open_console(frame, chat);
+    CHECK(frame->console_screen == console_screen::chat);
+    CHECK(call_count("cancel") == 1 && call_at("cancel") == 0);
+    CHECK(!model->searching && !model->offer_open);
+    open_console(frame, frame->quickplay_button);
+    CHECK(frame->console_screen == console_screen::quickplay);
+    expect_idle_card(console, model);
+
+    g_log.calls.clear();
+    open_console(frame, chat);
+    CHECK(call_count("cancel") == 0);
+    open_console(frame, frame->quickplay_button);
+    expect_idle_card(console, model);
+
+    g_log.calls.clear();
+    click_window(named(console, "FIND BATTLE"));
+    CHECK(model->searching);
+    push_status(0, 1, 1, 25);
+    push_found(join_offer());
+    advance(console, 0);
+    CHECK(model->offer_open && model->searching);
+    g_log.calls.clear();
+    open_console(frame, chat);
+    const int32_t answer = call_at("answer accept=0 id=a1b2c3d4e5f607");
+    CHECK(answer >= 0 && call_at("cancel") == answer + 1);
+    CHECK(call_count("answer accept=0 id=a1b2c3d4e5f607") == 1);
+    CHECK(call_count("cancel") == 1);
+    CHECK(!model->searching && !model->offer_open);
+    open_console(frame, frame->quickplay_button);
+    expect_idle_card(console, model);
+
+    g_log.calls.clear();
+    click_window(named(console, "FIND BATTLE"));
+    push_status(0, 1, 1, 25);
+    push_found(join_offer());
+    advance(console, 0);
+    CHECK(model->offer_open);
+    Window* offer = named(console, "QuickPlayFound");
+    g_log.calls.clear();
+    click_window(named(offer, "Yes"));
+    CHECK(model->launch_pending && !model->searching && !model->offer_open);
+    CHECK(call_count("cancel") == 0);
+    g_log.calls.clear();
+    open_console(frame, chat);
+    CHECK(call_count("cancel") == 0 && call_count("answer accept=0 id=a1b2c3d4e5f607") == 0);
+    CHECK(model->launch_pending && !model->searching);
+    open_console(frame, frame->quickplay_button);
+    expect_visible(console, "FIND BATTLE", true);
+    expect_visible(console, "CANCEL SEARCH", false);
+    CHECK(model->launch_pending && !model->searching && call_count("cancel") == 0);
+
+    g_log.calls.clear();
+    click_window(named(console, "FIND BATTLE"));
+    CHECK(model->searching && !model->launch_pending);
+    g_log.calls.clear();
+    click_window(frame->exit_button);
+    CHECK(call_count("cancel") == 1 && call_at("cancel") == 0);
+    CHECK(!model->searching && !model->offer_open);
 }
 
 void test_console(Data* data) {
@@ -1594,6 +1840,7 @@ void test_console(Data* data) {
     CHECK(model->requests_sent == 0);
 
     check_console_protocol(console, model, offer);
+    check_leaving(frame, console, model);
     boneyards_status_widget_destroy(g_widget);
     g_widget = nullptr;
     CHECK(logged("cancel"));
@@ -1896,6 +2143,56 @@ void check_replay() {
     rover_replay_uninstall();
 }
 
+void check_withdrawn_replay() {
+    char error[0x200] = {};
+    const bool installed = rover_replay_install(
+        OA_BY_CLIENT_TEST_DATA "/quickplay_withdrawn.replay", error, sizeof error
+    );
+    if (!installed)
+        std::fprintf(stderr, "%s\n", error);
+    CHECK(installed);
+    if (!installed)
+        return;
+    *rover_session() = RoverSession{};
+    BoneyardsService online = rover_session_service();
+    if (online.activate(online.user) != ActivationResult::ok) {
+        CHECK(false);
+        online.close(online.user);
+        rover_replay_uninstall();
+        return;
+    }
+    QuickPlayQuery query{};
+    query.game_type = 1;
+    CHECK(online.quickplay_join(online.user, &query) == ServiceResult::pending);
+    pump_service(&online);
+    QuickPlayNotice notice{};
+    CHECK(online.quickplay_take(online.user, &notice));
+    CHECK(notice.kind == QuickPlayNoticeKind::withdrawn);
+    CHECK(notice.withdrawn.reason == 0 && notice.withdrawn.game_known);
+    EXPECT_TEXT(notice.withdrawn.offer_id, "a1b2c3d4e5f607");
+    EXPECT_TEXT(notice.withdrawn.game_id, "c0ffee0a11b223");
+
+    CHECK(online.quickplay_join(online.user, &query) == ServiceResult::pending);
+    pump_service(&online);
+    CHECK(online.quickplay_take(online.user, &notice));
+    CHECK(notice.kind == QuickPlayNoticeKind::withdrawn && notice.withdrawn.reason == 3);
+    CHECK(!notice.withdrawn.game_known && notice.withdrawn.game_id[0] == '\0');
+    EXPECT_TEXT(notice.withdrawn.offer_id, "a1b2c3d4e5f607");
+
+    CHECK(online.quickplay_join(online.user, &query) == ServiceResult::pending);
+    pump_service(&online);
+    CHECK(online.quickplay_take(online.user, &notice));
+    CHECK(notice.kind == QuickPlayNoticeKind::withdrawn && notice.withdrawn.reason == 2);
+    CHECK(notice.withdrawn.game_known);
+    EXPECT_TEXT(notice.withdrawn.offer_id, "bbbbbbbbbbbbbb");
+    EXPECT_TEXT(notice.withdrawn.game_id, "c0ffee0a11b223");
+    CHECK(!online.quickplay_take(online.user, &notice));
+
+    online.close(online.user);
+    pump_service(&online);
+    rover_replay_uninstall();
+}
+
 void test_from_archive(Data* data, oa::HpiArchive* archive) {
     ArchiveSource source;
     source.archive = archive;
@@ -1903,6 +2200,7 @@ void test_from_archive(Data* data, oa::HpiArchive* archive) {
     test_gui_file(data);
     test_console(data);
     check_replay();
+    check_withdrawn_replay();
     rover_session_set_virtual_files(nullptr, nullptr);
 }
 
@@ -1913,6 +2211,7 @@ int main(int argc, char** argv) {
         oa::boneyards_test::require_by_install("the QuickPlay console tests");
     test_model();
     test_search_records();
+    test_withdrawn();
     const std::filesystem::path coreprime = oa::boneyards_test::coreprime_archive(argc, argv);
     if (coreprime.empty()) {
         std::fprintf(stderr, "the mod folder is required\n");

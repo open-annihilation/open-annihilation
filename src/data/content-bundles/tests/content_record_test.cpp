@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The .oa-content record: a round trip, a record this reader does not
-// understand, a field it skips, and whether it names every file of its
-// bundle.
+// understand, a field it skips, whether it names every file of its bundle,
+// and the package an expansion was installed from: written, read, and
+// compared with the package a catalogue offers.
 
 #include "oa/data/content_bundles/record.hpp"
 #include "oa/test/check.hpp"
@@ -20,10 +21,13 @@
 namespace {
 
 using oa::data::content_bundles::Bundle;
+using oa::data::content_bundles::check_installed_package;
 using oa::data::content_bundles::ContentFile;
 using oa::data::content_bundles::ContentRecord;
 using oa::data::content_bundles::ContentRecordFile;
+using oa::data::content_bundles::ContentRecordPackage;
 using oa::data::content_bundles::files_not_recorded;
+using oa::data::content_bundles::PackageCheck;
 using oa::data::content_bundles::format_content_record;
 using oa::data::content_bundles::parse_content_record;
 using oa::data::content_bundles::managed_games_folder;
@@ -298,6 +302,130 @@ void test_folder() {
     std::filesystem::remove_all(folder, failure);
 }
 
+// An expansion installed from a package records that package's SHA-256 and
+// release after its source. A record of any other bundle holds no such line.
+// A line this reader cannot use is skipped and the record stays valid, with
+// no package. The record decides what an entry fetches: a missing or
+// incomplete copy, and a copy whose record names no package or another one,
+// fetch the catalogue's package; a record that names it fetches nothing.
+void test_package() {
+    constexpr std::string_view package_hex =
+        "5a2be6e3a4a9b2d1f0e9c8b7a6958473625140fedcba98765432100123456789";
+    constexpr std::string_view other_hex =
+        "0000000000000000000000000000000000000000000000000000000000000001";
+    const auto package_digest = *oa::base::sha256::parse_hex(package_hex);
+    const auto other_digest = *oa::base::sha256::parse_hex(other_hex);
+
+    ContentRecord record;
+    record.bundle_id = "boneyards";
+    record.source = "registry coreprime";
+    ContentRecordPackage package;
+    package.sha256 = package_digest;
+    package.release = 1;
+    record.package = package;
+    ContentRecordFile archive;
+    archive.copy_name = "expansion.ccx";
+    archive.size = 1199000;
+    archive.modified = 1793909917;
+    archive.digest = *oa::base::sha256::parse_hex(kHash);
+    record.files.push_back(archive);
+    ContentRecordFile page = archive;
+    page.copy_name = "Boneyards/Help/Help.def";
+    page.size = 3831;
+    record.files.push_back(page);
+    const std::optional<std::string> text = format_content_record(record);
+    OA_CHECK(text.has_value());
+    if (!text)
+        return;
+    const std::string expected_head = "oa-content 1\n"
+                                      "bundle boneyards\n"
+                                      "source registry coreprime\n"
+                                      "package " +
+                                      std::string(package_hex) +
+                                      " 1\n"
+                                      "file expansion.ccx\n";
+    OA_CHECK(text->rfind(expected_head, 0) == 0);
+    const ContentRecord read = parse_content_record(*text);
+    OA_CHECK(read.valid);
+    OA_CHECK(read.package.has_value());
+    if (read.package) {
+        OA_CHECK(read.package->sha256 == package_digest);
+        OA_CHECK(read.package->release == 1);
+    }
+    OA_CHECK(read.files.size() == 2);
+    const std::optional<std::string> again = format_content_record(read);
+    OA_CHECK(again.has_value() && *again == *text);
+
+    // Another bundle's record is written as before, with no package line.
+    const std::optional<std::string> base_text = format_content_record(sample());
+    OA_CHECK(base_text.has_value() && base_text->find("package") == std::string::npos);
+    OA_CHECK(!parse_content_record(*base_text).package.has_value());
+
+    // A record from a build before the line, and lines this reader cannot use.
+    const std::string head = "oa-content 1\nbundle boneyards\nsource registry coreprime\n";
+    const std::string files_text =
+        "file expansion.ccx\nsize 4\nmodified 0\nsha256 " + std::string(kHash) + "\n";
+    const ContentRecord older = parse_content_record(head + files_text);
+    OA_CHECK(older.valid && !older.package.has_value());
+    const std::string hex(package_hex);
+    const std::vector<std::string> unusable{
+        "package " + hex + "\n",
+        "package zz 1\n",
+        "package " + hex + " many\n",
+        "package " + hex + " -1\n",
+        "package " + hex + " 2147483648\n",
+    };
+    for (const std::string& bad : unusable) {
+        const ContentRecord skipped = parse_content_record(head + bad + files_text);
+        OA_CHECK(skipped.valid);
+        OA_CHECK(!skipped.package.has_value());
+        OA_CHECK(skipped.files.size() == 1);
+    }
+    const ContentRecord first_kept = parse_content_record(
+        head + "package " + std::string(package_hex) + " 3\npackage " + std::string(other_hex) +
+        " 4\n" + files_text
+    );
+    OA_CHECK(first_kept.package.has_value() && first_kept.package->release == 3);
+    const ContentRecord before_source = parse_content_record(
+        "oa-content 1\nbundle boneyards\npackage " + std::string(package_hex) +
+        " 1\nsource registry coreprime\n" + files_text
+    );
+    OA_CHECK(before_source.valid && !before_source.package.has_value());
+    ContentRecord unwritable = record;
+    unwritable.package->release = -1;
+    OA_CHECK(!format_content_record(unwritable).has_value());
+
+    // The decisions, over a two-file expansion shaped like the Boneyards.
+    static constexpr std::string_view archive_sources[]{"expansion.ccx"};
+    static constexpr std::string_view page_sources[]{"Boneyards/Help/Help.def"};
+    static const ContentFile files[]{
+        {"expansion.ccx", archive_sources, 1199000, {}},
+        {"Boneyards/Help/Help.def", page_sources, 3831, {}},
+    };
+    static constexpr std::string_view extends[]{"totala"};
+    const Bundle bundle{
+        "boneyards", "The Boneyards", oa::data::content_bundles::Kind::expansion, extends, {}, files
+    };
+    OA_CHECK(check_installed_package(bundle, read, package_digest) == PackageCheck::current);
+    OA_CHECK(check_installed_package(bundle, read, other_digest) == PackageCheck::changed);
+    ContentRecord unrecorded = read;
+    unrecorded.package.reset();
+    OA_CHECK(
+        check_installed_package(bundle, unrecorded, package_digest) == PackageCheck::unrecorded
+    );
+    OA_CHECK(
+        check_installed_package(bundle, ContentRecord{}, package_digest) == PackageCheck::missing
+    );
+    ContentRecord stopped = read;
+    stopped.files.pop_back();
+    OA_CHECK(check_installed_package(bundle, stopped, package_digest) == PackageCheck::missing);
+    ContentRecord other_bundle = read;
+    other_bundle.bundle_id = "cavedog-units";
+    OA_CHECK(
+        check_installed_package(bundle, other_bundle, package_digest) == PackageCheck::missing
+    );
+}
+
 } // namespace
 
 int main() {
@@ -308,5 +436,6 @@ int main() {
     test_in_progress();
     test_complete();
     test_folder();
+    test_package();
     return oa::test::check_exit_status();
 }

@@ -1,20 +1,30 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// One entry into an expansion. It asks the update check the player already
-// has, and when that check offers a newer game it asks whether to take it
-// before going on. When the package is not already in the game folder it
-// queues the Library's download, shows that fetch, and mounts the package
-// where the player is. The caller opens the expansion once this reports ready.
+// One entry into an expansion, in this order. The online features: when the
+// update check or the catalogue check is off, a player is asked to turn
+// them on. The latest Open Annihilation: the entry waits for the update
+// check's answer, a newer release is taken (downloaded, installed and
+// started again, with the one-shot entry carried) or the player stays, and
+// a failed check asks Try again. The mod: switched off as the mod question
+// says. The latest package: the expansion's record names the package it was
+// installed from, and the catalogue's package is fetched only when it is
+// another, the copy is missing, or the record names none. The package is
+// mounted where the player is, and a first install that cannot be put in
+// use restarts once. The caller opens the expansion once this reports
+// ready. A quiet run asks nothing about the online features or the update,
+// changes no setting, and logs what a player would have been asked.
 #include "oa/app/runtime.hpp"
 
 #include "engine_settings_state.hpp"
+#include "package_paths.hpp"
 #include "oa_layer.hpp"
 #include "update_state.hpp"
 
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/settings.hpp"
 #include "oa/app/game_directory.hpp"
+#include "oa/app/update/build.hpp"
 #include "oa/app/update/centre.hpp"
 #include "oa/app/update/check.hpp"
 #include "oa/base/sha256.hpp"
@@ -22,9 +32,11 @@
 #include "oa/platform/files.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/content_bundles/record.hpp"
+#include "oa/data/registry/trust.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/kit/components_more.hpp"
+#include "oa/ui/library/text.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -43,8 +55,6 @@
 namespace oa::app {
 namespace {
 
-namespace sha = oa::base::sha256;
-
 /// How many polls a finished download may stay invisible before the entry stops.
 constexpr int k_entry_polls = 30;
 
@@ -59,6 +69,73 @@ constexpr std::string_view k_no_package = "the catalogue has no such package";
 
 /// The sentence a package that did not install uses.
 constexpr std::string_view k_not_installed = "The package could not be installed.";
+
+/// What a quiet run's log line starts with, before the sentence a player would read.
+constexpr std::string_view k_would_ask = "open-annihilation: entry: a player would be asked: ";
+
+// The two keys the online features are made of, as expansion_entry.hpp names them.
+static_assert(oa::app::kUpdateCheckKey == oa::ui::engine_settings::key::update_check);
+static_assert(oa::app::kCatalogueCheckKey == oa::ui::engine_settings::key::content_check);
+
+/// Returns one of the interface's words in the language shown.
+///
+/// @param english the word, in English
+/// @return its translation, or the English
+std::string_view shown_word(void* /*context*/, std::string_view english) {
+    return oa::data::languages::interface_text(english);
+}
+
+/// The fields of a catalogue's package the entry reads.
+///
+/// They are copied out of the snapshot that lists them: the catalogue
+/// worker can publish a new snapshot at any time, which frees the old one's
+/// catalogues.
+struct ListedPackage {
+    std::string registry{};            ///< the registry that lists it
+    bool built_in{false};              ///< that registry is one the game ships with
+    std::string version{};             ///< the package's version text
+    int64_t release{0};                ///< the package's release
+    oa::base::sha256::Digest sha256{}; ///< the whole package file's SHA-256
+};
+
+/// The record's word for a copy, as the entry's decisions read it.
+///
+/// @param check what check_installed_package found
+/// @return the same state
+CopyState copy_state(oa::data::content_bundles::PackageCheck check) noexcept {
+    switch (check) {
+    case oa::data::content_bundles::PackageCheck::current:
+        return CopyState::current;
+    case oa::data::content_bundles::PackageCheck::unrecorded:
+        return CopyState::unrecorded;
+    case oa::data::content_bundles::PackageCheck::changed:
+        return CopyState::changed;
+    case oa::data::content_bundles::PackageCheck::missing:
+        break;
+    }
+    return CopyState::missing;
+}
+
+/// Tells whether the update centre's stage is a failure of the download or
+/// the install.
+///
+/// @param stage the stage
+/// @return true for a stage the entry stops at
+bool update_failed(update::Stage stage) noexcept {
+    switch (stage) {
+    case update::Stage::could_not_connect:
+    case update::Stage::could_not_check:
+    case update::Stage::not_verified:
+    case update::Stage::download_stopped:
+    case update::Stage::not_installed:
+    case update::Stage::install_cancelled:
+    case update::Stage::failed_restored:
+    case update::Stage::recovery_incomplete:
+        return true;
+    default:
+        return false;
+    }
+}
 
 /// Raises an ASCII first letter. Any other text is left as it is.
 ///
@@ -146,39 +223,6 @@ fs::path first_archive(const fs::path& folder) {
     return {};
 }
 
-/// The SHA-256 of a file that is exactly `expected` bytes.
-///
-/// @param path the file
-/// @param expected how many bytes it must hold
-/// @return the digest, or nothing when the size differs or the file cannot be read
-std::optional<sha::Digest> hash_exact(const fs::path& path, uint64_t expected) {
-    std::FILE* file = oa::platform::open_file(path, "rb");
-    if (file == nullptr)
-        return std::nullopt;
-    sha::Hasher hasher;
-    std::vector<uint8_t> buffer(64 * 1024);
-    uint64_t got = 0;
-    while (got < expected) {
-        const uint64_t room = expected - got;
-        std::size_t ask = buffer.size();
-        if (static_cast<uint64_t>(ask) > room)
-            ask = static_cast<std::size_t>(room);
-        const std::size_t read = std::fread(buffer.data(), 1, ask, file);
-        if (read == 0) {
-            std::fclose(file);
-            return std::nullopt;
-        }
-        sha::update(hasher, std::span<const uint8_t>(buffer.data(), read));
-        got += static_cast<uint64_t>(read);
-    }
-    unsigned char extra = 0;
-    const std::size_t more = std::fread(&extra, 1, 1, file);
-    std::fclose(file);
-    if (more != 0)
-        return std::nullopt;
-    return sha::finish(hasher);
-}
-
 /// The whole percent a download is showing, 0 to 100.
 ///
 /// @param item the queued package
@@ -206,21 +250,29 @@ int download_percent(const content::DownloadView& item) {
 struct Runtime::EntryState {
     /// Where the entry is inside this file. The public step is derived from it.
     enum class Phase : uint8_t {
-        idle,        ///< no entry is running
-        opening,     ///< a player's services and game-files checks
-        update_wait, ///< the asked check has not finished
-        update_ask,  ///< the update question is up
-        fetch_wait,  ///< a catalogue refresh is still running
-        progress,    ///< the package is being fetched
-        stayed,      ///< the player stayed on the menu
-        failed,      ///< the entry stopped
-        ready,       ///< the package is on
+        idle,         ///< no entry is running
+        opening,      ///< the online features and the game files are read next
+        services_ask, ///< the question about the online features is up
+        update_wait,  ///< the update check has not answered
+        update_ask,   ///< the update question is up
+        retry_ask,    ///< the failed check's question is up
+        updating,     ///< the newer release is downloading
+        fetch_wait,   ///< a catalogue refresh is still running
+        progress,     ///< the package is being fetched
+        stayed,       ///< the player stayed on the menu
+        failed,       ///< the entry stopped
+        ready,        ///< the package is on
+        mod_ask,      ///< a question about switching a mod off
+        mod_restart,  ///< the run is ending so the next one can enter
+        command_ask,  ///< a notice that the command line named the mod
+        leave_ask,    ///< a question about switching a remembered mod on
+        restarting,   ///< the run is ending for the update or the new package
     };
 
     Phase phase{Phase::idle};          ///< where it is
     ExpansionEntryAsk ask{};           ///< the package and the sentences
     bool handling_check{false};        ///< the normal update question stays back
-    uint64_t generation{0};            ///< the check generation before this ask
+    uint64_t generation{0};            ///< the check generation the entry waits past
     std::string registry_id{};         ///< the catalogue the package was listed in
     bool refresh_asked{false};         ///< a refresh was asked for this entry
     bool download_queued{false};       ///< a download from this entry is in the queue
@@ -239,15 +291,23 @@ struct Runtime::EntryState {
     bool feed_failed{false};                  ///< that check failed
     bool update_offered{false};               ///< the feed offers a newer release
     std::string offered_version{};            ///< the offered release's version text
-    bool update_declined{false};              ///< the player went on without the update
+    bool update_declined{false};              ///< a quiet run went on without the update
+    std::string running_version{};            ///< this build's version text
     bool extension_known{false};              ///< the catalogue's package was considered
     int32_t extension_percent{-1};            ///< the fetch's percent, or -1
     bool extension_installed{false};          ///< this entry downloaded and installed it
     bool extension_current{false};            ///< the installed package matches
     std::string extension_version{};          ///< the catalogue package's version
-    bool extension_compared{false};           ///< the installed archive was compared once
-    bool extension_older{false};              ///< that archive is missing a newer catalogue copy
-    bool stopped{false};                      ///< a check stopped the entry before any contact
+    int64_t extension_release{0};             ///< the catalogue package's release
+    bool package_checked{false};              ///< the record was compared once
+    /// What that compare found.
+    oa::data::content_bundles::PackageCheck package_check{
+        oa::data::content_bundles::PackageCheck::missing
+    };
+    bool stopped{false};             ///< a check stopped the entry before any contact
+    std::string leave_question{};    ///< the remembered-mod question
+    std::string leave_on_label{};    ///< the button that switches it on
+    std::string leave_later_label{}; ///< the button that leaves it off
 };
 
 struct EntryDriver {
@@ -269,19 +329,50 @@ struct EntryDriver {
         runtime.oa_layer().close(leaving);
     }
 
-    /// Shows one question, or updates the one already showing the same word.
+    /// Puts one question on the layer, closing the one this entry showed.
+    ///
+    /// @param word the question's word
+    /// @param asked the question
+    void put_up(const std::string& word, oa::ui::kit::Question asked) const {
+        Runtime::EntryState& current = state();
+        dismiss();
+        asked.title = "Open Annihilation";
+        asked.word = word;
+        current.notice = asked.paragraphs.empty() ? std::string() : asked.paragraphs[0].text;
+        Runtime* self = &runtime;
+        QuestionScreen::Host host;
+        host.answer = [self](int32_t button) {
+            return Runtime::entry_update_answered(self, button);
+        };
+        host.tick = [self]() { return Runtime::entry_question_tick(self); };
+        host.closed = [self](const QuestionScreen& closing) {
+            Runtime::entry_question_closed(self, &closing);
+        };
+        OaLayer& layer = runtime.oa_layer();
+        auto screen = std::make_unique<QuestionScreen>(
+            layer, Screen::main_menu, std::move(asked), std::move(host)
+        );
+        QuestionScreen* taken = screen.get();
+        taken->show_on_any_menu();
+        layer.show_when_free(std::move(screen));
+        current.question = taken;
+        current.shown_word = word;
+    }
+
+    /// Shows a line with an optional bar, or updates the one already showing
+    /// the same word.
     ///
     /// @param word the question's word
     /// @param paragraph the sentence
     /// @param progress the bar, or -1 for none
-    /// @param update_buttons true for Update and Not now
     /// @param ok_button true for OK
+    /// @param cancel_button true for Cancel
     void show(
         const std::string& word,
         const std::string& paragraph,
         int32_t progress,
-        bool update_buttons,
-        bool ok_button
+        bool ok_button,
+        bool cancel_button
     ) const {
         Runtime::EntryState& current = state();
         if (current.question != nullptr && current.shown_word == word) {
@@ -293,41 +384,75 @@ struct EntryDriver {
             current.notice = paragraph;
             return;
         }
-        dismiss();
         oa::ui::kit::Question asked;
-        asked.title = "Open Annihilation";
-        asked.word = word;
         asked.paragraphs.push_back({paragraph, false});
         asked.progress = progress;
-        if (update_buttons) {
-            asked.buttons.push_back({current.ask.update_label, true, "update"});
-            asked.buttons.push_back({current.ask.later_label, false, "later"});
-            asked.primary_button = 0;
-            asked.cancel_button = 1;
-            asked.marked = 0;
-        } else if (ok_button) {
+        if (ok_button)
             asked.buttons.push_back({current.ask.ok_label, true, "ok"});
-            asked.primary_button = 0;
-            asked.cancel_button = 0;
-            asked.marked = 0;
+        else if (cancel_button)
+            asked.buttons.push_back({current.ask.cancel_label, false, "cancel"});
+        asked.primary_button = 0;
+        asked.cancel_button = 0;
+        asked.marked = 0;
+        put_up(word, std::move(asked));
+    }
+
+    /// Shows a question with two buttons, or updates the one already showing.
+    ///
+    /// @param word the question's word
+    /// @param paragraph the sentence
+    /// @param primary the first button
+    /// @param cancel the second button
+    /// @param primary_id the first button's name
+    /// @param cancel_id the second button's name
+    void show_pair(
+        const std::string& word,
+        const std::string& paragraph,
+        const std::string& primary,
+        const std::string& cancel,
+        const std::string& primary_id,
+        const std::string& cancel_id
+    ) const {
+        Runtime::EntryState& current = state();
+        if (current.question != nullptr && current.shown_word == word) {
+            oa::ui::kit::Question& asked = current.question->question();
+            if (!asked.paragraphs.empty())
+                asked.paragraphs[0].text = paragraph;
+            current.question->changed();
+            current.notice = paragraph;
+            return;
         }
-        Runtime* self = &runtime;
-        QuestionScreen::Host host;
-        host.answer = [self](int32_t button) {
-            return Runtime::entry_update_answered(self, button);
-        };
-        host.tick = [self]() { return Runtime::entry_question_tick(self); };
-        host.closed = [self](const QuestionScreen&) { Runtime::entry_question_closed(self); };
-        OaLayer& layer = runtime.oa_layer();
-        auto screen = std::make_unique<QuestionScreen>(
-            layer, Screen::main_menu, std::move(asked), std::move(host)
+        oa::ui::kit::Question asked;
+        asked.paragraphs.push_back({paragraph, false});
+        asked.buttons.push_back({primary, true, primary_id});
+        asked.buttons.push_back({cancel, false, cancel_id});
+        asked.primary_button = 0;
+        asked.cancel_button = 1;
+        asked.marked = 0;
+        put_up(word, std::move(asked));
+    }
+
+    /// Shows one of the questions asked before the package.
+    ///
+    /// @param which the question
+    /// @param version the offered release, for the update question
+    void ask_question(EntryQuestion which, std::string_view version) const {
+        const EntryQuestionLook look = entry_question(which, state().ask, version);
+        show_pair(
+            look.word,
+            look.paragraph,
+            look.primary_label,
+            look.cancel_label,
+            look.primary_id,
+            look.cancel_id
         );
-        QuestionScreen* taken = screen.get();
-        taken->show_on_any_menu();
-        layer.show_when_free(std::move(screen));
-        current.question = taken;
-        current.shown_word = word;
-        current.notice = paragraph;
+    }
+
+    /// Writes what a player would have been asked to the log.
+    ///
+    /// @param sentence the question
+    void note_question(std::string_view sentence) const {
+        std::cerr << k_would_ask << sentence << '\n';
     }
 
     /// Stops the entry and shows why.
@@ -340,7 +465,16 @@ struct EntryDriver {
         current.notice = std::move(notice);
         if (current.ask.report_on_screen)
             return;
-        show("expansion-notice", current.notice, -1, false, true);
+        show("expansion-notice", current.notice, -1, true, false);
+    }
+
+    /// Stays on the menu. Nothing more is asked.
+    void stay() const {
+        Runtime::EntryState& current = state();
+        current.phase = Runtime::EntryState::Phase::stayed;
+        current.handling_check = false;
+        current.notice.clear();
+        dismiss();
     }
 
     /// The package is on. The question comes down.
@@ -349,19 +483,64 @@ struct EntryDriver {
         current.phase = Runtime::EntryState::Phase::ready;
         current.handling_check = false;
         current.notice.clear();
-        if (facing_player()) {
-            // Only a compare or a download this entry finished may be described.
-            current.extension_known = current.extension_compared || current.download_queued;
-            if (current.download_queued)
-                current.extension_installed = true;
-            else if (current.extension_compared && !current.extension_older)
-                current.extension_current = true;
-            if (current.extension_version.empty()) {
-                if (const oa::data::catalogue::Package* package = package_listed())
-                    current.extension_version = package->version;
+        // Only a compare or a download this entry finished may be described.
+        current.extension_known = current.package_checked || current.download_queued;
+        if (current.download_queued)
+            current.extension_installed = true;
+        else if (
+            current.package_checked &&
+            current.package_check == oa::data::content_bundles::PackageCheck::current
+        )
+            current.extension_current = true;
+        if (current.extension_version.empty()) {
+            if (const std::optional<ListedPackage> package = package_listed()) {
+                current.extension_version = package->version;
+                current.extension_release = package->release;
             }
         }
         dismiss();
+    }
+
+    /// Reports whether nobody can answer this entry.
+    ///
+    /// @return true for a quiet ask, a headless run and an unattended run
+    bool quiet() const { return state().ask.quiet || !facing_player(); }
+
+    /// Who answers this entry, for the decisions in expansion_entry.hpp.
+    ///
+    /// @return quiet when nobody can answer
+    EntryWay way() const { return quiet() ? EntryWay::quiet : EntryWay::player; }
+
+    /// Saves the one-shot entry, or forgets it, and flushes the preferences.
+    ///
+    /// @param pending true to save it
+    void keep_one_shot(bool pending) const {
+        runtime.keep_plain_string(kExpansionEnterOnce, pending ? "1" : "");
+        try {
+            runtime.flush_preferences();
+        } catch (const std::exception&) {
+            std::cerr << "open-annihilation: the choice could not be saved\n";
+        }
+    }
+
+    /// Ends the run so the next one enters, once, after a first install
+    /// that cannot be put in use where the player is. An entry a restart
+    /// already carried stops with `notice` instead.
+    ///
+    /// @param notice the sentence shown when the run will not restart
+    void restart_for_install(const std::string& notice) const {
+        Runtime::EntryState& current = state();
+        if (current.ask.carried) {
+            fail(notice);
+            return;
+        }
+        keep_one_shot(true);
+        std::cerr << "open-annihilation: entry: the new package is put in use by starting again\n";
+        current.phase = Runtime::EntryState::Phase::restarting;
+        current.handling_check = false;
+        current.notice.clear();
+        dismiss();
+        runtime.request_soft_restart();
     }
 
     /// The folder an installed expansion is mounted from.
@@ -378,21 +557,7 @@ struct EntryDriver {
     ///
     /// @param folder the expansion's folder
     /// @return true when a regular archive is in it
-    bool folder_has_archive(const fs::path& folder) const {
-        std::error_code failure;
-        if (!fs::is_directory(folder, failure) || failure)
-            return false;
-        const fs::directory_iterator end;
-        for (fs::directory_iterator cursor(folder, failure); !failure && cursor != end;
-             cursor.increment(failure)) {
-            std::error_code status;
-            if (!cursor->is_regular_file(status) || status)
-                continue;
-            if (!archive_suffix(cursor->path()).empty())
-                return true;
-        }
-        return false;
-    }
+    bool folder_has_archive(const fs::path& folder) const { return !first_archive(folder).empty(); }
 
     /// Mounts every archive in the expansion's folder.
     ///
@@ -490,6 +655,9 @@ struct EntryDriver {
     /// Takes files that are already on disk. A download that is still queued
     /// is not claimed here.
     ///
+    /// A copy this entry has just installed whose archives cannot be mounted
+    /// where the player is restarts the run once.
+    ///
     /// @param bundle the expansion
     /// @return true when the files were claimed, or the entry stopped
     bool claim(const oa::data::content_bundles::Bundle& bundle) const {
@@ -502,30 +670,13 @@ struct EntryDriver {
         if (!recorded && !folder_has_archive(folder))
             return false;
         if (!mount_archives(folder)) {
-            fail(std::string(k_not_installed));
+            if (state().download_queued)
+                restart_for_install(std::string(k_not_installed));
+            else
+                fail(std::string(k_not_installed));
             return true;
         }
         return turn_on(bundle);
-    }
-
-    /// The first catalogue that lists the package, when one does.
-    ///
-    /// @return true when `registry_id` names that catalogue
-    bool listed() const {
-        const std::shared_ptr<const content::Snapshot> snapshot =
-            runtime.content_service().snapshot();
-        if (!snapshot)
-            return false;
-        const Runtime::EntryState& current = state();
-        for (const content::Entry& row : snapshot->entries) {
-            if (row.package == nullptr || row.package->id != current.ask.key)
-                continue;
-            if (!current.ask.registry.empty() && row.registry != current.ask.registry)
-                continue;
-            state().registry_id = row.registry;
-            return true;
-        }
-        return false;
     }
 
     /// Reports whether any catalogue is still being fetched.
@@ -543,32 +694,56 @@ struct EntryDriver {
         return false;
     }
 
-    /// Makes sure a catalogue lists the package, asking for one refresh.
+    /// Asks the catalogues once more, as Check now does: the package a
+    /// catalogue listed earlier may no longer be its current one.
     ///
-    /// @return true when it is listed
-    bool ensure_listed() const {
-        if (listed()) {
-            clear_wait();
-            return true;
+    /// Every entry asks every registry, a quiet one too, so a machine nobody
+    /// watches takes a newly published package on its own. One of the
+    /// game's own checks asks only the registries the player added
+    /// (registry_reached): a check never contacts a built-in registry.
+    void ask_catalogues() const {
+        const bool own_check = state().ask.own_check;
+        if (!own_check) {
+            runtime.content_service().refresh(content::RefreshReason::check_now);
+            return;
         }
+        const std::shared_ptr<const content::Snapshot> snapshot =
+            runtime.content_service().snapshot();
+        if (!snapshot)
+            return;
+        for (const content::RegistryView& row : snapshot->registries) {
+            const bool built_in = row.registry.origin != oa::data::registry::Origin::added;
+            if (!registry_reached(built_in, own_check) || !row.registry.enabled)
+                continue;
+            runtime.content_service().refresh(
+                content::RefreshReason::check_now, row.registry.descriptor.id
+            );
+        }
+    }
+
+    /// Waits for the catalogues' answer about the package.
+    ///
+    /// Each entry asks once (ask_catalogues) and waits while a catalogue is
+    /// fetching, up to the unanswered wait. A catalogue that cannot be
+    /// asked, or that fails, leaves what it listed.
+    ///
+    /// @return true once the catalogues have answered or the wait ran out;
+    ///     false while the entry still waits
+    bool catalogues_answered() const {
         Runtime::EntryState& current = state();
         if (!current.refresh_asked) {
             current.refresh_asked = true;
-            runtime.content_service().refresh(content::RefreshReason::check_now);
+            clear_wait();
+            ask_catalogues();
         }
         if (refreshing()) {
             current.phase = Runtime::EntryState::Phase::fetch_wait;
             if (!timed_out())
                 return false;
-            // The refresh did not answer. Stop this wait; do not sit on it.
-            clear_wait();
-            fail(capitalise(k_no_package));
-            return false;
+            std::cerr << "open-annihilation: entry: the catalogues did not answer\n";
         }
-        if (listed())
-            return true;
-        fail(capitalise(k_no_package));
-        return false;
+        clear_wait();
+        return true;
     }
 
     /// Queues the Library's download of the package.
@@ -690,72 +865,116 @@ struct EntryDriver {
     /// Forgets the unanswered wait so the next check starts its own.
     void clear_wait() const { state().wait_began_ms = 0; }
 
-    /// Reports whether the update check and the catalogue check are both off.
-    ///
-    /// Off is the first-run choice that turns both the update check and the
-    /// catalogue check to never. Either one left on still counts as on.
-    ///
-    /// @return true when both are never
-    bool services_off() const {
-        const update::CheckMode updates = update::read_check_mode(runtime.preference_values_);
-        const content::CheckForUpdates catalogues =
-            content::read_check_for_updates(runtime.preference_values_);
-        return updates == update::CheckMode::never && catalogues == content::CheckForUpdates::never;
-    }
-
     /// The catalogue package this entry asks for, when a snapshot already lists it.
     ///
-    /// Does not ask for a refresh. A hit also records that catalogue's id.
+    /// Only registries the entry reaches count (registry_reached). Does not
+    /// ask for a refresh. A hit also records that catalogue's id. The fields
+    /// are copied while the snapshot is held.
     ///
-    /// @return the package, or null when none is listed
-    const oa::data::catalogue::Package* package_listed() const {
+    /// @return the package, or nothing when none is listed
+    std::optional<ListedPackage> package_listed() const {
         const std::shared_ptr<const content::Snapshot> snapshot =
             runtime.content_service().snapshot();
         if (!snapshot)
-            return nullptr;
+            return std::nullopt;
         const Runtime::EntryState& current = state();
         for (const content::Entry& row : snapshot->entries) {
             if (row.package == nullptr || row.package->id != current.ask.key)
                 continue;
             if (!current.ask.registry.empty() && row.registry != current.ask.registry)
                 continue;
+            if (!registry_reached(row.reviewed, current.ask.own_check))
+                continue;
+            ListedPackage listed;
+            listed.registry = row.registry;
+            listed.built_in = row.reviewed;
+            listed.version = row.package->version;
+            listed.release = row.package->release;
+            listed.sha256 = row.package->sha256;
             state().registry_id = row.registry;
-            return row.package;
+            return listed;
         }
-        return nullptr;
+        return std::nullopt;
     }
 
-    /// Reports whether the installed archive is older than the catalogue package.
+    /// Compares the expansion's record with the catalogue's package, once.
     ///
-    /// A missing archive is not older: the caller fetches it as a missing
-    /// package. A size that differs is older, and the bytes are not read.
+    /// The package's SHA-256 is the whole `.oaexp`'s, which the record names
+    /// once an install recorded it. A copy whose archive is gone is missing
+    /// whatever its record says.
     ///
     /// @param bundle the expansion
-    /// @param package the catalogue package
-    /// @return true when an archive is there and does not match
-    bool archive_older(
-        const oa::data::content_bundles::Bundle& bundle, const oa::data::catalogue::Package& package
+    /// @param package the catalogue's package
+    void compare_package(
+        const oa::data::content_bundles::Bundle& bundle, const ListedPackage& package
     ) const {
-        const fs::path archive = first_archive(expansion_folder(bundle));
-        if (archive.empty())
-            return false;
-        std::error_code error;
-        const uintmax_t size = fs::file_size(archive, error);
-        if (error || size != static_cast<uintmax_t>(package.size))
-            return true;
-        const std::optional<sha::Digest> digest = hash_exact(archive, package.size);
-        return !digest || *digest != package.sha256;
+        namespace bundles = oa::data::content_bundles;
+        Runtime::EntryState& current = state();
+        if (current.package_checked)
+            return;
+        current.package_checked = true;
+        current.extension_version = package.version;
+        current.extension_release = package.release;
+        const fs::path folder = expansion_folder(bundle);
+        const bundles::ContentRecord record = bundles::read_bundle_folder_record(folder, nullptr);
+        bundles::PackageCheck check =
+            bundles::check_installed_package(bundle, record, package.sha256);
+        if (check == bundles::PackageCheck::current && !folder_has_archive(folder))
+            check = bundles::PackageCheck::missing;
+        current.package_check = check;
     }
 
-    /// Reads the update and catalogue settings and the start's game-files check.
+    /// Writes what the compare found, and what the entry does about it, to the log.
     ///
-    /// Both checks off stop here: nothing is refreshed and no feed is asked.
-    /// A differing file of any bundle but the one being entered stops here
-    /// too. The package being entered is left to the catalogue check.
+    /// @param package the catalogue's package
+    void log_package(const ListedPackage& package) const {
+        namespace bundles = oa::data::content_bundles;
+        const Runtime::EntryState& current = state();
+        std::cerr << "open-annihilation: entry: " << current.ask.key << " release "
+                  << package.release;
+        if (current.package_check == bundles::PackageCheck::current) {
+            std::cerr << " is installed\n";
+            return;
+        }
+        switch (current.package_check) {
+        case bundles::PackageCheck::missing:
+            std::cerr << " is fetched: no copy is installed\n";
+            break;
+        case bundles::PackageCheck::unrecorded:
+            std::cerr << " is fetched: the copy installed names no package\n";
+            break;
+        default:
+            std::cerr << " is fetched: the copy installed is another package\n";
+            break;
+        }
+    }
+
+    /// Reads the online features' settings and the start's game-files check.
+    ///
+    /// A player asked about the online features waits for the answer. A
+    /// quiet run logs the question and goes on as such a run always has: a
+    /// headless or unattended run reads neither setting nor the files, and
+    /// "-y" stops when both checks are off. A differing file of any bundle
+    /// but the one being entered stops a player and "-y" here. The package
+    /// being entered is left to the catalogue check.
     void run_opening() const {
         Runtime::EntryState& current = state();
+        const OnlineChecks checks = read_online_checks(runtime.preference_values_);
+        const ServicesDecision decision = decide_services(checks, way());
+        if (decision == ServicesDecision::note)
+            note_question(current.ask.services_question);
+        if (!facing_player()) {
+            current.phase = Runtime::EntryState::Phase::update_wait;
+            return;
+        }
         current.services_known = true;
-        if (services_off()) {
+        if (decision == ServicesDecision::ask) {
+            current.services_on = false;
+            current.phase = Runtime::EntryState::Phase::services_ask;
+            ask_question(EntryQuestion::services, {});
+            return;
+        }
+        if (!checks.updates && !checks.catalogue) {
             current.services_on = false;
             current.stopped = true;
             fail(
@@ -782,6 +1001,31 @@ struct EntryDriver {
             return;
         }
         current.phase = Runtime::EntryState::Phase::update_wait;
+    }
+
+    /// Applies Turn on or Cancel.
+    ///
+    /// Turn on stores both checks on, tells the catalogues, saves, and goes
+    /// on to the game files and the update check.
+    ///
+    /// @param turn_on true for Turn on
+    void apply_services_answer(bool turn_on) const {
+        Runtime::EntryState& current = state();
+        if (current.phase != Runtime::EntryState::Phase::services_ask)
+            return;
+        OnlineChecks checks = read_online_checks(runtime.preference_values_);
+        const ServicesEffect effect = oa::app::apply_services_answer(
+            turn_on ? ServicesAnswer::turn_on : ServicesAnswer::cancel, checks
+        );
+        if (effect == ServicesEffect::stay) {
+            stay();
+            return;
+        }
+        runtime.turn_on_online_checks();
+        dismiss();
+        run_opening();
+        if (current.phase == Runtime::EntryState::Phase::update_wait)
+            finish_check();
     }
 
     /// Records a feed result a check actually produced.
@@ -811,7 +1055,473 @@ struct EntryDriver {
         }
     }
 
-    /// Claims files that are already present, or queues the download.
+    /// What a snapshot says for the decisions in expansion_entry.hpp.
+    ///
+    /// @param answered the snapshot
+    /// @return the answer
+    static FeedAnswer feed_answer(const update::CheckSnapshot& answered) noexcept {
+        switch (answered.state) {
+        case update::CheckState::up_to_date:
+            return FeedAnswer::up_to_date;
+        case update::CheckState::offered:
+            return answered.offer.release != nullptr ? FeedAnswer::newer : FeedAnswer::up_to_date;
+        case update::CheckState::failed:
+        case update::CheckState::cancelled:
+            return FeedAnswer::failed;
+        default:
+            return FeedAnswer::unanswered;
+        }
+    }
+
+    /// Goes on to the mod question, then the package.
+    void go_on() const {
+        Runtime::EntryState& current = state();
+        current.handling_check = false;
+        clear_wait();
+        consider_mod();
+    }
+
+    /// Takes the update check's answer.
+    ///
+    /// A player is asked Update or Cancel about a newer release, and Try
+    /// again or Cancel after a failed check. A quiet run logs the update
+    /// question and goes on without it.
+    ///
+    /// @param answered the snapshot
+    void take_answer(const update::CheckSnapshot& answered) const {
+        Runtime::EntryState& entry = state();
+        clear_wait();
+        note_feed(answered);
+        const FeedAnswer answer = feed_answer(answered);
+        if (answer == FeedAnswer::newer && runtime.update_ != nullptr)
+            runtime.update_->offered_release = answered.offer.release->release;
+        const std::string version =
+            answer == FeedAnswer::newer ? answered.offer.release->version_text : std::string();
+        switch (decide_update(answer, way())) {
+        case UpdateDecision::proceed:
+            go_on();
+            return;
+        case UpdateDecision::note:
+            note_question(fill_entry_token(entry.ask.question, "{version}", version));
+            entry.update_declined = true;
+            go_on();
+            return;
+        case UpdateDecision::ask_update:
+            entry.phase = Runtime::EntryState::Phase::update_ask;
+            ask_question(EntryQuestion::update, version);
+            return;
+        case UpdateDecision::ask_retry:
+            entry.feed_known = true;
+            entry.feed_failed = true;
+            entry.phase = Runtime::EntryState::Phase::retry_ask;
+            ask_question(EntryQuestion::retry, {});
+            return;
+        case UpdateDecision::wait:
+            return;
+        }
+    }
+
+    /// The check did not answer within the unanswered wait. A player is
+    /// asked Try again; a quiet run records that and goes on.
+    void not_answered() const {
+        Runtime::EntryState& entry = state();
+        clear_wait();
+        if (quiet()) {
+            entry.feed_known = facing_player();
+            entry.feed_failed = facing_player();
+            go_on();
+            return;
+        }
+        update::CheckSnapshot failed;
+        failed.state = update::CheckState::failed;
+        take_answer(failed);
+    }
+
+    /// Takes a result already in hand, or goes on.
+    ///
+    /// "-y" does not wait for a check that has not answered, and this pass
+    /// does not start one. An offer already published, including one read
+    /// from a feed stored earlier, is still noted.
+    void finish_without_waiting() const {
+        runtime.tick_update_check(false);
+        const uint64_t recorded = state().generation;
+        if (runtime.update_ != nullptr && runtime.update_->checker != nullptr) {
+            const update::CheckSnapshot answered = runtime.update_->checker->snapshot();
+            if (answered.generation > recorded && answered.state != update::CheckState::checking &&
+                answered.state == update::CheckState::offered &&
+                answered.offer.release != nullptr) {
+                take_answer(answered);
+                return;
+            }
+        }
+        go_on();
+    }
+
+    /// Reads the check this entry is waiting on.
+    ///
+    /// A run that will not check goes on in this same pass. Any other run
+    /// waits until the main menu has settled, then asks the feed for this
+    /// entry and waits for its answer: a snapshot copied while a check is
+    /// running is not an answer, a result published before this entry began
+    /// is not its question, and for a player neither is a feed stored on an
+    /// earlier start. A player whose check does not answer within the
+    /// unanswered wait is asked Try again; a quiet run goes on.
+    void finish_check() const {
+        // Before the settled-menu wait. A quiet run never creates the update
+        // state, so that wait would not end, and these runs expect the
+        // package on this same pass.
+        if (runtime.asked_update() == Runtime::AskedUpdate::pass) {
+            go_on();
+            return;
+        }
+        // One of the game's own checks starts no update check of its own
+        // against the live feed: only a feed the run named, such as one on
+        // this machine, is asked. A result already in hand is still taken.
+        if (state().ask.skip_unanswered_check ||
+            (state().ask.own_check && !runtime.options_.update_feed.has_value())) {
+            finish_without_waiting();
+            return;
+        }
+        runtime.tick_update_check();
+        if (!runtime.update_menu_ready()) {
+            if (timed_out())
+                not_answered();
+            return;
+        }
+        const uint64_t recorded = state().generation;
+        const bool player = !quiet();
+        // Copy the worker's snapshot, and let the tick log it, before deciding.
+        // The copy `tick_update_check` keeps can still say "checking" after the
+        // worker has published the offer.
+        auto synced = [this]() -> update::CheckSnapshot {
+            update::CheckSnapshot live = runtime.update_->checker->snapshot();
+            if (runtime.update_->seen_generation != live.generation) {
+                runtime.tick_update_check();
+                live = runtime.update_->checker->snapshot();
+            }
+            return live;
+        };
+        // A result this entry may take: published after it began, finished,
+        // and, for a player, fetched rather than read from a stored feed.
+        auto answer_of = [&](const update::CheckSnapshot& snapshot) {
+            return snapshot.generation > recorded &&
+                   snapshot.state != update::CheckState::checking &&
+                   !(player && snapshot.remembered);
+        };
+        if (runtime.update_ != nullptr && runtime.update_->checker != nullptr) {
+            const update::CheckSnapshot earlier = synced();
+            if (answer_of(earlier)) {
+                if (earlier.remembered) {
+                    clear_wait();
+                    go_on();
+                    return;
+                }
+                take_answer(earlier);
+                return;
+            }
+        }
+        runtime.start_update_check(true);
+        runtime.tick_update_check();
+        if (runtime.update_ == nullptr || runtime.update_->checker == nullptr) {
+            // The check cannot start. End the wait instead of sitting on it.
+            if (runtime.asked_update() == Runtime::AskedUpdate::pass) {
+                go_on();
+                return;
+            }
+            if (timed_out())
+                not_answered();
+            return;
+        }
+        const update::CheckSnapshot latest = synced();
+        if (!answer_of(latest)) {
+            if (runtime.asked_update() == Runtime::AskedUpdate::pass &&
+                latest.state != update::CheckState::checking) {
+                go_on();
+                return;
+            }
+            if (timed_out())
+                not_answered();
+            return;
+        }
+        if (latest.remembered) {
+            clear_wait();
+            go_on();
+            return;
+        }
+        take_answer(latest);
+    }
+
+    /// Applies Update or Cancel. A second apply does nothing.
+    ///
+    /// Update downloads the release where this copy installs it in place,
+    /// with the one-shot entry saved; where it is only offered on its page,
+    /// the page opens and the entry stops. There is no answer that enters
+    /// on the older version.
+    ///
+    /// @param take_update true for Update
+    void apply_answer(bool take_update) const {
+        Runtime::EntryState& current = state();
+        if (current.phase != Runtime::EntryState::Phase::update_ask)
+            return;
+        EntryCarry carry;
+        if (!take_update) {
+            static_cast<void>(apply_update_answer(UpdateAnswer::cancel, true, carry));
+            stay();
+            return;
+        }
+        const bool in_place = runtime.start_update_download();
+        const UpdateEffect effect = apply_update_answer(UpdateAnswer::update, in_place, carry);
+        if (effect == UpdateEffect::open_page) {
+            runtime.open_release_page();
+            stay();
+            return;
+        }
+        keep_one_shot(carry.pending);
+        dismiss();
+        current.phase = Runtime::EntryState::Phase::updating;
+        current.handling_check = true;
+        current.notice.clear();
+        clear_wait();
+    }
+
+    /// Applies Try again or Cancel.
+    ///
+    /// @param try_again true for Try again
+    void apply_retry(bool try_again) const {
+        Runtime::EntryState& current = state();
+        if (current.phase != Runtime::EntryState::Phase::retry_ask)
+            return;
+        if (apply_retry_answer(try_again ? RetryAnswer::try_again : RetryAnswer::cancel) ==
+            RetryEffect::stay) {
+            stay();
+            return;
+        }
+        dismiss();
+        current.feed_known = false;
+        current.feed_failed = false;
+        current.handling_check = true;
+        current.generation = 0;
+        if (runtime.update_ != nullptr && runtime.update_->checker != nullptr)
+            current.generation = runtime.update_->checker->snapshot().generation;
+        current.phase = Runtime::EntryState::Phase::update_wait;
+        clear_wait();
+        runtime.start_update_check(true);
+    }
+
+    /// Stops the update download this entry started, forgets the one-shot
+    /// entry and stays on the menu.
+    void cancel_update() const {
+        if (state().phase != Runtime::EntryState::Phase::updating)
+            return;
+        runtime.take_update_action(update::Act::cancel_download);
+        keep_one_shot(false);
+        stay();
+    }
+
+    /// Follows the update this entry started: its progress, then, once the
+    /// release is ready, the install that ends the run and starts the new
+    /// version with the one-shot entry.
+    void watch_update() const {
+        Runtime::EntryState& current = state();
+        const update::Centre centre = runtime.update_centre();
+        const update::CentreWords words =
+            update::centre_words(centre, oa::ui::library::TextHooks{nullptr, shown_word});
+        if (centre.stage == update::Stage::ready || centre.stage == update::Stage::scheduled) {
+            runtime.take_update_action(update::Act::install_now);
+            current.phase = Runtime::EntryState::Phase::restarting;
+            current.handling_check = false;
+            current.notice.clear();
+            dismiss();
+            return;
+        }
+        if (centre.stage == update::Stage::installing) {
+            current.phase = Runtime::EntryState::Phase::restarting;
+            current.handling_check = false;
+            dismiss();
+            return;
+        }
+        if (update_failed(centre.stage)) {
+            keep_one_shot(false);
+            std::string why = words.status;
+            if (!words.detail.empty())
+                why += ". " + words.detail;
+            fail(why);
+            return;
+        }
+        if (centre.stage == update::Stage::page_only || centre.stage == update::Stage::managed) {
+            keep_one_shot(false);
+            runtime.open_release_page();
+            stay();
+            return;
+        }
+        std::string line = words.status;
+        if (!words.detail.empty())
+            line += "\n" + words.detail;
+        const int32_t bar =
+            centre.percent >= 0 ? centre.percent * oa::ui::kit::question_progress_whole / 100 : 0;
+        show("expansion-updating", line, bar, false, true);
+    }
+
+    /// Forgets the one-shot entry and the remembered mod, and saves that.
+    void forget_switched_mod() const {
+        runtime.keep_plain_string(kExpansionEnterOnce, {});
+        runtime.keep_plain_string(kExpansionSwitchedFolder, {});
+        runtime.keep_plain_string(kExpansionSwitchedName, {});
+        try {
+            runtime.flush_preferences();
+        } catch (const std::exception&) {
+            std::cerr << "open-annihilation: the choice could not be saved\n";
+        }
+    }
+
+    /// Switches the mod off, remembers it, and ends the run so the next one enters.
+    ///
+    /// A quiet switch does not save the one-shot: that run enters again on
+    /// its own. A switch that fails forgets the one-shot and stays on the menu.
+    void switch_off_mod() const {
+        Runtime::EntryState& current = state();
+        EntryCarry carry;
+        const ModEffect effect =
+            apply_mod_entry_answer(ModAnswer::switch_off, carry, !current.ask.mod_switch_quietly);
+        if (effect != ModEffect::switch_off)
+            return;
+        const fs::path folder = path_from_utf8(current.ask.mod_folder);
+        if (carry.pending)
+            runtime.keep_plain_string(kExpansionEnterOnce, "1");
+        if (carry.remembered) {
+            runtime.keep_plain_string(kExpansionSwitchedFolder, kept_path(folder));
+            runtime.keep_plain_string(kExpansionSwitchedName, current.ask.mod_name);
+        }
+        std::string refusal;
+        if (!runtime.switch_to_mod_folder({}, refusal)) {
+            forget_switched_mod();
+            current.phase = Runtime::EntryState::Phase::stayed;
+            current.handling_check = false;
+            current.notice.clear();
+            return;
+        }
+        current.phase = Runtime::EntryState::Phase::mod_restart;
+        current.handling_check = false;
+        current.notice.clear();
+    }
+
+    /// Stays on the menu. The mod is not switched off.
+    void stay_without_switch() const {
+        Runtime::EntryState& current = state();
+        current.phase = Runtime::EntryState::Phase::stayed;
+        current.handling_check = false;
+        current.notice.clear();
+    }
+
+    /// The mod question, once the online features and the update have
+    /// passed, then the package.
+    ///
+    /// A run that cannot ask switches a mod off at once. A player is asked.
+    void consider_mod() const {
+        Runtime::EntryState& current = state();
+        if (!current.ask.mod_folder.empty() &&
+            (current.ask.mod_switch_quietly || !facing_player())) {
+            switch_off_mod();
+            return;
+        }
+        if (!current.ask.mod_question.empty()) {
+            current.handling_check = true;
+            current.phase = Runtime::EntryState::Phase::mod_ask;
+            show_pair(
+                "expansion-mod",
+                current.ask.mod_question,
+                current.ask.mod_switch_label,
+                current.ask.mod_cancel_label,
+                "switch-off",
+                "cancel"
+            );
+            return;
+        }
+        consider_package();
+    }
+
+    /// Applies Switch off and enter, or Cancel.
+    ///
+    /// @param switch_off true to switch the mod off
+    void apply_mod_answer(bool switch_off) const {
+        Runtime::EntryState& current = state();
+        if (current.phase != Runtime::EntryState::Phase::mod_ask)
+            return;
+        EntryCarry carry;
+        const ModEffect effect = apply_mod_entry_answer(
+            switch_off ? ModAnswer::switch_off : ModAnswer::cancel,
+            carry,
+            !current.ask.mod_switch_quietly
+        );
+        if (effect == ModEffect::stay) {
+            current.phase = Runtime::EntryState::Phase::stayed;
+            current.handling_check = false;
+            current.notice.clear();
+            return;
+        }
+        switch_off_mod();
+    }
+
+    /// Applies Switch on or Not now. Either answer forgets the remembered mod.
+    ///
+    /// @param switch_on true to switch the remembered mod on
+    void apply_leave_answer(bool switch_on) const {
+        Runtime::EntryState& current = state();
+        if (current.phase != Runtime::EntryState::Phase::leave_ask)
+            return;
+        const LeaveEffect effect =
+            apply_mod_leave(switch_on ? LeaveAnswer::switch_on : LeaveAnswer::not_now);
+        const std::optional<std::string> folder = runtime.plain_string(kExpansionSwitchedFolder);
+        if (effect.forget) {
+            runtime.keep_plain_string(kExpansionSwitchedFolder, {});
+            runtime.keep_plain_string(kExpansionSwitchedName, {});
+        }
+        current.phase = Runtime::EntryState::Phase::stayed;
+        current.handling_check = false;
+        current.notice.clear();
+        if (!effect.switch_on || !folder.has_value() || folder->empty()) {
+            try {
+                runtime.flush_preferences();
+            } catch (const std::exception&) {
+                std::cerr << "open-annihilation: the choice could not be saved\n";
+            }
+            if (effect.switch_on)
+                std::cerr << "open-annihilation: the mod was not switched back on: the folder is "
+                             "not there\n";
+            return;
+        }
+        std::error_code missing;
+        const fs::path path = path_from_utf8(*folder);
+        if (!fs::is_directory(path, missing) || missing) {
+            try {
+                runtime.flush_preferences();
+            } catch (const std::exception&) {
+                std::cerr << "open-annihilation: the choice could not be saved\n";
+            }
+            std::cerr
+                << "open-annihilation: the mod was not switched back on: the folder is not there\n";
+            return;
+        }
+        std::string refusal;
+        if (!runtime.switch_to_mod_folder(path, refusal)) {
+            try {
+                runtime.flush_preferences();
+            } catch (const std::exception&) {
+                std::cerr << "open-annihilation: the choice could not be saved\n";
+            }
+            std::cerr << "open-annihilation: the mod was not switched back on: " << refusal << '\n';
+        }
+    }
+
+    /// Brings the package up to date and turns it on.
+    ///
+    /// The entry waits for the catalogues' answer. The catalogue's package
+    /// is fetched and installed when the expansion's record names another
+    /// package or none, or no copy is installed; a record that names it
+    /// fetches nothing (decide_package_fetch). Only the registries the entry
+    /// reaches count: one of the game's own checks never takes the package
+    /// from a built-in registry. A copy no such registry lists is used as it
+    /// is, and a missing package no such registry lists stops the entry.
     void consider_package() const {
         try {
             namespace bundles = oa::data::content_bundles;
@@ -828,223 +1538,54 @@ struct EntryDriver {
                 watch(*bundle);
                 return;
             }
-            if (facing_player()) {
-                // "-y" does not wait for a catalogue that has not answered, and
-                // then keeps the copy already on disk. A catalogue that has
-                // answered with a newer copy is fetched either way.
-                const bool straight = state().ask.skip_unanswered_check;
-                const oa::data::catalogue::Package* package = package_listed();
-                if (package == nullptr && !straight) {
-                    if (!ensure_listed())
-                        return;
-                    package = package_listed();
+            // The game folder itself holds the expansion's files, the known
+            // bytes every package of it carries: nothing is fetched.
+            if (holds_id(runtime.kept_content_bundles(), state().ask.key)) {
+                state().package_checked = true;
+                state().package_check = bundles::PackageCheck::current;
+                if (const std::optional<ListedPackage> listed = package_listed()) {
+                    state().extension_version = listed->version;
+                    state().extension_release = listed->release;
                 }
-                if (package != nullptr && !state().extension_compared) {
-                    state().extension_version = package->version;
-                    state().extension_older = archive_older(*bundle, *package);
-                    state().extension_compared = true;
-                }
-                if (state().extension_older) {
-                    state().extension_known = true;
-                    queue();
-                    return;
-                }
+                std::cerr << "open-annihilation: entry: " << state().ask.key
+                          << " is in the game folder\n";
+                turn_on(*bundle);
+                return;
             }
-            if (claim(*bundle))
+            if (!catalogues_answered())
                 return;
-            if (state().phase == Runtime::EntryState::Phase::failed)
+            const std::optional<ListedPackage> package = package_listed();
+            if (!package) {
+                // No registry the entry reaches lists the package: a copy
+                // installed is used as it is, and a missing one stops
+                // (decide_package_fetch).
+                if (claim(*bundle))
+                    return;
+                if (state().phase == Runtime::EntryState::Phase::failed)
+                    return;
+                fail(capitalise(k_no_package));
                 return;
-            if (!ensure_listed())
-                return;
+            }
+            compare_package(*bundle, *package);
+            state().extension_known = true;
+            const PackageAction action =
+                decide_package_fetch(copy_state(state().package_check), true);
+            log_package(*package);
+            if (action == PackageAction::use_installed) {
+                if (claim(*bundle))
+                    return;
+                if (state().phase == Runtime::EntryState::Phase::failed)
+                    return;
+            }
             queue();
         } catch (const std::exception&) {
             fail(std::string(k_not_installed));
         }
     }
 
-    /// Takes a result already in hand, or goes on to the package.
-    ///
-    /// A check that has not answered does not hold the entry, and this pass
-    /// does not start one. An offer already published, including one read
-    /// from a feed stored earlier, is still asked. Anything else considers
-    /// the package, so a missing package is still fetched.
-    void finish_without_waiting() const {
-        runtime.tick_update_check(false);
-        const uint64_t recorded = state().generation;
-        if (runtime.update_ != nullptr && runtime.update_->checker != nullptr) {
-            const update::CheckSnapshot answered = runtime.update_->checker->snapshot();
-            if (answered.generation > recorded && answered.state != update::CheckState::checking) {
-                if (answered.state == update::CheckState::offered &&
-                    answered.offer.release != nullptr) {
-                    runtime.update_->offered_release = answered.offer.release->release;
-                    // Nobody is at the keyboard for this entry. Decline and go on.
-                    if (facing_player() && state().ask.skip_unanswered_check) {
-                        note_feed(answered);
-                        state().update_declined = true;
-                        state().handling_check = false;
-                        clear_wait();
-                        consider_package();
-                        return;
-                    }
-                    state().phase = Runtime::EntryState::Phase::update_ask;
-                    show("expansion-update", state().ask.question, -1, true, false);
-                    return;
-                }
-                state().handling_check = false;
-                consider_package();
-                return;
-            }
-        }
-        state().handling_check = false;
-        consider_package();
-    }
-
-    /// Reads the check this entry is waiting on.
-    ///
-    /// A run that will not check goes on to the package in this same pass.
-    /// Any other run waits until the main menu has settled. A snapshot
-    /// copied while a check is still running is not an answer: the entry
-    /// waits until the check already running, or the one it starts here,
-    /// has offered a release, found this one current, or failed. A result
-    /// published before this entry began is not its question. An ask that
-    /// must not wait for an unanswered check goes on in this pass instead.
-    void finish_check() const {
-        // Before the settled-menu wait. A quiet run never creates the update
-        // state, so that wait would not end, and these checks expect the
-        // package on this same pass.
-        if (runtime.asked_update() == Runtime::AskedUpdate::pass) {
-            state().handling_check = false;
-            consider_package();
-            return;
-        }
-        // "-y", and a check run, do not start a feed check that has not
-        // answered. A result already in hand is still taken.
-        if (state().ask.skip_unanswered_check) {
-            finish_without_waiting();
-            return;
-        }
-        runtime.tick_update_check();
-        if (!runtime.update_menu_ready()) {
-            if (!timed_out())
-                return;
-            clear_wait();
-            state().handling_check = false;
-            consider_package();
-            return;
-        }
-
-        const uint64_t recorded = state().generation;
-        // Copy the worker's snapshot, and let the tick log it, before deciding.
-        // The copy `tick_update_check` keeps can still say "checking" after the
-        // worker has published the offer.
-        auto synced = [this]() -> update::CheckSnapshot {
-            update::CheckSnapshot live = runtime.update_->checker->snapshot();
-            if (runtime.update_->seen_generation != live.generation) {
-                runtime.tick_update_check();
-                live = runtime.update_->checker->snapshot();
-            }
-            return live;
-        };
-        auto accept = [&](const update::CheckSnapshot& answered) {
-            Runtime::EntryState& entry = state();
-            clear_wait();
-            note_feed(answered);
-            if (answered.remembered) {
-                entry.handling_check = false;
-                consider_package();
-                return;
-            }
-            if (answered.state == update::CheckState::offered &&
-                answered.offer.release != nullptr) {
-                runtime.update_->offered_release = answered.offer.release->release;
-                if (facing_player() && entry.ask.skip_unanswered_check) {
-                    entry.update_declined = true;
-                    entry.handling_check = false;
-                    consider_package();
-                    return;
-                }
-                entry.phase = Runtime::EntryState::Phase::update_ask;
-                show("expansion-update", entry.ask.question, -1, true, false);
-                return;
-            }
-            entry.handling_check = false;
-            consider_package();
-        };
-
-        if (runtime.update_ != nullptr && runtime.update_->checker != nullptr) {
-            const update::CheckSnapshot earlier = synced();
-            if (earlier.generation > recorded && earlier.state != update::CheckState::checking) {
-                accept(earlier);
-                return;
-            }
-        }
-
-        runtime.start_update_check(true);
-        runtime.tick_update_check();
-        if (runtime.update_ == nullptr || runtime.update_->checker == nullptr) {
-            // The check cannot start. End the wait instead of sitting on it.
-            if (runtime.asked_update() == Runtime::AskedUpdate::pass || timed_out()) {
-                clear_wait();
-                state().handling_check = false;
-                consider_package();
-            }
-            return;
-        }
-
-        const update::CheckSnapshot latest = synced();
-        if (latest.state == update::CheckState::checking) {
-            if (!timed_out())
-                return;
-            // The feed was asked and did not answer. Say so, then go on.
-            clear_wait();
-            state().feed_known = true;
-            state().feed_failed = true;
-            state().handling_check = false;
-            consider_package();
-            return;
-        }
-        if (latest.generation <= recorded) {
-            if (runtime.asked_update() != Runtime::AskedUpdate::pass) {
-                if (!timed_out())
-                    return;
-                clear_wait();
-                state().handling_check = false;
-                consider_package();
-                return;
-            }
-            state().handling_check = false;
-            consider_package();
-            return;
-        }
-        accept(latest);
-    }
-
-    /// Applies Update or Not now. A second apply does nothing.
-    ///
-    /// @param take_update true to download the offered release
-    void apply_answer(bool take_update) const {
-        Runtime::EntryState& current = state();
-        if (current.phase != Runtime::EntryState::Phase::update_ask)
-            return;
-        if (take_update) {
-            runtime.take_update_action(update::Act::download);
-            current.handling_check = false;
-            current.phase = Runtime::EntryState::Phase::stayed;
-            current.notice.clear();
-            return;
-        }
-        current.handling_check = false;
-        current.notice.clear();
-        if (!facing_player()) {
-            current.phase = Runtime::EntryState::Phase::stayed;
-            return;
-        }
-        current.update_declined = true;
-        consider_package();
-    }
-
-    /// Records where the check stood. advance starts one once the main menu
-    /// has settled, so an entry that begins before that waits.
+    /// Records where the check stood. advance reads the online features and
+    /// the files next, and starts the update check once the main menu has
+    /// settled, so an entry that begins before that waits.
     ///
     /// @param ask the package and the sentences
     void begin(const ExpansionEntryAsk& ask) const {
@@ -1067,52 +1608,41 @@ struct EntryDriver {
         current.update_offered = false;
         current.offered_version.clear();
         current.update_declined = false;
+        current.running_version = update::this_build({}).version_text;
         current.extension_known = false;
         current.extension_percent = -1;
         current.extension_installed = false;
         current.extension_current = false;
         current.extension_version.clear();
-        current.extension_compared = false;
-        current.extension_older = false;
+        current.extension_release = 0;
+        current.package_checked = false;
+        current.package_check = oa::data::content_bundles::PackageCheck::missing;
         current.stopped = false;
         current.wait_began_ms = 0;
         current.generation = 0;
         if (runtime.update_ != nullptr && runtime.update_->checker != nullptr)
             current.generation = runtime.update_->checker->snapshot().generation;
-        // A check keeps the path it has today. A player reads the services
-        // and the game files before that path starts.
-        current.phase = facing_player() ? Runtime::EntryState::Phase::opening
-                                        : Runtime::EntryState::Phase::update_wait;
+        // A mod the command line named is never switched off, even when the
+        // folder is empty, so the entry can never go on: it says so before
+        // anything is asked or changed. A player reads one button. A run
+        // that cannot ask stays on the menu and does not restart.
+        if (ask.mod_command_line) {
+            if (ask.mod_switch_quietly || !facing_player()) {
+                stay_without_switch();
+                return;
+            }
+            current.handling_check = true;
+            current.phase = Runtime::EntryState::Phase::command_ask;
+            show("expansion-command", ask.mod_question, -1, true, false);
+            return;
+        }
+        current.phase = Runtime::EntryState::Phase::opening;
     }
 
-    /// Moves the entry on by one step.
+    /// Copies the entry onto the status the caller reads.
     ///
     /// @param[out] status where it stands
-    void advance(ExpansionEntryStatus& status) const {
-        if (state().phase == Runtime::EntryState::Phase::opening)
-            run_opening();
-        // A stop for services or a bad file must not pump a download or a refresh.
-        if (!state().stopped)
-            runtime.tick_content();
-        switch (state().phase) {
-        case Runtime::EntryState::Phase::update_wait:
-            finish_check();
-            break;
-        case Runtime::EntryState::Phase::fetch_wait:
-        case Runtime::EntryState::Phase::progress:
-            consider_package();
-            break;
-        case Runtime::EntryState::Phase::update_ask:
-            // A headless or unattended run has nobody to press Not now.
-            if (!facing_player() && timed_out()) {
-                clear_wait();
-                apply_answer(false);
-                dismiss();
-            }
-            break;
-        default:
-            break;
-        }
+    void publish(ExpansionEntryStatus& status) const {
         const Runtime::EntryState& current = state();
         status.notice = current.notice;
         status.services_known = current.services_known;
@@ -1125,11 +1655,15 @@ struct EntryDriver {
         status.update_offered = current.update_offered;
         status.offered_version = current.offered_version;
         status.update_declined = current.update_declined;
+        status.running_version = current.running_version;
         status.extension_known = current.extension_known;
         status.extension_percent = current.extension_percent;
         status.extension_installed = current.extension_installed;
         status.extension_current = current.extension_current;
         status.extension_version = current.extension_version;
+        status.extension_release = current.extension_release;
+        status.extension_new =
+            current.phase == Runtime::EntryState::Phase::ready && current.extension_installed;
         status.stopped = current.stopped;
         switch (current.phase) {
         case Runtime::EntryState::Phase::ready:
@@ -1137,6 +1671,22 @@ struct EntryDriver {
             break;
         case Runtime::EntryState::Phase::update_ask:
             status.step = ExpansionEntryStep::asking;
+            break;
+        case Runtime::EntryState::Phase::services_ask:
+            status.step = ExpansionEntryStep::services_asking;
+            break;
+        case Runtime::EntryState::Phase::retry_ask:
+            status.step = ExpansionEntryStep::retry_asking;
+            break;
+        case Runtime::EntryState::Phase::updating:
+            status.step = ExpansionEntryStep::updating;
+            break;
+        case Runtime::EntryState::Phase::mod_ask:
+            status.step = ExpansionEntryStep::mod_asking;
+            break;
+        case Runtime::EntryState::Phase::mod_restart:
+        case Runtime::EntryState::Phase::restarting:
+            status.step = ExpansionEntryStep::restarting;
             break;
         case Runtime::EntryState::Phase::stayed:
             status.step = ExpansionEntryStep::stayed;
@@ -1149,14 +1699,56 @@ struct EntryDriver {
             break;
         }
     }
+
+    /// Moves the entry on by one step.
+    ///
+    /// @param[out] status where it stands
+    void advance(ExpansionEntryStatus& status) const {
+        switch (state().phase) {
+        case Runtime::EntryState::Phase::mod_ask:
+        case Runtime::EntryState::Phase::command_ask:
+        case Runtime::EntryState::Phase::leave_ask:
+        case Runtime::EntryState::Phase::mod_restart:
+        case Runtime::EntryState::Phase::restarting:
+        case Runtime::EntryState::Phase::services_ask:
+        case Runtime::EntryState::Phase::update_ask:
+        case Runtime::EntryState::Phase::retry_ask:
+            publish(status);
+            return;
+        default:
+            break;
+        }
+        if (state().phase == Runtime::EntryState::Phase::opening)
+            run_opening();
+        // A stop for services or a bad file must not pump a download or a refresh.
+        if (!state().stopped)
+            runtime.tick_content();
+        switch (state().phase) {
+        case Runtime::EntryState::Phase::update_wait:
+            finish_check();
+            break;
+        case Runtime::EntryState::Phase::updating:
+            watch_update();
+            break;
+        case Runtime::EntryState::Phase::fetch_wait:
+        case Runtime::EntryState::Phase::progress:
+            consider_package();
+            break;
+        default:
+            break;
+        }
+        publish(status);
+    }
 };
 
 void Runtime::destroy_entry_state(EntryState* state) noexcept {
     delete state;
 }
 
-void Runtime::entry_question_closed(Runtime* runtime) noexcept {
+void Runtime::entry_question_closed(Runtime* runtime, const void* closing) noexcept {
     if (runtime == nullptr || runtime->entry_ == nullptr)
+        return;
+    if (closing != static_cast<const void*>(runtime->entry_->question))
         return;
     runtime->entry_->question = nullptr;
     runtime->entry_->shown_word.clear();
@@ -1168,13 +1760,32 @@ bool Runtime::entry_question_tick(Runtime* runtime) {
     if (runtime->match_ == nullptr && runtime->screen_ != Screen::match)
         return false;
     EntryState& current = *runtime->entry_;
+    EntryDriver driver(*runtime);
     switch (current.phase) {
+    case EntryState::Phase::services_ask:
     case EntryState::Phase::update_ask:
+    case EntryState::Phase::retry_ask:
     case EntryState::Phase::progress:
     case EntryState::Phase::fetch_wait:
         current.phase = EntryState::Phase::stayed;
         current.handling_check = false;
         current.notice.clear();
+        return true;
+    case EntryState::Phase::updating:
+        // A match pauses the download; the entry does not wait through it.
+        driver.keep_one_shot(false);
+        current.phase = EntryState::Phase::stayed;
+        current.handling_check = false;
+        current.notice.clear();
+        return true;
+    case EntryState::Phase::mod_ask:
+        driver.apply_mod_answer(false);
+        return true;
+    case EntryState::Phase::command_ask:
+        driver.stay_without_switch();
+        return true;
+    case EntryState::Phase::leave_ask:
+        driver.apply_leave_answer(false);
         return true;
     default:
         return false;
@@ -1185,7 +1796,29 @@ bool Runtime::entry_update_answered(Runtime* runtime, int32_t button) {
     if (runtime == nullptr || runtime->entry_ == nullptr)
         return true;
     EntryDriver driver(*runtime);
-    driver.apply_answer(button == 0);
+    switch (runtime->entry_->phase) {
+    case EntryState::Phase::command_ask:
+        driver.stay_without_switch();
+        break;
+    case EntryState::Phase::mod_ask:
+        driver.apply_mod_answer(button == 0);
+        break;
+    case EntryState::Phase::leave_ask:
+        driver.apply_leave_answer(button == 0);
+        break;
+    case EntryState::Phase::services_ask:
+        driver.apply_services_answer(button == 0);
+        break;
+    case EntryState::Phase::retry_ask:
+        driver.apply_retry(button == 0);
+        break;
+    case EntryState::Phase::updating:
+        driver.cancel_update();
+        break;
+    default:
+        driver.apply_answer(button == 0);
+        break;
+    }
     return true;
 }
 
@@ -1213,7 +1846,13 @@ void Runtime::answer_expansion_entry(bool take_update) {
         return;
     EntryDriver driver(*this);
     driver.apply_answer(take_update);
-    driver.dismiss();
+}
+
+void Runtime::restart_expansion_entry(const std::string& notice) {
+    if (entry_ == nullptr || entry_->phase != EntryState::Phase::ready)
+        return;
+    EntryDriver driver(*this);
+    driver.restart_for_install(notice);
 }
 
 bool Runtime::expansion_entry_holds_check() const noexcept {
@@ -1231,14 +1870,64 @@ bool Runtime::expansion_entry_busy() const noexcept {
         return false;
     switch (entry_->phase) {
     case EntryState::Phase::opening:
+    case EntryState::Phase::services_ask:
     case EntryState::Phase::update_wait:
     case EntryState::Phase::update_ask:
+    case EntryState::Phase::retry_ask:
+    case EntryState::Phase::updating:
     case EntryState::Phase::fetch_wait:
     case EntryState::Phase::progress:
+    case EntryState::Phase::mod_ask:
+    case EntryState::Phase::command_ask:
+    case EntryState::Phase::leave_ask:
         return true;
     default:
         return false;
     }
+}
+
+void Runtime::ask_remembered_mod(
+    const std::string& question, const std::string& on_label, const std::string& later_label
+) {
+    if (expansion_entry_busy())
+        return;
+    if (entry_ == nullptr)
+        entry_.reset(new EntryState());
+    EntryDriver driver(*this);
+    driver.dismiss();
+    EntryState& current = *entry_;
+    current.leave_question = question;
+    current.leave_on_label = on_label;
+    current.leave_later_label = later_label;
+    current.phase = EntryState::Phase::leave_ask;
+    current.handling_check = true;
+    current.extension_percent = -1;
+    current.notice = question;
+    driver.show_pair("expansion-leave", question, on_label, later_label, "switch-on", "not-now");
+}
+
+bool Runtime::remembered_mod_question_open() const noexcept {
+    return entry_ != nullptr && entry_->phase == EntryState::Phase::leave_ask;
+}
+
+void Runtime::answer_remembered_mod(bool switch_on) {
+    if (entry_ == nullptr)
+        return;
+    EntryDriver driver(*this);
+    driver.apply_leave_answer(switch_on);
+    driver.dismiss();
+}
+
+bool Runtime::expansion_mod_question_open() const noexcept {
+    return entry_ != nullptr && entry_->phase == EntryState::Phase::mod_ask;
+}
+
+void Runtime::answer_expansion_mod_question(bool switch_off) {
+    if (entry_ == nullptr)
+        return;
+    EntryDriver driver(*this);
+    driver.apply_mod_answer(switch_off);
+    driver.dismiss();
 }
 
 void begin_expansion_entry(Runtime& runtime, const ExpansionEntryAsk& ask) {
@@ -1253,6 +1942,10 @@ void answer_expansion_entry(Runtime& runtime, bool take_update) {
     runtime.answer_expansion_entry(take_update);
 }
 
+void restart_expansion_entry(Runtime& runtime, const std::string& notice) {
+    runtime.restart_expansion_entry(notice);
+}
+
 void expansion_entry_show_on_screen(Runtime& runtime, bool on_screen) {
     runtime.expansion_entry_show_on_screen(on_screen);
 }
@@ -1263,6 +1956,82 @@ bool expansion_entry_busy(const Runtime& runtime) {
 
 const oa::data::languages::Language& expansion_entry_language(const Runtime& runtime) {
     return runtime.shown_language();
+}
+
+void ask_remembered_mod(
+    Runtime& runtime,
+    const std::string& question,
+    const std::string& on_label,
+    const std::string& later_label
+) {
+    runtime.ask_remembered_mod(question, on_label, later_label);
+}
+
+bool remembered_mod_question_open(const Runtime& runtime) {
+    return runtime.remembered_mod_question_open();
+}
+
+void answer_remembered_mod(Runtime& runtime, bool switch_on) {
+    runtime.answer_remembered_mod(switch_on);
+}
+
+bool expansion_mod_question_open(const Runtime& runtime) {
+    return runtime.expansion_mod_question_open();
+}
+
+void answer_expansion_mod_question(Runtime& runtime, bool switch_off) {
+    runtime.answer_expansion_mod_question(switch_off);
+}
+
+ActiveMod active_mod(const Runtime& runtime) {
+    ActiveMod playing;
+    // A Developer Mode change layers a profile over the base game without a
+    // chosen mod. Only a profile or a folder this run was given counts.
+    const bool profile_set = runtime.options_.mod_profile != nullptr;
+    const bool layered = !runtime.options_.layered_mod_folder.empty();
+    playing.active = chosen_mod(profile_set, layered);
+    if (profile_set) {
+        playing.has_profile = true;
+        playing.profile_id = runtime.options_.mod_profile->id;
+        playing.profile_name = runtime.options_.mod_profile->name;
+    }
+    if (layered)
+        playing.folder = oa::platform::path_to_utf8(runtime.options_.layered_mod_folder);
+    else if (playing.active && !runtime.options_.mod_file.empty())
+        playing.folder = oa::platform::path_to_utf8(runtime.options_.mod_file.parent_path());
+    return playing;
+}
+
+void keep_expansion_preference(Runtime& runtime, std::string_view key, std::string_view value) {
+    runtime.keep_plain_string(key, value);
+}
+
+std::optional<std::string> expansion_preference(const Runtime& runtime, std::string_view key) {
+    return runtime.plain_string(key);
+}
+
+bool switch_active_mod(Runtime& runtime, std::string_view folder, std::string& refusal) {
+    if (folder.empty())
+        return runtime.switch_to_mod_folder({}, refusal);
+    return runtime.switch_to_mod_folder(path_from_utf8(folder), refusal);
+}
+
+bool expansion_will_restart(const Runtime& runtime) noexcept {
+    return runtime.soft_restart_requested();
+}
+
+void save_expansion_preferences(Runtime& runtime) {
+    runtime.flush_preferences();
+}
+
+void end_expansion_run(Runtime& runtime) {
+    runtime.quit_application(nullptr);
+}
+
+uint32_t active_mutator_count(const Runtime& runtime) {
+    const oa::data::mutators::Loadout* loadout = runtime.match_loadout();
+    const std::size_t applied = loadout != nullptr ? loadout->entries.size() : 0;
+    return carried_mutator_count(runtime.room_mutators().size(), applied);
 }
 
 } // namespace oa::app

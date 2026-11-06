@@ -8450,6 +8450,14 @@
 	it=Open Annihilation;
 	}
 
+[Open Annihilation could not check for updates.]
+	{
+	de=Open Annihilation konnte nicht nach Updates suchen.;
+	fr=Open Annihilation n'a pas pu chercher de mises à jour.;
+	es=Open Annihilation no pudo buscar actualizaciones.;
+	it=Open Annihilation non è riuscito a cercare aggiornamenti.;
+	}
+
 [Open Annihilation could not read {file}. Connect it again and tap Continue. What was copied is kept.]
 	{
 	de=Open Annihilation konnte {file} nicht lesen. Schließ es wieder an und tippe Weiter. Das Kopierte bleibt erhalten.;
@@ -8544,6 +8552,14 @@
 	fr=Open Annihilation {version} est sorti;
 	es=Open Annihilation {version} ya está;
 	it=Open Annihilation {version} è uscito;
+	}
+
+[Open Annihilation {version} is out. The Boneyards needs the latest version.]
+	{
+	de=Open Annihilation {version} ist da. The Boneyards braucht die neueste Version.;
+	fr=Open Annihilation {version} est sorti. The Boneyards a besoin de la dernière version.;
+	es=Open Annihilation {version} ya está disponible. The Boneyards necesita la última versión.;
+	it=Open Annihilation {version} è uscito. The Boneyards ha bisogno dell'ultima versione.;
 	}
 
 [Open Annihilation's own settings: controls, graphics, the interface's size, downloads and your files.]
@@ -10954,12 +10970,44 @@
 	it=The Boneyards;
 	}
 
+[The Boneyards is installed. Start Open Annihilation again to enter the Boneyards.]
+	{
+	de=The Boneyards ist installiert. Starte Open Annihilation neu, um The Boneyards zu betreten.;
+	fr=The Boneyards est installé. Relance Open Annihilation pour entrer dans The Boneyards.;
+	es=The Boneyards está instalado. Vuelve a iniciar Open Annihilation para entrar en The Boneyards.;
+	it=The Boneyards è installato. Riavvia Open Annihilation per entrare in The Boneyards.;
+	}
+
+[The Boneyards launches and reports games only on 3.1c, Core Contingency and Battle Tactics. Switch your mod off to play in the Boneyards.]
+	{
+	de=The Boneyards startet und wertet Spiele nur auf 3.1c, Core Contingency und Battle Tactics. Schalte deinen Mod aus, um in The Boneyards zu spielen.;
+	fr=The Boneyards lance et relève les parties seulement sur 3.1c, Core Contingency et Battle Tactics. Désactive ton mod pour jouer dans The Boneyards.;
+	es=The Boneyards lanza y anota partidas solo en 3.1c, Core Contingency y Battle Tactics. Desactiva tu mod para jugar en The Boneyards.;
+	it=The Boneyards avvia e registra le partite solo su 3.1c, Core Contingency e Battle Tactics. Disattiva la tua mod per giocare in The Boneyards.;
+	}
+
+[The Boneyards needs Open Annihilation's online features: update checks and the content catalogue. Turn them on and continue?]
+	{
+	de=The Boneyards braucht die Online-Funktionen von Open Annihilation: die Suche nach Updates und den Inhaltskatalog. Schaltest du sie ein und machst weiter?;
+	fr=The Boneyards a besoin des fonctions en ligne d'Open Annihilation : la recherche de mises à jour et le catalogue de contenu. Tu les actives et tu continues ?;
+	es=The Boneyards necesita las funciones en línea de Open Annihilation: la búsqueda de actualizaciones y el catálogo de contenido. ¿Las activas y continúas?;
+	it=The Boneyards ha bisogno delle funzioni in linea di Open Annihilation: il controllo degli aggiornamenti e il catalogo dei contenuti. Le attivi e continui?;
+	}
+
 [The Boneyards needs by.ccx and the Boneyards folder.]
 	{
 	de=The Boneyards braucht by.ccx und den Ordner Boneyards.;
 	fr=The Boneyards a besoin de by.ccx et du dossier Boneyards.;
 	es=The Boneyards necesita by.ccx y la carpeta Boneyards.;
 	it=The Boneyards ha bisogno di by.ccx e della cartella Boneyards.;
+	}
+
+[The Boneyards plays Total Annihilation without mods. Switch {mod} off and enter the Boneyards?]
+	{
+	de=The Boneyards spielt Total Annihilation ohne Mods. Schaltest du {mod} aus und betrittst The Boneyards?;
+	fr=The Boneyards se joue sur Total Annihilation sans mods. Tu désactives {mod} et tu entres dans The Boneyards ?;
+	es=The Boneyards juega Total Annihilation sin mods. ¿Desactivas {mod} y entras en The Boneyards?;
+	it=The Boneyards gioca a Total Annihilation senza mod. Disattivi {mod} ed entri in The Boneyards?;
 	}
 
 [The Library is where you get mods, map packs and languages. Settings is where you change how Open Annihilation looks and plays. Everything else on this menu is the game's own.]
@@ -12264,6 +12312,14 @@
 	fr=Éteindre {name} ?;
 	es=¿Apagar {name}?;
 	it=Spegnere {name}?;
+	}
+
+[Turn on]
+	{
+	de=Einschalten;
+	fr=Activer;
+	es=Activar;
+	it=Attiva;
 	}
 
 [Turn on and load]
@@ -19738,6 +19794,14 @@
 	it=Poi avvia Open Annihilation da Applicazioni.;
 	}
 
+[Start Open Annihilation without the mod on its command line to enter the Boneyards.]
+	{
+	de=Starte Open Annihilation ohne den Mod auf der Befehlszeile, um The Boneyards zu betreten.;
+	fr=Lance Open Annihilation sans le mod sur sa ligne de commande pour entrer dans The Boneyards.;
+	es=Inicia Open Annihilation sin el mod en su línea de órdenes para entrar en The Boneyards.;
+	it=Avvia Open Annihilation senza la mod sulla riga di comando per entrare in The Boneyards.;
+	}
+
 [Started {version}]
 	{
 	de={version} gestartet;
@@ -20704,6 +20768,30 @@
 	fr=Désactiver;
 	es=Desactivar;
 	it=Disattiva;
+	}
+
+[Switch off and enter]
+	{
+	de=Ausschalten und betreten;
+	fr=Désactiver et entrer;
+	es=Desactivar y entrar;
+	it=Disattiva ed entra;
+	}
+
+[Switch on]
+	{
+	de=Einschalten;
+	fr=Activer;
+	es=Activar;
+	it=Attiva;
+	}
+
+[Switch {mod} back on?]
+	{
+	de={mod} wieder einschalten?;
+	fr=Tu réactives {mod} ?;
+	es=¿Vuelves a activar {mod}?;
+	it=Riattivi {mod}?;
 	}
 
 [The folder kept for Roll back ({backup}) is removed.]
@@ -22844,12 +22932,12 @@
 	it=Chiudi megamappa;
 	}
 
-[Closes the megamap and centres on the pointer]
+[Closes the megamap and zooms in at the pointer]
 	{
-	de=Schließt die Großkarte und zentriert auf den Zeiger;
-	fr=Ferme la mégacarte et centre sur le pointeur;
-	es=Cierra el megamapa y centra en el puntero;
-	it=Chiude la megamappa e centra sul puntatore;
+	de=Schließt die Großkarte und zoomt am Zeiger hinein;
+	fr=Ferme la mégacarte et zoome sur le pointeur;
+	es=Cierra el megamapa y acerca la vista en el puntero;
+	it=Chiude la megamappa e ingrandisce sul puntatore;
 	}
 
 [Megamap jump]

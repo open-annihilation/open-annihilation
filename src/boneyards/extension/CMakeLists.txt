@@ -53,6 +53,13 @@ if(BUILD_TESTING)
   add_test(NAME boneyards-expansion-folder
     COMMAND oa-boneyards-extension-expansion-folder-test)
   set_tests_properties(boneyards-expansion-folder PROPERTIES TIMEOUT 60)
+  # The entry's decisions before the package: the online features, the
+  # update question, Try again, the carried request and the quiet runs.
+  add_executable(oa-boneyards-extension-entry-test tests/boneyards_entry_test.cpp)
+  target_link_libraries(oa-boneyards-extension-entry-test
+    PRIVATE oa::app::headers oa-test-support oa-options)
+  add_test(NAME boneyards-entry-flow COMMAND oa-boneyards-extension-entry-test)
+  set_tests_properties(boneyards-entry-flow PROPERTIES TIMEOUT 60)
   # A made-up map in a fixture archive beside this test, read through the
   # same fallback the extension installs after the game's files miss.
   add_executable(oa-boneyards-shipped-archive-test
@@ -73,7 +80,8 @@ if(BUILD_TESTING)
   endif()
   if(TARGET oa-boneyards-extension-launch)
     add_executable(oa-boneyards-extension-launch-test tests/boneyards_launch_test.cpp)
-    target_link_libraries(oa-boneyards-extension-launch-test PRIVATE oa-boneyards-extension-launch oa-netgame-test-launch oa-options)
+    target_link_libraries(oa-boneyards-extension-launch-test
+      PRIVATE oa-boneyards-extension-launch oa-netgame-test-launch oa-options oa::app::headers)
     add_test(NAME boneyards-launch COMMAND oa-boneyards-extension-launch-test)
     add_executable(oa-boneyards-exit-prompt-test tests/boneyards_exit_prompt_test.cpp)
     target_link_libraries(oa-boneyards-exit-prompt-test
@@ -169,6 +177,21 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
       "boneyards shortcut check: -y entered the login and left with no reason"
     FAIL_REGULAR_EXPRESSION "You were rejected from the game"
     ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
+  # A made-up mod is on. The entry asks, Switch off restarts, and the next
+  # run has no mod and the entry under way. Each run leaves no pending entry,
+  # no remembered mod and no mod selected, so the check can pass twice.
+  file(MAKE_DIRECTORY "${oa_boneyards_checks}/boneyards-mod-entry")
+  add_test(NAME native-boneyards-mod-entry COMMAND oa-game
+    --game-dir "${oa_boneyards_game_dir}"
+    --skip-intro --mute --check-boneyards-mod-entry
+    --preferences-file "${oa_boneyards_checks}/boneyards-mod-entry/preferences.conf"
+    --user-folder "${oa_boneyards_checks}/boneyards-mod-entry/Open Annihilation")
+  set_tests_properties(native-boneyards-mod-entry PROPERTIES
+    TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+    WORKING_DIRECTORY "${oa_boneyards_checks}/boneyards-mod-entry"
+    PASS_REGULAR_EXPRESSION
+      "mod entry check: the mod was switched off and the entry is under way"
+    ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
   # A battle the Boneyards launches, played by two copies of the game over
   # TCP/IP on this machine, each from its replay of made-up Rover replies:
   # the login, the launch_game record the console takes, the frontend's pass
@@ -176,8 +199,13 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
   # players, scores and chat) and the return to its debriefing room. The two
   # copies host and search on a DirectPlay port the check picks.
   if(Python3_Interpreter_FOUND)
-    # ENTER fetches a missing expansion from a fixture registry, and asks
-    # before an offered update. Each run wipes its own work folder.
+    # A quiet entry over a fixture registry that lists the expansion as one
+    # package of the archive and its folder. install fetches it once, with
+    # both online checks off and left off, and opens the Boneyards with its
+    # art and sounds in use. update is offered a newer game and goes on;
+    # an equal record fetches nothing, and a changed package is installed
+    # once over the copy, keeping the war map. Each run wipes its own work
+    # folder.
     add_test(NAME native-boneyards-entry-install COMMAND ${Python3_EXECUTABLE}
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_entry.py"
       --game "$<TARGET_FILE:oa-game>" --tool "$<TARGET_FILE:oa-tool>"
@@ -193,6 +221,23 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
       --work "${oa_boneyards_checks}/boneyards-entry-update")
     set_tests_properties(native-boneyards-entry-update PROPERTIES
       TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
+    # The way in on a mod's main menu, with two made-up mods the check
+    # writes and the Boneyards installed as the expansion: on the base
+    # game's art the strip, which takes a click on its art over the mod's
+    # hidden EXIT; on art of the mod's own the base game's layout and the
+    # strip's ENTER plate, which starts the Boneyards entry.
+    # Each run wipes its own work folder.
+    add_test(NAME native-boneyards-menu-modes COMMAND ${Python3_EXECUTABLE}
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_menu_modes.py"
+      --game "$<TARGET_FILE:oa-game>" --game-dir "${oa_boneyards_game_dir}"
+      --coreprime "${CMAKE_BINARY_DIR}/coreprime"
+      --bundle-table "${open_annihilation_SOURCE_DIR}/src/data/content-bundles/src/bundle_table.inc"
+      --work "${oa_boneyards_checks}/boneyards-menu-modes")
+    set_tests_properties(native-boneyards-menu-modes PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      PASS_REGULAR_EXPRESSION
+        "boneyards menu modes: the strip on the base game's art, the ENTER plate on art of the mod's own"
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
     add_test(NAME native-boneyards-launch COMMAND ${Python3_EXECUTABLE}
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_launch.py"

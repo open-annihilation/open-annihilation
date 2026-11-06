@@ -1219,6 +1219,26 @@ void Runtime::request_soft_restart() {
     exit_requested_ = true;
 }
 
+void Runtime::turn_on_online_checks() {
+    oa::app::turn_on_online_checks(preference_values_);
+    const content::CheckForUpdates catalogues = content::read_check_for_updates(preference_values_);
+    content_service().set_check_for_updates(catalogues);
+    // Settings opens on what is in effect, so it shows both checks on.
+    if (engine_settings_) {
+        if (engine_settings_->current.update_check == settings::UpdateCheck::never)
+            engine_settings_->current.update_check = settings::UpdateCheck::automatically;
+        if (engine_settings_->current.content_check == settings::ContentCheck::never)
+            engine_settings_->current.content_check = settings::ContentCheck::automatically;
+    }
+    preferences_dirty_ = true;
+    try {
+        flush_preferences();
+    } catch (const std::exception& failure) {
+        std::cerr << "open-annihilation: the online features could not be saved: " << failure.what()
+                  << '\n';
+    }
+}
+
 oa::present::TextStyle Runtime::text_style() const {
     oa::present::TextStyle style =
         engine_settings_

@@ -34,6 +34,7 @@ struct Recorder {
     std::vector<std::string> switches; // "area/room/pw/old_area/old_room/name"
     std::vector<std::string> creates;
     int room_list_requests = 0;
+    std::vector<uint32_t> room_areas;
     std::uint32_t roll = 0;
     // Scripted random draws, taken in order before `roll` is used.
     std::vector<std::uint32_t> rolls;
@@ -173,8 +174,9 @@ ServiceResult svc_switch(
     return ServiceResult::pending;
 }
 
-ServiceResult svc_rooms(void* u, std::uint32_t) {
+ServiceResult svc_rooms(void* u, uint32_t area) {
     ++rec(u)->room_list_requests;
+    rec(u)->room_areas.push_back(area);
     rec(u)->ui_calls.emplace_back("rooms");
     return ServiceResult::pending;
 }
@@ -984,6 +986,100 @@ void test_room_created() {
     delete nav;
 }
 
+// CHAT follows the planet the map has selected.
+//
+// A session record that carries another area, or 0, does not change it.
+// The debriefing open enters the debriefing room; the next open, on the
+// selected planet, asks for that planet. An open with area 0 and no planet
+// asks for no list and shows no alert, including when a listing arrives.
+void test_chat_opens_on_selected_planet() {
+    Recorder r;
+    BoneyardsService service{};
+    service.user = &r;
+    service.join_room = svc_join;
+    service.request_room_list = svc_rooms;
+    auto* nav = new BoneyardsScreens{};
+    boneyards_screens_init(nav, &service, SettingsStore{});
+    nav->galaxy.locked = false;
+    nav->galaxy.planet_count = 2;
+    nav->galaxy.planets[0].id = 11;
+    nav->galaxy.planets[1].id = 22;
+    CHECK(galaxy_select_planet(&nav->galaxy, 0, &nav->session.area_id));
+    CHECK(nav->session.area_id == 11);
+
+    SessionRecord record{};
+    record.level = SessionLevel::dossier_loaded;
+    record.user_id = 42;
+    record.area_id = 22;
+    boneyards_on_session(nav, &record);
+    CHECK(nav->session.area_id == 11 && nav->session.home_area_id == 22);
+    record.area_id = 0;
+    boneyards_on_session(nav, &record);
+    CHECK(nav->session.area_id == 11 && nav->session.home_area_id == 22);
+
+    nav->session.room_id = 0;
+    chat_open_on_planet(&nav->chat);
+    CHECK(nav->chat.enter_default_room);
+    CHECK(r.room_areas.size() == 1 && r.room_areas[0] == 11);
+    CHECK(nav->session.area_id == 11);
+
+    nav->session.debriefing_pending = true;
+    nav->session.debrief_area_id = 22;
+    nav->session.debrief_room_id = 40;
+    nav->session.area_id = 22;
+    r.joins.clear();
+    chat_open_on_planet(&nav->chat);
+    CHECK_STR(r.joins.back().c_str(), "22/40/-/Debriefing Room");
+    CHECK(!nav->chat.enter_default_room);
+
+    nav->session.debriefing_pending = false;
+    nav->session.area_id = 22;
+    r.room_areas.clear();
+    r.joins.clear();
+    chat_open_on_planet(&nav->chat);
+    CHECK(nav->session.area_id == 11);
+    CHECK(r.room_areas.size() == 1 && r.room_areas[0] == 11);
+    CHECK(r.joins.empty());
+
+    const int32_t messages = nav->message_count;
+    nav->galaxy.selected = kNoPlanet;
+    nav->session.area_id = 0;
+    nav->session.home_area_id = 0;
+    nav->session.debrief_area_id = 0;
+    r.room_areas.clear();
+    chat_open_on_planet(&nav->chat);
+    CHECK(!nav->chat.enter_default_room && r.room_areas.empty());
+    CHECK(nav->message_count == messages && nav->last_message[0] == '\0');
+    const RoomListing shared{1, "Lobby", "", false, 4, room_type::user_created, ""};
+    chat_on_room_listed(&nav->chat, PlayerListChange::joined, &shared, true);
+    CHECK(nav->message_count == messages && nav->last_message[0] == '\0');
+
+    // No planet selected: the home planet, which the map names, is asked for.
+    nav->session.area_id = 0;
+    nav->session.home_area_id = 22;
+    r.room_areas.clear();
+    chat_open_on_planet(&nav->chat);
+    CHECK(nav->session.area_id == 22 && r.room_areas.size() == 1 && r.room_areas[0] == 22);
+    delete nav;
+
+    // A console with no map and area 0 does not ask for the shared rooms.
+    Fixture f;
+    f.session.area_id = 0;
+    f.session.room_id = 0;
+    f.session.home_area_id = 0;
+    const std::size_t boxes = f.r.boxes.size();
+    chat_open_on_planet(&f.console);
+    CHECK(!f.console.enter_default_room && f.r.room_list_requests == 0);
+    CHECK(f.r.boxes.size() == boxes);
+    add_room(f, 1, "Lobby", false, 4, room_type::user_created, true);
+    CHECK(f.r.boxes.size() == boxes);
+
+    f.session.area_id = 0;
+    f.session.home_area_id = 9;
+    chat_open_on_planet(&f.console);
+    CHECK(f.session.area_id == 9 && f.r.room_areas.size() == 1 && f.r.room_areas[0] == 9);
+}
+
 // The room feeds reach the chat console through the navigator only while
 // the console exists: from the Chat Frequencies screen's opening until
 // another screen replaces it, as in 3.1c.
@@ -1203,6 +1299,7 @@ int main() {
     test_dispatch_and_population();
     test_close_releases_people_lists();
     test_offline_service();
+    test_chat_opens_on_selected_planet();
     test_room_feeds_through_navigator();
     test_room_order();
     test_unlisted_type_ignored();

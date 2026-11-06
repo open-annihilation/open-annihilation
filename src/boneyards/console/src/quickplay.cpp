@@ -548,6 +548,8 @@ void take_notices(QuickPlayView* view) {
             screens::quickplay_apply_scan(&view->model, &notice.scan);
         else if (notice.kind == QuickPlayNoticeKind::found)
             effect = screens::quickplay_apply_found(&view->model, &notice.found);
+        else if (notice.kind == QuickPlayNoticeKind::withdrawn)
+            effect = screens::quickplay_apply_withdrawn(&view->model, &notice.withdrawn);
         show_effect(effect);
     }
 }
@@ -555,6 +557,26 @@ void take_notices(QuickPlayView* view) {
 void give_up(QuickPlayView* view) {
     screens::quickplay_cancel(&view->model);
     show_words(screens::quickplay_unavailable_text());
+}
+
+// The player has left this console, or the Boneyards session is ending. A running search stops
+// the way CANCEL SEARCH stops it. An offer still on screen is declined first, so that battle's
+// seat is free at once. A Yes that is already launching a battle is left to launch.
+void end_running_search(QuickPlayView* view) {
+    if (view == nullptr || view->model.launch_pending)
+        return;
+    if (!view->model.searching && !view->model.offer_open)
+        return;
+    if (view->model.offer_open) {
+        screens::quickplay_decide(&view->model, 0);
+        send_answer(view, 0);
+    }
+    if (view->model.searching) {
+        screens::quickplay_cancel(&view->model);
+        send_cancel(view);
+        view->have_tick = false;
+    }
+    refresh_chrome(view);
 }
 
 void drive(QuickPlayView* view, int32_t ms) {
@@ -637,6 +659,9 @@ void on_pulse(Window* self) {
     if (view == nullptr)
         return;
     if (!window_is_shown(self)) {
+        // Hidden behind another console, or behind the main menu once the session ends. The
+        // search stops here as well as at the moment of hiding, in case that moment was missed.
+        end_running_search(view);
         view->was_shown = false;
         view->have_tick = false;
         return;
@@ -673,8 +698,7 @@ void on_destroy(Window* self) {
     QuickPlayView* view = view_of(self);
     if (view == nullptr)
         return;
-    if (view->model.searching)
-        send_cancel(view);
+    end_running_search(view);
     forget(view);
     release_art(view);
     void (*release)(Window*) = view->release;
@@ -776,6 +800,10 @@ void quickplay_console_advance(Window* console, int32_t ms) {
     if (view == nullptr)
         return;
     drive(view, ms);
+}
+
+void quickplay_console_end_search(Window* console) {
+    end_running_search(view_of(console));
 }
 
 } // namespace oa::boneyards::console

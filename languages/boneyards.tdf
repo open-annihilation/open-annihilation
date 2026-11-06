@@ -1154,15 +1154,6 @@
 	zh-Hans=报名表需要 Boneyards 模组。;
 	}
 
-[A newer Open Annihilation is out. Update before entering the Boneyards?]
-	{
-	de=Ein neueres Open Annihilation ist da. Aktualisieren, bevor du die Boneyards betrittst?;
-	fr=Un Open Annihilation plus récent est sorti. Tu mets à jour avant d'entrer dans les Boneyards ?;
-	it=C'è un Open Annihilation più nuovo. Aggiorni prima di entrare nei Boneyards?;
-	es=Hay un Open Annihilation más nuevo. ¿Actualizas antes de entrar en los Boneyards?;
-	zh-Hans=有更新的 Open Annihilation。进入 Boneyards 之前先更新吗？;
-	}
-
 [Could not reach %s. Check your connection, or try again later.]
 	{
 	de=%s ist nicht erreichbar. Prüfe deine Verbindung, oder versuch es später noch einmal.;
@@ -1217,6 +1208,15 @@
 	zh-Hans=该战斗已满。;
 	}
 
+[That battle was abandoned.]
+	{
+	de=Diese Schlacht wurde aufgegeben.;
+	fr=Cette bataille a été abandonnée.;
+	it=Quella battaglia è stata abbandonata.;
+	es=Esa batalla fue abandonada.;
+	zh-Hans=该战斗已放弃。;
+	}
+
 [Fuel Dump is not in this sector.]
 	{
 	de=Fuel Dump liegt nicht in diesem Sektor.;
@@ -1269,6 +1269,15 @@
 	it=La ricerca non è potuta partire.;
 	es=La búsqueda no pudo empezar.;
 	zh-Hans=搜索未能开始。;
+	}
+
+[Searching again…]
+	{
+	de=Es wird weiter gesucht…;
+	fr=On cherche encore…;
+	it=Si cerca ancora…;
+	es=Seguimos buscando…;
+	zh-Hans=继续搜索…;
 	}
 
 [No games available, host one?]

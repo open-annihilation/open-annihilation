@@ -115,6 +115,9 @@ void boneyards_on_login_reset(BoneyardsScreens* screens);
 /// Updates the identity the chat session uses from a session report.
 ///
 /// Once the dossier has loaded during a login attempt, the login completes.
+/// The record's area is the home planet from login. It becomes the current
+/// planet only while the map has none selected; a later record does not
+/// replace a planet the player has already chosen.
 ///
 /// @param[in,out] screens Boneyards screens
 /// @param session session record; the account flags are the top byte of its user id

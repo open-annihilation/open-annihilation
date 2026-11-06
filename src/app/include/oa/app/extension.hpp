@@ -233,8 +233,11 @@
 /// height, and a question's callouts, line boxes and quiet button with the
 /// update pill; and the Modern look's faces (kit::Fonts' modern member, the
 /// text functions that choose a face, the text-font Style's family and two
-/// weights). It is not a hook.
-#define OA_EXTENSION_API_VERSION 19
+/// weights). It is not a hook. Version 20 adds ExtensionControl's masked,
+/// text_length, scroll_up and scroll_down members, and the calls
+/// answer_multiplayer_entry, defer_inactive_loop_release,
+/// post_extension_note and take_extension_notes. None is a hook.
+#define OA_EXTENSION_API_VERSION 20
 
 namespace oa {
 struct Game;
@@ -1271,8 +1274,7 @@ void keep_running_while_inactive(Runtime& runtime, bool hold);
 /// call does nothing.
 ///
 /// It is not a hook: the engine does not call it, and no extension fills it.
-/// It does not read a value the engine resolved, and it does not change the
-/// extension table, so the table's version stays as it is.
+/// Version 20 names it.
 ///
 /// @param defer true to hold the release off, false to let it go ahead
 void defer_inactive_loop_release(bool defer);

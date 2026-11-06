@@ -15,6 +15,7 @@
 // engine's netgame-launch-binding.
 #include "boneyards_data.hpp"
 #include "boneyards_launch.hpp"
+#include "boneyards_mod_gate.hpp"
 #include "boneyards_report.hpp"
 
 #include "oa/boneyards/overlay_launch.hpp"
@@ -250,6 +251,14 @@ void test_fill() {
         "both connection type fields become TCP/IP"
     );
     check(block.hosting == 0 && block.lock_options == 1, "creator and lock flags");
+    check(block.bar_mutators == 1, "mutators are barred when the room's options are locked");
+    launch.lock_options = false;
+    online_launch_fill_boneyards(block, launch, "Ghost_Commander");
+    check(
+        block.lock_options == 0 && block.bar_mutators == 1,
+        "mutators stay barred when the room's options are open"
+    );
+    launch.lock_options = true;
     check(block.time_limit == 0 && block.pfs == 0, "time limit and pfs are cleared");
     check(
         std::strcmp(block.provider_label, "Boneyards") == 0 &&
@@ -337,6 +346,7 @@ void test_launch() {
         api::launch_active() && std::strcmp(block.user_name, "Ghost_Commander_And_More") == 0,
         "a launch without a reply applies the block as it is"
     );
+    check(block.bar_mutators == 1, "a launch without a reply bars mutators");
     api::end_launch();
     block = nl::LaunchBlock{};
 }
@@ -505,6 +515,27 @@ void test_data_gate() {
         boneyards_data_verdict(engine_over_profile).allowed,
         "the engine's hash decides, ahead of a profile supplied beside it"
     );
+    DataFacts own_id{};
+    own_id.profile_id = "boneyards";
+    own_id.run_sim_hash = engine_plain.run_sim_hash;
+    check(boneyards_data_verdict(own_id).allowed, "the Boneyards' own profile id is allowed");
+    DataFacts ridge{};
+    ridge.profile_text = "id: ridge\n";
+    ridge.run_sim_hash = engine_plain.run_sim_hash;
+    const DataVerdict ridge_verdict = boneyards_data_verdict(ridge);
+    check(
+        !ridge_verdict.allowed && ridge_verdict.message != nullptr &&
+            std::strcmp(ridge_verdict.message, kBoneyardsDataRefusal) == 0,
+        "a data-only mod profile is refused"
+    );
+    DataFacts folder_only{};
+    folder_only.mod_folder = true;
+    folder_only.run_sim_hash = engine_plain.run_sim_hash;
+    check(!boneyards_data_verdict(folder_only).allowed, "a mod folder with no profile is refused");
+    DataFacts one_mutator{};
+    one_mutator.mutator_count = 1;
+    one_mutator.run_sim_hash = engine_plain.run_sim_hash;
+    check(!boneyards_data_verdict(one_mutator).allowed, "a match with one mutator is refused");
 
     nl::LaunchBlock& block = api::launch_block();
     block = nl::LaunchBlock{};
@@ -870,6 +901,101 @@ void test_tunnel_exits() {
     check(oa::netgame::sock::overlay_route() == nullptr, "releasing the runtime drops the route");
 }
 
+// No mod, and the Boneyards' own profile, go on. Another mod asks a player
+// and is switched off with no question when nobody can answer. A mod the
+// command line named is not switched off. A simulation change with no chosen
+// mod is not a mod. Cancel keeps the mod. A quiet switch does not save the
+// one-shot. The one-shot is taken once. Leaving asks once, and either answer
+// forgets the mod. Only the mutators a match carries are counted.
+void test_mod_gate() {
+    check(
+        decide_mod_entry(PlayedMod::none, EntryWay::player) == EntryDecision::proceed,
+        "no mod asks nothing"
+    );
+    check(
+        decide_mod_entry(PlayedMod::own, EntryWay::player) == EntryDecision::proceed,
+        "the Boneyards' own profile goes on"
+    );
+    check(
+        decide_mod_entry(PlayedMod::foreign, EntryWay::player) == EntryDecision::ask,
+        "another mod asks"
+    );
+    check(
+        decide_mod_entry(PlayedMod::foreign, EntryWay::quiet) == EntryDecision::switch_quietly,
+        "a quiet run switches another mod off"
+    );
+    check(
+        decide_mod_entry(PlayedMod::none, EntryWay::quiet) == EntryDecision::proceed,
+        "a quiet run with no mod goes on"
+    );
+    check(
+        decide_mod_entry(PlayedMod::foreign, EntryWay::player, true) ==
+            EntryDecision::command_notice,
+        "a command-line mod tells the player"
+    );
+    check(
+        decide_mod_entry(PlayedMod::foreign, EntryWay::quiet, true) == EntryDecision::command_stay,
+        "a quiet run stays when the command line named the mod"
+    );
+    check(
+        decide_mod_entry(PlayedMod::own, EntryWay::player, true) == EntryDecision::proceed,
+        "the Boneyards' own profile goes on from the command line"
+    );
+    check(
+        decide_mod_entry(PlayedMod::none, EntryWay::quiet, true) == EntryDecision::proceed,
+        "no chosen mod goes on when the command line is set"
+    );
+    check(!chosen_mod(false, false), "a simulation change with no chosen mod is not a mod");
+    check(chosen_mod(true, false), "a chosen profile is a mod");
+    check(chosen_mod(false, true), "a chosen folder is a mod");
+
+    EntryCarry carry{};
+    check(
+        apply_mod_entry_answer(ModAnswer::cancel, carry) == ModEffect::stay && !carry.pending &&
+            !carry.remembered,
+        "Cancel keeps the mod"
+    );
+    check(
+        apply_mod_entry_answer(ModAnswer::switch_off, carry) == ModEffect::switch_off &&
+            carry.pending && carry.remembered,
+        "Switch off remembers the mod and the entry"
+    );
+    EntryCarry quiet{};
+    check(
+        apply_mod_entry_answer(ModAnswer::switch_off, quiet, false) == ModEffect::switch_off &&
+            !quiet.pending && quiet.remembered,
+        "a quiet switch remembers the mod and does not save the one-shot"
+    );
+    check(
+        take_entry_request(carry) && !carry.pending && carry.remembered,
+        "the one-shot is taken once"
+    );
+    check(!take_entry_request(carry) && carry.remembered, "a second take finds no entry request");
+
+    check(
+        decide_mod_leave(false, false) == LeaveDecision::skip, "leaving asks nothing without a mod"
+    );
+    check(decide_mod_leave(true, false) == LeaveDecision::ask, "leaving asks once");
+    check(decide_mod_leave(true, true) == LeaveDecision::skip, "leaving does not ask again");
+    const LeaveEffect switched = apply_mod_leave(LeaveAnswer::switch_on);
+    check(switched.switch_on && switched.forget, "Switch on switches back and forgets");
+    const LeaveEffect later = apply_mod_leave(LeaveAnswer::not_now);
+    check(!later.switch_on && later.forget, "Not now forgets");
+
+    check(carried_mutator_count(0, 0) == 0, "a match with no mutators carries none");
+    check(carried_mutator_count(0, 1) == 1, "an applied loadout counts");
+    check(carried_mutator_count(2, 0) == 2, "the room's list counts");
+    check(
+        carried_mutator_count(static_cast<std::size_t>(0xffffffffu), 1) == 0xffffffffu,
+        "the count saturates"
+    );
+
+    check(!mp::mutators_bar_locks_picker(false, 0), "an open room leaves the picker open");
+    check(mp::mutators_bar_locks_picker(true, 0), "locked options lock the picker");
+    check(mp::mutators_bar_locks_picker(false, 1), "a barred battle locks the picker");
+    check(mp::mutators_bar_locks_picker(true, 1), "both locks lock the picker");
+}
+
 void test_battle_lines() {
     oa::Game& frontend = mp::multiplayer_game();
     frontend.gui_flags = 0;
@@ -892,6 +1018,7 @@ int main() {
     test_fill();
     test_launch();
     test_data_gate();
+    test_mod_gate();
     test_factions();
     test_report_hooks();
     test_frontend_answers();

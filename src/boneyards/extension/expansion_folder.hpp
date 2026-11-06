@@ -31,4 +31,15 @@ namespace oa::app {
     std::string_view content
 );
 
+/// Forgets the expansion folder the Boneyards' files were last read from,
+/// and reports whether the folder this run now has turned on is found.
+///
+/// The folder is resolved once, then kept for every file the Boneyards
+/// opens. An expansion installed and turned on during the run is read only
+/// once this has been called. Defined beside the query the Boneyards'
+/// files are read through (boneyards_extension.cpp).
+///
+/// @return true when the installed expansion's folder is the one read now
+[[nodiscard]] bool boneyards_expansion_folder_refreshed();
+
 } // namespace oa::app

@@ -149,8 +149,18 @@ void stop_search(QuickPlay* play) {
     play->planets = 0;
     play->fits = 0;
     play->declined_game_id[0] = '\0';
+    play->withdrawn_status[0] = '\0';
     clear_scans(play);
     clear_offer(play);
+}
+
+int32_t withdrawn_notes(const QuickPlay* play) {
+    return play->withdrawn_status[0] != '\0' ? 2 : 0;
+}
+
+int32_t result_room(const QuickPlay* play) {
+    const int32_t room = kQuickPlayScanCapacity - 1 - withdrawn_notes(play);
+    return room > 0 ? room : 0;
 }
 
 void remember_declined(QuickPlay* play) {
@@ -337,7 +347,10 @@ int32_t quickplay_visible_lines(const QuickPlay* play) {
     int32_t shown = results_due(play);
     if (shown > kQuickPlayResultLines)
         shown = kQuickPlayResultLines;
-    return 1 + shown;
+    const int32_t room = result_room(play);
+    if (shown > room)
+        shown = room;
+    return 1 + withdrawn_notes(play) + shown;
 }
 
 void quickplay_scan_line(const QuickPlay* play, int32_t index, char* out, std::size_t capacity) {
@@ -366,9 +379,22 @@ void quickplay_scan_line(const QuickPlay* play, int32_t index, char* out, std::s
             std::snprintf(out, capacity, pattern, planets, type_name, skill_name);
         return;
     }
+    const int32_t notes = withdrawn_notes(play);
+    if (index <= notes) {
+        copy_shown(
+            out, capacity, index == 1 ? play->withdrawn_status : quickplay_searching_again_text()
+        );
+        return;
+    }
+    const int32_t result_index = index - notes;
     const int32_t revealed = results_due(play);
     const int32_t window = revealed > kQuickPlayResultLines ? revealed - kQuickPlayResultLines : 0;
-    const int32_t logical = window + (index - 1);
+    const int32_t window_lines =
+        revealed > kQuickPlayResultLines ? kQuickPlayResultLines : revealed;
+    const int32_t room = result_room(play);
+    const int32_t shown_results = window_lines < room ? window_lines : room;
+    const int32_t skipped = window_lines - shown_results;
+    const int32_t logical = window + skipped + (result_index - 1);
     if (logical < play->scan_dropped || logical >= revealed)
         return;
     const int32_t at = logical - play->scan_dropped;
@@ -434,6 +460,16 @@ const char* quickplay_result_text(int32_t result) {
 
 const char* quickplay_unavailable_text() {
     return "The search could not be started.";
+}
+
+const char* quickplay_withdrawn_text(int32_t reason) {
+    if (reason == 2)
+        return "That battle was abandoned.";
+    return "That battle has filled.";
+}
+
+const char* quickplay_searching_again_text() {
+    return "Searching again…";
 }
 
 bool quickplay_status_overdue(const QuickPlay* play) {
@@ -529,6 +565,23 @@ QuickPlayEffect quickplay_apply_found(QuickPlay* play, const QuickPlayFoundNotic
     play->offer_map_known = found->map_known && found->map[0] != '\0';
     play->offer_open = true;
     effect.show_offer = true;
+    return effect;
+}
+
+QuickPlayEffect
+quickplay_apply_withdrawn(QuickPlay* play, const QuickPlayWithdrawnNotice* withdrawn) {
+    QuickPlayEffect effect{};
+    if (play == nullptr || withdrawn == nullptr || !play->searching || !play->offer_open)
+        return effect;
+    if (withdrawn->offer_id[0] == '\0' || std::strcmp(play->offer_id, withdrawn->offer_id) != 0)
+        return effect;
+    copy_text(
+        play->withdrawn_status,
+        sizeof play->withdrawn_status,
+        quickplay_withdrawn_text(withdrawn->reason)
+    );
+    clear_offer(play);
+    effect.close_offer = true;
     return effect;
 }
 

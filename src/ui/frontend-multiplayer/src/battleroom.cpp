@@ -2403,6 +2403,14 @@ bool lobby_options_locked(Lobby& lobby) noexcept {
     return (lobby_option_word(*lobby.game) & kSetupOptionsLocked) != 0;
 }
 
+bool mutators_bar_locks_picker(bool options_locked, uint32_t bar_mutators) noexcept {
+    return options_locked || bar_mutators != 0;
+}
+
+bool lobby_mutators_barred(const Lobby& lobby) noexcept {
+    return lobby_launch_block_active(lobby) && lobby.launch_link.block->bar_mutators != 0;
+}
+
 bool lobby_launch_active(const Lobby& lobby) noexcept {
     const auto& link = lobby.launch_link;
     return link.launch_active != nullptr && link.launch_active(link.context);

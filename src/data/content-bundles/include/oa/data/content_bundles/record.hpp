@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The .oa-content record of one copied bundle. The text is version 1:
-// "oa-content 1", then "bundle <id>", then "source <path>", then one group
-// per file of "file", "size", "modified" and "sha256". A file the source
+// "oa-content 1", then "bundle <id>", then "source <path>", then, for an
+// expansion installed from a package, "package <sha256> <release>", then
+// one group per file of "file", "size", "modified" and "sha256". A record
+// of any other bundle never holds a package line, and a reader that does
+// not know the line skips it as a field it does not know. A file the source
 // did not hold follows that group with "not-in-source", and, when the source
 // held a file of that name at another size, "source-size <bytes>" after it.
 // A record written before those lines existed has no such line, and the
@@ -56,6 +59,18 @@ struct ContentRecordFile {
     uint64_t source_size{};
 };
 
+/// The package an expansion's files were installed from.
+struct ContentRecordPackage {
+    /// SHA-256 of the whole package file, as a catalogue lists it.
+    base::sha256::Digest sha256{};
+    /// The catalogue's release of that package, from 1; 0 for a package
+    /// file the player opened.
+    int64_t release{};
+};
+
+/// The highest release a package line holds, as a catalogue numbers them.
+inline constexpr int64_t content_record_release_limit = 2147483647;
+
 /// A bundle folder's record, as text or as read from the folder.
 ///
 /// `present`, `valid` and `io_error` describe a file that was opened.
@@ -71,6 +86,9 @@ struct ContentRecord {
     std::string bundle_id;
     /// The source the files were copied from, as the player named it.
     std::string source;
+    /// The package an expansion was installed from. Nothing for every other
+    /// bundle, and for an expansion installed before the line was written.
+    std::optional<ContentRecordPackage> package{};
     /// The files recorded so far.
     std::vector<ContentRecordFile> files;
 };
@@ -78,7 +96,10 @@ struct ContentRecord {
 /// Reads a record from its text.
 ///
 /// A record this reader does not understand is not valid, and its fields
-/// are empty. A field this reader does not know is skipped.
+/// are empty. A field this reader does not know is skipped. A package line
+/// that is not a SHA-256 and a release from 0 to
+/// content_record_release_limit, and every package line after the first,
+/// are skipped too: the record then names no package.
 ///
 /// @param text the record's bytes, as text
 /// @return the record; `valid` is false when the text is not a record
@@ -87,7 +108,9 @@ struct ContentRecord {
 /// Writes a record as text.
 ///
 /// An empty file list is still a record. A bundle id or a copy name that
-/// holds a newline or a carriage return cannot be written.
+/// holds a newline or a carriage return cannot be written. The package line
+/// is written only when `package` is set, and a release outside 0 to
+/// content_record_release_limit cannot be written.
 ///
 /// @param record the record; `present`, `valid` and `io_error` are not written
 /// @return the text, or nothing when a name cannot be stored on one line
@@ -128,5 +151,27 @@ files_not_recorded(const Bundle& bundle, const ContentRecord& record);
 /// @return true when the record is valid, names this bundle and names every
 ///     one of its files
 [[nodiscard]] bool record_complete(const Bundle& bundle, const ContentRecord& record);
+
+/// What an expansion's record says about the package a catalogue offers.
+enum class PackageCheck : uint8_t {
+    current,    ///< the record names that package: nothing is fetched or installed
+    missing,    ///< no complete copy of the expansion: the package is fetched
+    unrecorded, ///< a complete copy whose record names no package: fetched once, then recorded
+    changed,    ///< the record names another package: the offered one is fetched
+};
+
+/// Compares an expansion's record with the package a catalogue offers.
+///
+/// Only the record's package line and the package's SHA-256 decide: the
+/// SHA-256 of an archive in the folder is never the package's, since the
+/// package is the whole `.oaexp` that holds it.
+///
+/// @param bundle the expansion
+/// @param record the record in the expansion's folder
+/// @param offered the SHA-256 of the package the catalogue lists
+/// @return current only when the record is complete and names that package
+[[nodiscard]] PackageCheck check_installed_package(
+    const Bundle& bundle, const ContentRecord& record, const base::sha256::Digest& offered
+);
 
 } // namespace oa::data::content_bundles

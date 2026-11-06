@@ -348,16 +348,35 @@ Window* acquire_screen(MainFrame* frame, int32_t screen) {
     return created;
 }
 
+/// Ends a QuickPlay search kept on this frame.
+///
+/// Called when that console is hidden and when the Boneyards session ends, so
+/// the cancel is sent while the session can still carry it. A search that
+/// already stopped is left as it is.
+///
+/// @param frame Main Frame; null does nothing
+void end_quickplay_search(MainFrame* frame) {
+    if (frame == nullptr)
+        return;
+    Window* screen = kept_screen(frame, console_screen::quickplay);
+    if (screen == nullptr && frame->console_screen == console_screen::quickplay)
+        screen = frame->active_screen;
+    quickplay_console_end_search(screen);
+}
+
 /// Closes the active screen: its own close slot runs where it has one, then
 /// the screen is hidden. Every console but the login console is kept, so
 /// the next opening shows the same one; the login console is destroyed on
-/// the next cycle.
+/// the next cycle. Hiding QuickPlay ends a running search, so the player is
+/// not matched to a battle while looking at another console.
 ///
 /// @param[in,out] frame the Main Frame whose active screen closes
 void close_active_screen(MainFrame* frame) {
     Window* screen = frame->active_screen;
     if (screen == nullptr)
         return;
+    if (frame->console_screen == console_screen::quickplay)
+        end_quickplay_search(frame);
     if (frame->screen_close != nullptr)
         frame->screen_close(screen);
     screen->visible = 0;
@@ -500,13 +519,15 @@ void main_frame_on_notify(Window* self, const Notify* notify) {
         return;
     }
     if (source == frame->exit_button) {
+        end_quickplay_search(frame);
         console_reset_to_main_menu(frame->owner);
         return;
     }
     if (source == button(frame, ConsoleButton::release)) {
-        if (frame->console_screen == console_screen::login)
+        if (frame->console_screen == console_screen::login) {
+            end_quickplay_search(frame);
             console_reset_to_main_menu(frame->owner);
-        else
+        } else
             main_frame_close_screen(frame);
         return;
     }
@@ -600,6 +621,7 @@ void main_frame_update(Window* self) {
     if (frame->return_requested) {
         frame->return_requested = false;
         frame->pending_notice = nullptr;
+        end_quickplay_search(frame);
         console_reset_to_main_menu(owner);
         return;
     }
@@ -703,15 +725,14 @@ void sound_slide_end(const MainFrame* frame) {
     console_play_background(frame->owner);
 }
 
-/// Adds the Boneyards sound names to the named-sound cache, the last step of the Main Frame build.
+/// Adds the Boneyards sound names to the named-sound cache.
+///
+/// The Main Frame build does this before the welcome alert, so the ticker's
+/// MESSAGE chime is a named sound rather than a missing sounds/message.wav.
 ///
 /// @param frame Main Frame
 void main_frame_register_sounds(const MainFrame* frame) {
-    const MainMenuHost& host = frame->owner->config.host;
-    if (host.register_sound == nullptr)
-        return;
-    for (const ConsoleSound& sound : k_console_sounds)
-        host.register_sound(host.user, sound.category, sound.file);
+    boneyards_status_widget_register_sounds(frame->owner);
 }
 
 /// Builds the Main Frame tree when its bounds are set.
@@ -719,9 +740,10 @@ void main_frame_register_sounds(const MainFrame* frame) {
 /// Adds the background, exit and Quickplay buttons, the console buttons, the
 /// Mag_Slider, the activity light, the advert banner, the news ticker's
 /// label (the ticker starts with its welcome through the alert handler), the
-/// map and the planet summary; the map starts locked. Then the Boneyards
-/// sounds are named, every playing sound stops and, while the background
-/// sound is on, BGM drones on the alternate route.
+/// map and the planet summary; the map starts locked. The Boneyards sounds
+/// are named before that welcome, so its chime is already a named sound.
+/// Then every playing sound stops and, while the background sound is on,
+/// BGM drones on the alternate route.
 ///
 /// @param self the Main Frame
 void main_frame_build(Window* self) {
@@ -799,6 +821,10 @@ void main_frame_build(Window* self) {
         k_ticker_width
     );
     window_set_name(frame->ticker_label, "Ticker");
+    // Name MESSAGE (and the other console sounds) before the welcome plays it.
+    // Nothing else in this build plays a console sound: the map, summary and
+    // lock are silent, and BGM on the alternate route is not one of them.
+    main_frame_register_sounds(frame);
     const AlertReport welcome{static_cast<int32_t>(AlertKind::ticker), k_ticker_welcome, 0, ""};
     main_frame_on_alert(frame, &welcome);
     main_frame_create_map(frame);
@@ -806,7 +832,6 @@ void main_frame_build(Window* self) {
     if (frame->battle_summary != nullptr)
         battle_summary_update(frame->battle_summary);
     main_frame_lock_map(frame);
-    main_frame_register_sounds(frame);
     console_stop_sounds(owner);
     console_play_background(owner);
 }
@@ -850,6 +875,16 @@ const WindowOps k_frame_ops = make_frame_ops();
 
 void main_frame_show_screen(MainFrame* frame, int32_t screen) {
     main_frame_switch_screen(frame, screen);
+}
+
+void boneyards_status_widget_register_sounds(const StatusWidget* widget) {
+    if (widget == nullptr)
+        return;
+    const MainMenuHost& host = widget->config.host;
+    if (host.register_sound == nullptr)
+        return;
+    for (const ConsoleSound& sound : k_console_sounds)
+        host.register_sound(host.user, sound.category, sound.file);
 }
 
 void main_frame_request_census(MainFrame* frame) {

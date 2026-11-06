@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <optional>
 #include <span>
 #include <string>
@@ -234,6 +235,19 @@ class TestRelay {
         drop_conn(*sessions_[*session_at].conn);
     }
 
+    /// Closes every connection and refuses new ones, so a client cannot resume.
+    void seal() {
+        refuse_ = true;
+        for (size_t index = 0; index < conns_.size(); ++index)
+            drop_conn(index);
+    }
+
+    /// Accepts connections again after seal.
+    void unseal() { refuse_ = false; }
+
+    /// TCP connections accepted, including ones seal closed at once.
+    int accepts() const { return accepts_; }
+
     void send_go_away(tunnel::OverlayIp overlay) {
         const auto session_at = find_session(overlay);
         if (!session_at.has_value() || !sessions_[*session_at].conn.has_value())
@@ -330,6 +344,8 @@ class TestRelay {
     std::vector<Conn> conns_{};
     std::vector<HeldRecord> held_{};
     bool malformed_once_{};
+    bool refuse_{};
+    int accepts_{};
     int responses_seen_{};
     uint64_t nonce_counter_{1};
 
@@ -420,6 +436,12 @@ class TestRelay {
             const intptr_t fd = oa::netgame::sock::stream_accept(listener_.handle);
             if (fd == oa::netgame::sock::invalid_socket)
                 return;
+            ++accepts_;
+            if (refuse_) {
+                HeldSocket discard;
+                discard.adopt(fd);
+                continue;
+            }
             Conn conn;
             conn.socket.adopt(fd);
             push_challenge(conn);
@@ -637,6 +659,11 @@ class TestRelay {
         conns_[conn_index].authed = true;
         conns_[conn_index].session = session_at;
         if (resumed) {
+            // The acknowledgement in the response is where the client asked
+            // the replay to start. Records at or below it are not sent again.
+            sessions_[session_at].stream.observe_acknowledge(client_ack);
+            if (client_ack > sessions_[session_at].client_ack)
+                sessions_[session_at].client_ack = client_ack;
             append_record(session_at, conn_index, 0, {});
             std::array<uint64_t, tunnel::resend_capacity> sequences{};
             size_t count = 0;
@@ -1177,6 +1204,180 @@ void open_gap_reconnects_without_a_new_connect() {
     OA_CHECK(!second.take(packet));
 }
 
+// Nothing comes back for the stall interval while a record is unacknowledged.
+// The tunnel connects again and that record arrives once.
+void stall_reconnects_and_delivers_once() {
+    TestRelay relay;
+    OA_CHECK(relay.listen());
+    Clock clock;
+    tunnel::Tunnel first;
+    tunnel::Tunnel second;
+    const auto first_ip = address_of(10, 66, 9, 10);
+    const auto second_ip = address_of(10, 66, 9, 11);
+    if (!open_pair(
+            relay, first, second, clock, first_ip, "alpha-key", 1, second_ip, "beta-key", 2
+        )) {
+        report_tunnel("first", first);
+        report_tunnel("second", second);
+        OA_CHECK(false);
+        return;
+    }
+    if (!wait_until_attached(relay, first, second, clock, first_ip, second_ip)) {
+        OA_CHECK(false);
+        return;
+    }
+    relay.pause_read(first_ip, true);
+    OA_CHECK(first.send_datagram(second_ip, 2300, 2300, text_bytes("kept")));
+    const int before = relay.handshakes(first_ip);
+    const uint64_t armed_at = clock.now;
+    const bool armed = wait_for(relay, &first, &second, clock, [&] {
+        return clock.now >= armed_at + 30 && first.state() == tunnel::State::open;
+    });
+    if (!armed || relay.handshakes(first_ip) != before) {
+        std::fprintf(stderr, "stall armed handshakes %d\n", relay.handshakes(first_ip));
+        OA_CHECK(false);
+        return;
+    }
+    clock.now += tunnel::stall_ms;
+    std::vector<tunnel::Packet> got;
+    const bool arrived = wait_for(relay, &first, &second, clock, [&] {
+        tunnel::Packet packet;
+        while (second.take(packet))
+            got.push_back(std::move(packet));
+        return got.size() >= 1 && first.state() == tunnel::State::open &&
+               relay.handshakes(first_ip) > before;
+    });
+    if (!arrived) {
+        report_tunnel("first", first);
+        report_tunnel("second", second);
+        std::fprintf(
+            stderr, "stall delivered %zu handshakes %d\n", got.size(), relay.handshakes(first_ip)
+        );
+        OA_CHECK(false);
+        return;
+    }
+    OA_CHECK(got.size() == 1);
+    OA_CHECK(payload_is(got[0], "kept"));
+    OA_CHECK(stays_quiet(relay, first, second, clock));
+}
+
+// A record past a gap is still delivered when the missing record arrives,
+// including after the gap has connected again.
+void held_gap_survives_reconnect_and_then_fills() {
+    TestRelay relay;
+    OA_CHECK(relay.listen());
+    Clock clock;
+    tunnel::Tunnel first;
+    tunnel::Tunnel second;
+    const auto first_ip = address_of(10, 66, 9, 20);
+    const auto second_ip = address_of(10, 66, 9, 21);
+    if (!open_pair(
+            relay, first, second, clock, first_ip, "alpha-key", 1, second_ip, "beta-key", 2
+        )) {
+        report_tunnel("first", first);
+        report_tunnel("second", second);
+        OA_CHECK(false);
+        return;
+    }
+    if (!wait_until_attached(relay, first, second, clock, first_ip, second_ip)) {
+        OA_CHECK(false);
+        return;
+    }
+    const int before = relay.handshakes(second_ip);
+    OA_CHECK(relay.inject(second_ip, 2, first_ip, text_bytes("later")));
+    const bool resumed = wait_for(relay, &first, &second, clock, [&] {
+        return relay.handshakes(second_ip) > before && second.state() == tunnel::State::open;
+    });
+    if (!resumed) {
+        std::fprintf(stderr, "held gap handshakes %d\n", relay.handshakes(second_ip));
+        report_tunnel("second", second);
+        OA_CHECK(false);
+        return;
+    }
+    tunnel::Packet early;
+    OA_CHECK(!second.take(early));
+    OA_CHECK(relay.inject(second_ip, 1, first_ip, text_bytes("first")));
+    std::vector<tunnel::Packet> got;
+    const bool arrived = wait_for(relay, &first, &second, clock, [&] {
+        tunnel::Packet packet;
+        while (second.take(packet))
+            got.push_back(std::move(packet));
+        return got.size() >= 2;
+    });
+    if (!arrived) {
+        std::fprintf(stderr, "held gap delivered %zu\n", got.size());
+        report_tunnel("second", second);
+        OA_CHECK(false);
+        return;
+    }
+    OA_CHECK(got.size() == 2);
+    OA_CHECK(payload_is(got[0], "first"));
+    OA_CHECK(payload_is(got[1], "later"));
+}
+
+// The relay accepts nothing more. The tunnel retries, then reports the lost
+// connection once the resume window has passed, and does not connect again.
+void peer_that_never_returns_reports_the_loss() {
+    TestRelay relay;
+    OA_CHECK(relay.listen());
+    Clock clock;
+    tunnel::Tunnel client;
+    bind_clock(client, clock);
+    const auto self = address_of(10, 66, 9, 30);
+    relay.add_key(self, text_bytes("alpha-key"), 1);
+    OA_CHECK(client.connect(loopback_text, relay.port(), self, text_bytes("alpha-key"), 1));
+    const bool opened = wait_for(relay, &client, nullptr, clock, [&] {
+        return client.state() == tunnel::State::open;
+    });
+    if (!opened) {
+        report_tunnel("client", client);
+        OA_CHECK(false);
+        return;
+    }
+    const int opened_accepts = relay.accepts();
+    relay.seal();
+    const bool retried =
+        wait_for(relay, &client, nullptr, clock, [&] { return relay.accepts() > opened_accepts; });
+    if (!retried) {
+        report_tunnel("client", client);
+        std::fprintf(stderr, "accepts %d\n", relay.accepts());
+        OA_CHECK(false);
+        return;
+    }
+    // The window is six minutes. Move the clock instead of waiting it out.
+    clock.now += tunnel::resume_window_ms + 1;
+    int drained = 0;
+    const bool stopped = wait_for(relay, &client, nullptr, clock, [&] {
+        ++drained;
+        return drained >= 50 && client.fault() == tunnel::Fault::connection_lost &&
+               client.state() == tunnel::State::waiting;
+    });
+    if (!stopped) {
+        report_tunnel("client", client);
+        OA_CHECK(false);
+        return;
+    }
+    const int stopped_at = relay.accepts();
+    relay.unseal();
+    clock.now += 8000;
+    bool grew = false;
+    int after = 0;
+    const bool settled = wait_for(relay, &client, nullptr, clock, [&] {
+        if (relay.accepts() != stopped_at)
+            grew = true;
+        ++after;
+        return grew || after >= 500;
+    });
+    OA_CHECK(settled);
+    OA_CHECK(!grew);
+    OA_CHECK(client.fault() == tunnel::Fault::connection_lost);
+    OA_CHECK(client.state() == tunnel::State::waiting);
+    OA_CHECK(
+        std::strcmp(tunnel::Tunnel::fault_text(client.fault()), "the relay connection ended") == 0
+    );
+    OA_CHECK(!client.send_datagram(address_of(10, 66, 9, 31), 2300, 2300, text_bytes("late")));
+}
+
 } // namespace
 
 int main() {
@@ -1189,5 +1390,8 @@ int main() {
     full_queue_leaves_the_rest_unacknowledged();
     record_past_a_gap_is_delivered_when_the_gap_fills();
     open_gap_reconnects_without_a_new_connect();
+    stall_reconnects_and_delivers_once();
+    held_gap_survives_reconnect_and_then_fills();
+    peer_that_never_returns_reports_the_loss();
     return oa::test::check_exit_status();
 }

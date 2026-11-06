@@ -9,8 +9,10 @@
 
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/prompts.hpp"
+#include "oa/base/sha256.hpp"
 #include "oa/data/content_bundles.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -24,6 +26,15 @@ inline constexpr std::string_view oaexp_extension = ".oaexp";
 
 /// The manifest's file name.
 inline constexpr std::string_view manifest_file_name = "oaexp.yaml";
+
+/// The package an install came from, as the expansion's record keeps it.
+struct PackageFrom {
+    /// The package file's SHA-256 when it is already known, as a catalogue
+    /// download's is. Nothing reads the file again to hash it then.
+    std::optional<oa::base::sha256::Digest> sha256{};
+    /// The catalogue's release; 0 for a file the player opened.
+    int64_t release{};
+};
 
 /// Reads an expansion package's manifest and checks that every file is the
 /// built-in table's file. A package whose bytes the table does not know is
@@ -144,20 +155,32 @@ refused_prompt(std::string_view file_name, const Problem& problem, bool change_f
 /// written. The copy lands in Expansions/<game>/<id>, using the expansions
 /// folder's name, with a .oa-content record. `registry_id` empty records the
 /// package file's path as the source; otherwise the source is
-/// "registry <id>". A registry id that holds a newline is refused.
+/// "registry <id>". A registry id that holds a newline is refused. The
+/// record also names the package: its SHA-256, the file's own unless `from`
+/// gives it, and `from`'s release.
+///
+/// Over a copy already in place, whose record names this expansion, the
+/// files are replaced where they are: a file already holding the right bytes
+/// is left as it is, the folders stay, and a file the package does not hold,
+/// such as one the game wrote beside its own, is kept. A file the old record
+/// named that this package no longer holds is removed, and so is an empty
+/// folder a file sync left beside one of the package's folders under a
+/// numbered name ("Help 2").
 ///
 /// @param package the .oaexp file
 /// @param user_folder the player's folder
 /// @param registry_id the registry the package came from; empty for a file
 /// @param[out] installed the folder it was copied into; may be null
 /// @param[out] problem why it was refused
+/// @param from the package's SHA-256, when known, and its catalogue release
 /// @return true when the expansion is in place
 [[nodiscard]] bool install_oaexp(
     const std::filesystem::path& package,
     const std::filesystem::path& user_folder,
     std::string_view registry_id,
     std::filesystem::path* installed,
-    Problem& problem
+    Problem& problem,
+    const PackageFrom& from = {}
 );
 
 /// Copies a package whose files match `files`.
@@ -174,6 +197,7 @@ refused_prompt(std::string_view file_name, const Problem& problem, bool change_f
 /// @param files the table the bytes must match
 /// @param[out] installed the folder it was copied into; may be null
 /// @param[out] problem why it was refused
+/// @param from the package's SHA-256, when known, and its catalogue release
 /// @return true when the expansion is in place
 [[nodiscard]] bool install_expansion_package(
     const std::filesystem::path& package,
@@ -181,7 +205,8 @@ refused_prompt(std::string_view file_name, const Problem& problem, bool change_f
     std::string_view registry_id,
     const oa::data::content_bundles::Bundle& files,
     std::filesystem::path* installed,
-    Problem& problem
+    Problem& problem,
+    const PackageFrom& from = {}
 );
 
 /// Removes an installed expansion.

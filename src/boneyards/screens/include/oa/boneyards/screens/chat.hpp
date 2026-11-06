@@ -66,7 +66,8 @@ struct ChatSession {
     bool debriefing_pending; // enter the battle debriefing room next
     uint32_t self_user_id;
     uint8_t account_flags;
-    uint32_t area_id; // current planet
+    uint32_t area_id;        // planet chat and the other consoles are on
+    uint32_t home_area_id{}; // planet named at login; 0 until a session record names one
     bool background_sound;
     uint32_t room_id; // current frequency, 0 when none
     uint32_t debrief_area_id;
@@ -208,8 +209,13 @@ struct ChatUi {
     void (*show_input)(void* user);
 };
 
+struct GalaxyView;
+
 struct ChatConsole {
     ChatSession* session;
+    // The war map the player is looking at. Null when this console was built
+    // on its own, with no map. chat_console_init clears it.
+    const GalaxyView* galaxy{};
     const BoneyardsService* service;
     ChatUi ui;
     char input[kChatLineCapacity]; // input line
@@ -495,10 +501,13 @@ inline constexpr int32_t kListActivate = 2;
 /// @param index list row for the list controls
 void chat_on_control(ChatConsole* console, ChatControl control, int32_t code, std::size_t index);
 
-/// Opens the console on the current planet with the activity light running.
+/// Opens the console on the planet the map has selected, with the activity light running.
 ///
-/// Enters the battle debriefing room, the remembered preferred room, or
-/// requests the room list to pick a default.
+/// While a battle debriefing is pending, enters that room. Otherwise enters
+/// the remembered preferred room of the selected planet, or requests that
+/// planet's room list to pick a default. With no planet selected, an area of
+/// 0 or one the map does not name uses the home planet. An open that still
+/// has no planet does not ask for the shared room list.
 ///
 /// @param[in,out] console chat console
 void chat_open_on_planet(ChatConsole* console);

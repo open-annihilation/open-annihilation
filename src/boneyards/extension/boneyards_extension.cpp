@@ -28,9 +28,11 @@
 
 #include "oa/app/app.hpp"
 #include "oa/app/check_host.hpp"
+#include "oa/app/expansion_entry.hpp"
 #include "oa/app/extension.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/netgame/extension_api.hpp"
+#include "oa/boneyards/console/menu_entry.hpp"
 #include "oa/boneyards/console/status_widget.hpp"
 #include "oa/boneyards/html_host_fonts.hpp"
 #include "oa/boneyards/html_scripts.hpp"
@@ -57,6 +59,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 // The versions of the engine's extension table and of network play's API
@@ -82,7 +85,7 @@
 // hear_remote_seat_chat. Version 18 adds the kit's key pictures. Version 19
 // is Kit 2's look in the kit's headers. None of 15 to 19 is a hook this
 // module fills.
-constexpr uint32_t kExtensionApiVersionFollowed = 19;
+constexpr uint32_t kExtensionApiVersionFollowed = 20;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
@@ -118,6 +121,16 @@ void boneyards_console_release();
 void boneyards_console_defer_main_menu();
 void boneyards_console_set_text_field_place(
     void (*place)(void* host, int x, int y, int width, int height, int cursor)
+);
+void boneyards_console_set_menu_entry(
+    const char* mode, int32_t x, int32_t y, const std::filesystem::path& mod_folder
+);
+bool boneyards_console_menu_entry(
+    oa::boneyards::console::MenuEntryMode* mode,
+    int32_t* x,
+    int32_t* y,
+    int32_t* width,
+    int32_t* height
 );
 void boneyards_entry_install(Runtime& runtime);
 void boneyards_entry_on_frame(Runtime& runtime, FrameStage stage);
@@ -287,7 +300,8 @@ bool quiet_saved_game(const Runtime& runtime) {
            !taken.boneyards_open && taken.boneyards_say.empty() && !taken.boneyards_chat &&
            taken.boneyards_create.empty() && !taken.boneyards_launch && !taken.boneyards_features &&
            !taken.check_boneyards_unit_limit && !taken.boneyards_overlay &&
-           taken.boneyards_entry == BoneyardsEntryCheck::none && !taken.check_strip_buttons;
+           taken.boneyards_entry == BoneyardsEntryCheck::none && !taken.check_strip_buttons &&
+           !taken.check_menu_modes;
 }
 
 /// Copies the runtime's player folder for a file that is opened or created.
@@ -373,6 +387,19 @@ void copy_expansion_folder(void* /*context*/, char* out, std::size_t capacity) {
         out[0] = '\0';
     }
 }
+
+} // namespace
+
+bool boneyards_expansion_folder_refreshed() {
+    // The longest folder the Boneyards' file query hands over, as it does.
+    constexpr std::size_t folder_capacity = 4096;
+    g_expansion_held = {};
+    char folder[folder_capacity];
+    copy_expansion_folder(nullptr, folder, sizeof folder);
+    return folder[0] != '\0';
+}
+
+namespace {
 
 /// The folder laid over a named game folder while its archives are found.
 ///
@@ -748,11 +775,42 @@ void forward_driver_note(const char* kind, const char* text) {
     post_extension_note(*g_player_folder_runtime, kind, text);
 }
 
+/// Keeps the main menu's strip in the listing to what the menu shows.
+///
+/// With the strip's rows not shown (button and none modes) its buttons take
+/// no click, so they are left out. In button mode ENTER is listed where it
+/// stands on the plate.
+///
+/// @param[in,out] windows the consoles being listed
+void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
+    namespace console = oa::boneyards::console;
+    console::MenuEntryMode mode = console::MenuEntryMode::strip;
+    oa::ui::frontend_renderer::SourceRect place{};
+    if (boneyards_console_up() ||
+        !boneyards_console_menu_entry(&mode, &place.x, &place.y, &place.width, &place.height) ||
+        mode == console::MenuEntryMode::strip)
+        return;
+    for (ExtensionWindow& window : windows) {
+        if (window.name != "MainMenuOverlay")
+            continue;
+        std::vector<ExtensionControl> shown;
+        for (ExtensionControl& control : window.controls) {
+            if (control.name != "EnterBYBtn" || place.width == 0)
+                continue;
+            control.x += place.x - console::entry_plate.x;
+            control.y += place.y - console::entry_plate.y;
+            shown.push_back(std::move(control));
+        }
+        window.controls = std::move(shown);
+    }
+}
+
 /// Lists the consoles the Boneyards is showing (ExtensionWindowSource).
 ///
 /// The ticker reads its whole line. While the map is locked (the green layer
 /// slides or covers it, or a console is open), a press on a planet selects
 /// nothing, so each planet on the viewer is listed as not taking a click.
+/// On a main menu without the strip only the plate's ENTER is listed.
 ///
 /// @param context unused
 /// @param runtime the running app (unused)
@@ -766,6 +824,7 @@ void list_driver_windows(
             widget, &windows, append_driver_control
         );
         append_lobby_facts(windows, widget);
+        list_menu_entry_as_shown(windows);
         oa::boneyards::console::MainFrameProbe probe{};
         if (oa::boneyards::console::boneyards_status_widget_probe(widget, &probe)) {
             for (ExtensionWindow& window : windows) {
@@ -939,9 +998,18 @@ DataFacts played_data_facts(void*) {
     if (g_player_folder_runtime == nullptr)
         return facts;
     try {
-        facts.run_sim_hash = simulation_hash(*g_player_folder_runtime);
+        Runtime& runtime = *g_player_folder_runtime;
+        facts.run_sim_hash = simulation_hash(runtime);
         if (facts.run_sim_hash.empty())
             facts.unreadable = true;
+        const ActiveMod playing = active_mod(runtime);
+        if (playing.active) {
+            if (playing.has_profile)
+                facts.profile_id = playing.profile_id;
+            else
+                facts.mod_folder = true;
+        }
+        facts.mutator_count = active_mutator_count(runtime);
     } catch (const std::exception&) {
         facts = DataFacts{};
         facts.unreadable = true;
@@ -1056,6 +1124,16 @@ void startup(void* /*context*/, Runtime& runtime) {
     oa::boneyards::console::boneyards_console_set_driver_note(forward_driver_note);
     // Before the screens register, so the strip copies this flow.
     boneyards_entry_install(runtime);
+    // How the way in stands on the main menu, as the mod's profile asks
+    // (media.boneyards-entry: the mode, and the ENTER plate's place in button
+    // mode), and the played mod's folder, the only one whose art is the
+    // mod's; the strip reads them when it is first built. Without a profile
+    // the record's own values are the baseline: auto, at the top right.
+    const Options& run = runtime_options(runtime);
+    const oa::data::mod_profile::MediaBoneyardsEntry entry =
+        run.mod_profile != nullptr ? run.mod_profile->media.boneyards_entry
+                                   : oa::data::mod_profile::MediaBoneyardsEntry{};
+    boneyards_console_set_menu_entry(entry.mode.c_str(), entry.x, entry.y, run.layered_mod_folder);
 }
 
 /// Registers the Boneyards' screens, steps and queries (Extension::register_screens).

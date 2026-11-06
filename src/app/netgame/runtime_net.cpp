@@ -1322,6 +1322,7 @@ struct NetworkPlay::NetHost {
         // so a later skirmish does not play this room's list. A match that
         // never showed the battle room, such as the loopback check, has no
         // room list, so it plays the run's own, as a single-player start does.
+        // A launch that bars mutators plays none instead, even then.
         const bool followed = runtime.room_followed();
         if (followed && runtime.room_match_unbuilt()) {
             std::cerr << "open-annihilation: mutators: room failed: the battle room's "
@@ -1332,7 +1333,10 @@ struct NetworkPlay::NetHost {
             runtime.chosen_match_mutators().begin(), runtime.chosen_match_mutators().end()
         );
         std::vector<oa::data::mutators::ResolvedMutator> room_chosen;
-        if (followed) {
+        if (mp::lobby_mutators_barred(lobby)) {
+            // The run's own pick stays in the restore below. This start plays none.
+            room_chosen.clear();
+        } else if (followed) {
             room_chosen.assign(
                 runtime.room_match_mutators().begin(), runtime.room_match_mutators().end()
             );

@@ -121,6 +121,7 @@ void boneyards_screens_init(
     ui.random = chat_random;
     ui.activity = frame_activity_light;
     chat_console_init(&s->chat, &s->session, &s->service, ui);
+    s->chat.galaxy = &s->galaxy;
     galaxy_init(&s->galaxy);
     s->current = ByScreen::none;
 }
@@ -155,7 +156,15 @@ void boneyards_on_login_reset(BoneyardsScreens* s) {
 void boneyards_on_session(BoneyardsScreens* s, const SessionRecord* session) {
     s->session.self_user_id = session->user_id;
     s->session.account_flags = static_cast<uint8_t>(session->user_id >> kAccountFlagsShift);
-    s->session.area_id = session->area_id;
+    // Login names the home planet once. Later records repeat it, or carry 0,
+    // and must not move a planet the player has already chosen on the map.
+    if (session->area_id != 0)
+        s->session.home_area_id = session->area_id;
+    const GalaxyView& galaxy = s->galaxy;
+    const bool looking = galaxy.selected != kNoPlanet &&
+                         static_cast<std::size_t>(galaxy.selected) < galaxy.planet_count;
+    if (!looking)
+        s->session.area_id = session->area_id;
     s->allegiance = session->allegiance;
     s->allegiance_previous = session->allegiance_previous;
     if (session->level == SessionLevel::dossier_loaded && s->login.state == LoginState::connecting)

@@ -1886,7 +1886,7 @@ actions:
     source: [ui.megamap]
     default: ["WheelUp"]
     target: megamap
-    words: {name: "Close megamap", description: "Closes the megamap and centres on the pointer"}
+    words: {name: "Close megamap", description: "Closes the megamap and zooms in at the pointer"}
   megamap.jump:
     area: megamap
     order: 4

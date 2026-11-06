@@ -25,7 +25,7 @@ enum class State : uint8_t {
     connecting,     ///< the TCP connection is opening
     authenticating, ///< the TCP connection is open and the challenge has not arrived
     open,           ///< the handshake succeeded
-    waiting,        ///< the connection failed and a retry is scheduled
+    waiting,        ///< a retry is waiting, or the resume window has passed
     closed,         ///< close was called
 };
 
@@ -49,6 +49,18 @@ enum class Channel : uint8_t {
 /// Packets `take` can hold. A full queue is left unread and unacknowledged,
 /// so a record is never acknowledged and then discarded. The sender keeps it.
 inline constexpr size_t receive_bound = 512;
+
+/// How long the relay keeps a dropped session, in milliseconds.
+///
+/// pump connects again until this long has passed since the connection was
+/// lost, then reports a lost connection and does not open another one.
+inline constexpr uint64_t resume_window_ms = 6u * 60u * 1000u;
+
+/// Silence, with a record still unacknowledged, before pump connects again.
+///
+/// Measured in milliseconds. An arrival, or a stretch with nothing waiting
+/// for an acknowledgement, starts it over. An idle connection stays up.
+inline constexpr uint64_t stall_ms = 5000;
 
 /// One packet taken from the receive queue.
 struct Packet {
@@ -84,8 +96,14 @@ class Tunnel {
     ///
     /// A later call drops the socket and starts a new sequence. The relay keeps
     /// a session for a key identifier and treats the same identifier as a resume,
-    /// so a new session uses a new key identifier. pump retries a connection that
-    /// does not open. The host is resolved again on every attempt.
+    /// so a new session uses a new key identifier. pump connects again, with a
+    /// bounded delay, when the connection is lost or when nothing arrives for
+    /// the stall interval while a record is still unacknowledged. The resume
+    /// sends every record the relay has not acknowledged and carries the
+    /// acknowledgement of the last contiguous record received, which asks the
+    /// relay to replay from the next one. pump stops once the resume window has
+    /// passed and reports a lost connection. The host is resolved again on every
+    /// attempt.
     ///
     /// @param host the relay's numeric IPv4 address or host name
     /// @param port the relay's port, in host order
@@ -111,7 +129,8 @@ class Tunnel {
     /// @param source_port the port this client sends from
     /// @param destination_port the port the datagram is for
     /// @param bytes the datagram, which may be empty
-    /// @return false when the tunnel is idle or closed, or `bytes` does not fit in one record
+    /// @return false when the tunnel is idle or closed, the resume window has
+    ///         passed, or `bytes` does not fit in one record
     [[nodiscard]] bool send_datagram(
         OverlayIp destination,
         uint16_t source_port,
@@ -127,7 +146,8 @@ class Tunnel {
     /// @param source_port the port this client sends from
     /// @param destination_port the port the bytes are for
     /// @param bytes the bytes, which may be empty
-    /// @return false when the tunnel is idle or closed, or `bytes` does not fit in one record
+    /// @return false when the tunnel is idle or closed, the resume window has
+    ///         passed, or `bytes` does not fit in one record
     [[nodiscard]] bool send_stream(
         OverlayIp destination,
         uint16_t source_port,
@@ -136,6 +156,9 @@ class Tunnel {
     );
 
     /// Advances the connection, the handshake and the queues without waiting.
+    ///
+    /// A lost connection or a stall connects again until the resume window has
+    /// passed. After that, pump leaves the fault as a lost connection.
     void pump();
 
     /// Takes the next packet that arrived for this client.
@@ -152,6 +175,8 @@ class Tunnel {
     /// Returns the latest fault.
     ///
     /// A successful handshake clears the fault. close leaves it as it was.
+    /// Once the resume window has passed, the fault stays `connection_lost`
+    /// and pump does not open another connection.
     ///
     /// @return the fault
     [[nodiscard]] Fault fault() const;
@@ -173,7 +198,8 @@ class Tunnel {
     /// Sets the clock pump reads, so a caller can move time.
     ///
     /// A null function reads a steady clock. The function is called only from pump
-    /// and connect, on the thread that calls them.
+    /// and connect, on the thread that calls them. The stall interval and the
+    /// resume window are read from this clock.
     ///
     /// @param now_ms returns milliseconds; null uses a steady clock
     /// @param context passed to `now_ms`

@@ -394,6 +394,49 @@ bool from_create_pane(const ChatView* view, const Window* source) {
     return view->create_pane != nullptr && source == &view->create_pane->pane.base;
 }
 
+// The list class's own notice handler, kept when the player list's is replaced.
+void (*player_list_notify_base)(Window*, const Notify*) = nullptr;
+
+/// Selects a clicked player and tells the console, including a row already selected.
+///
+/// The list's selection starts on its first row, and choosing the row already
+/// selected reports nothing, so the first player and a second click on the
+/// player already shown would never open the pane. A click on either still
+/// asks for the profile. The player list does not forward a double click's
+/// second press; the first press is the click.
+///
+/// @param self the player list
+/// @param notify control notice; null is ignored
+void player_list_on_notify(Window* self, const Notify* notify) {
+    if (notify == nullptr || player_list_notify_base == nullptr)
+        return;
+    ListBox* box = reinterpret_cast<ListBox*>(self);
+    const int32_t row = list_box_index_of(box, notify->source);
+    const int32_t previous = list_box_selected(box);
+    const bool on_page = row >= box->top && row <= box->last;
+    if (on_page && notify->source != nullptr && notify->source->ops != nullptr &&
+        notify->source->ops->is_class(screens::kByPlayerRowClass))
+        reinterpret_cast<screens::ByListBox*>(self)->selected_item = notify->source;
+    player_list_notify_base(self, notify);
+    if (notify->code == NotifyCode::activated && on_page && previous == row)
+        window_notify_parent(self, NotifyCode::activated, 0);
+}
+
+/// Makes a click on the player list's selected row open that player's pane.
+///
+/// @param players the Chat console's player list
+void player_list_report_selected_row(screens::ByListBox* players) {
+    static WindowOps ops{};
+    static bool ready = false;
+    if (!ready) {
+        ops = *players->list.base.ops;
+        player_list_notify_base = ops.on_notify;
+        ops.on_notify = player_list_on_notify;
+        ready = true;
+    }
+    players->list.base.ops = &ops;
+}
+
 /// Routes the left column's and the panes' notices to the chat by their source.
 ///
 /// A frequency row click opens the frequency's information pane and shows
@@ -745,6 +788,7 @@ void chat_console_build(Window* self) {
         matchmaking ? l::players_height_matchmaking : l::players_height,
         "Chat players"
     );
+    player_list_report_selected_row(view->player_list);
     if (matchmaking) {
         screens::lobby_label_create(
             self,

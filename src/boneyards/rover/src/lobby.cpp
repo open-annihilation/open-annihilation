@@ -806,6 +806,7 @@ constexpr char kCommandQuickPlayAnswer[] = "quickplay_answer";
 constexpr char kCommandQuickPlayStatus[] = "quickplay_status";
 constexpr char kCommandQuickPlayScan[] = "quickplay_scan";
 constexpr char kCommandQuickPlayFound[] = "quickplay_found";
+constexpr char kCommandQuickPlayWithdrawn[] = "quickplay_withdrawn";
 
 constexpr char kKeyWhere[] = "where";
 constexpr char kKeyPreferFavorite[] = "prefer_favorite";
@@ -822,15 +823,20 @@ constexpr char kKeyMap[] = "map";
 RoverQuickPlayStatusFn g_quick_status = nullptr;
 RoverQuickPlayScanFn g_quick_scan = nullptr;
 RoverQuickPlayFoundFn g_quick_found = nullptr;
+RoverQuickPlayWithdrawnFn g_quick_withdrawn = nullptr;
 
 } // namespace
 
 void rover_quickplay_set_handlers(
-    RoverQuickPlayStatusFn status, RoverQuickPlayScanFn scan, RoverQuickPlayFoundFn found
+    RoverQuickPlayStatusFn status,
+    RoverQuickPlayScanFn scan,
+    RoverQuickPlayFoundFn found,
+    RoverQuickPlayWithdrawnFn withdrawn
 ) {
     g_quick_status = status;
     g_quick_scan = scan;
     g_quick_found = found;
+    g_quick_withdrawn = withdrawn;
 }
 
 bool rover_quickplay_join(const RoverQuickPlayQuery* query) {
@@ -921,6 +927,21 @@ bool rover_quickplay_offer(const RoverField& command, const RoverEntry& entry) {
         copy_match_field(found.map, kRoverQuickPlayMapBytes, entry, kKeyMap, &found.map_known);
         if (g_quick_found != nullptr)
             g_quick_found(&found);
+        return true;
+    }
+    if (rover_command_is(command, kCommandQuickPlayWithdrawn)) {
+        RoverQuickPlayWithdrawn withdrawn{};
+        copy_match_field(withdrawn.offer_id, kRoverMatchmakingIdBytes, entry, kKeyOfferId, nullptr);
+        copy_match_field(
+            withdrawn.game_id,
+            kRoverMatchmakingIdBytes,
+            entry,
+            kRoverKeyGameId,
+            &withdrawn.game_known
+        );
+        rover_entry_get_int(entry, kKeyReason, &withdrawn.reason, 0);
+        if (g_quick_withdrawn != nullptr)
+            g_quick_withdrawn(&withdrawn);
         return true;
     }
     return false;

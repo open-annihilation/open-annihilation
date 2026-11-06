@@ -3,7 +3,10 @@
 
 // Installing an expansion package: the manifest and the files are checked
 // against a table, then the files are copied into Expansions/<game>/<id>
-// with the .oa-content record. install_oaexp uses the built-in table.
+// with the .oa-content record, which also names the package. install_oaexp
+// uses the built-in table. A copy already in place is replaced file by file,
+// so its folders stay and the files the game wrote beside the package's own
+// are kept.
 
 #include "files.hpp"
 #include "package_file.hpp"
@@ -18,7 +21,9 @@
 #include "oa/formats/zip/stream.hpp"
 #include "oa/platform/files.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -514,6 +519,7 @@ bool copy_files(
 /// @param folder the folder
 /// @param bundle the expansion
 /// @param source the source text
+/// @param package the package the files came from; nothing writes no package line
 /// @param held the files, in the order they were copied
 /// @param[out] problem why the record was not written
 /// @return true when the record is in the folder
@@ -521,12 +527,14 @@ bool write_record(
     const fs::path& folder,
     const bundles::Bundle& bundle,
     const std::string& source,
+    const std::optional<bundles::ContentRecordPackage>& package,
     const std::vector<HeldFile>& held,
     Problem& problem
 ) {
     bundles::ContentRecord record;
     record.bundle_id = std::string(bundle.id);
     record.source = source;
+    record.package = package;
     record.files.reserve(held.size());
     for (const HeldFile& file : held) {
         bundles::ContentRecordFile item;
@@ -553,25 +561,256 @@ bool write_record(
     return true;
 }
 
-/// Puts `staging` in `dest`'s place.
+/// The SHA-256 of a whole package file.
 ///
-/// An existing `dest` is removed only when its record names `id`. A link is
-/// refused and left in place. On a failed rename the previous folder is put
-/// back.
+/// @param package the file
+/// @return the digest; nothing when the file cannot be read
+std::optional<sha::Digest> package_digest(const fs::path& package) {
+    std::ifstream in(package, std::ios::binary);
+    if (!in)
+        return std::nullopt;
+    sha::Hasher hasher{};
+    std::vector<char> buffer(64 * 1024);
+    while (in) {
+        in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize got = in.gcount();
+        if (got > 0)
+            sha::update(
+                hasher,
+                std::span<const uint8_t>(
+                    reinterpret_cast<const uint8_t*>(buffer.data()), static_cast<std::size_t>(got)
+                )
+            );
+    }
+    if (in.bad())
+        return std::nullopt;
+    return sha::finish(hasher);
+}
+
+/// Reports whether a file already holds the bytes a package file holds.
+///
+/// @param file the file in place
+/// @param held the package's file, measured as it was copied
+/// @return true when the file is regular, of that size and of that SHA-256
+bool holds_bytes(const fs::path& file, const HeldFile& held) {
+    std::error_code error;
+    if (!fs::is_regular_file(fs::symlink_status(file, error)) || error)
+        return false;
+    if (fs::file_size(file, error) != held.size || error)
+        return false;
+    const std::optional<sha::Digest> digest = package_digest(file);
+    return digest && *digest == held.digest;
+}
+
+/// Reports whether a name a record holds stays inside the folder it is
+/// recorded for.
+///
+/// The record is a file on disk, so its names are not trusted: only a
+/// relative path of plain parts may name a file to remove.
+///
+/// @param name the copy name
+/// @return true for a relative path with no root name, no root directory,
+///     and no empty, "." or ".." part
+bool stays_inside(std::string_view name) {
+    if (name.empty())
+        return false;
+    const fs::path path = detail::path_of(name);
+    if (path.has_root_name() || path.has_root_directory() || path.is_absolute())
+        return false;
+    for (const fs::path& part : path) {
+        if (part.empty() || part == fs::path(".") || part == fs::path(".."))
+            return false;
+    }
+    return true;
+}
+
+/// Compares two copy names without regard to ASCII case.
+///
+/// @param one a name
+/// @param other another name
+/// @return true when they name the same file
+bool same_copy_name(std::string_view one, std::string_view other) {
+    return detail::folded(one) == detail::folded(other);
+}
+
+/// Reports whether a name is `stem`, a space and a number: the name a file
+/// sync gives a second copy of a folder it found twice ("Help 2").
+///
+/// @param name the folder's name
+/// @param stem the package's folder name
+/// @return true for such a copy's name
+bool numbered_copy_of(std::string_view name, std::string_view stem) {
+    if (name.size() < stem.size() + 2 || name.substr(0, stem.size()) != stem ||
+        name[stem.size()] != ' ')
+        return false;
+    for (const char letter : name.substr(stem.size() + 1)) {
+        if (letter < '0' || letter > '9')
+            return false;
+    }
+    return true;
+}
+
+/// Removes the empty numbered copies a file sync left beside the folders a
+/// package's files lie in. A copy that holds any file is left whole.
+///
+/// @param dest the expansion's folder
+/// @param held the package's files
+void remove_empty_copies(const fs::path& dest, const std::vector<HeldFile>& held) {
+    std::vector<fs::path> folders;
+    for (const HeldFile& file : held) {
+        fs::path folder = detail::path_of(file.name).parent_path();
+        while (!folder.empty()) {
+            if (std::find(folders.begin(), folders.end(), folder) == folders.end())
+                folders.push_back(folder);
+            folder = folder.parent_path();
+        }
+    }
+    for (const fs::path& folder : folders) {
+        const fs::path parent = dest / folder.parent_path();
+        const std::string stem = detail::utf8_of(folder.filename());
+        std::error_code error;
+        std::vector<fs::path> copies;
+        for (fs::directory_iterator cursor(parent, error), end; !error && cursor != end;
+             cursor.increment(error)) {
+            const std::string name = detail::utf8_of(cursor->path().filename());
+            if (numbered_copy_of(name, stem) && !is_link_or_junction(cursor->path()))
+                copies.push_back(cursor->path());
+        }
+        for (const fs::path& copy : copies) {
+            if (detail::holds_only_empty_folders(copy))
+                static_cast<void>(detail::remove_empty_folders(copy));
+        }
+    }
+}
+
+/// Replaces the files of a copy already in place with the files just staged.
+///
+/// The old record is first written again without its package line, so a
+/// replacement that stops part way reads as a copy that names no package,
+/// which the next entry fetches again. A file already holding the right
+/// bytes is left as it is; every other is moved over. Folders are never
+/// replaced, and a file the old record did not name, such as one the game
+/// wrote, is kept. A file the old record named that the package no longer
+/// holds is removed, when its name stays inside the folder (stays_inside).
+/// The new record is written last.
 ///
 /// @param staging the folder just filled
+/// @param dest the copy in place, whose record names the expansion
+/// @param present that record
+/// @param bundle the expansion
+/// @param source the source text
+/// @param package the package the files came from
+/// @param held the package's files
+/// @param[out] problem why it stopped
+/// @return true when `dest` holds the package's files and the new record
+bool replace_in_place(
+    const fs::path& staging,
+    const fs::path& dest,
+    const bundles::ContentRecord& present,
+    const bundles::Bundle& bundle,
+    const std::string& source,
+    const std::optional<bundles::ContentRecordPackage>& package,
+    const std::vector<HeldFile>& held,
+    Problem& problem
+) {
+    bundles::ContentRecord cleared = present;
+    cleared.package.reset();
+    const std::optional<std::string> cleared_text = bundles::format_content_record(cleared);
+    std::string why;
+    if (!cleared_text ||
+        !oa::platform::replace_file(
+            dest / std::string(bundles::content_record_name),
+            {reinterpret_cast<const uint8_t*>(cleared_text->data()), cleared_text->size()},
+            &why
+        )) {
+        problem.refusal = Refusal::not_placed;
+        problem.detail = why;
+        return false;
+    }
+    for (const HeldFile& file : held) {
+        const fs::path from = staging / detail::path_of(file.name);
+        const fs::path to = dest / detail::path_of(file.name);
+        if (link_on_the_way(dest, to, problem))
+            return false;
+        if (holds_bytes(to, file))
+            continue;
+        std::error_code error;
+        fs::create_directories(to.parent_path(), error);
+        if (error) {
+            problem.refusal = Refusal::not_placed;
+            problem.subject = file.name;
+            problem.detail = error.message();
+            return false;
+        }
+        if (fs::exists(fs::symlink_status(to, error)) && !detail::remove_entry(to, error)) {
+            problem.refusal = Refusal::not_placed;
+            problem.subject = file.name;
+            problem.detail = error.message();
+            return false;
+        }
+        fs::rename(from, to, error);
+        if (error) {
+            problem.refusal = Refusal::not_placed;
+            problem.subject = file.name;
+            problem.detail = error.message();
+            return false;
+        }
+    }
+    for (const bundles::ContentRecordFile& item : present.files) {
+        bool kept = false;
+        for (const HeldFile& file : held) {
+            if (same_copy_name(file.name, item.copy_name)) {
+                kept = true;
+                break;
+            }
+        }
+        if (kept)
+            continue;
+        if (!stays_inside(item.copy_name)) {
+            detail::log_line(
+                "the record names " + item.copy_name +
+                ", which is not a file of the expansion's folder; it is left where it is"
+            );
+            continue;
+        }
+        const fs::path left = dest / detail::path_of(item.copy_name);
+        Problem ignored{};
+        std::error_code error;
+        if (link_on_the_way(dest, left, ignored) ||
+            !fs::is_regular_file(fs::symlink_status(left, error)))
+            continue;
+        static_cast<void>(detail::remove_entry(left, error));
+    }
+    remove_empty_copies(dest, held);
+    return write_record(dest, bundle, source, package, held, problem);
+}
+
+/// Puts `staging` in `dest`'s place.
+///
+/// A `dest` that is not there yet is the staged folder, renamed. An existing
+/// `dest` is replaced only when its record names `id`, and then file by file
+/// (replace_in_place). A link is refused and left in place.
+///
+/// @param staging the folder just filled, with its record
 /// @param user_folder the player's folder `dest` lies in
 /// @param dest where the expansion belongs
-/// @param id the expansion's id
+/// @param bundle the expansion
+/// @param source the source text
+/// @param package the package the files came from
+/// @param held the package's files
 /// @param[out] problem why it was not put in place
-/// @return true when `dest` is the new folder
+/// @return true when `dest` holds the new files and record
 bool put_in_place(
     const fs::path& staging,
     const fs::path& user_folder,
     const fs::path& dest,
-    std::string_view id,
+    const bundles::Bundle& bundle,
+    const std::string& source,
+    const std::optional<bundles::ContentRecordPackage>& package,
+    const std::vector<HeldFile>& held,
     Problem& problem
 ) {
+    const std::string_view id = bundle.id;
     if (link_on_the_way(user_folder, dest, problem) || is_link_or_junction(dest)) {
         if (problem.refusal == Refusal::none)
             problem.refusal = Refusal::link;
@@ -592,10 +831,10 @@ bool put_in_place(
         problem.subject = detail::utf8_of(aside);
         return false;
     }
+    // A folder an earlier build put aside while it swapped whole folders.
     if (fs::exists(aside, error))
         discard_folder(aside);
-    const bool replacing = fs::exists(dest, error);
-    if (replacing) {
+    if (fs::exists(dest, error)) {
         if (!fs::is_directory(dest, error) || error) {
             problem.refusal = Refusal::not_placed;
             problem.subject = detail::utf8_of(dest);
@@ -607,23 +846,17 @@ bool put_in_place(
             problem.detail = "The folder already holds something else.";
             return false;
         }
-        fs::rename(dest, aside, error);
-        if (error) {
-            problem.refusal = Refusal::not_placed;
-            problem.detail = error.message();
+        if (!replace_in_place(staging, dest, present, bundle, source, package, held, problem))
             return false;
-        }
+        discard_folder(staging);
+        return true;
     }
     fs::rename(staging, dest, error);
     if (error) {
-        std::error_code restore;
-        if (replacing)
-            fs::rename(aside, dest, restore);
         problem.refusal = Refusal::not_placed;
         problem.detail = error.message();
         return false;
     }
-    discard_folder(aside);
     return true;
 }
 
@@ -637,6 +870,7 @@ bool put_in_place(
 /// @param files the table the bytes must match; null for the built-in one
 /// @param[out] installed the folder; may be null
 /// @param[out] problem why it was refused
+/// @param from the package's SHA-256, when known, and its catalogue release
 /// @return true when the expansion is in place
 bool install_checked(
     const fs::path& package,
@@ -644,12 +878,28 @@ bool install_checked(
     std::string_view registry_id,
     const bundles::Bundle* files,
     fs::path* installed,
-    Problem& problem
+    Problem& problem,
+    const PackageFrom& from
 ) {
     problem = {};
     std::string source;
     if (!source_text(registry_id, package, problem, source))
         return false;
+    if (from.release < 0 || from.release > bundles::content_record_release_limit) {
+        problem.refusal = Refusal::manifest_errors;
+        problem.lines.push_back("The release cannot be stored.");
+        return false;
+    }
+    const std::optional<sha::Digest> digest = from.sha256 ? from.sha256 : package_digest(package);
+    if (!digest) {
+        problem.refusal = Refusal::unreadable;
+        problem.detail = "the file cannot be opened";
+        return false;
+    }
+    bundles::ContentRecordPackage recorded;
+    recorded.sha256 = *digest;
+    recorded.release = from.release;
+    const std::optional<bundles::ContentRecordPackage> named = recorded;
     detail::PackageFile archive;
     if (!archive.open(package)) {
         problem.refusal = Refusal::unreadable;
@@ -716,8 +966,8 @@ bool install_checked(
     std::vector<HeldFile> held;
     if (!copy_files(archive, directory, located, staging, held, problem) ||
         !files_match(*table, held, problem) ||
-        !write_record(staging, *table, source, held, problem) ||
-        !put_in_place(staging, user_folder, dest, table->id, problem)) {
+        !write_record(staging, *table, source, named, held, problem) ||
+        !put_in_place(staging, user_folder, dest, *table, source, named, held, problem)) {
         discard_folder(staging);
         return false;
     }
@@ -816,9 +1066,10 @@ bool install_oaexp(
     const fs::path& user_folder,
     std::string_view registry_id,
     fs::path* installed,
-    Problem& problem
+    Problem& problem,
+    const PackageFrom& from
 ) {
-    return install_checked(package, user_folder, registry_id, nullptr, installed, problem);
+    return install_checked(package, user_folder, registry_id, nullptr, installed, problem, from);
 }
 
 bool install_expansion_package(
@@ -827,9 +1078,10 @@ bool install_expansion_package(
     std::string_view registry_id,
     const bundles::Bundle& files,
     fs::path* installed,
-    Problem& problem
+    Problem& problem,
+    const PackageFrom& from
 ) {
-    return install_checked(package, user_folder, registry_id, &files, installed, problem);
+    return install_checked(package, user_folder, registry_id, &files, installed, problem, from);
 }
 
 bool uninstall_expansion(const fs::path& user_folder, std::string_view id, Problem& problem) {

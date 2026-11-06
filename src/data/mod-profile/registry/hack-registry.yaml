@@ -1787,3 +1787,27 @@ entries:
     scope: view
     key: movies.credits
     value: {type: string, max-length: 12, pattern: '^(?!\.\.?$)[^/\\:]*$', baseline: 5.zrb, scope: view}
+  media.boneyards-entry.mode:
+    kind: media
+    area: ui
+    summary: "How the main menu shows the way into the Boneyards: auto draws the Boneyards strip across the menu's bottom 102 rows when the menu's art there is the base game's and only the strip's ENTER plate otherwise; strip, button and none choose."
+    ownership: local-view
+    scope: view
+    key: boneyards-entry.mode
+    value: {type: string, max-length: 6, pattern: '^(auto|strip|button|none)$', baseline: auto, scope: view}
+  media.boneyards-entry.x:
+    kind: media
+    area: ui
+    summary: "The Boneyards ENTER plate's left column on the 640x480 main menu, 0 to 505 so the 135-pixel plate stays on it; given with y. Used in button mode only. Unwritten, the plate stands at the top right, 8 pixels in: 497."
+    ownership: local-view
+    scope: view
+    key: boneyards-entry.x
+    value: {type: int, min: 0, max: 505, baseline: 497, scope: view}
+  media.boneyards-entry.y:
+    kind: media
+    area: ui
+    summary: "The Boneyards ENTER plate's top row on the 640x480 main menu, 0 to 414 so the 66-pixel plate stays on it; given with x. Used in button mode only. Unwritten, the plate stands at the top right, 8 pixels in: 8."
+    ownership: local-view
+    scope: view
+    key: boneyards-entry.y
+    value: {type: int, min: 0, max: 414, baseline: 8, scope: view}

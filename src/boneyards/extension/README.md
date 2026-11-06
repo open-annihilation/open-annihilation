@@ -25,7 +25,8 @@ so it is asked before network play.
 
 ## Tests
 
-`boneyards-options`, `boneyards-launch`, `boneyards-exit-prompt`, and the
+`boneyards-options`, `boneyards-launch`, `boneyards-exit-prompt`,
+`boneyards-entry-flow` (the entry's decisions before the package), and the
 `native-boneyards-*` checks. Launch checks read `OA_LAUNCHER_GAME_DIR`.
 
 ## Limitations

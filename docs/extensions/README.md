@@ -154,7 +154,7 @@ With one extension the combined table behaves as that extension's own.
 ## The version
 
 `OA_EXTENSION_API_VERSION` numbers the table's contract, and
-`oa::app::extension_api_version` is its typed copy. The version is 19. It
+`oa::app::extension_api_version` is its typed copy. The version is 20. It
 rises by one with each change to the contract: a hook added, removed or
 renamed; a hook's parameters, its return value or the meaning of leaving it
 null; when or in which order the engine calls it; what it may keep or must
@@ -194,6 +194,16 @@ the Modern look's faces (`kit::Fonts`' `modern` member, the text functions
 that choose a face, the text-font `Style`'s family and two weights). An
 extension built against 18 reads `Metrics` and `Fonts` at the wrong places.
 It is not a hook.
+
+Version 20 adds four members to `ExtensionControl`, the record an
+extension's screen gives of each control: `masked` and `text_length` for a
+masked field, whose `text` stays empty, and `scroll_up` and `scroll_down`
+for the controls that scroll a list. It adds four calls, none of them a
+hook: [`answer_multiplayer_entry`][ext] answers MULTI when an extension
+took the press before the menu did; [`defer_inactive_loop_release`][ext]
+holds off the inactive-loop check's release; and
+[`post_extension_note`][ext] and [`take_extension_notes`][ext] pass short
+notes to a program driving the game.
 
 An extension states the version it follows, so that a build against a
 table of another version stops until its author has read the change. The

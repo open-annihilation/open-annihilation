@@ -1093,6 +1093,35 @@ void Runtime::follow_room_mutators() {
             release_empty_room();
             return;
         }
+        // A launch that bars mutators does not build a list the host named.
+        // Holding the start is safer than playing a different list.
+        if (mp::lobby_mutators_barred(mp::multiplayer_lobby()) &&
+            state.assembly.total <= netgame::presence_mutators_max) {
+            if (state.mounted && !drop_room_layer())
+                return;
+            const bool already = state.phase == mp::RoomMutatorPhase::failed &&
+                                 state.for_digest == state.assembly.digest;
+            if (!already) {
+                std::cerr << "open-annihilation: mutators: room failed: this battle plays "
+                             "with none\n";
+                std::cerr.flush();
+                state.phase = mp::RoomMutatorPhase::failed;
+                state.for_digest = state.assembly.digest;
+                state.index = netgame::presence_mutator_index_none;
+                state.total = static_cast<uint8_t>(state.assembly.total);
+                state.held = state.total;
+                state.codes.assign(
+                    static_cast<std::size_t>(state.total),
+                    static_cast<uint8_t>(mp::MutatorHave::has)
+                );
+                state.folded = {};
+                state.have_folded = false;
+                state.built_sim.clear();
+                state.resolved.clear();
+            }
+            publish_current(false);
+            return;
+        }
         if (state.assembly.total > netgame::presence_mutators_max ||
             state.assembly.mutators.size() > state.assembly.total) {
             if (state.phase != mp::RoomMutatorPhase::failed ||
@@ -1193,7 +1222,15 @@ void Runtime::follow_room_mutators() {
         return;
     }
 
-    if (!state.seeded) {
+    // A launch that bars mutators starts from an empty list. A remembered
+    // set is not applied, and a later seed cannot refill it.
+    if (mp::lobby_mutators_barred(mp::multiplayer_lobby())) {
+        if (!state.seeded || !state.chosen.empty()) {
+            state.chosen.clear();
+            state.seeded = true;
+            ++state.chosen_stamp;
+        }
+    } else if (!state.seeded) {
         const auto listed = chosen_match_mutators();
         state.chosen.assign(listed.begin(), listed.end());
         state.seeded = true;

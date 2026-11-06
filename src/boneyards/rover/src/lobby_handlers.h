@@ -421,14 +421,30 @@ using RoverQuickPlayScanFn = void (*)(const RoverQuickPlayScan* scan);
 /// Receives a quickplay_found. The found record lives only for the call.
 using RoverQuickPlayFoundFn = void (*)(const RoverQuickPlayFound* found);
 
-/// Installs the three QuickPlay replies. Any of them may be null, and a matching command is still
+/// One quickplay_withdrawn. game_id is empty, and game_known false, when the offer named no battle.
+/// reason is 0 filled, 1 started, 2 abandoned, 3 the seat reservation lapsed.
+struct RoverQuickPlayWithdrawn {
+    char offer_id[kRoverMatchmakingIdBytes]{};
+    char game_id[kRoverMatchmakingIdBytes]{};
+    bool game_known{};
+    int32_t reason{};
+};
+
+/// Receives a quickplay_withdrawn. The record lives only for the call.
+using RoverQuickPlayWithdrawnFn = void (*)(const RoverQuickPlayWithdrawn* withdrawn);
+
+/// Installs the QuickPlay replies. Any of them may be null, and a matching command is still
 /// taken. This is not a handler slot.
 ///
 /// @param status called for quickplay_status
 /// @param scan called for quickplay_scan
 /// @param found called for quickplay_found
+/// @param withdrawn called for quickplay_withdrawn
 void rover_quickplay_set_handlers(
-    RoverQuickPlayStatusFn status, RoverQuickPlayScanFn scan, RoverQuickPlayFoundFn found
+    RoverQuickPlayStatusFn status,
+    RoverQuickPlayScanFn scan,
+    RoverQuickPlayFoundFn found,
+    RoverQuickPlayWithdrawnFn withdrawn
 );
 
 /// Sends quickplay_join. area_id is omitted unless the query says it is known. favorite is omitted
@@ -450,12 +466,12 @@ bool rover_quickplay_cancel();
 /// @return true when the record was queued
 bool rover_quickplay_answer(const char* offer_id, int32_t accept);
 
-/// Takes quickplay_status, quickplay_scan and quickplay_found.
+/// Takes quickplay_status, quickplay_scan, quickplay_found and quickplay_withdrawn.
 ///
 /// Called from dispatch before the armed handlers. A QuickPlay command is consumed even when the
 /// callbacks are null. Any other command is left for the handlers.
 ///
 /// @param command the entry's command field
 /// @param entry the entry's fields
-/// @return true when the command is one of the three QuickPlay replies
+/// @return true when the command is one of the QuickPlay replies
 bool rover_quickplay_offer(const RoverField& command, const RoverEntry& entry);

@@ -16,8 +16,8 @@
 // from the 3.1c gadgets on every window, and falls back to MORE MAPS…'s
 // rule when it would meet one. The button joins that screen's Tab order,
 // where the room's own focus marker shows on it. Y opens the picker. In the
-// battle room a launch that locks the host's options draws the button
-// grayed, and the line beside START that names a player who lacks a
+// battle room a launch that locks the host's options, or that bars mutators,
+// draws the button grayed, and the line beside START that names a player who lacks a
 // mutator is in the room's label font.
 
 #include "brain_seats_room.hpp"
@@ -533,7 +533,10 @@ battle_geometry(Runtime& runtime, const LayerView& placed_on, const kit::HoverCa
         }
     }
     mp::Lobby& lobby = mp::multiplayer_lobby();
-    laid.locked = lobby.game != nullptr && mp::lobby_options_locked(lobby);
+    laid.locked = lobby.game != nullptr &&
+                  mp::mutators_bar_locks_picker(
+                      mp::lobby_options_locked(lobby), mp::lobby_mutators_barred(lobby) ? 1u : 0u
+                  );
     laid.bounds = bounds;
     add_frame(laid, placed_on, card, *fonts);
     for (place::PlaceRect& gadget : laid.gadgets) {
@@ -1308,7 +1311,10 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// multiplayer set. USE THESE hands the set to the room. CANCEL changes nothing.
     void open_room_picker() {
         mp::Lobby& lobby = mp::multiplayer_lobby();
-        if (lobby.game != nullptr && mp::lobby_options_locked(lobby))
+        if (lobby.game != nullptr &&
+            mp::mutators_bar_locks_picker(
+                mp::lobby_options_locked(lobby), mp::lobby_mutators_barred(lobby) ? 1u : 0u
+            ))
             return;
         const auto held = runtime_.room_mutators();
         std::vector<oa::data::mutators::ResolvedMutator> current(held.begin(), held.end());
@@ -1366,8 +1372,14 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     ///
     /// @return the count
     [[nodiscard]] std::size_t chosen_count() const {
-        if (room_host_shows(runtime_))
+        if (room_host_shows(runtime_)) {
+            mp::Lobby& lobby = mp::multiplayer_lobby();
+            // A locked room still shows the mutators it plays. Only a launch
+            // that bars them hides the count.
+            if (lobby.game != nullptr && mp::lobby_mutators_barred(lobby))
+                return 0;
             return runtime_.room_mutators().size();
+        }
         return chosen_set().size();
     }
 
@@ -1391,6 +1403,11 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     [[nodiscard]] std::vector<MutatorsCardItem> card_items() const {
         std::vector<MutatorsCardItem> items;
         if (room_host_shows(runtime_)) {
+            mp::Lobby& lobby = mp::multiplayer_lobby();
+            // A locked room still names the mutators it plays. Only a launch
+            // that bars them leaves the card empty.
+            if (lobby.game != nullptr && mp::lobby_mutators_barred(lobby))
+                return items;
             for (const oa::data::mutators::ResolvedMutator& one : runtime_.room_mutators())
                 items.push_back(
                     {one.manifest.name.empty() ? one.manifest.id : one.manifest.name, false}

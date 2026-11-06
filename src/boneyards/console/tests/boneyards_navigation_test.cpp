@@ -1950,8 +1950,10 @@ bool shows(const HtmlView* view, const char* text) {
 // clan down the left in the small font, Whisper Lock and Muzzle in the dim
 // small font, PAGE at (5, 0x83), and the General, Ladder and Awards captions
 // in the button font at x 0x67, 0xBC and 0x111 under invisible buttons,
-// over the HTML view at (0x6B, 0x19). A click on the second player row asks
-// Rover for that player's profile (chat_pane_begin_profile, slot 63) and shows
+// over the HTML view at (0x6B, 0x19). The list's selection starts on the
+// first row chat_player_row added, and a click there, then a second click on
+// that same row, each ask for his profile and show "ACCESSING...". A click
+// on the second row asks for his (chat_pane_begin_profile) and shows
 // "ACCESSING..."; the reply fills the pane (chat_pane_on_profile). The tabs switch
 // the page (player_pane_on_notify), PAGE fills the input line, the Muzzle box puts the
 // player on the Silenced list (his row dims and his lines are dropped) and
@@ -2020,6 +2022,26 @@ void check_chat_player_pane(
     }
     g_server.profile_requests.clear();
     ListBox* log = &view->log->list;
+    check(
+        view->player_list->list.selected == 0 && chat.player_total == 2 &&
+            player_row(view, 0)->user_id == 9 && player_row(view, 1)->user_id == 12,
+        "chat_player_row fills Dan then Sentinel, and the selection starts on the first row"
+    );
+    click_window(widget, player_row(view, 0)->name_label);
+    check(
+        g_server.profile_requests.size() == 1 && g_server.profile_requests[0].user_id == 9 &&
+            g_server.profile_requests[0].context == &chat && window_is_shown(w) &&
+            chat.pane.visible && chat.pane.user_id == 9 && shows(pane->html, "ACCESSING..."),
+        "a click on the first player row asks for his profile and shows ACCESSING..."
+    );
+    click_window(widget, player_row(view, 0)->name_label);
+    check(
+        g_server.profile_requests.size() == 2 && g_server.profile_requests[1].user_id == 9 &&
+            g_server.profile_requests[1].context == &chat && chat.pane.user_id == 9 &&
+            shows(pane->html, "ACCESSING..."),
+        "a second click on the same row asks for his profile again"
+    );
+    g_server.profile_requests.clear();
     click_window(widget, player_row(view, 1)->name_label);
     check(
         g_server.profile_requests.size() == 1 && g_server.profile_requests[0].user_id == 12 &&
@@ -3109,6 +3131,107 @@ void test_overlay_message(Data* data) {
 
 // Chat keeps its entry line and the log's scroll position across a close and
 // the opening that follows. The console shown the second time is the first one.
+// Selecting a planet, then a session record of another area or of 0, then
+// CHAT, asks for the selected planet. The debriefing open enters the
+// debriefing room; CHAT again asks for the selected planet. An open with
+// no planet and area 0 shows no alert.
+void test_chat_on_selected_planet(Data* data) {
+    g_server = FakeServer{};
+    StatusWidget* widget = make_widget(data);
+    if (widget == nullptr)
+        return;
+    MainFrame* frame = log_in(widget);
+    if (frame == nullptr) {
+        boneyards_status_widget_destroy(widget);
+        return;
+    }
+    screens::BoneyardsScreens* nav = widget->navigation;
+    click_window(widget, hotspot(frame, 1));
+    const uint32_t planet = k_first_planet + 1;
+    check(nav->galaxy.selected == 1 && nav->session.area_id == planet, "planet 1 is selected");
+
+    SessionRecord record{};
+    record.level = SessionLevel::dossier_loaded;
+    record.user_id = 42;
+    record.area_id = 0;
+    g_server.events.session_changed(g_server.events.user, &record);
+    check(nav->session.area_id == planet, "a session record of area 0 leaves the selected planet");
+    record.area_id = 7;
+    g_server.events.session_changed(g_server.events.user, &record);
+    check(
+        nav->session.area_id == planet && nav->session.home_area_id == 7,
+        "a session record of the home area leaves the selected planet"
+    );
+
+    {
+        ScopedServices scope(widget);
+        activity_light_stop(frame->activity_light);
+    }
+    g_server.room_calls.clear();
+    click_window(widget, console_button(frame, ConsoleButton::chat));
+    finish_slide(widget);
+    check(
+        !g_server.room_calls.empty() &&
+            g_server.room_calls.back() == "rooms(" + std::to_string(planet) + ")",
+        "CHAT asks for the selected planet after the session record"
+    );
+
+    click_window(widget, console_button(frame, ConsoleButton::chat));
+    finish_slide(widget);
+    check(frame->console_screen == console_screen::none, "CHAT closes before the debriefing");
+    nav->session.debriefing_pending = true;
+    nav->session.debrief_area_id = k_first_planet;
+    nav->session.debrief_room_id = 40;
+    g_server.room_calls.clear();
+    {
+        ScopedServices scope(widget);
+        main_frame_reopen_chat(frame);
+    }
+    check(
+        !g_server.room_calls.empty() &&
+            g_server.room_calls.back() == "join(" + std::to_string(k_first_planet) + ",40)",
+        "the debriefing open enters the debriefing room"
+    );
+    nav->session.debriefing_pending = false;
+    check(
+        nav->session.area_id == static_cast<uint32_t>(k_first_planet),
+        "the debriefing leaves its area"
+    );
+
+    click_window(widget, console_button(frame, ConsoleButton::chat));
+    finish_slide(widget);
+    check(frame->console_screen == console_screen::none, "CHAT closes");
+    {
+        ScopedServices scope(widget);
+        main_frame_enable_buttons(frame);
+    }
+    g_server.room_calls.clear();
+    click_window(widget, console_button(frame, ConsoleButton::chat));
+    finish_slide(widget);
+    check(
+        frame->console_screen == console_screen::chat && !g_server.room_calls.empty() &&
+            g_server.room_calls.back() == "rooms(" + std::to_string(planet) + ")",
+        "CHAT again asks for the selected planet"
+    );
+
+    nav->galaxy.selected = screens::kNoPlanet;
+    nav->session.area_id = 0;
+    nav->session.home_area_id = 0;
+    nav->session.debrief_area_id = 0;
+    const int32_t messages = nav->message_count;
+    g_server.room_calls.clear();
+    {
+        ScopedServices scope(widget);
+        screens::chat_open_on_planet(&nav->chat);
+    }
+    check(
+        g_server.room_calls.empty() && !nav->chat.enter_default_room &&
+            nav->message_count == messages,
+        "an area-0 open asks for no list and shows no alert"
+    );
+    boneyards_status_widget_destroy(widget);
+}
+
 void test_chat_console_kept(Data* data) {
     g_server = FakeServer{};
     StatusWidget* widget = make_widget(data);
@@ -3196,6 +3319,7 @@ int main(int argc, char** argv) {
     test_connected_navigation(&data);
     test_profile_apply_through_screen(&data);
     test_chat_console_kept(&data);
+    test_chat_on_selected_planet(&data);
     test_offline_login(&data);
     test_event_login(&data, "alpha");
     test_event_login(&data, nullptr);

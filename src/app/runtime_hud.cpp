@@ -803,18 +803,27 @@ void Runtime::fill_hud_rect(int x, int y, int width, int height, uint8_t palette
         match_palette_[pal], match_palette_[pal + 1], match_palette_[pal + 2]
     };
     auto& dest = paint_target();
-    for (int row = 0; row < height; ++row)
-        for (int column = 0; column < width; ++column) {
-            const int px = x + column, py = y + row;
-            if (px < 0 || py < 0 || px >= static_cast<int>(dest.width) ||
-                py >= static_cast<int>(dest.height))
-                continue;
-            const auto di =
-                (static_cast<std::size_t>(py) * dest.width + static_cast<std::size_t>(px)) * 3U;
-            dest.rgb[di] = color[0];
-            dest.rgb[di + 1] = color[1];
-            dest.rgb[di + 2] = color[2];
+    // The rectangle cut to the target, then each of its rows filled.
+    const int left = std::max(x, 0);
+    const int top = std::max(y, 0);
+    const int right = static_cast<int>(
+        std::min<int64_t>(static_cast<int64_t>(x) + width, static_cast<int64_t>(dest.width))
+    );
+    const int bottom = static_cast<int>(
+        std::min<int64_t>(static_cast<int64_t>(y) + height, static_cast<int64_t>(dest.height))
+    );
+    if (left >= right || top >= bottom)
+        return;
+    for (int py = top; py < bottom; ++py) {
+        uint8_t* out =
+            dest.rgb.data() +
+            (static_cast<std::size_t>(py) * dest.width + static_cast<std::size_t>(left)) * 3U;
+        for (int px = left; px < right; ++px, out += 3) {
+            out[0] = color[0];
+            out[1] = color[1];
+            out[2] = color[2];
         }
+    }
 }
 
 const oa::formats::fnt::Font* Runtime::overlay_font(OverlayFont font) {

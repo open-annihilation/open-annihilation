@@ -251,6 +251,9 @@ void online_launch_fill_boneyards(
     block.connection_type = nl::connection_type::tcpip;
     block.launched_connection_type = nl::connection_type::tcpip;
     block.lock_options = launch.lock_options ? 1U : 0U;
+    // The picker stays locked and the room starts with no mutators, whether
+    // or not the server locked the room's other options.
+    block.bar_mutators = 1;
     block.max_units = launch.maxunits;
     block.energy = launch.energy;
     block.metal = launch.metal;
@@ -289,6 +292,8 @@ void on_boneyards_launch(
     boneyards_remove_overlay_route();
     const DataVerdict verdict = boneyards_current_data_verdict();
     if (!verdict.allowed) {
+        if (launch != nullptr)
+            (void)oa::boneyards::rover_call_leave_battles(launch->area_id, nullptr);
         boneyards_console_show_notice(
             verdict.message != nullptr ? verdict.message : kBoneyardsDataRefusal
         );
@@ -297,8 +302,11 @@ void on_boneyards_launch(
     if (const oa::boneyards::OverlayLaunch* overlay = oa::boneyards::current_overlay_launch())
         boneyards_install_overlay_route(*overlay);
     g_launch_locked_allowed = true;
+    nl::LaunchBlock& block = api::launch_block();
     if (launch != nullptr)
-        online_launch_fill_boneyards(api::launch_block(), *launch, player_name);
+        online_launch_fill_boneyards(block, *launch, player_name);
+    // A launch with no reply still plays with no mutators.
+    block.bar_mutators = 1;
     api::apply_launch();
     if (g_launch.exit_prompt != nullptr)
         exit_prompt_launch_applied(*g_launch.exit_prompt);

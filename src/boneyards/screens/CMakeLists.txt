@@ -7,7 +7,8 @@ file(GLOB oa_boneyards_screens_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE
 add_library(oa-boneyards-screens ${oa_boneyards_screens_sources})
 add_library(oa::boneyards::screens ALIAS oa-boneyards-screens)
 target_include_directories(oa-boneyards-screens PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(oa-boneyards-screens PUBLIC oa-boneyards-toolkit oa-data-languages PRIVATE oa-options)
+target_link_libraries(oa-boneyards-screens PUBLIC oa-boneyards-toolkit oa-data-languages
+  PRIVATE oa-options oa-platform-shims)
 target_compile_features(oa-boneyards-screens PUBLIC cxx_std_20)
 target_compile_definitions(oa-boneyards-screens PUBLIC
   OA_BONEYARDS_REGISTRATION_URL="${OA_BONEYARDS_REGISTRATION_URL}")

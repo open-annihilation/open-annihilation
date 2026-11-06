@@ -10,6 +10,7 @@
 
 #include "oa/core/world.h"
 #include "oa/data/defs/categories.hpp"
+#include "oa/platform/job_pool.hpp"
 
 #include <array>
 #include <cstddef>
@@ -63,6 +64,10 @@ megamap_map_point(const MegamapLayout& layout, int32_t x, int32_t y) noexcept;
 struct TerrainSource {
     void* user{};
     uint8_t (*pixel)(void* user, int32_t map_x, int32_t map_z){};
+    /// Copies `count` palette indices of map row `map_z` from column
+    /// `map_x` on, each the one `pixel` reads; null reads them one by one
+    /// through `pixel`.
+    void (*row)(void* user, int32_t map_z, int32_t map_x, int32_t count, uint8_t* out){};
 };
 
 /// The palette entries a picture may take, with each entry's colour in the
@@ -95,6 +100,10 @@ nearest_perceptual(const PerceptualPalette& palette, int32_t r, int32_t g, int32
 /// colour of the map pixels it covers, truncated, then the nearest palette
 /// entry or, dithered, alternates in a checkerboard between the two nearest.
 ///
+/// The rows are downscaled in bands on the pool's threads, or in order
+/// without one; every pixel is the same either way. `source` must allow
+/// reads from several threads at once when a pool is given.
+///
 /// @param source the map's pixels
 /// @param map_width map pixels across
 /// @param map_height map pixels down
@@ -105,6 +114,8 @@ nearest_perceptual(const PerceptualPalette& palette, int32_t r, int32_t g, int32
 /// @param perceptual the entries to choose from, nearest as they look
 ///        (nearest_perceptual); null takes every entry of `palette`, nearest
 ///        by squared distance in red, green and blue
+/// @param pool the threads that share the rows; null downscales on the
+///        calling thread
 /// @return the picture's palette indices, rows `width` apart
 [[nodiscard]] std::vector<uint8_t> downscale_terrain(
     const TerrainSource& source,
@@ -114,7 +125,8 @@ nearest_perceptual(const PerceptualPalette& palette, int32_t r, int32_t g, int32
     int32_t height,
     std::span<const uint8_t> palette,
     bool dither,
-    const PerceptualPalette* perceptual
+    const PerceptualPalette* perceptual,
+    oa::platform::job_pool::Pool* pool = nullptr
 );
 
 /// Returns the palette entry nearest a colour by squared distance in red,

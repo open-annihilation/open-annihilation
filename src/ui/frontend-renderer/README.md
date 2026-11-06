@@ -10,8 +10,10 @@ over the menu; it shadows the layout that goes with `FrontendX`.
 `MainMenuLayout::base_game`, which the application takes whenever no overlay
 stands over the menu, takes a loose copy first; else the first archived copy,
 in lookup order, whose archive also holds `FrontendX` (`totala1.hpi`'s, whose
-four buttons at x 139 and 409 sit inside FrontendX's pipe frames) or lies in
-a mod's folder layered over the game folder; else the top copy. It passes
+four buttons at x 139 and 409 sit inside FrontendX's pipe frames) or lies
+directly in the played mod's folder, which the caller names; else the top
+copy. An expansion's folder, which the store also layers over the game
+folder, is not a mod's. It passes
 over a copy in any other archive, which 3.1c shows when it comes first. A mod
 that brings its own `FrontendX` and no `MAINMENU.GUI`, its art drawn around
 the game's buttons, so keeps those buttons in its frames, and a mod's own
@@ -74,6 +76,40 @@ Runtime image pointers are explicit presentation bindings. Dynamic `SIDEx`
 buttons and `ally icons` bind to the screen GAF, while player colors bind to
 `32xlogos` in the globally loaded `textures/LOGOS.GAF`; these are not inferred
 from widget dimensions or stage counts.
+
+## The main menu's art and Open Annihilation's buttons
+
+`oa/ui/frontend_renderer/main_menu_art.hpp` sets the main menu's picture
+against the base game's. `base_game_main_menu_background` finds the
+FrontendX the base game holds: the first archived copy, in lookup order,
+whose archive lies outside the played mod's folder. `from_mod_folder` tells
+whether a main-menu file comes from that folder (a loose file under it, or
+an archive directly in it); an expansion's folder is the game's own.
+`compare_menu_art` counts the pixels of a band two pictures differ in, a
+pixel differing when a channel moves by more than `menu_art_tolerance`
+(24), so a copy saved through another palette still matches; its
+`per_mille` is the share. The band an overlay with buttons of its own
+covers is the menu's last 102 rows, from row 378 (`main_menu_band_top`,
+`main_menu_band_rows`). `cover_main_menu_band` turns off, for the
+keyboard, the records wholly in that band (no focus and no quick key)
+except the names it keeps, and leaves a record only partly in it, and the
+drawing, as they are.
+
+`compare_button_art` compares a button's resting picture, drawn as the
+screen draws it, with a picture's pixels under it.
+`ScreenResources::undrawn_buttons` names buttons that keep their place and
+their press but draw nothing. Every loader leaves it empty; with no overlay
+over the menu, the application names the credits gadget there when, on a
+FrontendX of a mod's own, its resting picture is the base game's art at its
+place and not the mod's: a square of the base game's menu on the mod's art.
+
+`oa/ui/frontend_renderer/menu_buttons.hpp` places Open Annihilation's
+buttons on the main menu: the Library and Settings pair, 48-pixel squares a
+quarter of a side apart, 12 pixels in from a corner's edges
+(`menu_pair_places`); and the corner a profile names, kept to the top of
+its side while an overlay covers the bottom rows (`menu_group_corner`).
+`main_menu_art_test.cpp` (`frontend-main-menu-art`) checks all of them
+with made-up pictures, sprites and layouts.
 
 ## Scroll bars
 

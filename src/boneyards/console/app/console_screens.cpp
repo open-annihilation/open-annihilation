@@ -39,29 +39,48 @@
 // the same while the runtime lives: the sound stops, the background drone,
 // the frontend pass and the application's entries below reach them outside
 // the overlay's own callbacks too.
+//
+// The strip is drawn where it fits. As the strip is first built, the
+// overlay measures how much of the strip's rows the menu's FrontendX
+// changes against the base game's, and the mod's profile may name the mode
+// instead (media.boneyards-entry). On the base game's art the strip is drawn
+// and takes every pointer event inside its rows, Credits still mirrored to
+// the gadget under it. On a mod's own art the main menu keeps the layout it
+// has without the strip, and only the strip's ENTER plate is shown, where the
+// profile's x and y put it or at the top right: the strip still draws it,
+// lamps, pressed ENTER and all, and the pointer over it is passed to the
+// strip at the plate's own place. B, "-y" and the strip's message boxes work as before. "none" shows
+// neither.
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <string>
-#include <utility>
+#include <string_view>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "oa/formats/hpi.hpp"
 #include "oa/boneyards/console/images.hpp"
+#include "oa/boneyards/console/menu_entry.hpp"
 #include "oa/boneyards/console/status_widget.hpp"
 #include "oa/boneyards/rover_calls.hpp"
 #include "oa/boneyards/rover_session.hpp"
 #include "oa/boneyards/shown_text.hpp"
 #include "oa/ui/frontend_state/dispatcher.hpp"
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/frontend_renderer/main_menu_art.hpp"
+#include "oa/ui/frontend_renderer/menu_buttons.hpp"
 #include "oa/ui/screen_registry.hpp"
 
 namespace oa::app {
 namespace {
 
 namespace console = oa::boneyards::console;
+namespace renderer = oa::ui::frontend_renderer;
 using oa::boneyards::Message;
 using oa::boneyards::MessageCode;
 using oa::boneyards::Window;
@@ -92,6 +111,8 @@ constexpr int32_t k_frame_width = 640;
 constexpr const char* k_files_missing = "The Boneyards needs by.ccx and the Boneyards folder.";
 constexpr int32_t k_frame_height = 480;
 constexpr std::size_t k_frame_pixels = static_cast<std::size_t>(k_frame_width) * k_frame_height;
+// The rows a label authored with no height still draws its line of text in.
+constexpr int32_t k_label_line = 16;
 
 // SDL keycodes of the navigation and modifier keys the Boneyards widgets use.
 struct KeyMapping {
@@ -156,6 +177,33 @@ struct OverlayState {
     // A return to the Boneyards was asked for from another screen. The
     // overlay's next tick on the main menu finishes it.
     bool battle_return_pending = false;
+    // What the mod's profile asks for (media.boneyards-entry): auto, and the
+    // plate at the default place at the top right, without a profile.
+    console::MenuEntryAsk entry_ask = console::MenuEntryAsk::automatic;
+    int32_t entry_x = console::entry_plate_default_place.x;
+    int32_t entry_y = console::entry_plate_default_place.y;
+    // The played mod's folder; empty when no mod is played. Only its files
+    // are the mod's own: an expansion's folder is the game's.
+    std::filesystem::path mod_folder;
+    // How the way in stands on this runtime's main menu, chosen once as the
+    // strip is first built.
+    std::optional<console::MenuEntryMode> mode;
+    // The strip is drawn across the menu's bottom rows and takes the pointer
+    // there: strip mode, with the active palette to draw it in.
+    bool strip_drawn = false;
+    // The strip's ENTER plate is shown at its place: button mode,
+    // with both palettes to draw it in.
+    bool plate_shown = false;
+    // The plate's place in button mode, in canvas pixels, without its outline.
+    renderer::SourceRect plate_place{};
+    // The base game's main-menu palette, which the plate is shown in.
+    std::vector<uint8_t> plate_palette;
+    // A press on the plate is held: the strip has every pointer input until
+    // it is let go.
+    bool plate_held = false;
+    // A press that began outside the strip's rows is the menu's: the strip
+    // lets its moves and its release through.
+    bool press_outside_strip = false;
 };
 
 OverlayState g_state;
@@ -226,18 +274,33 @@ std::vector<uint8_t> read_or_empty(oa::AssetStore* assets, const char* path) {
     return bytes;
 }
 
+// A sound asked for outside the overlay's own hook calls, as the entry's
+// frame pump opens the Boneyards, goes through the host saved at create, as
+// host_set_frontend_state does.
 void host_play_sound(void* user, const char* name) {
     auto* state = static_cast<OverlayState*>(user);
     if (state->sound_observer != nullptr)
         state->sound_observer(state->sound_observer_user, name);
-    if (state->ctx != nullptr)
+    if (state->ctx != nullptr) {
         screen_play_sound(state->ctx, name);
+        return;
+    }
+    if (state->services != nullptr && state->services->play_sound != nullptr)
+        state->services->play_sound(state->host, name);
 }
 
+// A name registered outside a hook call, as the Main Frame build does when
+// the pump opens the Boneyards, also goes to the host saved at create.
 void host_register_sound(void* user, const char* category, const char* file) {
     auto* state = static_cast<OverlayState*>(user);
-    if (state->ctx != nullptr && state->ctx->services->register_sound != nullptr)
-        state->ctx->services->register_sound(state->ctx->host, category, file);
+    const ScreenServices* services = state->services;
+    void* host = state->host;
+    if (state->ctx != nullptr) {
+        services = state->ctx->services;
+        host = state->ctx->host;
+    }
+    if (services != nullptr && services->register_sound != nullptr)
+        services->register_sound(host, category, file);
 }
 
 void host_set_signal(void* user, uint8_t signal) {
@@ -765,6 +828,149 @@ void report_files_missing(ScreenContext* ctx) {
     static_cast<void>(ctx->services->show_notice(ctx->host, &missing_notice));
 }
 
+/// Names a mode for the log.
+///
+/// @param mode the mode
+/// @return its name
+const char* mode_name(console::MenuEntryMode mode) {
+    switch (mode) {
+    case console::MenuEntryMode::strip:
+        return "strip";
+    case console::MenuEntryMode::button:
+        return "button";
+    case console::MenuEntryMode::none:
+        return "none";
+    }
+    return "strip";
+}
+
+/// Decodes a FrontendX.
+///
+/// @param bytes the file
+/// @return the picture, or nullopt when it does not decode
+std::optional<oa::Image> decode_picture(const std::vector<uint8_t>& bytes) {
+    if (bytes.empty())
+        return std::nullopt;
+    auto decoded = oa::decode_pcx(bytes);
+    if (!decoded.ok())
+        return std::nullopt;
+    return std::move(decoded.value);
+}
+
+/// Chooses, once a runtime, how the way in stands on the main menu, and logs it.
+///
+/// The menu's FrontendX is set against the base game's over the strip's
+/// rows. A FrontendX the played mod's folder does not hold is the base
+/// game's own. The plate is shown in the base game's palette.
+///
+/// @param ctx screen context, with the assets
+/// @param state overlay state
+/// @param shown_bytes the FrontendX the menu shows
+void choose_mode(ScreenContext* ctx, OverlayState* state, const std::vector<uint8_t>& shown_bytes) {
+    if (state->mode)
+        return;
+    const std::optional<oa::Image> shown = decode_picture(shown_bytes);
+    std::optional<oa::Image> base;
+    bool own_art = false;
+    try {
+        own_art = renderer::from_mod_folder(
+            *ctx->assets, renderer::main_menu_background_path, state->mod_folder
+        );
+        if (own_art) {
+            if (auto found =
+                    renderer::base_game_main_menu_background(*ctx->assets, state->mod_folder))
+                base = decode_picture(found->bytes);
+        }
+    } catch (const std::exception&) {
+        base.reset();
+    }
+    // The share of the strip's rows the menu's art changes, in thousandths:
+    // none for the base game's own picture, and all of it when a mod's
+    // picture has no base to be set against.
+    uint32_t share = 0;
+    if (own_art)
+        share = shown && base
+                    ? renderer::compare_menu_art(
+                          *shown, *base, renderer::main_menu_band_top, renderer::main_menu_band_rows
+                      )
+                          .per_mille()
+                    : 1000U;
+    state->mode = console::choose_menu_entry_mode(state->entry_ask, share);
+    const std::optional<oa::Image>& palette_source = base ? base : shown;
+    if (palette_source && palette_source->palette)
+        state->plate_palette.assign(
+            palette_source->palette->begin(), palette_source->palette->end()
+        );
+    std::cout << "boneyards menu: " << mode_name(*state->mode) << " mode; the menu's art differs "
+              << "from the base game's in " << share / 10U << '.' << share % 10U
+              << "% of the strip's rows"
+              << (state->entry_ask == console::MenuEntryAsk::automatic
+                      ? ""
+                      : "; the mod's profile names the mode")
+              << '\n';
+    std::cout.flush();
+}
+
+/// Places the strip's ENTER plate where the mod's profile puts it
+/// (media.boneyards-entry x and y), or at the default place at the top right,
+/// and logs where it stands and when it covers a gadget of the menu or one
+/// of Open Annihilation's buttons, which stay where they are.
+///
+/// @param ctx screen context, with the assets
+/// @param state overlay state
+void place_plate(ScreenContext* ctx, OverlayState* state) {
+    state->plate_place = console::entry_plate_place(state->entry_x, state->entry_y);
+    std::vector<renderer::SourceRect> covered;
+    try {
+        const auto menu = renderer::load_main_menu(
+            *ctx->assets, renderer::MainMenuLayout::base_game, state->mod_folder
+        );
+        for (std::size_t index = 1; index < menu.layout.gadgets.size(); ++index) {
+            const auto& common = menu.layout.gadgets[index].common;
+            if (common.active == 0 || common.width <= 0)
+                continue;
+            // A label authored with no height (MAINMENU's DebugString) still
+            // draws a line of text.
+            const int32_t height = common.height > 0 ? common.height : k_label_line;
+            covered.push_back({common.x, common.y, common.width, height});
+        }
+    } catch (const std::exception&) {
+        covered.clear();
+    }
+    const renderer::MenuPairPlaces pair =
+        renderer::menu_pair_places(renderer::MenuCorner::bottom_right);
+    covered.push_back(pair.library);
+    covered.push_back(pair.settings);
+    const renderer::SourceRect& place = state->plate_place;
+    const bool asked = place.x != console::entry_plate_default_place.x ||
+                       place.y != console::entry_plate_default_place.y;
+    std::cout << "boneyards menu: the ENTER plate stands at " << place.x << ',' << place.y
+              << (asked ? ", where the mod's profile puts it (media.boneyards-entry)"
+                        : ", the default place at the top right")
+              << '\n';
+    if (console::entry_plate_covers(place, covered))
+        std::cout << "boneyards menu: the ENTER plate at " << place.x << ',' << place.y
+                  << " covers a gadget of the mod's menu or one of Open Annihilation's buttons; "
+                     "media.boneyards-entry x and y in the mod's profile move it\n";
+    std::cout.flush();
+}
+
+/// Logs that the profile's place for the plate is not used, the strip being
+/// drawn instead.
+///
+/// @param state overlay state, its mode chosen
+void note_unused_place(const OverlayState* state) {
+    if (!state->mode || *state->mode == console::MenuEntryMode::button)
+        return;
+    if (state->entry_x == console::entry_plate_default_place.x &&
+        state->entry_y == console::entry_plate_default_place.y)
+        return;
+    std::cout << "boneyards menu: media.boneyards-entry x " << state->entry_x << " and y "
+              << state->entry_y << " place the ENTER plate in button mode only; this menu is in "
+              << mode_name(*state->mode) << " mode\n";
+    std::cout.flush();
+}
+
 void build_strip(ScreenContext* ctx, OverlayState* state) {
     if (ctx == nullptr || ctx->assets == nullptr)
         return;
@@ -777,6 +983,12 @@ void build_strip(ScreenContext* ctx, OverlayState* state) {
     state->shade = read_or_empty(ctx->assets, k_shade_table);
     state->light = read_or_empty(ctx->assets, k_light_table);
     const std::vector<uint8_t> pcx = read_or_empty(ctx->assets, k_active_palette);
+    const bool first_build = !state->mode;
+    choose_mode(ctx, state, pcx);
+    if (first_build && *state->mode == console::MenuEntryMode::button)
+        place_plate(ctx, state);
+    else if (first_build)
+        note_unused_place(state);
     if (!pcx.empty()) {
         auto decoded = oa::decode_pcx(pcx);
         if (decoded.ok())
@@ -845,12 +1057,23 @@ void build_strip(ScreenContext* ctx, OverlayState* state) {
         console::boneyards_status_widget_set_screen_keyboard(
             state->widget, host_screen_keyboard, state
         );
+        // The consoles' sound names are known from here on, however the
+        // Boneyards are later opened.
+        console::boneyards_status_widget_register_sounds(state->widget);
     }
     state->ctx = nullptr;
+    state->plate_held = false;
+    state->press_outside_strip = false;
     // The strip draws only with the active palette; without it the menu is
-    // left with no Boneyards buttons over its own.
-    if (state->widget != nullptr && state->palette &&
-        ctx->services->set_main_menu_overlay != nullptr)
+    // left with no Boneyards buttons over its own, and nothing of the strip
+    // takes the pointer. Outside strip mode the menu keeps the layout it has
+    // without the strip, and the plate needs the base game's palette too.
+    const bool drawable = state->widget != nullptr && state->palette.has_value();
+    state->strip_drawn = drawable && *state->mode == console::MenuEntryMode::strip &&
+                         ctx->services->set_main_menu_overlay != nullptr;
+    state->plate_shown = drawable && *state->mode == console::MenuEntryMode::button &&
+                         state->plate_palette.size() >= OA_PALETTE_COLORS * oa::palette_entry_bytes;
+    if (state->strip_drawn)
         ctx->services->set_main_menu_overlay(ctx->host, 1);
 }
 
@@ -865,6 +1088,116 @@ void overlay_create(ScreenContext* ctx, void* user) {
     if (g_defer_strip || ctx->assets == nullptr)
         return;
     build_strip(ctx, state);
+}
+
+/// Tells whether an input is the pointer's.
+///
+/// @param kind the input's kind
+/// @return true for a move, a press, a release or the wheel
+bool pointer_input(ScreenInputKind kind) {
+    return kind == ScreenInputKind::pointer_move || kind == ScreenInputKind::pointer_down ||
+           kind == ScreenInputKind::pointer_up || kind == ScreenInputKind::wheel;
+}
+
+/// Tells whether a canvas point lies in a rectangle.
+///
+/// @param rect the rectangle
+/// @param x the point's column
+/// @param y the point's row
+/// @return true inside it
+bool inside(const renderer::SourceRect& rect, float x, float y) {
+    return x >= static_cast<float>(rect.x) && y >= static_cast<float>(rect.y) &&
+           x < static_cast<float>(rect.x + rect.width) &&
+           y < static_cast<float>(rect.y + rect.height);
+}
+
+/// Tells whether a canvas point lies in the strip's rows.
+///
+/// @param x the point's column
+/// @param y the point's row
+/// @return true inside the strip's 640 by 102 area
+bool on_strip(float x, float y) {
+    return inside(
+        {console::overlay_layout::x,
+         console::overlay_layout::y,
+         console::overlay_layout::width,
+         console::overlay_layout::height},
+        x,
+        y
+    );
+}
+
+/// Passes the pointer over the plate to the strip, at the plate's own place.
+///
+/// Over the plate, each pointer input reaches the strip's windows as if the
+/// pointer were on the strip's own plate, so ENTER shows its press and
+/// answers its release as it does on the strip. A press made on the plate
+/// keeps every pointer input until it is let go, wherever the pointer goes,
+/// so a release away from ENTER presses nothing. Elsewhere the menu has the
+/// pointer. Nothing takes it while the plate is not shown.
+///
+/// @param ctx screen context of the event
+/// @param state overlay state
+/// @param input the pointer input
+/// @return 1 when the plate took the input
+int plate_event(ScreenContext* ctx, OverlayState* state, const ScreenInput& input) {
+    if (!state->plate_shown) {
+        state->plate_held = false;
+        return 0;
+    }
+    const bool over = inside(state->plate_place, input.x, input.y);
+    if (!over && !state->plate_held)
+        return 0;
+    ScreenInput moved = input;
+    moved.x = input.x - static_cast<float>(state->plate_place.x - console::entry_plate.x);
+    moved.y = input.y - static_cast<float>(state->plate_place.y - console::entry_plate.y);
+    if (moved.kind == ScreenInputKind::pointer_down)
+        state->held_buttons |= button_bit(moved.button);
+    Message msg{};
+    const bool routed = translate(moved, state->held_buttons, false, &msg);
+    if (moved.kind == ScreenInputKind::pointer_up)
+        state->held_buttons &= ~button_bit(moved.button);
+    if (routed) {
+        state->ctx = ctx;
+        static_cast<void>(console::boneyards_status_widget_event(state->widget, msg));
+        state->ctx = nullptr;
+    }
+    if (moved.kind == ScreenInputKind::pointer_down && over)
+        state->plate_held = true;
+    if (moved.kind == ScreenInputKind::pointer_up && state->held_buttons == 0)
+        state->plate_held = false;
+    return 1;
+}
+
+/// Tells whether the drawn strip keeps a pointer input from the menu under it.
+///
+/// The strip takes every pointer input inside its own rows, so a gadget of
+/// the menu under its art takes no click. Credits stays with the gadget
+/// under the strip's credits spot. A press that began outside the strip's
+/// rows is the menu's: its moves and its release reach the menu wherever
+/// they land, so a button pressed on its visible part is let go. Outside
+/// the rows the strip keeps what its windows took.
+///
+/// @param[in,out] state overlay state; notes where a press began
+/// @param input the pointer input
+/// @param consumed the strip's windows took it
+/// @param mirrored it was on the credits spot, which the gadget under it answers
+/// @return true when the menu does not see it
+bool strip_pointer_taken(
+    OverlayState* state, const ScreenInput& input, bool consumed, bool mirrored
+) {
+    const bool over = on_strip(input.x, input.y);
+    if (input.kind == ScreenInputKind::pointer_down)
+        state->press_outside_strip = !over;
+    const bool menu_press = state->press_outside_strip;
+    if (input.kind == ScreenInputKind::pointer_up && state->held_buttons == 0)
+        state->press_outside_strip = false;
+    if (mirrored)
+        return false;
+    if (menu_press &&
+        (input.kind == ScreenInputKind::pointer_up || input.kind == ScreenInputKind::pointer_move))
+        return consumed && !over;
+    return over || consumed;
 }
 
 // In frontend state 7 no TA panel takes input, so every input is consumed.
@@ -884,6 +1217,14 @@ int overlay_event(ScreenContext* ctx, void* user) {
         return 1;
     }
     const bool modal = console::boneyards_status_widget_message_open(state->widget);
+    // Only what is drawn takes the pointer: the strip in strip mode, the
+    // plate in button mode, and nothing in none or without a palette.
+    if (!boneyards && !modal && pointer_input(input.kind)) {
+        if (state->mode && *state->mode == console::MenuEntryMode::button)
+            return plate_event(ctx, state, input);
+        if (!state->strip_drawn)
+            return 0;
+    }
     if (input.kind == ScreenInputKind::pointer_down)
         state->held_buttons |= button_bit(input.button);
     Message msg{};
@@ -894,7 +1235,11 @@ int overlay_event(ScreenContext* ctx, void* user) {
     if (!routed) {
         console::boneyards_status_widget_event_modifiers(state->widget, false, false, false, false);
         publish_text_field(state);
-        return boneyards ? 1 : 0;
+        // The middle button and the wheel on the strip's rows reach no
+        // gadget under it either.
+        const bool on_drawn_strip = state->strip_drawn && !modal && pointer_input(input.kind) &&
+                                    on_strip(input.x, input.y) && !state->press_outside_strip;
+        return boneyards || on_drawn_strip ? 1 : 0;
     }
     state->ctx = ctx;
     state->mirrored_event = !boneyards && !modal && msg.code != MessageCode::key_down &&
@@ -905,7 +1250,11 @@ int overlay_event(ScreenContext* ctx, void* user) {
     state->mirrored_event = false;
     state->ctx = nullptr;
     publish_text_field(state);
-    return boneyards || modal || (consumed && !mirrored) ? 1 : 0;
+    if (boneyards || modal)
+        return 1;
+    if (state->strip_drawn && pointer_input(input.kind))
+        return strip_pointer_taken(state, input, consumed, mirrored) ? 1 : 0;
+    return consumed && !mirrored ? 1 : 0;
 }
 
 void overlay_tick(ScreenContext* ctx, void* user) {
@@ -1004,6 +1353,54 @@ void put_pixel(
     target->rgb[pixel * 3 + 2] = palette[color + 2];
 }
 
+/// The line drawn round the plate on a mod's own art, so its edge holds on
+/// light or busy art: the strip's darkest metal.
+constexpr uint8_t k_plate_outline_rgb[3] = {12, 12, 12};
+
+/// Shows the strip's ENTER plate at its place on the main menu.
+///
+/// The strip draws its rows as it does in strip mode, lamps, greyed or
+/// pressed ENTER and all, and the plate's rectangle of them is copied to the
+/// plate's place in the base game's palette, every pixel, inside a one-pixel
+/// dark line.
+///
+/// @param state overlay state, its context set
+/// @param target the frame
+void draw_plate(OverlayState* state, oa::ui::frontend_renderer::Surface* target) {
+    if (!state->plate_shown)
+        return;
+    const int32_t top = console::overlay_layout::y;
+    draw_pass(state, state->pass_a, 0x00, top, console::overlay_layout::height);
+    const auto put = [&](int32_t x, int32_t y, const uint8_t* rgb) {
+        if (x < 0 || y < 0 || x >= k_frame_width || y >= k_frame_height)
+            return;
+        const std::size_t at =
+            (static_cast<std::size_t>(y) * k_frame_width + static_cast<std::size_t>(x)) * 3U;
+        target->rgb[at] = rgb[0];
+        target->rgb[at + 1] = rgb[1];
+        target->rgb[at + 2] = rgb[2];
+    };
+    const renderer::SourceRect& place = state->plate_place;
+    const renderer::SourceRect& plate = console::entry_plate;
+    for (int32_t row = 0; row < plate.height; ++row) {
+        for (int32_t column = 0; column < plate.width; ++column) {
+            const std::size_t from = static_cast<std::size_t>(plate.y - top + row) * k_frame_width +
+                                     static_cast<std::size_t>(plate.x + column);
+            const std::size_t colour =
+                static_cast<std::size_t>(state->pass_a[from]) * oa::palette_entry_bytes;
+            put(place.x + column, place.y + row, state->plate_palette.data() + colour);
+        }
+    }
+    for (int32_t step = -1; step <= plate.width; ++step) {
+        put(place.x + step, place.y - console::entry_plate_outline, k_plate_outline_rgb);
+        put(place.x + step, place.y + plate.height, k_plate_outline_rgb);
+    }
+    for (int32_t step = 0; step < plate.height; ++step) {
+        put(place.x - console::entry_plate_outline, place.y + step, k_plate_outline_rgb);
+        put(place.x + plate.width, place.y + step, k_plate_outline_rgb);
+    }
+}
+
 void overlay_draw(ScreenContext* ctx, void* user) {
     auto* state = static_cast<OverlayState*>(user);
     auto* target = ctx->surface;
@@ -1022,8 +1419,18 @@ void overlay_draw(ScreenContext* ctx, void* user) {
         return;
     }
     // A message box sits above the strip, so that draw keeps the whole frame.
-    // The idle strip writes only inside its own rows.
+    // The idle strip writes only inside its own rows. Outside strip mode the
+    // strip's rows are not shown: in button mode only its plate is, at the
+    // plate's place, and a box only above those rows.
     const bool whole = console::boneyards_status_widget_message_open(state->widget);
+    const bool strip_shown = state->strip_drawn;
+    if (!strip_shown) {
+        draw_plate(state, target);
+        if (!whole) {
+            state->ctx = nullptr;
+            return;
+        }
+    }
     const int32_t origin_y = whole ? 0 : console::overlay_layout::y;
     const int32_t height = whole ? k_frame_height : console::overlay_layout::height;
     // Two passes over different fills find the pixels the overlay wrote.
@@ -1032,7 +1439,11 @@ void overlay_draw(ScreenContext* ctx, void* user) {
     state->ctx = nullptr;
     const std::size_t width = static_cast<std::size_t>(k_frame_width);
     const std::size_t top = static_cast<std::size_t>(origin_y);
-    for (std::size_t i = 0; i < state->pass_a.size(); ++i) {
+    // Without the strip a box draws only above the strip's rows.
+    const std::size_t rows_shown =
+        strip_shown ? state->pass_a.size()
+                    : static_cast<std::size_t>(console::overlay_layout::y) * width;
+    for (std::size_t i = 0; i < state->pass_a.size() && i < rows_shown; ++i) {
         if (state->pass_a[i] != state->pass_b[i])
             continue;
         const std::size_t pixel = (top + i / width) * width + i % width;
@@ -1179,7 +1590,67 @@ void boneyards_console_release() {
     std::vector<uint8_t>().swap(g_state.pass_a);
     std::vector<uint8_t>().swap(g_state.pass_b);
     g_state.palette.reset();
+    g_state.entry_ask = console::MenuEntryAsk::automatic;
+    g_state.entry_x = console::entry_plate_default_place.x;
+    g_state.entry_y = console::entry_plate_default_place.y;
+    g_state.mod_folder.clear();
+    g_state.mode.reset();
+    g_state.strip_drawn = false;
+    g_state.plate_shown = false;
+    g_state.plate_place = {};
+    std::vector<uint8_t>().swap(g_state.plate_palette);
+    g_state.plate_held = false;
+    g_state.press_outside_strip = false;
     console::console_images_release_embedded_menu();
+}
+
+/// What the mod's profile asks of the main menu's way in
+/// (media.boneyards-entry), and the played mod's folder.
+///
+/// The mode and the place are read when the strip is first built; a mode
+/// that names none of the four is auto. The place is the ENTER plate's
+/// top-left corner in button mode; the profile's baseline is the default
+/// place at the top right. Only the mod's folder holds the mod's own art: an
+/// expansion's folder is the game's.
+///
+/// @param mode auto, strip, button or none; null is auto
+/// @param x the plate's left column
+/// @param y the plate's top row
+/// @param mod_folder the played mod's folder; empty when no mod is played
+void boneyards_console_set_menu_entry(
+    const char* mode, int32_t x, int32_t y, const std::filesystem::path& mod_folder
+) {
+    g_state.entry_ask = console::menu_entry_ask_named(mode != nullptr ? mode : "");
+    g_state.entry_x = x;
+    g_state.entry_y = y;
+    g_state.mod_folder = mod_folder;
+}
+
+/// Reports how the way in stands on the main menu, and the plate's place.
+///
+/// @param[out] mode the mode; strip until the strip is first built
+/// @param[out] x the plate's left column while it is shown; 0 otherwise
+/// @param[out] y its top row
+/// @param[out] width its width; 0 while it is not shown
+/// @param[out] height its height
+/// @return false until the strip has been built once
+bool boneyards_console_menu_entry(
+    console::MenuEntryMode* mode, int32_t* x, int32_t* y, int32_t* width, int32_t* height
+) {
+    const bool chosen = g_state.mode.has_value();
+    const console::MenuEntryMode shown = chosen ? *g_state.mode : console::MenuEntryMode::strip;
+    const bool button = shown == console::MenuEntryMode::button && g_state.plate_shown;
+    if (mode != nullptr)
+        *mode = shown;
+    if (x != nullptr)
+        *x = button ? g_state.plate_place.x : 0;
+    if (y != nullptr)
+        *y = button ? g_state.plate_place.y : 0;
+    if (width != nullptr)
+        *width = button ? g_state.plate_place.width : 0;
+    if (height != nullptr)
+        *height = button ? g_state.plate_place.height : 0;
+    return chosen;
 }
 
 void register_boneyards_console_screens(ScreenRegistry* registry) {

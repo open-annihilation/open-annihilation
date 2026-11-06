@@ -496,6 +496,41 @@ void announce_player(Engine* e, const EnginePlayer& p, uint32_t except) {
     (void)send_to_remote_systems(e, n, except);
 }
 
+/// Sends this machine's own players straight to a machine it has just met.
+///
+/// A player is announced only to the machines known when it is created, and
+/// the list a new machine receives is the list as the host had it when that
+/// machine was admitted. A player created in between is on neither, so each
+/// of this machine's own players is sent straight to the new machine, as the
+/// same announcement a machine sends when it creates a player. A machine
+/// that already has the player keeps the one it has.
+///
+/// @param[in,out] e Engine sending.
+/// @param to Stream endpoint carried by the new machine's system player.
+/// @quirk The announcement is the one the game's own players already
+///     exchange. A separate verification of a recent player belongs to a
+///     later version of the session protocol, and a peer from the game
+///     would not take it.
+void send_local_application_players(Engine* e, const Address& to) {
+    if (to.port == 0)
+        return;
+    for (const auto& player : e->players) {
+        if (!player.used || !player.local || is_system(player.info))
+            continue;
+        const std::size_t n = encode_player_message(
+            own_stream(e),
+            command::create_player,
+            0,
+            wire_player(player, false),
+            nullptr,
+            0,
+            e->scratch,
+            sizeof e->scratch
+        );
+        (void)send_stream(e, to, n);
+    }
+}
+
 uint32_t app_player_load(const Engine* e) {
     uint32_t n = 0;
     for (const auto& p : e->players)
@@ -844,6 +879,7 @@ void handle_control(Engine* e, const Message& m, const Address& source, uint32_t
     case command::create_player:
     case command::add_forward:
         if (is_open(e) || e->state == EngineState::joining) {
+            const bool known = find_player(e, m.player.id) != nullptr;
             EnginePlayer* p = add_remote_player(e, m.player, source, true);
             if (p != nullptr && p->reserved)
                 p->reserved = false;
@@ -853,6 +889,11 @@ void handle_control(Engine* e, const Message& m, const Address& source, uint32_t
                 );
                 (void)send_stream(e, sender_endpoint(m.reply_to, source), n);
             }
+            // A machine just met, not one already listed. This machine's
+            // players go straight to it. An application player's
+            // announcement does not answer, so the two do not bounce it.
+            if (!known && p != nullptr && is_system(p->info))
+                send_local_application_players(e, p->info.stream);
         }
         return;
     case command::delete_player:
