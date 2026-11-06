@@ -152,16 +152,39 @@ if ! command -v cmake >/dev/null 2>&1; then
     exit 1
 fi
 
+# The Python 3 that runs the bootstraps, chosen when one is first needed.
+# On Windows, python3 may be the placeholder that offers to install Python
+# from the Microsoft Store: it is on PATH but fails when run, so each
+# command is run once before it is taken.
+python=()
+choose_python() {
+    if [[ -n "${python[0]:-}" ]]; then return 0; fi
+    local candidate
+    for candidate in "python3" "python" "py -3"; do
+        read -r -a python <<<"$candidate"
+        if "${python[@]}" -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    python=()
+    printf 'run.sh: building the dependencies under local/deps needs Python 3; none of python3, python or py -3 runs.\n' >&2
+    exit 1
+}
+
+# SDL installs its CMake package in lib/cmake/SDL3, or in cmake on Windows
+# unless it is built with MinGW.
 sdl_prefix="$repo_dir/local/deps/sdl-install"
-if [[ ! -f "$sdl_prefix/lib/cmake/SDL3/SDL3Config.cmake" ]]; then
+if [[ ! -f "$sdl_prefix/lib/cmake/SDL3/SDL3Config.cmake" && ! -f "$sdl_prefix/cmake/SDL3Config.cmake" ]]; then
     printf 'Building the pinned SDL dependency under local/deps...\n'
-    python3 "$repo_dir/tools/bootstrap_sdl.py"
+    choose_python
+    "${python[@]}" "$repo_dir/tools/bootstrap_sdl.py"
 fi
 # FreeType and the fonts text outside the game's own fonts is drawn with.
 freetype_prefixes=("$repo_dir"/local/deps/freetype-install-*/lib/cmake/freetype/freetype-config.cmake)
 if [[ ! -f "$repo_dir/local/deps/text-fonts/build-settings.json" || ! -f "${freetype_prefixes[0]}" ]]; then
     printf 'Building the pinned FreeType and text fonts under local/deps...\n'
-    python3 "$repo_dir/tools/bootstrap_text_fonts.py"
+    choose_python
+    "${python[@]}" "$repo_dir/tools/bootstrap_text_fonts.py"
 fi
 prefix_path="$sdl_prefix"
 if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then prefix_path="$prefix_path;$CMAKE_PREFIX_PATH"; fi

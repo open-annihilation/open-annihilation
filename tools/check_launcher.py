@@ -10,7 +10,9 @@ without either the game uses the remembered folder or asks; it starts the file
 the oa-game target builds, open-annihilation, never an older build's oa-game,
 and on macOS the executable inside the application bundle open-annihilation.app;
 --movie plays from the chosen installation's Data folder; a failed configure
-or build stops it before anything launches.
+or build stops it before anything launches. It takes SDL as built when its
+CMake package is in either place SDL installs it, and bootstraps a missing
+SDL with a Python 3 that runs, passing over a python3 that fails.
 """
 import json
 import os
@@ -174,6 +176,34 @@ def check(root, source):
     result = refused([*run_sh, "--movie", "2"], with_install)
     expect(result.returncode == 1 and b"missing" in result.stderr,
            f"a missing movie ends with {result.returncode}: {result.stderr!r}")
+
+    # SDL built on Windows keeps its CMake package in cmake, not lib/cmake/SDL3;
+    # either one is the built SDL, and the copy holds no bootstrap to run.
+    sdl_unix_config = repo / "local/deps/sdl-install/lib/cmake/SDL3/SDL3Config.cmake"
+    sdl_windows_config = repo / "local/deps/sdl-install/cmake/SDL3Config.cmake"
+    sdl_unix_config.unlink()
+    sdl_windows_config.parent.mkdir(parents=True)
+    sdl_windows_config.touch()
+    forwarded = launched(run_sh)
+    expect(forwarded == [], f"SDL's Windows layout forwarded {forwarded}")
+    # Without SDL the launcher bootstraps it with a Python 3 that runs: a
+    # python3 that fails when run, as the Microsoft Store's placeholder does,
+    # is passed over for python.
+    sdl_windows_config.unlink()
+    store_bin = root / "store-bin"
+    store_bin.mkdir()
+    bootstraps = root / "bootstraps.txt"
+    (store_bin / "python3").write_text('#!/bin/sh\necho "Python was not found" >&2\nexit 49\n')
+    (store_bin / "python").write_text('#!/bin/sh\nif [ "$1" = -c ]; then exit 0; fi\n'
+                                      f'printf "%s\\n" "$1" >>"{bootstraps}"\n')
+    for stub in store_bin.iterdir():
+        stub.chmod(0o755)
+    forwarded = launched(run_sh, dict(env, PATH=str(store_bin) + os.pathsep + env["PATH"]))
+    ran = bootstraps.read_text().splitlines() if bootstraps.exists() else []
+    expect(forwarded == [] and len(ran) == 1 and Path(ran[0]).name == "bootstrap_sdl.py"
+           and os.path.samefile(Path(ran[0]).parent.parent, repo),
+           f"a missing SDL ran {ran} and forwarded {forwarded}")
+    sdl_unix_config.touch()
 
     # A macOS build makes the game an application bundle, whose executable
     # is started in place, before a bare file of the same name.
