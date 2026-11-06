@@ -1754,7 +1754,7 @@ Their added units are ARMPW and CORAK, so a mod without those types is
 refused. Placement visits a fixed grid inside the playable map, skipping
 blocked terrain and occupied footprints. A map without enough clear space
 is refused instead of placing units outside it. The current maximum is
-6,553 units per side; Enhanced Mode's initial preset does not raise it.
+6,553 units per side with Enhanced Mode Off, or 10,000 per side with it On.
 
 The report records the engine version, map, scenario, seed, requested and
 actual populations, match unit limit, Enhanced rules version, simulation

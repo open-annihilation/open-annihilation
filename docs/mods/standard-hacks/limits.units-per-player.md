@@ -102,10 +102,10 @@ Limit id `limits.units-per-player`, written as `units-per-player` under the prof
 
 | Parameter | Type | Unit | Allowed | Length | Baseline (3.1c) | Default | Adjustable | Scope | Overridden by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `default` | `int` | units | `1` to `6553` | - | `250` | `1500` | `match` | `sim` | - |
-| `min` | `int` | units | `1` to `6553` | - | `20` | `20` | `fixed` | `sim` | - |
-| `max` | `int` | units | `1` to `6553` | - | `500` | `1500` | `fixed` | `sim` | - |
-| `limits-screen-fallback` | `int` | units | `1` to `6553` | - | `101` | `1500` | `install` | `view` | - |
+| `default` | `int` | units | `1` to `10000` | - | `250` | `1500` | `match` | `sim` | - |
+| `min` | `int` | units | `1` to `10000` | - | `20` | `20` | `fixed` | `sim` | - |
+| `max` | `int` | units | `1` to `10000` | - | `500` | `1500` | `fixed` | `sim` | - |
+| `limits-screen-fallback` | `int` | units | `1` to `10000` | - | `101` | `1500` | `install` | `view` | - |
 
 Adjustable: `fixed`: only the profile sets it; `install`: the player's settings may set it when the profile binds it under `settings`; `match`: as `install`, and the host may also change it for one game.
 

@@ -13,15 +13,34 @@
 
 ## Description
 
-<!-- WRITE: brief description -->
+Enables the versioned Enhanced Mode rules for large battles. Version 1
+supports compact participating-player unit ranges, up to 10,000 units per
+player and 32,767 units across a match, and a 32,767-record projectile pool.
+It also reuses spatial projections during contact scans. Renderer selection
+is independent.
 
 ## Configuration example
 
-<!-- WRITE: configuration example -->
+Select Enhanced Mode in Settings under Engine Limits. A profile can declare
+the same rules explicitly:
+
+```yaml
+hacks:
+  setup.enhanced-mode:
+    version: 1
+```
+
+The application still requires Enhanced Mode to be selected before loading
+a profile that enables these rules.
 
 ## Details
 
-<!-- WRITE: details and implementation notes -->
+The version enters the simulation hash and is recorded in saves and replays.
+Every multiplayer participant must use the same supported version. Games
+with the mode Off retain the classic allocation and simulation path.
+
+See [Enhanced Mode](../../enhanced-mode.md) for current limitations and
+repeatable battle benchmarks.
 
 ## Full configuration schema
 

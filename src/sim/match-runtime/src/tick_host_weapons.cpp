@@ -275,7 +275,8 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
         slot.aim_pitch = plan.slot_aim.pitch;
         if (!plan.fired)
             return false;
-        auto* shot = sim::weapon_execution::allocate_projectile(world, &state_.projectile_usage);
+        auto* shot =
+            sim::weapon_execution::allocate_projectile(world, &match.state_.projectile_usage);
         if (shot == nullptr)
             return false;
         const auto target_unit = static_cast<uint16_t>(target.unit_identity);

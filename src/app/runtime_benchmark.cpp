@@ -1551,9 +1551,22 @@ void Runtime::run_battle_benchmark() {
                     ++live;
         return live;
     };
+    const auto note_work = [&] {
+        if (!match_)
+            return;
+        const auto& spatial = match_->spatial_query_counters();
+        report.projection_preparations = spatial.projection_preparations;
+        report.projected_slots = spatial.projected_slots;
+        report.bucket_queries = spatial.bucket_queries;
+        report.bucket_candidates = spatial.bucket_candidates;
+        report.projectile_capacity = oa::world_projectile_capacity(&match_->world().record);
+        report.projectile_allocation_failures = match_->projectile_usage().allocation_failures;
+    };
     try {
-        if (options_.benchmark_units == 0 ||
-            options_.benchmark_units > oa::data::limits::highest_units_per_player)
+        const auto capacity = report.enhanced_mode
+                                  ? oa::data::limits::highest_enhanced_units_per_player
+                                  : oa::data::limits::highest_units_per_player;
+        if (options_.benchmark_units == 0 || options_.benchmark_units > capacity)
             throw std::runtime_error(
                 "battle benchmark population exceeds the current unit capacity"
             );
@@ -1739,6 +1752,7 @@ void Runtime::run_battle_benchmark() {
         );
         report.world_digest = digest.data();
         report.ticks = benchmark::summarize(samples);
+        note_work();
         report.completed = true;
         report.error.clear();
         write_report();
@@ -1758,6 +1772,7 @@ void Runtime::run_battle_benchmark() {
         report.error = error.what();
         report.final_units = census();
         report.ticks = benchmark::summarize(samples);
+        note_work();
         write_report();
         throw;
     }

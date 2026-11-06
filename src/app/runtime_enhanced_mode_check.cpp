@@ -51,10 +51,19 @@ void Runtime::check_enhanced_mode() {
         require(simulation_hash(*this) == enhanced_hash, "graphics changed enhanced rules");
     }
     chosen.hardware_acceleration = settings::HardwareAcceleration::off;
+    chosen.unit_limit = oa::data::limits::highest_enhanced_units_per_player;
     apply_engine_settings(chosen);
 
     start_benchmark_skirmish_as_chosen();
     require(enhanced_mode_version(*this) == mode::current_version, "the match lost its preset");
+    require(
+        match_->world().slots.size() == 20'001, "the match did not reserve two 10,000-unit ranges"
+    );
+    require(match_->state().game.units_per_player == 10'000, "the match clipped the unit limit");
+    require(
+        oa::world_projectile_capacity(&match_->world().record) == 32'767,
+        "the match kept the classic projectile capacity"
+    );
     const fs::path enhanced_save = options_.preferences_file->parent_path() / "enhanced.sav";
     require(save_match_game(enhanced_save, "Enhanced Mode", 0), "the enhanced save failed");
     chosen.enhanced_mode = false;
@@ -70,6 +79,8 @@ void Runtime::check_enhanced_mode() {
         enhanced_mode_version(*this) == mode::current_version, "the save did not restore its mode"
     );
     require(!engine_settings().enhanced_mode, "loading changed the menu preference");
+    require(match_->world().slots.size() == 20'001, "the saved match lost its unit ranges");
+    require(match_->unit_player_mask() == 3, "the saved match lost its allocation mask");
     require(hold_enhanced_rules_once(mode::off_version), "a subsequent load could not hold Off");
     release_enhanced_rules_once(true);
     require(
@@ -81,6 +92,8 @@ void Runtime::check_enhanced_mode() {
     load(Screen::main_menu);
     require(enhanced_mode_version(*this) == mode::off_version, "leaving kept the recorded mode");
 
+    chosen.unit_limit = kept.unit_limit;
+    apply_engine_settings(chosen);
     start_benchmark_skirmish_as_chosen();
     const fs::path released_save = options_.preferences_file->parent_path() / "released.sav";
     require(save_match_game(released_save, "Released rules", 0), "the released save failed");

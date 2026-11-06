@@ -1214,6 +1214,19 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
         );
         inputs.profile_sim_hash = profile->sim_hash;
     }
+    if (inputs.rules.setup.enhanced_mode.enabled) {
+        // Campaign scripts may introduce players beyond the initial two.
+        // Skirmishes reserve ranges only for players participating in the match.
+        for (std::size_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+            const auto controller = skirmish_settings_.slots[player].controller;
+            if (campaign_mission_ || controller == entry::controller::human ||
+                controller == entry::controller::computer)
+                inputs.unit_player_mask |= static_cast<uint16_t>(1U << player);
+        }
+        if (bootstrap.unit_player_mask != 0)
+            inputs.unit_player_mask = bootstrap.unit_player_mask;
+        inputs.projectile_capacity = sim::weapon_execution::maximum_projectile_capacity;
+    }
     inputs.mutator_digest = match_mutator_digest();
     // Records for another type table than this one are not this match's.
     if (unit_type_rules_.size() == spawn_types_.size())

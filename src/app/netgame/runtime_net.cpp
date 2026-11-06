@@ -1273,10 +1273,13 @@ struct NetworkPlay::NetHost {
             throw std::runtime_error("the multiplayer map is not installed: " + map);
         // Watchers take no start position.
         uint16_t live = 0;
+        uint16_t unit_player_mask = 0;
         for (int32_t slot = 0; slot < mp::kSlotCount; ++slot) {
             const auto* info = mp::slot_info(lobby, slot);
             const bool watching = info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0;
             live += slot_live(mp::slot_player(lobby, slot)) && !watching ? 1 : 0;
+            if (slot_live(mp::slot_player(lobby, slot)) && !watching)
+                unit_player_mask |= static_cast<uint16_t>(1U << slot);
         }
         // The start positions come from the schema for the host's slot table.
         runtime.state_.player_count =
@@ -1406,7 +1409,8 @@ struct NetworkPlay::NetHost {
              .multiplayer = true,
              // The host's room starts from the run's limit; a joiner plays
              // at the host's.
-             .run_unit_limit = state.hosting}
+             .run_unit_limit = state.hosting,
+             .unit_player_mask = unit_player_mask}
         );
         // Other machines' computers, as the room showed them. This machine's
         // own are the brains the match just seated.
@@ -1738,16 +1742,25 @@ struct NetworkPlay::NetHost {
             entry.team = player.team;
             setup.players.push_back(std::move(entry));
         };
-        for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
-            const auto& player = world.game.players[slot];
-            if (player.in_use != 0 && (player.status == OA_PLAYER_STATUS_LOCAL ||
-                                       player.status == OA_PLAYER_STATUS_COMPUTER))
-                add_player(slot);
+        if (setup.enhanced_mode_version != 0) {
+            // Playback preserves the compact pool's range order. Watchers
+            // own no range and have no unit commands to record.
+            const auto mask = runtime.match_->unit_player_mask();
+            for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
+                if ((mask & static_cast<uint16_t>(1U << slot)) != 0)
+                    add_player(slot);
+        } else {
+            for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+                const auto& player = world.game.players[slot];
+                if (player.in_use != 0 && (player.status == OA_PLAYER_STATUS_LOCAL ||
+                                           player.status == OA_PLAYER_STATUS_COMPUTER))
+                    add_player(slot);
+            }
+            for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
+                if (world.game.players[slot].in_use != 0 &&
+                    world.game.players[slot].status == OA_PLAYER_STATUS_MIRRORED)
+                    add_player(slot);
         }
-        for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
-            if (world.game.players[slot].in_use != 0 &&
-                world.game.players[slot].status == OA_PLAYER_STATUS_MIRRORED)
-                add_player(slot);
         // This machine's unit checksums as its battle room sent them, then
         // the verdicts its launch applied.
         int32_t unit_count = 0;

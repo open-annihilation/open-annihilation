@@ -11,10 +11,16 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 1 establishes the mode's identity and validation. It does not
-yet raise unit or projectile capacity, replace pathfinding or introduce
-ray tracing. Those changes will be added through later versioned presets.
-The released unit-capacity ceiling remains 6,553 units per player.
+Rules version 1 permits up to 10,000 units per participating player. It
+allocates ranges only for participating players, with at most 32,767 units
+across the match. Two players can therefore field 10,000 units each.
+Spectators do not consume a unit range. The projectile pool holds 32,767
+records, with allocation failures reported by the benchmark.
+
+Scanner and jammer contact queries reuse the spatial projection within a
+contact-picture pass. These changes establish capacity and remove repeated
+work; they do not yet establish smooth frame rates at that population.
+Movement and pathfinding improvements and ray tracing remain future work.
 
 The engine resolves the preset over the selected game's profile before
 building the world. Its version enters the simulation hash. With the mode
@@ -42,6 +48,15 @@ workloads with a fixed seed and writes a JSON report. For example:
 ./run.sh --game-dir /path/to/TotalAnnihilation --enhanced-mode \
   --battle-benchmark /tmp/oa-combat.json --benchmark-units 128 \
   --benchmark-scenario combat --benchmark-warmup 30 --match-ticks 300
+```
+
+A capacity run on a large installed map can request the full population:
+
+```sh
+./run.sh --game-dir /path/to/TotalAnnihilation --enhanced-mode \
+  --battle-benchmark /tmp/oa-20000.json --benchmark-units 10000 \
+  --benchmark-map "Core Prime Industrial Area" --benchmark-scenario combat \
+  --benchmark-warmup 30 --match-ticks 300
 ```
 
 The population is per side and includes its commander. This harness

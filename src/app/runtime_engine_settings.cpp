@@ -1118,6 +1118,17 @@ void Runtime::load_engine_settings() {
     // The layers start afresh: the overrides read are laid over the profile
     // even when the settings in effect held them already.
     apply_hack_overrides();
+    if (state.current.enhanced_mode) {
+        // Resolve the mode's unit bounds before reading a stored larger limit.
+        // The command line may have enabled the mode after the first read.
+        auto enhanced_inputs = EngineSettingsState::inputs(*this);
+        auto enhanced_values = preference_values_;
+        enhanced_values[std::string(settings::key::enhanced_mode)] = "1";
+        const auto enhanced_read =
+            settings::read_settings(enhanced_values, enhanced_inputs, switch_alt);
+        state.current.unit_limit = enhanced_read.unit_limit;
+        read.unit_limit = enhanced_read.unit_limit;
+    }
     // The run's unit limit starts at the setting.
     frontend_game().max_units_setting = read.unit_limit;
     show_frame_stats(read.frame_stats);
@@ -1499,6 +1510,12 @@ void Runtime::play_latest_profile() noexcept {
                       << error.what() << '\n';
         }
     }
+    const auto* profile = mod_profile();
+    limits_.units_per_player =
+        profile && oa::data::enhanced_mode::rules_version(profile->rules) != 0
+            ? profile->limits.units_per_player
+        : options_.mod_profile ? options_.mod_profile->limits.units_per_player
+                               : oa::data::Limits{}.units_per_player;
 }
 
 const oa::data::mod_profile::UiRules& Runtime::ui_rules() const noexcept {
@@ -2085,7 +2102,10 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         kVersionText,
         state.last_page,
         acceleration_report().status,
-        settings::highest_offered_unit_limit(limits_.units_per_player),
+        settings::highest_offered_unit_limit(
+            options_.mod_profile ? options_.mod_profile->limits.units_per_player
+                                 : oa::data::Limits{}.units_per_player
+        ),
         state.profile_hacks,
         &system_language(),
         touch_controls_active(),

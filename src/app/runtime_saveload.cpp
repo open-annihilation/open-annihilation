@@ -553,7 +553,7 @@ struct Runtime::SaveLoadState {
         oa::World& world, SaveLoadState& state, uint8_t* mapping, const persist::SaveHooks& hooks
     );
     static uint16_t run_unit_limit(Runtime& runtime);
-    static std::optional<uint16_t> buildable_unit_limit(int32_t limit);
+    static std::optional<uint16_t> buildable_unit_limit(Runtime& runtime, int32_t limit);
     static std::optional<uint16_t> saved_unit_limit(Runtime& runtime, persist::Bank* bank);
     static void adopt_saved_unit_limit(Runtime& runtime, oa::World& world, persist::Bank* bank);
 };
@@ -768,9 +768,14 @@ uint16_t Runtime::SaveLoadState::run_unit_limit(Runtime& runtime) {
 /// @param limit units per player, as a save holds it
 /// @return the limit, or nullopt when it is not positive or its pool would pass
 ///     65535 slots
-std::optional<uint16_t> Runtime::SaveLoadState::buildable_unit_limit(int32_t limit) {
+std::optional<uint16_t>
+Runtime::SaveLoadState::buildable_unit_limit(Runtime& runtime, int32_t limit) {
     if (limit <= 0 || limit > std::numeric_limits<uint16_t>::max())
         return std::nullopt;
+    if (enhanced_mode_version(runtime) != 0)
+        return limit <= oa::data::limits::highest_enhanced_units_per_player
+                   ? std::optional<uint16_t>{static_cast<uint16_t>(limit)}
+                   : std::nullopt;
     // Only whether the pool can be built matters, not its size.
     if (oa::sim::unit_spawn::unit_pool_size(static_cast<uint16_t>(limit)) == 0)
         return std::nullopt;
@@ -788,7 +793,7 @@ std::optional<uint16_t>
 Runtime::SaveLoadState::saved_unit_limit(Runtime& runtime, persist::Bank* bank) {
     if (!persist::bank_has_field(bank, save_key::max_units))
         return run_unit_limit(runtime);
-    return buildable_unit_limit(persist::bank_get_int(bank, save_key::max_units, 0));
+    return buildable_unit_limit(runtime, persist::bank_get_int(bank, save_key::max_units, 0));
 }
 
 /// Reads a save's Summary "maxunits" into the match's unit-limit setting and the
@@ -810,7 +815,7 @@ void Runtime::SaveLoadState::adopt_saved_unit_limit(
         return;
     const int32_t saved = persist::bank_get_int(bank, save_key::max_units, 0);
     world.game.max_units_setting = static_cast<uint16_t>(saved);
-    if (const std::optional<uint16_t> limit = buildable_unit_limit(saved))
+    if (const std::optional<uint16_t> limit = buildable_unit_limit(runtime, saved))
         runtime.frontend_game().max_units_setting = *limit;
 }
 
@@ -1396,7 +1401,9 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
 
 void Runtime::save_mod_profile(persist::Bank* bank) const {
     namespace profiles = oa::data::mod_profile;
-    if (!persist::save_write_enhanced_mode(bank, enhanced_mode_version(*this)))
+    if (!persist::save_write_enhanced_mode(
+            bank, enhanced_mode_version(*this), match_ ? match_->unit_player_mask() : 0
+        ))
         throw std::runtime_error("the Enhanced Mode rules version cannot be saved");
     const auto* profile = mod_profile();
     if (profile == nullptr)
@@ -1577,8 +1584,13 @@ bool Runtime::load_saved_game(const fs::path& path) {
         return false;
     }
     uint32_t saved_enhanced_version{};
-    if (!persist::save_read_enhanced_mode(bank, saved_enhanced_version)) {
+    uint16_t saved_unit_player_mask{};
+    if (!persist::save_read_enhanced_mode(bank, saved_enhanced_version, &saved_unit_player_mask)) {
         status_ = "Invalid savegame file: Enhanced Mode rules cannot be read";
+        return false;
+    }
+    if (saved_enhanced_version != 0 && saved_unit_player_mask == 0) {
+        status_ = "Invalid savegame file: Enhanced Mode unit allocation is missing";
         return false;
     }
     if (!hold_enhanced_rules_once(saved_enhanced_version)) {
@@ -1732,7 +1744,10 @@ bool Runtime::load_saved_game(const fs::path& path) {
         // The match is built for the save, which places its features.
         const ResumedSave resumed(saveload_state().resumed_save, bank);
         bootstrap_match(
-            {.units_per_player = *units_per_player, .place_commanders = false, .seat_roster = true}
+            {.units_per_player = *units_per_player,
+             .place_commanders = false,
+             .seat_roster = true,
+             .unit_player_mask = saved_unit_player_mask}
         );
     }
     if (!match_ || altitude_sight_blocked_) {

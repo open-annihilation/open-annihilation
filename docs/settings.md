@@ -357,8 +357,9 @@ Each of these takes effect at once.
 - **Enhanced Mode**, Off or On, Off by default. It selects the versioned
   enhanced engine preset for new games and is locked during a match.
   Saved games and recordings keep their own mode. Graphics settings remain
-  independent. The first preset establishes the mode's identity; larger
-  capacities and new pathfinding are not included yet. See
+  independent. The first preset permits 10,000 units per participating
+  player, a larger projectile pool and more efficient contact scans.
+  Movement and pathfinding improvements remain future work. See
   [Enhanced Mode](enhanced-mode.md).
 - **Weapon types**, set by the mod. It counts how many weapon types the
   mod allows. The base game allows 256. In a match it shows how many of

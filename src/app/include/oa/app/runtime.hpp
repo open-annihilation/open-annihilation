@@ -2511,6 +2511,9 @@ class Runtime final : public menu::Host,
         /// game also does; any other match brings its own limit and leaves
         /// that limit for the game that asked for it.
         bool run_unit_limit{false};
+        /// Original unit-owning player slots of an Enhanced save or session;
+        /// zero derives the participating slots from the local setup.
+        uint16_t unit_player_mask{};
     };
 
     /// Builds the match world from the selected map and skirmish slots and enters the match.

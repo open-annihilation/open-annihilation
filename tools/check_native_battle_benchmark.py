@@ -115,9 +115,10 @@ def main():
                         "combat fixture did not fire or damage units")
         invalid_path = workdir / "capacity.json"
         process, report = play(native, game_dir, workdir, "capacity",
-                               ("--benchmark-units", "10000"), invalid_path)
-        require(process.returncode != 0 and report is None,
-                "unsupported population produced a successful report", process)
+                               ("--no-enhanced-mode", "--benchmark-units", "10000"), invalid_path)
+        require(process.returncode != 0 and report is not None and
+                not report["completed"] and report["successful_ticks"] == 0,
+                "classic mode accepted an Enhanced population", process)
         stale_path = workdir / "stale.json"
         stale_path.write_text('{"completed": true}\n', encoding="utf-8")
         process, report = play(native, game_dir, workdir, "missing-map",
