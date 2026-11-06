@@ -167,15 +167,16 @@ in
       # bundled_font_directory() reads the fonts from the executable's folder
       # (src/platform/text-font/src/font_directory.cpp). The build staged the
       # text faces, the page fonts and the Boneyards' atlas there.
-      mkdir -p $out/bin
-      cp -r fonts $out/bin/fonts
+      mkdir -p $out/bin/fonts
+      cp -r fonts/. $out/bin/fonts/
       # The registries the game ships with, read from the executable's folder.
       install -Dm644 -t $out/bin/registries ${src}/registries/*.yaml
       # The rest of the game files the build staged beside the executable:
       # the interface words, the Boneyards' archive and its Help pages.
-      cp -r languages $out/bin/languages
+      mkdir -p $out/bin/languages
+      cp -r languages/. $out/bin/languages/
       install -Dm644 coreprime.ccx $out/bin/coreprime.ccx
-      cp -r boneyards $out/bin/boneyards
+      mkdir -p $out/bin/boneyards && cp -r boneyards/. $out/bin/boneyards/
 
       runHook postInstall
     '';
