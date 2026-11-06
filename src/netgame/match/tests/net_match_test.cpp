@@ -490,6 +490,63 @@ void launch_helpers() {
     CHECK(world->game.players[3].first_unit == oa_ref_from_index(3 * 3 + 1));
     CHECK(world->game.players[9].first_unit == oa_ref_from_index(9 * 3 + 1));
     world_destroy(world);
+
+    // Enhanced ranges skip a watcher whose id sorts first and preserve
+    // ownership across sparse slots, while both armies have 10,000 places.
+    constexpr uint16_t enhanced_limit = 10000;
+    world = world_create();
+    const WorldCapacity enhanced_capacity{2 * enhanced_limit + 1, 2, 0};
+    CHECK(world != nullptr && world_alloc_tables(world, &enhanced_capacity) != 0);
+    world->game.units_per_player = enhanced_limit;
+    for (uint32_t slot = 0; slot < world->unit_slot_count; ++slot)
+        world->units[slot].id = static_cast<uint16_t>(slot);
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        auto& player = world->game.players[slot];
+        player.index = slot;
+        player.info = oa_ref_from_index(slot);
+        player.first_unit = player.last_unit = oa_ref_from_index(42);
+        player.base_unit_id = player.last_unit_id = 42;
+    }
+    for (uint8_t slot : {uint8_t{0}, uint8_t{3}, uint8_t{9}}) {
+        world->game.players[slot].in_use = 1;
+        world->game.players[slot].status = OA_PLAYER_STATUS_MIRRORED;
+    }
+    world->game.players[0].player_id = 0x100;
+    world->game.players[3].player_id = 0x300;
+    world->game.players[9].player_id = 0x200;
+    world->player_info[0].options = OA_SETUP_OPTION_WATCHER;
+    CHECK(match_assign_enhanced_unit_ranges(world));
+    CHECK(world->game.players[9].base_unit_id == 1);
+    CHECK(world->game.players[9].last_unit_id == enhanced_limit);
+    CHECK(world->game.players[3].base_unit_id == enhanced_limit + 1);
+    CHECK(world->game.players[3].last_unit_id == 2 * enhanced_limit);
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const auto& player = world->game.players[slot];
+        uint32_t count = 0;
+        auto* first = world_player_units(world, &player, &count);
+        if (slot != 3 && slot != 9) {
+            CHECK(first == nullptr && count == 0);
+            CHECK(player.base_unit_id == 0 && player.last_unit_id == 0);
+            continue;
+        }
+        CHECK(count == enhanced_limit);
+        for (uint32_t offset = 0; offset < count; ++offset) {
+            CHECK(world_unit_owner(world, &first[offset]) == &player);
+            CHECK(first[offset].owner_index == slot);
+        }
+    }
+    // The same participants in a different local slot order get the same
+    // physical ids by player id, which wire messages share.
+    std::swap(world->game.players[3].player_id, world->game.players[9].player_id);
+    CHECK(match_assign_enhanced_unit_ranges(world));
+    CHECK(world->game.players[3].base_unit_id == 1);
+    CHECK(world->game.players[9].base_unit_id == enhanced_limit + 1);
+    // A changed roster is refused before any range is changed.
+    world->player_info[0].options = 0;
+    CHECK(!match_assign_enhanced_unit_ranges(world));
+    CHECK(world->game.players[3].base_unit_id == 1);
+    CHECK(world->game.players[0].first_unit == 0);
+    world_destroy(world);
 }
 
 /// A side at or past the match's side count is the first slot this machine places.

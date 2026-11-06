@@ -9,6 +9,8 @@ namespace oa::sim::unit_spawn {
 namespace {
 constexpr uint8_t periodic_enabled = 2;
 constexpr uint8_t no_player = 10;
+constexpr uint16_t player_slot_mask = (1u << OA_PLAYER_COUNT) - 1u;
+constexpr std::size_t wire_unit_slot_capacity = 1u << 15;
 
 // Unit.flags a spawn clears, then sets: the unit occupies the ground layer,
 // at move rate 0, unselected, unjammed, not cloaking and not carried; it is
@@ -264,6 +266,13 @@ std::size_t unit_pool_size(uint16_t limit) noexcept {
     return total;
 }
 
+std::size_t unit_pool_size(uint16_t limit, uint16_t player_mask) noexcept {
+    if (limit == 0 || player_mask == 0 || (player_mask & ~player_slot_mask) != 0)
+        return 0;
+    const auto total = static_cast<std::size_t>(limit) * std::popcount(player_mask) + 1;
+    return total <= wire_unit_slot_capacity ? total : 0;
+}
+
 bool init_unit_pool(oa::World& w, uint16_t limit) noexcept {
     const auto total = unit_pool_size(limit);
     if (total == 0 || !w.unit_defs || w.unit_def_count == 0 || !w.units ||
@@ -291,6 +300,45 @@ bool init_unit_pool(oa::World& w, uint16_t limit) noexcept {
             w.units[i].squad = -1;
             w.units[i].owner_index = owner.index;
         }
+    }
+    return true;
+}
+
+bool init_unit_pool(oa::World& w, uint16_t limit, uint16_t player_mask) noexcept {
+    const auto total = unit_pool_size(limit, player_mask);
+    if (total == 0 || !w.unit_defs || w.unit_def_count == 0 || !w.units ||
+        w.unit_slot_count != total)
+        return false;
+    w.game.cycle_unit_id = 0;
+    w.game.periodic_flags &= static_cast<uint8_t>(~periodic_enabled);
+    w.game.units_per_player = limit;
+    w.game.unit_slot_count = static_cast<uint16_t>(total);
+    for (std::size_t i = 0; i < total; ++i) {
+        w.units[i] = {};
+        w.units[i].id = static_cast<uint16_t>(i);
+        w.units[i].def = oa::oa_ref_from_index(0);
+    }
+    w.units[0].owner_index = 0xff;
+    uint32_t first = 1;
+    for (uint32_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        auto& owner = w.game.players[player];
+        owner.first_unit = 0;
+        owner.last_unit = 0;
+        owner.base_unit_id = 0;
+        owner.last_unit_id = 0;
+        if ((player_mask & (1u << player)) == 0)
+            continue;
+        const auto end = first + limit;
+        owner.first_unit = oa::oa_ref_from_index(first);
+        owner.last_unit = oa::oa_ref_from_index(end - 1);
+        owner.base_unit_id = static_cast<uint16_t>(first);
+        owner.last_unit_id = static_cast<uint16_t>(end - 1);
+        for (auto i = first; i < end; ++i) {
+            w.units[i].owner = oa::oa_ref_from_index(player);
+            w.units[i].squad = -1;
+            w.units[i].owner_index = owner.index;
+        }
+        first = end;
     }
     return true;
 }

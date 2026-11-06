@@ -264,6 +264,14 @@ enum class SpawnFault : uint8_t {
 ///         the 16-bit count
 [[nodiscard]] std::size_t unit_pool_size(uint16_t per_player_limit) noexcept;
 
+/// Returns a dense Enhanced Mode pool for the participating player slots.
+///
+/// @param per_player_limit units each participating player may own
+/// @param player_mask participating player slots, bits 0 through 9
+/// @return reserved slot 0 plus each participant's range; 0 for an empty or
+///         invalid mask, a zero limit, or ids outside the 15-bit wire range
+[[nodiscard]] std::size_t unit_pool_size(uint16_t per_player_limit, uint16_t player_mask) noexcept;
+
 /// Lays out the unit pool for a single-player game.
 ///
 /// Reserves slot 0, gives each of the ten players an equal owner range, and sets
@@ -276,6 +284,17 @@ enum class SpawnFault : uint8_t {
 /// @return false, with nothing changed, for a limit unit_pool_size refuses, unit
 ///         tables that do not match the pool size, or a missing type zero
 bool init_unit_pool(oa::World& world, uint16_t per_player_limit) noexcept;
+
+/// Assigns dense unit ranges to Enhanced Mode participants in player-slot order.
+///
+/// Nonparticipants have empty ranges. Owners retain their original player
+/// indices, while ids are consecutive across the participating ranges.
+///
+/// @param[in,out] world units and player ranges are initialized
+/// @param per_player_limit units each participating player may own
+/// @param player_mask participating player slots, bits 0 through 9
+/// @return false without changes for invalid capacity or mismatched tables
+bool init_unit_pool(oa::World& world, uint16_t per_player_limit, uint16_t player_mask) noexcept;
 /// Chooses a free slot in the player's range and constructs a unit there.
 ///
 /// Runs numeric initialization, model and script attachment, weapons, extraction rate,

@@ -69,6 +69,15 @@ returns false for it.
 Multiplayer ordering and the auxiliary hot-unit and radar caches stay outside
 this helper.
 
+Enhanced Mode uses the overloads with a participating-player mask. Only those
+players receive ranges, in ascending player-slot order; absent players and
+observers have empty ranges. Player ownership keeps the original slot index.
+Two players can each own 10,000 units in a pool of 20,001 records including
+reserved slot zero, without changing packed records. The pool refuses ids
+above 32767, which the existing weapon targets and carrier messages cannot
+represent. `unit-capacity` creates all 20,000 units, checks sparse player slots,
+range boundaries and overflow, and pins the classic pool bounds.
+
 ## Parsed asset adapter
 
 Target `oa-sim-unit-spawn-runtime`, header `oa/sim/unit_spawn/spawn_runtime.hpp`, connects a unit type's

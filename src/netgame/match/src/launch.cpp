@@ -205,4 +205,45 @@ void match_assign_unit_ranges(World* world) noexcept {
     }
 }
 
+bool match_assign_enhanced_unit_ranges(World* world) noexcept {
+    if (world == nullptr || world->units == nullptr)
+        return false;
+    uint8_t order[OA_PLAYER_COUNT]{};
+    uint32_t participants = 0;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const auto& player = world->game.players[slot];
+        if (player.in_use != 0 && slot_live(player.status) && !match_slot_watcher(world, slot))
+            order[participants++] = slot;
+    }
+    const auto per_player = static_cast<uint32_t>(world->game.units_per_player);
+    const auto total = static_cast<uint64_t>(per_player) * participants + 1;
+    constexpr uint32_t wire_unit_slot_capacity = 1u << 15;
+    if (participants == 0 || per_player == 0 || total > wire_unit_slot_capacity ||
+        total != world->unit_slot_count)
+        return false;
+    std::stable_sort(order, order + participants, [world](uint8_t a, uint8_t b) {
+        return unit_range_before(world->game.players[a], world->game.players[b]);
+    });
+    for (auto& player : world->game.players) {
+        player.first_unit = player.last_unit = 0;
+        player.base_unit_id = player.last_unit_id = 0;
+    }
+    for (uint32_t rank = 0; rank < participants; ++rank) {
+        auto& player = world->game.players[order[rank]];
+        const auto first = per_player * rank + 1;
+        const auto end = first + per_player;
+        player.first_unit = oa_ref_from_index(first);
+        player.last_unit = oa_ref_from_index(end - 1);
+        player.base_unit_id = world->units[first].id;
+        player.last_unit_id = world->units[end - 1].id;
+        for (auto slot = first; slot < end; ++slot) {
+            auto& unit = world->units[slot];
+            unit.owner = oa_ref_from_index(order[rank]);
+            unit.owner_index = player.index;
+            unit.squad = -1;
+        }
+    }
+    return true;
+}
+
 } // namespace oa::netgame::match

@@ -10,6 +10,7 @@
 #include "oa/sim/match_runtime/fault.hpp"
 #include "oa/sim/match_runtime/match_trace.hpp"
 #include "oa/sim/match_runtime/spawn_bridge.hpp"
+#include "oa/sim/weapon_execution/projectile_pool.hpp"
 #include "oa/sim/combat_state.hpp"
 #include "oa/sim/spatial_state/cell_classifier.hpp"
 #include "oa/core/move_class.h"
@@ -240,6 +241,11 @@ struct OfflineInputs {
     // the match copies; the defaults are 3.1c's. Match::rules_view hands them
     // to the code that applies them.
     data::match_rules::MatchRules rules{};
+    // Enhanced Mode participants, bits 0 through 9. Set before construction;
+    // observers and absent players own no unit slots. Classic ignores this.
+    uint16_t unit_player_mask{};
+    // Enhanced Mode's shot budget; classic always uses OA_PROJECTILE_CAPACITY.
+    uint32_t projectile_capacity{OA_PROJECTILE_CAPACITY};
     // Each unit type's own rules from its data keys, indexed like types
     // (index 0 reserved); empty when no type has any. The match copies them.
     std::span<const data::match_rules::UnitTypeRules> unit_type_rules{};
@@ -531,6 +537,11 @@ struct SettledSpending {
     /// settlement left: false before the player's first settlement, and
     /// again once the load's pass has put the starting stores back.
     bool stores_left_known{};
+};
+
+/// Counts spatial-query work for diagnostics; none of it is match state.
+struct SpatialQueryCounters {
+    uint64_t projection_preparations{}, projected_slots{}, bucket_queries{}, bucket_candidates{};
 };
 
 // Owns the real unit pool, model/VM objects, weapon slots, spatial plots/buckets
@@ -1196,6 +1207,21 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         void (*visit)(void* context, sim::unit_spawn::Slot& slot),
         void* context
     );
+
+    /// Returns spatial-query work counters excluded from saves and simulation digests.
+    ///
+    /// @return the accumulated work counters
+    const SpatialQueryCounters& spatial_query_counters() const noexcept {
+        return spatial_query_counters_;
+    }
+
+    /// Returns shot allocation counters excluded from saves and simulation digests.
+    ///
+    /// @return the shot pool's high-water mark and allocation failures
+    const sim::weapon_execution::ProjectilePoolUsage& projectile_usage() const noexcept {
+        return state_.projectile_usage;
+    }
+
     /// Runs the viewpoint player's contact scan: its own and radar-sharing
     /// units are seen (every unit for a watcher, and for a slotless viewer
     /// while slotless_full_radar holds), its active radar and sonar units stamp contacts, other
@@ -3279,6 +3305,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // The first broken invariant or refused input an operation met (fault()).
     // A query that meets one notes it too, which changes no match state.
     mutable MatchFault fault_;
+    SpatialQueryCounters spatial_query_counters_{};
     friend class TickHost;
     friend class WeaponTickHost;
     friend class TargetHost;
@@ -3785,6 +3812,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         std::unique_ptr<oa::Side[]> extra_sides;
         std::unique_ptr<sim::feature_runtime::PlacedFeature[]> placed_features;
         std::vector<oa::Projectile> projectiles;
+        std::unique_ptr<int16_t[]> projectile_compaction_storage;
+        std::span<int16_t> projectile_compaction;
+        sim::weapon_execution::ProjectilePoolUsage projectile_usage{};
         std::vector<sim::unit_spawn::SlotAssets> assets;
         std::array<sim::unit_spawn::PlayerSetupState, 10> setups{};
         std::vector<sim::simulation_state::OrderQueue> orders;

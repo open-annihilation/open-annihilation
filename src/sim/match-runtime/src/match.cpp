@@ -18,12 +18,21 @@
 
 namespace oa::sim::match_runtime {
 namespace {
+/// Bounds allocation before the constructor reports invalid match inputs.
+std::size_t projectile_pool_size(const OfflineInputs& input) noexcept {
+    if (!input.rules.setup.enhanced_mode.enabled ||
+        input.projectile_capacity < OA_PROJECTILE_CAPACITY ||
+        input.projectile_capacity > sim::weapon_execution::maximum_projectile_capacity)
+        return OA_PROJECTILE_CAPACITY;
+    return input.projectile_capacity;
+}
+
 /// Empties the match's shot pool (the "WEAPON ARRAY" block): every record
 /// cleared and none in flight.
 ///
 /// @param[in,out] world World whose projectile pool and count are reset.
 void clear_projectile_pool(oa::World& world) {
-    std::fill_n(world.projectiles, OA_PROJECTILE_CAPACITY, oa::Projectile{});
+    std::fill_n(world.projectiles, oa::world_projectile_capacity(&world), oa::Projectile{});
     world.game.projectile_count = 0;
 }
 
@@ -222,7 +231,13 @@ const char* Match::input_error(const OfflineInputs& input) noexcept {
         input.fields.size() != input.types.size() ||
         (!input.unit_defs.empty() && input.unit_defs.size() != input.types.size()))
         return "offline runtime type tables differ";
-    if (sim::unit_spawn::unit_pool_size(input.per_player_limit) == 0)
+    if (input.rules.setup.enhanced_mode.enabled) {
+        if (sim::unit_spawn::unit_pool_size(input.per_player_limit, input.unit_player_mask) == 0)
+            return "Enhanced Mode participants exceed the 15-bit unit id capacity";
+        if (input.projectile_capacity < OA_PROJECTILE_CAPACITY ||
+            input.projectile_capacity > sim::weapon_execution::maximum_projectile_capacity)
+            return "Enhanced Mode projectile capacity exceeds the 15-bit projectile id capacity";
+    } else if (sim::unit_spawn::unit_pool_size(input.per_player_limit) == 0)
         return "unit pool limit would wrap the 16-bit unit count";
     if (input.viewpoint_player >= 10)
         return "offline viewpoint outside ten players";
@@ -245,8 +260,22 @@ const char* Match::input_error(const OfflineInputs& input) noexcept {
 
 Match::State::State(const OfflineInputs& input)
     : world(std::make_unique<oa::World>()),
-      units(sim::unit_spawn::unit_pool_size(input.per_player_limit)), unit_defs(input.types.size()),
-      projectiles(OA_PROJECTILE_CAPACITY), assets(units.size()), orders(units.size()) {
+      units(
+          input.rules.setup.enhanced_mode.enabled
+              ? sim::unit_spawn::unit_pool_size(input.per_player_limit, input.unit_player_mask)
+              : sim::unit_spawn::unit_pool_size(input.per_player_limit)
+      ),
+      unit_defs(input.types.size()), projectiles(projectile_pool_size(input)),
+      projectile_compaction_storage(
+          projectiles.size() > OA_PROJECTILE_CAPACITY
+              ? std::make_unique<int16_t[]>(projectiles.size())
+              : nullptr
+      ),
+      projectile_compaction(
+          projectile_compaction_storage.get(),
+          projectile_compaction_storage ? projectiles.size() : 0
+      ),
+      assets(units.size()), orders(units.size()) {
     // Refused inputs build the side tables only; the match stops at once.
     if (Match::input_error(input) == nullptr)
         load_types(input);
@@ -268,6 +297,7 @@ Match::State::State(const OfflineInputs& input)
     world->placed_features = reinterpret_cast<uint8_t*>(placed_features.get());
     world->placed_feature_count = static_cast<uint32_t>(sim::feature_runtime::slot_capacity);
     world->projectiles = projectiles.data();
+    world->projectile_capacity = static_cast<uint32_t>(projectiles.size());
     clear_projectile_pool(*world);
     world->game.viewpoint_player = input.viewpoint_player;
     world->game.difficulty = OA_DIFFICULTY_MEDIUM;
@@ -285,7 +315,12 @@ Match::State::State(const OfflineInputs& input)
         player.energy_storage = 1000.0F;
         player.metal_storage = 1000.0F;
     }
-    (void)sim::unit_spawn::init_unit_pool(*world, input.per_player_limit);
+    if (input.rules.setup.enhanced_mode.enabled)
+        (void)sim::unit_spawn::init_unit_pool(
+            *world, input.per_player_limit, input.unit_player_mask
+        );
+    else
+        (void)sim::unit_spawn::init_unit_pool(*world, input.per_player_limit);
     tables = {input.types, assets, setups};
     views =
         std::make_unique<sim::unit_spawn::LegacyViews>(*world, input.types, assets, setups, orders);
@@ -1031,6 +1066,8 @@ sim::spatial_state::Unit& Match::project_spatial(sim::unit_spawn::Slot& slot) {
 }
 
 void Match::prepare_spatial_state() {
+    ++spatial_query_counters_.projection_preparations;
+    spatial_query_counters_.projected_slots += slots_.size();
     const auto& world = state();
     for (std::size_t i = 0; i < slots_.size(); ++i)
         fill_projection(world, world.units[i], spatial_units_[i]);
