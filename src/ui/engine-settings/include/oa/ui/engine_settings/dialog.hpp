@@ -1195,7 +1195,8 @@ struct Dialog {
     int32_t finger_shift_y{}; ///< the rows a finger's held press was moved by, as finger_shift_x
     /// A check's own section in place of the dialog's; null for the dialog's.
     const SectionHooks* section_hooks{};
-    /// The unit limit slider's highest stop (highest_offered_unit_limit).
+    /// The classic profile's highest offered unit limit, before Enhanced
+    /// Mode raises it. The slider follows the mode shown by the dialog.
     uint16_t highest_offered_unit{highest_unit_limit};
     /// The Screen size slider's stops, in order: Desktop, then the sizes
     /// the display offers, narrower first. open_dialog sets screen_sizes;
@@ -1514,8 +1515,8 @@ void set_registered_pages(
 /// @param version the header's version text
 /// @param page the section to show
 /// @param acceleration Hardware acceleration's status
-/// @param highest_offered_unit the unit limit slider's highest stop, in units
-///     per player (highest_offered_unit_limit)
+/// @param highest_offered_unit the classic profile's highest offered unit
+///     limit, in units per player, before Enhanced Mode raises it
 /// @param profile_hacks every standard hack as the profile the game plays
 ///     resolves it, in the registry's order (DeveloperList::profile); empty
 ///     gives every one off, as 3.1c plays it

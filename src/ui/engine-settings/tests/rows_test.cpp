@@ -937,6 +937,7 @@ void a_loaded_match_shows_its_mode_without_writing_the_preference() {
             OA_CHECK(
                 kit::row_on(geometry::row_spec(Setting::enhanced_mode), model_of(dialog)) == enabled
             );
+            OA_CHECK(row_values(dialog, Setting::unit_limit) == (enabled ? 200 : 30));
             OA_CHECK(dialog.opened == current && dialog.chosen == current);
             oa::platform::preferences::Values values;
             settings::write_settings(values, dialog.opened, dialog.chosen, dialog.defaults, false);
@@ -952,9 +953,36 @@ void a_loaded_match_shows_its_mode_without_writing_the_preference() {
     }
 }
 
+void enhanced_mode_offers_ten_thousand_units_without_developer_mode() {
+    for (const uint16_t classic_limit : {uint16_t{1500}, uint16_t{5000}, uint16_t{6553}}) {
+        settings::Dialog dialog;
+        settings::open_dialog(
+            dialog, {}, {}, {}, "v0.9.0", settings::Page::common_tweaks, {}, classic_limit
+        );
+        geometry::SettingsModel model{&dialog.chosen, &dialog};
+        const auto& mode = geometry::row_spec(Setting::enhanced_mode);
+        const auto& units = geometry::row_spec(Setting::unit_limit);
+        const int32_t classic_stops = kit::row_count(units, model);
+        OA_CHECK(!dialog.chosen.developer_mode);
+        kit::set_row_on(mode, model, true);
+        OA_CHECK(dialog.chosen.enhanced_mode);
+        OA_CHECK(kit::row_count(units, model) == 200);
+        kit::set_row_index(units, model, 199);
+        OA_CHECK(dialog.chosen.unit_limit == 10'000);
+        OA_CHECK(!dialog.chosen.developer_mode);
+        kit::set_row_on(mode, model, false);
+        OA_CHECK(!dialog.chosen.enhanced_mode);
+        OA_CHECK(dialog.chosen.unit_limit == classic_limit);
+        OA_CHECK(kit::row_count(units, model) == classic_stops);
+        kit::set_row_index(units, model, 199);
+        OA_CHECK(dialog.chosen.unit_limit <= classic_limit);
+    }
+}
+
 } // namespace
 
 int main() {
+    enhanced_mode_offers_ten_thousand_units_without_developer_mode();
     a_loaded_match_shows_its_mode_without_writing_the_preference();
     enhanced_mode_changes_only_the_new_game_rules_choice();
     every_setting_has_its_row();

@@ -821,6 +821,30 @@ bool enhanced_mode_on(const SettingsModel& model) {
     return model.settings->enhanced_mode;
 }
 
+/// Returns the unit limit offered with Enhanced Mode off.
+///
+/// @param model the settings and dialog shown
+/// @return the classic profile ceiling, or the engine's ordinary ceiling
+uint16_t classic_unit_limit_ceiling(const SettingsModel& model) {
+    return model.dialog != nullptr
+               ? std::min(
+                     model.dialog->highest_offered_unit, oa::data::limits::highest_units_per_player
+                 )
+               : highest_unit_limit;
+}
+
+/// Changes the rules choice and holds the unit limit to the classic ceiling
+/// when Enhanced Mode is turned off.
+///
+/// @param[in,out] model the settings and dialog shown
+/// @param on whether Enhanced Mode is chosen
+void set_enhanced_mode(SettingsModel& model, bool on) {
+    model.settings->enhanced_mode = on;
+    if (!on)
+        model.settings->unit_limit =
+            std::min(model.settings->unit_limit, classic_unit_limit_ceiling(model));
+}
+
 /// Makes the row of a switch of the mod options.
 template <bool ModOptions::* Flag>
 constexpr Spec option_switch(std::string_view id, std::string_view label, Hint hint) noexcept {
@@ -871,12 +895,13 @@ std::string path_search_text(const SettingsModel& model) {
 }
 
 // Unit limit: from lowest_unit_limit in unit_limit_step steps to the
-// dialog's highest offered.
+// classic profile's ceiling or Enhanced Mode's ceiling.
 
-/// Returns the unit limit's stops, up to the dialog's highest offered.
+/// Returns the unit limit's stops for the mode shown by the dialog.
 int32_t unit_limit_stops(const SettingsModel& model) {
-    const uint16_t highest =
-        model.dialog != nullptr ? model.dialog->highest_offered_unit : highest_unit_limit;
+    const uint16_t highest = enhanced_mode_on(model)
+                                 ? oa::data::limits::highest_enhanced_units_per_player
+                                 : classic_unit_limit_ceiling(model);
     return (highest - lowest_unit_limit) / unit_limit_step + 1;
 }
 
@@ -3146,7 +3171,7 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
     {.setting = S::enhanced_mode,
      .spec = kit::toggle(
          "enhanced-mode", "Enhanced Mode",
-         &enhanced_mode_on, &set_engine_flag<&E::enhanced_mode>,
+         &enhanced_mode_on, &set_enhanced_mode,
          {"Use the enhanced rules preset. Applies from the next game."}),
      .lock = &Locks::enhanced_mode,
      .copy = &copy_field<&E::enhanced_mode>},
