@@ -181,6 +181,11 @@ std::string report_json(const Report& report) {
     number("measured_ticks", report.measured_ticks);
     number("successful_warmup_ticks", report.successful_warmup_ticks);
     number("successful_ticks", report.successful_ticks);
+    number("moved_unit_ticks", report.moved_unit_ticks);
+    number("damaged_unit_ticks", report.damaged_unit_ticks);
+    number("projectile_high_water", report.projectile_high_water);
+    out << ",\n  \"activity_observed\": " << (report.activity_observed ? "true" : "false");
+    text("activity_sampling_scope", report.activity_sampling_scope);
     out << ",\n  \"enhanced_mode\": " << (report.enhanced_mode ? "true" : "false");
     number("enhanced_version", report.enhanced_version);
     text("simulation_hash", report.simulation_hash);

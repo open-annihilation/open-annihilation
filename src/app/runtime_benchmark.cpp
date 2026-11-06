@@ -1515,6 +1515,21 @@ void Runtime::run_battle_benchmark() {
     report.enhanced_mode = report.enhanced_version != 0;
     report.engine_version = running_engine_version_line();
     report.error = "the benchmark did not complete";
+    auto kept_preferences = preferences_;
+    auto kept_skirmish = skirmish_settings_;
+    const uint16_t kept_limit = frontend_game().max_units_setting;
+    const auto restore_setup = [&] {
+        std::swap(preferences_, kept_preferences);
+        std::swap(skirmish_settings_, kept_skirmish);
+        frontend_game().max_units_setting = kept_limit;
+    };
+
+    struct RestoreSetup {
+        const decltype(restore_setup)& restore;
+
+        ~RestoreSetup() { restore(); }
+    } restore{restore_setup};
+
     const auto write_report = [&] {
         const std::string json = benchmark::report_json(report);
         const auto bytes =
@@ -1548,6 +1563,9 @@ void Runtime::run_battle_benchmark() {
         setup_brain_seats(oa::data::brain_library::Setup::skirmish) = {};
         for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
             set_brain_seat(player, std::nullopt);
+        // Pin session choices instead of inheriting the player's last setup.
+        preferences_.skirmish = {1, 1, 1, 1};
+        preferences_.skirmish_location = 1;
         skirmish_settings_.slot_count = 2;
         skirmish_settings_.map_name = options_.benchmark_map;
         for (std::size_t side = 0; side < skirmish_settings_.slots.size(); ++side) {
@@ -1556,6 +1574,8 @@ void Runtime::run_battle_benchmark() {
             slot.side = static_cast<int32_t>(side % 2);
             slot.color = static_cast<int32_t>(side);
             slot.alliance = entry::unassigned_alliance;
+            slot.metal = 1000;
+            slot.energy = 1000;
         }
         state_.player_count = 2;
         if (select_map(options_.benchmark_map) == 0 || map_player_capacity() < 2)
@@ -1642,8 +1662,6 @@ void Runtime::run_battle_benchmark() {
                             "battle benchmark could not issue an attack order"
                         );
                 } else {
-                    if (!give_state_order(unit, "Standing_FireOrder", 0))
-                        throw std::runtime_error("battle benchmark could not set hold fire");
                     if (options_.benchmark_scenario == "march") {
                         const auto& record = match_->world().slots[unit].record;
                         const auto x =
@@ -1661,18 +1679,55 @@ void Runtime::run_battle_benchmark() {
                         };
                         match_->issue_ground_move(unit, destination, false);
                     }
+                    // A new unqueued move clears older state orders. Put the
+                    // standing order first only after the move is installed.
+                    if (!give_state_order(unit, "Standing_FireOrder", 0))
+                        throw std::runtime_error("battle benchmark could not set hold fire");
                 }
             }
         report.initial_units = census();
+        const auto slots = match_->world().slots.size();
+        std::vector<oa::FixedVec3> previous_positions(slots);
+        std::vector<int16_t> previous_health(slots);
+        std::vector<bool> previously_live(slots);
+        const auto note_activity = [&](bool compare) {
+            for (std::size_t index = 0; index < slots; ++index) {
+                const auto& slot = match_->world().slots[index];
+                const bool live = slot.unit != nullptr && slot.record.type_index != 0;
+                if (compare && previously_live[index]) {
+                    if (!live || slot.record.health < previous_health[index])
+                        ++report.damaged_unit_ticks;
+                    if (live && (slot.record.position.x != previous_positions[index].x ||
+                                 slot.record.position.y != previous_positions[index].y ||
+                                 slot.record.position.z != previous_positions[index].z))
+                        ++report.moved_unit_ticks;
+                }
+                previously_live[index] = live;
+                if (live) {
+                    previous_positions[index] = slot.record.position;
+                    previous_health[index] = slot.record.health;
+                }
+            }
+            report.projectile_high_water =
+                std::max<uint64_t>(report.projectile_high_water, match_->projectiles().size());
+            report.activity_observed =
+                options_.benchmark_scenario == "idle" ||
+                (options_.benchmark_scenario == "march"
+                     ? report.moved_unit_ticks != 0
+                     : report.projectile_high_water != 0 || report.damaged_unit_ticks != 0);
+        };
+        note_activity(false);
         for (std::size_t tick = 0; tick < report.warmup_ticks; ++tick) {
             step_match_simulation();
             ++report.successful_warmup_ticks;
+            note_activity(true);
         }
         for (std::size_t tick = 0; tick < report.measured_ticks; ++tick) {
             const auto started = BenchClock::now();
             step_match_simulation();
             samples.push_back(static_cast<uint64_t>(elapsed_ns(started)));
             ++report.successful_ticks;
+            note_activity(true);
         }
         report.final_units = census();
         std::array<char, 17> digest{};

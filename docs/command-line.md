@@ -1769,3 +1769,22 @@ not successful benchmark results.
 
 The legacy `--benchmark FRAMES` measures drawn scenes separately and stops
 with failure when a simulation tick fails.
+
+Activity telemetry is sampled after every successful warmup and measured
+tick, outside the timed simulation step. `moved_unit_ticks` counts live units
+whose position changed since the preceding sample; `damaged_unit_ticks`
+counts units whose health fell or which died; `projectile_high_water` is the
+largest live projectile count observed at those samples. Projectiles born
+and retired within one tick can fall between samples.
+
+`activity_observed` is true for idle runs, requires movement for march runs,
+and requires an observed projectile or damage for combat runs. A completed
+report means that all requested simulation samples ran; a short sample or
+an unreachable route can still have `activity_observed` false. Check this
+field and the populations before treating a run as a movement or combat
+performance result. Combat allows attrition, so its ending population can
+be lower than its starting population.
+
+The workload pins session visibility, commander rules, fixed start locations
+and starting resources instead of inheriting remembered skirmish choices.
+The player's setup choices are restored when the run ends.

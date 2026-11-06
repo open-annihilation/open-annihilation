@@ -126,6 +126,10 @@ void reports() {
     report.measured_ticks = 100;
     report.successful_warmup_ticks = 30;
     report.successful_ticks = 100;
+    report.moved_unit_ticks = 40;
+    report.damaged_unit_ticks = 3;
+    report.projectile_high_water = 12;
+    report.activity_observed = true;
     report.enhanced_mode = true;
     report.enhanced_version = 1;
     report.simulation_hash = "hash";
@@ -142,6 +146,11 @@ void reports() {
     CHECK(json.find("\"mean\": 1.5") != std::string::npos);
     CHECK(json.find("\"successful_ticks\": 100") != std::string::npos);
     CHECK(json.find("\"enhanced_version\": 1") != std::string::npos);
+    CHECK(json.find("\"moved_unit_ticks\": 40") != std::string::npos);
+    CHECK(json.find("\"damaged_unit_ticks\": 3") != std::string::npos);
+    CHECK(json.find("\"projectile_high_water\": 12") != std::string::npos);
+    CHECK(json.find("\"activity_observed\": true") != std::string::npos);
+    CHECK(json.find("after_each_successful_warmup_and_measured_tick") != std::string::npos);
     report.completed = false;
     report.error = "tick failed";
     report.successful_ticks = 5;

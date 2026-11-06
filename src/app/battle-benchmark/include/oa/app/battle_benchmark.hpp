@@ -104,6 +104,11 @@ struct Report {
     std::size_t measured_ticks{};
     std::size_t successful_warmup_ticks{};
     std::size_t successful_ticks{};
+    uint64_t moved_unit_ticks{};
+    uint64_t damaged_unit_ticks{};
+    uint64_t projectile_high_water{};
+    bool activity_observed{};
+    std::string activity_sampling_scope{"after_each_successful_warmup_and_measured_tick"};
     bool enhanced_mode{};
     uint32_t enhanced_version{};
     std::string simulation_hash{};

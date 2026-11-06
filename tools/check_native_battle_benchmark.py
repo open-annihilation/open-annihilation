@@ -38,7 +38,7 @@ def require(condition, message, process=None):
     raise SystemExit(message)
 
 
-def valid_report(process, report, scenario, enabled):
+def valid_report(process, report, scenario, enabled, ticks=12):
     """Check completion, population, rules metadata and ordered tick statistics."""
     require(process.returncode == 0 and report is not None, "benchmark failed", process)
     require(report["schema_version"] == 1 and report["completed"] and not report["error"],
@@ -47,15 +47,20 @@ def valid_report(process, report, scenario, enabled):
             "benchmark lost its workload or seed")
     require(report["requested_units_per_side"] == 24 and report["initial_units"] == 48,
             "benchmark did not place the requested armies")
-    require(report["successful_warmup_ticks"] == 3 and report["successful_ticks"] == 12,
+    require(report["successful_warmup_ticks"] == 3 and report["successful_ticks"] == ticks,
             "benchmark did not run every requested tick")
     require(report["enhanced_mode"] is enabled and report["enhanced_version"] == int(enabled),
             "benchmark did not record its Enhanced rules")
     require(report["renderer"] == "none", "simulation-only benchmark named a drawn renderer")
     require(len(report["simulation_hash"]) == 64 and len(report["world_digest"]) == 16,
             "benchmark lacks its reproducibility digests")
+    require(report["activity_sampling_scope"] == "after_each_successful_warmup_and_measured_tick",
+            "benchmark did not state when activity is sampled")
+    if scenario in ("idle", "march"):
+        require(report["projectile_high_water"] == 0,
+                "noncombat workload fired a projectile")
     stats = report["tick_ns"]
-    require(stats["count"] == 12 and
+    require(stats["count"] == ticks and
             0 < stats["min"] <= stats["p50"] <= stats["p95"] <= stats["p99"] <= stats["max"],
             "benchmark timing statistics are incomplete or unordered")
 
@@ -74,6 +79,20 @@ def main():
             mode = "--enhanced-mode" if enabled else "--no-enhanced-mode"
             reference = None
             for index, graphics in enumerate(("off", "full")):
+                if index:
+                    settings = {
+                        "Total Annihilation|SkirmishCommanderDeath": "0",
+                        "Total Annihilation|SkirmishMapping": "0",
+                        "Total Annihilation|SkirmishLineOfSight": "0",
+                        "Total Annihilation|SkirmishLOSType": "0",
+                        "Total Annihilation|SkirmishLocation": "0",
+                        "Total Annihilation\\Skirmish|Player0Metal": "9000",
+                        "Total Annihilation\\Skirmish|Player1Energy": "9000",
+                    }
+                    profile = workdir / f"idle-{enabled}-{index}.conf"
+                    lines = ["open-annihilation-preferences 1"]
+                    lines.extend(f'{json.dumps(key)} {json.dumps(value)}' for key, value in settings.items())
+                    profile.write_text("\n".join(lines) + "\n", encoding="utf-8")
                 process, report = play(native, game_dir, workdir, f"idle-{enabled}-{index}",
                                        (mode, "--benchmark-scenario", "idle",
                                         f"--hardware-acceleration={graphics}"))
@@ -85,8 +104,15 @@ def main():
                 reference = report
         for scenario in ("march", "combat"):
             process, report = play(native, game_dir, workdir, scenario,
-                                   ("--enhanced-mode", "--benchmark-scenario", scenario))
-            valid_report(process, report, scenario, True)
+                                   ("--enhanced-mode", "--benchmark-scenario", scenario,
+                                    "--benchmark-map", "Ashap Plateau", "--match-ticks", "120"))
+            valid_report(process, report, scenario, True, ticks=120)
+            require(report["activity_observed"], f"{scenario} fixture did no corresponding work")
+            if scenario == "march":
+                require(report["moved_unit_ticks"] > 0, "march fixture did not move")
+            else:
+                require(report["projectile_high_water"] > 0 or report["damaged_unit_ticks"] > 0,
+                        "combat fixture did not fire or damage units")
         invalid_path = workdir / "capacity.json"
         process, report = play(native, game_dir, workdir, "capacity",
                                ("--benchmark-units", "10000"), invalid_path)
