@@ -12,6 +12,7 @@
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/pack_map_source.hpp"
 #include "oa/app/presence_facts.hpp"
+#include "oa/app/enhanced_mode.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/view_rules.hpp"
 #include "network_play.hpp"
@@ -58,6 +59,7 @@
 #include "oa/ui/hud/whiteboard.hpp"
 #include "oa/ui/frontend_multiplayer/connect.hpp"
 #include "oa/ui/frontend_multiplayer/room_limits.hpp"
+#include "oa/ui/frontend_multiplayer/room_enhanced.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include <algorithm>
@@ -677,13 +679,15 @@ bool presence_keeps_rules(const oa::netgame::PresenceRecord& record) {
 /// @param mutators the mutators field, or null when this machine plays none
 /// @param mutator_modes the host's clash-mode mask, sent with the mutator
 ///        field; nothing when this machine sends none
+/// @param enhanced_mode_version the selected mode version; zero while off
 /// @return the record; empty only when nothing could be written
 std::vector<uint8_t> write_presence_record(
     const PresenceFacts& facts,
     uint32_t& reported,
     const PresencePlayed& played,
     const oa::netgame::PresenceMutators* mutators,
-    std::optional<uint32_t> mutator_modes
+    std::optional<uint32_t> mutator_modes,
+    uint32_t enhanced_mode_version
 ) {
     namespace ng = oa::netgame;
     const auto report = [&](uint32_t problem, const char* what) {
@@ -775,6 +779,8 @@ std::vector<uint8_t> write_presence_record(
             report(presence_problem::mod_origin, "where the mod was published");
     }
     record.sim_hash = facts.sim_hash;
+    if (enhanced_mode_version != 0)
+        record.enhanced_mode_version = enhanced_mode_version;
 
     if (mutators != nullptr) {
         probe = {};
@@ -1202,6 +1208,17 @@ struct NetworkPlay::NetHost {
             host_slot != mp::kNoSlot ? mp::slot_info(lobby, host_slot) : nullptr;
         if (host_info == nullptr) {
             abort(play, "the battle room has no host");
+            return;
+        }
+        const auto local_record = mp::lobby_presence_record(lobby, local_slot);
+        const auto announced_mode =
+            oa::netgame::presence_enhanced_mode_version(local_record.data(), local_record.size());
+        if (announced_mode.value_or(0) != enhanced_mode_version(play.runtime_)) {
+            abort(play, "Enhanced Mode has not been announced to this battle room.");
+            return;
+        }
+        if (const char* problem = mp::lobby_enhanced_start_problem(lobby)) {
+            abort(play, problem);
             return;
         }
         state.hosting = host_slot == local_slot;
@@ -1676,6 +1693,7 @@ struct NetworkPlay::NetHost {
                              : std::string();
         oa::session::demo::RecordingSetup setup{};
         setup.max_units = static_cast<uint16_t>(world.game.units_per_player);
+        setup.enhanced_mode_version = enhanced_mode_version(runtime);
         setup.map_name = map;
         setup.recorder_text = kProgramLine;
         setup.date_text = local_time_text("%Y-%m-%d %H:%M");
@@ -2575,6 +2593,13 @@ void NetworkPlay::follow_presence() {
     // taking its generation here would skip writing it into the record.
     if (presence_taken_ && !mp::multiplayer_showing())
         return;
+    auto& lobby = mp::multiplayer_lobby();
+    const char* enhanced_problem = mp::lobby_enhanced_start_problem(lobby);
+    if (enhanced_problem != enhanced_room_problem_) {
+        enhanced_room_problem_ = enhanced_problem;
+        if (enhanced_problem != nullptr)
+            mp::lobby_note_enhanced_refused_start(lobby);
+    }
     const uint32_t generation = runtime_.room_mutators_generation();
     const bool mutators_changed =
         !presence_mutators_seen_ || generation != presence_mutator_generation_;
@@ -2599,16 +2624,20 @@ void NetworkPlay::follow_presence() {
     auto facts = presence_facts(runtime_);
     const auto played = played_content(runtime_);
     const auto key = played_content_key(played);
-    if (!first && facts == presence_facts_ && key == presence_content_key_ && !mutators_changed)
+    const uint32_t selected_enhanced_version = enhanced_mode_version(runtime_);
+    if (!first && facts == presence_facts_ && key == presence_content_key_ && !mutators_changed &&
+        selected_enhanced_version == presence_enhanced_mode_version_)
         return;
     presence_facts_ = std::move(facts);
     presence_content_key_ = key;
+    presence_enhanced_mode_version_ = selected_enhanced_version;
     auto record = write_presence_record(
         presence_facts_,
         presence_reported_,
         played,
         presence_mutators_held_ ? &presence_mutators_ : nullptr,
-        presence_mutators_held_ ? runtime_.room_mutator_modes() : std::nullopt
+        presence_mutators_held_ ? runtime_.room_mutator_modes() : std::nullopt,
+        selected_enhanced_version
     );
     if (!first && record == bound_presence_record_)
         return;

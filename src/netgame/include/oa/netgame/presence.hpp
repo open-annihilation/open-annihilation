@@ -41,6 +41,8 @@
 //        sides. A value that is not five bytes, or names fewer than 256
 //        weapon types or five sides, is left out. Absent: an OA build from
 //        before these limits.
+//   0x25 enhanced mode: u32 the selected Enhanced Mode version, at least 1.
+//        Absent: Enhanced Mode is off or this build predates it.
 //   0x30 content: u8 flags, bit 0 the machine can fetch content (it has a
 //        downloads folder and at least one enabled registry whose downloads
 //        are on); bits 1 to 7 sent as 0 and ignored when read. Absent: the
@@ -165,6 +167,7 @@ enum class PresenceTag : uint8_t {
     view_hacks = 0x22,      ///< view hacks that are on
     developer = 0x23,       ///< Developer Mode and its overrides
     limits = 0x24,          ///< the most weapon types and sides this build plays
+    enhanced_mode = 0x25,   ///< the selected Enhanced Mode version
     content = 0x30,         ///< whether the machine can fetch content
     bundles = 0x31,         ///< the base game and the rule-changing expansions
     language = 0x32,        ///< the language's name in English
@@ -446,6 +449,8 @@ struct PresenceRecord {
     /// from before these limits, and when the value named fewer than 256
     /// weapon types or five sides.
     std::optional<PresenceLimits> limits;
+    /// The selected Enhanced Mode version, at least 1; absent while it is off.
+    std::optional<uint32_t> enhanced_mode_version;
     std::optional<PresenceHacks> game_hacks;
     std::optional<PresenceHacks> view_hacks;
     std::optional<PresenceDeveloper> developer;
@@ -559,6 +564,17 @@ presence_sim_hash(const uint8_t* record, std::size_t size) noexcept;
 /// @return the ceilings, or nothing
 [[nodiscard]] std::optional<PresenceLimits>
 presence_limits(const uint8_t* record, std::size_t size) noexcept;
+
+/// Reads the selected Enhanced Mode version, without allocating.
+///
+/// The first 0x25 field is kept when it is four bytes and nonzero. Off is
+/// represented by no field, so older records remain unchanged.
+///
+/// @param record the record, type byte first; null is nothing
+/// @param size its length in bytes
+/// @return the version, or nothing when absent or malformed
+[[nodiscard]] std::optional<uint32_t>
+presence_enhanced_mode_version(const uint8_t* record, std::size_t size) noexcept;
 
 /// Compares the bundles fields of two records, without allocating.
 ///
