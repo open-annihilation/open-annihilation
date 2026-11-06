@@ -632,6 +632,16 @@ struct SetupTeamStartPositions {
     bool operator==(const SetupTeamStartPositions&) const = default;
 };
 
+/// setup.enhanced-mode: Records the Enhanced Mode rules version for a match; version 1 establishes
+/// the preset identity and keeps the released simulation and capacities.
+struct SetupEnhancedMode {
+    bool enabled{}; ///< the profile turns the hack on
+    /// version; 3.1c: 1
+    int32_t version{1};
+    /// Compares every field.
+    bool operator==(const SetupEnhancedMode&) const = default;
+};
+
 /// setup.map-scripted-units: Maps whose OTA schema lists units spawn them per player number at
 /// start (replacing the default commander when any spawn) and at timed countdowns; player-11 units
 /// go to a neutral AI the lobby adds on START; +spawnoff/+spawnon toggle it.
@@ -694,6 +704,7 @@ struct SetupRecorderPrebuiltBase {
 /// The rules of every hack in area setup.
 struct SetupRules {
     SetupTeamStartPositions team_start_positions{};
+    SetupEnhancedMode enhanced_mode{};
     SetupMapScriptedUnits map_scripted_units{};
     SetupAllowStartWithAi allow_start_with_ai{};
     SetupMultipleLocalAi multiple_local_ai{};

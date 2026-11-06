@@ -107,6 +107,8 @@ template <class Visitor, class Profile> void visit_bindings(Visitor& visitor, Pr
     visitor.parameter("intel.allied-jammers-ignored", "view-switch-branch", profile.rules.intel.allied_jammers_ignored.view_switch_branch);
     visitor.hack("setup.team-start-positions", profile.rules.setup.team_start_positions.enabled);
     visitor.parameter("setup.team-start-positions", "mode", profile.rules.setup.team_start_positions.mode);
+    visitor.hack("setup.enhanced-mode", profile.rules.setup.enhanced_mode.enabled);
+    visitor.parameter("setup.enhanced-mode", "version", profile.rules.setup.enhanced_mode.version);
     visitor.hack("setup.map-scripted-units", profile.rules.setup.map_scripted_units.enabled);
     visitor.parameter("setup.map-scripted-units", "timed-spawns", profile.rules.setup.map_scripted_units.timed_spawns);
     visitor.parameter("setup.map-scripted-units", "auto-neutral-ai", profile.rules.setup.map_scripted_units.auto_neutral_ai);

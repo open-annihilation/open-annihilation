@@ -513,9 +513,10 @@ void test_mutator_match() {
         }
         OA_CHECK(match);
     }
-    OA_CHECK(marked.size() == 2);
+    OA_CHECK(marked.size() == 3);
     OA_CHECK(marked.count("limits.units-per-player") == 1);
     OA_CHECK(marked.count("console.game-speed-range") == 1);
+    OA_CHECK(marked.count("setup.enhanced-mode") == 1);
 }
 
 void test_base_profile() {

@@ -1,0 +1,142 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// Preset identity, unchanged Off resolution, mod composition and strict versions.
+#include "oa/data/enhanced_mode.hpp"
+#include "oa/data/mod_profile/overrides.hpp"
+#include "oa/test/check.hpp"
+
+#include <limits>
+#include <span>
+#include <string>
+#include <string_view>
+
+namespace {
+
+namespace enhanced = oa::data::enhanced_mode;
+namespace profiles = oa::data::mod_profile;
+
+/// A chosen mod with its own unit capacity and unrelated gameplay rule.
+constexpr std::string_view mod_text =
+    "oamod: 1\n"
+    "id: enhanced-example\n"
+    "name: Chosen Mod\n"
+    "version: \"1\"\n"
+    "requires: {base: ta-3.1c, catalogue: 1}\n"
+    "author: {name: Open Annihilation}\n"
+    "packaging: {revision: 1, date: 2026-11-07, packager: Open Annihilation}\n"
+    "limits:\n"
+    "  units-per-player: {default: 1000, min: 20, max: 1500}\n"
+    "hacks:\n"
+    "  units.id-reuse-delay: 90\n";
+
+/// Views profile text as the bytes the resolver reads.
+std::span<const uint8_t> bytes(std::string_view text) {
+    return {reinterpret_cast<const uint8_t*>(text.data()), text.size()};
+}
+
+/// Checks that Off preserves an existing profile, including both hashes.
+void check_off_identity() {
+    const profiles::ResolveOptions options{};
+    for (const std::string& text : {profiles::base_game_profile_text(), std::string{mod_text}}) {
+        const auto normal = profiles::resolve_profile(bytes(text), "chosen", options);
+        const auto off =
+            enhanced::resolve_profile(bytes(text), "chosen", options, enhanced::off_version);
+        OA_CHECK(normal.resolution.has_value());
+        OA_CHECK(off.resolution.has_value());
+        if (!normal.resolution || !off.resolution)
+            continue;
+        OA_CHECK(off.resolution->canonical == normal.resolution->canonical);
+        OA_CHECK(off.resolution->profile.sim_hash == normal.resolution->profile.sim_hash);
+        OA_CHECK(off.resolution->profile.full_hash == normal.resolution->profile.full_hash);
+        OA_CHECK(enhanced::rules_version(off.resolution->profile.rules) == enhanced::off_version);
+    }
+}
+
+/// Checks that the preset preserves the mod and other host match choices.
+void check_enabled_composition() {
+    profiles::ResolveOptions options{};
+    options.match.push_back({"limits.units-per-player.default", "1100", "host", false});
+    const auto normal = profiles::resolve_profile(bytes(mod_text), "chosen", options);
+    const auto first =
+        enhanced::resolve_profile(bytes(mod_text), "chosen", options, enhanced::current_version);
+    const auto second =
+        enhanced::resolve_profile(bytes(mod_text), "chosen", options, enhanced::current_version);
+    OA_CHECK(normal.resolution.has_value());
+    OA_CHECK(first.resolution.has_value());
+    OA_CHECK(second.resolution.has_value());
+    if (!normal.resolution || !first.resolution || !second.resolution)
+        return;
+    const auto& profile = first.resolution->profile;
+    OA_CHECK(profile.id == normal.resolution->profile.id);
+    OA_CHECK(profile.name == "Chosen Mod");
+    OA_CHECK(profile.limits == normal.resolution->profile.limits);
+    OA_CHECK(profile.limits.units_per_player.default_limit == 1100);
+    OA_CHECK(
+        profile.rules.units.id_reuse_delay == normal.resolution->profile.rules.units.id_reuse_delay
+    );
+    OA_CHECK(enhanced::rules_version(profile.rules) == enhanced::current_version);
+    OA_CHECK(profile.sim_hash != normal.resolution->profile.sim_hash);
+    OA_CHECK(profile.sim_hash == second.resolution->profile.sim_hash);
+    OA_CHECK(first.resolution->canonical == second.resolution->canonical);
+    OA_CHECK(first.resolution->canonical.find("setup.enhanced-mode") != std::string::npos);
+}
+
+/// Checks strict version and opt-in validation at the profile boundary.
+void check_refusals() {
+    const profiles::ResolveOptions options{};
+    for (const uint32_t version :
+         {enhanced::current_version + 1, std::numeric_limits<uint32_t>::max()}) {
+        const auto result = enhanced::resolve_profile(bytes(mod_text), "chosen", options, version);
+        OA_CHECK(!result.resolution);
+        OA_CHECK(!result.errors.empty());
+    }
+    const std::string requires_enhanced = std::string{mod_text} + "  setup.enhanced-mode: true\n";
+    const auto off = enhanced::resolve_profile(
+        bytes(requires_enhanced), "chosen", options, enhanced::off_version
+    );
+    OA_CHECK(!off.resolution);
+    OA_CHECK(!off.errors.empty());
+    const auto on = enhanced::resolve_profile(
+        bytes(requires_enhanced), "chosen", options, enhanced::current_version
+    );
+    OA_CHECK(on.resolution.has_value());
+    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 2\n";
+    const auto bad_profile =
+        enhanced::resolve_profile(bytes(unsupported), "chosen", options, enhanced::current_version);
+    OA_CHECK(!bad_profile.resolution);
+    OA_CHECK(!bad_profile.errors.empty());
+}
+
+/// Checks that a developer override cannot silently disable the required preset.
+void check_required_version() {
+    profiles::ResolveOptions options{};
+    profiles::HackOverride off;
+    off.hack = "setup.enhanced-mode";
+    off.on = false;
+    options.overrides.push_back(off);
+    const auto result =
+        enhanced::resolve_profile(bytes(mod_text), "chosen", options, enhanced::current_version);
+    OA_CHECK(result.resolution.has_value());
+    if (result.resolution)
+        OA_CHECK(
+            enhanced::rules_version(result.resolution->profile.rules) == enhanced::current_version
+        );
+    OA_CHECK(options.match.empty());
+    OA_CHECK(options.overrides.size() == 1);
+    OA_CHECK(!options.overrides.front().on);
+}
+
+} // namespace
+
+int main() {
+    OA_CHECK(enhanced::supported_version(enhanced::off_version));
+    OA_CHECK(enhanced::supported_version(enhanced::current_version));
+    OA_CHECK(!enhanced::supported_version(enhanced::current_version + 1));
+    OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
+    check_off_identity();
+    check_enabled_composition();
+    check_refusals();
+    check_required_version();
+    return oa::test::check_exit_status();
+}
