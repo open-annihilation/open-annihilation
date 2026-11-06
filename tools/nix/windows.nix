@@ -32,15 +32,18 @@
 # @param pname the derivation's name, which says which Windows it is for
 # @param description the same, in words
 # @param fullPackage install the release package, not only the executables
-{ lib, stdenv, cmake, ninja, zlib, freetype, sdl3, src, textFonts, pageFonts, version
+{ lib, stdenv, cmake, ninja, python3, zlib, freetype, sdl3, src, textFonts, pageFonts, version
 , toolchain, definitions, pname, description, fullPackage ? false }:
 {
   game = stdenv.mkDerivation {
     inherit pname version src;
 
+    # Python builds coreprime.ccx (tools/boneyards/build_coreprime_ccx.py,
+    # the standard library only).
     nativeBuildInputs = [
       cmake
       ninja
+      python3
     ];
 
     # The cmake setup hook puts the host inputs' prefixes on CMAKE_PREFIX_PATH,

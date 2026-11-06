@@ -127,9 +127,12 @@ in
     pname = "open-annihilation";
     inherit version src;
 
+    # Python builds coreprime.ccx (tools/boneyards/build_coreprime_ccx.py,
+    # the standard library only).
     nativeBuildInputs = [
       pkgs.cmake
       pkgs.copyDesktopItems
+      pkgs.python3
     ];
 
     buildInputs = [
