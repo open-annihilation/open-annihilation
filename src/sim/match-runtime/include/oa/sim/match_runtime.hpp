@@ -1222,6 +1222,13 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         return state_.projectile_usage;
     }
 
+    /// Returns the original Enhanced Mode allocation, including defeated participants.
+    ///
+    /// @return player-slot mask fixed before the match starts; 0 in classic mode
+    uint16_t unit_player_mask() const noexcept {
+        return input_.rules.setup.enhanced_mode.enabled ? input_.unit_player_mask : 0;
+    }
+
     /// Runs the viewpoint player's contact scan: its own and radar-sharing
     /// units are seen (every unit for a watcher, and for a slotless viewer
     /// while slotless_full_radar holds), its active radar and sonar units stamp contacts, other

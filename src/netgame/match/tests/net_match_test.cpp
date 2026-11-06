@@ -516,10 +516,10 @@ void launch_helpers() {
     world->game.players[9].player_id = 0x200;
     world->player_info[0].options = OA_SETUP_OPTION_WATCHER;
     CHECK(match_assign_enhanced_unit_ranges(world));
-    CHECK(world->game.players[9].base_unit_id == 1);
-    CHECK(world->game.players[9].last_unit_id == enhanced_limit);
-    CHECK(world->game.players[3].base_unit_id == enhanced_limit + 1);
-    CHECK(world->game.players[3].last_unit_id == 2 * enhanced_limit);
+    CHECK(world->game.players[3].base_unit_id == 1);
+    CHECK(world->game.players[3].last_unit_id == enhanced_limit);
+    CHECK(world->game.players[9].base_unit_id == enhanced_limit + 1);
+    CHECK(world->game.players[9].last_unit_id == 2 * enhanced_limit);
     for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
         const auto& player = world->game.players[slot];
         uint32_t count = 0;
@@ -535,8 +535,8 @@ void launch_helpers() {
             CHECK(first[offset].owner_index == slot);
         }
     }
-    // The same participants in a different local slot order get the same
-    // physical ids by player id, which wire messages share.
+    // Player ids do not reorder Enhanced ranges: saved allocation masks
+    // reconstruct the same physical ids from original player slots.
     std::swap(world->game.players[3].player_id, world->game.players[9].player_id);
     CHECK(match_assign_enhanced_unit_ranges(world));
     CHECK(world->game.players[3].base_unit_id == 1);

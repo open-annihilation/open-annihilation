@@ -221,9 +221,6 @@ bool match_assign_enhanced_unit_ranges(World* world) noexcept {
     if (participants == 0 || per_player == 0 || total > wire_unit_slot_capacity ||
         total != world->unit_slot_count)
         return false;
-    std::stable_sort(order, order + participants, [world](uint8_t a, uint8_t b) {
-        return unit_range_before(world->game.players[a], world->game.players[b]);
-    });
     for (auto& player : world->game.players) {
         player.first_unit = player.last_unit = 0;
         player.base_unit_id = player.last_unit_id = 0;
