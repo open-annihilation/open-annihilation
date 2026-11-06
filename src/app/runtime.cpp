@@ -604,6 +604,17 @@ int Runtime::run() {
     if (extension_run(RunPhase::start))
         return exit_code;
     if (options_.headless_check) {
+        if (!options_.battle_benchmark_report.empty()) {
+            run_battle_benchmark();
+            return 0;
+        }
+        if constexpr (self_checks_built) {
+            if (options_.check_enhanced_mode) {
+                check_enhanced_mode();
+                flush_preferences();
+                return 0;
+            }
+        }
         // The director's runs come before the extension's headless runs,
         // which never see them; an extension takes part only through
         // open_recording.

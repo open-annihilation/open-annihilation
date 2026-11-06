@@ -520,6 +520,10 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // map selection, nor the last game's end screen.
     release_endgame();
     teardown_match();
+    if (engine_settings_ && engine_settings_->restored_enhanced_version) {
+        engine_settings_->restored_enhanced_started = true;
+        engine_settings_->enhanced_mode_holds.clear();
+    }
     // A pack map's files are mounted, and checked, before the match reads
     // anything: the weapons, then the features its terrain names. The map
     // chosen in the setup is mounted already; a map that does not fit is not

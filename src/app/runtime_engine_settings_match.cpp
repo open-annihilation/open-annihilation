@@ -67,7 +67,14 @@ settings::Locks Runtime::engine_settings_locks() const {
         oa::app::command_line::launch_language(options_.launch) != nullptr;
     state.native_density_windows = options_.native_density_windows;
     state.native_density_from_command_line = options_.native_density;
-    return settings::settings_locks(state);
+    auto locks = settings::settings_locks(state);
+    if (!state.in_game) {
+        if ((extension & extension_state::multiplayer) != 0)
+            locks.enhanced_mode = settings::Lock::set_by_host;
+        else if (options_.enhanced_mode.has_value())
+            locks.enhanced_mode = settings::Lock::command_line;
+    }
+    return locks;
 }
 
 } // namespace oa::app

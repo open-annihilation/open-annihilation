@@ -3,6 +3,7 @@
 
 // Loading screen and entering/leaving a match.
 #include "oa/app/runtime.hpp"
+#include "engine_settings_state.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/ui/decoded.hpp"
 #include "oa/app/asset_files.hpp"
@@ -318,6 +319,8 @@ void Runtime::teardown_match() {
     match_tick_blocked_ = false;
     // The rules the player's overrides changed while it ran apply from here,
     // so that the next match is built with them.
+    if (engine_settings_ && engine_settings_->restored_enhanced_started)
+        release_enhanced_rules_once();
     play_latest_profile();
     // A match that ended deletes the crash record. A fatal unwind never
     // reaches here, so the file stays for the next start.

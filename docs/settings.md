@@ -354,6 +354,12 @@ Each of these takes effect at once.
   setup's key codes store, so a code changes the slider and the slider
   changes what a code would set. A count you already stored stays, including
   one outside 2 to 10, until you move the slider.
+- **Enhanced Mode**, Off or On, Off by default. It selects the versioned
+  enhanced engine preset for new games and is locked during a match.
+  Saved games and recordings keep their own mode. Graphics settings remain
+  independent. The first preset establishes the mode's identity; larger
+  capacities and new pathfinding are not included yet. See
+  [Enhanced Mode](enhanced-mode.md).
 - **Weapon types**, set by the mod. It counts how many weapon types the
   mod allows. The base game allows 256. In a match it shows how many of
   that limit the match loaded, as "312 of 4096". Every player in a game
@@ -363,8 +369,8 @@ Each of these takes effect at once.
   loaded, as "7 of 10". Every player in a game has the same count. The
   row never takes input.
 
-The three sliders are locked during a game, and in a multiplayer game or a
-replay they show "Set by the host". Weapon types and Sides never take a
+The three sliders and Enhanced Mode are locked during a game. In a
+multiplayer game or a replay they show "Set by the host". Weapon types and Sides never take a
 focus, a key or a click. Resting on either says
 "Set by the mod. Every player in a game has the same."
 

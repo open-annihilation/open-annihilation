@@ -7,6 +7,8 @@
 // the run already plays. The match's release puts the player's profile back.
 
 #include "oa/app/runtime.hpp"
+#include "oa/app/enhanced_mode.hpp"
+#include "oa/data/enhanced_mode.hpp"
 
 #include "engine_settings_state.hpp"
 #include "mutator_state.hpp"
@@ -115,7 +117,8 @@ void record_note(mutators::PipelineResult& result, const mutators::HackNote& not
 profiles::ResolveResult resolve_with(
     const ProfileSource& source,
     const std::vector<profiles::HackOverride>& overrides,
-    std::span<const mutators::MutatorHack> hacks
+    std::span<const mutators::MutatorHack> hacks,
+    uint32_t enhanced_version
 ) {
     profiles::ResolveOptions options = source.options;
     options.overrides = overrides;
@@ -128,7 +131,9 @@ profiles::ResolveResult resolve_with(
         option.turn_on = true;
         options.match.push_back(std::move(option));
     }
-    return profiles::resolve_profile(source.text, source.name, options);
+    return oa::data::enhanced_mode::resolve_profile(
+        source.text, source.name, options, enhanced_version
+    );
 }
 
 /// The faults in a planned hack list, or none when the profile accepts them.
@@ -136,7 +141,8 @@ std::vector<mutators::HackCheckError> check_planned(
     bool can_change,
     const ProfileSource* source,
     const std::vector<profiles::HackOverride>& overrides,
-    std::span<const mutators::MutatorHack> hacks
+    std::span<const mutators::MutatorHack> hacks,
+    uint32_t enhanced_version
 ) {
     if (hacks.empty())
         return {};
@@ -163,7 +169,8 @@ std::vector<mutators::HackCheckError> check_planned(
         }
         return faults;
     }
-    const profiles::ResolveResult resolved = resolve_with(*source, overrides, hacks);
+    const profiles::ResolveResult resolved =
+        resolve_with(*source, overrides, hacks, enhanced_version);
     if (resolved.resolution.has_value())
         return {};
     return mutators::hack_faults(resolved.errors, hacks);
@@ -193,10 +200,14 @@ void Runtime::bind_planned_hack_check(mutators::PipelineInput& input) const {
     std::vector<profiles::HackOverride> overrides;
     if (can_change && settings->current.developer_mode)
         overrides = settings->current.hack_overrides;
-    input.check_hacks =
-        [can_change, source, overrides](std::span<const mutators::MutatorHack> hacks) {
-            return check_planned(can_change, source ? &*source : nullptr, overrides, hacks);
-        };
+    const uint32_t enhanced_version = enhanced_mode_version(*this);
+    input.check_hacks = [can_change, source, overrides, enhanced_version](
+                            std::span<const mutators::MutatorHack> hacks
+                        ) {
+        return check_planned(
+            can_change, source ? &*source : nullptr, overrides, hacks, enhanced_version
+        );
+    };
 }
 
 std::optional<uint16_t> Runtime::mutator_units_per_player() const noexcept {
@@ -230,7 +241,7 @@ void Runtime::play_mutator_hacks() {
         can_change && settings_now->current.developer_mode ? settings_now->current.hack_overrides
                                                            : std::vector<profiles::HackOverride>{};
     const std::vector<mutators::HackCheckError> faults =
-        check_planned(can_change, source, overrides, hacks);
+        check_planned(can_change, source, overrides, hacks, enhanced_mode_version(*this));
     if (!faults.empty()) {
         for (const mutators::HackCheckError& fault : faults) {
             for (mutators::MutatorResult& one : result.mutators) {
@@ -257,7 +268,7 @@ void Runtime::play_mutator_hacks() {
             profile_on = entries_on(*plain.resolution);
     }
     const profiles::ResolveResult resolved =
-        resolve_with(*settings.profile_source, overrides, hacks);
+        resolve_with(*settings.profile_source, overrides, hacks, enhanced_mode_version(*this));
     if (!resolved.resolution.has_value()) {
         const std::vector<mutators::HackCheckError> again =
             mutators::hack_faults(resolved.errors, hacks);

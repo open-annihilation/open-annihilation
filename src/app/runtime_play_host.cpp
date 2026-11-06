@@ -19,6 +19,8 @@
 #include "oa/app/play_host.hpp"
 
 #include "oa/app/runtime.hpp"
+#include "oa/app/enhanced_mode.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/core/unit.h"
 #include "oa/core/unit_def.h"
 #include "oa/data/mission_types.hpp"
@@ -353,6 +355,16 @@ PlayStateRequest state_view(const HeldCommand& command) {
 // The runtime's side of the play host: the one friend through which its
 // entries change the match, by the paths the keys use.
 struct PlayHostAccess {
+    /// Holds recorded mode rules through the application's existing access boundary.
+    static bool hold_mode(Runtime& runtime, uint32_t version) {
+        return runtime.hold_enhanced_rules_once(version);
+    }
+
+    /// Releases recorded mode rules through the application's existing access boundary.
+    static void release_mode(Runtime& runtime) noexcept {
+        runtime.release_enhanced_rules_once(true);
+    }
+
     /// Returns the runtime a play host's context names.
     ///
     /// @param context PlayHost::context
@@ -1485,6 +1497,19 @@ PlayHost play_host(Runtime& runtime) {
     PlayHost host = kPlayHostEntries;
     host.context = &runtime;
     return host;
+}
+
+uint32_t enhanced_mode_version(const Runtime& runtime) noexcept {
+    const auto* profile = runtime.mod_profile();
+    return profile != nullptr ? oa::data::enhanced_mode::rules_version(profile->rules) : 0;
+}
+
+bool hold_enhanced_mode_once(Runtime& runtime, uint32_t version) {
+    return PlayHostAccess::hold_mode(runtime, version);
+}
+
+void cancel_enhanced_mode_once(Runtime& runtime) noexcept {
+    PlayHostAccess::release_mode(runtime);
 }
 
 } // namespace oa::app

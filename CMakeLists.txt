@@ -213,6 +213,8 @@ add_subdirectory(src/data/neural)
 add_subdirectory(src/formats/json)
 add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
+add_subdirectory(src/data/enhanced-mode)
+add_subdirectory(src/app/battle-benchmark)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
 add_subdirectory(src/data/key-library)
@@ -1437,6 +1439,7 @@ endif()
 # through its screens and orders and reports a verdict, for the native
 # checks. OA_SELF_CHECKS=OFF leaves them out, as the release packages do.
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
+  src/app/runtime_enhanced_mode_check.cpp
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
   src/app/runtime_skirmish_sides_check.cpp
@@ -1531,6 +1534,8 @@ set_property(SOURCE src/app/runtime_director.cpp src/app/runtime_engine_settings
   src/app/runtime_brain_facts.cpp APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-game-directory oa-app-mod-profile
+  oa-data-enhanced-mode
+  oa-app-battle-benchmark
   oa-app-user-folder
   oa-app-view-rules
   oa-app-window-icon
@@ -4451,6 +4456,15 @@ endforeach()
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software;MallocScribble=1")
       find_package(Python3 COMPONENTS Interpreter QUIET)
       if(Python3_Interpreter_FOUND)
+        add_test(NAME native-enhanced-mode COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_enhanced_mode.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}")
+        set_tests_properties(native-enhanced-mode PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        add_test(NAME native-battle-benchmark COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_battle_benchmark.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-battle-benchmark PROPERTIES TIMEOUT 1200)
         add_test(NAME native-saveload COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_saveload.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"

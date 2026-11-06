@@ -1423,6 +1423,17 @@ class Runtime final : public menu::Host,
 
   private:
 
+    /// Holds recorded rules for the next loaded match, keeping the preference separate.
+    ///
+    /// @param version the recorded rules version, or zero for released rules
+    /// @return false for unsupported versions or unresolved rules
+    [[nodiscard]] bool hold_enhanced_rules_once(uint32_t version);
+
+    /// Restores the menu's mode or the hold replaced by a failed load.
+    ///
+    /// @param restore_previous restores a previous held match after a failed load
+    void release_enhanced_rules_once(bool restore_previous = false) noexcept;
+
     /// Runs one pass of the idle loop.
     ///
     /// The frame's time (take_frame_time), the overlay and screen packages, music mood and
@@ -2095,6 +2106,12 @@ class Runtime final : public menu::Host,
     ///
     /// @param frames frames per scene
     void run_benchmark(std::size_t frames);
+
+    /// Runs a deterministic battle and writes its measured simulation tick times.
+    void run_battle_benchmark();
+
+    /// Checks mode resolution, match lifetime and independent graphics choices.
+    void check_enhanced_mode();
 
     /// Starts a two-player skirmish from the main menu through SINGLE and SKIRMISH.
     ///

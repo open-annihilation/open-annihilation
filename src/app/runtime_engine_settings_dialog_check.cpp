@@ -529,6 +529,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Look";
     case settings::Setting::update_channel:
         return "Update channel";
+    case settings::Setting::enhanced_mode:
+        return "Enhanced Mode";
     default:
         return {};
     }

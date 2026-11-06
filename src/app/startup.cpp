@@ -2037,7 +2037,7 @@ void write_startup_line(std::string_view text) {
         for (const auto& [name, member] : kFlagOptions)
             if (std::string_view(name).starts_with("--check-") && result.*member)
                 throw std::runtime_error(
-                    std::string("--battle-benchmark cannot be used with ") + name
+                    std::string("--battle-benchmark cannot be used with ") + std::string(name)
                 );
         const std::pair<bool, const char*> refused[] = {
             {result.benchmark_frames.has_value(), "--benchmark"},

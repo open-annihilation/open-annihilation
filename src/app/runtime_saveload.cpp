@@ -9,6 +9,7 @@
 #include "oa/data/defs/layout.hpp"
 #include "oa/core/map_plot.h"
 #include "oa/app/runtime.hpp"
+#include "oa/app/enhanced_mode.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/mod_profile_loader.hpp"
@@ -1395,7 +1396,7 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
 
 void Runtime::save_mod_profile(persist::Bank* bank) const {
     namespace profiles = oa::data::mod_profile;
-    if (!persist::save_write_enhanced_mode(bank, enhanced_mode_version()))
+    if (!persist::save_write_enhanced_mode(bank, enhanced_mode_version(*this)))
         throw std::runtime_error("the Enhanced Mode rules version cannot be saved");
     const auto* profile = mod_profile();
     if (profile == nullptr)
@@ -1580,7 +1581,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
         status_ = "Invalid savegame file: Enhanced Mode rules cannot be read";
         return false;
     }
-    if (!hold_enhanced_mode_once(saved_enhanced_version)) {
+    if (!hold_enhanced_rules_once(saved_enhanced_version)) {
         status_ = "Savegame Enhanced Mode rules version " + std::to_string(saved_enhanced_version) +
                   " cannot be used";
         return false;
@@ -1596,7 +1597,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
 
         ~HeldEnhancedMode() {
             if (!keep || std::uncaught_exceptions() > exceptions)
-                runtime.cancel_enhanced_mode_once();
+                runtime.release_enhanced_rules_once(true);
         }
     } held_enhanced_mode{*this};
 

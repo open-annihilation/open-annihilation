@@ -37,6 +37,7 @@
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
 #include "oa/ui/key_editor/text.hpp"
 #include "render_host.hpp"
@@ -1097,6 +1098,8 @@ void Runtime::load_engine_settings() {
     const bool switch_alt = (preferences_.graphics_flags & init::preference_flags::switch_alt) != 0;
     auto read =
         settings::read_settings(preference_values_, EngineSettingsState::inputs(*this), switch_alt);
+    if (options_.enhanced_mode)
+        read.enhanced_mode = *options_.enhanced_mode;
     state.dropped_mod_folder.clear();
     if (!options_.mod_dir.empty() || options_.base_game) {
         // --mod-dir and --base-game set the Mod setting aside for the run,
@@ -1408,7 +1411,8 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // HUD scaling lays a game out again at once.
     else if (chosen.hud_scaling != before.hud_scaling && screen_ == Screen::match)
         apply_output_mode();
-    if (chosen.developer_mode != before.developer_mode ||
+    if (chosen.enhanced_mode != before.enhanced_mode ||
+        chosen.developer_mode != before.developer_mode ||
         chosen.hack_overrides != before.hack_overrides)
         apply_hack_overrides();
     // The language shows at once, on the screen under the settings too.
@@ -1425,6 +1429,48 @@ const oa::data::mod_profile::ModProfile* Runtime::mod_profile() const noexcept {
     if (engine_settings_ && engine_settings_->layered)
         return engine_settings_->plays_base_rules ? nullptr : engine_settings_->played.get();
     return options_.mod_profile.get();
+}
+
+bool Runtime::hold_enhanced_rules_once(uint32_t version) {
+    if (!oa::data::enhanced_mode::supported_version(version))
+        return false;
+    auto& state = engine_settings_state();
+    const auto before = state.restored_enhanced_version;
+    const bool started = state.restored_enhanced_started;
+    state.enhanced_mode_holds.push_back({before, started});
+    state.restored_enhanced_version = version;
+    state.restored_enhanced_started = false;
+    try {
+        apply_hack_overrides();
+        return true;
+    } catch (const std::exception& error) {
+        state.restored_enhanced_version = before;
+        state.restored_enhanced_started = started;
+        state.enhanced_mode_holds.pop_back();
+        std::cerr << "open-annihilation: Enhanced Mode: " << error.what() << '\n';
+        return false;
+    }
+}
+
+void Runtime::release_enhanced_rules_once(bool restore_previous) noexcept {
+    if (!engine_settings_ || !engine_settings_->restored_enhanced_version)
+        return;
+    auto& state = *engine_settings_;
+    if (restore_previous && !state.enhanced_mode_holds.empty()) {
+        const auto previous = state.enhanced_mode_holds.back();
+        state.enhanced_mode_holds.pop_back();
+        state.restored_enhanced_version = previous.version;
+        state.restored_enhanced_started = previous.started;
+    } else {
+        state.restored_enhanced_version.reset();
+        state.restored_enhanced_started = false;
+        state.enhanced_mode_holds.clear();
+    }
+    try {
+        apply_hack_overrides();
+    } catch (const std::exception& error) {
+        std::cerr << "open-annihilation: Enhanced Mode: " << error.what() << '\n';
+    }
 }
 
 const oa::data::mod_profile::ModProfile* Runtime::next_match_profile() const noexcept {
@@ -1534,15 +1580,29 @@ void Runtime::apply_hack_overrides() {
     const auto& settings = state.current;
     std::shared_ptr<const profiles::ModProfile> latest = options_.mod_profile;
     std::vector<std::string> refused;
-    if (settings.developer_mode && !settings.hack_overrides.empty()) {
+    const uint32_t enhanced_version = state.restored_enhanced_version.value_or(
+        settings.enhanced_mode ? oa::data::enhanced_mode::current_version : 0
+    );
+    if (enhanced_version == 0 && options_.mod_profile &&
+        oa::data::enhanced_mode::rules_version(options_.mod_profile->rules) != 0)
+        throw std::runtime_error("the profile's enhanced rules require Enhanced Mode");
+    if (enhanced_version != 0 || (settings.developer_mode && !settings.hack_overrides.empty())) {
         if (!state.profile_source) {
+            if (enhanced_version != 0)
+                throw std::runtime_error("Enhanced Mode cannot resolve the game's rules");
             refused.emplace_back("the profile cannot be read again; no override applies");
         } else {
             auto options = state.profile_source->options;
-            options.overrides = settings.hack_overrides;
-            auto result = profiles::resolve_profile(
-                state.profile_source->text, state.profile_source->name, options
+            if (settings.developer_mode)
+                options.overrides = settings.hack_overrides;
+            auto result = oa::data::enhanced_mode::resolve_profile(
+                state.profile_source->text, state.profile_source->name, options, enhanced_version
             );
+            if (!result.resolution && (enhanced_version != 0 || result.errors.size() > 0))
+                throw std::runtime_error(
+                    result.errors.empty() ? "Enhanced Mode cannot resolve the game's rules"
+                                          : profiles::format_diagnostic(result.errors.front())
+                );
             // The profile's own warnings were reported as the game started;
             // those of the overrides are reported here.
             constexpr std::string_view left_out = "the override is left out";
@@ -1708,6 +1768,10 @@ std::optional<std::string> Runtime::save_engine_settings(
         stored.mod_folder = std::move(state.dropped_mod_folder);
         state.dropped_mod_folder.clear();
     }
+    const std::string mode_key(settings::key::enhanced_mode);
+    const auto mode = preference_values_.find(mode_key);
+    const std::optional<std::string> stored_mode =
+        mode != preference_values_.end() ? std::optional<std::string>{mode->second} : std::nullopt;
     settings::write_settings(
         preference_values_,
         stored,
@@ -1716,6 +1780,14 @@ std::optional<std::string> Runtime::save_engine_settings(
         restored,
         engine_settings_state().profile_id
     );
+    // A command-line mode lasts for this run, including when Restore
+    // defaults writes the other settings back to the preferences file.
+    if (options_.enhanced_mode.has_value()) {
+        if (stored_mode)
+            preference_values_[mode_key] = *stored_mode;
+        else
+            preference_values_.erase(mode_key);
+    }
     // SwitchAlt keeps 3.1c's own key, written only when it changed.
     if (chosen.switch_alt != opened.switch_alt || restored)
         write_number(init::general_section, "SwitchAlt", chosen.switch_alt ? 1U : 0U);
@@ -2020,6 +2092,8 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         game_files,
         pad_used()
     );
+    if (match_)
+        dialog.match_enhanced_mode = oa::data::enhanced_mode::rules_version(match_->rules()) != 0;
     // Screen size offers Desktop and the display's own sizes. In a window it
     // opens at the window's own size, shown as Custom where the display
     // offers no such size; in full screen, and without a window, at the

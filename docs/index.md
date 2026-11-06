@@ -4,6 +4,10 @@ Every document in the repository, by what you want to do.
 
 ## Installing and playing
 
+- [enhanced-mode.md](enhanced-mode.md): the optional versioned engine rules,
+  independent graphics choices, saved games, multiplayer compatibility and
+  repeatable simulation benchmarks.
+
 - [README.md](../README.md): what Open Annihilation is, multiplayer and
   playing the free demo.
 - Installation guides, step by step: downloading the release, getting the

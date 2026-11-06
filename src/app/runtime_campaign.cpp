@@ -5,6 +5,7 @@
 // NEWGAME lists and the MSNBRIEF panel to the frontend runtime.
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/runtime.hpp"
+#include "engine_settings_state.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_catalog.hpp"
 #include "oa/base/text/line_break.hpp"
@@ -2071,6 +2072,10 @@ void Runtime::start_campaign_mission() {
             hand_setup_brain_seats(oa::data::brain_library::Setup::campaign);
             armed_brains = true;
         }
+        // A loaded campaign keeps its recorded rules on a restart and the
+        // next mission. Bootstrap's teardown belongs to the preceding world.
+        if (engine_settings_ && engine_settings_->restored_enhanced_version)
+            engine_settings_->restored_enhanced_started = false;
         bootstrap_match(
             {.units_per_player = static_cast<uint16_t>(state.file.units_per_player),
              .place_commanders = false}

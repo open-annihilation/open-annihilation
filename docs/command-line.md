@@ -420,6 +420,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-paused-save` | Saves a paused skirmish, loads it and checks it runs. |
 | `--check-saved-brains` | Saves a skirmish a brain plays, loads it with that brain's state, and asks to load with the built-in player when the brain is missing. |
 | `--check-simulation-hash` | Checks the simulation hash with no mod, with a mod and after a Developer Mode override. |
+| `--check-enhanced-mode` | Checks the versioned preset, independent graphics choices, fixed match rules and save/replay restoration. Requires an isolated `--preferences-file`. |
 | `--check-zoom-memory` | Zooms a large battlefield out and back with a small model budget. |
 | `--check-unit-language TAG` | Checks units' names and descriptions show in the language `TAG` names. |
 | `--check-language-switch` | Changes the language over the main menu and over a skirmish, from Simplified Chinese, or the installed pack's language `--check-language TAG` names, to English and German and back. |

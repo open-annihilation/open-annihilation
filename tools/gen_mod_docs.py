@@ -171,6 +171,8 @@ SENTENCES = {
         "Jammers of the viewer and the viewer's allies no longer jam the viewer's radar.",
     "setup.team-start-positions":
         "Start positions are given out by team, with team-mates next to each other.",
+    "setup.enhanced-mode":
+        "Records the Enhanced Mode rules version for a match; graphics choices remain independent.",
     "setup.map-scripted-units":
         "Maps may place units for each player at the start and at set times, with a neutral computer player "
         "for unowned ones.",

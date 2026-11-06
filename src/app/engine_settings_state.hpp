@@ -169,6 +169,18 @@ struct Runtime::EngineSettingsState {
     /// The plain 3.1c baseline's sim hash: a game without a mod whose
     /// overrides change only display rules plays by no profile.
     oa::base::sha256::Digest base_sim_hash{};
+    /// The mode recorded by a save or replay, held apart from the menu preference.
+    std::optional<uint32_t> restored_enhanced_version;
+    /// The held mode has reached its match's bootstrap, so teardown restores the preference.
+    bool restored_enhanced_started{};
+
+    /// A load attempt can temporarily replace the mode held by an already loaded match.
+    struct EnhancedModeHold {
+        std::optional<uint32_t> version;
+        bool started{};
+    };
+
+    std::vector<EnhancedModeHold> enhanced_mode_holds;
     /// The overrides the last resolution left out, one line each, as reported.
     std::vector<std::string> refused;
 

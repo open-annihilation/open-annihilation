@@ -581,6 +581,7 @@ and the hacks within each follow their titles alphabetically. Scope is
 | --- | --- | --- | --- | --- |
 | [AI Player Names](standard-hacks/setup.ai-player-name-format.md) | `setup.ai-player-name-format` | Computer player names include the hosting player's name and slot. | sim | implemented |
 | [Commander Warp](standard-hacks/setup.commander-warp.md) | `setup.commander-warp` | Adds an opt-in start in which the game waits while each player places their commander. | sim | implemented |
+| [Enhanced Mode](standard-hacks/setup.enhanced-mode.md) | `setup.enhanced-mode` | Records the Enhanced Mode rules version for a match; graphics choices remain independent. | sim | implemented |
 | [Map Scripted Units](standard-hacks/setup.map-scripted-units.md) | `setup.map-scripted-units` | Maps may place units for each player at the start and at set times, with a neutral computer player for unowned ones. | sim | implemented |
 | [Prebuilt Base](standard-hacks/setup.recorder-prebuilt-base.md) | `setup.recorder-prebuilt-base` | Adds opt-in chat commands that build a prebuilt base for each player at the start. | sim | implemented |
 | [Several Local AI Players](standard-hacks/setup.multiple-local-ai.md) | `setup.multiple-local-ai` | One machine may add several computer players to a multiplayer game. | sim | implemented |
