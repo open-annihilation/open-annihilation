@@ -8,6 +8,7 @@ add_library(oa-ui-frontend-multiplayer
   src/battleroom.cpp
   src/room_mutators.cpp
   src/room_limits.cpp
+  src/room_enhanced.cpp
   src/team_rules.cpp
   src/unit_sync.cpp
   src/restrict.cpp
@@ -65,6 +66,12 @@ if(BUILD_TESTING)
     oa-ui-frontend-multiplayer oa-netgame oa-data-languages)
   add_test(NAME ui-multiplayer-room-limits COMMAND oa-ui-frontend-multiplayer-room-limits-test)
   set_tests_properties(ui-multiplayer-room-limits PROPERTIES TIMEOUT 30)
+  # Every seated machine agrees on Enhanced Mode and its simulation rules before START.
+  add_executable(oa-ui-frontend-multiplayer-room-enhanced-test tests/room_enhanced_test.cpp)
+  target_link_libraries(oa-ui-frontend-multiplayer-room-enhanced-test PRIVATE
+    oa-ui-frontend-multiplayer oa-netgame)
+  add_test(NAME ui-multiplayer-room-enhanced COMMAND oa-ui-frontend-multiplayer-room-enhanced-test)
+  set_tests_properties(ui-multiplayer-room-enhanced PROPERTIES TIMEOUT 30)
   # GET MAP: every state and line over hand-made records, packs and offers;
   # with --data, the battle room's side over the installed GUI files: what a
   # joiner reads of the host's map, the host's pack through

@@ -4,6 +4,7 @@
 // Battleroom (LOUNGE2.GUI): slot rules, rows, options, start checks.
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 #include "oa/ui/frontend_multiplayer/room_limits.hpp"
+#include "oa/ui/frontend_multiplayer/room_enhanced.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include "oa/base/game_loop.hpp"
@@ -3292,7 +3293,7 @@ void lobby_enter_battleroom(Lobby& lobby, Panel& panel) noexcept {
         "START",
         !(host && lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
           lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
-          lobby_sides_allow_start(lobby) && synced)
+          lobby_enhanced_allow_start(lobby) && lobby_sides_allow_start(lobby) && synced)
     );
     panel_set_grayed(panel, "RESTRICTIONS", false);
     panel_set_text(panel, "METALTEXT", "0");
@@ -3776,10 +3777,13 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
         const bool mutators_allow = lobby_mutators_allow_start(lobby);
         const bool limits_allow = lobby_limits_allow_start(lobby);
         const bool sides_allow = lobby_sides_allow_start(lobby);
+        const bool enhanced_allow = lobby_enhanced_allow_start(lobby);
         if (!lobby_content_allows_start(lobby) || !mutators_allow || !limits_allow ||
-            !sides_allow) {
+            !sides_allow || !enhanced_allow) {
             if (!mutators_allow)
                 lobby_note_refused_start(lobby_mutators_block(lobby));
+            if (!enhanced_allow)
+                lobby_note_enhanced_refused_start(lobby);
             panel.selected = kNoControl;
             return action;
         }
@@ -3969,7 +3973,7 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
                 const bool ready =
                     lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
                     lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
-                    lobby_sides_allow_start(lobby);
+                    lobby_enhanced_allow_start(lobby) && lobby_sides_allow_start(lobby);
                 const auto tick = now(lobby);
                 panel_set_grayed(panel, "SYNCHING", true);
                 if (lobby.start_frame > 0 && lobby_clock_passed(tick, lobby.start_frame_tick)) {
