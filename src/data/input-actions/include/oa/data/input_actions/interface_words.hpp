@@ -112,7 +112,7 @@ inline constexpr std::string_view interface_words[] = {
     "Cloak on or off",
     "Close megamap",
     "Closes the line",
-    "Closes the megamap and centres on the pointer",
+    "Closes the megamap and zooms in at the pointer",
     "Closes the menu, or answers its cancel",
     "Closes the screen on top",
     "Command",

@@ -47,7 +47,10 @@ hacks:
 
 Tab opens and closes the megamap, playing the interface's open and close
 sounds. Rolling the wheel toward the player opens it; rolling it away closes
-it and centres the battlefield view on the map point under the pointer.
+it and zooms the battlefield in at the pointer: the map point under the
+pointer on the megamap stays under it on the battlefield, unless the view's
+limits at the map's edges hold the view back, as they hold any jump. Off
+the map's picture the view stays where it was.
 
 #### With Mouse wheel zoom on
 
@@ -235,6 +238,8 @@ match hash and every machine's simulation stay as they are.
   rather than a flat mark, while the reclaimable and destructible ones leave
   it as it is; moving the main view leaves the megamap as it was, with no
   rectangle for the view; and the bars beside the map are the dark grey.
+  It rolls the wheel away over a point of the megamap and checks that the
+  battlefield then shows that map point under the pointer.
   Then it makes the same clicks on the battlefield and on the megamap in both
   interface types and checks that each leaves the same selection, armed
   command and orders: moves, an attack, a guard, selecting, deselecting,
@@ -310,7 +315,7 @@ hacks:
 | --- | --- | --- |
 | `megamap.toggle` | `Tab` | The megamap on or off |
 | `megamap.open-wheel` | `WheelDown` | Opens the megamap |
-| `megamap.close-wheel` | `WheelUp` | Closes the megamap and centres on the pointer |
+| `megamap.close-wheel` | `WheelUp` | Closes the megamap and zooms in at the pointer |
 | `megamap.jump` | `—` | Jumps the view to a point of the megamap |
 <!-- END GENERATED: keys -->
 

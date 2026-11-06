@@ -12,6 +12,7 @@
 
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/present/world_renderer.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/sim/selection/shortcuts.hpp"
 #include "oa/ui/hud/megamap.hpp"
@@ -453,14 +454,23 @@ bool Runtime::megamap_wheel(float amount, float x, float y) {
     }
     if (!megamap_open_)
         return false;
-    // Rolled away: back to the battlefield, centred where the pointer was.
+    // Rolled away: back to the battlefield, the map point under the pointer
+    // kept under it, as zooming in about the pointer keeps it, the view held
+    // within its limits as any jump is.
     const auto point = hud::megamap_map_point(
         megamap_.layout,
         static_cast<int32_t>(x) - match_layout_.left,
         static_cast<int32_t>(y) - match_layout_.top
     );
     set_megamap_open(false);
-    if (point)
+    // The map pixel the battlefield shows under the pointer from a camera at
+    // the map's corner, which the camera moves by.
+    const auto under = oa::present::world_renderer::screen_to_map_pixel(
+        live_viewport(0, 0), {static_cast<int32_t>(x), static_cast<int32_t>(y)}
+    );
+    if (point && under)
+        set_camera_position((*point)[0] - under->x, (*point)[1] - under->y, 0);
+    else if (point)
         set_camera_position(
             (*point)[0] - visible_map_width() / 2, (*point)[1] - visible_map_height() / 2, 0
         );

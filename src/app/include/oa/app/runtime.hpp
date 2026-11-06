@@ -14174,7 +14174,9 @@ class Runtime final : public menu::Host,
     /// press on open ground moves the selection and one on an own unit guards
     /// it, an armed ATTACK is given by a left click, and an armed MOVE given
     /// on an own unit guards it. Before the clicks it checks the megamap's picture
-    /// (check_megamap_picture). Prints a line and checks nothing with
+    /// (check_megamap_picture), and that the wheel rolled away over a point of
+    /// the megamap closes it with that map point under the pointer on the
+    /// battlefield. Prints a line and checks nothing with
     /// ui.megamap off. With --snapshot, writes each surface's frame just
     /// before and just after each click beside the snapshot. Throws
     /// std::runtime_error on a failure.
@@ -14965,8 +14967,10 @@ class Runtime final : public menu::Host,
     bool take_megamap_toggle(const SDL_KeyboardEvent& key);
 
     /// Takes the wheel for ui.megamap: rolled toward the player it opens the
-    /// megamap; rolled away it closes it, the camera centred where the
-    /// pointer was.
+    /// megamap; rolled away it closes it, the battlefield's view placed so
+    /// that the map point under the pointer stays under it, held within the
+    /// view's limits (set_camera_position). Off the map's picture the view
+    /// stays where it was.
     ///
     /// @param amount the wheel's roll, negative toward the player
     /// @param x pointer column on the canvas
