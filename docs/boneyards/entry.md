@@ -168,11 +168,14 @@ Boneyards.
    as a 1998 Boneyards install does, holds the bytes every package of the
    expansion carries: nothing is fetched then, and no catalogue is asked.
 
-   A first install is put in use in the same run: its archive is mounted,
-   the expansion is turned on, and the Boneyards' pages, images, help and
-   sounds are read from the new folder before the Boneyards open. When it
-   cannot be put in use where the player is, the game starts again once
-   and enters on its own; the Boneyards never open without their art.
+   A package the entry installs, a first install or an update, is put in
+   use by starting the game again once. The Boneyards' screens are built
+   with the main menu, before the package was there, so the game turns the
+   expansion on and starts again, and the new run mounts the package from
+   its start and enters on its own. The Boneyards never open without their
+   art. A run that was itself started again to enter, and still finds a
+   package to install, stops with "The Boneyards is installed. Start Open
+   Annihilation again to enter the Boneyards." instead of starting again.
 
    An install over a copy already there replaces its files where they are:
    a file that already holds the package's bytes is left alone, the

@@ -10,7 +10,8 @@
 #
 # install: both online checks are off. The run is asked nothing, changes
 # neither setting, fetches the package once, records it, and opens the
-# Boneyards with the expansion's art and sounds in use in the same run.
+# Boneyards with the expansion's art and sounds in use after starting again
+# once, as every run that installs the package does.
 #
 # update: a feed offers a newer game. The run is asked nothing and goes on.
 # A second entry over the recorded package downloads nothing; a changed
@@ -44,6 +45,7 @@ UPDATE_NOTE = (
     "version."
 )
 OPENED = "entry flow: boneyards open"
+RESTARTED = "entry: the new package is put in use by starting again"
 IN_USE = "entry check: the Boneyards opened with the expansion in use"
 READ_FROM = "are read from the installed expansion"
 UPDATE_KEY = "open-annihilation.update-check"
@@ -519,7 +521,7 @@ class Fixture:
 
 
 def check_install(fixture):
-    """A first install, asked nothing, with the expansion in use in the same run."""
+    """A first install, asked nothing, in use once the run has started again."""
     digest = fixture.publish(1, 1)
     prefs = fixture.work / "prefs.conf"
     write_preferences(prefs, checks_off=True)
@@ -539,7 +541,9 @@ def check_install(fixture):
         return fail("the record does not name the package installed")
     if "boneyards" not in prefs.read_text(encoding="utf-8"):
         return fail("the expansion was not turned on")
-    print("boneyards entry check: install: fetched once, recorded, and in use in the same run")
+    if RESTARTED not in output or output.index(RESTARTED) > output.index(OPENED):
+        return fail("the run did not start again before the Boneyards opened")
+    print("boneyards entry check: install: fetched once, recorded, and in use after starting again")
     return 0
 
 

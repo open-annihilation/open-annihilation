@@ -523,9 +523,9 @@ struct EntryDriver {
         }
     }
 
-    /// Ends the run so the next one enters, once, after a first install
-    /// that cannot be put in use where the player is. An entry a restart
-    /// already carried stops with `notice` instead.
+    /// Ends the run so the next one enters, once, after this entry
+    /// installed the package: the next run reads it from its start. An
+    /// entry a restart already carried stops with `notice` instead.
     ///
     /// @param notice the sentence shown when the run will not restart
     void restart_for_install(const std::string& notice) const {

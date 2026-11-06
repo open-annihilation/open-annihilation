@@ -92,8 +92,8 @@ struct ExpansionEntryAsk {
     /// and the entry goes on as such a run always has. The package is still
     /// brought up to date, and no question ever holds the entry.
     bool quiet{false};
-    /// When true, this entry is the one a restart carried. A first install
-    /// that cannot be put in use then stops instead of restarting again.
+    /// When true, this entry is the one a restart carried. A package it
+    /// still has to install then stops it instead of restarting again.
     bool carried{false};
     /// When true, the run is one of the game's own checks. It asks only the
     /// registries the player added for their lists, never takes the package
@@ -159,9 +159,9 @@ struct ExpansionEntryStatus {
     bool extension_current{false};   ///< the installed package matches the catalogue
     std::string extension_version{}; ///< the catalogue package's version
     int64_t extension_release{0};    ///< the catalogue package's release; 0 when unknown
-    /// Set when the newly installed package must be in use before the
-    /// expansion opens. The caller checks that its files are read, and
-    /// restarts the run once (restart_expansion_entry) when they are not.
+    /// Set when this entry installed the package, which must be in use
+    /// before the expansion opens. The caller restarts the run once
+    /// (restart_expansion_entry), and the next run reads it from its start.
     bool extension_new{false};
     /// The entry stopped before any later check. Nothing was contacted after.
     bool stopped{false};

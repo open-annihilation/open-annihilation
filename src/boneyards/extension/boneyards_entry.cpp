@@ -5,8 +5,8 @@
 // when it is ready: the online features are on, the latest Open
 // Annihilation is running, the mod is off, and the latest Boneyards package
 // is installed and in use. Only then does the update screen show what was
-// checked and the Boneyards open. A first install is read from the
-// expansion folder in the same run, or the run starts once more and enters.
+// checked and the Boneyards open. A package the entry installs is put in use
+// by starting the run once more, which then enters.
 // The two entry checks start that once the main menu's strip is up, and
 // check that the expansion's art and sounds are what the Boneyards read.
 // ENTER waits until the menu has settled and the update check has answered.
@@ -518,12 +518,14 @@ void drive(Runtime& runtime, console::StatusWidget* widget) {
         return;
     }
     if (status.step == ExpansionEntryStep::ready && !g_printed_open) {
-        // The Boneyards read their files through the expansion folder found
-        // at the first read. A package installed during this run is read
-        // only once that is looked up again, and a first install must be in
-        // use before the Boneyards open: otherwise the run starts again once.
-        const bool in_use = boneyards_expansion_folder_refreshed();
-        if (status.extension_new && !in_use) {
+        // The Boneyards' screens are built with the main menu, and the
+        // strip's layouts, images and fonts stay as they were read then. A
+        // package this entry installed was not there yet, so the run starts
+        // again once and the next run, which mounts it from its start,
+        // enters on its own. The folder the Boneyards read their files
+        // through is looked up again first, since the next run keeps it.
+        if (status.extension_new) {
+            (void)boneyards_expansion_folder_refreshed();
             restart_expansion_entry(
                 runtime, std::string(oa::data::languages::interface_text(k_not_in_use))
             );
