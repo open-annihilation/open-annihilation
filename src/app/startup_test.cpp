@@ -454,6 +454,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-paused-save", &Options::check_paused_save, {}},
         {"--check-saved-brains", &Options::check_saved_brains, {}},
         {"--check-simulation-hash", &Options::check_simulation_hash, {}},
+        {"--check-enhanced-mode", &Options::check_enhanced_mode, {}},
         {"--check-zoom-memory", &Options::check_zoom_memory, {}},
         {"--check-language-switch", &Options::check_language_switch, {}},
         {"--check-language-registry", &Options::check_language_registry, {}},
@@ -531,6 +532,11 @@ const std::vector<ValueCase>& value_cases() {
         {"--install-mod", "a.oamod", {}},
         {"--frames", "10", {}},
         {"--benchmark", "10", {}},
+        {"--battle-benchmark", "report.json", {}},
+        {"--benchmark-units", "128", {"--battle-benchmark", "report.json"}},
+        {"--benchmark-warmup", "30", {"--battle-benchmark", "report.json"}},
+        {"--benchmark-scenario", "idle", {"--battle-benchmark", "report.json"}},
+        {"--benchmark-map", "Coast To Coast", {"--battle-benchmark", "report.json"}},
         {"--bench", "low.bench", {}},
         {"--max-fps", "60", {}},
         {"--display-modes", "none", {"--headless-check"}},
@@ -615,7 +621,12 @@ const std::vector<ValueCase>& value_cases() {
 // The other options: --check-navigation, which takes a group's name when
 // one follows it, and the hardware acceleration flags, which must agree.
 constexpr const char* kOtherOptions[] = {
-    "--version", "--check-navigation", "--hardware-acceleration", "--no-hardware-acceleration"
+    "--enhanced-mode",
+    "--no-enhanced-mode",
+    "--version",
+    "--check-navigation",
+    "--hardware-acceleration",
+    "--no-hardware-acceleration"
 };
 
 // An extension that takes every option it is offered, as a flag, and
@@ -685,6 +696,84 @@ void options_by_name() {
     expect(
         rejection({"--a.oamod"}) == "unknown option: --a.oamod",
         "an argument that starts with -- is an option, whatever its extension"
+    );
+}
+
+// Enhanced rules are independent of graphics; battle benchmarks choose a
+// fixed simulation workload and refuse options belonging to other run modes.
+void enhanced_benchmark_options() {
+    expect(!parse({}).enhanced_mode.has_value(), "Enhanced Mode defaults to the stored choice");
+    expect(parse({"--enhanced-mode"}).enhanced_mode == true, "the bare flag enables Enhanced Mode");
+    expect(
+        parse({"--enhanced-mode=off"}).enhanced_mode == false, "the value disables Enhanced Mode"
+    );
+    expect(
+        parse({"--no-enhanced-mode"}).enhanced_mode == false,
+        "the negative flag disables Enhanced Mode"
+    );
+    expect(
+        rejection({"--enhanced-mode=yes"}) == "--enhanced-mode takes on or off",
+        "unknown Enhanced Mode values are refused"
+    );
+    const auto both = parse({"--enhanced-mode", "--hardware-acceleration=off"});
+    expect(
+        both.enhanced_mode == true &&
+            both.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::off,
+        "Enhanced Mode does not select a renderer"
+    );
+    const auto defaults = parse({"--battle-benchmark", "report.json"});
+    expect(
+        defaults.headless_check && defaults.fixed_clock && defaults.unattended && defaults.seed &&
+            defaults.match_ticks == 300u && defaults.benchmark_units == 128 &&
+            defaults.benchmark_warmup == 30 && defaults.benchmark_scenario == "combat",
+        "battle benchmarks select a repeatable headless workload"
+    );
+    const auto chosen = parse(
+        {"--battle-benchmark",
+         "report.json",
+         "--benchmark-units",
+         "500",
+         "--benchmark-warmup",
+         "0",
+         "--benchmark-scenario",
+         "march",
+         "--benchmark-map",
+         "Test Map",
+         "--match-ticks",
+         "60",
+         "--seed",
+         "7"}
+    );
+    expect(
+        chosen.benchmark_units == 500 && chosen.benchmark_warmup == 0 &&
+            chosen.benchmark_scenario == "march" && chosen.benchmark_map == "Test Map" &&
+            chosen.match_ticks == 60u && chosen.seed == 7u,
+        "battle benchmark options preserve the chosen scenario and counts"
+    );
+    for (const char* value : {"0", "6554", "10000"})
+        expect(
+            rejection({"--battle-benchmark", "report.json", "--benchmark-units", value}) ==
+                "--benchmark-units expects 1 through 6553 units per side",
+            "unsupported populations are refused"
+        );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--benchmark-scenario", "unknown"}) ==
+            "--benchmark-scenario takes idle, march or combat",
+        "unknown workloads are refused"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--match-ticks", "0"}) ==
+            "--battle-benchmark needs at least one measured tick",
+        "an empty benchmark is refused"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--combat", "4"}) ==
+            "--battle-benchmark cannot be used with --combat",
+        "legacy placement cannot replace a benchmark scenario"
+    );
+    expect(
+        !rejection({"--benchmark-units", "500"}).empty(),
+        "benchmark companions require the run option"
     );
 }
 
@@ -1331,6 +1420,7 @@ int main() {
     update_channel_option();
     update_feed_options();
     value_options();
+    enhanced_benchmark_options();
     mutator_options();
     key_layout_options();
     const auto plain = parse({"--headless-check"});

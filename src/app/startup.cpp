@@ -361,6 +361,7 @@ void check_game_files_options(Options& options) {
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
         {options.check_simulation_hash, "--check-simulation-hash"},
+        {options.check_enhanced_mode, "--check-enhanced-mode"},
         {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
         {options.check_language_switch, "--check-language-switch"},
@@ -672,6 +673,7 @@ void check_director_options(Options& options) {
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
         {options.check_simulation_hash, "--check-simulation-hash"},
+        {options.check_enhanced_mode, "--check-enhanced-mode"},
         {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
         {options.check_language_switch, "--check-language-switch"},
@@ -798,6 +800,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_paused_save, "--check-paused-save"},
             {options.check_saved_brains, "--check-saved-brains"},
             {options.check_simulation_hash, "--check-simulation-hash"},
+            {options.check_enhanced_mode, "--check-enhanced-mode"},
             {options.check_zoom_memory, "--check-zoom-memory"},
             {!options.check_unit_language.empty(), "--check-unit-language"},
             {options.check_language_switch, "--check-language-switch"},
@@ -1079,6 +1082,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-paused-save", &Options::check_paused_save},
     {"--check-saved-brains", &Options::check_saved_brains},
     {"--check-simulation-hash", &Options::check_simulation_hash},
+    {"--check-enhanced-mode", &Options::check_enhanced_mode},
     {"--check-zoom-memory", &Options::check_zoom_memory},
     {"--check-language-switch", &Options::check_language_switch},
     {"--check-language-registry", &Options::check_language_registry},
@@ -1223,6 +1227,47 @@ take_folder_option(std::string_view argument, ArgumentCursor& cursor, Options& o
 /// @return true when the option is one of these
 [[nodiscard]] bool
 take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--enhanced-mode" || argument == "--no-enhanced-mode") {
+        options.enhanced_mode = argument == "--enhanced-mode";
+        return true;
+    }
+    constexpr std::string_view enhanced_prefix = "--enhanced-mode=";
+    if (argument.starts_with(enhanced_prefix)) {
+        const auto value = argument.substr(enhanced_prefix.size());
+        if (value != "on" && value != "off")
+            throw std::runtime_error("--enhanced-mode takes on or off");
+        options.enhanced_mode = value == "on";
+        return true;
+    }
+    if (argument == "--battle-benchmark") {
+        options.battle_benchmark_report = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--benchmark-units") {
+        options.benchmark_options_named = true;
+        options.benchmark_units = parse_count(option_value(cursor));
+        if (options.benchmark_units == 0 || options.benchmark_units > 6553)
+            throw std::runtime_error("--benchmark-units expects 1 through 6553 units per side");
+        return true;
+    }
+    if (argument == "--benchmark-warmup") {
+        options.benchmark_options_named = true;
+        options.benchmark_warmup = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--benchmark-scenario") {
+        options.benchmark_options_named = true;
+        options.benchmark_scenario = option_value(cursor);
+        if (options.benchmark_scenario != "idle" && options.benchmark_scenario != "march" &&
+            options.benchmark_scenario != "combat")
+            throw std::runtime_error("--benchmark-scenario takes idle, march or combat");
+        return true;
+    }
+    if (argument == "--benchmark-map") {
+        options.benchmark_options_named = true;
+        options.benchmark_map = option_value(cursor);
+        return true;
+    }
     if (argument == "--frames") {
         options.frame_limit = parse_count(option_value(cursor));
         return true;
@@ -1807,7 +1852,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
                      "[--check-unit-pages whole|scaled:TYPE,...] "
                      "[--check-kill-board] [--check-paused-save] [--check-saved-brains] "
-                     "[--check-simulation-hash] "
+                     "[--check-simulation-hash] [--check-enhanced-mode] "
                      "[--check-zoom-memory] "
                      "[--check-unit-language TAG] "
                      "[--check-language-switch [--check-language TAG]] "
@@ -1867,6 +1912,10 @@ void write_startup_line(std::string_view text) {
                      "[--max-fps N] "
                      "[--hardware-acceleration[=off|basic|full] | --no-hardware-acceleration] "
                      "[--experimental-3d] [--native-density] [--display-modes MODES] "
+                     "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
+                     "[--battle-benchmark REPORT.json [--benchmark-units N] "
+                     "[--benchmark-scenario idle|march|combat] [--benchmark-warmup N] "
+                     "[--benchmark-map NAME]] "
                      "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
                      "[--follow] [--frame-clock MS]]] "
@@ -1982,6 +2031,55 @@ void write_startup_line(std::string_view text) {
         const std::string& second = acceleration_differing->text;
         throw std::runtime_error(
             std::min(first, second) + " and " + std::max(first, second) + " cannot be used together"
+        );
+    }
+    if (!result.battle_benchmark_report.empty()) {
+        for (const auto& [name, member] : kFlagOptions)
+            if (std::string_view(name).starts_with("--check-") && result.*member)
+                throw std::runtime_error(
+                    std::string("--battle-benchmark cannot be used with ") + name
+                );
+        const std::pair<bool, const char*> refused[] = {
+            {result.benchmark_frames.has_value(), "--benchmark"},
+            {!result.bench_file.empty(), "--bench"},
+            {result.frame_limit.has_value(), "--frames"},
+            {result.frame_rate.has_value(), "--frame-rate"},
+            {!result.stage_file.empty(), "--stage"},
+            {result.combat_units != 0, "--combat"},
+            {result.busy_combat, "--busy-combat"},
+            {!result.load_file.empty(), "--load"},
+            {result.save_after.has_value(), "--save-after"},
+            {!result.save_file.empty(), "--save-file"},
+            {!result.campaign.empty() || result.campaign_mission.has_value(), "--campaign"},
+            {!result.brain_match.empty(), "--brain-match"},
+            {!result.generate_script.empty(), "--generate-script"},
+            {!result.render_script.empty(), "--render-script"},
+            {result.showcase != Showcase::none, "--showcase"},
+            {!result.capture_video.empty(), "--capture-video"},
+            {!result.snapshot.empty(), "--snapshot"},
+            {result.check_game_files, "--check-game-files"},
+            {result.reclaim_check, "--reclaim-check"},
+            {!result.weapon_fire_check.empty(), "--weapon-fire-check"},
+            {result.print_profile, "--print-profile"},
+            {!result.brain_shadow.empty(), "--brain-shadow"},
+            {!result.brain_trace.empty(), "--brain-trace"},
+            {!result.brain_record.empty(), "--brain-record"},
+        };
+        for (const auto& [given, name] : refused)
+            if (given)
+                throw std::runtime_error(
+                    std::string("--battle-benchmark cannot be used with ") + name
+                );
+        result.headless_check = true;
+        result.match_ticks = result.match_ticks.value_or(300);
+        if (*result.match_ticks == 0)
+            throw std::runtime_error("--battle-benchmark needs at least one measured tick");
+        if (!result.seed)
+            result.seed = kFixedRandomSeed;
+    } else if (result.benchmark_options_named) {
+        throw std::runtime_error(
+            "--benchmark-units, --benchmark-warmup, --benchmark-scenario and --benchmark-map need "
+            "--battle-benchmark"
         );
     }
     if (result.campaign_mission.has_value() != !result.campaign.empty())
@@ -2172,16 +2270,16 @@ void write_startup_line(std::string_view text) {
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
-        result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_key_editor || result.check_key_capture || result.check_key_share ||
-        result.check_key_views || result.check_keys_overlay || result.check_mutator_button ||
-        result.check_mutator_room || result.check_brain_room || result.check_mutator_picker ||
-        result.check_brain_picker || result.check_brain_seat_buttons ||
-        result.check_brain_campaign || result.check_mutator_prompts ||
-        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
-        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap ||
-        result.check_build_past_edge || result.check_selection_keys ||
-        result.check_factory_departure;
+        result.check_enhanced_mode || result.check_zoom_memory || result.check_map_packs ||
+        result.check_map_browser || result.check_key_editor || result.check_key_capture ||
+        result.check_key_share || result.check_key_views || result.check_keys_overlay ||
+        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
+        result.check_mutator_picker || result.check_brain_picker ||
+        result.check_brain_seat_buttons || result.check_brain_campaign ||
+        result.check_mutator_prompts || result.check_map_pack_lists ||
+        result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
+        result.check_mod_limits || result.check_click_snap || result.check_build_past_edge ||
+        result.check_selection_keys || result.check_factory_departure;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

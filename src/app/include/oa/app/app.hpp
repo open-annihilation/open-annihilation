@@ -363,6 +363,20 @@ struct Options {
     std::optional<fs::path> log_dir;
     std::optional<std::size_t> frame_limit;
     std::optional<std::size_t> benchmark_frames;
+    /// Overrides Enhanced Mode for this run; absent uses the stored choice.
+    std::optional<bool> enhanced_mode{};
+    /// A deterministic, simulation-only benchmark writes its JSON report here.
+    fs::path battle_benchmark_report{};
+    /// Total initial units per side, including each side's commander.
+    std::size_t benchmark_units{128};
+    /// Simulation ticks run before measurements begin.
+    std::size_t benchmark_warmup{30};
+    /// Workload: idle, march or combat.
+    std::string benchmark_scenario{"combat"};
+    /// Map selected explicitly instead of the remembered skirmish choice.
+    std::string benchmark_map{"Coast To Coast"};
+    /// The parser saw a benchmark companion, including one naming its default.
+    bool benchmark_options_named{};
     // Headless in-match run: ticks to simulate, output size, per-side army.
     std::optional<std::size_t> match_ticks;
     // Two seats of a headless brain match: installed ids, folders or builtin
@@ -578,6 +592,7 @@ struct Options {
     // Reads the simulation hash with no mod and under a mod, then after a
     // Developer Mode override that changes the simulation, without a new start.
     bool check_simulation_hash = false;
+    bool check_enhanced_mode = false;
     // Eases a large battlefield's zoom out and back with a small model
     // budget and returns to the main menu.
     bool check_zoom_memory = false;

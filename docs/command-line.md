@@ -1719,3 +1719,53 @@ With `--status-stdout` the status lines own standard output; the refusal
 goes to the log, and `--log-dir` names where that is. A launch refused
 once the status lines have begun ends them with `exit`, its reason
 `refused` and its code 2 ([what a game reports](multiplayer/status.md)).
+
+## Battle performance reports
+
+`--battle-benchmark REPORT.json` runs a simulation-only skirmish and writes
+a versioned JSON report. It sets headless operation and a fixed seed unless
+`--seed N` supplies another. It never draws measured frames, so the result
+is simulation throughput, not an FPS claim. Renderer selection remains an
+independent graphics setting.
+
+| Option | Meaning | Default |
+|---|---|---|
+| `--benchmark-units N` | Initial units per side, including one commander | 128 |
+| `--benchmark-scenario idle\|march\|combat` | Hold fire, opposing cross-map moves, or explicit attacks | combat |
+| `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
+| `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
+| `--match-ticks N` | Successful measured ticks required | 300 |
+| `--seed N` | Match random seed | the engine's fixed seed |
+| `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |
+| `--no-enhanced-mode` | Enhanced rules off for this run | |
+
+For example, from the source tree:
+
+```sh
+./run.sh --game-dir "/path/to/Total Annihilation" \
+  --battle-benchmark /tmp/oa-battle.json --benchmark-units 500 \
+  --benchmark-scenario march --benchmark-warmup 60 --match-ticks 600 \
+  --seed 7 --enhanced-mode
+```
+
+The harness uses two scripted armies without computer-player decisions.
+Their added units are ARMPW and CORAK, so a mod without those types is
+refused. Placement visits a fixed grid inside the playable map, skipping
+blocked terrain and occupied footprints. A map without enough clear space
+is refused instead of placing units outside it. The current maximum is
+6,553 units per side; Enhanced Mode's initial preset does not raise it.
+
+The report records the engine version, map, scenario, seed, requested and
+actual populations, match unit limit, Enhanced rules version, simulation
+hash, final world digest, successful warmup and measured tick counts, and
+minimum, mean, p50, p95, p99 and maximum tick time in nanoseconds. Percentiles
+use the nearest-rank method. Warmup and setup costs are excluded.
+
+A run that starts atomically replaces its report with an incomplete result.
+Only a fully completed measurement marks `completed` true. A failed setup
+or tick records the error and returns failure; an unsupported command line
+is refused before a run starts. Timing numbers from incomplete reports are
+not successful benchmark results.
+
+The legacy `--benchmark FRAMES` measures drawn scenes separately and stops
+with failure when a simulation tick fails.

@@ -4,6 +4,13 @@
 // Bounded frame-time benchmark and headless runs over live skirmish and
 // campaign matches.
 #include "oa/app/runtime.hpp"
+#include "oa/app/battle_benchmark.hpp"
+#include "oa/app/enhanced_mode.hpp"
+#include "oa/data/limits.hpp"
+#if __has_include("oa_engine_build.hpp")
+#include "oa_engine_build.hpp"
+#endif
+#include "oa/app/version_line.hpp"
 #include "renderer_effect_events.hpp"
 #include "engine_settings_state.hpp"
 #include "oa_layer.hpp"
@@ -250,7 +257,7 @@ void Runtime::benchmark_scene(std::string_view label, std::size_t frames, bool s
                 step_match_simulation();
             } catch (const std::exception& error) {
                 match_tick_blocked_ = true;
-                std::fprintf(stderr, "benchmark tick stopped: %s\n", error.what());
+                throw std::runtime_error(std::string("benchmark tick stopped: ") + error.what());
             }
             phase_times_.simulation += elapsed_ns(sim_start);
         }
@@ -1493,6 +1500,212 @@ int Runtime::run_headless_campaign(std::size_t ticks) {
     std::fflush(stdout);
     print_shadow_reports();
     return failed_ticks == 0 ? 0 : 1;
+}
+
+void Runtime::run_battle_benchmark() {
+    namespace benchmark = oa::app::battle_benchmark;
+    benchmark::Report report;
+    report.map = options_.benchmark_map;
+    report.scenario = options_.benchmark_scenario;
+    report.seed = options_.seed.value_or(kFixedRandomSeed);
+    report.requested_units_per_side = options_.benchmark_units;
+    report.warmup_ticks = options_.benchmark_warmup;
+    report.measured_ticks = options_.match_ticks.value_or(300);
+    report.enhanced_version = enhanced_mode_version(*this);
+    report.enhanced_mode = report.enhanced_version != 0;
+    report.engine_version = running_engine_version_line();
+    report.error = "the benchmark did not complete";
+    const auto write_report = [&] {
+        const std::string json = benchmark::report_json(report);
+        const auto bytes =
+            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(json.data()), json.size());
+        std::string error;
+        if (!oa::platform::replace_file(options_.battle_benchmark_report, bytes, &error))
+            throw std::runtime_error("cannot write battle benchmark report: " + error);
+    };
+    // A run that starts replaces an earlier success with an incomplete
+    // report before doing any work. Only a completed run marks it successful.
+    write_report();
+    std::vector<uint64_t> samples;
+    samples.reserve(report.measured_ticks);
+    const auto census = [this] {
+        std::size_t live = 0;
+        if (match_)
+            for (const auto& slot : match_->world().slots)
+                if (slot.unit != nullptr && slot.record.type_index != 0)
+                    ++live;
+        return live;
+    };
+    try {
+        if (options_.benchmark_units == 0 ||
+            options_.benchmark_units > oa::data::limits::highest_units_per_player)
+            throw std::runtime_error(
+                "battle benchmark population exceeds the current unit capacity"
+            );
+        exercise_click(menu::resource_name(menu::Button::single_player));
+        exercise_click(entry::resource_name(entry::Button::skirmish));
+        cancel_brain_seats_once();
+        setup_brain_seats(oa::data::brain_library::Setup::skirmish) = {};
+        for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
+            set_brain_seat(player, std::nullopt);
+        skirmish_settings_.slot_count = 2;
+        skirmish_settings_.map_name = options_.benchmark_map;
+        for (std::size_t side = 0; side < skirmish_settings_.slots.size(); ++side) {
+            auto& slot = skirmish_settings_.slots[side];
+            slot.controller = side < 2 ? entry::controller::human : entry::controller::disabled;
+            slot.side = static_cast<int32_t>(side % 2);
+            slot.color = static_cast<int32_t>(side);
+            slot.alliance = entry::unassigned_alliance;
+        }
+        state_.player_count = 2;
+        if (select_map(options_.benchmark_map) == 0 || map_player_capacity() < 2)
+            throw std::runtime_error(
+                "battle benchmark map needs two start positions: " + options_.benchmark_map
+            );
+        frontend_game().max_units_setting = static_cast<uint16_t>(options_.benchmark_units);
+        apply_skirmish_players();
+        if (match_ && !altitude_sight_blocked_)
+            enter_match_view();
+        if (screen_ != Screen::match || !match_ || !selected_tnt_)
+            throw std::runtime_error("battle benchmark could not start its skirmish");
+        report.unit_limit = match_->state().game.units_per_player;
+        if (report.unit_limit < options_.benchmark_units)
+            throw std::runtime_error(
+                "battle benchmark population exceeds the resolved match capacity"
+            );
+        report.simulation_hash = simulation_hash(*this);
+        report.enhanced_version = enhanced_mode_version(*this);
+        report.enhanced_mode = report.enhanced_version != 0;
+        const auto dimensions = shown_map_size();
+        const auto width = static_cast<uint32_t>(dimensions[0]);
+        const auto height = static_cast<uint32_t>(dimensions[1]);
+        constexpr uint32_t spacing = 32;
+        const auto candidates = benchmark::maximum_layout_units(width, height, spacing);
+        const auto planned = benchmark::plan_layout(width, height, candidates, spacing);
+        if (!planned.layout)
+            throw std::runtime_error(planned.error);
+        std::array<std::vector<uint16_t>, 2> armies;
+        for (const auto& slot : match_->world().slots)
+            if (slot.unit != nullptr && slot.record.type_index != 0 && slot.record.owner_index < 2)
+                armies[slot.record.owner_index].push_back(slot.unit_index);
+        constexpr std::array<std::string_view, 2> unit_names{"ARMPW", "CORAK"};
+        for (uint8_t side = 0; side < 2; ++side) {
+            if (armies[side].size() != 1)
+                throw std::runtime_error(
+                    "battle benchmark needs exactly one starting commander per side"
+                );
+            const auto type = sim::unit_spawn::find_type_index(spawn_type_names_, unit_names[side]);
+            if (type == 0 || type >= spawn_types_.size())
+                throw std::runtime_error(
+                    "battle benchmark lacks unit type " + std::string(unit_names[side])
+                );
+            const auto& definition = spawn_types_[type];
+            if (definition.footprint_x > 2 || definition.footprint_z > 2)
+                throw std::runtime_error("battle benchmark units exceed its placement spacing");
+            for (const auto& point : planned.layout->armies[side]) {
+                if (armies[side].size() == options_.benchmark_units)
+                    break;
+                const auto cell_x = (point.x + 8 - definition.footprint_x * 8) / 16;
+                const auto cell_z = (point.z + 8 - definition.footprint_z * 8) / 16;
+                if (!match_->site_clear_for(type, cell_x, cell_z, 0, 1))
+                    continue;
+                const auto x = static_cast<uint32_t>(point.x) << kFixedShift;
+                const auto z = static_cast<uint32_t>(point.z) << kFixedShift;
+                sim::unit_spawn::Request request;
+                request.player = side;
+                request.type = type;
+                request.finished = true;
+                request.state = kGroundOccupancyState;
+                request.position = {
+                    x, static_cast<uint32_t>(match_->map_height(x, z)) << kFixedShift, z
+                };
+                const auto* placed = match_->create(request);
+                if (placed == nullptr || placed->unit == nullptr)
+                    throw std::runtime_error(
+                        "battle benchmark could not allocate its requested army"
+                    );
+                armies[side].push_back(placed->unit_index);
+            }
+            if (armies[side].size() != options_.benchmark_units)
+                throw std::runtime_error(
+                    "battle benchmark map has too few clear placement sites for side " +
+                    std::to_string(side)
+                );
+        }
+        for (uint8_t side = 0; side < 2; ++side)
+            for (std::size_t index = 0; index < armies[side].size(); ++index) {
+                const auto unit = armies[side][index];
+                if (options_.benchmark_scenario == "combat") {
+                    const auto target = armies[1 - side][index % armies[1 - side].size()];
+                    if (!match_->issue_attack_command(unit, target, false, nullptr))
+                        throw std::runtime_error(
+                            "battle benchmark could not issue an attack order"
+                        );
+                } else {
+                    if (!give_state_order(unit, "Standing_FireOrder", 0))
+                        throw std::runtime_error("battle benchmark could not set hold fire");
+                    if (options_.benchmark_scenario == "march") {
+                        const auto& record = match_->world().slots[unit].record;
+                        const auto x =
+                            static_cast<uint32_t>(
+                                static_cast<int32_t>(width) - (record.position.x >> kFixedShift)
+                            )
+                            << kFixedShift;
+                        const auto z = static_cast<uint32_t>(record.position.z);
+                        const sim::ground_orders::Point destination{
+                            static_cast<int32_t>(x),
+                            static_cast<int32_t>(
+                                static_cast<uint32_t>(match_->map_height(x, z)) << kFixedShift
+                            ),
+                            static_cast<int32_t>(z)
+                        };
+                        match_->issue_ground_move(unit, destination, false);
+                    }
+                }
+            }
+        report.initial_units = census();
+        for (std::size_t tick = 0; tick < report.warmup_ticks; ++tick) {
+            step_match_simulation();
+            ++report.successful_warmup_ticks;
+        }
+        for (std::size_t tick = 0; tick < report.measured_ticks; ++tick) {
+            const auto started = BenchClock::now();
+            step_match_simulation();
+            samples.push_back(static_cast<uint64_t>(elapsed_ns(started)));
+            ++report.successful_ticks;
+        }
+        report.final_units = census();
+        std::array<char, 17> digest{};
+        std::snprintf(
+            digest.data(),
+            digest.size(),
+            "%016llx",
+            static_cast<unsigned long long>(frame_run_digest())
+        );
+        report.world_digest = digest.data();
+        report.ticks = benchmark::summarize(samples);
+        report.completed = true;
+        report.error.clear();
+        write_report();
+        std::printf(
+            "battle benchmark: %zu ticks, %zu initial units, p50 %.3f ms p95 %.3f ms p99 %.3f ms "
+            "max %.3f ms; renderer none\n",
+            report.successful_ticks,
+            report.initial_units,
+            static_cast<double>(report.ticks.p50_ns) / 1.0e6,
+            static_cast<double>(report.ticks.p95_ns) / 1.0e6,
+            static_cast<double>(report.ticks.p99_ns) / 1.0e6,
+            static_cast<double>(report.ticks.max_ns) / 1.0e6
+        );
+        std::fflush(stdout);
+    } catch (const std::exception& error) {
+        report.completed = false;
+        report.error = error.what();
+        report.final_units = census();
+        report.ticks = benchmark::summarize(samples);
+        write_report();
+        throw;
+    }
 }
 
 void Runtime::run_benchmark(std::size_t frames) {
