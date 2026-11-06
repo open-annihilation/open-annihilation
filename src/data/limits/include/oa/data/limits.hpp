@@ -14,9 +14,11 @@
 
 namespace oa::data::limits {
 
-/// The most units per player any limit may name: ten players' slots and the
-/// reserved one (6553 * 10 + 1) are the most that 16-bit unit ids number.
+/// The most units per player with the classic ten-player slot layout: ten
+/// ranges and the reserved slot fit 16-bit unit ids.
 inline constexpr uint16_t highest_units_per_player = 6553;
+/// The Enhanced Mode ceiling; only participating players receive unit slots.
+inline constexpr uint16_t highest_enhanced_units_per_player = 10'000;
 /// The unit type ids 3.1c's type bitsets and category masks hold.
 inline constexpr uint32_t base_type_bits = 512;
 /// The fewest unit type ids a type bitset or a category mask holds, and the
