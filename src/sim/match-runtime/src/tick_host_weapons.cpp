@@ -275,7 +275,7 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
         slot.aim_pitch = plan.slot_aim.pitch;
         if (!plan.fired)
             return false;
-        auto* shot = sim::weapon_execution::allocate_projectile(world);
+        auto* shot = sim::weapon_execution::allocate_projectile(world, &state_.projectile_usage);
         if (shot == nullptr)
             return false;
         const auto target_unit = static_cast<uint16_t>(target.unit_identity);
@@ -468,7 +468,7 @@ void Match::apply_shot(const ShotEvent& shot) {
     } else {
         return;
     }
-    auto* projectile = sim::weapon_execution::allocate_projectile(world);
+    auto* projectile = sim::weapon_execution::allocate_projectile(world, &state_.projectile_usage);
     if (projectile == nullptr)
         return;
     // The shot's query piece is that of the first slot carrying the weapon.

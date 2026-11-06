@@ -594,7 +594,7 @@ void Match::teardown_dead_unit(
 
     scenario_unit_destroyed(slot);
     sim::weapon_execution::cancel_burst_spawners(
-        state(), oa::world_unit_ref(&state(), &slot.record)
+        state(), oa::world_unit_ref(&state(), &slot.record), state_.projectile_compaction
     );
     // Every dead unit's footprint is cleared, buildings included, and the
     // unit leaves its bucket chain.

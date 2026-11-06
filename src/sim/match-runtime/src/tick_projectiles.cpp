@@ -425,8 +425,8 @@ void Match::detonate_area(
     // shares each one it set off once it has gone off here.
     if ((definition.flags & OA_WEAPON_FLAG_INTERCEPTOR) != 0) {
         const auto reach = static_cast<uint32_t>(definition.areaofeffect) * definition.areaofeffect;
-        for (int32_t index = 0;
-             index < world.game.projectile_count && index < OA_PROJECTILE_CAPACITY;
+        for (int32_t index = 0; index < world.game.projectile_count &&
+                                index < static_cast<int32_t>(world_projectile_capacity(&world));
              ++index) {
             auto& other = world.projectiles[index];
             if (&other == &shot || (other.flags & OA_PROJECTILE_FLAG_RETIRED) != 0)
@@ -512,7 +512,9 @@ void Match::update_projectiles() {
     // earlier in the pass still fly and collide, and a compaction inside the
     // pass shifts later records under the running index.
     auto remaining = world.game.projectile_count;
-    for (int32_t index = 0; remaining > 0 && index < OA_PROJECTILE_CAPACITY; ++index, --remaining) {
+    for (int32_t index = 0;
+         remaining > 0 && index < static_cast<int32_t>(world_projectile_capacity(&world));
+         ++index, --remaining) {
         auto& shot = world.projectiles[index];
         const auto* weapon = oa::world_weapon_def(&world, shot.def);
         if (weapon == nullptr) {
@@ -536,7 +538,8 @@ void Match::update_projectiles() {
                 }
             --shot.burst_remaining;
             shot.burst_tick += rate;
-            if (auto* child = sim::weapon_execution::allocate_projectile(world)) {
+            if (auto* child =
+                    sim::weapon_execution::allocate_projectile(world, &state_.projectile_usage)) {
                 *child = shot;
                 child->burst_tick = tick;
                 const auto* definition = projectile_weapon(shot);
@@ -698,7 +701,7 @@ void Match::update_projectiles() {
         if ((shot.flags & OA_PROJECTILE_FLAG_RETIRED) == 0)
             projectile_trail_effects(shot, previous_height);
     }
-    sim::weapon_execution::compact_projectiles(world);
+    sim::weapon_execution::compact_projectiles(world, state_.projectile_compaction);
 }
 
 } // namespace oa::sim::match_runtime

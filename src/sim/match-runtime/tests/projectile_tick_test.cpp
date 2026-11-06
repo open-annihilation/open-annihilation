@@ -789,6 +789,47 @@ void silo_waits_for_its_aim_script(
     gun.stockpile = 0;
     std::cout << "vertical launch waits for AimPrimary passed\n";
 }
+
+/// Flies and detonates shots beyond the normal pool in an Enhanced match.
+void expanded_projectile_tick(sim::match_runtime::OfflineInputs input, Services& services) {
+    constexpr uint32_t shots = 512;
+    input.rules.setup.enhanced_mode.enabled = true;
+    input.rules.setup.enhanced_mode.version = 1;
+    input.projectile_capacity = 1024;
+    input.unit_player_mask = 0x3;
+    CHECK(sim::match_runtime::Match::input_error(input) == nullptr);
+    sim::match_runtime::Match match(input, services);
+    auto& world = match.state();
+    world.game.gravity = 0;
+    world.game.tick = 100;
+    CHECK(world_projectile_capacity(&world) == input.projectile_capacity);
+    for (uint32_t index = 0; index < shots; ++index) {
+        CHECK(match.launch_meteor(
+            oa_ref_from_index(shell_weapon), {fx(100), fx(100), fx(100)}, {fx(1), 0, 0}, false
+        ));
+        world.projectiles[index].burst_tick = index;
+    }
+    CHECK(match.projectiles().size() == shots);
+    CHECK(
+        match.projectile_usage().high_water == shots &&
+        match.projectile_usage().allocation_failures == 0
+    );
+    ++world.game.tick;
+    match.update_projectiles();
+    CHECK(match.projectiles().size() == shots);
+    for (const auto& shot : match.projectiles())
+        CHECK(shot.position.x == fx(101) && shot.position.y == fx(100));
+    world.projectiles[400].position.y = fx(ground_height - 1);
+    const auto before = explosions_logged(match);
+    ++world.game.tick;
+    match.update_projectiles();
+    CHECK(match.projectiles().size() == shots - 1);
+    CHECK(explosions_logged(match) == before + 1);
+    CHECK(world.projectiles[400].burst_tick == 401 && world.projectiles[400].position.x == fx(102));
+    CHECK(world.projectiles[shots - 2].burst_tick == shots - 1);
+    std::cout << "512 simultaneous Enhanced projectiles fly and detonate passed\n";
+}
+
 } // namespace
 
 int main() {
@@ -880,6 +921,7 @@ int main() {
     input.effect_sequence = [](std::string_view archive, std::string_view entry) {
         return art.find(archive, entry);
     };
+    expanded_projectile_tick(input, services);
     sim::match_runtime::Match match(input, services);
     CHECK(match.state().game.weapon_defs[antinuke_weapon].coverage == 2000);
     CHECK(match.state().game.sea_level == sea_level);

@@ -424,8 +424,9 @@ void Match::project_plot_occupants() {
 bool Match::launch_meteor(
     oa_ref32 weapon, const FixedVec3& position, const FixedVec3& velocity, bool share
 ) {
-    const auto* shot =
-        sim::weapon_execution::spawn_free_projectile(state(), weapon, position, velocity);
+    const auto* shot = sim::weapon_execution::spawn_free_projectile(
+        state(), weapon, position, velocity, &state_.projectile_usage
+    );
     if (shot == nullptr)
         return false;
     emit_event<&EventHooks::shot_placed>(state(), *shot, ShotSource::meteor, nullptr, uint16_t{});
