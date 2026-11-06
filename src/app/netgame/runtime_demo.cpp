@@ -5,6 +5,7 @@
 // which every recorded player is remote and the local slot only watches; the
 // recorded packets arrive through the network receive path.
 #include "oa/app/game_directory.hpp"
+#include "oa/app/enhanced_mode.hpp"
 #include "oa/app/runtime.hpp"
 #include "network_play.hpp"
 #include "oa/app/check_host.hpp"
@@ -117,7 +118,7 @@ void NetworkPlay::start_demo_playback() {
             throw std::runtime_error("demo playback: Enhanced Mode rules cannot be read");
         enhanced_version = *saved;
     }
-    if (!runtime_.hold_enhanced_mode_once(enhanced_version))
+    if (!hold_enhanced_mode_once(runtime_, enhanced_version))
         throw std::runtime_error(
             "demo playback: Enhanced Mode rules version " + std::to_string(enhanced_version) +
             " cannot be used"
@@ -132,7 +133,7 @@ void NetworkPlay::start_demo_playback() {
 
         ~EnhancedModeGuard() {
             if (!keep || std::uncaught_exceptions() > exceptions)
-                runtime.cancel_enhanced_mode_once();
+                cancel_enhanced_mode_once(runtime);
         }
     } enhanced_mode{runtime_};
 
