@@ -97,6 +97,14 @@ void Runtime::check_enhanced_mode() {
     start_benchmark_skirmish_as_chosen();
     const fs::path released_save = options_.preferences_file->parent_path() / "released.sav";
     require(save_match_game(released_save, "Released rules", 0), "the released save failed");
+    require(
+        load_saved_game(enhanced_save), "an enhanced save could not replace a live classic match"
+    );
+    require(match_->world().slots.size() == 20'001, "replacement clipped the enhanced capacity");
+    require(
+        load_saved_game(released_save), "a classic save could not replace a live enhanced match"
+    );
+    require(enhanced_mode_version(*this) == mode::off_version, "replacement kept enhanced rules");
     leave_match();
     load(Screen::main_menu);
     chosen.enhanced_mode = true;

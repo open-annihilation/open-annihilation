@@ -772,7 +772,10 @@ std::optional<uint16_t>
 Runtime::SaveLoadState::buildable_unit_limit(Runtime& runtime, int32_t limit) {
     if (limit <= 0 || limit > std::numeric_limits<uint16_t>::max())
         return std::nullopt;
-    if (enhanced_mode_version(runtime) != 0)
+    const uint32_t version = runtime.engine_settings_state().restored_enhanced_version.value_or(
+        enhanced_mode_version(runtime)
+    );
+    if (version != 0)
         return limit <= oa::data::limits::highest_enhanced_units_per_player
                    ? std::optional<uint16_t>{static_cast<uint16_t>(limit)}
                    : std::nullopt;

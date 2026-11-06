@@ -1515,7 +1515,7 @@ void Runtime::play_latest_profile() noexcept {
         profile && oa::data::enhanced_mode::rules_version(profile->rules) != 0
             ? profile->limits.units_per_player
         : options_.mod_profile ? options_.mod_profile->limits.units_per_player
-                               : oa::data::Limits{}.units_per_player;
+                               : oa::data::limits::Limits{}.units_per_player;
 }
 
 const oa::data::mod_profile::UiRules& Runtime::ui_rules() const noexcept {
@@ -2104,7 +2104,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         acceleration_report().status,
         settings::highest_offered_unit_limit(
             options_.mod_profile ? options_.mod_profile->limits.units_per_player
-                                 : oa::data::Limits{}.units_per_player
+                                 : oa::data::limits::Limits{}.units_per_player
         ),
         state.profile_hacks,
         &system_language(),
