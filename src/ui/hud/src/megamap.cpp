@@ -15,6 +15,10 @@ namespace {
 
 constexpr std::size_t kPaletteEntryBytes = 4;
 constexpr std::size_t kPaletteEntries = 256;
+/// Values a colour channel takes, 0 to 255.
+constexpr std::size_t kChannelValues = 256;
+/// Picture rows each band of a terrain downscale holds.
+constexpr uint32_t kTerrainBandRows = 16;
 /// UI colours (Game.ui_colors) of the rings, as the minimap draws them.
 constexpr std::size_t kSensorRingColor = 10;
 constexpr std::size_t kJammerRingColor = 12;
@@ -72,9 +76,28 @@ float linear_channel(int32_t value) {
     return static_cast<float>(std::pow(static_cast<double>(base), static_cast<double>(2.4F)));
 }
 
+/// Each sRGB channel's linear light (linear_channel), worked out once.
+const std::array<float, kChannelValues>& linear_channels() {
+    static const std::array<float, kChannelValues> table = [] {
+        std::array<float, kChannelValues> out{};
+        for (std::size_t value = 0; value < out.size(); ++value)
+            out[value] = linear_channel(static_cast<int32_t>(value));
+        return out;
+    }();
+    return table;
+}
+
 /// Converts an sRGB colour to OKLab: lightness and two colour axes.
+///
+/// @param red red, 0 to 255
+/// @param green green, 0 to 255
+/// @param blue blue, 0 to 255
+/// @return the lightness and the two axes
 std::array<float, 3> oklab(int32_t red, int32_t green, int32_t blue) {
-    const float r = linear_channel(red), g = linear_channel(green), b = linear_channel(blue);
+    const auto& linear = linear_channels();
+    const float r = linear[static_cast<std::size_t>(red)];
+    const float g = linear[static_cast<std::size_t>(green)];
+    const float b = linear[static_cast<std::size_t>(blue)];
     const float l = std::cbrt(0.4122214708F * r + 0.5363325363F * g + 0.0514459929F * b);
     const float m = std::cbrt(0.2119034982F * r + 0.6806995451F * g + 0.1073969566F * b);
     const float s = std::cbrt(0.0883024619F * r + 0.2817188376F * g + 0.6299787005F * b);
@@ -136,6 +159,111 @@ std::array<std::size_t, 2> nearest_two_perceptual(
     }
     has_second = palette.lab.size() > 1;
     return {palette.entries[nearest], palette.entries[second]};
+}
+
+/// A perceptual palette's entries in order of lightness, for a search that
+/// stops where lightness alone puts every entry left farther than the two
+/// nearest found.
+struct LightnessOrder {
+    std::vector<uint32_t> positions; ///< places in the palette, by lightness, ties by place
+    std::vector<float> lightness;    ///< each one's lightness, in that order
+};
+
+/// Orders a perceptual palette's entries by lightness.
+///
+/// @param palette the palette
+/// @return its entries' places and lightness, darkest first
+LightnessOrder lightness_order(const PerceptualPalette& palette) {
+    LightnessOrder order;
+    order.positions.resize(palette.lab.size());
+    for (std::size_t index = 0; index < order.positions.size(); ++index)
+        order.positions[index] = static_cast<uint32_t>(index);
+    std::stable_sort(order.positions.begin(), order.positions.end(), [&](uint32_t a, uint32_t b) {
+        return palette.lab[a][0] < palette.lab[b][0];
+    });
+    order.lightness.reserve(order.positions.size());
+    for (const uint32_t position : order.positions)
+        order.lightness.push_back(palette.lab[position][0]);
+    return order;
+}
+
+/// An entry a search found: its squared distance and its place in the palette.
+struct Found {
+    float distance{std::numeric_limits<float>::infinity()};
+    uint32_t position{std::numeric_limits<uint32_t>::max()};
+};
+
+/// Tells whether a found entry ranks before another: nearer, or as near and
+/// earlier in the palette, as a search in the palette's order keeps them.
+bool ranks_before(const Found& a, const Found& b) {
+    return a.distance < b.distance || (a.distance == b.distance && a.position < b.position);
+}
+
+/// Returns the two entries of a perceptual palette that look nearest a
+/// colour, the same two nearest_two_perceptual finds, searching outward in
+/// lightness from the colour's.
+///
+/// An entry's squared distance is at least the square of its difference in
+/// lightness, so each way stops at the first entry whose difference alone
+/// is past the second nearest found.
+///
+/// @param palette the entries to choose from; not empty
+/// @param order its entries by lightness (lightness_order)
+/// @param lab the colour in OKLab
+/// @param[out] has_second whether the palette has a second entry
+/// @return the nearest entry's palette index and the second's
+std::array<std::size_t, 2> nearest_two_by_lightness(
+    const PerceptualPalette& palette,
+    const LightnessOrder& order,
+    const std::array<float, 3>& lab,
+    bool& has_second
+) {
+    Found nearest, second;
+    const auto consider = [&](std::size_t rank) {
+        const uint32_t position = order.positions[rank];
+        const Found found{lab_distance(palette.lab[position], lab), position};
+        if (ranks_before(found, nearest)) {
+            second = nearest;
+            nearest = found;
+        } else if (ranks_before(found, second)) {
+            second = found;
+        }
+    };
+    // Whether an entry's difference in lightness alone puts it past the
+    // second nearest found, and so every entry farther that way.
+    const auto beyond = [&](std::size_t rank) {
+        const float difference = order.lightness[rank] - lab[0];
+        return difference * difference > second.distance;
+    };
+    const auto& lightness = order.lightness;
+    std::size_t up = static_cast<std::size_t>(
+        std::lower_bound(lightness.begin(), lightness.end(), lab[0]) - lightness.begin()
+    );
+    std::size_t down = up;
+    bool upward = up < lightness.size();
+    bool downward = down > 0;
+    while (upward || downward) {
+        if (upward) {
+            if (beyond(up)) {
+                upward = false;
+            } else {
+                consider(up);
+                upward = ++up < lightness.size();
+            }
+        }
+        if (downward) {
+            if (beyond(down - 1)) {
+                downward = false;
+            } else {
+                consider(down - 1);
+                downward = --down > 0;
+            }
+        }
+    }
+    has_second = palette.lab.size() > 1;
+    const uint32_t second_position =
+        second.position < palette.lab.size() ? second.position : nearest.position;
+    return {palette.entries[nearest.position], palette.entries[second_position]};
 }
 
 } // namespace
@@ -239,7 +367,8 @@ std::vector<uint8_t> downscale_terrain(
     int32_t height,
     std::span<const uint8_t> palette,
     bool dither,
-    const PerceptualPalette* perceptual
+    const PerceptualPalette* perceptual,
+    oa::platform::job_pool::Pool* pool
 ) {
     std::vector<uint8_t> out;
     if (width <= 0 || height <= 0 || map_width <= 0 || map_height <= 0 || source.pixel == nullptr ||
@@ -247,39 +376,85 @@ std::vector<uint8_t> downscale_terrain(
         (perceptual != nullptr && perceptual->entries.empty()))
         return out;
     out.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
-    for (int32_t y = 0; y < height; ++y) {
+    const LightnessOrder order =
+        perceptual != nullptr ? lightness_order(*perceptual) : LightnessOrder{};
+    // The map columns each picture column covers, the same on every row.
+    std::vector<std::array<int32_t, 2>> columns(static_cast<std::size_t>(width));
+    for (int32_t x = 0; x < width; ++x) {
+        const int32_t x0 = static_cast<int32_t>(static_cast<int64_t>(x) * map_width / width);
+        const int32_t x1 =
+            std::max(x0 + 1, static_cast<int32_t>(static_cast<int64_t>(x + 1) * map_width / width));
+        columns[static_cast<std::size_t>(x)] = {x0, x1};
+    }
+    namespace job_pool = oa::platform::job_pool;
+    const uint32_t bands = job_pool::bands_of_rows(static_cast<uint32_t>(height), kTerrainBandRows);
+    // Each band's map row and its columns' sums of red, green and blue.
+    std::vector<uint8_t> lines(
+        static_cast<std::size_t>(bands) * static_cast<std::size_t>(map_width)
+    );
+    std::vector<std::array<int64_t, 3>> band_sums(
+        static_cast<std::size_t>(bands) * static_cast<std::size_t>(width)
+    );
+    const auto downscale_row = [&](int32_t y, uint8_t* line, std::array<int64_t, 3>* sums) {
         const int32_t z0 = static_cast<int32_t>(static_cast<int64_t>(y) * map_height / height);
         const int32_t z1 = std::max(
             z0 + 1, static_cast<int32_t>(static_cast<int64_t>(y + 1) * map_height / height)
         );
-        for (int32_t x = 0; x < width; ++x) {
-            const int32_t x0 = static_cast<int32_t>(static_cast<int64_t>(x) * map_width / width);
-            const int32_t x1 = std::max(
-                x0 + 1, static_cast<int32_t>(static_cast<int64_t>(x + 1) * map_width / width)
-            );
-            int64_t r = 0, g = 0, b = 0, count = 0;
-            for (int32_t z = z0; z < z1; ++z)
+        std::fill(sums, sums + width, std::array<int64_t, 3>{});
+        for (int32_t z = z0; z < z1; ++z) {
+            if (source.row != nullptr)
+                source.row(source.user, z, 0, map_width, line);
+            else
+                for (int32_t column = 0; column < map_width; ++column)
+                    line[column] = source.pixel(source.user, column, z);
+            for (int32_t x = 0; x < width; ++x) {
+                const auto [x0, x1] = columns[static_cast<std::size_t>(x)];
+                auto& sum = sums[x];
                 for (int32_t column = x0; column < x1; ++column) {
-                    const auto entry =
-                        static_cast<std::size_t>(source.pixel(source.user, column, z));
-                    r += palette[entry * kPaletteEntryBytes];
-                    g += palette[entry * kPaletteEntryBytes + 1];
-                    b += palette[entry * kPaletteEntryBytes + 2];
-                    ++count;
+                    const std::size_t at =
+                        static_cast<std::size_t>(line[column]) * kPaletteEntryBytes;
+                    sum[0] += palette[at];
+                    sum[1] += palette[at + 1];
+                    sum[2] += palette[at + 2];
                 }
-            const auto mean_r = static_cast<int32_t>(r / count);
-            const auto mean_g = static_cast<int32_t>(g / count);
-            const auto mean_b = static_cast<int32_t>(b / count);
-            bool has_second = false;
-            const auto nearest =
-                perceptual != nullptr
-                    ? nearest_two_perceptual(*perceptual, mean_r, mean_g, mean_b, has_second)
-                    : nearest_two(palette, mean_r, mean_g, mean_b, has_second);
-            const bool alternate = dither && ((x + y) & 1) != 0 && has_second;
-            out[static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
-                static_cast<std::size_t>(x)] = static_cast<uint8_t>(nearest[alternate ? 1 : 0]);
+            }
         }
-    }
+        // The entries found for the last mean, which a neighbour often shares.
+        std::array<int32_t, 3> last_mean{-1, -1, -1};
+        std::array<std::size_t, 2> last_nearest{};
+        bool last_second = false;
+        for (int32_t x = 0; x < width; ++x) {
+            const auto [x0, x1] = columns[static_cast<std::size_t>(x)];
+            const int64_t count = static_cast<int64_t>(z1 - z0) * (x1 - x0);
+            const auto& sum = sums[x];
+            const std::array<int32_t, 3> mean{
+                static_cast<int32_t>(sum[0] / count),
+                static_cast<int32_t>(sum[1] / count),
+                static_cast<int32_t>(sum[2] / count),
+            };
+            if (mean != last_mean) {
+                last_mean = mean;
+                last_nearest =
+                    perceptual != nullptr
+                        ? nearest_two_by_lightness(
+                              *perceptual, order, oklab(mean[0], mean[1], mean[2]), last_second
+                          )
+                        : nearest_two(palette, mean[0], mean[1], mean[2], last_second);
+            }
+            const bool alternate = dither && ((x + y) & 1) != 0 && last_second;
+            out[static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+                static_cast<std::size_t>(x)] =
+                static_cast<uint8_t>(last_nearest[alternate ? 1 : 0]);
+        }
+    };
+    job_pool::run_bands(pool, bands, [&](uint32_t band) {
+        const auto first = static_cast<int32_t>(band * kTerrainBandRows);
+        const int32_t end = std::min(height, first + static_cast<int32_t>(kTerrainBandRows));
+        uint8_t* line = lines.data() + static_cast<std::size_t>(band) * map_width;
+        auto* sums = band_sums.data() + static_cast<std::size_t>(band) * width;
+        for (int32_t y = first; y < end; ++y)
+            downscale_row(y, line, sums);
+    });
     return out;
 }
 
