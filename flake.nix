@@ -90,6 +90,7 @@
           inherit pname;
           description = "Open Source port of the Total Annihilation & TA: Kingdoms engines, for ${windowsName}";
           textFonts = (linux pkgs).textFonts;
+          pageFonts = (linux pkgs).pageFonts;
         };
 
     in
@@ -110,7 +111,7 @@
         {
           # `nix build` with no attribute builds the game for this system.
           default = (linux pkgs).game;
-          inherit (linux pkgs) textFonts;
+          inherit (linux pkgs) textFonts pageFonts;
 
           # The Windows builds, cross-compiled from this system.
           windows = (windowsBuild pkgs pkgs.pkgsCross.mingwW64 [ ] {

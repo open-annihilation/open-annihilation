@@ -32,7 +32,7 @@
 # @param pname the derivation's name, which says which Windows it is for
 # @param description the same, in words
 # @param fullPackage install the release package, not only the executables
-{ lib, stdenv, cmake, ninja, zlib, freetype, sdl3, src, textFonts, version
+{ lib, stdenv, cmake, ninja, zlib, freetype, sdl3, src, textFonts, pageFonts, version
 , toolchain, definitions, pname, description, fullPackage ? false }:
 {
   game = stdenv.mkDerivation {
@@ -63,6 +63,7 @@
       "-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/${toolchain}"
       "-DCMAKE_BUILD_TYPE=Release"
       "-DOA_TEXT_FONTS_DIR=${textFonts}"
+      "-DOA_FONTS_DIR=${pageFonts}/fonts"
       # Nothing here runs on the build machine, so no test may be configured.
       "-DBUILD_TESTING=OFF"
     ] ++ lib.optionals fullPackage [
@@ -101,10 +102,20 @@
       install -Dm755 oa-tool.exe $out/bin/oa-tool.exe
       install -Dm755 open-annihilation.exe $out/bin/open-annihilation.exe
       # bundled_font_directory() reads the fonts from the executable's folder
-      # (src/platform/text-font/src/font_directory.cpp).
-      install -Dm644 -t $out/bin/fonts ${textFonts}/*.ttf ${textFonts}/*.otf
+      # (src/platform/text-font/src/font_directory.cpp). The build staged the
+      # text faces, the page fonts and the Boneyards' atlas there.
+      mkdir -p $out/bin
+      cp -r fonts $out/bin/fonts
       # The registries the game ships with, read from the executable's folder.
       install -Dm644 -t $out/bin/registries ${src}/registries/*.yaml
+      # The rest of the game files the build staged beside the executable:
+      # the interface words and, where the build has the Boneyards (every
+      # package but Windows 95), its archive and Help pages.
+      cp -r languages $out/bin/languages
+      if [ -f coreprime.ccx ]; then
+        install -Dm644 coreprime.ccx $out/bin/coreprime.ccx
+        cp -r boneyards $out/bin/boneyards
+      fi
     '' + lib.optionalString fullPackage ''
       install -Dm755 oa-intro.exe $out/bin/oa-intro.exe
       install -Dm755 oa-update.exe $out/bin/oa-update.exe
