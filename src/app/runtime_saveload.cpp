@@ -26,6 +26,7 @@
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/data/persist/save_mutators.hpp"
+#include "oa/data/persist/save_enhanced_mode.hpp"
 #include "oa/data/persist/save_profile.hpp"
 #include "oa/data/persist/save_sections.hpp"
 #include "oa/sim/feature_runtime.hpp"
@@ -1394,6 +1395,8 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
 
 void Runtime::save_mod_profile(persist::Bank* bank) const {
     namespace profiles = oa::data::mod_profile;
+    if (!persist::save_write_enhanced_mode(bank, enhanced_mode_version()))
+        throw std::runtime_error("the Enhanced Mode rules version cannot be saved");
     const auto* profile = mod_profile();
     if (profile == nullptr)
         return;
@@ -1572,6 +1575,31 @@ bool Runtime::load_saved_game(const fs::path& path) {
         status_ = std::string("Invalid savegame file: ") + error.message;
         return false;
     }
+    uint32_t saved_enhanced_version{};
+    if (!persist::save_read_enhanced_mode(bank, saved_enhanced_version)) {
+        status_ = "Invalid savegame file: Enhanced Mode rules cannot be read";
+        return false;
+    }
+    if (!hold_enhanced_mode_once(saved_enhanced_version)) {
+        status_ = "Savegame Enhanced Mode rules version " + std::to_string(saved_enhanced_version) +
+                  " cannot be used";
+        return false;
+    }
+
+    // Mode resolution precedes the profile check and world allocation. A
+    // failed load puts the next game's preference back, leaving a live
+    // match's played rules alone.
+    struct HeldEnhancedMode {
+        Runtime& runtime;
+        bool keep{};
+        int exceptions = std::uncaught_exceptions();
+
+        ~HeldEnhancedMode() {
+            if (!keep || std::uncaught_exceptions() > exceptions)
+                runtime.cancel_enhanced_mode_once();
+        }
+    } held_enhanced_mode{*this};
+
     if (!check_saved_mod_profile(bank))
         return false;
     if (!check_saved_mutators(bank))
@@ -1634,6 +1662,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
             take_campaign_seat_from_load(*this);
         held_mutators.keep = loaded;
         held_brains.keep = loaded;
+        held_enhanced_mode.keep = loaded;
         return loaded;
     }
     if (summary.game_type != persist::game_type_skirmish) {
@@ -1717,6 +1746,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
               std::to_string(match_timing_.tick);
     held_mutators.keep = true;
     held_brains.keep = true;
+    held_enhanced_mode.keep = true;
     return true;
 }
 

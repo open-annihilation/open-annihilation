@@ -108,6 +108,34 @@ void NetworkPlay::start_demo_playback() {
     const std::string needs = runtime_.content_switch_sentence(recorded);
     if (!needs.empty())
         throw std::runtime_error(needs);
+    uint32_t enhanced_version{};
+    if (const auto* sector = oa::formats::tad::find_sector(
+            session->playback.demo, oa::formats::tad::SectorType::enhanced_mode
+        )) {
+        const auto saved = oa::formats::tad::decode_enhanced_mode_sector(*sector);
+        if (!saved)
+            throw std::runtime_error("demo playback: Enhanced Mode rules cannot be read");
+        enhanced_version = *saved;
+    }
+    if (!runtime_.hold_enhanced_mode_once(enhanced_version))
+        throw std::runtime_error(
+            "demo playback: Enhanced Mode rules version " + std::to_string(enhanced_version) +
+            " cannot be used"
+        );
+
+    // A recording without the sector explicitly plays the original mode,
+    // independent of the preference for new games.
+    struct EnhancedModeGuard {
+        Runtime& runtime;
+        bool keep{};
+        int exceptions = std::uncaught_exceptions();
+
+        ~EnhancedModeGuard() {
+            if (!keep || std::uncaught_exceptions() > exceptions)
+                runtime.cancel_enhanced_mode_once();
+        }
+    } enhanced_mode{runtime_};
+
     const auto rules = oa::app::netgame::wire_rules_of(runtime_.mod_profile());
     switch (demo::demo_limits_verdict(session->playback, rules.weapon_types, rules.sides)) {
     case demo::DemoLimitsVerdict::plays:
@@ -267,6 +295,7 @@ void NetworkPlay::start_demo_playback() {
         " players, " + std::to_string(demo_->playback.frames.size()) + " frames over " +
         std::to_string(demo::demo_duration_ms(demo_->playback) / kMillisecondsPerSecond) + " s";
     std::cerr << runtime_.status_ << '\n';
+    enhanced_mode.keep = true;
 }
 
 // Headless snapshots look at --camera, else at the followed unit.
