@@ -10,9 +10,11 @@ struct Lobby;
 
 /// The first reason Enhanced Mode holds START, or none.
 ///
-/// An enhanced room requires the host's version and simulation hash on every
-/// seated machine, watchers included. A room with Enhanced Mode off keeps the
-/// usual 3.1c rules unless another machine advertises Enhanced Mode.
+/// The host requires its version and simulation hash on every seated machine,
+/// watchers included. A guest checks its own agreement with the host; another
+/// guest's record need not have arrived here before the host starts. A room with
+/// Enhanced Mode off keeps the usual 3.1c rules unless a checked machine advertises
+/// Enhanced Mode.
 ///
 /// @param lobby Lobby state.
 /// @return The English refusal line, or null. Allocates nothing.

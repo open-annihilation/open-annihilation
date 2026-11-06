@@ -73,7 +73,10 @@ const char* lobby_enhanced_start_problem(Lobby& lobby) noexcept {
     const auto host_version =
         netgame::presence_enhanced_mode_version(host_record.data(), host_record.size()).value_or(0);
     const auto host_hash = netgame::presence_sim_hash(host_record.data(), host_record.size());
+    const auto local = lobby.game->local_player_index;
     for (int32_t slot = 0; slot < kSlotCount; ++slot) {
+        if (host != local && slot != host && slot != local)
+            continue;
         if (!machine_seat(lobby, slot))
             continue;
         const auto record = machine_record(lobby, slot);

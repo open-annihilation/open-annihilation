@@ -192,6 +192,35 @@ void watchers_agree_and_computers_use_their_machine() {
     expect(mp::lobby_enhanced_allow_start(room.lobby), "local computer uses its machine's record");
 }
 
+void the_host_checks_every_machine_and_guests_check_the_host() {
+    Room guest(false);
+    guest.presence(0, record(1));
+    guest.presence(1, record(1));
+    guest.remote(2, 300);
+    expect(
+        mp::lobby_enhanced_allow_start(guest.lobby),
+        "a guest need not receive another guest's acknowledgment before starting"
+    );
+    guest.presence(0, record(0));
+    expect(
+        !mp::lobby_enhanced_allow_start(guest.lobby),
+        "the guest must still agree with its enhanced host"
+    );
+
+    Room host{};
+    host.presence(0, record(1));
+    host.presence(1, record(1));
+    host.remote(2, 300);
+    expect(
+        !mp::lobby_enhanced_allow_start(host.lobby),
+        "the host waits for every seated machine's acknowledgment"
+    );
+    host.presence(2, record(1));
+    expect(
+        mp::lobby_enhanced_allow_start(host.lobby), "the host can start once every machine agrees"
+    );
+}
+
 void malformed_presence_cannot_acknowledge() {
     Room room{};
     room.presence(0, record(1));
@@ -210,6 +239,7 @@ int main() {
     enhanced_rules_must_agree();
     guests_do_not_silently_adopt_another_mode();
     watchers_agree_and_computers_use_their_machine();
+    the_host_checks_every_machine_and_guests_check_the_host();
     malformed_presence_cannot_acknowledge();
     return failures == 0 ? 0 : 1;
 }
