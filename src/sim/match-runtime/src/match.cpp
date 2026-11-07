@@ -408,6 +408,12 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
             std::make_unique<uint8_t[]>(slots_.size() * sim::unit_movement::local_flow_head_bytes);
         enhanced_->local_flow_progress_bytes = std::make_unique<uint8_t[]>(slots_.size() * 4);
         sighting_query_.reserve(slots_.size());
+        for (size_t player = 0; player < seen_before_.size(); ++player) {
+            seen_before_[player] = std::make_unique<sim::detection::SightedUnit[]>(slots_.size());
+            seen_before_room_[player] = static_cast<uint32_t>(slots_.size());
+        }
+        seen_work_ = std::make_unique<sim::detection::SightedUnit[]>(3 * slots_.size());
+        seen_work_room_ = static_cast<uint32_t>(slots_.size());
     }
     target_projection_.resize(slots_.size());
     const auto sighting_capacity = static_cast<uint32_t>(slots_.size());
