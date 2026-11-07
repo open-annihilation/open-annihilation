@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "match_state.hpp"
+#include "enhanced_state.hpp"
 #include "oa/sim/ballistics.hpp"
 #include "oa/sim/weapon_execution/weapon_launch.hpp"
 #include <cstring>
@@ -396,6 +397,17 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     keep_rules(input);
     keep_repair_remainders();
     keep_unit_rules();
+    if (input.rules.setup.enhanced_mode.enabled && input.rules.setup.enhanced_mode.version >= 2) {
+        enhanced_ = std::make_unique<EnhancedState>();
+        enhanced_->unit_count = slots_.size();
+        enhanced_->target_query_slots = std::make_unique<uint16_t[]>(2 * slots_.size());
+        enhanced_->target_query_extras = std::make_unique<uint16_t[]>(slots_.size());
+        enhanced_->local_flow_heads =
+            std::make_unique<sim::unit_movement::LocalFlowHead[]>(slots_.size());
+        enhanced_->local_flow_save_bytes =
+            std::make_unique<uint8_t[]>(slots_.size() * sim::unit_movement::local_flow_head_bytes);
+        sighting_query_.reserve(slots_.size());
+    }
     target_projection_.resize(slots_.size());
     const auto sighting_capacity = static_cast<uint32_t>(slots_.size());
     // Each player's seen, radar and pad lists.
@@ -478,6 +490,75 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         static_cast<uint8_t>(input.visibility_flags & ~OA_VISIBILITY_FOG_MASK_CURRENT);
     spatial_.terrain_width = input.map.attribute_width;
     spatial_.terrain_height = input.map.attribute_height;
+    if (enhanced_) {
+        enhanced_->shared_routes = std::make_unique<sim::ground_orders::FlowCache>(
+            spatial_.terrain_width, spatial_.terrain_height
+        );
+        const bool routes_added = add_rule_state(
+            rule_state_,
+            {"shared-routes",
+             enhanced_.get(),
+             [](void* context) {
+                 return static_cast<EnhancedState*>(context)->shared_routes->state_bytes();
+             },
+             [](void* context, std::span<const uint8_t> bytes) {
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 if (!state.shared_routes->restore(bytes))
+                     return false;
+                 return true;
+             },
+             false}
+        );
+        const bool heads_added = add_rule_state(
+            rule_state_,
+            {"local-flow",
+             enhanced_.get(),
+             [](void* context) -> std::span<const uint8_t> {
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 std::span<uint8_t> bytes{
+                     state.local_flow_save_bytes.get(),
+                     state.unit_count * sim::unit_movement::local_flow_head_bytes
+                 };
+                 if (!sim::unit_movement::write_local_flow_heads(
+                         {state.local_flow_heads.get(), state.unit_count}, bytes
+                     ))
+                     return {};
+                 return bytes;
+             },
+             [](void* context, std::span<const uint8_t> bytes) {
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 return sim::unit_movement::read_local_flow_heads(
+                     {state.local_flow_heads.get(), state.unit_count}, bytes
+                 );
+             },
+             false}
+        );
+        const bool revision_added = add_rule_state(
+            rule_state_,
+            {"flow-map-version",
+             enhanced_.get(),
+             [](void* context) -> std::span<const uint8_t> {
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 for (size_t byte = 0; byte < state.shared_static_revision_bytes.size(); ++byte)
+                     state.shared_static_revision_bytes[byte] =
+                         static_cast<uint8_t>(state.shared_static_revision >> (byte * 8));
+                 return state.shared_static_revision_bytes;
+             },
+             [](void* context, std::span<const uint8_t> bytes) {
+                 if (bytes.size() != 4)
+                     return false;
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 state.shared_static_revision = 0;
+                 for (size_t byte = 0; byte < bytes.size(); ++byte)
+                     state.shared_static_revision |= static_cast<uint32_t>(bytes[byte])
+                                                     << (byte * 8);
+                 return true;
+             },
+             false}
+        );
+        if (!routes_added || !heads_added || !revision_added)
+            fault_.note("Enhanced navigation state could not be registered");
+    }
     spatial_.plots.resize(cells);
     spatial_.units = spatial_units_;
     spatial_.sea_level = state().game.sea_level;
@@ -583,6 +664,40 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     add_allied_sight_state();
 }
 
+Match::~Match() = default;
+
+void Match::invalidate_target_query_extras() noexcept {
+    if (enhanced_)
+        enhanced_->target_query_extras_valid = false;
+}
+
+EnhancedCounters Match::enhanced_counters() const noexcept {
+    if (!enhanced_)
+        return {};
+    auto result = enhanced_->counters;
+    const auto& local = enhanced_->local_flow_counters;
+    result.local_flow_probes = local.probes;
+    result.moving_blockers = local.moving_blockers;
+    result.steering_adjustments = local.steering_adjustments;
+    result.yielded_ticks = local.yielded_ticks;
+    result.blocked_ticks = local.blocked_ticks;
+    result.deferred_replans = local.deferred_replans;
+    if (enhanced_->shared_routes) {
+        const auto shared = enhanced_->shared_routes->counters();
+        result.shared_route_requests = shared.requests;
+        result.shared_route_hits = shared.hits;
+        result.shared_route_fields = shared.fields_started;
+        result.shared_route_cells = shared.cells_cleared + shared.cells_expanded;
+        result.shared_route_waits = shared.waits;
+        result.shared_route_invalidations = shared.invalidations;
+    }
+    return result;
+}
+
+const sim::unit_movement::LocalFlowHead* Match::local_flow_head(uint16_t unit) const noexcept {
+    return enhanced_ && unit < enhanced_->unit_count ? &enhanced_->local_flow_heads[unit] : nullptr;
+}
+
 void Match::note_wind(sim::world_environment::WindRefresh result) noexcept {
     switch (result) {
     case sim::world_environment::WindRefresh::random_out_of_range:
@@ -633,6 +748,7 @@ const RuntimeTypeFields& Match::unresolved_fields() noexcept {
 }
 
 sim::unit_spawn::Slot* Match::create(const sim::unit_spawn::Request& request, uint16_t builder) {
+    invalidate_target_query_extras();
     auto* slot = bridge_->create(request);
     report_created(slot, request.finished, builder);
     return slot;
@@ -647,6 +763,7 @@ sim::unit_spawn::StartResult Match::start_player(
     int32_t height,
     sim::unit_spawn::StartHost& host
 ) {
+    invalidate_target_query_extras();
     const auto started = bridge_->start_player(
         player, setup, markers, index, input_.viewpoint_player, width, height, host
     );
@@ -690,6 +807,8 @@ std::size_t Match::event_listener_count() const noexcept {
 }
 
 void Match::report_created(const sim::unit_spawn::Slot* slot, bool finished, uint16_t builder) {
+    if (enhanced_ && slot != nullptr && slot->unit_index < enhanced_->unit_count)
+        enhanced_->local_flow_heads[slot->unit_index] = {};
     if (slot == nullptr || slot->unit == nullptr)
         return;
     const auto unit = slot->unit_index;
@@ -1698,10 +1817,11 @@ uint64_t Match::fold_rule_state(uint64_t digest) const noexcept {
     std::span<const uint8_t> held{};
     if (input_.mutator_digest)
         held = *input_.mutator_digest;
-    if (rule_state_.count == 0 && held.empty())
+    const auto digested_count = digested_rule_state_count(rule_state_);
+    if (digested_count == 0 && held.empty())
         return digest;
     std::span<const uint8_t> profile_hash{};
-    if (rule_state_.count != 0 && input_.profile_sim_hash)
+    if (digested_count != 0 && input_.profile_sim_hash)
         profile_hash = *input_.profile_sim_hash;
     return digest_rule_state(digest, rule_state_, profile_hash, held);
 }

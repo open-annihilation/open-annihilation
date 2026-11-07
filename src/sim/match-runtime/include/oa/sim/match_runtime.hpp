@@ -46,7 +46,12 @@
 #include <span>
 #include <string>
 
+namespace oa::sim::unit_movement {
+struct LocalFlowHead;
+}
+
 namespace oa::sim::match_runtime {
+struct EnhancedCounters;
 class TickHost;
 class TargetHost;
 
@@ -572,8 +577,19 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     ///     must outlive the match.
     /// @param services Engine boundaries; must outlive the match.
     Match(const OfflineInputs& input, OfflineServices& services);
+    ~Match();
     Match(const Match&) = delete;
     Match& operator=(const Match&) = delete;
+
+    /// Returns cumulative Enhanced work counters, or zero outside preset v2.
+    [[nodiscard]] EnhancedCounters enhanced_counters() const noexcept;
+
+    /// Returns the effective local traffic route for network publication.
+    ///
+    /// @param unit unit slot
+    /// @return the v2 head, or null when this match has no local-flow storage
+    [[nodiscard]] const sim::unit_movement::LocalFlowHead*
+    local_flow_head(uint16_t unit) const noexcept;
 
     /// Returns the first broken invariant or refused input a match operation
     /// met since the last clear_fault.
@@ -3313,6 +3329,10 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // A query that meets one notes it too, which changes no match state.
     mutable MatchFault fault_;
     SpatialQueryCounters spatial_query_counters_{};
+    struct EnhancedState;
+    std::unique_ptr<EnhancedState> enhanced_{};
+    /// Invalidates the once-per-tick list before spawning or carrying a unit.
+    void invalidate_target_query_extras() noexcept;
     friend class TickHost;
     friend class WeaponTickHost;
     friend class TargetHost;
