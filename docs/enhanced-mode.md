@@ -213,14 +213,19 @@ the ordinary 60-tick retry interval; pending fields do not consume it.
 
 Static-map changes, including wrecks, retain useful fields and mark them
 dirty rather than discarding every frontier. Returned connections are
-checked against the current map. Completed dirty fields refresh one at a
+checked against the current map. Polling rotates the first active player
+each tick so one army cannot always consume the shared extraction budget.
+Completed dirty fields refresh one at a
 time, at 30-tick intervals, at least 60 ticks after completion. A route can
 skip its first coarse anchor when a bounded footprint check clears the
 connection to the next corner. Local passing also rejects an immediate
 sideways return that would undo a leg completed on that or the preceding
 tick, while allowing forward rejoining and a mature recovery to reverse.
 Completed inactive heads retain their completion tick; new routes clear
-that history. The saved head remains 27 bytes.
+that history. A shorter copy of an existing guide also leaves a mature
+passing head intact. The saved head remains 27 bytes. Traffic probes follow
+the movement controller's projected aim; passing directions retain the
+original route intent and bounded lookahead.
 
 Physical footprint results share a fixed 640 KiB scratch memo within one
 planner invocation. Each lookup still checks the requesting player's current
@@ -251,6 +256,29 @@ mirrored, arrived and restored goals. In its separate paired run, total
 thread CPU time at the two large death bursts falls from 45.181 to 26.368 ms
 at tick 147 and from 40.370 to 23.455 ms at tick 228. These are whole-tick CPU
 measurements, not rendered frame times or a whole-battle tail-latency claim.
+
+V2 now indexes owned orders and observer links in preallocated storage.
+Removed orders are destroyed immediately; empty ownership slots compact in
+stable creation order on a later operation tick. Full-capacity replacement
+retains a linear storage-reuse fallback. Certified observer links retain
+checks against their actual predecessor and target; unindexed records use
+the original checks. Off and v1 keep their original order handling.
+
+Separate native 20,000-unit fixtures on the same M5 compare common-target
+command and death bursts. Each pair retains its world digest and every
+non-timing activity field:
+
+| Operation | Before thread CPU | After thread CPU |
+| --- | --- | --- |
+| Death releases 9,674 attack orders | 383.183 ms | 20.635 ms |
+| Stop 10,000 units targeting a living enemy | 112.720 ms | 14.104 ms |
+| Retarget 10,000 units through the ordinary attack command | 132.131 ms | 23.775 ms |
+
+Death and Stop run for 600 ticks; Retarget runs for 90. These isolate order
+cleanup rather than whole-battle performance. External scheduling still
+causes occasional longer wall times: one 52.460 ms Stop-fixture tick used
+only 11.949 ms of thread CPU. The larger installed-map congestion remains
+unresolved in the hold-fire crossing workload.
 
 ## Remaining work
 
