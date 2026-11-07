@@ -26,8 +26,8 @@ namespace runtime = oa::sim::match_runtime;
 namespace routes = oa::sim::ground_orders;
 namespace flow = oa::sim::unit_movement;
 
-constexpr std::array<const char*, 4> navigation_tables{
-    "shared-routes", "local-flow", "flow-map-version", "flow-progress"
+constexpr std::array<const char*, 5> navigation_tables{
+    "shared-routes", "local-flow", "flow-map-version", "flow-progress", "shared-route-scan"
 };
 
 Options options_for(uint32_t version) {
@@ -118,6 +118,9 @@ void navigation_state_survives_restore() {
     source.match->simulation().tick = loaded.match->simulation().tick = 123;
     install_pending_field(*source.match);
     install_steering_state(*source.match, first.unit_index);
+    const auto& scan = table(*source.match, "shared-route-scan");
+    constexpr std::array<uint8_t, 5> scan_clock{1, 123, 0, 0, 0};
+    CHECK(scan.restore(scan.context, scan_clock));
     const auto expected_progress =
         source.match->ground_runtime(first.unit_index)->movement.last_motion_tick;
     CHECK(expected_progress == 114);
@@ -139,12 +142,12 @@ void navigation_state_survives_restore() {
     CHECK(head->points[1] == (std::array<int16_t, 2>{80, 80}));
 
     // A map change after the last field advance must remain pending after load.
-    // Both matches discard that old field on the next advance, rather than
-    // silently adopting its older revision as the current map version.
+    // Both matches retain the frontier and mark its routes for current-map
+    // validation, rather than discarding useful work or reverting the map.
     source.run(1);
     loaded.run(1);
-    CHECK(source.match->enhanced_counters().shared_route_invalidations == 1);
-    CHECK(loaded.match->enhanced_counters().shared_route_invalidations == 1);
+    CHECK(source.match->enhanced_counters().shared_route_invalidations == 0);
+    CHECK(loaded.match->enhanced_counters().shared_route_invalidations == 0);
     CHECK(!source.match->local_flow_head(first.unit_index)->active);
     CHECK(!loaded.match->local_flow_head(second.unit_index)->active);
     for (size_t at = 0; at < navigation_tables.size(); ++at)
@@ -181,10 +184,29 @@ void malformed_state_is_rejected_atomically() {
     malformed[unit.unit_index * flow::local_flow_head_bytes + 24] = 1;
     CHECK(!steering.restore(steering.context, malformed));
     CHECK(bytes_of(steering) == valid);
+
+    const auto& scan = table(*fixture.match, "shared-route-scan");
+    constexpr std::array<uint8_t, 5> scanned{1, 0x78, 0x56, 0x34, 0x12};
+    CHECK(scan.restore(scan.context, scanned));
+    const auto saved_scan = bytes_of(scan);
+    CHECK(saved_scan == std::vector<uint8_t>(scanned.begin(), scanned.end()));
+    auto malformed_scan = scanned;
+    malformed_scan[0] = 2;
+    CHECK(!scan.restore(scan.context, malformed_scan));
+    CHECK(bytes_of(scan) == saved_scan);
+    malformed_scan[0] = 0;
+    CHECK(!scan.restore(scan.context, malformed_scan));
+    CHECK(bytes_of(scan) == saved_scan);
+    constexpr std::array<uint8_t, 6> oversized_scan{1, 0, 0, 0, 0, 0};
+    CHECK(!scan.restore(scan.context, oversized_scan));
+    CHECK(bytes_of(scan) == saved_scan);
+    constexpr std::array<uint8_t, 5> unscanned{};
+    CHECK(scan.restore(scan.context, unscanned));
+    CHECK(bytes_of(scan) == std::vector<uint8_t>(unscanned.begin(), unscanned.end()));
 }
 
 /// Rebuilds the fixture with one real, permissive ground movement class.
-void configure_movement_class(Fixture& fixture) {
+void configure_movement_class(Fixture& fixture, uint16_t per_player_limit = 4) {
     fixture.match.reset();
     fixture.fields[1].movement_class = 1;
     fixture.metadata.footprint_x = fixture.metadata.footprint_z = 1;
@@ -203,7 +225,7 @@ void configure_movement_class(Fixture& fixture) {
         fixture.masks,
         sight_width,
         sight_height,
-        4,
+        per_player_limit,
         2,
         0,
         30,
@@ -230,6 +252,120 @@ void configure_movement_class(Fixture& fixture) {
     }
     CHECK(fixture.match->fault() == nullptr);
     CHECK(fixture.match->movement_map(1) != nullptr);
+}
+
+/// Installs an admitted field before or after its first expansion tick.
+void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, bool pending) {
+    routes::FlowCache cache(16, 16);
+    const routes::FlowSampler sampler{
+        nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+            return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
+        }
+    };
+    const auto* ground = match.ground_runtime(unit);
+    CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+    const routes::FlowContext context{0, 0, 0, 0, 1, 1};
+    std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+    uint32_t count{};
+    cache.advance(pending ? tick : tick - 2, 0, sampler);
+    CHECK(
+        cache.route(
+            context, match.state().units[unit], *ground->navigation.goal, points, count, sampler
+        ) == routes::FlowResult::fallback
+    );
+    CHECK(
+        cache.route(
+            context, match.state().units[unit], *ground->navigation.goal, points, count, sampler
+        ) == routes::FlowResult::pending
+    );
+    if (!pending) {
+        cache.advance(tick - 1, 0, sampler);
+        CHECK(
+            cache.route(
+                context, match.state().units[unit], *ground->navigation.goal, points, count, sampler
+            ) == routes::FlowResult::ready
+        );
+    }
+    const auto& shared = table(match, "shared-routes");
+    CHECK(shared.restore(shared.context, cache.state_bytes()));
+    const auto& revision = table(match, "flow-map-version");
+    constexpr std::array<uint8_t, 4> current_revision{};
+    CHECK(revision.restore(revision.context, current_revision));
+}
+
+/// Serves shared routes without waiting for a full-search cursor or its budget.
+void shared_poll_progresses_without_legacy_credit() {
+    constexpr uint16_t player_units = 1024;
+    constexpr uint32_t request_tick = 120;
+    for (const bool pending : {false, true}) {
+        auto options = options_for(2);
+        options.per_player_limit = player_units;
+        Fixture fixture(options);
+        configure_movement_class(fixture, player_units);
+        auto& match = *fixture.match;
+        auto& unit = fixture.spawn(0, 64, 64);
+        CHECK(!match.order_refused(
+            match.issue_ground_move(unit.unit_index, {200 << 16, 0, 64 << 16}, false)
+        ));
+        fixture.run(1);
+        CHECK(match.simulation().players[0].units.size() == player_units);
+        CHECK(match.simulation().players[1].units.size() == player_units);
+        auto* ground = match.ground_runtime(unit.unit_index);
+        CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+        install_poll_field(match, unit.unit_index, request_tick, pending);
+        match.simulation().tick = request_tick;
+        auto& jobs = match.path_search_jobs();
+        jobs.tick_credit = 0;
+        jobs.credit.fill(0);
+        constexpr uint32_t distant_cursor = 900;
+        jobs.unit_cursor[0] = jobs.unit_cursor[1] = distant_cursor;
+        ground->navigation.count = 0;
+        ground->navigation.flags = routes::search_pending_flag;
+        ground->navigation.last_search_tick = 0;
+
+        const auto before = match.enhanced_counters();
+        match.advance_path_search();
+        CHECK(match.fault() == nullptr);
+        const auto first = match.enhanced_counters();
+        CHECK(first.shared_route_requests == before.shared_route_requests + 1);
+        CHECK(first.full_route_searches == before.full_route_searches);
+        CHECK(jobs.unit_cursor[0] == distant_cursor && jobs.unit_cursor[1] == distant_cursor);
+        if (pending) {
+            CHECK(first.shared_route_waits == before.shared_route_waits + 1);
+            CHECK(ground->navigation.count == 0);
+        } else {
+            CHECK(first.shared_route_hits == before.shared_route_hits + 1);
+            CHECK(ground->navigation.count >= 2);
+        }
+        const auto& scan = table(match, "shared-route-scan");
+        constexpr std::array<uint8_t, 5> scanned{1, request_tick, 0, 0, 0};
+        CHECK(bytes_of(scan) == std::vector<uint8_t>(scanned.begin(), scanned.end()));
+
+        // Re-arm the request after a ready result too: this call must be
+        // stopped by the saved per-tick scan clock, rather than by its route.
+        ground->navigation.count = 0;
+        ground->navigation.flags = routes::search_pending_flag;
+        ground->navigation.last_search_tick = 0;
+        match.advance_path_search();
+        CHECK(match.enhanced_counters().shared_route_requests == first.shared_route_requests);
+        CHECK(ground->navigation.count == 0);
+
+        // With two active players the bounded scan visits 512 slots per
+        // player. This next tick covers the other half of each 1024-slot pool.
+        match.simulation().tick = request_tick + 1;
+        match.advance_path_search();
+        CHECK(match.enhanced_counters().shared_route_requests == first.shared_route_requests);
+        CHECK(ground->navigation.count == 0);
+
+        match.simulation().tick = request_tick + 2;
+        match.advance_path_search();
+        const auto delivered = match.enhanced_counters();
+        CHECK(delivered.shared_route_requests == first.shared_route_requests + 1);
+        CHECK(delivered.shared_route_hits == first.shared_route_hits + 1);
+        CHECK(delivered.full_route_searches == before.full_route_searches);
+        CHECK(ground->navigation.count >= 2);
+        CHECK(jobs.unit_cursor[0] == distant_cursor && jobs.unit_cursor[1] == distant_cursor);
+    }
 }
 
 /// A long mobile blockage must escape a ready field that ignores traffic.
@@ -579,6 +715,7 @@ int main() {
         version_one_and_off_keep_no_flow_state();
         navigation_state_survives_restore();
         malformed_state_is_rejected_atomically();
+        shared_poll_progresses_without_legacy_credit();
         sustained_blockage_bypasses_shared_routes();
         static_barrier_keeps_shared_route_access();
         accepted_routes_release_old_traffic_heads();
