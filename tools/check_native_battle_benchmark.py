@@ -38,7 +38,7 @@ def require(condition, message, process=None):
     raise SystemExit(message)
 
 
-def valid_report(process, report, scenario, enabled, ticks=12):
+def valid_report(process, report, scenario, enabled, ticks=12, version=None):
     """Check completion, population, rules metadata and ordered tick statistics."""
     require(process.returncode == 0 and report is not None, "benchmark failed", process)
     require(report["schema_version"] == 1 and report["completed"] and not report["error"],
@@ -49,14 +49,17 @@ def valid_report(process, report, scenario, enabled, ticks=12):
             "benchmark did not place the requested armies")
     require(report["successful_warmup_ticks"] == 3 and report["successful_ticks"] == ticks,
             "benchmark did not run every requested tick")
-    require(report["enhanced_mode"] is enabled and report["enhanced_version"] == int(enabled),
+    require(report["enhanced_mode"] is enabled and
+            (report["enhanced_version"] > 0 if enabled else report["enhanced_version"] == 0),
             "benchmark did not record its Enhanced rules")
+    if version is not None:
+        require(report["enhanced_version"] == version, "benchmark selected the wrong rules version")
     require(report["renderer"] == "none", "simulation-only benchmark named a drawn renderer")
     require(len(report["simulation_hash"]) == 64 and len(report["world_digest"]) == 16,
             "benchmark lacks its reproducibility digests")
     require(report["activity_sampling_scope"] == "after_each_successful_warmup_and_measured_tick",
             "benchmark did not state when activity is sampled")
-    if scenario in ("idle", "march"):
+    if scenario in ("idle", "march", "group-march"):
         require(report["projectile_high_water"] == 0,
                 "noncombat workload fired a projectile")
     stats = report["tick_ns"]
@@ -113,6 +116,48 @@ def main():
             else:
                 require(report["projectile_high_water"] > 0 or report["damaged_unit_ticks"] > 0,
                         "combat fixture did not fire or damage units")
+        group_reference = None
+        work_keys = ("shared_route_requests", "shared_route_hits", "shared_route_fields",
+                     "shared_route_cells", "shared_route_waits", "shared_route_invalidations",
+                     "local_flow_probes", "local_flow_moving_blockers",
+                     "local_flow_steering_adjustments", "local_flow_yielded_ticks",
+                     "local_flow_blocked_ticks", "local_flow_deferred_replans")
+        for version in (1, 2, 2):
+            name = f"group-{version}-{'repeat' if group_reference else 'first'}"
+            process, report = play(native, game_dir, workdir, name,
+                                   ("--enhanced-mode", "--benchmark-rules-version", str(version),
+                                    "--benchmark-scenario", "group-march", "--benchmark-map",
+                                    "Ashap Plateau", "--match-ticks", "120"))
+            valid_report(process, report, "group-march", True, ticks=120, version=version)
+            require(report["goal_metrics_available"] and len(report["goal_progress"]) == 2,
+                    "group movement lacks per-army progress")
+            require(report["damaged_unit_ticks"] == 0, "hold-fire group movement damaged a unit")
+            require(report["routing_metrics_scope"] == "cumulative_setup_warmup_and_measured",
+                    "route work did not state its sampling scope")
+            for side in report["goal_progress"]:
+                require(side["goal_units"] == 24 and side["live_units"] == 24,
+                        "group movement lost an assigned unit")
+                require(side["moved_units"] >= 2 and side["progressed_units"] >= 2,
+                        "group activity could be explained by one moving or jittering unit")
+                require(sum(third["goal_units"] for third in side["distance_thirds"]) == 24,
+                        "group movement lost its trip-distance fairness bins")
+            if version == 1:
+                require(report["shared_route_hits"] == 0 and report["local_flow_probes"] == 0,
+                        "v1 acquired the new routing or local-flow behavior")
+                continue
+            require(report["shared_route_hits"] > 0 and 0 < report["shared_route_fields"] < 48,
+                    "v2 group movement did not share route construction")
+            if group_reference:
+                require(report["world_digest"] == group_reference["world_digest"] and
+                        report["simulation_hash"] == group_reference["simulation_hash"] and
+                        report["goal_progress"] == group_reference["goal_progress"] and
+                        all(report[key] == group_reference[key] for key in work_keys),
+                        "seeded v2 group movement or work counts changed on repeat")
+            group_reference = report
+        process, report = play(native, game_dir, workdir, "version-with-mode-off",
+                               ("--no-enhanced-mode", "--benchmark-rules-version", "1"))
+        require(process.returncode != 0 and report is not None and not report["completed"],
+                "an explicit Enhanced preset silently enabled the mode", process)
         invalid_path = workdir / "capacity.json"
         process, report = play(native, game_dir, workdir, "capacity",
                                ("--no-enhanced-mode", "--benchmark-units", "10000"), invalid_path)
@@ -126,7 +171,7 @@ def main():
         require(process.returncode != 0 and report is not None and
                 report["completed"] is False and report["error"] and report["successful_ticks"] == 0,
                 "failed setup left a stale successful report", process)
-    print("battle benchmark: seeded workloads, mode metadata, graphics independence and failures checked")
+    print("battle benchmark: seeded workloads, group flow, preset versions, graphics independence and failures checked")
 
 
 if __name__ == "__main__":

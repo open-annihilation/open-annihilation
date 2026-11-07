@@ -7,8 +7,10 @@
 #include <cmath>
 #include <iomanip>
 #include <locale>
+#include <numeric>
 #include <sstream>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 namespace oa::app::battle_benchmark {
@@ -21,6 +23,8 @@ constexpr std::size_t median_percentile = 50;
 constexpr std::size_t tail_percentile = 95;
 constexpr std::size_t slow_percentile = 99;
 constexpr int double_decimal_digits = 17;
+constexpr int32_t map_cell_pixels = 16;
+constexpr int32_t half_map_cell_pixels = map_cell_pixels / 2;
 
 struct Grid {
     uint64_t front_left{};
@@ -95,6 +99,36 @@ void json_timing(std::ostream& out, const Timing& timing) {
     out << '}';
 }
 
+/// Measures whole-pixel Manhattan distance without overflowing signed coordinates.
+uint64_t distance(Point a, Point b) {
+    const auto x = static_cast<int64_t>(a.x) - b.x;
+    const auto z = static_cast<int64_t>(a.z) - b.z;
+    return static_cast<uint64_t>(x < 0 ? -x : x) + static_cast<uint64_t>(z < 0 ? -z : z);
+}
+
+/// Writes progress for one army, including its initial-distance thirds.
+void json_progress(std::ostream& out, const ProgressSummary& progress) {
+    out << "{\"goal_units\": " << progress.goal_units << ", \"live_units\": " << progress.live_units
+        << ", \"moved_units\": " << progress.moved_units
+        << ", \"progressed_units\": " << progress.progressed_units
+        << ", \"arrived_units\": " << progress.arrived_units
+        << ", \"stationary_unit_ticks\": " << progress.stationary_unit_ticks
+        << ", \"longest_stall_ticks\": " << progress.longest_stall_ticks
+        << ", \"initial_goal_distance_pixels\": " << progress.initial_goal_distance_pixels
+        << ", \"final_goal_distance_pixels\": " << progress.final_goal_distance_pixels
+        << ", \"distance_thirds\": [";
+    bool first = true;
+    for (const auto& third : progress.distance_thirds) {
+        if (!first)
+            out << ", ";
+        out << "{\"goal_units\": " << third.goal_units
+            << ", \"progressed_units\": " << third.progressed_units
+            << ", \"arrived_units\": " << third.arrived_units << '}';
+        first = false;
+    }
+    out << "]}";
+}
+
 } // namespace
 
 std::size_t maximum_layout_units(
@@ -142,6 +176,174 @@ LayoutResult plan_layout(
         layout.armies[1].push_back({static_cast<int32_t>(grid->front_right + distance), z});
     }
     return {std::move(layout), {}};
+}
+
+LayoutResult plan_group_arrivals(uint32_t width, uint32_t height, std::size_t per_side) {
+    if (per_side > maximum_layout_candidates)
+        return {{}, "arrival placement exceeds the supported candidate capacity"};
+    const auto available = maximum_layout_units(width, height, arrival_spacing);
+    if (per_side > available)
+        return {{}, "map cannot hold the arrival candidates"};
+    if (per_side == 0)
+        return plan_layout(width, height, 0, arrival_spacing);
+    auto result = plan_layout(width, height, available, arrival_spacing);
+    if (!result.layout)
+        return result;
+    std::swap(result.layout->armies[0], result.layout->armies[1]);
+    const auto middle_region = static_cast<int32_t>(height / 2 / shared_goal_region_pixels);
+    for (uint8_t side = 0; side < result.layout->armies.size(); ++side) {
+        auto& points = result.layout->armies[side];
+        const auto key = [&](Point point) {
+            const auto region_x = point.x / static_cast<int32_t>(shared_goal_region_pixels);
+            const auto region_z = point.z / static_cast<int32_t>(shared_goal_region_pixels);
+            const auto from_middle = region_z - middle_region;
+            return std::tuple{
+                side == 0 ? region_x : -region_x,
+                from_middle < 0 ? -from_middle : from_middle,
+                region_z,
+                side == 0 ? point.x : -point.x,
+                point.z
+            };
+        };
+        std::stable_sort(points.begin(), points.end(), [&](Point a, Point b) {
+            return key(a) < key(b);
+        });
+        points.resize(per_side);
+    }
+    return result;
+}
+
+LayoutResult select_arrivals(
+    uint32_t width,
+    uint32_t height,
+    const Layout& candidates,
+    const std::array<std::span<const Footprint>, 2>& footprints,
+    ArrivalAccess access
+) {
+    if (width == 0 || height == 0 || width > maximum_map_extent || height > maximum_map_extent)
+        return {{}, "arrival map dimensions are invalid"};
+    const auto columns = (static_cast<std::size_t>(width) + map_cell_pixels - 1) / map_cell_pixels;
+    const auto rows = (static_cast<std::size_t>(height) + map_cell_pixels - 1) / map_cell_pixels;
+    const auto cells = columns * rows;
+    uint64_t needed_cells = 0;
+    for (std::size_t side = 0; side < footprints.size(); ++side) {
+        const auto army = footprints[side];
+        if (candidates.armies[side].size() > maximum_layout_candidates)
+            return {{}, "arrival candidates exceed the supported capacity"};
+        if (army.size() > maximum_units_per_side)
+            return {{}, "arrival army exceeds the supported population"};
+        for (const auto footprint : army) {
+            if (footprint.x == 0 || footprint.z == 0 || footprint.x > columns || footprint.z > rows)
+                return {{}, "arrival footprint is invalid"};
+            needed_cells += static_cast<uint64_t>(footprint.x) * footprint.z;
+        }
+    }
+    if (needed_cells > cells)
+        return {{}, "map cannot hold the arrival footprints"};
+    std::vector<uint8_t> reserved(cells);
+    Layout layout;
+    for (uint8_t side = 0; side < layout.armies.size(); ++side) {
+        auto& selected = layout.armies[side];
+        selected.reserve(footprints[side].size());
+        for (const auto point : candidates.armies[side]) {
+            if (selected.size() == footprints[side].size())
+                break;
+            const auto footprint = footprints[side][selected.size()];
+            const auto left_pixels = static_cast<int64_t>(point.x) + half_map_cell_pixels -
+                                     static_cast<int64_t>(footprint.x) * half_map_cell_pixels;
+            const auto top_pixels = static_cast<int64_t>(point.z) + half_map_cell_pixels -
+                                    static_cast<int64_t>(footprint.z) * half_map_cell_pixels;
+            if (point.x < 0 || point.z < 0 || static_cast<uint32_t>(point.x) >= width ||
+                static_cast<uint32_t>(point.z) >= height || left_pixels < 0 || top_pixels < 0)
+                continue;
+            const auto left = static_cast<std::size_t>(left_pixels / map_cell_pixels);
+            const auto top = static_cast<std::size_t>(top_pixels / map_cell_pixels);
+            if ((left + footprint.x) * map_cell_pixels > width ||
+                (top + footprint.z) * map_cell_pixels > height)
+                continue;
+            bool clear = true;
+            for (std::size_t z = top; clear && z < top + footprint.z; ++z)
+                for (std::size_t x = left; x < left + footprint.x; ++x)
+                    if (reserved[z * columns + x] != 0) {
+                        clear = false;
+                        break;
+                    }
+            if (!clear || (access.can_stand != nullptr &&
+                           !access.can_stand(access.context, side, selected.size(), point)))
+                continue;
+            for (std::size_t z = top; z < top + footprint.z; ++z)
+                for (std::size_t x = left; x < left + footprint.x; ++x)
+                    reserved[z * columns + x] = 1;
+            selected.push_back(point);
+        }
+        if (selected.size() != footprints[side].size())
+            return {
+                {},
+                "map has too few distinct clear arrival footprints for side " + std::to_string(side)
+            };
+    }
+    return {std::move(layout), {}};
+}
+
+ProgressState
+begin_progress(Point start, Point goal, uint32_t progress_distance, uint32_t arrival_distance) {
+    ProgressState state;
+    state.start = state.previous = start;
+    state.goal = goal;
+    state.initial_distance = state.best_distance = distance(start, goal);
+    state.progress_distance = std::max<uint32_t>(1, progress_distance);
+    state.arrival_distance = std::max<uint32_t>(1, arrival_distance);
+    state.arrived = state.initial_distance <= state.arrival_distance;
+    return state;
+}
+
+void sample_progress(ProgressState& state, Point position, bool live) {
+    state.live = live;
+    if (!live) {
+        state.stationary_run = 0;
+        return;
+    }
+    const auto remaining = distance(position, state.goal);
+    state.best_distance = std::min(state.best_distance, remaining);
+    state.arrived = remaining <= state.arrival_distance;
+    state.moved |= distance(position, state.start) >= state.progress_distance;
+    if (!state.arrived && position == state.previous) {
+        ++state.stationary_ticks;
+        ++state.stationary_run;
+        state.longest_stall = std::max(state.longest_stall, state.stationary_run);
+    } else
+        state.stationary_run = 0;
+    state.previous = position;
+}
+
+ProgressSummary summarize_progress(std::span<const ProgressState> states) {
+    ProgressSummary summary;
+    std::vector<std::size_t> order(states.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        return states[a].initial_distance < states[b].initial_distance;
+    });
+    for (std::size_t rank = 0; rank < order.size(); ++rank) {
+        const auto& state = states[order[rank]];
+        const bool progressed =
+            state.best_distance < state.initial_distance &&
+            state.initial_distance - state.best_distance >= state.progress_distance;
+        const bool arrived = state.live && state.arrived;
+        ++summary.goal_units;
+        summary.live_units += state.live;
+        summary.moved_units += state.moved;
+        summary.progressed_units += progressed;
+        summary.arrived_units += arrived;
+        summary.stationary_unit_ticks += state.stationary_ticks;
+        summary.longest_stall_ticks = std::max(summary.longest_stall_ticks, state.longest_stall);
+        summary.initial_goal_distance_pixels += state.initial_distance;
+        summary.final_goal_distance_pixels += distance(state.previous, state.goal);
+        auto& third = summary.distance_thirds[rank * summary.distance_thirds.size() / order.size()];
+        ++third.goal_units;
+        third.progressed_units += progressed;
+        third.arrived_units += arrived;
+    }
+    return summary;
 }
 
 Timing summarize(std::span<const uint64_t> samples) {
@@ -202,6 +404,26 @@ std::string report_json(const Report& report) {
     number("projected_slots", report.projected_slots);
     number("bucket_queries", report.bucket_queries);
     number("bucket_candidates", report.bucket_candidates);
+    number("shared_route_requests", report.shared_route_requests);
+    number("shared_route_hits", report.shared_route_hits);
+    number("shared_route_fields", report.shared_route_fields);
+    number("shared_route_cells", report.shared_route_cells);
+    number("shared_route_waits", report.shared_route_waits);
+    number("shared_route_invalidations", report.shared_route_invalidations);
+    number("local_flow_probes", report.local_flow_probes);
+    number("local_flow_moving_blockers", report.local_flow_moving_blockers);
+    number("local_flow_steering_adjustments", report.local_flow_steering_adjustments);
+    number("local_flow_yielded_ticks", report.local_flow_yielded_ticks);
+    number("local_flow_blocked_ticks", report.local_flow_blocked_ticks);
+    number("local_flow_deferred_replans", report.local_flow_deferred_replans);
+    text("routing_metrics_scope", report.routing_metrics_scope);
+    out << ",\n  \"goal_metrics_available\": "
+        << (report.goal_metrics_available ? "true" : "false");
+    out << ",\n  \"goal_progress\": [";
+    json_progress(out, report.goal_progress[0]);
+    out << ", ";
+    json_progress(out, report.goal_progress[1]);
+    out << ']';
     out << ",\n  \"activity_observed\": " << (report.activity_observed ? "true" : "false");
     text("activity_sampling_scope", report.activity_sampling_scope);
     out << ",\n  \"enhanced_mode\": " << (report.enhanced_mode ? "true" : "false");

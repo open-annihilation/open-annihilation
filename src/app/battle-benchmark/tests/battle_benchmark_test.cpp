@@ -111,6 +111,152 @@ void layouts() {
         );
 }
 
+/// Checks shared destination patches, static rejection and real footprint reservations.
+void group_arrivals() {
+    constexpr uint32_t width = 8192, height = 8192;
+    const auto small = benchmark::plan_group_arrivals(width, height, 128);
+    CHECK(small.layout.has_value());
+    if (!small.layout)
+        return;
+    for (uint8_t side = 0; side < 2; ++side) {
+        const auto& points = small.layout->armies[side];
+        CHECK(points.size() == 128);
+        const auto region_x = points.front().x / benchmark::shared_goal_region_pixels;
+        const auto region_z = points.front().z / benchmark::shared_goal_region_pixels;
+        for (const auto point : points) {
+            CHECK(point.x / benchmark::shared_goal_region_pixels == region_x);
+            CHECK(point.z / benchmark::shared_goal_region_pixels == region_z);
+            CHECK(
+                side == 0 ? point.x > static_cast<int32_t>(width / 2)
+                          : point.x < static_cast<int32_t>(width / 2)
+            );
+        }
+    }
+    CHECK(
+        small.layout->armies == benchmark::plan_group_arrivals(width, height, 128).layout->armies
+    );
+    CHECK(!benchmark::plan_group_arrivals(256, 256, 1000).layout);
+    CHECK(!benchmark::plan_group_arrivals(UINT32_MAX, height, 1).layout);
+    CHECK(!benchmark::plan_group_arrivals(width, height, benchmark::maximum_layout_candidates + 1)
+               .layout);
+    CHECK(benchmark::plan_group_arrivals(width, height, 0).layout.has_value());
+
+    const auto available =
+        benchmark::maximum_layout_units(width, height, benchmark::arrival_spacing);
+    const auto candidates = benchmark::plan_group_arrivals(width, height, available);
+    CHECK(candidates.layout.has_value());
+    if (!candidates.layout)
+        return;
+    std::array<std::vector<benchmark::Footprint>, 2> footprints;
+    for (auto& army : footprints) {
+        army.resize(benchmark::maximum_units_per_side);
+        army.front() = {2, 2}; // the commander occupies four cells rather than one
+    }
+
+    struct Terrain {
+        std::size_t rejections{};
+
+        static bool can_stand(void* context, uint8_t, std::size_t unit, benchmark::Point point) {
+            auto& terrain = *static_cast<Terrain*>(context);
+            const bool clear =
+                (point.x / 16 + point.z / 16) % 7 != 0 && (unit != 0 || point.z % 32 == 0);
+            terrain.rejections += !clear;
+            return clear;
+        }
+    } terrain;
+
+    const std::array<std::span<const benchmark::Footprint>, 2> spans{footprints[0], footprints[1]};
+    const auto result = benchmark::select_arrivals(
+        width, height, *candidates.layout, spans, {&terrain, Terrain::can_stand}
+    );
+    CHECK(result.layout.has_value());
+    CHECK(terrain.rejections > 0);
+    if (!result.layout)
+        return;
+    std::set<std::pair<int32_t, int32_t>> occupied;
+    for (uint8_t side = 0; side < 2; ++side) {
+        CHECK(result.layout->armies[side].size() == benchmark::maximum_units_per_side);
+        for (std::size_t unit = 0; unit < footprints[side].size(); ++unit) {
+            const auto point = result.layout->armies[side][unit];
+            const auto footprint = footprints[side][unit];
+            CHECK(Terrain::can_stand(&terrain, side, unit, point));
+            const auto left = (point.x + 8 - footprint.x * 8) / 16;
+            const auto top = (point.z + 8 - footprint.z * 8) / 16;
+            for (int32_t z = top; z < top + footprint.z; ++z)
+                for (int32_t x = left; x < left + footprint.x; ++x) {
+                    CHECK(
+                        x >= 0 && z >= 0 && x * 16 < static_cast<int32_t>(width) &&
+                        z * 16 < static_cast<int32_t>(height)
+                    );
+                    CHECK(occupied.emplace(x, z).second);
+                }
+        }
+    }
+    CHECK(occupied.size() == benchmark::maximum_units_per_side * 2 + 6);
+
+    benchmark::Layout duplicate;
+    duplicate.armies[0] = {{64, 64}};
+    duplicate.armies[1] = {{64, 64}};
+    const std::array<benchmark::Footprint, 1> one{{{1, 1}}};
+    const std::array<std::span<const benchmark::Footprint>, 2> ones{one, one};
+    CHECK(!benchmark::select_arrivals(256, 256, duplicate, ones).layout);
+    duplicate.armies[1] = {{-1, 64}, {256, 256}, {192, 192}};
+    CHECK(benchmark::select_arrivals(256, 256, duplicate, ones).layout.has_value());
+    const std::array<benchmark::Footprint, 1> zero{{{0, 1}}};
+    CHECK(!benchmark::select_arrivals(256, 256, duplicate, {zero, one}).layout);
+    CHECK(!benchmark::select_arrivals(UINT32_MAX, 256, duplicate, ones).layout);
+    CHECK(!benchmark::select_arrivals(
+               256,
+               256,
+               duplicate,
+               ones,
+               {nullptr, [](void*, uint8_t, std::size_t, benchmark::Point) { return false; }}
+    ).layout);
+    CHECK(benchmark::select_arrivals(256, 256, duplicate, {}).layout.has_value());
+}
+
+/// Checks that one jittering unit cannot stand in for an army making progress.
+void progress() {
+    auto still = benchmark::begin_progress({0, 0}, {100, 0});
+    for (int tick = 0; tick < 4; ++tick)
+        benchmark::sample_progress(still, {0, 0}, true);
+    CHECK(still.stationary_ticks == 4 && still.longest_stall == 4);
+    benchmark::sample_progress(still, {1, 0}, true);
+    benchmark::sample_progress(still, {0, 0}, true);
+    CHECK(
+        !still.moved && benchmark::summarize_progress(std::span{&still, 1}).progressed_units == 0
+    );
+    benchmark::sample_progress(still, {-32, 0}, true); // a necessary detour can initially move away
+    CHECK(still.moved && still.best_distance == 99);
+    benchmark::sample_progress(still, {32, 0}, true);
+    benchmark::sample_progress(still, {0, 0}, true);
+    const auto detour = benchmark::summarize_progress(std::span{&still, 1});
+    CHECK(detour.progressed_units == 1 && detour.final_goal_distance_pixels == 100);
+
+    std::array<benchmark::ProgressState, 6> army;
+    for (std::size_t index = 0; index < army.size(); ++index) {
+        army[index] =
+            benchmark::begin_progress({0, 0}, {static_cast<int32_t>((index + 1) * 30), 0});
+        benchmark::sample_progress(army[index], {index % 2 == 0 ? 32 : 0, 0}, true);
+    }
+    const auto summary = benchmark::summarize_progress(army);
+    CHECK(summary.goal_units == 6 && summary.live_units == 6);
+    CHECK(summary.moved_units == 3 && summary.progressed_units == 3 && summary.arrived_units == 1);
+    CHECK(summary.stationary_unit_ticks == 3 && summary.longest_stall_ticks == 1);
+    CHECK(summary.initial_goal_distance_pixels == 630 && summary.final_goal_distance_pixels == 538);
+    for (const auto& third : summary.distance_thirds)
+        CHECK(third.goal_units == 2 && third.progressed_units == 1);
+    CHECK(summary.distance_thirds[0].arrived_units == 1);
+    benchmark::sample_progress(army[0], {0, 0}, false);
+    CHECK(benchmark::summarize_progress(army).arrived_units == 0);
+    CHECK(benchmark::summarize_progress({}).goal_units == 0);
+
+    auto extreme = benchmark::begin_progress({INT32_MIN, INT32_MIN}, {INT32_MAX, INT32_MAX});
+    CHECK(extreme.initial_distance == uint64_t{UINT32_MAX} * 2);
+    benchmark::sample_progress(extreme, {INT32_MAX, INT32_MAX}, true);
+    CHECK(extreme.arrived && extreme.moved);
+}
+
 /// Gives the global locale a decimal comma to check JSON number formatting.
 class DecimalComma : public std::numpunct<char> {
   protected:
@@ -146,6 +292,13 @@ void reports() {
     report.projected_slots = 6000000;
     report.bucket_queries = 2000;
     report.bucket_candidates = 4000;
+    report.shared_route_requests = 48;
+    report.shared_route_hits = 40;
+    report.shared_route_fields = 4;
+    report.local_flow_blocked_ticks = 6;
+    report.goal_metrics_available = true;
+    report.goal_progress[0].goal_units = 24;
+    report.goal_progress[0].progressed_units = 23;
     report.activity_observed = true;
     report.enhanced_mode = true;
     report.enhanced_version = 1;
@@ -181,6 +334,12 @@ void reports() {
     CHECK(json.find("\"projected_slots\": 6000000") != std::string::npos);
     CHECK(json.find("\"bucket_queries\": 2000") != std::string::npos);
     CHECK(json.find("\"bucket_candidates\": 4000") != std::string::npos);
+    CHECK(json.find("\"shared_route_requests\": 48") != std::string::npos);
+    CHECK(json.find("\"shared_route_hits\": 40") != std::string::npos);
+    CHECK(json.find("\"local_flow_blocked_ticks\": 6") != std::string::npos);
+    CHECK(json.find("\"goal_metrics_available\": true") != std::string::npos);
+    CHECK(json.find("\"goal_progress\": [{\"goal_units\": 24") != std::string::npos);
+    CHECK(json.find("cumulative_setup_warmup_and_measured") != std::string::npos);
     CHECK(json.find("\"activity_observed\": true") != std::string::npos);
     CHECK(json.find("after_each_successful_warmup_and_measured_tick") != std::string::npos);
     report.completed = false;
@@ -199,6 +358,8 @@ void reports() {
 int main() {
     timings();
     layouts();
+    group_arrivals();
+    progress();
     reports();
     return failures == 0 ? 0 : 1;
 }

@@ -1732,9 +1732,10 @@ independent graphics setting.
 | Option | Meaning | Default |
 |---|---|---|
 | `--benchmark-units N` | Initial units per side, including one commander | 128 |
-| `--benchmark-scenario idle\|march\|combat` | Hold fire, opposing cross-map moves, or explicit attacks | combat |
+| `--benchmark-scenario idle\|march\|group-march\|combat` | Hold fire, independent cross-map moves, shared destination patches, or explicit attacks | combat |
 | `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
+| `--benchmark-rules-version 1\|2` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
 | `--match-ticks N` | Successful measured ticks required | 300 |
 | `--seed N` | Match random seed | the engine's fixed seed |
 | `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |
@@ -1778,8 +1779,42 @@ counts units whose health fell or which died; `projectile_high_water` is the
 largest live projectile count observed at those samples. Projectiles born
 and retired within one tick can fall between samples.
 
-`activity_observed` is true for idle runs, requires movement for march runs,
-and requires an observed projectile or damage for combat runs. A completed
+`group-march` assigns distinct, terrain-valid terminal footprints in patches
+of 512 by 512 map pixels in the opposing half-map. The commander uses its
+own movement class and footprint. Arrival sites are checked before the
+additional armies are placed, so a moving opponent is not mistaken for a
+static obstacle. This is an opposing-flow workload; the installed map is
+not claimed to have a choke point.
+
+For an A/B comparison, repeat the same command with each supported version:
+
+```sh
+./run.sh --game-dir "/path/to/Total Annihilation" --enhanced-mode \
+  --battle-benchmark /tmp/oa-group-v2.json --benchmark-rules-version 2 \
+  --benchmark-scenario group-march --benchmark-map "Core Prime Industrial Area" \
+  --benchmark-units 1000 --benchmark-warmup 30 --match-ticks 600 --seed 7
+```
+
+`goal_progress` contains one entry per army when `goal_metrics_available`
+is true. It records unique units that moved or improved their best
+Manhattan goal distance by at least one map cell, units currently within
+the arrival tolerance, live units, stationary goal-unit ticks and the
+longest stationary run. Initial and final goal distances are summed in
+whole pixels. Near, middle and far thirds of initial trip distance expose
+progress and arrivals across the army. Stationary samples do not identify
+the cause as a collision, and detours need not improve distance every tick.
+
+Shared-route requests, hits, built fields and cells, waits and invalidations
+are cumulative over setup, warmup and measured ticks; `routing_metrics_scope`
+states that scope. Local-flow counters separately record bounded probes,
+moving blockers, accepted steering adjustments, yielding, final occupancy
+vetoes and deferred replans. `simulation_phase_ns` summarizes the contribution
+of each instrumented phase over measured ticks only. Phase percentiles do
+not add up to the total tick percentile.
+
+`activity_observed` is true for idle runs, requires movement for march runs
+(including group-march), and requires an observed projectile or damage for
+combat runs. A completed
 report means that all requested simulation samples ran; a short sample or
 an unreachable route can still have `activity_observed` false. Check this
 field and the populations before treating a run as a movement or combat

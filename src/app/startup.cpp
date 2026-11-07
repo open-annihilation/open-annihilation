@@ -1257,12 +1257,22 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.benchmark_warmup = parse_count(option_value(cursor));
         return true;
     }
+    if (argument == "--benchmark-rules-version") {
+        options.benchmark_options_named = true;
+        const auto version = parse_count(option_value(cursor));
+        if (version < 1 || version > 2)
+            throw std::runtime_error("--benchmark-rules-version expects 1 or 2");
+        options.benchmark_rules_version = static_cast<uint32_t>(version);
+        return true;
+    }
     if (argument == "--benchmark-scenario") {
         options.benchmark_options_named = true;
         options.benchmark_scenario = option_value(cursor);
         if (options.benchmark_scenario != "idle" && options.benchmark_scenario != "march" &&
-            options.benchmark_scenario != "combat")
-            throw std::runtime_error("--benchmark-scenario takes idle, march or combat");
+            options.benchmark_scenario != "combat" && options.benchmark_scenario != "group-march")
+            throw std::runtime_error(
+                "--benchmark-scenario takes idle, march, group-march or combat"
+            );
         return true;
     }
     if (argument == "--benchmark-map") {
@@ -1916,7 +1926,8 @@ void write_startup_line(std::string_view text) {
                      "[--experimental-3d] [--native-density] [--display-modes MODES] "
                      "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
                      "[--battle-benchmark REPORT.json [--benchmark-units N] "
-                     "[--benchmark-scenario idle|march|combat] [--benchmark-warmup N] "
+                     "[--benchmark-scenario idle|march|group-march|combat] [--benchmark-warmup N] "
+                     "[--benchmark-rules-version 1|2] "
                      "[--benchmark-map NAME]] "
                      "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
@@ -2080,7 +2091,8 @@ void write_startup_line(std::string_view text) {
             result.seed = kFixedRandomSeed;
     } else if (result.benchmark_options_named) {
         throw std::runtime_error(
-            "--benchmark-units, --benchmark-warmup, --benchmark-scenario and --benchmark-map need "
+            "--benchmark-units, --benchmark-warmup, --benchmark-rules-version, "
+            "--benchmark-scenario and --benchmark-map need "
             "--battle-benchmark"
         );
     }

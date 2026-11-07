@@ -535,6 +535,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--battle-benchmark", "report.json", {}},
         {"--benchmark-units", "128", {"--battle-benchmark", "report.json"}},
         {"--benchmark-warmup", "30", {"--battle-benchmark", "report.json"}},
+        {"--benchmark-rules-version", "1", {"--battle-benchmark", "report.json"}},
         {"--benchmark-scenario", "idle", {"--battle-benchmark", "report.json"}},
         {"--benchmark-map", "Coast To Coast", {"--battle-benchmark", "report.json"}},
         {"--bench", "low.bench", {}},
@@ -725,7 +726,8 @@ void enhanced_benchmark_options() {
     expect(
         defaults.headless_check && defaults.fixed_clock && defaults.unattended && defaults.seed &&
             defaults.match_ticks == 300u && defaults.benchmark_units == 128 &&
-            defaults.benchmark_warmup == 30 && defaults.benchmark_scenario == "combat",
+            defaults.benchmark_warmup == 30 && defaults.benchmark_scenario == "combat" &&
+            defaults.benchmark_rules_version == 0,
         "battle benchmarks select a repeatable headless workload"
     );
     const auto chosen = parse(
@@ -755,6 +757,29 @@ void enhanced_benchmark_options() {
                 .benchmark_units == 10000,
         "the enhanced battle population parses before runtime mode validation"
     );
+    for (const char* version : {"1", "2"}) {
+        const auto group = parse(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--benchmark-rules-version",
+             version,
+             "--benchmark-scenario",
+             "group-march"}
+        );
+        expect(
+            group.benchmark_scenario == "group-march" &&
+                group.benchmark_rules_version == static_cast<uint32_t>(version[0] - '0'),
+            "group movement can compare both recorded Enhanced presets"
+        );
+    }
+    for (const char* version : {"0", "3", "4294967296"})
+        expect(
+            rejection(
+                {"--battle-benchmark", "report.json", "--benchmark-rules-version", version}
+            ) == "--benchmark-rules-version expects 1 or 2",
+            "unsupported benchmark rules versions are refused without truncation"
+        );
     for (const char* value : {"0", "10001", "65536"})
         expect(
             rejection({"--battle-benchmark", "report.json", "--benchmark-units", value}) ==
@@ -763,7 +788,7 @@ void enhanced_benchmark_options() {
         );
     expect(
         rejection({"--battle-benchmark", "report.json", "--benchmark-scenario", "unknown"}) ==
-            "--benchmark-scenario takes idle, march or combat",
+            "--benchmark-scenario takes idle, march, group-march or combat",
         "unknown workloads are refused"
     );
     expect(
@@ -779,6 +804,10 @@ void enhanced_benchmark_options() {
     expect(
         !rejection({"--benchmark-units", "500"}).empty(),
         "benchmark companions require the run option"
+    );
+    expect(
+        !rejection({"--benchmark-rules-version", "1"}).empty(),
+        "a benchmark rules version requires the run option"
     );
 }
 
