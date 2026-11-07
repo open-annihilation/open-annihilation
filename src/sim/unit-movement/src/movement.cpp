@@ -5,6 +5,7 @@
 #include "oa/base/game_math.hpp"
 #include <algorithm>
 #include <bit>
+#include <limits>
 #include <optional>
 
 namespace oa::sim::unit_movement {
@@ -184,6 +185,235 @@ void integrate_unattached(Unit& u, Movement& m, uint32_t tick, bool local_simula
         u.position = next;
         u.flags |= position_dirty;
     }
+}
+
+namespace {
+constexpr int64_t sweep_cell_step = 16 * int64_t{65536};
+
+struct GroundSweepSegment {
+    std::array<int64_t, 2> from{}, to{};
+    std::array<int16_t, 2> first{}, last{};
+};
+
+struct GroundSweepPreparation {
+    GroundSweepResult result{};
+    GroundSweepSegment segment{};
+    std::array<Fixed, 2> lower{}, upper{};
+    uint16_t limit{}, area{};
+    bool clamp_current{};
+};
+
+/// Converts a signed biased fixed coordinate to its native origin, rounding down.
+int64_t sweep_floor(int64_t numerator) noexcept {
+    const auto quotient = numerator / sweep_cell_step;
+    return quotient - (numerator % sweep_cell_step < 0 ? 1 : 0);
+}
+
+/// Tells whether a wide coordinate retains the signed native fixed-point range.
+bool sweep_fixed_range(int64_t value) noexcept {
+    return value >= std::numeric_limits<Fixed>::min() && value <= std::numeric_limits<Fixed>::max();
+}
+
+/// Visits actual native origins; simultaneous crossings include both side origins.
+template <class Visit>
+bool visit_ground_sweep(
+    const GroundSweepSegment& segment, uint16_t limit, Visit&& visit, uint16_t& count
+) {
+    count = 0;
+    const auto emit = [&](int32_t x, int32_t z) {
+        ++count;
+        return count <= limit && visit(std::array<int16_t, 2>{int16_t(x), int16_t(z)});
+    };
+    int32_t x = segment.first[0], z = segment.first[1];
+    if (!emit(x, z))
+        return false;
+    const int64_t dx = segment.to[0] - segment.from[0];
+    const int64_t dz = segment.to[1] - segment.from[1];
+    const int32_t step_x = (dx > 0) - (dx < 0), step_z = (dz > 0) - (dz < 0);
+    const auto absolute_x = dx < 0 ? -dx : dx, absolute_z = dz < 0 ? -dz : dz;
+    int64_t next_x = step_x > 0 ? int64_t(x + 1) * sweep_cell_step - segment.from[0]
+                                : segment.from[0] - int64_t(x) * sweep_cell_step;
+    int64_t next_z = step_z > 0 ? int64_t(z + 1) * sweep_cell_step - segment.from[1]
+                                : segment.from[1] - int64_t(z) * sweep_cell_step;
+    while (x != segment.last[0] || z != segment.last[1]) {
+        if (x == segment.last[0] ||
+            (z != segment.last[1] && next_z * absolute_x < next_x * absolute_z)) {
+            z += step_z;
+            next_z += sweep_cell_step;
+            if (!emit(x, z))
+                return false;
+        } else if (z == segment.last[1] || next_x * absolute_z < next_z * absolute_x) {
+            x += step_x;
+            next_x += sweep_cell_step;
+            if (!emit(x, z))
+                return false;
+        } else {
+            if (!emit(x + step_x, z) || !emit(x, z + step_z))
+                return false;
+            x += step_x;
+            z += step_z;
+            next_x += sweep_cell_step;
+            next_z += sweep_cell_step;
+            if (!emit(x, z))
+                return false;
+        }
+    }
+    return true;
+}
+
+/// Validates the current cell and bounds the complete desired chord before queries.
+GroundSweepPreparation prepare_ground_sweep(const Unit& unit, const Movement& movement) noexcept {
+    GroundSweepPreparation prepared{};
+    auto& result = prepared.result;
+    for (const auto footprint : unit.footprint)
+        if (footprint <= 0) {
+            result.refusal = GroundSweepRefusal::footprint;
+            return prepared;
+        }
+    for (size_t axis = 0; axis < 2; ++axis) {
+        const auto biased = int64_t(unit.position[axis * 2]) -
+                            int64_t(unit.footprint[axis]) * half_cell + half_cell;
+        if (!sweep_fixed_range(biased)) {
+            result.refusal = GroundSweepRefusal::coordinate_range;
+            return prepared;
+        }
+        const auto current = sweep_floor(biased);
+        if (current != unit.cell[axis]) {
+            result.refusal = GroundSweepRefusal::origin_mismatch;
+            return prepared;
+        }
+        const auto centre =
+            (int64_t(unit.footprint[axis]) + int64_t(unit.cell[axis]) * 2) * half_cell;
+        const auto lower = centre - cell_interior_radius;
+        const auto upper = centre + cell_interior_radius;
+        if (!sweep_fixed_range(lower) || !sweep_fixed_range(upper)) {
+            result.refusal = GroundSweepRefusal::coordinate_range;
+            return prepared;
+        }
+        prepared.segment.from[axis] = biased;
+        prepared.segment.first[axis] = unit.cell[axis];
+        prepared.lower[axis] = static_cast<Fixed>(lower);
+        prepared.upper[axis] = static_cast<Fixed>(upper);
+    }
+    prepared.clamp_current = true;
+    if (unit.footprint[0] > swept_ground_maximum_footprint ||
+        unit.footprint[1] > swept_ground_maximum_footprint) {
+        result.refusal = GroundSweepRefusal::footprint;
+        return prepared;
+    }
+    prepared.area = uint16_t(unit.footprint[0] * unit.footprint[1]);
+    prepared.limit = std::min<uint16_t>(
+        swept_ground_origin_limit, uint16_t(swept_ground_plot_limit / prepared.area)
+    );
+    for (size_t axis = 0; axis < 2; ++axis) {
+        const auto next = int64_t(unit.position[axis * 2]) + movement.velocity[axis * 2];
+        const auto biased = next - int64_t(unit.footprint[axis]) * half_cell + half_cell;
+        if (!sweep_fixed_range(next) || !sweep_fixed_range(biased)) {
+            result.refusal = GroundSweepRefusal::coordinate_range;
+            return prepared;
+        }
+        prepared.segment.to[axis] = biased;
+        prepared.segment.last[axis] = static_cast<int16_t>(sweep_floor(biased));
+    }
+    const int32_t cells_x = int32_t(prepared.segment.last[0]) - prepared.segment.first[0];
+    const int32_t cells_z = int32_t(prepared.segment.last[1]) - prepared.segment.first[1];
+    const auto minimum_origins =
+        1 + (cells_x < 0 ? -cells_x : cells_x) + (cells_z < 0 ? -cells_z : cells_z);
+    if (minimum_origins > prepared.limit) {
+        result.refusal = GroundSweepRefusal::query_budget;
+        return prepared;
+    }
+    // The axis span is now below 128 cells. Boundary-distance products in
+    // the count and query traversals are below 2^55 and fit signed int64_t.
+    uint16_t count{};
+    if (!visit_ground_sweep(
+            prepared.segment, prepared.limit, [](std::array<int16_t, 2>) { return true; }, count
+        )) {
+        result.refusal = GroundSweepRefusal::query_budget;
+        return prepared;
+    }
+    result.status = GroundSweepStatus::clear;
+    return prepared;
+}
+
+/// Applies native blocked-step effects without changing registered occupancy.
+void block_swept_ground(
+    Unit& unit,
+    Movement& movement,
+    std::array<Fixed, 3> next,
+    const GroundSweepPreparation& prepared
+) noexcept {
+    movement.flags |= collision_blocked;
+    for (size_t axis = 0; axis < 2; ++axis) {
+        auto& coordinate = next[axis * 2];
+        if (!prepared.clamp_current)
+            coordinate = unit.position[axis * 2];
+        else if (coordinate > prepared.upper[axis])
+            coordinate = prepared.upper[axis];
+        else if (coordinate < prepared.lower[axis])
+            coordinate = prepared.lower[axis];
+    }
+    const Fixed reduced = unit.type.maximum_speed / 2;
+    if (movement.speed > reduced) {
+        movement.speed = reduced;
+        velocity(unit, movement);
+    }
+    unit.position = next;
+    unit.flags |= position_dirty;
+}
+} // namespace
+
+GroundSweepResult integrate_swept_ground(
+    Unit& unit, Movement& movement, uint32_t tick, bool local_simulation, Host& host
+) {
+    const auto occupancy = uint8_t(movement.flags & occupancy_mask);
+    if (!local_simulation || occupancy != 1 || (unit.flags & occupancy_mask) != 1) {
+        integrate_unattached(unit, movement, tick, local_simulation, host);
+        return {GroundSweepStatus::delegated};
+    }
+    std::array<Fixed, 3> next{};
+    for (size_t axis = 0; axis < next.size(); ++axis)
+        next[axis] = add(unit.position[axis], movement.velocity[axis]);
+    if (next == unit.position)
+        return {GroundSweepStatus::unchanged};
+    movement.last_motion_tick = tick;
+    auto prepared = prepare_ground_sweep(unit, movement);
+    auto& result = prepared.result;
+    if (result.status != GroundSweepStatus::clear) {
+        block_swept_ground(unit, movement, next, prepared);
+        return result;
+    }
+    if (prepared.segment.last == unit.cell) {
+        unit.position = next;
+        unit.flags |= position_dirty;
+        return result;
+    }
+    uint16_t visited{};
+    const auto clear_origin = [&](std::array<int16_t, 2> origin) {
+        if (origin == unit.cell)
+            return true;
+        ++result.origin_queries;
+        result.plot_allowance_used += prepared.area;
+        if (host.can_occupy(unit, origin, occupancy))
+            return true;
+        result.status = GroundSweepStatus::blocked;
+        result.refused_origin = origin;
+        result.refused_origin_valid = true;
+        return false;
+    };
+    if (!visit_ground_sweep(prepared.segment, prepared.limit, clear_origin, visited)) {
+        block_swept_ground(unit, movement, next, prepared);
+        return result;
+    }
+    movement.flags &= uint8_t(~collision_blocked);
+    host.remove_occupancy(unit);
+    unit.position = next;
+    unit.cell = prepared.segment.last;
+    unit.flags = (unit.flags & ~occupancy_mask) | occupancy;
+    host.insert_occupancy(unit);
+    unit.flags |= position_dirty;
+    host.update_spatial_membership(unit);
+    return result;
 }
 
 void write_position(

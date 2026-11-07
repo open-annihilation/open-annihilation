@@ -172,6 +172,66 @@ void accelerate(Unit& unit, Movement& movement, Fixed acceleration, uint8_t sea_
 void integrate_unattached(
     Unit& unit, Movement& movement, uint32_t tick, bool local_simulation, Host& host
 );
+
+/// The largest ground footprint accepted by the opt-in swept integrator.
+inline constexpr int16_t swept_ground_maximum_footprint = 8;
+/// The greatest number of footprint origins examined for one ground step.
+inline constexpr uint16_t swept_ground_origin_limit = 128;
+/// The full-footprint plot allowance for one ground step.
+inline constexpr uint16_t swept_ground_plot_limit = 512;
+
+/// Distinguishes unchanged/delegated steps from checked or refused ground motion.
+enum class GroundSweepStatus : uint8_t { unchanged, delegated, clear, blocked, unsupported };
+/// Explains why a local ground step could not be swept within the supported bounds.
+enum class GroundSweepRefusal : uint8_t {
+    none,
+    footprint,
+    coordinate_range,
+    origin_mismatch,
+    query_budget
+};
+
+/// Records this step's sweep outcome and bounded native collision queries.
+struct GroundSweepResult {
+    GroundSweepStatus status{GroundSweepStatus::unsupported};
+    GroundSweepRefusal refusal{GroundSweepRefusal::none};
+    /// Actual Host::can_occupy calls, excluding the initial registered origin.
+    uint16_t origin_queries{};
+    /// Charges the complete footprint per Host query, even when that query exits early.
+    uint16_t plot_allowance_used{};
+    std::array<int16_t, 2> refused_origin{};
+    bool refused_origin_valid{};
+};
+
+/// Integrates an unattached local ground step after an actual full-footprint sweep.
+///
+/// This explicit opt-in changes ground collision semantics. Native half-open
+/// footprint-origin quantization is applied to the actual fixed-point chord;
+/// both orthogonal origins are checked at an exact diagonal crossing. Each
+/// query passes the real unit to the existing Host. The accepted step keeps
+/// native position, occupancy and spatial-update order. A rejected step keeps
+/// native blocked clamping, speed reduction and attempted-motion clock behavior.
+/// Footprints one through eight and at most min(128,512/area) origins are
+/// supported. A count-only preflight precedes every Host query.
+/// The limit includes the initial registered origin, which needs no query;
+/// convex same-cell steps likewise make no Host query. Unsupported
+/// local-ground steps fail closed: valid current cells use the blocked clamp;
+/// malformed current poses hold X/Z instead of teleporting. Y retains native
+/// attempted-step arithmetic. Remote simulation and transitions involving any
+/// other occupancy layer delegate to integrate_unattached unchanged. No-motion
+/// steps are unchanged and make no queries. The caller must establish that the
+/// unit is unattached. A clear same-cell step retains the native stored blocked
+/// bit; the result describes this sweep separately from that historical bit.
+///
+/// @param[in,out] unit actual unit whose native pose and occupancy are updated
+/// @param[in,out] movement actual motion, collision bits, speed and motion clock
+/// @param tick current simulation tick
+/// @param local_simulation whether this machine simulates the unit's owner
+/// @param host existing native collision and spatial operations
+/// @return sweep status, explicit refusal reason and charged query allowance
+[[nodiscard]] GroundSweepResult integrate_swept_ground(
+    Unit& unit, Movement& movement, uint32_t tick, bool local_simulation, Host& host
+);
 /// Writes an absolute position, updating occupancy when the cell or occupancy changes.
 ///
 /// Makes no collision query.

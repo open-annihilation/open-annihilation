@@ -351,6 +351,24 @@ void integrate_local_flow(
     }
 }
 
+GroundSweepResult integrate_swept_local_flow(
+    Unit& unit,
+    Movement& movement,
+    uint32_t tick,
+    bool local_simulation,
+    Host& host,
+    LocalFlowCounters& counters
+) {
+    const auto before = unit.position;
+    const auto last_progress = movement.last_motion_tick;
+    const auto result = integrate_swept_ground(unit, movement, tick, local_simulation, host);
+    if (before == unit.position)
+        movement.last_motion_tick = last_progress;
+    if (local_simulation && (movement.flags & collision_blocked) != 0)
+        ++counters.blocked_ticks;
+    return result;
+}
+
 bool write_local_flow_heads(
     std::span<const LocalFlowHead> heads, std::span<uint8_t> bytes
 ) noexcept {

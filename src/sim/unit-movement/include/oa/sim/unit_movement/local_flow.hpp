@@ -223,4 +223,27 @@ void integrate_local_flow(
     LocalFlowCounters& counters
 );
 
+/// Opts into the swept ground step while retaining Enhanced motion-clock accounting.
+///
+/// The actual-position progress clock and blocked counter follow integrate_local_flow:
+/// a step leaving position unchanged restores its previous clock. Other layers and
+/// remote simulation retain native integration through the swept function's delegation.
+/// The caller must establish that the unit is unattached.
+///
+/// @param[in,out] unit actual unit whose pose and occupancy are updated
+/// @param[in,out] movement actual motion, speed, collision flags and progress clock
+/// @param tick current simulation tick
+/// @param local_simulation whether this machine simulates the unit's owner
+/// @param host existing native collision and spatial operations
+/// @param[in,out] counters existing Enhanced blocked-step accounting
+/// @return the swept step's bounded-query outcome
+[[nodiscard]] GroundSweepResult integrate_swept_local_flow(
+    Unit& unit,
+    Movement& movement,
+    uint32_t tick,
+    bool local_simulation,
+    Host& host,
+    LocalFlowCounters& counters
+);
+
 } // namespace oa::sim::unit_movement
