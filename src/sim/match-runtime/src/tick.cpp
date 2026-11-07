@@ -4,6 +4,8 @@
 #include "oa/sim/ai.hpp"
 #include "oa/sim/scenario/commander_rules.hpp"
 #include "tick_internal.hpp"
+#include "enhanced_state.hpp"
+#include "oa/sim/ground_orders/shared_routes.hpp"
 
 #include <array>
 #include <cstddef>
@@ -196,6 +198,44 @@ bool Match::prepare_search_job(
 }
 
 void Match::advance_path_search() {
+    // Static fields ignore temporary mobile occupancy. Unknown plots retain
+    // the ordinary search's passable classification, so fields reveal no fog.
+    sim::ground_orders::FlowSampler flow_sampler{
+        this, [](void* c, uint32_t class_index, uint32_t player, int32_t x, int32_t z) -> uint8_t {
+            auto& match = *static_cast<Match*>(c);
+            if (class_index >= match.movement_classes_.size() || player >= OA_PLAYER_COUNT)
+                return 0;
+            const auto& klass = match.movement_classes_[class_index];
+            if (!klass.map || x < 0 || z < 0 || static_cast<uint32_t>(x) >= klass.map->width() ||
+                static_cast<uint32_t>(z) >= klass.map->height())
+                return 0;
+            auto classifier = klass.record;
+            const int32_t sight_x = (classifier.footprint_x >> 2) + (x >> 1);
+            const int32_t sight_z = (classifier.footprint_z >> 2) + (z >> 1);
+            const auto sight_width = match.spatial_.terrain_width >> 1;
+            const auto sight_height = match.spatial_.terrain_height >> 1;
+            if (sight_x < 0 || sight_z < 0 || static_cast<uint32_t>(sight_x) >= sight_width ||
+                static_cast<uint32_t>(sight_z) >= sight_height)
+                return 0;
+            const auto index =
+                static_cast<std::size_t>(sight_z) * sight_width + static_cast<uint32_t>(sight_x);
+            if (index >= match.sight_.player_bits.size())
+                return 0;
+            if ((match.sight_.player_bits[index] & (1u << player)) == 0)
+                return 2;
+            // Structures/features still block. Objects with movement state
+            // have object_present set and are ignored at revision zero.
+            classifier.occupancy_before_tick = 0;
+            return sim::spatial_state::classify_movement_cell(classifier, x, z, match.spatial_);
+        }
+    };
+    const bool shared_routes = rules().setup.enhanced_mode.enabled &&
+                               rules().setup.enhanced_mode.version >= 2 && enhanced_ &&
+                               enhanced_->shared_routes;
+    if (shared_routes)
+        enhanced_->shared_routes->advance(
+            simulation_.tick, enhanced_->shared_static_revision, flow_sampler
+        );
     auto find_slot = [this](sim::simulation_state::Unit& unit) -> sim::unit_spawn::Slot* {
         const auto id = unit.record.id;
         if (id < slots_.size() && slots_[id].unit == &unit)
@@ -209,7 +249,9 @@ void Match::advance_path_search() {
     struct Context {
         Match* match;
         decltype(find_slot)* find;
-    } context{this, &find_slot};
+        const sim::ground_orders::FlowSampler* sampler;
+        bool shared_routes;
+    } context{this, &find_slot, &flow_sampler, shared_routes};
 
     sim::ground_orders::SearchUnitAccess access;
     access.context = &context;
@@ -220,7 +262,50 @@ void Match::advance_path_search() {
         auto* runtime = slot ? ctx.match->ground_runtime(slot->unit_index) : nullptr;
         if (!runtime || runtime->mirrored_driver || !runtime->movement_class)
             return nullptr;
-        return &runtime->navigation;
+        auto& navigation = runtime->navigation;
+        if (ctx.shared_routes && navigation.needs_search() && navigation.goal &&
+            ctx.match->simulation_.tick >=
+                navigation.last_search_tick + sim::ground_orders::search_retry_ticks) {
+            auto* klass = ctx.match->movement_class_map(runtime->movement_class);
+            if (klass) {
+                const auto class_index =
+                    static_cast<uint32_t>(klass - ctx.match->movement_classes_.data());
+                const sim::ground_orders::FlowContext flow{
+                    class_index,
+                    unit.record.owner_index,
+                    ctx.match->enhanced_->shared_static_revision,
+                    0,
+                    static_cast<uint32_t>(klass->record.footprint_x),
+                    static_cast<uint32_t>(klass->record.footprint_z)
+                };
+                std::array<sim::ground_orders::RoutePoint, sim::ground_orders::navigation_capacity>
+                    route{};
+                uint32_t count{};
+                const auto result = ctx.match->enhanced_->shared_routes->route(
+                    flow, unit.record, *navigation.goal, route, count, *ctx.sampler
+                );
+                if (result == sim::ground_orders::FlowResult::ready) {
+                    std::array<uint8_t, 3> flags{};
+                    sim::ground_orders::UnitView view{
+                        unit,
+                        runtime->geometry,
+                        runtime->movement,
+                        navigation,
+                        slot->record.attach_parent != 0,
+                        flags
+                    };
+                    // The same publication seam as full A*: route_changed
+                    // is picked up by the network's local-player tick hook.
+                    (void)sim::ground_orders::accept_path(view, std::span{route}.first(count));
+                    return nullptr;
+                }
+                // Returning no job lets the cursor visit other units. Do
+                // not consume the ordinary search's 60-tick retry stamp.
+                if (result == sim::ground_orders::FlowResult::pending)
+                    return nullptr;
+            }
+        }
+        return &navigation;
     };
     access.prepare = [](void* c,
                         sim::simulation_state::Unit& unit,
@@ -228,7 +313,10 @@ void Match::advance_path_search() {
                         sim::ground_orders::MovementMap*& map) {
         auto& ctx = *static_cast<Context*>(c);
         auto* slot = (*ctx.find)(unit);
-        return slot && ctx.match->prepare_search_job(*slot, begin, map);
+        const bool prepared = slot && ctx.match->prepare_search_job(*slot, begin, map);
+        if (prepared && ctx.shared_routes)
+            ++ctx.match->enhanced_->counters.full_route_searches;
+        return prepared;
     };
     access.publish = [](void* c,
                         sim::simulation_state::Unit& unit,
@@ -421,6 +509,7 @@ void Match::apply_carry_link(uint16_t child, uint16_t parent, int8_t piece, uint
 }
 
 void Match::link_carried_unit(uint16_t child, uint16_t parent, int8_t piece, uint8_t mode) {
+    invalidate_target_query_extras();
     auto& child_slot = slots_[child];
     auto& child_unit = *child_slot.unit;
     // A bucket outside the world is noted, and its link is left as it is.
