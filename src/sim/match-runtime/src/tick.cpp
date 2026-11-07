@@ -461,6 +461,8 @@ void Match::advance_path_search() {
                 const auto count = std::min(record.units.size(), size_t(per_player));
                 for (size_t offset = 0; offset < count; ++offset) {
                     auto& unit = record.units[(first + offset) % record.units.size()];
+                    if (!search_.controller.idle() && search_.controller.active().unit == &unit)
+                        continue;
                     if (unit.record.type_index != 0 && unit.record.movement != 0)
                         (void)access.navigator(access.context, unit);
                 }
