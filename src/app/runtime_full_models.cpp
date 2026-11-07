@@ -164,6 +164,8 @@ constexpr uint32_t solid_page_edge = 2;
 /// texture frames as they are first seen.
 constexpr uint64_t projectile_shadow_number = 0;
 constexpr uint64_t first_texture_number = 1;
+/// Generated white cells occupy numbers beside texture and shadow frames.
+constexpr uint64_t white_frame_number_mark = uint64_t{1} << 62;
 /// The mark on the number of a model's shadow as the game casts it
 /// (game_shadow_of_model): the top bit, over a digest of its silhouette, so
 /// that no texture frame's number meets it and a silhouette many units
@@ -1745,6 +1747,15 @@ class Emitter {
     );
     [[nodiscard]] bool
     place_texture(const Sprite& sprite, bool flat, bool bright, PlacedFrame& out);
+
+    /// Remembers an atlas page that a neighbouring body polygon draws from.
+    /// @param page the polygon's executor page
+    void prefer_body_page(card::PageHandle page) noexcept;
+
+    /// Places exact white on the preferred page without moving existing frames.
+    /// @param[out] out the white plateau when space remains on that page
+    /// @return true when a colour-only polygon can share the page
+    [[nodiscard]] bool place_body_white(PlacedFrame& out);
     [[nodiscard]] bool ensure_solid_page();
     [[nodiscard]] const gw::ModelMesh* mesh_of(const draw::ModelRef& model);
     [[nodiscard]] const Sprite* frame_of(
@@ -1892,6 +1903,13 @@ class Emitter {
     float pan_y_{};
     int32_t camera_x_{}; ///< the camera, 16.16
     int32_t camera_z_{};
+
+    struct BodyPage {
+        uint32_t index{};
+        bool bright{};
+    };
+
+    std::optional<BodyPage> body_page_;
     std::vector<card::Vertex>& vertices_{impl_.emission.vertices};
     std::vector<card::Index>& indices_{impl_.emission.indices};
     std::vector<card::Vertex>& wet_vertices_{impl_.emission.wet_vertices};
@@ -1959,6 +1977,32 @@ bool Emitter::place_texture(const Sprite& sprite, bool flat, bool bright, Placed
                         bright_pages_, impl_.bright_slots, frame_id, &sprite, flat, nullptr, out
                     )
                   : place_frame(pages_, impl_.slots, frame_id, &sprite, flat, nullptr, out);
+}
+
+void Emitter::prefer_body_page(card::PageHandle page) noexcept {
+    for (const bool bright : {false, true}) {
+        const auto& slots = bright ? impl_.bright_slots : impl_.slots;
+        for (uint32_t at = 0; at < slots.size(); ++at)
+            if (slots[at].handle == page && page != card::PageHandle{}) {
+                body_page_ = BodyPage{at, bright};
+                return;
+            }
+    }
+}
+
+bool Emitter::place_body_white(PlacedFrame& out) {
+    if (!body_page_)
+        return false;
+    auto& pages = body_page_->bright ? bright_pages_ : pages_;
+    auto& slots = body_page_->bright ? impl_.bright_slots : impl_.slots;
+    const auto result =
+        pages.white_frame(white_frame_number_mark + body_page_->index, body_page_->index);
+    if (result.status != gw::FrameStatus::ok ||
+        !ensure_page_slot(executor_, pages, slots, result.record.page, counts_, error_))
+        return false;
+    const auto& slot = slots[result.record.page];
+    out = {slot.handle, slot.size, result.record.rect};
+    return true;
 }
 
 bool Emitter::ensure_solid_page() {
@@ -3098,6 +3142,10 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
         ++counts_.culled;
         return;
     }
+    if (polygon.texture)
+        prefer_body_page(placed.page);
+    else if (in_.share_solid_materials)
+        (void)place_body_white(placed);
     if (polygon.cut) {
         emit_cut_polygon(surface, polygon, placed);
         return;
@@ -3228,6 +3276,16 @@ card::Vertex Emitter::body_vertex(
         vertex.v = (static_cast<float>(placed.rect.y) + texel_offset_ +
                     static_cast<float>(v) * static_cast<float>(placed.rect.height - 1)) /
                    page;
+    } else if (placed.page != card::PageHandle{}) {
+        // A constant point between the plateau's texel centres stays white
+        // with nearest or linear sampling, including clipped polygons.
+        const auto page = static_cast<float>(placed.page_size);
+        vertex.u = (static_cast<float>(placed.rect.x) +
+                    static_cast<float>(placed.rect.width) * texel_centre) /
+                   page;
+        vertex.v = (static_cast<float>(placed.rect.y) +
+                    static_cast<float>(placed.rect.height) * texel_centre) /
+                   page;
     }
     return vertex;
 }
@@ -3251,6 +3309,17 @@ void Emitter::lift_under_water(const Canvas& surface) {
 }
 
 void Emitter::emit_polygons(const Canvas& surface) {
+    body_page_.reset();
+    if (in_.share_solid_materials && !frame_.batches.empty())
+        prefer_body_page(frame_.batches.back().page);
+    if (in_.share_solid_materials && !body_page_)
+        for (const auto& polygon : impl_.polygons)
+            if (polygon.texture) {
+                PlacedFrame placed;
+                if (place_texture(*polygon.texture, polygon.flat_page, polygon.bright, placed))
+                    prefer_body_page(placed.page);
+                break;
+            }
     for (const Polygon& polygon : impl_.polygons)
         emit_polygon(surface, polygon);
 }

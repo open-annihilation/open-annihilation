@@ -479,6 +479,9 @@ struct ModelFrameInputs {
     /// processor blends (ground_shadow in model_draw.hpp), in game pixels
     /// sampled as a feature's shadow is.
     bool new_unit_shadows{true};
+    /// Colour-only polygons may share an exact-white cell on an adjacent
+    /// textured polygon's page, preserving painter order while joining batches.
+    bool share_solid_materials{};
 };
 
 /// What the model stage did since it was made, for checks and the frame

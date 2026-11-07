@@ -846,6 +846,7 @@ struct Scene {
     uint32_t build_pulse_lag{};
     /// New unit shadows; false casts each model's shadow as the game does.
     bool new_unit_shadows{true};
+    bool share_solid_materials{};
 
     explicit Scene(
         oa::Palette scene_palette = gray_palette(),
@@ -1087,6 +1088,7 @@ struct Scene {
         in.team_colors = team_colors;
         in.projectile_shadow = with_shadow_sprite ? &shadow_frame : nullptr;
         in.new_unit_shadows = new_unit_shadows;
+        in.share_solid_materials = share_solid_materials;
         return in;
     }
 };
@@ -1653,6 +1655,85 @@ void test_depth_sorted() {
     const uint8_t* ground = drawn.at(unit_x, unit_z + 6);
     OA_CHECK(ground[0] == ink && ground[3] == 255);
     OA_CHECK(card.stage.counts().polygons == 2);
+}
+
+/// Alternating colour and texture faces keep their pixels while joining one page.
+void test_shared_solid_materials() {
+    constexpr int32_t face_count = 4;
+    constexpr int32_t first_left = -36, spacing = 20, side = 12;
+    auto model = std::make_shared<Model>();
+    Object object;
+    for (int32_t face = 0; face < face_count; ++face) {
+        const auto first = static_cast<uint16_t>(object.vertices.size());
+        const int32_t left = first_left + face * spacing;
+        object.vertices.insert(
+            object.vertices.end(),
+            {{left * unit, 0, -side * unit},
+             {(left + side) * unit, 0, -side * unit},
+             {(left + side) * unit, 0, side * unit},
+             {left * unit, 0, side * unit}}
+        );
+        object.primitives.push_back(primitive(
+            {first, uint16_t(first + 3), uint16_t(first + 2), uint16_t(first + 1)},
+            ink,
+            face % 2 ? "plain" : nullptr
+        ));
+    }
+    model->objects.push_back(std::move(object));
+    for (const float gamma : {1.0F, 1.7F})
+        for (const float zoom : {0.25F, 1.0F, 2.0F})
+            for (const bool submerged : {false, true}) {
+                TextureFixture textures;
+                auto palette = gray_palette();
+                palette.entries[OA_PALETTE_COLORS - 1] = {19, 29, 41, 0};
+                Scene scene(palette, std::move(textures.library), gamma);
+                if (submerged)
+                    scene.world->game.sea_level = 4;
+                auto& actor = scene.add_unit(model, 1, unit_x, unit_z);
+                Card card(scene, zoom);
+                ProcessorPicture processor;
+                scene.begin_frame(processor, 0);
+                scene.plan_unit(actor);
+                const auto original = card.raster(scene, zoom);
+                const auto original_batches = card.frame.batches.size();
+                scene.share_solid_materials = true;
+                const auto shared = card.raster(scene, zoom);
+                OA_CHECK(shared.rgba == original.rgba);
+                OA_CHECK(card.stage.error().empty());
+                if (!submerged) {
+                    OA_CHECK(original_batches == face_count);
+                    OA_CHECK(card.frame.batches.size() == 1);
+                }
+                actor.unit->state_flags |= draw::unit_state_cloaked;
+                scene.begin_frame(processor, 1);
+                scene.plan_unit(actor);
+                scene.share_solid_materials = false;
+                const auto original_cloak = card.raster(scene, zoom);
+                scene.share_solid_materials = true;
+                const auto shared_cloak = card.raster(scene, zoom);
+                OA_CHECK(shared_cloak.rgba == original_cloak.rgba);
+            }
+    // A frame whose cell fills its page leaves no white cell; both kinds
+    // retain their original batches and pixels without evicting the texture.
+    TextureFixture packed_textures;
+    packed_textures.library.sequences.erase("plain");
+    constexpr uint16_t packed_texture_side = 1020;
+    packed_textures.add("plain", 1, packed_texture_side, packed_texture_side, false);
+    Scene packed(gray_palette(), std::move(packed_textures.library));
+    auto& actor = packed.add_unit(model, 1, unit_x, unit_z);
+    Card card(packed);
+    ProcessorPicture processor;
+    packed.begin_frame(processor, 0);
+    packed.plan_unit(actor);
+    const auto original = card.raster(packed);
+    const auto batches = card.frame.batches.size();
+    const auto frames = card.stage.pages().memory().frames;
+    packed.share_solid_materials = true;
+    const auto unchanged = card.raster(packed);
+    OA_CHECK(unchanged.rgba == original.rgba);
+    OA_CHECK(card.frame.batches.size() == batches);
+    OA_CHECK(card.stage.pages().memory().frames == frames);
+    OA_CHECK(card.stage.error().empty());
 }
 
 // A unit with a depth plane whose panel rests on its square: the plane keeps
@@ -3423,6 +3504,7 @@ int main(int argc, char** argv) {
         test_back_face();
         test_textured();
         test_textured_trapezoid();
+        test_shared_solid_materials();
         test_depth_sorted();
         test_resting_on_depth_plane();
         test_shared_depth_plane_geometry();

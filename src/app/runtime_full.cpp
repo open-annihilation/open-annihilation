@@ -1816,6 +1816,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         model_inputs.projectile_shadow =
             full.projectile_shadow.width != 0 ? &full.projectile_shadow : nullptr;
         model_inputs.new_unit_shadows = engine_settings().new_unit_shadows;
+        model_inputs.share_solid_materials = true;
         full::SpriteStageInputs sprite_inputs;
         sprite_inputs.list = &models.draws;
         std::span<const uint16_t> coverage;
