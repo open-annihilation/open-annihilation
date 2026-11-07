@@ -179,9 +179,12 @@ LocalFlowDecision choose_local_flow(
         }
     // Do not back away from distant traffic: approach a passing place first.
     if (blocker_distance <= cell_step * 2) {
-        const auto velocity = aim_velocity(static_cast<uint16_t>(heading + half_turn), 0, cell_step);
+        const auto velocity =
+            aim_velocity(static_cast<uint16_t>(heading + half_turn), 0, cell_step);
         std::array<Fixed, 3> candidate;
-        if (offset_point(unit.position, velocity[0], velocity[2], cell_step, cell_step, candidate) &&
+        if (offset_point(
+                unit.position, velocity[0], velocity[2], cell_step, cell_step, candidate
+            ) &&
             clear_segment(unit, candidate, occupancy, host, counters)) {
             result.reverse = true;
             result.adjusted = true;
@@ -210,7 +213,9 @@ void integrate_local_flow(
     }
 }
 
-bool write_local_flow_heads(std::span<const LocalFlowHead> heads, std::span<uint8_t> bytes) noexcept {
+bool write_local_flow_heads(
+    std::span<const LocalFlowHead> heads, std::span<uint8_t> bytes
+) noexcept {
     if (bytes.size() / local_flow_head_bytes != heads.size() ||
         bytes.size() % local_flow_head_bytes != 0)
         return false;
@@ -231,7 +236,9 @@ bool write_local_flow_heads(std::span<const LocalFlowHead> heads, std::span<uint
     return true;
 }
 
-bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8_t> bytes) noexcept {
+bool read_local_flow_heads(
+    std::span<LocalFlowHead> heads, std::span<const uint8_t> bytes
+) noexcept {
     if (bytes.size() / local_flow_head_bytes != heads.size() ||
         bytes.size() % local_flow_head_bytes != 0)
         return false;

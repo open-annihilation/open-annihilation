@@ -67,7 +67,9 @@ inline constexpr size_t local_flow_head_bytes = 26;
 /// @param heads retained heads
 /// @param[out] bytes exactly heads.size() * local_flow_head_bytes bytes
 /// @return false when the output size does not match
-bool write_local_flow_heads(std::span<const LocalFlowHead> heads, std::span<uint8_t> bytes) noexcept;
+bool write_local_flow_heads(
+    std::span<const LocalFlowHead> heads, std::span<uint8_t> bytes
+) noexcept;
 
 /// Restores retained heads after validating the entire saved table.
 ///
