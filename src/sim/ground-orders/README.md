@@ -142,6 +142,20 @@ on every host and at every rounding threshold are not yet established. This
 component alone does not establish multiplayer compatibility. Goals and
 routes use standard C++ allocations; an allocation failure throws.
 
+`shared_routes.hpp` supplies the opt-in Enhanced v2 cache. Construction
+preallocates canonical byte storage for at most 64 coarse reverse fields,
+within a total of 2,097,152 coarse cells. A field joins repeated destinations
+in one 32-cell region for the same movement class and player. Every coarse
+edge and returned route edge is checked at footprint-cell resolution against
+current static passability and player knowledge. Narrow corridors outside
+the four-cell coarse graph fall back to ordinary search.
+
+Each tick clears at most 65,536 direction bytes, spends at most 2,048 seed
+and expansion credits, and allows at most 65,536 cell probes for extraction.
+Pending requests leave the full search's retry stamp untouched. The cache
+retains its cursors and frontiers in validated little-endian save bytes;
+it is owner-local state, excluded from shared simulation digests.
+
 ## Verification
 
 The native test exercises handler→goal→initial route→steering→arrival, plus
