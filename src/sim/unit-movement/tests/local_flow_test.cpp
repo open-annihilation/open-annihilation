@@ -242,6 +242,46 @@ void test_collision_veto_and_last_progress() {
     OA_CHECK((agent.movement.flags & collision_blocked) != 0);
 }
 
+void test_blocked_boundary_creep_cannot_defer_forever() {
+    Grid grid;
+    auto& agent = grid.add(4, 4, east, 10, 4);
+    grid.walls[Grid::index(5, 4)] = true;
+    agent.unit.position[0] = 5 * cell_width - 1;
+    agent.movement.speed = fixed_one;
+    // Each veto clamps X at the occupied boundary while Z still advances by
+    // one fixed-point fraction. The last-motion clock therefore keeps moving.
+    agent.movement.velocity = {fixed_one, 0, 1};
+    LocalFlowHead head{};
+    head.mobile_blocked = true;
+    LocalFlowCounters counters{};
+    constexpr uint32_t retry_tick = 30;
+    constexpr uint8_t saturated_blocked_ticks = 31;
+    for (uint32_t tick = 1; tick <= 90; ++tick) {
+        const auto before = agent.unit.position;
+        integrate_local_flow(agent.unit, agent.movement, tick, true, grid, counters);
+        OA_CHECK(agent.unit.position[0] == before[0]);
+        OA_CHECK(agent.unit.position[2] == before[2] + 1);
+        OA_CHECK(agent.movement.last_motion_tick == tick);
+        const bool blocked = (agent.movement.flags & collision_blocked) != 0;
+        OA_CHECK(blocked);
+        record_local_flow_block(head, blocked);
+        OA_CHECK(local_flow_defer_replan(head, agent.movement) == (tick < retry_tick));
+        OA_CHECK(head.blocked_ticks == std::min<uint32_t>(tick, saturated_blocked_ticks));
+    }
+    OA_CHECK(head.blocked_ticks == saturated_blocked_ticks);
+    OA_CHECK(counters.blocked_ticks == 90);
+    OA_CHECK(grid.overlap_count == 0);
+    grid.walls[Grid::index(5, 4)] = false;
+    integrate_local_flow(agent.unit, agent.movement, 91, true, grid, counters);
+    OA_CHECK(agent.unit.cell[0] == 5);
+    const bool blocked = (agent.movement.flags & collision_blocked) != 0;
+    OA_CHECK(!blocked);
+    record_local_flow_block(head, blocked);
+    OA_CHECK(head.blocked_ticks == 0);
+    OA_CHECK(!local_flow_defer_replan(head, agent.movement));
+    OA_CHECK(grid.overlap_count == 0);
+}
+
 struct BattleResult {
     uint64_t blocked{};
     uint64_t deferred{};
@@ -356,8 +396,10 @@ void test_retained_head_save_bytes() {
     heads[0].count = 3;
     heads[0].active = true;
     heads[0].mobile_blocked = true;
+    heads[0].blocked_ticks = 29;
     heads[1].count = 0;
     heads[1].active = true;
+    heads[1].blocked_ticks = 31;
     std::array<uint8_t, local_flow_head_bytes * heads.size()> bytes{};
     OA_CHECK(write_local_flow_heads(heads, bytes));
     // Negative coordinates and the geometry key use explicit little-endian bytes.
@@ -365,6 +407,7 @@ void test_retained_head_save_bytes() {
     OA_CHECK(bytes[12] == 0xef && bytes[19] == 0x01);
     OA_CHECK(bytes[20] == 0x10 && bytes[23] == 0x76);
     OA_CHECK(bytes[24] == 3 && bytes[25] == 3);
+    OA_CHECK(bytes[26] == 29 && bytes[local_flow_head_bytes + 26] == 31);
     std::array<LocalFlowHead, heads.size()> restored{};
     OA_CHECK(read_local_flow_heads(restored, bytes));
     std::array<uint8_t, bytes.size()> round_trip{};
@@ -374,7 +417,9 @@ void test_retained_head_save_bytes() {
     OA_CHECK(restored[0].goal_key == heads[0].goal_key);
     OA_CHECK(restored[0].tick == heads[0].tick);
     OA_CHECK(restored[0].active && restored[0].mobile_blocked);
+    OA_CHECK(restored[0].blocked_ticks == heads[0].blocked_ticks);
     OA_CHECK(restored[1].active && restored[1].count == 0);
+    OA_CHECK(restored[1].blocked_ticks == heads[1].blocked_ticks);
     OA_CHECK(!write_local_flow_heads(heads, std::span(bytes).first(bytes.size() - 1)));
     OA_CHECK(!read_local_flow_heads(restored, std::span(bytes).first(bytes.size() - 1)));
     constexpr size_t saved_count_offset = 24;
@@ -391,6 +436,14 @@ void test_retained_head_save_bytes() {
     OA_CHECK(!read_local_flow_heads(restored, invalid));
     OA_CHECK(write_local_flow_heads(restored, round_trip));
     OA_CHECK(bytes == round_trip);
+    constexpr size_t saved_blocked_ticks_offset = 26;
+    for (const uint8_t invalid_ticks : {uint8_t{32}, uint8_t{255}}) {
+        invalid = bytes;
+        invalid[local_flow_head_bytes + saved_blocked_ticks_offset] = invalid_ticks;
+        OA_CHECK(!read_local_flow_heads(restored, invalid));
+        OA_CHECK(write_local_flow_heads(restored, round_trip));
+        OA_CHECK(bytes == round_trip);
+    }
 }
 
 void test_counterflow_crossing_and_choke() {
@@ -414,6 +467,7 @@ int main() {
     test_priority_and_stationary_obstacles();
     test_diagonal_corner_clearance();
     test_collision_veto_and_last_progress();
+    test_blocked_boundary_creep_cannot_defer_forever();
     test_retained_head_save_bytes();
     test_counterflow_crossing_and_choke();
     return oa::test::check_exit_status();
