@@ -397,8 +397,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     keep_rules(input);
     keep_repair_remainders();
     keep_unit_rules();
-    if (input.rules.setup.enhanced_mode.enabled && input.rules.setup.enhanced_mode.version >= 2) {
+    if (input.rules.setup.enhanced_mode.enabled)
         enhanced_ = std::make_unique<EnhancedState>();
+    if (enhanced_ && input.rules.setup.enhanced_mode.version >= 2) {
         enhanced_->unit_count = slots_.size();
         enhanced_->target_query_slots = std::make_unique<uint16_t[]>(2 * slots_.size());
         enhanced_->target_query_extras = std::make_unique<uint16_t[]>(slots_.size());
@@ -497,7 +498,7 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         static_cast<uint8_t>(input.visibility_flags & ~OA_VISIBILITY_FOG_MASK_CURRENT);
     spatial_.terrain_width = input.map.attribute_width;
     spatial_.terrain_height = input.map.attribute_height;
-    if (enhanced_) {
+    if (enhanced_ && input.rules.setup.enhanced_mode.version >= 2) {
         enhanced_->shared_routes = std::make_unique<sim::ground_orders::FlowCache>(
             spatial_.terrain_width, spatial_.terrain_height
         );

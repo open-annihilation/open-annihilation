@@ -195,7 +195,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
         const auto& sightings = match.sightings_[owner];
         std::span<const uint16_t> seen{sightings.seen, sightings.seen_count};
         std::span<const uint16_t> radar{sightings.radar, sightings.radar_count};
-        if (match.enhanced_) {
+        if (match.enhanced_ && match.enhanced_->shared_routes) {
             auto& enhanced = *match.enhanced_;
             ++enhanced.counters.target_queries;
             refresh_target_query_extras();

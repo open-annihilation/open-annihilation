@@ -315,7 +315,7 @@ void Match::advance_path_search() {
         auto& ctx = *static_cast<Context*>(c);
         auto* slot = (*ctx.find)(unit);
         const bool prepared = slot && ctx.match->prepare_search_job(*slot, begin, map);
-        if (prepared && ctx.shared_routes)
+        if (prepared && ctx.match->enhanced_)
             ++ctx.match->enhanced_->counters.full_route_searches;
         return prepared;
     };
