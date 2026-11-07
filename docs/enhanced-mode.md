@@ -389,6 +389,52 @@ These short scripted runs contain no strategic AI or rendered frames. Other
 host workloads were uncontrolled. They do not prove a speedup, sustained
 whole-game frame rate or improved bridge throughput at 20,000 units.
 
+## Version 5 corridor checkpoint
+
+The fixed hold-fire march on the M5 retains 20,000 units over 1,800 ticks.
+Version 5 increases completed inward centre-bridge actors from 11 to 12,
+but all 601 recorded positions of the original 2,597 rear-cohort units
+remain identical to version 4. Only 68 actors differ anywhere, first at
+tick 1,716. This is not a large-battle flow improvement, so version 4 remains
+the default and version 5 stays an explicit benchmark choice.
+
+All recorded footprints, native-cell snapshots and live censuses pass.
+Observed simulation thread CPU time is 11.73 ms mean, 14.84 ms p99 and
+29.93 ms maximum; none of the 1,800 CPU or wall samples exceeds 33.33 ms.
+These measurements cover this scripted march, not strategic AI, rendered
+combat or gaming-desktop performance. Rear units retain their orders and
+routes but remain blocked by mobile traffic.
+
+## Current-view rendering checkpoint
+
+Graphics remain independent of Enhanced Mode. Repeated poses share exact
+local bounds and GPU geometry; classic Full shares bounded polygon-order
+results and joins coloured faces with their neighbouring texture page.
+Exclusive live instances can supply their vertices directly, while shared,
+linked and temporary draws retain owned snapshots.
+
+A windowless Metal check loads 20,000 real models and unit-script instances.
+The turned view emits 12,481 markers and 2,066 instanced models, preserving
+canonical picking. Both classic and turned images match the previous code
+exactly, with the same paused world, camera and geometry. A separate native
+check compares 478 borrowed/captured frames, bounds and picks, including
+interpolation, attachments and water fixtures.
+
+Paused profiles use 30 warmup and 60 measured frames per view on the M5:
+
+| Wall-clock stage | Previous profile | Current profile |
+| --- | ---: | ---: |
+| Classic model/sprite emission and uploads | 205.77 ms | 100.82 ms |
+| Classic first executor call | 54.99 ms | 11.21 ms |
+| Turned Scene construction | 26.07 ms | 22.83 ms |
+| Turned draw-list planning | 8.34 ms | 4.59 ms |
+
+These separately recorded wall spans contain nested work and are not
+additive or measurements of GPU execution time. Whole-frame capture also
+includes mandatory readback. They do not establish gameplay frame rate;
+Full preparation still exceeds the target budget. Ray tracing remains
+future work while congestion and existing-view costs are addressed.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
@@ -405,10 +451,10 @@ whole-game frame rate or improved bridge throughput at 20,000 units.
    Keep mutable World ownership on the simulation thread, queue commands for
    deterministic ticks, and publish bounded immutable presentation snapshots.
    Render poses, effects, visibility and HUD data from those snapshots.
-4. Scale the existing Full renderer. It already retains geometry and groups
-   draws; reduce remaining positioned-vertex uploads by sending rigid-piece
-   transforms, then add bounded GPU culling, detail levels and distant-shadow
-   budgets. Measure frame preparation, upload bytes and GPU time separately.
+4. Continue scaling the existing Full renderer. Reduce off-viewport model
+   emission and remaining Scene preparation, and validate moving views with
+   bounded detail and shadow work. Measure frame preparation, upload bytes
+   and GPU time separately.
 5. Add Ultra as an independent Graphics option. The current SDL GPU path has
    no acceleration-structure or ray-dispatch interface. Introduce native
    Metal and Vulkan ray-tracing backends around shared scene/material data.
