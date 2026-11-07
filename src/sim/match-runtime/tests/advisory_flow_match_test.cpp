@@ -44,6 +44,7 @@ constexpr uint32_t idle_ticks = 19;
 constexpr uint32_t crossing_limit = 600;
 constexpr ground::RoutePoint start{48, 128};
 constexpr ground::RoutePoint destination{224, 128};
+constexpr uint8_t approach_phase = 1;
 constexpr uint8_t crossing_phase = 2;
 constexpr int16_t exit_plot = 11;
 constexpr uint32_t ordinary_budget = 4096;
@@ -245,8 +246,10 @@ struct NativeState {
     bool operator==(const NativeState&) const = default;
 };
 
-NativeState native_state(Crossing& crossing) {
-    const auto& state = crossing.movement();
+NativeState native_state(Crossing& crossing, uint16_t unit = 0) {
+    const auto* ground_state = crossing.match().ground_runtime(unit == 0 ? crossing.mover : unit);
+    CHECK(ground_state != nullptr);
+    const auto& state = *ground_state;
     return {
         state.geometry.position,
         state.movement.velocity,
@@ -340,6 +343,59 @@ void first_route_after_startup_receives_advice() {
     CHECK(advised && entered && exited);
     CHECK(crossing.movement().navigation.goal == nullptr);
     CHECK(crossing.movement().geometry.position[0] >= 208 * pixel);
+}
+
+/// Retained approaches use reserved work after new-route queries are exhausted.
+void retained_approach_survives_exhausted_new_queries() {
+    Crossing crossing;
+    crossing.run(idle_ticks);
+    crossing.route();
+    runtime::MatchTickAccess::AdvisoryLaneInspection retained{};
+    bool approaching{};
+    for (uint32_t tick = 0; tick < crossing_limit; ++tick) {
+        crossing.run();
+        retained = runtime::MatchTickAccess::advisory_lane(crossing.match(), crossing.mover);
+        if (retained.active && !retained.entered && retained.phase == approach_phase) {
+            approaching = true;
+            break;
+        }
+    }
+    if (!approaching)
+        describe("reserved approach setup", crossing);
+    CHECK(approaching);
+    const uint32_t before_tick = crossing.match().simulation().tick;
+    const auto before_position = crossing.movement().geometry.position;
+    const auto reserved = runtime::MatchTickAccess::advisory_budget(crossing.match());
+    CHECK(reserved.active_used == 0 && reserved.active_remaining != 0);
+    runtime::MatchTickAccess::tick_without_advisory_queries(crossing.match());
+    CHECK(crossing.match().fault() == nullptr);
+    CHECK(crossing.match().simulation().tick == before_tick + 1);
+    const auto& native = crossing.movement();
+    CHECK(native.geometry.position != before_position);
+    for (const size_t axis : {size_t{0}, size_t{2}})
+        CHECK(
+            native.geometry.position[axis] == before_position[axis] + native.movement.velocity[axis]
+        );
+    const auto next = runtime::MatchTickAccess::advisory_lane(crossing.match(), crossing.mover);
+    if (!next.active)
+        describe("reserved approach withdrawal", crossing);
+    CHECK(next.active && next.corridor == retained.corridor);
+    CHECK(next.lane == retained.lane && next.direction == retained.direction);
+    CHECK(next.generation == retained.generation);
+    CHECK(next.phase == approach_phase || next.phase == crossing_phase);
+    if (next.entered)
+        CHECK(
+            native.geometry.cell[0] <= 11 &&
+            native.geometry.cell[0] + native.geometry.footprint[0] - 1 >= 4 &&
+            native.geometry.cell[1] <= 9 &&
+            native.geometry.cell[1] + native.geometry.footprint[1] - 1 >= 6
+        );
+    const auto budget = runtime::MatchTickAccess::advisory_budget(crossing.match());
+    CHECK(budget.query_remaining == 0);
+    CHECK(budget.active_used != 0);
+    CHECK(budget.active_remaining + budget.active_used == reserved.active_remaining);
+    bounded_work(crossing);
+    clear_footprint(crossing);
 }
 
 /// A replacement same-Goal route keeps its crossing lane, then requests ordinary work.
@@ -583,9 +639,13 @@ void malformed_advisory_state_restores_nothing() {
     malformed = valid;
     malformed.push_back(0);
     rejected(malformed);
-    constexpr size_t reserved_header_byte = 84;
+    constexpr size_t reserved_header_byte = 95;
     malformed = valid;
     malformed[reserved_header_byte] ^= 1;
+    rejected(malformed);
+    constexpr size_t active_cursor_offset = 84;
+    malformed = valid;
+    std::fill_n(malformed.begin() + active_cursor_offset, sizeof(uint32_t), uint8_t{0});
     rejected(malformed);
 
     constexpr size_t catalog_metadata_bytes = 320;
@@ -830,6 +890,140 @@ void all_units_share_the_finite_work_budget() {
     CHECK(shared_limit != 0 && used && advised);
 }
 
+constexpr size_t retained_group_size = 4;
+
+std::array<uint16_t, retained_group_size> retained_group(Crossing& crossing) {
+    crossing.run(idle_ticks);
+    crossing.route();
+    std::array<uint16_t, retained_group_size> units{crossing.mover};
+    size_t at = 1;
+    for (const uint32_t z : {64u, 176u, 208u}) {
+        auto& unit = crossing.fixture.spawn(0, 48, z);
+        units[at++] = unit.unit_index;
+        crossing.match().place_unit_at(
+            unit.unit_index, 48 * pixel, land_height * pixel, int32_t(z) * pixel, ground_occupancy
+        );
+        unit.record.heading = east;
+        CHECK(!crossing.match().order_refused(crossing.match().issue_ground_move(
+            unit.unit_index, {destination[0] * pixel, 0, destination[1] * pixel}, false
+        )));
+    }
+    crossing.run();
+    for (size_t index = 1; index < units.size(); ++index) {
+        auto* state = crossing.match().ground_runtime(units[index]);
+        CHECK(state != nullptr && state->navigation.goal != nullptr);
+        auto& navigation = state->navigation;
+        navigation.points = {};
+        navigation.points[0] = {
+            static_cast<int16_t>(state->geometry.position[0] >> 16),
+            static_cast<int16_t>(state->geometry.position[2] >> 16)
+        };
+        navigation.points[1] = start;
+        navigation.points[2] = {112, 128};
+        navigation.points[3] = {160, 128};
+        navigation.points[4] = destination;
+        navigation.count = 5;
+        navigation.flags = ground::route_present_flag;
+        navigation.last_search_tick = crossing.match().simulation().tick;
+    }
+    constexpr uint32_t enrollment_ticks = 64;
+    for (uint32_t tick = 0; tick < enrollment_ticks; ++tick) {
+        bool all_active = true;
+        for (const auto unit : units) {
+            const auto guide = runtime::MatchTickAccess::advisory_lane(crossing.match(), unit);
+            all_active &= guide.active && guide.phase != 0;
+        }
+        if (all_active)
+            return units;
+        crossing.run();
+    }
+    CHECK(false);
+    return units;
+}
+
+/// Partial active work defers retained guides fairly and resumes the saved cursor exactly.
+void retained_active_work_is_fair_and_survives_restore() {
+    Crossing first;
+    Crossing restored;
+    const auto units = retained_group(first);
+    CHECK(retained_group(restored) == units);
+    runtime::MatchTickAccess::set_advisory_budget(first.match(), 128);
+    runtime::MatchTickAccess::set_advisory_budget(restored.match(), 128);
+    std::array<bool, retained_group_size> served{};
+    bool deferred{}, stopped{}, saved_cursor{};
+    constexpr uint32_t fairness_ticks = 8;
+    for (uint32_t tick = 0; tick < fairness_ticks; ++tick) {
+        std::array<runtime::MatchTickAccess::AdvisoryLaneInspection, retained_group_size> before{};
+        std::array<const ground::Goal*, retained_group_size> goals{};
+        for (size_t index = 0; index < units.size(); ++index) {
+            before[index] = runtime::MatchTickAccess::advisory_lane(first.match(), units[index]);
+            goals[index] = first.match().ground_runtime(units[index])->navigation.goal;
+            CHECK(before[index].phase != 0 && goals[index] != nullptr);
+        }
+        first.run();
+        restored.run();
+        bounded_work(first);
+        const auto budget = runtime::MatchTickAccess::advisory_budget(first.match());
+        CHECK(budget.active_used <= 128 && budget.active_remaining + budget.active_used == 128);
+        stopped |= budget.active_stopped;
+        std::vector<movement::LocalFlowHead> published(first.match().state().unit_slot_count);
+        const auto state_bytes = rule_bytes(first.match(), "advisory-flow");
+        const auto head_bytes = published.size() * movement::local_flow_head_bytes;
+        CHECK(
+            movement::read_local_flow_heads(
+                published, std::span<const uint8_t>(state_bytes).last(head_bytes)
+            )
+        );
+        for (size_t index = 0; index < units.size(); ++index) {
+            const auto unit = units[index];
+            const auto guide = runtime::MatchTickAccess::advisory_lane(first.match(), unit);
+            CHECK(first.match().ground_runtime(unit)->navigation.goal == goals[index]);
+            CHECK(guide.phase != 0 && guide.generation == before[index].generation);
+            CHECK(guide.corridor == before[index].corridor && guide.lane == before[index].lane);
+            CHECK(guide.direction == before[index].direction);
+            CHECK(guide.route_history == before[index].route_history);
+            served[index] |= guide.active;
+            if (!guide.active) {
+                deferred = true;
+                CHECK(guide.phase == before[index].phase);
+                CHECK(!published[unit].active);
+            }
+        }
+        if (!saved_cursor && budget.active_cursor != units.front()) {
+            constexpr size_t active_cursor_offset = 84;
+            auto altered = rule_bytes(restored.match(), "advisory-flow");
+            const auto original = altered;
+            const uint32_t alternate = units.front();
+            const auto before_digest = match_digest(restored);
+            for (size_t byte = 0; byte < sizeof(uint32_t); ++byte)
+                altered[active_cursor_offset + byte] = uint8_t(alternate >> (byte * 8));
+            restore_rule(restored.match(), "advisory-flow", altered);
+            CHECK(
+                runtime::MatchTickAccess::advisory_budget(restored.match()).active_cursor ==
+                alternate
+            );
+            CHECK(match_digest(restored) == before_digest);
+            restore_rule(restored.match(), "advisory-flow", original);
+            CHECK(
+                runtime::MatchTickAccess::advisory_budget(restored.match()).active_cursor ==
+                budget.active_cursor
+            );
+            saved_cursor = true;
+        }
+        for (const auto unit : units)
+            CHECK(native_state(first, unit) == native_state(restored, unit));
+        CHECK(match_digest(first) == match_digest(restored));
+        const auto& tables = first.match().rule_state();
+        for (uint8_t index = 0; index < tables.count; ++index) {
+            const auto* name = tables.tables[index].name;
+            CHECK(rule_bytes(first.match(), name) == rule_bytes(restored.match(), name));
+        }
+    }
+    CHECK(deferred && stopped && saved_cursor);
+    CHECK(served.back());
+    CHECK(std::all_of(served.begin(), served.end(), [](bool active) { return active; }));
+}
+
 void foreign_carried_and_air_drivers_receive_no_advice() {
     for (const auto driver :
          {Driver::remote, Driver::mirrored, Driver::carried, Driver::aircraft}) {
@@ -916,6 +1110,7 @@ int main() {
         }
     };
     run("late enrollment", first_route_after_startup_receives_advice);
+    run("retained approach reserve", retained_approach_survives_exhausted_new_queries);
     run("same Goal reroute", same_goal_reroute_cannot_revive_an_obsolete_waypoint);
     run("pending restore", pending_discovery_survives_restore);
     run("entered restore", entered_crossing_survives_restore);
@@ -924,6 +1119,7 @@ int main() {
     run("remote movement", advisory_head_reaches_the_existing_remote_movement_seam);
     run("ordinary fallback", unsupported_fog_and_budget_use_ordinary_navigation);
     run("shared budget", all_units_share_the_finite_work_budget);
+    run("retained active fairness", retained_active_work_is_fair_and_survives_restore);
     run("excluded drivers", foreign_carried_and_air_drivers_receive_no_advice);
     run("static invalidation", only_overlapping_static_changes_invalidate_the_crossing);
     if (failures == 0)
