@@ -459,8 +459,13 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
 - A row's words: `replay_kind_line` (the kind, by its title, and the planet),
   `replay_players_text` ("Varn vs Kestrel", "4 players" past three;
   watchers are left out), `replay_length_text`, `replay_time_text`, and
-  `replay_reading`, its whole line for automation. `replay_title` is the name
-  a row and the card show: the map's, or a file with no map's file name.
+  `replay_reading`, its whole line for automation, with Reading… while the
+  index pass has not read the file, and Won or Lost for the player whose
+  machine recorded it once that read knows who won. `replay_title` is the name
+  a row and the card show: a campaign's mission name, trailing spaces trimmed,
+  else the map's, or a file with no map's file name. A search still matches
+  the map's file name when the title differs. `replay_tick_text` writes a
+  tick as a time (tick 0 is 0:00).
   `replay_line_pieces` lays a row's second line out as dots and text: each of
   two or three players has a dot of their colour before their name, joined as
   the language joins them; past three the dots stand together and "N players"
@@ -476,10 +481,11 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
   has a key for automation and a label that begins with a capital),
   `replay_note` (a delete the trash refused, then a damaged file's two
   sentences, or the game's refusal),
-  `replay_buttons` (Watch, off for a damaged file and in a game; Export…;
-  Keep, Kept while every marked replay is kept, and no Keep at all while
-  every marked replay is imported; Delete replay, and Delete it or Delete
-  them once it is armed; Open folder), `refuse_replay` (the game's refusal,
+  `replay_buttons` (Watch, off for a damaged file and in a game; Watch from,
+  beside a plain Watch once a Watch was left part way, naming that time;
+  Export…; Keep, Kept while every marked replay is kept, and no Keep at all
+  while every marked replay is imported; Delete replay, and Delete it or
+  Delete them once it is armed; Open folder), `refuse_replay` (the game's refusal,
   shown while that replay is selected).
 - `replay_empty` says what the section shows with no row: no replays yet and
   that games are kept 30 days, 90 days, a year, or until deleted, or that
@@ -491,8 +497,9 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
   Imported filter's empty view offer Open a replay file
   (`Action::open_replay_file`). A search that matches nothing does not.
   `replay_status` is the footer's line: "Reading the
-  replays…" until the files are counted, then "Reading 12 of 64 replays", or
-  how many the list shows and their size.
+  replays…" until the files are counted, then "Reading 12 of 64 replays"
+  while the folder is read, the same sentence again while the index pass is
+  still reading replays, or how many the list shows and their size.
 
 ### The screens
 
@@ -510,17 +517,21 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
     Each row (`library.row.replay.<n>`, a list item checked while marked,
     read as `replay_reading`) shows the map's picture or a plain tile, the
     map, the kind, the players' colour dots and names, the length, the time,
-    a kept replay's star, the size, and an After a crash or Damaged chip.
-    The card shows the map's picture, the title, the kind and time, how many
-    are marked, why the replay cannot be watched (`library.note`), the
-    players and the facts (each a label, `library.fact.<fact>`; a value
+    a kept replay's star, the size, and a Reading…, After a crash or Damaged
+    chip. The card shows the map's picture, the title, the kind and time, how
+    many are marked, why the replay cannot be watched (`library.note`), the
+    players (with Won or Lost, and their kills and losses, once the index
+    pass has read the replay) and a strip of the game's moments, and the facts
+    (each a label, `library.fact.<fact>`; a value
     wraps to up to three lines), scrolling as the catalogue's details do when
-    they are taller than the card, with Watch, Export…, Keep, Delete replay
-    and Open folder at its foot (`library.action.watch`, `.export`, `.keep`,
-    `.delete`, `.open-folder`). At Compact, a row's press and Details open
-    the replay's own page (`ScreenState::replay_page`) with those buttons and
-    Back. With no row the empty section is centred under the bar, its words
-    the label `library.status`, with Turn on recording
+    they are taller than the card, with Watch, Watch from, Export…, Keep,
+    Delete replay and Open folder at its foot (`library.action.watch`,
+    `.watch-from`, `.export`, `.keep`, `.delete`, `.open-folder`).
+    **Watched to** sits under the buttons (`library.replays.watched`). At
+    Compact, a row's press and Details open the replay's own page
+    (`ScreenState::replay_page`) with those buttons and Back. With no row the
+    empty section is centred under the bar, its words the label
+    `library.status`, with Turn on recording
     (`library.action.turn-on-recording`) while recording is off.
     The footer's line is `library.replays.status`, with a bar while the
     folder is read. A press takes `ScreenState::row_pick`, which the host

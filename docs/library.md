@@ -319,8 +319,9 @@ kind: **All kinds**, **Multiplayer**, **Skirmish**, **Campaign**, then each
 kind an extension registers, by its own title, such as the Boneyards'
 battles. A second menu sorts: **Newest first** (the default), **Longest
 first**, **By map** and **Most players first**. The search at the heading's
-right finds a replay by its map, a player, its mod or its planet; every
-word has to be in one of them.
+right finds a replay by its map, a player, its mod or its planet, and by a
+campaign's mission name. A campaign whose title is that mission name is also
+found by the map's file name. Every word has to be in one of them.
 
 **The list.** Newest first, the replays are grouped by day under **Today**,
 **Yesterday** and the date ("Tue 3 Nov", with the year outside this year).
@@ -334,10 +335,19 @@ colour can be read against a name; each dot has a light edge, so that a
 black or a deep blue player shows on the dark row. A star marks a
 replay you keep, an amber **After a crash** chip one the game finished after
 it stopped, and a red **Damaged** chip a file that does not read, which is
-listed all the same. While the folder is read the section says "Reading the
+listed all the same. A grey **Reading…** chip marks a replay the game is
+still reading. Once that read finishes, the row and the card say **Won** or
+**Lost** for the player whose computer recorded the game, when the read
+knows who won. The card names each player's result and how many units they
+destroyed and lost, and a strip marks the moments of the game: a commander's
+death in that player's colour, and the other moments as short marks. A
+campaign replay is titled by its mission's name, a space at the end of that
+name included. While the folder is read the section says "Reading the
 replays…" in place of "No replays yet." until its first row comes, and the
 footer says the same until it has counted the files, then "Reading 12 of 64
-replays" over a bar, with the rows read so far listed; then it says how many
+replays" over a bar, with the rows read so far listed. Once the folder has
+been read, and replays are still being read, the footer says that same
+sentence again, counting those replays. It then says how many
 the list shows and their size ("28 replays · 296 KB").
 
 Pressing a row chooses it. **Shift** with a press marks every row from the
@@ -369,7 +379,9 @@ are marked the card says how many. The buttons are:
 
 - **Watch**, which plays the replay in the running game, as `--play-demo`
   does. Leaving its match brings the Library back on Replays, the same row
-  chosen and the list scrolled as it was. When the game cannot play it (its
+  chosen and the list scrolled as it was. Leaving a Watch remembers where it
+  was left. The card then says **Watched to 11:40** under the buttons, and
+  **Watch from 11:40** starts the replay there. When the game cannot play it (its
   map is not installed, its unit definitions differ, it needs another mod's
   limits) the card says why, in the game's words and without the file's
   name, which the card shows. A refusal that comes after the game began
@@ -476,8 +488,19 @@ of the format, which Open Annihilation does not play".
 
 **The index.** What the Library read of each file is kept in
 `Recordings/.replays/index.json`, so a file that has not changed is not
-opened again. The Library reads the folder again each time it opens. The
-index is a cache: deleting it only makes the Library read every file again,
+opened again. The Library reads the folder again each time it opens. While
+the Library is open and no game is running, it then reads each replay it has
+not read yet, one at a time, in the background. Closing the Library, or
+starting a game, or pressing **Watch**, stops that read. A read that was
+stopped writes nothing, so the row says **Reading…** again the next time.
+A replay the read could not finish shows what its file already said, with
+no **Reading…** chip, until the file changes or something is installed or
+removed. A replay that needs a map, mod, mutator or expansion you do not
+have is not read until you have it. On a phone, where the game cannot start
+that read, every row stays that way. Where a Watch was left is
+kept in the same index. Exporting a replay includes what that read wrote,
+and a timeline the file already holds is kept.
+The index is a cache: deleting it only makes the Library read every file again,
 and forgets nothing. A damaged index is not overwritten: the Library moves it
 to `index.json.damaged` and, when that name is taken, to
 `index.json.damaged-2` and on, and writes a new one.

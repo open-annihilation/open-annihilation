@@ -211,8 +211,11 @@ struct ScreenResult {
     std::string expansion{};
     /// The base game USE THIS GAME asked the host to copy.
     std::string base_game{};
-    /// The replay WATCH or OPEN FOLDER is for, by its path below Recordings.
+    /// The replay WATCH, WATCH FROM or OPEN FOLDER is for, by its path below
+    /// Recordings.
     std::string replay{};
+    /// The tick WATCH FROM jumps to, once the match is up.
+    std::optional<uint32_t> watch_from{};
     /// The replays KEEP, KEPT or EXPORT… is for, by their paths: every marked replay.
     std::vector<std::string> replays{};
     /// A folder the Export dialog's chooser was asked to open, by its name.

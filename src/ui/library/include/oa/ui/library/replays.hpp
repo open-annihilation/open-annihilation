@@ -185,6 +185,15 @@ struct ReplayDay {
 /// @return the text; "–" when the length is not known
 [[nodiscard]] std::string replay_length_text(uint64_t length_ms);
 
+/// Writes a tick as the card writes a remembered place: "11:40", "0:00".
+///
+/// Thirty ticks are one second. Tick 0 is "0:00", not the dash a length of
+/// zero uses.
+///
+/// @param tick the tick
+/// @return the text
+[[nodiscard]] std::string replay_tick_text(uint32_t tick);
+
 /// Writes a local time of day: "21:14".
 ///
 /// @param minute minutes into the day
@@ -317,9 +326,10 @@ struct ReplayButton {
     bool danger{};
 };
 
-/// Lists the details card's buttons: Watch, then Export…, then Keep (Kept
-/// when every marked replay is kept), then Delete replay, then the confirm
-/// beside it once Delete has been pressed, then Open folder.
+/// Lists the details card's buttons: Watch, then Watch from when a Watch was
+/// left part way, then Export…, then Keep (Kept when every marked replay is
+/// kept), then Delete replay, then the confirm beside it once Delete has been
+/// pressed, then Open folder.
 ///
 /// Watch is off for a damaged replay and during a game. When the replay
 /// needs content, its words are Get … and watch, Turn on and watch, or

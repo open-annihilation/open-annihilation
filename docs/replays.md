@@ -226,7 +226,18 @@ The Library's **Replays** section, second in its section list, lists every
 replay in `Recordings`: this month's, older ones, the ones you keep and the
 ones you imported, by kind, searched by map, player, mod or planet, and
 sorted. **Watch** plays one in the running game, and leaving its match comes
-back to the same row ([the Library](library.md#replays)).
+back to the same row ([the Library](library.md#replays)). Leaving a Watch
+remembers where it was left, and the card offers **Watch from** that time.
+While the Library is open and no game is running, each replay that has not
+been read yet is read in the background, one at a time. The row says
+**Reading…** until that finishes, then **Won** or **Lost** for the player
+whose computer recorded it, when that is known. The card shows each player's
+result, how many units they destroyed and lost, and a strip of the game's
+moments. Closing the Library, starting a game or pressing **Watch** stops
+the read. A read that was stopped writes nothing, so the row says
+**Reading…** again next time. A phone, which cannot start that read, shows
+what the file's header says and no **Reading…** chip. Exporting a replay
+carries what that read wrote. A timeline the file already holds is kept.
 
 **Delete replay** on the card, confirmed by the button beside it, moves that
 replay's file to the system's trash and takes it out of the list. If the
@@ -292,7 +303,10 @@ window and no sound, and writes that as a small file, `timeline.json`:
 open-annihilation --replay-index games/game.tad --output games/game.timeline.json
 ```
 
-A `.oademo` holds the same file as its `timeline.json` entry. The pass runs
+A `.oademo` holds the same file as its `timeline.json` entry. The Library
+stores that text on the replay's index entry once its background read
+finishes, and an export copies it into a replay whose own timeline is
+missing or empty. The pass runs
 on the fixed clock and the fixed seed, and changes nothing the replay
 computes: it ends on the same tick as `--play-demo`. The same recording
 always gives the same file, byte for byte. `--output` is required.
@@ -375,7 +389,12 @@ decides has `winners` empty and `by` `none`.
 4. `finished` when the machines exchanged the scores of the end screen (an
    economy record that asks for a reply, which the machines send only when a
    game ends);
-5. `cut` otherwise: the recording stops with the game undecided, as one that
+5. `finished` or `left`, as `meta.json`'s `game.ended` says, when that word
+   is one of those two. This is a `.oademo` that played to the end of what
+   was recorded and that the commanders, a departure and the end screen did
+   not decide. The tick is the last one. A `.tad` has no `meta.json`, so
+   this step does not apply to it;
+6. `cut` otherwise: the recording stops with the game undecided, as one that
    was cut short does.
 
 The six recorded 3.1c games all end `finished`, every one decided by the

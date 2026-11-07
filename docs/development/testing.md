@@ -106,8 +106,15 @@ read, and never "No replays yet."; each filter, the kind menu, the search
 (a damaged file by the name its row shows) and the sort give their rows;
 Keep is in `kept.json` at once and is read back with the index whole,
 deleted, truncated or full of noise, a damaged index being set aside; a
-ten-player replay's card scrolls to Kept until; WATCH plays 30 ticks and
-leaving comes back to the same row and scroll; a recording whose map is not
+ten-player replay's card scrolls to Kept until; a campaign replay is titled
+by its mission name, trailing spaces trimmed; WATCH plays 300 ticks and
+leaving comes back to the same row and scroll, and Watch from starts at the
+tick that Watch left, printed from the match; a replay watched to its end
+offers Watch; on a build that can start a
+process, the pass's own unread rows say Reading… and closing the Library leaves no
+index process, and a watcher's card shows no result for that player and,
+scrolled, the timeline strip; a Ctrl key the automation endpoint holds marks a second row;
+a recording whose map is not
 installed is refused in the card, and one whose unit table differs, refused
 only after its match began loading, leaves the game on the main menu with
 the Library on the same row, at the same scroll, with the refusal in its

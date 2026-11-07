@@ -1038,7 +1038,9 @@ runtime goes).
   "No replays yet." while the folder is read. `fill_replay_inputs` gives the model each replay with the local day and
   minute it was recorded (`localtime`), its map's picture, the kinds
   extensions registered (`oa::data::replays::registered_kinds`), today and
-  the recording setting. `pump_replay_pictures` decodes one map picture a
+  the recording setting, and, from a timeline the index pass stored, who won,
+  each player's kills and losses, and the card's timeline marks.
+  `pump_replay_pictures` decodes one map picture a
   layout for the rows shown, from `maps/<map>.tnt` in the game's files.
   WATCH reads the replay's file and hands its bytes to the extension that
   replays recordings (`Extension::open_recording`, strict, as `--play-demo`
@@ -1046,7 +1048,10 @@ runtime goes).
   showed as `library_return_`, so leaving the match opens it again on
   Replays with the same row selected and scrolled as it was
   (`reopen_kept_library`). The replay's hooks are closed once its match has
-  gone (`end_watched_replay`). A refusal is the hook's sentence, without the
+  gone (`end_watched_replay`), which writes the tick sampled while the match
+  ran (`note_watched_replay`, through `replay_state`) into the index.
+  **Watch from** stores that tick and asks `replay_seek` on the first frame
+  the replay can say where it is. A refusal is the hook's sentence, without the
   file's name the hook puts before it, shown in the card. The hook can refuse
   after its match began loading (the recording's unit table is not the
   installed one): the screen is then the loading screen with a half-made
@@ -1077,8 +1082,23 @@ runtime goes).
   (`SDL_GetUserFolder`) or a folder the dialog's chooser lists. The
   game-install locator is not used: it refuses a folder that is not an
   install, and Downloads is not one. Cancelling closes the dialog and the
-  next pump writes nothing more. The pointer's press carries Shift,
-  Ctrl or Command as `ScreenState::row_pick`.
+  next pump writes nothing more. An export carries the index's timeline when
+  the source `.oademo` has none or an empty one, and when a `.tad` is
+  wrapped; a timeline already in a `.oademo` is kept. The string is copied
+  onto the export on the main thread. While the Library is open and no match
+  is running, `pump_replays` also advances one index pass
+  (`--replay-index` of the game's own executable, low priority, standard
+  output discarded). The child runs in the player's own folder, and with
+  `--mod-dir` when the replay's mod is installed. Its standard error goes
+  to `.index-pass/errors.txt`. The game logs one line per pass. One process
+  at a time. A row with a gap Watch would fetch, turn on or refuse is left
+  out. A refused read stores `read_stamp` and is tried again when it
+  changes. Closing the Library, a match, Watch and leaving the game stop
+  it, and a stopped pass writes nothing.
+  A build that cannot start a process (iOS, Android) shows header fields
+  only and no Reading… chip. The pointer's press reads Shift, Ctrl or
+  Command through `Runtime::input_modifiers(ModifierUse::keyboard)`, so a
+  key the automation endpoint holds counts, and sets `ScreenState::row_pick`.
 - **The import check.** `native-replays-import` (`--check-replay-import`,
   `runtime_library_replays_check.cpp`) copies a made-up `.oademo` and a
   made-up `.tad` into `Recordings/Imported`, selects each, copies nothing the
@@ -1099,16 +1119,21 @@ runtime goes).
   and one after it began (a recording whose unit table differs: the game on
   the main menu again, the Library on the same row and scroll), WATCH
   playing 30 ticks and leaving it coming back to the same row and scroll,
-  Turn on recording writing the setting, and Export writing one replay as a
+  Watch from starting at that tick, a campaign titled by its mission name,
+  a Ctrl key the automation endpoint holds marking a second row, and, where
+  a process can be started, Reading… on an unindexed row, no index process
+  after the Library closes, and the watched replay's result and timeline
+  strip. Turn on recording writes the setting, and Export writes one replay as a
   `.oademo` and three as `.tad` files into `Exported replays`. It then shows
   the old-replays question, Keep them all, a second consideration that asks
   nothing, and Let them go, and checks a kept file whose bytes changed, two
   copies of one recording, a delete the trash refuses and a damaged
   `kept.json` set aside. With `--snapshot` it pictures the section and the
   Export dialog at 640x480, 960x540, 1280x720 and 1920x1080, while the folder
-  is first read, the damaged replay, the ten-player card at its foot and the
-  refusals. It removes `Recordings` and `Exported replays` and puts the
-  setting back as it ends;
+  is first read, the damaged replay, the ten-player card at its foot, the
+  refusals, the Reading… chip and the indexed replay's result and timeline
+  strip. It removes `Recordings`, `Exported replays` and `Mods/ridge`, and
+  puts the setting back as it ends;
   a FIXTURES_SETUP test (`library-replays-clean`) clears its folders first.
 - **Missing replay content.** `native-replays-content`
   (`--check-replays-content`, `runtime_replays_content_check.cpp`, driven by
@@ -3924,10 +3949,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   Selection boxes and health bars can be drawn over that battlefield and
   start off. The on-screen test keeps the player's own view, so unit
   announcements stay the ones that view would have posted.
-  `runtime_photo_check.cpp` runs `--check-photo mode` (`native-photo-mode`):
+  `runtime_photo_check.cpp`, a self-check that release builds leave out,
+  runs `--check-photo mode` (`native-photo-mode`):
   two drawn passes of the fight in a window, one of them through photo mode,
   read back as one world, including a shared match and a watcher. Clicks,
-  follow, Settings, Escape and a resize go through that window.
+  follow, Settings, Escape and a resize go through that window. The photo
+  steps of network play's loopback check (`exercise_shared_photo`), which
+  every build keeps, are in `runtime_photo_mode.cpp`.
   `runtime_photo_capture.cpp` saves that battlefield (`take_photo`) in the
   render mode in use, or, while a shared match's picture is held, the held
   copy with the player's gamma. `photo_writer.cpp` encodes the PNG and

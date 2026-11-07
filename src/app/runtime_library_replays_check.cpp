@@ -52,18 +52,30 @@
 //    so on the card. A kept.json cut in half is set aside, its whole marks
 //    are kept, and pressing Keep on another replay and considering again
 //    leaves the earlier kept replays, the ones whose marks were cut off too.
+// 9. A campaign replay is titled by its mission name, with trailing spaces
+//    trimmed. The stored name stays as the file has it, and the map's file
+//    name stays searchable. On a build that can start a process, the pass's
+//    own unread replays say Reading…, and closing the Library leaves no
+//    index process. A key the automation endpoint holds marks a second row.
+//    Watch from starts at the tick the earlier Watch left, which is at least
+//    300, and the jump is the replay's own. A replay watched to its end
+//    offers Watch. A watcher has no result. The pass's own card shows a
+//    result and, scrolled, its timeline strip.
 //
 // With --snapshot, the section at 640x480, 960x540, 1280x720 and 1920x1080, empty and
 // with its long list, while the folder is first read, with a damaged replay,
-// the ten-player card scrolled to its foot and the refusals, beside the
-// snapshot. Everything the check writes, including Exported replays, is
-// removed again as it ends, so a second run starts as the first did.
+// the ten-player card scrolled to its foot, the refusals, the Reading…
+// chip and the indexed replay's result and timeline strip, beside the
+// snapshot. Everything the check writes, including Exported replays and the
+// Mods/ridge folder the content note installs, is removed again as it ends,
+// so a second run starts as the first did.
 
 #include "library_host.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 
 #include "oa/app/automation_host.hpp"
+#include "oa/app/hook_call.hpp"
 #include "oa/app/package_install/inbox.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/user_folder.hpp"
@@ -71,6 +83,7 @@
 #include "oa/data/replays/replays.hpp"
 
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/ui/display_layout.hpp"
@@ -80,6 +93,23 @@
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/replays.hpp"
 #include "oa/ui/library/screen.hpp"
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#ifndef PROCESS_QUERY_LIMITED_INFORMATION
+#define PROCESS_QUERY_LIMITED_INFORMATION PROCESS_QUERY_INFORMATION
+#endif
+#else
+#include <cerrno>
+#include <csignal>
+#include <unistd.h>
+#endif
 
 #include <SDL3/SDL.h>
 
@@ -103,6 +133,10 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+#ifndef OA_PROCESS_SPAWNING
+#error "OA_PROCESS_SPAWNING (0 or 1) says whether the game may start other programs"
+#endif
 
 namespace oa::app {
 
@@ -130,8 +164,9 @@ constexpr int kLongFrames = 4000;
 constexpr int kLongPackets = 200;
 /// Bytes in each of those packets, under a chunk's limit.
 constexpr int kLongPacketBytes = 20000;
-/// The ticks WATCH must play before the match is left.
-constexpr uint32_t kWatchedTicks = 30;
+/// The ticks WATCH must play before the match is left. Far enough in that a
+/// Watch from which started at the beginning cannot pass for it.
+constexpr uint32_t kWatchedTicks = 300;
 /// The map no installation holds, which WATCH refuses.
 constexpr std::string_view kMissingMap = "Nowhere Isle";
 /// The made-up planet and sector of an extension's kind of game.
@@ -224,6 +259,8 @@ struct MadeReplay {
     uint32_t variant{};
     std::vector<std::string> expansions{}; ///< content.expansions
     std::vector<std::string> mutators{};   ///< content.mutators
+    /// The player, counted from 0, who recorded the game. -1 leaves none.
+    int recorded_at{-1};
 };
 
 /// Returns the recording with its first player renamed, so that it has an
@@ -296,6 +333,11 @@ void write_made(
             player.kind = "human";
             replay.meta.players.push_back(std::move(player));
         }
+        if (made.recorded_at >= 0 &&
+            static_cast<std::size_t>(made.recorded_at) < replay.meta.players.size()) {
+            replay.meta.players[static_cast<std::size_t>(made.recorded_at)].recorded_here = true;
+            replay.meta.players[static_cast<std::size_t>(made.recorded_at)].kind = "watcher";
+        }
     }
     if (!made.mod.empty()) {
         oademo::ModRef mod;
@@ -344,6 +386,31 @@ std::vector<std::string> shown_paths(const library::Library& model) {
 bool holds(const std::vector<std::string>& paths, std::string_view path) {
     return std::find(paths.begin(), paths.end(), path) != paths.end();
 }
+
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+/// Tells whether a process has gone.
+///
+/// @param pid the process; 0 counts as gone
+/// @return true when it is not running
+bool process_gone(int pid) {
+    if (pid <= 0)
+        return true;
+#if defined(_WIN32)
+    const HANDLE handle =
+        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (handle == nullptr)
+        return true;
+    DWORD code = 0;
+    const BOOL read = GetExitCodeProcess(handle, &code);
+    CloseHandle(handle);
+    return read == FALSE || code != STILL_ACTIVE;
+#else
+    if (kill(pid, 0) == 0)
+        return false;
+    return errno == ESRCH;
+#endif
+}
+#endif
 
 } // namespace
 
@@ -629,6 +696,7 @@ void Runtime::check_library_replays() {
         Runtime& runtime;
         fs::path recordings;
         fs::path exported;
+        fs::path ridge;
 
         ~CleanUp() {
             std::error_code removed;
@@ -640,6 +708,7 @@ void Runtime::check_library_replays() {
             }
             fs::remove_all(recordings, removed);
             fs::remove_all(exported, removed);
+            fs::remove_all(ridge, removed);
             for (const fs::path& left : runtime.replay_trash_left_)
                 fs::remove(left, removed);
             runtime.replay_trash_left_.clear();
@@ -652,16 +721,20 @@ void Runtime::check_library_replays() {
 
         /// A folder the check made unwritable, put back before the tree is removed.
         fs::path restore_write{};
-    } clean_up{*this, recordings, exported};
+    } clean_up{*this, recordings, exported, user_folder_ / "Mods" / "ridge"};
 
     {
         std::error_code removed;
         fs::remove_all(recordings, removed);
         fs::remove_all(exported, removed);
+        fs::remove_all(clean_up.ridge, removed);
     }
     preference_values_[std::string(replays_record_preference)] = "on";
     preference_values_.erase(std::string(replays_keep_preference));
     preference_values_.erase(std::string(replays_retention_asked_preference));
+    // The check and the pass it starts ask for no update and no catalogue.
+    preference_values_["open-annihilation.update-check"] = "never";
+    preference_values_["open-annihilation.content-updates"] = "never";
     preferences_dirty_ = true;
     flush_preferences();
 
@@ -720,7 +793,36 @@ void Runtime::check_library_replays() {
         run_frame(running);
         require(running, "a frame ended the run");
     };
-    const auto snapshot = [this](const std::string& step) {
+    // Pictures of the list that predate the index pass: every row is already
+    // read, with nothing to show, and the footer is the count.
+    bool seed_rows = false;
+    bool hold_unread = false;
+    const auto settle_rows = [&] {
+        host.mark_replays_read(*this);
+        if (oa_layer().find(library_screen_name) == nullptr)
+            return;
+        if (host.model.tab != library::Tab::replays)
+            return;
+        if (host.model.inputs.replays.rows.empty() || host.model.inputs.replays.reading)
+            return;
+        for (const library::ReplayRow& row : host.model.inputs.replays.rows) {
+            require(!row.indexing, "a listed replay says Reading on a picture of the list");
+            require(
+                library::replay_reading(host.model, row).find("Reading") == std::string::npos,
+                "a row says Reading"
+            );
+        }
+        if (host.model.replays.visible.empty())
+            return;
+        const std::string status = library::replay_status(host.model);
+        require(status.find("Reading") == std::string::npos, "the footer says " + status);
+        require(
+            status.find("replay") != std::string::npos, "the footer is not the count: " + status
+        );
+    };
+    const auto snapshot = [&](const std::string& step, bool rows = false) {
+        if (rows)
+            settle_rows();
         if (options_.snapshot.empty())
             return;
         oa_layer().read_whole_window(true);
@@ -762,6 +864,8 @@ void Runtime::check_library_replays() {
         require(top_is(library_screen_name), "the Library did not open");
         require(host.model.tab == library::Tab::replays, "the Library did not open on Replays");
         require(!host.replays_reading(), "the Recordings folder was not read");
+        if (seed_rows && !hold_unread)
+            settle_rows();
     };
     const auto close = [&] {
         close_library();
@@ -888,7 +992,15 @@ void Runtime::check_library_replays() {
          "Ridge"}
     );
     made.push_back(
-        {"default/campaign.oademo", 45, "campaign", "Rougpelt", {"Commander"}, 0, false, {}, {}}
+        {"default/campaign.oademo",
+         45,
+         "campaign",
+         "EXP1CC06",
+         {"Commander"},
+         0,
+         false,
+         "{\"mission_name\":\"6: Alien Bugs\",\"campaign\":\"Core Campaign - Core Contingency \"}",
+         {}}
     );
     made.push_back(
         {"default/crashed.oademo",
@@ -986,6 +1098,27 @@ void Runtime::check_library_replays() {
         recordings / "default" / "damaged.oademo",
         std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(junk.data()), junk.size())
     );
+    // Every made-up replay is already read, with nothing to show, before the
+    // first picture of the list. The pass's own replays are written later.
+    {
+        replays::Index seeded;
+        const auto add = [&](std::string_view path) {
+            replays::Replay row = replays::read_file(recordings, path);
+            if (!row.timeline.has_value())
+                row.timeline = std::string();
+            row.read_stamp.reset();
+            seeded.replays.push_back(std::move(row));
+        };
+        for (const MadeReplay& replay : made)
+            add(replay.path);
+        add("default/recorder.tad");
+        add("default/other-units.tad");
+        add("default/damaged.oademo");
+        require(
+            replays::save_index(recordings, seeded), "the made-up replays' index could not be saved"
+        );
+    }
+    seed_rows = true;
     // All but the campaign, and the two .tad files and the damaged file.
     const std::size_t month = made.size() - 1 + 3;
 
@@ -1000,6 +1133,16 @@ void Runtime::check_library_replays() {
         library::replay_filter_count(host.model, library::ReplayFilter::this_month) == month,
         "This month does not count " + std::to_string(month) + " replays"
     );
+    {
+        const library::ReplayRow* campaign =
+            library::find_replay(host.model, "default/campaign.oademo");
+        require(campaign != nullptr, "the campaign replay is not listed");
+        require(
+            library::replay_title(*campaign) == "6: Alien Bugs",
+            "a campaign replay is not titled by its mission name"
+        );
+        std::cout << "library replays: a campaign replay is titled by its mission name\n";
+    }
     {
         const library::ReplayRow* damaged =
             library::find_replay(host.model, "default/damaged.oademo");
@@ -1118,6 +1261,19 @@ void Runtime::check_library_replays() {
         search("damaged") == std::vector<std::string>{"default/damaged.oademo"},
         "searching the name a damaged file's row shows does not find it"
     );
+    library::set_replay_filter(host.model, library::ReplayFilter::older);
+    ++host.model_revision;
+    frames(1);
+    require(
+        search("EXP1CC06") == std::vector<std::string>{"default/campaign.oademo"},
+        "searching a campaign's map file does not find it"
+    );
+    library::set_query(host.model, {});
+    host.state.search = {};
+    library::set_replay_filter(host.model, library::ReplayFilter::this_month);
+    ++host.model_revision;
+    frames(1);
+    std::cout << "library replays: a campaign's map file is found by EXP1CC06\n";
     if (extension_kind)
         require(
             search("corvane") == std::vector<std::string>{"default/battle.oademo"},
@@ -1156,6 +1312,19 @@ void Runtime::check_library_replays() {
         frames(1);
         return "oa.library.row.replay." + std::to_string(*place + 1);
     };
+    // A Ctrl key the automation endpoint holds marks a second row.
+    click_named(row_of("default/filler-1.oademo"));
+    {
+        const AutomationHost automation = automation_host(*this);
+        automation.hold_key(automation.context, static_cast<uint32_t>(SDL_SCANCODE_LCTRL), true);
+        click_named(row_of("default/filler-2.oademo"));
+        require(
+            host.model.replays.marked.size() == 2,
+            "a Ctrl the automation endpoint holds did not mark a second replay"
+        );
+        automation.hold_key(automation.context, static_cast<uint32_t>(SDL_SCANCODE_LCTRL), false);
+        std::cout << "library replays: a held Ctrl marked a second replay\n";
+    }
     click_named(row_of("ridge/skirmish.oademo"));
     click_named("oa.library.action.keep");
     // The mark is in its own file at once, by the recording, whatever the
@@ -1229,7 +1398,7 @@ void Runtime::check_library_replays() {
         host.state.details_scroll = 0;
         ++host.model_revision;
         frames(2);
-        snapshot("ten-players-" + size);
+        snapshot("ten-players-" + size, true);
         host.state.details_scroll = 1 << 20;
         ++host.model_revision;
         frames(2);
@@ -1237,7 +1406,7 @@ void Runtime::check_library_replays() {
             named("oa.library.fact.kept-until").has_value(),
             "the ten-player card cannot be scrolled to its last fact at " + size
         );
-        snapshot("ten-players-foot-" + size);
+        snapshot("ten-players-foot-" + size, true);
         std::cout << "library replays: the ten-player card shows Kept until at " << size << '\n';
         host.state.details_scroll = 0;
         if (compact)
@@ -1281,7 +1450,7 @@ void Runtime::check_library_replays() {
         );
         std::cout << "library replays: refused after loading began, back in the card at " << size
                   << ": " << note->text << '\n';
-        snapshot("refused-after-loading-" + size);
+        snapshot("refused-after-loading-" + size, true);
         if (compact)
             click_named("oa.library.back");
     };
@@ -1299,27 +1468,27 @@ void Runtime::check_library_replays() {
             library::select_replay(host.model, "default/watched.oademo");
             ++host.model_revision;
             frames(1);
-            snapshot("long-" + size);
+            snapshot("long-" + size, true);
             // The section list with a two-digit count beside This month.
-            snapshot("section-list-two-digits-" + size);
+            snapshot("section-list-two-digits-" + size, true);
             click_named(row);
             require(
                 named("oa.library.back").has_value(),
                 "a row's press at Compact did not open its page"
             );
-            snapshot("page-" + size);
+            snapshot("page-" + size, true);
             click_named("oa.library.back");
             ten_players(size, true);
             continue;
         }
         click_named(row);
-        snapshot("long-" + size);
+        snapshot("long-" + size, true);
         ten_players(size, false);
         if (width == 1280) {
             click_named(row_of("default/damaged.oademo"));
-            snapshot("damaged-" + size);
+            snapshot("damaged-" + size, true);
             click_named("oa.library.filter.imported");
-            snapshot("imported-" + size);
+            snapshot("imported-" + size, true);
             click_named("oa.library.filter.this-month");
             click_named(row_of("default/watched.oademo"));
         }
@@ -1336,7 +1505,7 @@ void Runtime::check_library_replays() {
             "the card does not say why the replay cannot be watched"
         );
         std::cout << "library replays: refused in the card: " << note->text << '\n';
-        snapshot("refused-1920x1080");
+        snapshot("refused-1920x1080", true);
     }
 
     // 2. A recording whose unit table differs is refused after loading began.
@@ -1390,6 +1559,75 @@ void Runtime::check_library_replays() {
     require(host.state.list_scroll == scroll_before, "the list came back scrolled elsewhere");
     std::cout << "library replays: leaving came back on the same replay, scrolled "
               << host.state.list_scroll << '\n';
+    const library::ReplayRow* watched = library::find_replay(host.model, "default/watched.oademo");
+    require(
+        watched != nullptr && watched->replay.watched_tick.has_value() &&
+            *watched->replay.watched_tick >= kWatchedTicks,
+        "leaving the replay did not remember where it was"
+    );
+    const uint32_t remembered = *watched->replay.watched_tick;
+    click_named("oa.library.action.watch-from");
+    for (int frame = 0; frame < kMostFrames && screen_ != Screen::match; ++frame) {
+        run_frame(running);
+        require(running, "a frame ended the run");
+    }
+    require(screen_ == Screen::match && match_ != nullptr, "Watch from did not start the replay");
+    // The jump is the replay's own. Granting ticks would let a start at 0 pass.
+    bool saw_skipping = false;
+    bool arrived = false;
+    uint32_t at_tick = match_->state().game.tick;
+    for (int frame = 0; frame < kMostFrames && match_ != nullptr; ++frame) {
+        run_frame(running);
+        require(running, "a frame ended the run");
+        at_tick = match_->state().game.tick;
+        ReplayPlaybackView view{};
+        const bool have = call_hook_or_report<&Extension::replay_state>(
+            extension_, hook_error_report(), *this, &view
+        );
+        if (have && view.skipping)
+            saw_skipping = true;
+        if (have && !view.skipping && (saw_skipping || at_tick == remembered) &&
+            at_tick == remembered && at_tick >= kWatchedTicks) {
+            arrived = true;
+            break;
+        }
+    }
+    require(arrived, "Watch from did not reach the remembered tick without granting ticks");
+    std::cout << "library replays: Watch from starts at demo tick " << at_tick << '\n';
+    for (int frame = 0; frame < 4000 && match_ != nullptr && !host.watched_replay_finished();
+         ++frame) {
+        static_cast<void>(run_granted_ticks(8));
+        run_frame(running);
+        require(running, "a frame ended the run");
+    }
+    require(
+        match_ != nullptr && host.watched_replay_finished(),
+        "the replay watched on from its tick did not finish"
+    );
+    leave_match();
+    load(Screen::main_menu);
+    for (int frame = 0; frame < kMostFrames && !top_is(library_screen_name); ++frame) {
+        run_frame(running);
+        require(running, "a frame ended the run");
+    }
+    frames(2);
+    require(top_is(library_screen_name), "leaving Watch from did not open the Library again");
+    {
+        const library::ReplayRow* ended =
+            library::find_replay(host.model, "default/watched.oademo");
+        require(
+            ended != nullptr && !ended->replay.watched_tick.has_value(),
+            "a replay watched to its end kept a watched tick"
+        );
+        require(
+            !named("oa.library.action.watch-from"), "a replay watched to its end offers Watch from"
+        );
+        const std::optional<AutomationControl> watch = named("oa.library.action.watch");
+        require(
+            watch && watch->text == "Watch", "a replay watched to its end does not offer Watch"
+        );
+        std::cout << "library replays: a replay watched to its end offers Watch\n";
+    }
     close();
     window_of(640, 480);
     frames(2);
@@ -1541,7 +1779,7 @@ void Runtime::check_library_replays() {
                     "a failed export does not say there is no room"
                 );
             }
-            snapshot("export-" + std::string(state) + "-" + size);
+            snapshot("export-" + std::string(state) + "-" + size, true);
         };
 
         if (!options_.snapshot.empty()) {
@@ -1903,7 +2141,7 @@ void Runtime::check_library_replays() {
             open_library(tab);
             frames(2);
             replays_second(std::string("on the ") + word + " tab");
-            snapshot(std::string("section-list-") + word + "-640x480");
+            snapshot(std::string("section-list-") + word + "-640x480", true);
             close();
         }
     }
@@ -2026,7 +2264,7 @@ void Runtime::check_library_replays() {
             still_there(campaign_file) && still_there(aged_file) && spared(),
             "a replay was removed before the question was answered"
         );
-        snapshot("retention-question");
+        snapshot("retention-question", true);
     }
     click_named("oa.prompt.keep-them-all");
     frames(2);
@@ -2363,7 +2601,7 @@ void Runtime::check_library_replays() {
     {
         const std::optional<AutomationControl> confirm = named("oa.library.action.delete-confirm");
         require(confirm && confirm->text == "Delete them", "Delete did not ask beside the button");
-        snapshot("delete-confirm");
+        snapshot("delete-confirm", true);
     }
     click_named("oa.library.action.delete-confirm");
     require(
@@ -2534,6 +2772,223 @@ void Runtime::check_library_replays() {
                   << " bytes lost every mark of " << lost
                   << " old kept replays; it was set aside and every kept replay stayed\n";
     }
+
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+    {
+        // The pass's own replays, written after every earlier picture. The
+        // made-up list stays marked read. These stay unread, so the Reading…
+        // chip, the footer's count and the card belong to them.
+        write_bytes(recordings / "default" / "indexed.oademo", source_bytes);
+        for (int copy = 1; copy <= 3; ++copy) {
+            const std::string name = "waiting-" + std::to_string(copy) + ".oademo";
+            write_bytes(recordings / "default" / name, source_bytes);
+        }
+        const std::vector<std::string> names{
+            "Ada", "Bea", "Cid", "Dot", "Eve", "Fay", "Gus", "Hal", "Ivy", "Joss"
+        };
+        MadeReplay watchers;
+        watchers.path = "default/watchers.oademo";
+        watchers.days_ago = 0;
+        watchers.kind = "skirmish";
+        watchers.map = "Watcher Field";
+        watchers.players = names;
+        watchers.recorded_at = 1;
+        watchers.variant = 910;
+        write_made(recordings, source, watchers, now);
+        hold_unread = true;
+
+        const auto show_pass_rows = [&] {
+            library::set_replay_filter(host.model, library::ReplayFilter::this_month);
+            library::set_replay_kind(host.model, {});
+            library::set_query(host.model, {});
+            host.state.search = {};
+            ++host.model_revision;
+            frames(1);
+        };
+        const auto ours = [](std::string_view path) {
+            return path == "default/indexed.oademo" || path == "default/watchers.oademo" ||
+                   path.rfind("default/waiting-", 0) == 0;
+        };
+        const auto indexing_row = [&] {
+            std::string path;
+            for (const library::ReplayRow& row : host.model.inputs.replays.rows) {
+                if (!ours(row.replay.path) || !row.indexing)
+                    continue;
+                if (library::replay_reading(host.model, row).find("Reading") == std::string::npos)
+                    continue;
+                path = row.replay.path;
+                break;
+            }
+            require(!path.empty(), "no unread replay says Reading");
+            return path;
+        };
+
+        window_of(1280, 720);
+        frames(2);
+        open_replays();
+        show_pass_rows();
+        for (int frame = 0; frame < kMostFrames && !host.index_pass_running(); ++frame)
+            frames(1);
+        require(host.index_pass_running(), "the index pass did not start");
+        const int pid = host.index_pass_pid();
+        require(pid > 0, "the index pass has no process");
+        close();
+        require(process_gone(pid), "closing the Library left the index process");
+        require(!host.index_pass_running(), "closing the Library left the index pass");
+        std::cout << "library replays: closing the Library left no index process\n";
+
+        const auto chip_at = [&](int width, int height) {
+            window_of(width, height);
+            frames(2);
+            if (oa_layer().find(library_screen_name) == nullptr)
+                open_replays();
+            show_pass_rows();
+            const std::string path = indexing_row();
+            row_of(path);
+            const std::string status = library::replay_status(host.model);
+            require(
+                status.find("Reading") != std::string::npos, "the footer is not the pass: " + status
+            );
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            snapshot("reading-chip-" + size);
+            std::cout << "library replays: Reading… on " << path << " at " << size << ", footer \""
+                      << status << "\"\n";
+        };
+        chip_at(640, 480);
+        chip_at(1280, 720);
+
+        if (oa_layer().find(library_screen_name) == nullptr)
+            open_replays();
+        show_pass_rows();
+        oademo::TimelineIndex timeline;
+        timeline.length_ticks = 900;
+        timeline.ended = oademo::IndexEnd::finished;
+        timeline.ended_tick = 900;
+        timeline.verdict.finished = true;
+        timeline.result.by = oademo::ResultBy::commanders;
+        timeline.result.winners = {1};
+        timeline.period_ticks = 300;
+        for (std::size_t place = 0; place < names.size(); ++place) {
+            oademo::IndexPlayer player;
+            player.number = static_cast<int>(place + 1);
+            player.name = names[place];
+            player.watcher = place == 1;
+            if (place == 0) {
+                player.final.kills = 1;
+                player.final.losses = 1;
+            }
+            timeline.players.push_back(std::move(player));
+        }
+        oademo::IndexMarker marker;
+        marker.tick = 120;
+        marker.kind = oademo::MarkerKind::commander_death;
+        marker.player = 1;
+        marker.other = 2;
+        timeline.markers.push_back(marker);
+        const std::string text = oademo::timeline_index_text(timeline);
+        require(
+            oademo::parse_timeline_index(text).has_value(), "the watcher's timeline does not read"
+        );
+        host.store_replay_timeline(*this, "default/watchers.oademo", text);
+        frames(2);
+        {
+            const library::ReplayRow* row =
+                library::find_replay(host.model, "default/watchers.oademo");
+            require(
+                row != nullptr && row->standings.size() == names.size() &&
+                    row->recorded == library::RecordedResult::none && row->length_ticks == 900 &&
+                    !row->marks.empty(),
+                "the watcher's card has no timeline"
+            );
+            require(
+                row->standings[0].result == library::RecordedResult::won &&
+                    row->standings[0].known && row->standings[0].kills == 1 &&
+                    row->standings[0].losses == 1,
+                "the winner's card does not say 1 kill and 1 loss"
+            );
+            require(
+                row->standings[1].result == library::RecordedResult::none &&
+                    !row->standings[1].known,
+                "a watcher has a result"
+            );
+            require(
+                row->standings[2].result == library::RecordedResult::lost &&
+                    row->standings[2].known,
+                "another player has no result"
+            );
+            std::cout << "library replays: a watcher has no result\n";
+        }
+
+        const auto card_at = [&](int width, int height) {
+            window_of(width, height);
+            frames(2);
+            if (oa_layer().find(library_screen_name) == nullptr)
+                open_replays();
+            show_pass_rows();
+            const bool compact = width <= 640;
+            if (compact) {
+                if (!named("oa.library.back"))
+                    click_named(row_of("default/watchers.oademo"));
+                require(named("oa.library.back").has_value(), "the watcher's page did not open");
+            } else {
+                click_named(row_of("default/watchers.oademo"));
+            }
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            host.state.details_scroll = 0;
+            ++host.model_revision;
+            frames(2);
+            const std::optional<AutomationControl> top = named("oa.library.status");
+            const int top_y = top ? top->window_y : -1;
+            snapshot("timeline-strip-" + size);
+            host.state.details_scroll = 80;
+            ++host.model_revision;
+            frames(2);
+            const std::optional<AutomationControl> moved = named("oa.library.status");
+            const int moved_y = moved ? moved->window_y : -1;
+            require(moved_y != top_y, "the card did not scroll to its results at " + size);
+            snapshot("index-results-" + size);
+            if (compact)
+                click_named("oa.library.back");
+        };
+        card_at(640, 480);
+        card_at(1280, 720);
+
+        if (oa_layer().find(library_screen_name) == nullptr)
+            open_replays();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
+        std::string said;
+        while (std::chrono::steady_clock::now() < deadline && said.empty()) {
+            frames(1);
+            const library::ReplayRow* row =
+                library::find_replay(host.model, "default/indexed.oademo");
+            if (row == nullptr || !row->replay.timeline.has_value() ||
+                row->replay.timeline->empty())
+                continue;
+            bool known = row->recorded != library::RecordedResult::none;
+            for (const library::PlayerStanding& standing : row->standings)
+                if (standing.known)
+                    known = true;
+            if (!known)
+                continue;
+            if (row->recorded == library::RecordedResult::won)
+                said = "Won";
+            else if (row->recorded == library::RecordedResult::lost)
+                said = "Lost";
+            else
+                said = "no side";
+            for (const library::PlayerStanding& standing : row->standings) {
+                if (!standing.known)
+                    continue;
+                said += ", " + std::to_string(standing.kills) + " kills, " +
+                        std::to_string(standing.losses) + " losses";
+                break;
+            }
+        }
+        require(!said.empty(), "indexed.oademo was not read");
+        std::cout << "library replays: indexed.oademo shows " << said << '\n';
+        close();
+    }
+#endif
 }
 
 void Runtime::check_replay_import() {

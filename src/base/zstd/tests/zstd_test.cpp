@@ -16,9 +16,10 @@
 
 #include "oa/test/check.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <vector>
 
 namespace {
@@ -26,10 +27,13 @@ namespace {
 using oa::base::zstd::Error;
 using oa::base::zstd::Sized;
 
+// 4,000 bytes of 'a', then eight others. The vector is made at its whole size
+// and the eight are written into its end: growing it with an insert has GCC 12
+// read the move of its empty tail as past the end (-Warray-bounds).
 std::vector<uint8_t> sample() {
-    const std::string text(4000, 'a');
-    std::vector<uint8_t> bytes(text.begin(), text.end());
-    bytes.insert(bytes.end(), {1, 2, 3, 4, 5, 9, 8, 7});
+    constexpr std::array<uint8_t, 8> tail{1, 2, 3, 4, 5, 9, 8, 7};
+    std::vector<uint8_t> bytes(4000 + tail.size(), 'a');
+    std::copy(tail.begin(), tail.end(), bytes.end() - static_cast<std::ptrdiff_t>(tail.size()));
     return bytes;
 }
 

@@ -124,6 +124,9 @@ inline constexpr kit::ControlId active_lock = 77;
 inline constexpr kit::ControlId active_keys = 78;
 /// CHANGE… on the KEYS tile. It opens Keys with the layout in use selected.
 inline constexpr kit::ControlId active_keys_change = 79;
+/// The line under a replay card's buttons: where a Watch was left.
+/// It takes no press.
+inline constexpr kit::ControlId replays_watched = 80;
 /// An entry's action button: this and the Action's value.
 inline constexpr kit::ControlId first_action = 100;
 /// A tag's chip or nav entry: this and the tag's place in tags_in_tab.

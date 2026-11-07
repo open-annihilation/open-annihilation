@@ -1415,7 +1415,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_team_panels.cpp
   src/app/runtime_scroll_bars.cpp
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
-  src/app/photo_camera.cpp src/app/runtime_photo_mode.cpp src/app/runtime_photo_check.cpp
+  src/app/photo_camera.cpp src/app/runtime_photo_mode.cpp
   src/app/runtime_photo_capture.cpp src/app/photo_writer.cpp
   src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
@@ -1477,6 +1477,7 @@ endif()
 # checks. OA_SELF_CHECKS=OFF leaves them out, as the release packages do.
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
   src/app/runtime_live_renderer_check.cpp
+  src/app/runtime_photo_check.cpp
   src/app/runtime_side_orders_check.cpp
   src/app/runtime_skirmish_sides_check.cpp
   src/app/runtime_mod_limits_check.cpp
@@ -3180,10 +3181,14 @@ if(OA_BUILD_PLATFORM)
       # The Library's Replays section, over made-up replays written from one
       # recorded game: a headless loopback game recorded with --record-game
       # first, then Replays second in the section list with no replay and with
-      # some, WATCH and the way back to the same row, KEEP read back from the
-      # index, each filter, the kind menu, the search and the sort, and TURN ON
-      # RECORDING. The player's folder and the recording stay in the build
-      # tree and are cleared before each run.
+      # some, WATCH and the way back to the same row, Watch from at the tick
+      # that Watch left, KEEP read back from the index, each filter, the kind
+      # menu, the search and the sort, TURN ON RECORDING, a campaign titled by
+      # its mission name, and, where a process can be started, the Reading…
+      # chip, no index process after the Library closes, and the indexed
+      # replay's result and timeline strip. A Ctrl key the automation endpoint
+      # holds marks a second row. The player's folder and the recording stay
+      # in the build tree and are cleared before each run.
       set(oa_library_replays_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/library-replays")
       file(MAKE_DIRECTORY "${oa_library_replays_dir}")
       add_test(NAME library-replays-clean COMMAND ${CMAKE_COMMAND} -E rm -rf

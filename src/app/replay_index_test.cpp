@@ -651,7 +651,9 @@ void chat_markers_are_lines_a_player_typed() {
 
 // How the replay ended: finished by the commanders, by the end-of-game
 // records, left with the game undecided, cut when the replay stopped short
-// or nothing ended it; and what the commanders decide with teams and ties.
+// or nothing ended it, and finished or left as the recording says when none
+// of those decided a replay that reached its end; and what the commanders
+// decide with teams and ties.
 void how_a_replay_ended() {
     // Nobody's commander is lost, nobody leaves, no scores come: cut.
     director::Timeline quiet = made_up_timeline();
@@ -685,6 +687,24 @@ void how_a_replay_ended() {
     index = build(stopped, departed);
     OA_CHECK(index.ended == oademo::IndexEnd::cut && index.ended_tick == 500);
     OA_CHECK(index.length_ticks == 500 && index.totals[0].kills.size() == 2);
+
+    // No commander, no departure and no scores, and the file says finished:
+    // finished, on the last tick. A replay that could not go on stays cut.
+    replay_index::Source recorded;
+    recorded.timeline = &quiet;
+    recorded.stream = &none;
+    recorded.recorded_end = oademo::IndexEnd::finished;
+    index = replay_index::build_index(recorded);
+    OA_CHECK(index.ended == oademo::IndexEnd::finished && index.ended_tick == 900);
+    director::Timeline unfinished = quiet;
+    unfinished.verdict.finished = false;
+    recorded.timeline = &unfinished;
+    index = replay_index::build_index(recorded);
+    OA_CHECK(index.ended == oademo::IndexEnd::cut && index.ended_tick == 900);
+    recorded.timeline = &quiet;
+    recorded.recorded_end = oademo::IndexEnd::left;
+    index = replay_index::build_index(recorded);
+    OA_CHECK(index.ended == oademo::IndexEnd::left && index.ended_tick == 900);
 
     // Both commanders die on one tick: the replay is decided, with no winner.
     director::Timeline tied = made_up_timeline();

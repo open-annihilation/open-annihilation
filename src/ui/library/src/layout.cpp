@@ -253,6 +253,8 @@ std::string_view action_word(Action action) {
         return "edit-keys";
     case Action::watch_replay:
         return "watch";
+    case Action::watch_from:
+        return "watch-from";
     case Action::keep_replays:
         return "keep";
     case Action::open_replay_folder:
@@ -7173,6 +7175,8 @@ void add_replay_row(
         chip->state = kit::ChipState::problem;
     } else if (const std::string needed = replay_need_chip(library, row); !needed.empty()) {
         chip = state_chip(needed);
+    } else if (row.indexing) {
+        chip = tag_chip(std::string(shown(library.text, words::replay_reading_now)));
     } else if (row.replay.after_crash) {
         chip = state_chip(std::string(shown(library.text, words::replay_after_crash)));
     }
@@ -7239,11 +7243,33 @@ void add_replay_row(
     }
     if (!chip_takes_thumb)
         add_replay_thumb(building, row, {thumb_x, rect.y + inset, side, side}, view);
+    // A kept replay's star sits left of the clock. A chip on the first line
+    // ends a space before that star. A row with no chip is left as it is,
+    // and so is a chip that took the clock's column: the star is not drawn.
+    int32_t chip_limit = text_right;
+    if (chip && !chip_on_second && row.replay.kept && !chip_takes_aside) {
+        const int32_t star = metrics.small_line - 2;
+        const int32_t time_width = width_of(building, kit::FontRole::small, clock_words);
+        const int32_t before_star = right - time_width - metrics.space / 2 - star - metrics.space;
+        if (before_star < chip_limit)
+            chip_limit = std::max(before_star, text_left);
+        const int32_t span = std::max(chip_limit - text_left, int32_t{0});
+        if (chip_width > span) {
+            const int32_t words = width_of(building, kit::FontRole::small, chip->text);
+            if (words <= span)
+                chip_width = span;
+            else {
+                const int32_t room = std::max(span - 2 * chip_side(metrics), int32_t{0});
+                chip->text = cut(building, kit::FontRole::small, chip->text, room);
+                chip_width = std::min(tag_width(building, *chip), span);
+            }
+        }
+    }
     const int32_t name_room =
         chip_on_second
             ? std::max(text_right - text_left, int32_t{0})
             : std::max(
-                  text_right - text_left - (chip ? chip_width + metrics.space : 0), int32_t{0}
+                  chip_limit - text_left - (chip ? chip_width + metrics.space : 0), int32_t{0}
               );
     const std::string name = cut(building, kit::FontRole::regular, replay_title(row), name_room);
     const int32_t name_width = width_of(building, kit::FontRole::regular, name);
@@ -7285,7 +7311,7 @@ void add_replay_row(
         kit::Item& item = add_item(
             building.list,
             kit::Role::chip,
-            {std::min(after, text_right - chip_width),
+            {std::min(after, chip_limit - chip_width),
              first + (metrics.regular_line - chip_height_points) / 2,
              chip_width,
              chip_height_points},
@@ -7639,6 +7665,61 @@ std::vector<ActionButton> replay_actions(const Library& library) {
     return actions;
 }
 
+/// Appends the card's timeline strip: a dark bar, and a mark at each moment
+/// the index recorded. A commander's death is taller and in that player's colour.
+///
+/// @param[in,out] building the layout
+/// @param row the replay
+/// @param left the bar's left
+/// @param top its top
+/// @param width its width
+/// @param clip what drawing may touch
+/// @return the row under the bar; `top` when the replay has no length yet
+int32_t add_timeline_strip(
+    Building& building,
+    const ReplayRow& row,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip
+) {
+    if (row.length_ticks == 0 || width <= 0)
+        return top;
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t bar_height = std::max(metrics.small_line / 2, int32_t{6});
+    add_item(building.list, kit::Role::fill, {left, top, width, bar_height}, clip).colour =
+        kit::colour::edge_dark;
+    const int32_t across = std::max(width - 1, int32_t{1});
+    for (const TimelineMark& mark : row.marks) {
+        const int64_t along = static_cast<int64_t>(mark.tick) * static_cast<int64_t>(across) /
+                              static_cast<int64_t>(row.length_ticks);
+        int32_t x = left + static_cast<int32_t>(along);
+        if (x < left)
+            x = left;
+        if (x > left + width - 1)
+            x = left + width - 1;
+        const int32_t mark_height =
+            mark.commander ? bar_height : std::max(bar_height / 2, int32_t{2});
+        kit::Colour ink = kit::colour::accent;
+        if (mark.commander) {
+            for (const oa::data::replays::Player& player : row.replay.players) {
+                if (player.number == mark.player) {
+                    ink = player_swatch(player.colour);
+                    break;
+                }
+            }
+        }
+        add_item(
+            building.list,
+            kit::Role::fill,
+            {x, top + bar_height - mark_height, 2, mark_height},
+            clip
+        )
+            .colour = ink;
+    }
+    return top + bar_height + metrics.hint_gap;
+}
+
 /// The card's buttons. A primary caption wider than the bar uses the shorter
 /// Watch words, so the caption is not cut and the other buttons stay.
 ///
@@ -7658,7 +7739,8 @@ std::vector<ActionButton> fitted_replay_actions(const Building& building, int32_
 }
 
 /// Appends the selected replay's details: its picture, title, kind and
-/// time, the marks, why it cannot be watched, its players and its facts,
+/// time, the marks, why it cannot be watched, its timeline, its players and
+/// its facts,
 /// from the top of a column. A fact's value wraps to a second or a third
 /// line rather than being cut.
 ///
@@ -7815,9 +7897,13 @@ int32_t add_replay_details(
         y += part_gap(metrics);
     }
 
-    // The players: each one's colour, name and side. Every player is laid
-    // out: the card scrolls, so none is left out for want of room.
-    for (const oa::data::replays::Player& player : row.replay.players) {
+    y = add_timeline_strip(building, row, left, y, width, clip);
+
+    // The players: each one's colour, name and side, and, once the pass has
+    // read the replay, that player's result, kills and losses. Every player
+    // is laid out: the card scrolls, so none is left out for want of room.
+    for (std::size_t place = 0; place < row.replay.players.size(); ++place) {
+        const oa::data::replays::Player& player = row.replay.players[place];
         const int32_t side = player_dot_side(metrics);
         add_player_dot(
             building, {left, y + (metrics.small_line - side) / 2, side, side}, player.colour, clip
@@ -7850,6 +7936,53 @@ int32_t add_replay_details(
             cut(building, kit::FontRole::small, side_text, side_width),
             {left + width - side_width, y, side_width, metrics.small_line},
             kit::Align::right,
+            kit::colour::hint,
+            clip
+        );
+        y += metrics.small_line + metrics.hint_gap;
+        if (place >= row.standings.size())
+            continue;
+        const PlayerStanding& standing = row.standings[place];
+        std::string extra;
+        if (standing.result == RecordedResult::won)
+            extra = std::string(shown(library.text, words::replay_won));
+        else if (standing.result == RecordedResult::lost)
+            extra = std::string(shown(library.text, words::replay_lost));
+        if (standing.known) {
+            const std::string kills = standing.kills == 1
+                                          ? std::string(shown(library.text, words::replay_kill_one))
+                                          : filled(
+                                                library.text,
+                                                words::replay_kills_many,
+                                                {{"kills", std::to_string(standing.kills)}}
+                                            );
+            const std::string losses =
+                standing.losses == 1 ? std::string(shown(library.text, words::replay_loss_one))
+                                     : filled(
+                                           library.text,
+                                           words::replay_losses_many,
+                                           {{"losses", std::to_string(standing.losses)}}
+                                       );
+            const std::string counts =
+                filled(library.text, words::replay_joined, {{"left", kills}, {"right", losses}});
+            extra =
+                extra.empty()
+                    ? counts
+                    : filled(
+                          library.text, words::replay_joined, {{"left", extra}, {"right", counts}}
+                      );
+        }
+        if (extra.empty())
+            continue;
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building,
+                kit::FontRole::small,
+                extra,
+                std::max(width - (name_left - left), int32_t{0})),
+            {name_left, y, std::max(left + width - name_left, int32_t{0}), metrics.small_line},
+            kit::Align::left,
             kit::colour::hint,
             clip
         );
@@ -7963,11 +8096,13 @@ void add_replay_card(Building& building, const kit::Rect& whole) {
     };
     const ActionPlan plan =
         plan_actions(building, fitted_replay_actions(building, inner.width), inner.width);
+    const bool watched = row->replay.watched_tick.has_value();
+    const int32_t watched_line = watched ? metrics.small_line + metrics.hint_gap : 0;
     const kit::Rect pane{
         inner.x,
         inner.y,
         inner.width,
-        std::max(inner.height - plan.height - metrics.row_gap, int32_t{0})
+        std::max(inner.height - plan.height - metrics.row_gap - watched_line, int32_t{0})
     };
     const auto lay_out_body = [&](Building& into, int32_t width, int32_t offset) {
         const std::size_t first_item = into.list.items.size();
@@ -8013,11 +8148,32 @@ void add_replay_card(Building& building, const kit::Rect& whole) {
             scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::details
         };
     }
-    add_replay_buttons(
-        building,
-        {inner.x, inner.y + inner.height - plan.height, inner.width, plan.height},
-        building.detail
-    );
+    const int32_t buttons_top = inner.y + inner.height - plan.height - watched_line;
+    add_replay_buttons(building, {inner.x, buttons_top, inner.width, plan.height}, building.detail);
+    if (watched) {
+        const Library& library = *building.library;
+        const std::string when = replay_tick_text(*row->replay.watched_tick);
+        const std::string line = filled(library.text, words::replay_watched_to, {{"time", when}});
+        const int32_t line_top = inner.y + inner.height - metrics.small_line;
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building, kit::FontRole::small, line, inner.width),
+            {inner.x, line_top, inner.width, metrics.small_line},
+            kit::Align::left,
+            kit::colour::hint,
+            inner
+        );
+        add_label(
+            building.detail,
+            controls::replays_watched,
+            {inner.x, line_top, inner.width, metrics.small_line},
+            unique_name(building, named("replays.watched")),
+            line,
+            inner,
+            -1
+        );
+    }
 }
 
 /// Returns the words the kind menu's field shows.

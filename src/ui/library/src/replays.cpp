@@ -96,12 +96,29 @@ CivilDate civil_of(int32_t days) {
 /// The text a `.oademo` names the program that recorded it by, before the version.
 constexpr std::string_view program_prefix = "open-annihilation ";
 
+/// The text without its trailing spaces. The stored name is unchanged.
+///
+/// @param text the text
+/// @return the text, shorter when it ended in spaces
+std::string_view trim_trailing_spaces(std::string_view text) {
+    while (!text.empty() && text.back() == ' ')
+        text.remove_suffix(1);
+    return text;
+}
+
 /// Returns the name a replay's row shows for its map: the map's, or for a
 /// file that does not say, the file's name.
 ///
 /// @param row the replay
 /// @return the name
 std::string_view shown_map(const ReplayRow& row) {
+    // A campaign's title is the mission name, with trailing spaces trimmed.
+    // The stored name is unchanged. The map stem stays searchable beside it.
+    if (row.replay.kind == replays_data::kind_campaign && !row.replay.mission_name.empty()) {
+        const std::string_view title = trim_trailing_spaces(row.replay.mission_name);
+        if (!title.empty())
+            return title;
+    }
     if (!row.replay.map.empty())
         return row.replay.map;
     const std::string_view path = row.replay.path;
@@ -281,6 +298,19 @@ std::string_view kept_sentence(const ReplayInputs& inputs) {
     if (inputs.keep_days == replays_data::keep_span_year)
         return words::replays_kept_year;
     return words::replays_kept_days;
+}
+
+/// Won, Lost, or nothing, as the row and the card say a result.
+///
+/// @param library the Library
+/// @param result the result
+/// @return the word; empty when there is none
+std::string result_word(const Library& library, RecordedResult result) {
+    if (result == RecordedResult::won)
+        return std::string(shown(library.text, words::replay_won));
+    if (result == RecordedResult::lost)
+        return std::string(shown(library.text, words::replay_lost));
+    return {};
 }
 
 } // namespace
@@ -488,6 +518,8 @@ bool replay_matches(const ReplayRow& row, std::string_view query) {
     std::vector<std::string> fields{
         folded(shown_map(row)), folded(row.replay.mod_name), folded(row.replay.planet)
     };
+    if (row.replay.map != shown_map(row))
+        fields.push_back(folded(row.replay.map));
     for (const replays_data::Player& player : row.replay.players)
         fields.push_back(folded(player.name));
     for (const std::string_view term : terms) {
@@ -583,6 +615,15 @@ std::string replay_day_heading(const Library& library, int32_t day) {
     return date_text(library, day);
 }
 
+std::string replay_tick_text(uint32_t tick) {
+    if (tick == 0)
+        return "0:00";
+    const uint64_t milliseconds = static_cast<uint64_t>(tick) * 1000ULL / 30ULL;
+    if (milliseconds == 0)
+        return "0:00";
+    return replay_length_text(milliseconds);
+}
+
 std::string replay_length_text(uint64_t length_ms) {
     if (length_ms == 0)
         return "–";
@@ -648,8 +689,7 @@ std::string replay_card_kind(const Library& library, const ReplayRow& row) {
 }
 
 std::string replay_reading(const Library& library, const ReplayRow& row) {
-    std::string line =
-        row.replay.map.empty() ? std::string(file_name(row.replay.path)) : row.replay.map;
+    std::string line(shown_map(row));
     line = joined(library, line, replay_kind_line(library, row));
     line = joined(library, line, replay_players_text(library, row));
     if (!replays_data::damaged(row.replay))
@@ -662,6 +702,9 @@ std::string replay_reading(const Library& library, const ReplayRow& row) {
         line = joined(library, line, shown(library.text, words::replay_after_crash));
     if (replays_data::damaged(row.replay))
         line = joined(library, line, shown(library.text, words::replay_damaged));
+    if (row.indexing)
+        line = joined(library, line, shown(library.text, words::replay_reading_now));
+    line = joined(library, line, result_word(library, row.recorded));
     const std::string needed = replay_need_chip(library, row);
     if (!needed.empty())
         line = joined(library, line, needed);
@@ -1043,6 +1086,7 @@ std::vector<ReplayLinePiece> replay_line_pieces(const Library& library, const Re
         if (!length.empty())
             text = joined(library, text, length);
     }
+    text = joined(library, text, result_word(library, row.recorded));
     std::string literal;
     const auto flush = [&] {
         if (!literal.empty())
@@ -1165,6 +1209,16 @@ std::vector<ReplayButton> replay_buttons(const Library& library) {
              !replays_data::damaged(row->replay) && !library.inputs.in_match,
              std::string(shown(library.text, words::action_watch))}
         );
+        // Watch from is offered beside a plain Watch only: a press that must
+        // first get or turn on content starts the replay from the beginning.
+        if (row->replay.watched_tick.has_value()) {
+            const std::string when = replay_tick_text(*row->replay.watched_tick);
+            buttons.push_back(
+                {Action::watch_from,
+                 !replays_data::damaged(row->replay) && !library.inputs.in_match,
+                 filled(library.text, words::action_watch_from, {{"time", when}})}
+            );
+        }
     } else if (!counts.blocked && !replays_data::damaged(row->replay)) {
         const std::string words = watch_words(library, counts);
         // A missing expansion the catalogue has not answered yet is not Watch.
@@ -1281,6 +1335,14 @@ std::string replay_status(const Library& library) {
             library.text,
             words::replays_reading,
             {{"read", std::to_string(inputs.read)}, {"total", std::to_string(inputs.total)}}
+        );
+    }
+    if (inputs.indexing && inputs.index_total > 0) {
+        return filled(
+            library.text,
+            words::replays_reading,
+            {{"read", std::to_string(inputs.index_done)},
+             {"total", std::to_string(inputs.index_total)}}
         );
     }
     const std::vector<std::size_t>& visible = library.replays.visible;

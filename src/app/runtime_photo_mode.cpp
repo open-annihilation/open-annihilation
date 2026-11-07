@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -882,6 +883,56 @@ void Runtime::show_held_photo_picture() {
     if (photo_->held_rgb.size() != match_world_cpu_.rgb.size())
         return;
     std::memcpy(match_world_cpu_.rgb.data(), photo_->held_rgb.data(), photo_->held_rgb.size());
+}
+
+// Network play's --net-loopback-check runs this in every build, the release
+// packages' too, so it is here and not with the self-checks in
+// runtime_photo_check.cpp.
+void Runtime::exercise_shared_photo(uint32_t tick) {
+    if (match_ == nullptr)
+        throw std::runtime_error("net loopback check: photo mode has no match");
+    const auto require = [](bool ok, const char* what) {
+        if (!ok)
+            throw std::runtime_error(std::string("net loopback check: ") + what);
+    };
+    auto& game = match_->state().game;
+    if (tick == 100) {
+        const uint16_t flags = game.sim_run_flags;
+        const uint16_t requested = game.requested_speed;
+        const uint16_t current = game.current_speed;
+        require(enter_photo_mode(), "photo mode did not open on the host");
+        scroll_match_view(1, 0, 4.0);
+        const float least = least_match_zoom();
+        const float most = most_match_zoom();
+        const float zoom = std::min(most, std::max(least, 1.25F));
+        match_zoom_ = zoom;
+        match_zoom_target_ = zoom;
+        require(!photo_freeze(), "freeze acted in the shared match");
+        require(!photo_slow(1), "slow acted in the shared match");
+        require(!photo_step(), "step acted in the shared match");
+        require(!photo_between(4), "between ticks acted in the shared match");
+        require(game.sim_run_flags == flags, "photo mode wrote the pause bit");
+        require(
+            game.requested_speed == requested && game.current_speed == current,
+            "photo mode wrote the speed"
+        );
+        require(photo_mode(), "photo mode closed");
+        return;
+    }
+    if (tick == 170) {
+        require(photo_mode(), "photo mode was not open to hold the picture");
+        render_match_surface();
+        require(photo_hold_picture(), "hold picture did not act");
+        require(photo_picture_held() && photo_camera_locked(), "the picture is not held");
+        const int32_t camera_x = match_camera_x_;
+        scroll_match_view(1, 0, 4.0);
+        require(match_camera_x_ == camera_x, "the held picture was reframed");
+        return;
+    }
+    if (tick == 200) {
+        leave_photo_mode();
+        require(!photo_mode() && !photo_picture_held(), "photo mode stayed open");
+    }
 }
 
 } // namespace oa::app

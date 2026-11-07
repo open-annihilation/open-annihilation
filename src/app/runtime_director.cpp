@@ -28,6 +28,7 @@
 #include "oa/audio/mixer.hpp"
 #include "oa/audio/offline_mix.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/formats/oascript.hpp"
 #include "oa/formats/zip.hpp"
@@ -453,6 +454,24 @@ struct VisibilityGlue {
         }
     }
 };
+
+/// How a `.oademo`'s `meta.json` says the game ended, when that word is
+/// `finished` or `left`. A `.tad`, a description that does not read, and any
+/// other word give nothing, and the index keeps its own rule.
+///
+/// @param file the recording's bytes
+/// @return the end, or nothing
+std::optional<oademo::IndexEnd> recorded_end_of(std::span<const uint8_t> file) {
+    const oademo::DescriptionResult described = oademo::read_description(file);
+    if (!described.ok() || !described.meta->game.ended.has_value())
+        return std::nullopt;
+    const std::string_view word = *described.meta->game.ended;
+    if (word == oademo::index_end_name(oademo::IndexEnd::finished))
+        return oademo::IndexEnd::finished;
+    if (word == oademo::index_end_name(oademo::IndexEnd::left))
+        return oademo::IndexEnd::left;
+    return std::nullopt;
+}
 
 } // namespace
 
@@ -1349,6 +1368,7 @@ int Runtime::run_replay_index() {
         const director::Timeline timeline = recorder.take();
         source.timeline = &timeline;
         source.stream = &*stream;
+        source.recorded_end = recorded_end_of(recording);
         const oademo::TimelineIndex index = replay_index::build_index(source);
         const std::string text = oademo::timeline_index_text(index);
         write_whole_file(out, {reinterpret_cast<const uint8_t*>(text.data()), text.size()});

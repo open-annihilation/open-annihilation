@@ -635,6 +635,30 @@ inline constexpr std::array<std::string_view, 3> engine_replay_kinds{
     oa::data::replays::kind_campaign,
 };
 
+/// How the recording machine's player finished, once the index pass has read
+/// the replay. Nothing until a result is known.
+enum class RecordedResult : uint8_t {
+    none, ///< no result, or the pass has not said
+    won,  ///< that player's side won
+    lost, ///< a result is known and that player's side did not win
+};
+
+/// One player's result and totals, in the same order as the replay's players.
+/// The app fills it from the index pass. The model does not read the timeline.
+struct PlayerStanding {
+    RecordedResult result{RecordedResult::none}; ///< that player's result
+    bool known{};                                ///< kills and losses were in the timeline
+    uint32_t kills{};                            ///< units destroyed
+    uint32_t losses{};                           ///< units lost
+};
+
+/// One mark on the card's timeline strip.
+struct TimelineMark {
+    uint32_t tick{};  ///< the game tick it happened on
+    int32_t player{}; ///< the player's number; 0 for none
+    bool commander{}; ///< a commander's death, drawn in that player's colour
+};
+
 /// One replay as the Library lists it: what its file says, and when it was
 /// recorded on the player's clock.
 struct ReplayRow {
@@ -644,6 +668,17 @@ struct ReplayRow {
     /// The map's picture, when the app has drawn it from the installed map.
     /// Empty draws a plain tile. Its pixels stay valid until the next refresh.
     std::optional<MapPicture> picture{};
+    /// The index pass has not read this file yet. The row shows Reading… .
+    /// A build that cannot start the pass leaves this false.
+    bool indexing{};
+    /// The result for the player whose machine recorded the replay.
+    RecordedResult recorded{RecordedResult::none};
+    /// Each player's result, kills and losses, parallel to `replay.players`.
+    std::vector<PlayerStanding> standings{};
+    /// The replay's length in ticks, from the timeline. 0 draws no strip.
+    uint32_t length_ticks{};
+    /// The timeline strip's marks. Chat is left out.
+    std::vector<TimelineMark> marks{};
     /// What this replay still needs. Empty when it can be watched as it is.
     /// A map named only by its title, with no package, is left out of the
     /// chip and the card: Watch still refuses that as it does today.
@@ -661,6 +696,12 @@ struct ReplayInputs {
     bool reading{};
     std::size_t read{};  ///< files read so far
     std::size_t total{}; ///< files to read
+    /// The index pass is reading replays the folder read has already listed.
+    /// The footer then says how far that pass has come, with the same sentence
+    /// as the folder read. A build that cannot start the pass leaves this false.
+    bool indexing{};
+    std::size_t index_done{};  ///< replays whose pass has finished
+    std::size_t index_total{}; ///< replays the pass will read, damaged files aside
     /// The player's setting keeps every game as a replay. Off, the empty
     /// section says so and offers Turn on recording.
     bool recording_on{true};
@@ -2080,6 +2121,11 @@ enum class Action : uint8_t {
     /// replay. The host hands it to the game, which plays it; a refusal comes
     /// back to the card (refuse_replay).
     watch_replay,
+    /// WATCH FROM on the card, once a Watch has been left part way. The button's
+    /// words name the time. `ScreenResult::replay` is the replay and
+    /// `ScreenResult::watch_from` is the tick the viewer jumps to once the
+    /// match is up.
+    watch_from,
     /// KEEP or KEPT on the card. `ScreenResult::replays` names every marked
     /// replay and `ScreenResult::keep` says which: keep them, or stop keeping them.
     keep_replays,

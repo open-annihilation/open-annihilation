@@ -549,7 +549,9 @@ struct Runtime::LibraryHost {
     /// Takes what the Replays section's worker has read since the last call
     /// into the model: the rows read so far while the folder is read for the
     /// first time, the whole index once a read ends (saving it), and how far
-    /// a read has come. Called on the main thread.
+    /// a read has come. Also advances the index pass, one file at a time,
+    /// while the Library is open and no match is running. Called on the main
+    /// thread.
     ///
     /// @param runtime the runtime
     /// @return true when the model's replays changed
@@ -563,7 +565,9 @@ struct Runtime::LibraryHost {
 
     /// Fills the Replays section's inputs: the rows with their local day and
     /// time and their maps' pictures, the kinds extensions register, today,
-    /// how far the folder has been read, and the recording setting.
+    /// how far the folder has been read, how far the index pass has come,
+    /// and the recording setting. A row's result and timeline marks are read
+    /// from the timeline the pass stored.
     ///
     /// @param runtime the runtime
     /// @param[out] inputs the inputs whose `replays` it fills
@@ -596,12 +600,58 @@ struct Runtime::LibraryHost {
     void pump_replay_pictures(Runtime& runtime, const oa::ui::kit::DisplayList& list);
 
     /// Closes the replay WATCH opened once its match has ended, so that the
-    /// replay's hooks are closed once. When that replay turned expansions on
-    /// or played another mod, the end screen stays until the player leaves
-    /// it, and the player's own set is put back then.
+    /// replay's hooks are closed once. Where the replay was left is written
+    /// into the index first, from the tick sampled while the match ran. When
+    /// that replay turned expansions on or played another mod, the end screen
+    /// stays until the player leaves it, and the player's own set is put back
+    /// then.
     ///
     /// @param runtime the runtime
     void end_watched_replay(Runtime& runtime);
+
+    /// Samples the replay being watched, once a frame while its match runs,
+    /// and asks for the jump Watch from named, on the first frame the replay
+    /// can say where it is. A tick of 0 after one already past the start is
+    /// left out: the session's clock is 0 once the match has gone.
+    ///
+    /// @param runtime the runtime
+    void note_watched_replay(Runtime& runtime);
+
+    /// Stops the index pass when one is running. Closing the Library, a
+    /// match, Watch and leaving the game all stop it. A pass that is stopped
+    /// writes nothing, so the row says Reading… again the next time.
+    void stop_index_pass() noexcept;
+
+    /// Tells whether the index pass's process is running.
+    ///
+    /// @return true while that one process has not exited
+    [[nodiscard]] bool index_pass_running() const noexcept;
+
+    /// The index pass's process id.
+    ///
+    /// @return the id; 0 when none is running, or the system did not name it
+    [[nodiscard]] int index_pass_pid() const noexcept;
+
+    /// Tells whether the replay being watched has finished: its hooks say so,
+    /// or the tick has reached the index's length.
+    ///
+    /// @return true when it has finished
+    [[nodiscard]] bool watched_replay_finished() const;
+
+    /// Writes every listed replay as already read, with nothing to show, and
+    /// stops the index pass. A check takes the pictures that predate this
+    /// pass with no row unread.
+    ///
+    /// @param runtime the runtime
+    void mark_replays_read(Runtime& runtime);
+
+    /// Stores one replay's timeline and stops the index pass. The check uses
+    /// this for a card it builds, which the shelf does not show it.
+    ///
+    /// @param runtime the runtime
+    /// @param path the replay, below Recordings
+    /// @param text the timeline
+    void store_replay_timeline(Runtime& runtime, const std::string& path, std::string text);
 
     /// Fetches the packages a pressed Get is waiting on, then watches the
     /// replay once they are installed. A press that cannot fetch leaves the
@@ -612,11 +662,15 @@ struct Runtime::LibraryHost {
 
     /// Hands one replay to the extension that plays it, and keeps what the
     /// Library shows for the return. The Library closes when this starts it.
+    /// The index pass is stopped first.
     ///
     /// @param runtime the runtime
     /// @param path the replay's path below Recordings
+    /// @param from the tick Watch from jumps to once the replay can say
+    /// where it is; none starts at the beginning
     /// @return true when the replay started
-    bool start_replay_watch(Runtime& runtime, const std::string& path);
+    bool
+    start_replay_watch(Runtime& runtime, const std::string& path, std::optional<uint32_t> from);
 
     /// Reads a range of one of the game's files, for the pictures of the
     /// replays' maps.

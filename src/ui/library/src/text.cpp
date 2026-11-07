@@ -461,6 +461,8 @@ std::string_view action_text(Action action, const TextHooks& text) {
         return shown(text, words::action_edit_keys);
     case Action::watch_replay:
         return shown(text, words::action_watch);
+    case Action::watch_from:
+        return shown(text, words::action_watch_from);
     case Action::keep_replays:
         return shown(text, words::action_keep);
     case Action::open_replay_folder:

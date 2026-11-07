@@ -125,6 +125,9 @@ struct Player {
     std::string kind{};
     /// True for the player on the machine that recorded.
     bool recorded_here{};
+    /// The player's number in the recording. A file that names none is given
+    /// 1 for its first player, then 2, and so on.
+    int32_t number{};
 };
 
 /// One replay file, and what its content says.
@@ -181,6 +184,23 @@ struct Replay {
     std::string sector{};
     /// The players, in the recording's order.
     std::vector<Player> players{};
+    /// `game.campaign.mission_name`, when the kind is campaign, as the file
+    /// writes it. The Library trims trailing spaces when it shows the title.
+    /// The map's file name stays in `map`, so a search can still name the file.
+    std::string mission_name{};
+    /// The timeline the index pass wrote, as `timeline.json` text. Nothing
+    /// means the file has not been read yet. An empty string means a pass
+    /// finished and left nothing the Library can show. A file that has not
+    /// changed keeps this text on the next scan.
+    std::optional<std::string> timeline{};
+    /// The tick a Watch was left at, when the player has watched this replay
+    /// and left it before the end. Nothing once the replay had finished.
+    std::optional<uint32_t> watched_tick{};
+    /// The installed-content stamp when a pass could not read this file.
+    /// Nothing when it has not been refused, or a later pass stored a
+    /// timeline. The file is read again when that stamp changes. A refusal
+    /// does not store an empty timeline.
+    std::optional<std::string> read_stamp{};
     /// The engine that recorded a `.oademo`, as `engine.recorded_with`. Empty
     /// for a `.tad` and when the manifest names none.
     std::string engine_recorded{};

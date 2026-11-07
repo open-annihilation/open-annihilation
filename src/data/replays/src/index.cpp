@@ -85,6 +85,8 @@ void write_player(json::JsonWriter& writer, const Player& player) {
     writer.string(player.kind);
     writer.key("recorded_here");
     writer.boolean(player.recorded_here);
+    writer.key("number");
+    writer.integer(player.number);
     writer.end_object();
 }
 
@@ -151,6 +153,22 @@ void write_replay(json::JsonWriter& writer, const Replay& replay) {
     for (const Player& player : replay.players)
         write_player(writer, player);
     writer.end_array();
+    if (!replay.mission_name.empty()) {
+        writer.key("mission_name");
+        writer.string(replay.mission_name);
+    }
+    if (replay.timeline.has_value()) {
+        writer.key("timeline");
+        writer.string(*replay.timeline);
+    }
+    if (replay.watched_tick.has_value()) {
+        writer.key("watched_tick");
+        writer.integer(static_cast<int64_t>(*replay.watched_tick));
+    }
+    if (replay.read_stamp.has_value()) {
+        writer.key("read_stamp");
+        writer.string(*replay.read_stamp);
+    }
     writer.key("needs_read");
     writer.boolean(replay.needs_read);
     if (!replay.engine_recorded.empty()) {
@@ -304,6 +322,28 @@ bool take_optional(const json::Json& object, std::string_view name, std::optiona
     return true;
 }
 
+/// Reads an optional string member, set only when the object has it.
+///
+/// An empty string is kept: it is how a finished index pass that left nothing
+/// is told from a file that has not been read.
+///
+/// @param object the object
+/// @param name the member's name
+/// @param[out] out the text; unchanged when the member is missing
+/// @return false when the member is there and is not a string
+bool take_optional_text(
+    const json::Json& object, std::string_view name, std::optional<std::string>& out
+) {
+    const json::Json* value = object.find(name);
+    if (value == nullptr)
+        return true;
+    const std::string* text = value->string();
+    if (text == nullptr)
+        return false;
+    out = *text;
+    return true;
+}
+
 /// Reads a boolean member, when the object has it.
 ///
 /// @param object the object
@@ -386,7 +426,8 @@ bool read_player(const json::Json& value, Player& player) {
     return take_text(value, "name", player.name) && take_int32(value, "colour", player.colour) &&
            take_text(value, "side", player.side) && take_optional(value, "team", player.team) &&
            take_text(value, "kind", player.kind) &&
-           take_flag(value, "recorded_here", player.recorded_here);
+           take_flag(value, "recorded_here", player.recorded_here) &&
+           take_int32(value, "number", player.number);
 }
 
 /// Reads one entry of an index.
@@ -421,7 +462,11 @@ bool read_entry(const json::Json& value, Replay& replay) {
         !take_text(value, "planet", replay.planet) || !take_text(value, "sector", replay.sector) ||
         !take_flag(value, "needs_read", replay.needs_read) ||
         !take_text(value, "engine_recorded", replay.engine_recorded) ||
-        !take_text(value, "engine_needs", replay.engine_needs))
+        !take_text(value, "engine_needs", replay.engine_needs) ||
+        !take_text(value, "mission_name", replay.mission_name) ||
+        !take_optional_text(value, "timeline", replay.timeline) ||
+        !take_optional(value, "watched_tick", replay.watched_tick) ||
+        !take_optional_text(value, "read_stamp", replay.read_stamp))
         return false;
     if (!read_needs(value, replay)) {
         replay.needs.clear();

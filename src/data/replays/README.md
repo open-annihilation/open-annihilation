@@ -45,8 +45,18 @@ the games being recorded. A game being recorded is never listed.
   or offline, as the caller says.
 - `scan` lists the folder and reads each file that the previous index does
   not hold with the same size, modification time and reader. A file it
-  holds so is taken from it unopened. `ScanHooks` tells of each replay as it
-  is done (`done` of `total`), and stops the scan when asked.
+  holds so is taken from it unopened. A file that has not changed keeps the
+  `timeline`, `watched_tick` and `read_stamp` the index already holds, and
+  keeps them when the file is opened again to fill its needs. `timeline` is
+  the index pass's `timeline.json` text: nothing until that pass has read
+  the file, and an empty string when the pass finished and left nothing to
+  show. `watched_tick` is the tick a Watch was left at, and is absent once
+  the replay had finished. `read_stamp` is what was installed when a pass
+  could not read the file; the file is tried again when that stamp changes,
+  and a refusal stores no empty timeline. `mission_name` is a campaign's
+  mission name as the file writes it, trailing spaces included. `ScanHooks`
+  tells of each replay as it is done (`done` of `total`), and stops the
+  scan when asked.
 - `index_text` and `parse_index` write and read the index's JSON, and
   `read_index` (or `load_index`, which gives the index alone) and
   `save_index` read and replace `index.json`. `index_path` says where it is.
@@ -196,5 +206,4 @@ and no team. A `.tad` names no kind of game, no mod and no time of
 its own beyond its file's. A mark of a replay whose file is gone stays in
 `kept.json` until the Library deletes the replay (a later ticket's). A file
 rewritten within the same second at the same size is taken from the index
-unread. The index holds no results of the replay index pass
-(`timeline.json`) yet.
+unread.

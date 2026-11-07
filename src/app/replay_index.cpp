@@ -717,6 +717,8 @@ oademo::TimelineIndex build_index(const Source& source) {
         index.ended = oademo::IndexEnd::left;
     else if (end_of_game)
         index.ended = oademo::IndexEnd::finished;
+    else if (source.recorded_end.has_value())
+        index.ended = *source.recorded_end;
     else
         index.ended = oademo::IndexEnd::cut;
     return index;

@@ -251,6 +251,11 @@ Section "Open Annihilation" SecProgram
   !if /FileExists "${OA_PACKAGE_DIR}/coreprime.ccx"
     File "${OA_PACKAGE_DIR}/coreprime.ccx"
   !endif
+  # The screen reader's library, which the game loads from its own folder.
+  # Every package but Windows 95's carries it; its notices are in licenses/.
+  !if /FileExists "${OA_PACKAGE_DIR}/accesskit.dll"
+    File "${OA_PACKAGE_DIR}/accesskit.dll"
+  !endif
 
   SetOutPath "$INSTDIR\licenses"
   File /r "${OA_PACKAGE_DIR}/licenses/*.*"
@@ -541,6 +546,7 @@ Section "Uninstall"
   Delete "$INSTDIR\brains\classic.oabrain"
   RMDir "$INSTDIR\brains"
   Delete "$INSTDIR\coreprime.ccx"
+  Delete "$INSTDIR\accesskit.dll"
   Delete "$INSTDIR\languages\*.tdf"
   RMDir "$INSTDIR\languages"
   RMDir /r "$INSTDIR\licenses"

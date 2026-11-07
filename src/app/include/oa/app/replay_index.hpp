@@ -96,6 +96,11 @@ struct Source {
     std::vector<oa::media::director::PlayerStats> final_stats{};
     /// The recording's length on the recorder's clock, in milliseconds; 0 when not known.
     uint64_t length_ms{};
+    /// How `meta.json` says the game ended, when that word is `finished` or
+    /// `left`. Nothing for a `.tad`, a description that was not read, and any
+    /// other word. Used only when the replay reached the end of the recording
+    /// and the commanders, a departure and the end screen did not decide it.
+    std::optional<oa::formats::oademo::IndexEnd> recorded_end{};
 };
 
 /// Builds a replay's index.
@@ -104,13 +109,15 @@ struct Source {
 /// formats::oademo::index_period_ticks-th tick from the first; a player whose
 /// slot has been emptied keeps its last totals, with no units. The damage in
 /// each stretch of that many ticks is the health points taken off units by
-/// every health event but healing and paralysis. The recording ended
-/// `finished` when its end-of-game records came or the commanders decided
-/// it, `left` when players left or dropped with the game undecided, and
-/// `cut` otherwise, and also when the replay could not go on to the end of
-/// what was recorded.
+/// every health event but healing and paralysis. The recording ended `cut`
+/// when the replay could not go on to the end of what was recorded. Otherwise
+/// `finished` when the commanders decided it or its end-of-game records came,
+/// `left` when players left or dropped with the game undecided, and, when
+/// none of those, `finished` or `left` as `Source::recorded_end` says. It is
+/// `cut` when that is unset. `ended.tick` is the last tick.
 ///
-/// @param source the timeline, the stream's notes and the last totals
+/// @param source the timeline, the stream's notes, the last totals and the
+///        recording's own end
 /// @return the index
 [[nodiscard]] oa::formats::oademo::TimelineIndex build_index(const Source& source);
 

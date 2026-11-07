@@ -621,6 +621,25 @@ void Runtime::check_replays_content() {
                   << "\" button \"" << button << "\"\n";
         return std::pair{chip, note};
     };
+    // A row Watch would have to fetch is left out of the pass. both.oademo
+    // needs ridge-wind until Get has installed it.
+    const auto both_not_read = [&] {
+        const library::ReplayRow* row = library::find_replay(host.model, "default/both.oademo");
+        require(row != nullptr, "both.oademo is not listed");
+        require(!row->indexing, "both.oademo says Reading while ridge-wind is missing");
+        require(
+            !row->replay.timeline.has_value(), "both.oademo was read while ridge-wind was missing"
+        );
+        require(
+            !row->replay.read_stamp.has_value(),
+            "both.oademo was stored unread for good while ridge-wind was missing"
+        );
+        require(
+            library::replay_reading(host.model, *row).find("Reading") == std::string::npos,
+            "both.oademo's row says Reading while ridge-wind is missing"
+        );
+        require(!host.index_pass_running(), "the index pass ran while a mutator was missing");
+    };
     const auto open_replays = [&] {
         load(Screen::main_menu);
         require(screen_ == Screen::main_menu, "the main menu did not open");
@@ -1055,6 +1074,16 @@ void Runtime::check_replays_content() {
     }
     write_replays(recordings, *source_read.replay, facts);
     open_replays();
+    both_not_read();
+    {
+        const uint64_t began = SDL_GetTicks();
+        while (SDL_GetTicks() - began < 2000) {
+            run_frame(running);
+            require(running, "a frame ended the run");
+            both_not_read();
+        }
+    }
+    std::cout << "replays content: both.oademo was not read while ridge-wind was missing\n";
 
     if (which == "offline" && cached_press) {
         const auto [chip, note] = show("default/both.oademo");
@@ -1246,6 +1275,39 @@ void Runtime::check_replays_content() {
     std::cout << "replays content: mutators selected " << chosen_match_mutators().size() << '\n';
 
     open_replays();
+    std::string both_said;
+    until(
+        180000,
+        [&] {
+            const library::ReplayRow* row = library::find_replay(host.model, "default/both.oademo");
+            if (row == nullptr || !row->replay.timeline.has_value() ||
+                row->replay.timeline->empty())
+                return false;
+            bool known = row->recorded != library::RecordedResult::none;
+            for (const library::PlayerStanding& standing : row->standings)
+                if (standing.known)
+                    known = true;
+            if (!known)
+                return false;
+            if (row->recorded == library::RecordedResult::won)
+                both_said = "Won";
+            else if (row->recorded == library::RecordedResult::lost)
+                both_said = "Lost";
+            else
+                both_said = "no side";
+            for (const library::PlayerStanding& standing : row->standings) {
+                if (!standing.known)
+                    continue;
+                both_said += ", " + std::to_string(standing.kills) + " kills, " +
+                             std::to_string(standing.losses) + " losses";
+                break;
+            }
+            return true;
+        },
+        "both.oademo was not read after ridge-wind was installed"
+    );
+    std::cout << "replays content: both.oademo shows " << both_said
+              << " after ridge-wind was installed\n";
     const auto [ridge_again_chip, ridge_again_note] = show("default/ridge.oademo");
     require(ridge_again_chip == "Needs Ridge 2.8", "Ridge's chip is \"" + ridge_again_chip + "\"");
     static_cast<void>(ridge_again_note);

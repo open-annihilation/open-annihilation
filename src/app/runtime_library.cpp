@@ -3587,9 +3587,10 @@ struct Runtime::LibraryScreen final : LayerScreen {
         else if (kind != ScreenInputKind::pointer_move)
             return LayerAnswer::none;
         LibraryHost& host = runtime_.library_host();
-        // Shift marks a run of replays, Ctrl or Command one more.
+        // Shift marks a run of replays, Ctrl or Command one more. The
+        // keyboard's modifiers include a key the automation endpoint holds.
         if (moved != library::PointerKind::move) {
-            const SDL_Keymod held = SDL_GetModState();
+            const SDL_Keymod held = runtime_.input_modifiers(Runtime::ModifierUse::keyboard);
             host.state.row_pick = (held & SDL_KMOD_SHIFT) != 0 ? library::ReplayPick::extend
                                   : (held & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0
                                       ? library::ReplayPick::toggle
@@ -4439,6 +4440,7 @@ struct Runtime::LibraryScreen final : LayerScreen {
             return false;
         }
         case library::Action::watch_replay:
+        case library::Action::watch_from:
         case library::Action::keep_replays:
         case library::Action::open_replay_folder:
         case library::Action::turn_on_recording:
@@ -4688,6 +4690,12 @@ void Runtime::reopen_kept_library() {
 void Runtime::tick_library() {
     LibraryHost& host = library_host();
     const bool in_match = screen_ == Screen::match || match_ != nullptr;
+    // Where a watched replay is, sampled while its match runs, and the index
+    // pass stops for a match. A stopped pass writes nothing.
+    if (in_match) {
+        host.note_watched_replay(*this);
+        host.stop_index_pass();
+    }
     // A replay WATCH opened is closed once its match has gone, and what the
     // Replays section's worker read reaches the model.
     host.end_watched_replay(*this);

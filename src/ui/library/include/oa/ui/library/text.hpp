@@ -948,6 +948,23 @@ inline constexpr std::string_view replay_kind_place = "{kind} · {planet}, {sect
 inline constexpr std::string_view replay_joined = "{left} · {right}";
 /// The chip on a replay finished after the game stopped.
 inline constexpr std::string_view replay_after_crash = "After a crash";
+/// The grey chip, and the row's reading, while the index pass has not read it.
+inline constexpr std::string_view replay_reading_now = "Reading…";
+/// The recording machine's player won.
+inline constexpr std::string_view replay_won = "Won";
+/// The recording machine's player lost.
+inline constexpr std::string_view replay_lost = "Lost";
+/// One unit destroyed, on the card.
+inline constexpr std::string_view replay_kill_one = "1 kill";
+/// Units destroyed, on the card. `{kills}` is a whole number other than one.
+inline constexpr std::string_view replay_kills_many = "{kills} kills";
+/// One unit lost, on the card.
+inline constexpr std::string_view replay_loss_one = "1 loss";
+/// Units lost, on the card. `{losses}` is a whole number other than one.
+inline constexpr std::string_view replay_losses_many = "{losses} losses";
+/// Under the card's buttons, once a Watch was left part way. `{time}` is the
+/// time into the replay, as the length is written.
+inline constexpr std::string_view replay_watched_to = "Watched to {time}";
 /// The chip on a replay whose file does not read.
 inline constexpr std::string_view replay_damaged = "Damaged";
 /// A kept replay's star, as its row reads.
@@ -982,6 +999,8 @@ inline constexpr std::string_view replay_side_core = "Core";
 inline constexpr std::string_view replay_side_watcher = "Watcher";
 /// The card's buttons.
 inline constexpr std::string_view action_watch = "Watch";
+/// The card's button that continues a Watch. `{time}` is where it was left.
+inline constexpr std::string_view action_watch_from = "Watch from {time}";
 inline constexpr std::string_view action_keep = "Keep";
 inline constexpr std::string_view action_kept = "Kept";
 inline constexpr std::string_view action_turn_on_recording = "Turn on recording";
@@ -1032,7 +1051,9 @@ inline constexpr std::string_view replays_none_kind = "No replays of this kind."
 /// The section and the footer while the folder is read and its files are not
 /// yet counted: the section shows it in place of "No replays yet.".
 inline constexpr std::string_view replays_reading_folder = "Reading the replays…";
-/// The footer while the folder is read.
+/// The footer while the folder is read, and again while the index pass reads
+/// the replays that folder listed. `{read}` is how many are done, `{total}`
+/// how many there are.
 inline constexpr std::string_view replays_reading = "Reading {read} of {total} replays";
 /// The footer otherwise: how many the list shows, and their size.
 inline constexpr std::string_view replays_count_one = "1 replay · {size}";

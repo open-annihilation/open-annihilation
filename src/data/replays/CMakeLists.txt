@@ -3,8 +3,10 @@
 
 # The player's replays, as the Library lists them: the .oademo and .tad files
 # below Recordings, each read for its description or its header, and the
-# index under Recordings/.replays that keeps what was read, and the replays
-# the player keeps, in a file of their own beside it.
+# index under Recordings/.replays that keeps what was read (a campaign's
+# mission name, a player's number, the index pass's timeline and the tick a
+# Watch was left at), and the replays the player keeps, in a file of their
+# own beside it.
 add_library(oa-data-replays src/replays.cpp src/index.cpp src/kept.cpp src/kinds.cpp src/days.cpp
   src/content.cpp src/import.cpp src/retention.cpp)
 add_library(oa::data::replays ALIAS oa-data-replays)
@@ -19,8 +21,10 @@ if(BUILD_TESTING)
   # A scratch Recordings folder of made-up replays: a scan lists only the
   # replays (not the partial games, the hidden folders, the content notes or
   # what lies too deep) and reads each; the index round trip; a second scan
-  # that takes unchanged files from the index; an index deleted, damaged or
-  # junk and rebuilt with every replay still kept; the kept marks by
+  # that takes unchanged files from the index, timeline and watched tick with
+  # them; a campaign mission name kept with its trailing space; an index
+  # deleted, damaged or junk and rebuilt with every replay still kept; the
+  # kept marks by
   # recording, surviving a move, a rename and a damaged file; a .tad's header
   # with a Windows-1252 name; damaged files listed as damaged; the kinds
   # extensions register; grouping by day; an import into Imported that leaves

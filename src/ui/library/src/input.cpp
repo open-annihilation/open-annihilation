@@ -1327,10 +1327,17 @@ ScreenResult activate(
         }
         ScreenResult result = redrawn();
         result.action = action;
-        if (action == Action::watch_replay || action == Action::open_replay_folder) {
+        if (action == Action::watch_replay || action == Action::watch_from ||
+            action == Action::open_replay_folder) {
             if (!library.replays.selected)
                 return {};
             result.replay = *library.replays.selected;
+            if (action == Action::watch_from) {
+                const ReplayRow* row = selected_replay(library);
+                if (row == nullptr || !row->replay.watched_tick.has_value())
+                    return {};
+                result.watch_from = *row->replay.watched_tick;
+            }
             return result;
         }
         if (action == Action::keep_replays) {

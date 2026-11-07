@@ -293,7 +293,7 @@ std::vector<uint8_t> plain_zip() {
 bool same_player(const lib::Player& left, const lib::Player& right) {
     return left.name == right.name && left.colour == right.colour && left.side == right.side &&
            left.team == right.team && left.kind == right.kind &&
-           left.recorded_here == right.recorded_here;
+           left.recorded_here == right.recorded_here && left.number == right.number;
 }
 
 /// Tells whether two replays are the same in every member.
@@ -316,7 +316,9 @@ bool same_replay(const lib::Replay& left, const lib::Replay& right) {
            left.mod_name == right.mod_name && left.mod_version == right.mod_version &&
            left.mod_revision == right.mod_revision && left.expansions == right.expansions &&
            left.mutators == right.mutators && left.planet == right.planet &&
-           left.sector == right.sector && left.kept == right.kept;
+           left.sector == right.sector && left.mission_name == right.mission_name &&
+           left.timeline == right.timeline && left.watched_tick == right.watched_tick &&
+           left.read_stamp == right.read_stamp && left.kept == right.kept;
 }
 
 /// Tells whether two indexes hold the same replays in the same order.
@@ -444,10 +446,11 @@ void a_scan_lists_and_reads_only_the_replays(const Scratch& scratch) {
         OA_CHECK(outpost.players[0].name == "Pilot" && outpost.players[0].colour == 2);
         OA_CHECK(outpost.players[0].side == "arm" && outpost.players[0].kind == "human");
         OA_CHECK(outpost.players[0].team == std::optional<int32_t>{1});
-        OA_CHECK(outpost.players[0].recorded_here);
+        OA_CHECK(outpost.players[0].recorded_here && outpost.players[0].number == 1);
         OA_CHECK(outpost.players[1].name == "Screamer" && outpost.players[1].colour == 5);
         OA_CHECK(outpost.players[1].side == "core" && outpost.players[1].kind == "computer");
         OA_CHECK(!outpost.players[1].team.has_value() && !outpost.players[1].recorded_here);
+        OA_CHECK(outpost.players[1].number == 2);
     }
 
     OA_CHECK(skirmish.kind == "skirmish" && skirmish.how == "skirmish");
@@ -466,7 +469,9 @@ void a_scan_lists_and_reads_only_the_replays(const Scratch& scratch) {
     if (recording.players.size() == 2) {
         OA_CHECK(recording.players[0].name == "Pilot" && recording.players[0].colour == 2);
         OA_CHECK(recording.players[0].side == "arm" && recording.players[0].kind == "human");
+        OA_CHECK(recording.players[0].number == 1);
         OA_CHECK(recording.players[1].name == "Screamer" && recording.players[1].side == "core");
+        OA_CHECK(recording.players[1].number == 2);
     }
 
     OA_CHECK(lib::imported(skirmish));
@@ -534,7 +539,14 @@ void the_index_reads_back_as_written(const Scratch& scratch) {
     watcher.side = "watcher";
     watcher.team = -3;
     watcher.kind = "watcher";
+    watcher.number = 4;
     odd.players.push_back(watcher);
+    // A campaign name can end in a space, and the index keeps it. The timeline
+    // is the pass's text, and the watched tick is where a Watch was left.
+    odd.mission_name = "Core Contingency ";
+    odd.timeline = std::string("{\"markers\":[]}");
+    odd.watched_tick = 21000;
+    odd.read_stamp = "installed-1";
     index.replays.push_back(odd);
 
     const std::string text = lib::index_text(index);
@@ -603,6 +615,30 @@ void the_index_reads_back_as_written(const Scratch& scratch) {
     OA_CHECK(!lib::parse_index("{\"replays_index\":1}").has_value());
     OA_CHECK(!lib::parse_index("{\"replays_index\":1,\"replays\":{}}").has_value());
     OA_CHECK(lib::parse_index("{\"replays_index\":1,\"replays\":[]}").has_value());
+
+    // An empty timeline is a finished pass that left nothing, not a file still
+    // waiting. A timeline that is not text drops the entry. A watched tick of
+    // 0 is kept, and a campaign name keeps its trailing space.
+    const std::optional<lib::Index> finished = lib::parse_index(
+        "{\"replays_index\":1,\"replays\":["
+        "{\"path\":\"wait.oademo\",\"file\":\"oademo\"},"
+        "{\"path\":\"done.oademo\",\"file\":\"oademo\",\"timeline\":\"\","
+        "\"mission_name\":\"Core Contingency \",\"watched_tick\":0},"
+        "{\"path\":\"bad.oademo\",\"timeline\":1}"
+        "]}"
+    );
+    OA_CHECK(finished.has_value());
+    if (finished.has_value() && finished->replays.size() == 2) {
+        OA_CHECK(finished->replays[0].path == "done.oademo");
+        OA_CHECK(finished->replays[0].timeline.has_value());
+        OA_CHECK(finished->replays[0].timeline->empty());
+        OA_CHECK(finished->replays[0].mission_name == "Core Contingency ");
+        OA_CHECK(finished->replays[0].watched_tick == std::optional<uint32_t>{0});
+        OA_CHECK(finished->replays[1].path == "wait.oademo");
+        OA_CHECK(!finished->replays[1].timeline.has_value());
+    } else {
+        OA_CHECK(false);
+    }
 
     // An index that is not an index loads as an empty one, and is damaged; a
     // missing one is empty and not damaged.
@@ -952,7 +988,9 @@ void a_tad_header_is_read() {
     if (replay.players.size() == 2) {
         OA_CHECK(replay.players[0].name == "Jos\xC3\xA9 \xE2\x82\xAC\xC2\x81");
         OA_CHECK(replay.players[0].colour == 2 && replay.players[0].side == "arm");
+        OA_CHECK(replay.players[0].number == 1);
         OA_CHECK(replay.players[1].name == "Screamer" && replay.players[1].colour == 5);
+        OA_CHECK(replay.players[1].number == 2);
         OA_CHECK(replay.players[1].side == "core" && replay.players[1].kind == "human");
         OA_CHECK(!replay.players[1].team.has_value() && !replay.players[1].recorded_here);
     }
@@ -1499,6 +1537,31 @@ void a_set_aside_kept_file_spares_what_it_may_have_kept(const Scratch& scratch) 
     OA_CHECK(!lib::spared_by_set_aside(long_ago, lib::kept_set_aside_at(recordings)));
 }
 
+/// A campaign's mission name, including a trailing space, is what a scan stores.
+///
+/// @param scratch the test's folder
+void a_campaign_keeps_its_mission_name(const Scratch& scratch) {
+    const fs::path recordings = scratch.path() / "campaign" / "Recordings";
+    oademo::Replay made = sample_replay("Rougpelt");
+    made.meta.game.kind = "campaign";
+    made.meta.game.kind_object = "{\"mission_name\":\"Core Contingency \"}";
+    write_bytes(recordings / "default" / "campaign.oademo", oademo_bytes(made));
+    const lib::Index scanned = lib::scan(recordings, {});
+    OA_CHECK(scanned.replays.size() == 1);
+    if (scanned.replays.size() != 1)
+        return;
+    OA_CHECK(scanned.replays[0].kind == lib::kind_campaign);
+    OA_CHECK(scanned.replays[0].map == "Rougpelt");
+    OA_CHECK(scanned.replays[0].mission_name == "Core Contingency ");
+    OA_CHECK(scanned.replays[0].mission_name.back() == ' ');
+    // An unchanged file keeps the name, and a timeline written onto the index.
+    lib::Index stored = scanned;
+    stored.replays[0].timeline = std::string("{\"markers\":[]}");
+    stored.replays[0].watched_tick = 21000;
+    const lib::Index again = lib::scan(recordings, stored);
+    OA_CHECK(same_index(again, stored));
+}
+
 } // namespace
 
 void test_replay_content_rows();
@@ -1507,6 +1570,7 @@ int main() {
     const Scratch scratch;
     a_scan_lists_and_reads_only_the_replays(scratch);
     the_index_reads_back_as_written(scratch);
+    a_campaign_keeps_its_mission_name(scratch);
     a_deleted_index_is_rebuilt(scratch);
     kept_marks_outlive_the_index(scratch);
     a_tad_header_is_read();

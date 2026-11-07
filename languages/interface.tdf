@@ -27302,6 +27302,78 @@
 	it=Lettura di {read} su {total} replay;
 	}
 
+[Reading…]
+	{
+	de=Wird gelesen…;
+	fr=Lecture…;
+	es=Leyendo…;
+	it=Lettura…;
+	}
+
+[Won]
+	{
+	de=Gewonnen;
+	fr=Gagné;
+	es=Ganada;
+	it=Vinta;
+	}
+
+[Lost]
+	{
+	de=Verloren;
+	fr=Perdu;
+	es=Perdida;
+	it=Persa;
+	}
+
+[1 kill]
+	{
+	de=1 Abschuss;
+	fr=1 destruction;
+	es=1 baja;
+	it=1 abbattuto;
+	}
+
+[{kills} kills]
+	{
+	de={kills} Abschüsse;
+	fr={kills} destructions;
+	es={kills} bajas;
+	it={kills} abbattuti;
+	}
+
+[1 loss]
+	{
+	de=1 Verlust;
+	fr=1 perte;
+	es=1 pérdida;
+	it=1 perdita;
+	}
+
+[{losses} losses]
+	{
+	de={losses} Verluste;
+	fr={losses} pertes;
+	es={losses} pérdidas;
+	it={losses} perdite;
+	}
+
+[Watched to {time}]
+	{
+	de=Bis {time} gesehen;
+	fr=Vu jusqu'à {time};
+	es=Visto hasta {time};
+	it=Visto fino a {time};
+	}
+
+[Watch from {time}]
+	{
+	de=Ab {time} ansehen;
+	fr=Regarder depuis {time};
+	es=Ver desde {time};
+	it=Guarda da {time};
+	}
+
 [1 replay · {size}]
 	{
 	de=1 Replay · {size};

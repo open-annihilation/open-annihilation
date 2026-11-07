@@ -14,7 +14,16 @@
 // never holds; OPEN FOLDER shows a replay's folder and TURN ON RECORDING turns
 // the player's setting on. EXPORT opens at once and measures each replay on
 // its own worker, then writes the chosen format a chunk at a time. A file
-// that was written marks its recording, so the keep rule leaves it.
+// that was written marks its recording, so the keep rule leaves it. While the
+// Library is open and no match is running, one low-priority process reads
+// each replay that has no timeline yet. Its own output stays in its folder.
+// A replay Watch would have to fetch, turn on or refuse is left out, and a
+// replay whose mod is installed is read with that mod. A pass that cannot
+// read a file remembers the installed content and tries again when that
+// changes; it does not store an empty timeline. Closing the Library, a
+// match and Watch stop it, and a stopped pass writes nothing. Where a Watch
+// was left is written into the index once the match has gone. A replay that
+// had finished stores no tick, so the card offers Watch.
 
 #include "library_host.hpp"
 
@@ -46,6 +55,7 @@
 #include "oa/data/replays/replays.hpp"
 #include "oa/data/saves/content_record.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/formats/ota.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/platform/files.hpp"
@@ -62,6 +72,28 @@
 #include "oa/ui/library/screen.hpp"
 #include "oa/ui/library/text.hpp"
 #include "oa/ui/map_previews/map_previews.hpp"
+
+#ifndef OA_PROCESS_SPAWNING
+#error "OA_PROCESS_SPAWNING (0 or 1) says whether the game may start other programs"
+#endif
+
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+#endif
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_dialog.h>
@@ -91,6 +123,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -186,6 +219,32 @@ struct ReplayShelf {
     /// Paths moved to the trash this start. A read that listed one before the
     /// move finished does not write it back into the index.
     std::vector<std::string> gone{};
+    /// The tick a Watch was left at, sampled while its match ran. Written
+    /// into the index once the match has gone.
+    std::optional<uint32_t> left_tick{};
+    /// The replay those samples belong to, below Recordings.
+    std::string left_path{};
+    /// A Watch from that waits until the replay can say where it is.
+    std::optional<uint32_t> pending_seek{};
+    /// The replay had finished when it was left: the hooks said so, or the
+    /// tick was the index's length. The card then offers Watch, and an
+    /// earlier watched tick is cleared.
+    bool left_finished{};
+    /// The index's length in ticks, read when Watch starts. Nothing when the
+    /// pass has not stored a timeline.
+    std::optional<uint32_t> watch_length{};
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+    /// The index pass's process. One at a time. Null while none runs.
+    SDL_Process* index_process{};
+    int index_pid{};               ///< its process id; 0 when unnamed
+    std::string index_target{};    ///< the replay it is reading, below Recordings
+    fs::path index_output{};       ///< the file it writes
+    fs::path index_errors{};       ///< its standard error, in the pass's folder
+    fs::path index_scratch{};      ///< its folder, under the player's own
+    int index_fail_count{};        ///< spawns that failed for index_fail_path
+    std::string index_fail_path{}; ///< the replay those failures belong to
+    int index_backoff{};           ///< frames to wait before the next spawn
+#endif
 
     /// One replay measured for export. `bytes` is the chosen format only.
     /// The export worker never touches this vector: it publishes a result,
@@ -207,6 +266,9 @@ struct ReplayShelf {
         bool mutators{};
         std::vector<std::string> mutator_ids{};
         std::vector<std::string> mutator_names{};
+        /// `timeline.json` copied from the index on the main thread. Empty
+        /// when the pass has not read this replay.
+        std::string timeline{};
         /// `bytes` is a `.oademo`. Otherwise it is a `.tad`.
         bool held_oademo{};
         /// A held `.tad` kept Open Annihilation's own sectors.
@@ -222,6 +284,9 @@ struct ReplayShelf {
         fs::path recordings{};
         std::vector<std::string> paths{};
         std::vector<std::string> titles{};
+        /// One timeline for each path, copied on the main thread. Empty when
+        /// the index has none the export should carry.
+        std::vector<std::string> timelines{};
     };
 
     /// A measurement the worker finished, for the main thread.
@@ -343,6 +408,38 @@ struct ReplayShelf {
     std::string fetch_sentence{};
 };
 
+/// Stops the index pass's process and reaps it. A pass that is stopped
+/// writes nothing into the index. Safe when none is running.
+///
+/// @param shelf the shelf
+void stop_replay_index_pass(ReplayShelf& shelf) noexcept {
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+    if (shelf.index_process == nullptr)
+        return;
+    const int pid = shelf.index_pid;
+    SDL_KillProcess(shelf.index_process, true);
+    int exit_code = 0;
+    std::ignore = SDL_WaitProcess(shelf.index_process, true, &exit_code);
+    SDL_DestroyProcess(shelf.index_process);
+    shelf.index_process = nullptr;
+    shelf.index_pid = 0;
+    shelf.index_target.clear();
+    std::error_code failed;
+    if (!shelf.index_output.empty()) {
+        fs::remove(shelf.index_output, failed);
+        shelf.index_output.clear();
+    }
+    // A pass that was stopped writes nothing, and its output is not the game's.
+    if (!shelf.index_errors.empty()) {
+        fs::remove(shelf.index_errors, failed);
+        shelf.index_errors.clear();
+    }
+    std::cerr << "open-annihilation: library: index pass stopped pid " << pid << '\n';
+#else
+    static_cast<void>(shelf);
+#endif
+}
+
 void destroy_replay_shelf(ReplayShelf* shelf) noexcept {
     if (shelf == nullptr)
         return;
@@ -380,8 +477,37 @@ void destroy_replay_shelf(ReplayShelf* shelf) noexcept {
         std::error_code failed;
         fs::remove(shelf->job.partial, failed);
     }
+    stop_replay_index_pass(*shelf);
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+    if (!shelf->index_scratch.empty() && shelf->index_scratch.filename() == ".index-pass") {
+        std::error_code failed;
+        fs::remove_all(shelf->index_scratch, failed);
+    }
+#endif
     delete shelf;
 }
+
+/// The Library can start the index pass. A build that starts no other
+/// program, and Android, leave every row on what its header says and show
+/// no Reading… chip.
+#if defined(__ANDROID__) || !OA_PROCESS_SPAWNING
+constexpr bool replay_index_pass_available = false;
+#else
+constexpr bool replay_index_pass_available = true;
+#endif
+
+/// The installed folder of a mod the index pass plays one replay with.
+///
+/// @param runtime the runtime
+/// @param id the mod
+/// @return the folder, or none when that mod is not installed
+std::optional<fs::path> index_pass_mod_folder(Runtime& runtime, std::string_view id);
+
+/// What is installed, so a refused read can be tried again once it changes.
+///
+/// @param runtime the runtime
+/// @return the stamp
+std::string index_pass_content_stamp(Runtime& runtime);
 
 namespace {
 
@@ -2103,9 +2229,15 @@ void overlay_tad_note(
 /// @param generation the measurement
 /// @param replay the replay
 /// @param archive true for a `.oademo` already read; false for one just described
+/// @param timeline the index's timeline; empty adds none. A `.oademo` that
+///        already carries one keeps it. A wrapped `.tad` is given this one.
 /// @return the archive, or the sentence when it cannot be written
 oademo::WriteResult compress_export(
-    ReplayShelf& shelf, uint64_t generation, const oademo::Replay& replay, bool archive
+    ReplayShelf& shelf,
+    uint64_t generation,
+    oademo::Replay& replay,
+    bool archive,
+    const std::string& timeline
 ) {
     ExportWatch watch{&shelf, generation};
     oademo::WriteWatch hooks;
@@ -2116,8 +2248,14 @@ oademo::WriteResult compress_export(
         oademo::RecordingExport wrapping;
         wrapping.recorded_with = OA_ENGINE_VERSION;
         wrapping.watch = &hooks;
+        // A timeline already in the file is kept. An empty one, or none, is
+        // replaced by the index's when the pass has read the replay.
+        if (!timeline.empty() && (!replay.timeline.has_value() || replay.timeline->empty()))
+            wrapping.timeline = timeline;
         return oademo::export_replay(replay, wrapping);
     }
+    if (!timeline.empty())
+        replay.timeline = timeline;
     oademo::WriteOptions options;
     options.level = oademo::level_on_export;
     options.watch = hooks;
@@ -2141,18 +2279,21 @@ struct MeasuredExport {
 /// @param recordings the Recordings folder
 /// @param path the replay, below Recordings
 /// @param title the name the file is given
+/// @param timeline the index's timeline, copied on the main thread; empty for none
 /// @return the measurement
 MeasuredExport measure_export_file(
     ReplayShelf& shelf,
     uint64_t generation,
     const fs::path& recordings,
     const std::string& path,
-    const std::string& title
+    const std::string& title,
+    const std::string& timeline
 ) {
     MeasuredExport measured;
     ReplayShelf::HeldExport& held = measured.held;
     held.path = path;
     held.title = title;
+    held.timeline = timeline;
     if (export_stopped(shelf, generation)) {
         measured.cancelled = true;
         return measured;
@@ -2242,7 +2383,8 @@ MeasuredExport measure_export_file(
             replay = std::move(described.replay);
             recording = {};
         }
-        oademo::WriteResult archive = compress_export(shelf, generation, replay, from_archive);
+        oademo::WriteResult archive =
+            compress_export(shelf, generation, replay, from_archive, timeline);
         if (export_stopped(shelf, generation)) {
             measured.cancelled = true;
             return measured;
@@ -2312,18 +2454,21 @@ MeasuredExport measure_export_file(
 /// @param recordings the Recordings folder
 /// @param path the replay, below Recordings
 /// @param title the name the file is given
+/// @param timeline the index's timeline, copied on the main thread; empty for none
 /// @return the file, or a measurement that was cancelled
 MeasuredExport rebuild_export_file(
     ReplayShelf& shelf,
     uint64_t generation,
     const fs::path& recordings,
     const std::string& path,
-    const std::string& title
+    const std::string& title,
+    const std::string& timeline
 ) {
     MeasuredExport measured;
     ReplayShelf::HeldExport& held = measured.held;
     held.path = path;
     held.title = title;
+    held.timeline = timeline;
     if (export_stopped(shelf, generation)) {
         measured.cancelled = true;
         return measured;
@@ -2419,7 +2564,8 @@ MeasuredExport rebuild_export_file(
             bytes.shrink_to_fit();
             replay = std::move(described.replay);
         }
-        oademo::WriteResult archive = compress_export(shelf, generation, replay, from_archive);
+        oademo::WriteResult archive =
+            compress_export(shelf, generation, replay, from_archive, timeline);
         if (export_stopped(shelf, generation)) {
             measured.cancelled = true;
             return measured;
@@ -2474,13 +2620,16 @@ void export_worker(void* argument) {
                 break;
             }
             const std::string title = at < ask.titles.size() ? ask.titles[at] : ask.paths[at];
+            const std::string timeline =
+                at < ask.timelines.size() ? ask.timelines[at] : std::string{};
             MeasuredExport measured =
-                ask.rebuild ? rebuild_export_file(
-                                  shelf, ask.generation, ask.recordings, ask.paths[at], title
-                              )
-                            : measure_export_file(
-                                  shelf, ask.generation, ask.recordings, ask.paths[at], title
-                              );
+                ask.rebuild
+                    ? rebuild_export_file(
+                          shelf, ask.generation, ask.recordings, ask.paths[at], title, timeline
+                      )
+                    : measure_export_file(
+                          shelf, ask.generation, ask.recordings, ask.paths[at], title, timeline
+                      );
             if (measured.cancelled) {
                 cancelled = true;
                 break;
@@ -2573,6 +2722,609 @@ std::string export_title_from_path(std::string_view path) {
     std::string title(slash == std::string_view::npos ? path : path.substr(slash + 1));
     return strip_replay_extension(std::move(title));
 }
+
+/// The index's timeline for one replay. Empty when the pass has not read it,
+/// or the read left nothing the export should carry.
+///
+/// @param shelf the shelf
+/// @param path the replay, below Recordings
+/// @return the timeline text
+std::string indexed_timeline(const ReplayShelf& shelf, std::string_view path) {
+    const replay_data::Replay* row = shown_replay(shelf, path);
+    if (row == nullptr || !row->timeline.has_value() || row->timeline->empty())
+        return {};
+    return *row->timeline;
+}
+
+/// Copies a timeline and a watched tick written while a read was running onto
+/// that read's result, for a file the read did not open again.
+///
+/// @param[in,out] ended the read that ended
+/// @param live the index the main thread holds
+void keep_passed_index(replay_data::Index& ended, const replay_data::Index& live) {
+    for (replay_data::Replay& replay : ended.replays) {
+        const replay_data::Replay* prior = nullptr;
+        for (const replay_data::Replay& have : live.replays) {
+            if (have.path != replay.path)
+                continue;
+            prior = &have;
+            break;
+        }
+        if (prior == nullptr || prior->size != replay.size || prior->modified != replay.modified ||
+            prior->file != replay.file)
+            continue;
+        if (prior->timeline.has_value())
+            replay.timeline = prior->timeline;
+        if (prior->watched_tick.has_value())
+            replay.watched_tick = prior->watched_tick;
+        // A cleared stamp stays cleared. A refusal's stamp stays with the file.
+        replay.read_stamp = prior->read_stamp;
+    }
+}
+
+/// Won or Lost when the winners are known, and nothing when they are not.
+///
+/// @param number the player's number; 0 is nobody
+/// @param winners the winners' numbers
+/// @return the result
+library::RecordedResult recorded_result(int number, const std::vector<int>& winners) {
+    if (number == 0 || winners.empty())
+        return library::RecordedResult::none;
+    for (const int winner : winners)
+        if (winner == number)
+            return library::RecordedResult::won;
+    return library::RecordedResult::lost;
+}
+
+/// Fills a row's chip, result, standings and timeline marks from its timeline.
+/// `final.units` is not shown.
+///
+/// @param[in,out] row the row
+void apply_timeline(library::ReplayRow& row) {
+    row.indexing = replay_index_pass_available && !replay_data::damaged(row.replay) &&
+                   !row.replay.timeline.has_value();
+    if (!row.replay.timeline.has_value() || row.replay.timeline->empty())
+        return;
+    const std::optional<oademo::TimelineIndex> parsed =
+        oademo::parse_timeline_index(*row.replay.timeline);
+    if (!parsed)
+        return;
+    row.length_ticks = parsed->length_ticks;
+    int recorder = 0;
+    for (const replay_data::Player& player : row.replay.players) {
+        if (!player.recorded_here)
+            continue;
+        recorder = player.number;
+        break;
+    }
+    row.recorded = recorded_result(recorder, parsed->result.winners);
+    row.standings.resize(row.replay.players.size());
+    for (std::size_t place = 0; place < row.replay.players.size(); ++place) {
+        const replay_data::Player& player = row.replay.players[place];
+        library::PlayerStanding& standing = row.standings[place];
+        standing.result = recorded_result(player.number, parsed->result.winners);
+        for (const oademo::IndexPlayer& one : parsed->players) {
+            if (one.number != player.number)
+                continue;
+            // A player who only watched has no result and no counts, so the
+            // card draws no line under that name. The row's result is nothing
+            // when the recording player was that watcher.
+            if (one.watcher) {
+                standing.result = library::RecordedResult::none;
+                standing.known = false;
+                if (player.recorded_here)
+                    row.recorded = library::RecordedResult::none;
+                break;
+            }
+            standing.known = true;
+            standing.kills = one.final.kills;
+            standing.losses = one.final.losses;
+            break;
+        }
+    }
+    for (const oademo::IndexMarker& marker : parsed->markers) {
+        if (marker.kind == oademo::MarkerKind::chat)
+            continue;
+        library::TimelineMark mark;
+        mark.tick = marker.tick;
+        mark.player = marker.player;
+        mark.commander = marker.kind == oademo::MarkerKind::commander_death;
+        row.marks.push_back(std::move(mark));
+    }
+}
+
+/// A gap Watch would have to fetch, turn on or refuse. An installed mod that
+/// is not the one playing is played with `--mod-dir`. A map named only by
+/// its title is not a package Watch fetches.
+///
+/// @param gaps the row's comparison
+/// @return true when the pass leaves the row out
+bool index_pass_blocked(const std::vector<replay_data::ContentGap>& gaps) {
+    for (const replay_data::ContentGap& gap : gaps) {
+        if (gap.play_installed)
+            continue;
+        if (gap.kind == replay_data::GapKind::map && gap.sha256.empty() && gap.id.empty())
+            continue;
+        if (gap.fetchable || gap.turn_on || gap.other_release ||
+            gap.kind == replay_data::GapKind::engine || gap.block != replay_data::GapBlock::none ||
+            gap.kind == replay_data::GapKind::expansion_missing ||
+            gap.kind == replay_data::GapKind::mutator ||
+            gap.kind == replay_data::GapKind::mod_missing || gap.kind == replay_data::GapKind::map)
+            return true;
+    }
+    return false;
+}
+
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+
+/// Spawns of one file that fail before that row is left as unread no longer.
+constexpr int kIndexSpawnTries = 3;
+/// Frames between a spawn that failed and the next try.
+constexpr int kIndexBackoffFrames = 45;
+
+/// The file this process was started from.
+///
+/// @return the executable; empty when the system will not name it
+fs::path index_executable() {
+#if defined(_WIN32)
+    std::wstring wide(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD length =
+            GetModuleFileNameW(nullptr, wide.data(), static_cast<DWORD>(wide.size()));
+        if (length == 0) {
+            std::string narrow(MAX_PATH, '\0');
+            const DWORD narrow_length =
+                GetModuleFileNameA(nullptr, narrow.data(), static_cast<DWORD>(narrow.size()));
+            if (narrow_length == 0 || narrow_length >= narrow.size())
+                return {};
+            narrow.resize(narrow_length);
+            return fs::path(narrow);
+        }
+        if (length < wide.size()) {
+            wide.resize(length);
+            return fs::path(wide);
+        }
+        if (wide.size() >= 32768)
+            return {};
+        wide.resize(wide.size() * 2);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(static_cast<std::size_t>(size) + 1U, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        return {};
+    return fs::path(buffer.data());
+#else
+    std::error_code failed;
+    const fs::path resolved = fs::read_symlink("/proc/self/exe", failed);
+    return failed ? fs::path() : resolved;
+#endif
+}
+
+/// Lowers a process's priority. A pid of 0 is this process, and is left alone.
+///
+/// @param pid the process
+void lower_index_priority(int pid) {
+    if (pid <= 0)
+        return;
+#if defined(_WIN32)
+    const HANDLE handle = OpenProcess(PROCESS_SET_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (handle == nullptr)
+        return;
+    std::ignore = SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS);
+    CloseHandle(handle);
+#else
+    std::ignore = setpriority(PRIO_PROCESS, pid, 10);
+#endif
+}
+
+/// The process id SDL reports, or 0 when it names none.
+///
+/// @param process the process
+/// @return the id
+int index_process_pid(SDL_Process* process) {
+    if (process == nullptr)
+        return 0;
+    const SDL_PropertiesID properties = SDL_GetProcessProperties(process);
+    if (properties == 0)
+        return 0;
+    const Sint64 value = SDL_GetNumberProperty(properties, SDL_PROP_PROCESS_PID_NUMBER, 0);
+    if (value <= 0 || value > 2147483647)
+        return 0;
+    return static_cast<int>(value);
+}
+
+/// Writes a timeline onto one row and saves the index.
+///
+/// @param shelf the shelf
+/// @param user_folder the player's folder
+/// @param path the replay, below Recordings
+/// @param text the timeline the pass wrote
+/// @return true when the row was there
+bool remember_index_text(
+    ReplayShelf& shelf, const fs::path& user_folder, const std::string& path, std::string text
+) {
+    if (!shelf.listed)
+        return false;
+    bool stored = false;
+    for (replay_data::Replay& replay : shelf.index.replays) {
+        if (replay.path != path)
+            continue;
+        replay.timeline = std::move(text);
+        replay.read_stamp.reset();
+        stored = true;
+        break;
+    }
+    if (!stored || user_folder.empty())
+        return stored;
+    const fs::path folder = user_folder / std::string(recordings_folder_name);
+    if (!replay_data::save_index(folder, shelf.index))
+        replays_log("the replays' index could not be saved");
+    return true;
+}
+
+/// Remembers that a pass could not read one file. The timeline stays unset,
+/// so a later change of what is installed reads the file again. An empty
+/// timeline is not stored.
+///
+/// @param shelf the shelf
+/// @param user_folder the player's folder
+/// @param path the replay, below Recordings
+/// @param stamp what is installed now
+/// @return true when the row was there
+bool remember_index_refusal(
+    ReplayShelf& shelf,
+    const fs::path& user_folder,
+    const std::string& path,
+    const std::string& stamp
+) {
+    if (!shelf.listed)
+        return false;
+    bool stored = false;
+    for (replay_data::Replay& replay : shelf.index.replays) {
+        if (replay.path != path)
+            continue;
+        replay.read_stamp = stamp;
+        stored = true;
+        break;
+    }
+    if (!stored || user_folder.empty())
+        return stored;
+    const fs::path folder = user_folder / std::string(recordings_folder_name);
+    if (!replay_data::save_index(folder, shelf.index))
+        replays_log("the replays' index could not be saved");
+    return true;
+}
+
+/// The line a pass wrote when it could not read a replay. Progress and the
+/// playback's own lines are left out.
+///
+/// @param file the pass's standard error
+/// @return the reason; empty when the file gives none
+std::string index_pass_reason(const fs::path& file) {
+    const std::string text = read_text_file(file);
+    std::string reason;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        const std::size_t end = text.find('\n', at);
+        const std::size_t stop = end == std::string::npos ? text.size() : end;
+        std::string_view line(text.data() + at, stop - at);
+        if (!line.empty() && line.back() == '\r')
+            line.remove_suffix(1);
+        constexpr std::string_view mark = "replay index: ";
+        const std::size_t found = line.find(mark);
+        if (found != std::string_view::npos) {
+            const std::string_view tail = line.substr(found + mark.size());
+            const bool progress = tail.starts_with("replaying ") || tail.starts_with("replayed ") ||
+                                  tail.starts_with("wrote ");
+            if (!progress && !tail.empty())
+                reason = std::string(tail);
+        }
+        if (end == std::string::npos)
+            break;
+        at = end + 1;
+    }
+    return reason;
+}
+
+/// Counts a spawn that did not start. After a few tries the row is left until
+/// what is installed changes, so the same file is not started on every frame.
+///
+/// @param shelf the shelf
+/// @param user_folder the player's folder
+/// @param path the replay
+/// @param stamp what is installed now
+/// @return true when the refusal was stored
+bool note_index_spawn_failure(
+    ReplayShelf& shelf,
+    const fs::path& user_folder,
+    const std::string& path,
+    const std::string& stamp
+) {
+    if (shelf.index_fail_path != path) {
+        shelf.index_fail_path = path;
+        shelf.index_fail_count = 0;
+    }
+    ++shelf.index_fail_count;
+    if (shelf.index_fail_count >= kIndexSpawnTries) {
+        const bool stored = remember_index_refusal(shelf, user_folder, path, stamp);
+        shelf.index_fail_count = 0;
+        shelf.index_fail_path.clear();
+        shelf.index_backoff = 0;
+        return stored;
+    }
+    shelf.index_backoff = kIndexBackoffFrames;
+    return false;
+}
+
+/// The replay to read next: the selected one when it still needs a timeline,
+/// otherwise the first unindexed path. Damaged files, a row Watch would have
+/// to fetch or refuse, and a refusal at the current stamp are left out.
+///
+/// @param shelf the shelf
+/// @param model the Library
+/// @param stamp what is installed now
+/// @return the path; empty when every row has been read or is waiting
+std::string
+next_unindexed(const ReplayShelf& shelf, const library::Library& model, const std::string& stamp) {
+    const auto needs = [&](const replay_data::Replay& replay) {
+        if (replay_data::damaged(replay) || replay.timeline.has_value())
+            return false;
+        if (replay.read_stamp.has_value() && *replay.read_stamp == stamp)
+            return false;
+        for (const library::ReplayRow& row : model.inputs.replays.rows) {
+            if (row.replay.path != replay.path)
+                continue;
+            return !index_pass_blocked(row.gaps);
+        }
+        // The row is not in the model yet. The next fill adds its gaps.
+        return false;
+    };
+    if (model.replays.selected) {
+        for (const replay_data::Replay& replay : shelf.index.replays) {
+            if (replay.path == *model.replays.selected && needs(replay))
+                return replay.path;
+        }
+    }
+    const replay_data::Replay* earliest = nullptr;
+    for (const replay_data::Replay& replay : shelf.index.replays) {
+        if (!needs(replay))
+            continue;
+        if (earliest == nullptr || replay.path < earliest->path)
+            earliest = &replay;
+    }
+    return earliest != nullptr ? earliest->path : std::string{};
+}
+
+/// Starts one index pass. Its standard output is discarded, so a line it
+/// prints cannot fill a pipe. Its standard error goes to a file in the
+/// pass's own folder, or nowhere when that file cannot be opened. It is not
+/// started as a background process: that drops the exit code. It plays in
+/// the player's folder, so an installed mutator and map are there, and a
+/// replay whose mod is installed is started with that folder.
+///
+/// @param shelf the shelf
+/// @param runtime the runtime, for the installed mod
+/// @param user_folder the player's folder
+/// @param game_dir the game's folder; empty is left off the command
+/// @param relative the replay, below Recordings
+/// @return false when the process did not start
+bool spawn_index_pass(
+    ReplayShelf& shelf,
+    Runtime& runtime,
+    const fs::path& user_folder,
+    const fs::path& game_dir,
+    const std::string& relative
+) {
+    const fs::path executable = index_executable();
+    if (executable.empty())
+        return false;
+    const fs::path recordings = user_folder / std::string(recordings_folder_name);
+    const std::optional<fs::path> file = replay_file(recordings, relative);
+    if (!file)
+        return false;
+    std::error_code failed;
+    fs::path absolute = fs::absolute(*file, failed);
+    if (failed)
+        absolute = *file;
+    const fs::path scratch = user_folder / ".index-pass";
+    fs::create_directories(scratch, failed);
+    if (failed)
+        return false;
+    const fs::path output = scratch / "out.json";
+    fs::remove(output, failed);
+    const fs::path errors = scratch / "errors.txt";
+    fs::remove(errors, failed);
+    // An empty file is not a preferences file: the pass would stop before it
+    // read the replay. The file names the format and asks for no update, so
+    // the pass does not phone home. It is not the player's own preferences.
+    const fs::path preferences = scratch / "preferences.txt";
+    {
+        std::ofstream made(preferences, std::ios::binary | std::ios::trunc);
+        made << "open-annihilation-preferences 1\n"
+                "\"open-annihilation.update-check\" \"never\"\n"
+                "\"open-annihilation.content-updates\" \"never\"\n";
+        if (!made)
+            return false;
+    }
+    std::string mod_id;
+    for (const replay_data::Replay& replay : shelf.index.replays) {
+        if (replay.path != relative)
+            continue;
+        mod_id = replay.mod_id;
+        break;
+    }
+    std::vector<std::string> arguments;
+    arguments.push_back(platform::path_to_utf8(executable));
+    arguments.push_back("--replay-index");
+    arguments.push_back(platform::path_to_utf8(absolute));
+    arguments.push_back("--output");
+    arguments.push_back(platform::path_to_utf8(output));
+    if (!game_dir.empty()) {
+        arguments.push_back("--game-dir");
+        arguments.push_back(platform::path_to_utf8(game_dir));
+    }
+    if (!mod_id.empty()) {
+        if (const std::optional<fs::path> mod_folder = index_pass_mod_folder(runtime, mod_id)) {
+            arguments.push_back("--mod-dir");
+            arguments.push_back(platform::path_to_utf8(*mod_folder));
+        }
+    }
+    arguments.push_back("--user-folder");
+    arguments.push_back(platform::path_to_utf8(user_folder));
+    arguments.push_back("--preferences-file");
+    arguments.push_back(platform::path_to_utf8(preferences));
+    arguments.push_back("--skip-intro");
+    arguments.push_back("--mute");
+    std::vector<const char*> argv;
+    argv.reserve(arguments.size() + 1);
+    for (const std::string& argument : arguments)
+        argv.push_back(argument.c_str());
+    argv.push_back(nullptr);
+    const SDL_PropertiesID properties = SDL_CreateProperties();
+    if (properties == 0)
+        return false;
+    SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv.data());
+    SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
+    SDL_SetNumberProperty(
+        properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL
+    );
+    const std::string errors_utf8 = platform::path_to_utf8(errors);
+    SDL_IOStream* errors_stream = SDL_IOFromFile(errors_utf8.c_str(), "wb");
+    if (errors_stream != nullptr) {
+        SDL_SetNumberProperty(
+            properties, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_REDIRECT
+        );
+        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_POINTER, errors_stream);
+    } else {
+        SDL_SetNumberProperty(
+            properties, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL
+        );
+    }
+    SDL_Process* process = SDL_CreateProcessWithProperties(properties);
+    if (process == nullptr && errors_stream != nullptr) {
+        SDL_DestroyProperties(properties);
+        const SDL_PropertiesID again = SDL_CreateProperties();
+        if (again == 0) {
+            SDL_CloseIO(errors_stream);
+            return false;
+        }
+        SDL_SetPointerProperty(again, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv.data());
+        SDL_SetNumberProperty(again, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
+        SDL_SetNumberProperty(again, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL);
+        SDL_SetNumberProperty(again, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL);
+        process = SDL_CreateProcessWithProperties(again);
+        SDL_DestroyProperties(again);
+    } else {
+        SDL_DestroyProperties(properties);
+    }
+    if (errors_stream != nullptr)
+        SDL_CloseIO(errors_stream);
+    if (process == nullptr)
+        return false;
+    const int pid = index_process_pid(process);
+    lower_index_priority(pid);
+    shelf.index_process = process;
+    shelf.index_pid = pid;
+    shelf.index_target = relative;
+    shelf.index_output = output;
+    shelf.index_errors = errors_stream != nullptr ? errors : fs::path{};
+    shelf.index_scratch = scratch;
+    shelf.index_fail_count = 0;
+    shelf.index_fail_path.clear();
+    replays_log("index pass started pid " + std::to_string(pid));
+    return true;
+}
+
+/// Polls the index pass and starts the next file when none is running.
+///
+/// One process at a time. It does not run while a match does, nor while the
+/// Library is closed, and a pass stopped then writes nothing.
+///
+/// @param shelf the shelf
+/// @param model the Library, whose selected replay is read first
+/// @param library_open the Library is on the screen
+/// @param in_match a match is running
+/// @param user_folder the player's folder
+/// @param game_dir the game's folder
+/// @param runtime the runtime, for the installed mod and the content stamp
+/// @return true when a timeline or a refusal was stored
+bool advance_replay_index(
+    ReplayShelf& shelf,
+    const library::Library& model,
+    bool library_open,
+    bool in_match,
+    const fs::path& user_folder,
+    const fs::path& game_dir,
+    Runtime& runtime
+) {
+    if (!library_open || in_match || !shelf.listed || user_folder.empty()) {
+        stop_replay_index_pass(shelf);
+        return false;
+    }
+    if (shelf.index_process != nullptr) {
+        int exit_code = 0;
+        if (!SDL_WaitProcess(shelf.index_process, false, &exit_code))
+            return false;
+        const int pid = shelf.index_pid;
+        const std::string target = shelf.index_target;
+        const fs::path output = shelf.index_output;
+        const fs::path errors = shelf.index_errors;
+        SDL_DestroyProcess(shelf.index_process);
+        shelf.index_process = nullptr;
+        shelf.index_pid = 0;
+        shelf.index_target.clear();
+        shelf.index_output.clear();
+        shelf.index_errors.clear();
+        replays_log("index pass stopped pid " + std::to_string(pid));
+        std::string text;
+        if (exit_code == 0)
+            text = read_text_file(output);
+        const std::string reason = index_pass_reason(errors);
+        std::error_code failed;
+        fs::remove(output, failed);
+        fs::remove(errors, failed);
+        const bool usable =
+            exit_code == 0 && !text.empty() && oademo::parse_timeline_index(text).has_value();
+        if (usable) {
+            replays_log("index pass read " + target);
+            return remember_index_text(shelf, user_folder, target, std::move(text));
+        }
+        std::string line =
+            "index pass could not read " + target + " (exit " + std::to_string(exit_code) + ")";
+        if (!reason.empty()) {
+            line += ": ";
+            line += reason;
+        }
+        replays_log(line);
+        return remember_index_refusal(
+            shelf, user_folder, target, index_pass_content_stamp(runtime)
+        );
+    }
+    if (shelf.index_backoff > 0) {
+        --shelf.index_backoff;
+        return false;
+    }
+    const std::string stamp = index_pass_content_stamp(runtime);
+    const std::string relative = next_unindexed(shelf, model, stamp);
+    if (relative.empty())
+        return false;
+    if (spawn_index_pass(shelf, runtime, user_folder, game_dir, relative))
+        return false;
+    replays_log("the index pass could not start");
+    return note_index_spawn_failure(shelf, user_folder, relative, stamp);
+}
+
+#else
+
+bool advance_replay_index(
+    ReplayShelf&, const library::Library&, bool, bool, const fs::path&, const fs::path&, Runtime&
+) {
+    return false;
+}
+
+#endif
 
 } // namespace
 
@@ -2713,6 +3465,14 @@ ReplayContentAccess::installed_mod_folder(Runtime& runtime, std::string_view id)
     } catch (const std::exception&) {
     }
     return std::nullopt;
+}
+
+std::optional<fs::path> index_pass_mod_folder(Runtime& runtime, std::string_view id) {
+    return ReplayContentAccess::installed_mod_folder(runtime, id);
+}
+
+std::string index_pass_content_stamp(Runtime& runtime) {
+    return ReplayContentAccess::installed_stamp(runtime);
 }
 
 replay_data::HaveContent ReplayContentAccess::have_content(Runtime& runtime, ReplayShelf& shelf) {
@@ -3479,6 +4239,7 @@ void Runtime::LibraryHost::begin_export(Runtime& runtime, std::vector<std::strin
             shown.title = export_title_from_path(path);
         ask.paths.push_back(path);
         ask.titles.push_back(shown.title);
+        ask.timelines.push_back(indexed_timeline(shelf, path));
         offer.files.push_back(std::move(shown));
     }
     if (offer.folder.empty() && !paths.empty())
@@ -3580,6 +4341,8 @@ bool Runtime::LibraryHost::step_replay_export(Runtime& runtime) {
                     have.bytes = std::move(published.bytes);
                     have.held_oademo = published.held_oademo;
                     have.held_sectors = published.held_sectors;
+                    if (!published.timeline.empty())
+                        have.timeline = std::move(published.timeline);
                     have.unreadable = published.unreadable;
                     have.why = std::move(published.why);
                     have.ready = published.ready;
@@ -3657,6 +4420,10 @@ bool Runtime::LibraryHost::step_replay_export(Runtime& runtime) {
                         continue;
                     ask.paths.push_back(one.path);
                     ask.titles.push_back(one.title);
+                    std::string timeline = indexed_timeline(shelf, one.path);
+                    if (timeline.empty())
+                        timeline = one.timeline;
+                    ask.timelines.push_back(std::move(timeline));
                 }
                 if (ask.paths.empty()) {
                     reset_export_job(shelf.job);
@@ -3869,12 +4636,12 @@ bool Runtime::LibraryHost::pump_replays(Runtime& runtime) {
     if (!replays)
         return wrote;
     ReplayShelf& shelf = *replays;
+    bool moved = false;
     std::optional<replay_data::Index> ended;
-    bool changed = false;
     {
         base::threads::LockGuard guard(shelf.mutex);
-        if (shelf.moves != shelf.moves_seen) {
-            changed = true;
+        moved = shelf.moves != shelf.moves_seen;
+        if (moved) {
             shelf.moves_seen = shelf.moves;
             if (shelf.result) {
                 ended = std::move(shelf.result);
@@ -3888,49 +4655,85 @@ bool Runtime::LibraryHost::pump_replays(Runtime& runtime) {
                 shelf.rows_read = shelf.partial;
         }
     }
-    if (!changed) {
+    if (moved) {
+        if (!shelf.gone.empty()) {
+            const auto trashed = [&](const replay_data::Replay& replay) {
+                return std::find(shelf.gone.begin(), shelf.gone.end(), replay.path) !=
+                       shelf.gone.end();
+            };
+            std::erase_if(shelf.rows_read, trashed);
+            if (ended)
+                std::erase_if(ended->replays, trashed);
+        }
+        if (ended) {
+            // A timeline or a watched tick written while this read ran stays
+            // on a file the read did not open again.
+            keep_passed_index(*ended, shelf.index);
+            shelf.index = std::move(*ended);
+            shelf.listed = true;
+            shelf.rows_read.clear();
+            if (!runtime.user_folder_.empty()) {
+                const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
+                // A kept replay that moved or was renamed keeps its mark; the mark's
+                // path follows it.
+                if (!shelf.kept_damaged &&
+                    replay_data::apply_kept(shelf.kept, shelf.index.replays) &&
+                    !replay_data::save_kept(folder, shelf.kept))
+                    replays_log("the kept replays could not be saved");
+                if (!shelf.exported_damaged &&
+                    replay_data::apply_exported(shelf.exported, shelf.index.replays) &&
+                    !replay_data::save_exported(folder, shelf.exported))
+                    replays_log("the exported replays could not be saved");
+                std::error_code missing;
+                // An empty folder that was never made keeps no index; any other is saved.
+                if ((!shelf.index.replays.empty() ||
+                     fs::exists(replay_data::index_path(folder), missing)) &&
+                    !replay_data::save_index(folder, shelf.index))
+                    replays_log("the replays' index could not be saved");
+            }
+        }
+    }
+    // A check's rows stay. The shelf has still taken the worker's result, and
+    // no index pass is polled under the rows the check put in.
+    if (replays_held)
+        return moved ? false : wrote;
+    // The pass is polled every frame, including one the folder's read did
+    // not move. It does not run during a match or while the Library is closed.
+    // A change in what is installed is filled first, so a row that was waiting
+    // on a package is read once that package is there.
+    const bool library_open = runtime.oa_layer().find(library_screen_name) != nullptr;
+    const bool in_match = runtime.screen_ == Screen::match || runtime.match_ != nullptr;
+    bool refresh = false;
+    if (shelf.listed && !in_match && library_open) {
+        const std::string stamp = index_pass_content_stamp(runtime);
+        refresh = !shelf.have_ready || shelf.have_stamp != stamp;
+    }
+    if ((moved || refresh) && !replays_held) {
+        fill_replay_inputs(runtime, model.inputs);
+        library::update_replays(model);
+    }
+    const bool landed = advance_replay_index(
+        shelf,
+        model,
+        library_open,
+        in_match,
+        runtime.user_folder_,
+        runtime.options_.game_dir,
+        runtime
+    );
+    if (!moved && !refresh && !landed) {
+        // A replay opened from outside is selected once the folder's read
+        // has ended and shows it.
         if (shelf.land_path.empty() || shelf.reading)
             return wrote;
         land_opened_replay();
         ++model_revision;
         return true;
     }
-    if (!shelf.gone.empty()) {
-        const auto trashed = [&](const replay_data::Replay& replay) {
-            return std::find(shelf.gone.begin(), shelf.gone.end(), replay.path) != shelf.gone.end();
-        };
-        std::erase_if(shelf.rows_read, trashed);
-        if (ended)
-            std::erase_if(ended->replays, trashed);
+    if (landed || !moved) {
+        fill_replay_inputs(runtime, model.inputs);
+        library::update_replays(model);
     }
-    if (ended) {
-        shelf.index = std::move(*ended);
-        shelf.listed = true;
-        shelf.rows_read.clear();
-        if (!runtime.user_folder_.empty()) {
-            const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
-            // A kept replay that moved or was renamed keeps its mark; the mark's
-            // path follows it.
-            if (!shelf.kept_damaged && replay_data::apply_kept(shelf.kept, shelf.index.replays) &&
-                !replay_data::save_kept(folder, shelf.kept))
-                replays_log("the kept replays could not be saved");
-            if (!shelf.exported_damaged &&
-                replay_data::apply_exported(shelf.exported, shelf.index.replays) &&
-                !replay_data::save_exported(folder, shelf.exported))
-                replays_log("the exported replays could not be saved");
-            std::error_code missing;
-            // An empty folder that was never made keeps no index; any other is saved.
-            if ((!shelf.index.replays.empty() ||
-                 fs::exists(replay_data::index_path(folder), missing)) &&
-                !replay_data::save_index(folder, shelf.index))
-                replays_log("the replays' index could not be saved");
-        }
-    }
-    // A check's rows stay. The shelf has still taken the worker's result.
-    if (replays_held)
-        return false;
-    fill_replay_inputs(runtime, model.inputs);
-    library::update_replays(model);
     land_opened_replay();
     ++model_revision;
     return true;
@@ -4006,6 +4809,8 @@ void Runtime::LibraryHost::fill_replay_inputs(Runtime& runtime, library::Inputs&
                              ReplayContentAccess::have_content(runtime, shelf)
                          };
     shown.rows.reserve(source.size());
+    std::size_t index_done = 0;
+    std::size_t index_total = 0;
     for (const replay_data::Replay& replay : source) {
         library::ReplayRow row;
         row.replay = replay;
@@ -4019,14 +4824,31 @@ void Runtime::LibraryHost::fill_replay_inputs(Runtime& runtime, library::Inputs&
         row.minute = when.minute;
         if (const auto picture = shelf.pictures.find(replay.map); picture != shelf.pictures.end())
             row.picture = picture->second;
+        apply_timeline(row);
         if (have) {
             const std::vector<replay_data::ListedRelease> offers =
                 snapshot != nullptr ? offers_for(shelf, *snapshot, replay)
                                     : std::vector<replay_data::ListedRelease>{};
             row.gaps = replay_data::compare_needs(replay, *have, offers);
         }
+        // A row Watch would have to fetch, turn on or refuse is not read, shows
+        // no Reading… chip and is not part of the footer's count. A refusal at
+        // the current stamp counts as read, so the footer is not stuck.
+        const bool blocked = index_pass_blocked(row.gaps);
+        const bool refused = !replay.timeline.has_value() && replay.read_stamp.has_value() &&
+                             *replay.read_stamp == shelf.have_stamp;
+        if (blocked || refused)
+            row.indexing = false;
+        if (!replay_data::damaged(replay) && !blocked) {
+            ++index_total;
+            if (replay.timeline.has_value() || refused)
+                ++index_done;
+        }
         shown.rows.push_back(std::move(row));
     }
+    shown.index_done = index_done;
+    shown.index_total = index_total;
+    shown.indexing = replay_index_pass_available && index_done < index_total;
     if (shelf.pending_get) {
         shown.fetching = true;
         shown.fetch_path = shelf.pending_get->path;
@@ -4110,7 +4932,12 @@ void Runtime::LibraryHost::pump_replay_pictures(Runtime& runtime, const kit::Dis
     }
 }
 
-bool Runtime::LibraryHost::start_replay_watch(Runtime& runtime, const std::string& path) {
+bool Runtime::LibraryHost::start_replay_watch(
+    Runtime& runtime, const std::string& path, std::optional<uint32_t> from
+) {
+    // Watch stops the pass before the replay opens. A stopped pass
+    // writes nothing, so the row says Reading… again afterwards.
+    stop_index_pass();
     const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
     const std::optional<fs::path> file = replay_file(folder, path);
     std::vector<uint8_t> bytes;
@@ -4154,7 +4981,25 @@ bool Runtime::LibraryHost::start_replay_watch(Runtime& runtime, const std::strin
         return false;
     }
     replays_log("watching " + path);
-    replay_shelf().watching = hooks;
+    ReplayShelf& shelf = replay_shelf();
+    shelf.watching = hooks;
+    shelf.pending_seek.reset();
+    shelf.left_tick.reset();
+    shelf.left_finished = false;
+    shelf.watch_length.reset();
+    shelf.left_path = path;
+    for (const replay_data::Replay& replay : shelf.index.replays) {
+        if (replay.path != path || !replay.timeline.has_value() || replay.timeline->empty())
+            continue;
+        if (const std::optional<oademo::TimelineIndex> parsed =
+                oademo::parse_timeline_index(*replay.timeline))
+            shelf.watch_length = parsed->length_ticks;
+        break;
+    }
+    // The jump waits until the replay can say where it is. Seeking in
+    // this call would find no match yet.
+    if (from)
+        shelf.pending_seek = from;
     // What the Library shows comes back when the match is left.
     auto shown = std::make_shared<LibraryReturn>();
     shown->tab = library::Tab::replays;
@@ -4315,7 +5160,7 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
         ++model_revision;
         return;
     }
-    static_cast<void>(start_replay_watch(runtime, pending.path));
+    static_cast<void>(start_replay_watch(runtime, pending.path, std::nullopt));
 }
 
 bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::ScreenResult& result) {
@@ -4323,7 +5168,8 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
         return false;
     const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
     switch (*result.action) {
-    case library::Action::watch_replay: {
+    case library::Action::watch_replay:
+    case library::Action::watch_from: {
         // A press while packages are coming cancels that fetch. It does not
         // start another, for this replay or any other.
         if (replays && replays->pending_get) {
@@ -4498,7 +5344,11 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
                 return false;
             }
         }
-        return start_replay_watch(runtime, result.replay);
+        // Watch from jumps to where the replay was left, once the replay can say
+        // where it is.
+        const std::optional<uint32_t> from =
+            *result.action == library::Action::watch_from ? result.watch_from : std::nullopt;
+        return start_replay_watch(runtime, result.replay, from);
     }
     case library::Action::keep_replays: {
         ReplayShelf& shelf = replay_shelf();
@@ -5320,14 +6170,195 @@ void Runtime::consider_replay_retention(bool forced) {
     replay_retention_scan_ = std::move(scan);
 }
 
+void Runtime::LibraryHost::note_watched_replay(Runtime& runtime) {
+    if (!replays || !replays->watching)
+        return;
+    if (runtime.screen_ != Screen::match && runtime.match_ == nullptr)
+        return;
+    ReplayShelf& shelf = *replays;
+    ReplayPlaybackView view{};
+    if (!call_hook_or_report<&Extension::replay_state>(
+            runtime.extension_, runtime.hook_error_report(), runtime, &view
+        ))
+        return;
+    if (shelf.pending_seek) {
+        const uint32_t tick = *shelf.pending_seek;
+        shelf.pending_seek.reset();
+        call_hook_or_report<&Extension::replay_seek>(
+            runtime.extension_, runtime.hook_error_report(), runtime, tick
+        );
+    }
+    if (shelf.watching->status != nullptr) {
+        RecordingStatus status{};
+        try {
+            shelf.watching->status(shelf.watching->context, status);
+            if (status.finished)
+                shelf.left_finished = true;
+            if (shelf.watch_length.has_value() && status.tick > 0 &&
+                status.tick >= *shelf.watch_length)
+                shelf.left_finished = true;
+        } catch (const std::exception&) {
+        }
+    }
+    if (shelf.watch_length.has_value() && view.tick > 0 && view.tick >= *shelf.watch_length)
+        shelf.left_finished = true;
+    // A tick of 0 after one already past the start is the session's clock
+    // once the match has gone, not where the replay was. A replay that had
+    // finished stays finished.
+    if (!shelf.left_finished &&
+        !(view.tick == 0 && shelf.left_tick.has_value() && *shelf.left_tick > 0))
+        shelf.left_tick = view.tick;
+}
+
+void Runtime::LibraryHost::stop_index_pass() noexcept {
+    if (replays)
+        stop_replay_index_pass(*replays);
+}
+
+bool Runtime::LibraryHost::index_pass_running() const noexcept {
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+    return replays && replays->index_process != nullptr;
+#else
+    return false;
+#endif
+}
+
+int Runtime::LibraryHost::index_pass_pid() const noexcept {
+#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
+    return replays != nullptr ? replays->index_pid : 0;
+#else
+    return 0;
+#endif
+}
+
+bool Runtime::LibraryHost::watched_replay_finished() const {
+    if (!replays)
+        return false;
+    if (replays->left_finished)
+        return true;
+    if (!replays->watching || replays->watching->status == nullptr)
+        return false;
+    RecordingStatus status{};
+    try {
+        replays->watching->status(replays->watching->context, status);
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (status.finished)
+        return true;
+    return replays->watch_length.has_value() && status.tick > 0 &&
+           status.tick >= *replays->watch_length;
+}
+
+namespace {
+
+/// Saves the index after a check has written a timeline onto it.
+///
+/// @param user_folder the player's folder
+/// @param shelf the shelf
+void save_marked_index(const fs::path& user_folder, ReplayShelf& shelf) {
+    if (user_folder.empty())
+        return;
+    const fs::path folder = user_folder / std::string(recordings_folder_name);
+    if (!replay_data::save_index(folder, shelf.index))
+        replays_log("the replays' index could not be saved");
+}
+
+} // namespace
+
+void Runtime::LibraryHost::mark_replays_read(Runtime& runtime) {
+    stop_index_pass();
+    if (!replays || !replays->listed)
+        return;
+    bool changed = false;
+    for (replay_data::Replay& replay : replays->index.replays) {
+        const bool blank = replay.timeline.has_value() && replay.timeline->empty();
+        if (blank && !replay.read_stamp.has_value())
+            continue;
+        replay.timeline = std::string();
+        replay.read_stamp.reset();
+        changed = true;
+    }
+    if (!changed)
+        return;
+    save_marked_index(runtime.user_folder_, *replays);
+    if (replays_held)
+        return;
+    fill_replay_inputs(runtime, model.inputs);
+    library::update_replays(model);
+    ++model_revision;
+}
+
+void Runtime::LibraryHost::store_replay_timeline(
+    Runtime& runtime, const std::string& path, std::string text
+) {
+    stop_index_pass();
+    if (!replays || !replays->listed)
+        return;
+    bool stored = false;
+    for (replay_data::Replay& replay : replays->index.replays) {
+        if (replay.path != path)
+            continue;
+        replay.timeline = std::move(text);
+        replay.read_stamp.reset();
+        stored = true;
+        break;
+    }
+    if (!stored)
+        return;
+    save_marked_index(runtime.user_folder_, *replays);
+    if (replays_held)
+        return;
+    fill_replay_inputs(runtime, model.inputs);
+    library::update_replays(model);
+    ++model_revision;
+}
+
 void Runtime::LibraryHost::end_watched_replay(Runtime& runtime) {
     const bool in_match = runtime.screen_ == Screen::match || runtime.match_ != nullptr;
     if (replays && replays->watching) {
         if (in_match)
             return;
-        const ReplayHooks hooks = *replays->watching;
-        replays->watching.reset();
+        ReplayShelf& shelf = *replays;
+        const ReplayHooks hooks = *shelf.watching;
+        shelf.watching.reset();
+        shelf.pending_seek.reset();
+        const std::optional<uint32_t> left = shelf.left_tick;
+        const bool finished = shelf.left_finished;
+        const std::string path = shelf.left_path;
+        shelf.left_tick.reset();
+        shelf.left_finished = false;
+        shelf.watch_length.reset();
+        shelf.left_path.clear();
+        bool changed = false;
+        if (!path.empty() && shelf.listed && (finished || left)) {
+            for (replay_data::Replay& replay : shelf.index.replays) {
+                if (replay.path != path)
+                    continue;
+                // A replay that had finished offers Watch. An earlier tick goes.
+                if (finished) {
+                    if (replay.watched_tick.has_value()) {
+                        replay.watched_tick.reset();
+                        changed = true;
+                    }
+                } else if (!replay.watched_tick || *replay.watched_tick != *left) {
+                    replay.watched_tick = *left;
+                    changed = true;
+                }
+                break;
+            }
+        }
         call_hook_or_report<&ReplayHooks::close>(hooks, runtime.hook_error_report());
+        if (changed) {
+            if (!runtime.user_folder_.empty()) {
+                const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
+                if (!replay_data::save_index(folder, shelf.index))
+                    replays_log("the replays' index could not be saved");
+            }
+            fill_replay_inputs(runtime, model.inputs);
+            library::update_replays(model);
+            ++model_revision;
+        }
     }
     // A replay that turned expansions on, or played another mod, puts the
     // player's set back once the player has left its end screen, including

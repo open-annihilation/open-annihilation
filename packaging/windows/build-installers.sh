@@ -71,6 +71,11 @@ lay_out() {
     if [[ "$with_intro" == yes ]]; then
         printf 'MZ' > "$dir/oa-intro.exe"
     fi
+    # The screen reader's library, in every package but Windows 95's.
+    case "$dir" in
+        *-windows-95) ;;
+        *) printf 'MZ' > "$dir/accesskit.dll" ;;
+    esac
 }
 
 compile_log() {
@@ -135,6 +140,9 @@ grep -q 'SetOutPath: "\$INSTDIR\\brains"' "$x64_log" \
 grep -q 'File: "classic.oabrain"' "$x64_log" || fail "windows-x64: classic.oabrain was not stored"
 grep -q 'File: "oa-update.exe"' "$x64_log" || fail "windows-x64: oa-update.exe was not stored"
 echo "G82: windows-x64 lists oa-update.exe"
+grep -q 'File: "accesskit.dll"' "$x64_log" || fail "windows-x64: accesskit.dll was not stored"
+grep -q 'File: "AccessKit-MIT.txt"' "$x64_log" || fail "windows-x64: AccessKit's notice was not stored"
+echo "G82: windows-x64 lists accesskit.dll"
 
 build_one() {
     local package=$1
@@ -149,6 +157,10 @@ build_one() {
     expect_installer "$package" "$dir" "$target" "$log"
     grep -q 'File: "oa-update.exe"' "$log" || fail "$package: oa-update.exe was not stored"
     echo "G82: $package lists oa-update.exe"
+    if [[ "$package" != windows-95 ]]; then
+        grep -q 'File: "accesskit.dll"' "$log" || fail "$package: accesskit.dll was not stored"
+        echo "G82: $package lists accesskit.dll"
+    fi
 }
 
 build_one windows-x86 x86-unicode
@@ -158,6 +170,10 @@ if grep -q 'File: "coreprime.ccx"' "$out/windows-95.log"; then
     fail "windows-95 packed coreprime.ccx"
 fi
 echo "G82: windows-95 does not pack coreprime.ccx"
+if grep -q 'File: "accesskit.dll"' "$out/windows-95.log"; then
+    fail "windows-95 packed accesskit.dll"
+fi
+echo "G82: windows-95 does not pack accesskit.dll"
 
 # A folder that holds the module's files packs them, including a page-font
 # file with no extension. A folder without them, above, does not.

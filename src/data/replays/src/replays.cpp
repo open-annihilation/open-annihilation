@@ -427,9 +427,15 @@ void read_oademo(std::span<const uint8_t> bytes, Replay& replay) {
         if (object.has_value() && object->type() == json::JsonType::object) {
             replay.planet = string_member(*object, "planet");
             replay.sector = string_member(*object, "sector");
+            // A campaign's title is the mission name, as the file writes it.
+            // The Library trims trailing spaces when it shows the title. The
+            // map stem stays in `map` for a search that still names the file.
+            if (meta.game.kind == kind_campaign)
+                replay.mission_name = string_member(*object, "mission_name");
         }
     }
     replay.players.reserve(meta.players.size());
+    int32_t place = 1;
     for (const oademo::PlayerInfo& info : meta.players) {
         Player player;
         player.name = info.name;
@@ -439,7 +445,10 @@ void read_oademo(std::span<const uint8_t> bytes, Replay& replay) {
             player.team = static_cast<int32_t>(*info.team);
         player.kind = info.kind;
         player.recorded_here = info.recorded_here.value_or(false);
+        player.number = info.number == 0 ? place : static_cast<int32_t>(info.number);
         replay.players.push_back(std::move(player));
+        if (place < std::numeric_limits<int32_t>::max())
+            ++place;
     }
     if (described.manifest.has_value())
         take_manifest(*described.manifest, meta, replay);
@@ -485,13 +494,18 @@ void read_tad(std::span<const uint8_t> bytes, Replay& replay) {
     if (recorder != nullptr)
         replay.recorded_by = recorded_text(tad::sector_text(*recorder));
     replay.players.reserve(demo.players.size());
+    int32_t place = 1;
     for (const tad::Player& recorded_player : demo.players) {
         Player player;
         player.name = recorded_text(recorded_player.name);
         player.colour = recorded_player.color;
         player.side = side_text(recorded_player.side);
         player.kind = "human";
+        player.number =
+            recorded_player.number == 0 ? place : static_cast<int32_t>(recorded_player.number);
         replay.players.push_back(std::move(player));
+        if (place < std::numeric_limits<int32_t>::max())
+            ++place;
     }
     take_mutator_sector(demo, replay);
     if (!replay.map.empty()) {
@@ -767,8 +781,18 @@ Index scan(const fs::path& recordings, const Index& previous, const ScanHooks& h
             result.replays.push_back(*before);
         } else {
             Replay replay = read_file(recordings, listed.path);
-            if (before != nullptr)
+            if (before != nullptr) {
                 replay.kept = before->kept;
+                // The file is read again for its needs. A timeline, a watched
+                // tick and a refusal stamp written onto the index stay when
+                // the file itself has not changed.
+                if (before->size == listed.size && before->modified == listed.modified &&
+                    before->file == listed.file) {
+                    replay.timeline = before->timeline;
+                    replay.watched_tick = before->watched_tick;
+                    replay.read_stamp = before->read_stamp;
+                }
+            }
             result.replays.push_back(std::move(replay));
         }
         if (hooks.replay != nullptr)

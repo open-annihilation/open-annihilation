@@ -12,6 +12,9 @@ Headless games, each in a scratch user folder:
    it prints is recorded again with ``--past-outcome`` (mission 0's own
    trace, the same either way) and once more through the end screen, so the
    file is mission 0, ``game.ended`` ``finished``, ``game.length_ticks`` N.
+   ``--replay-index`` of that file ends ``finished`` on the same tick: the
+   mission ends with no commander's death and no end-screen scores, and the
+   index takes ``meta.json``.
 2. Mission 8, 700 ticks, the mission ``native-campaign-defeat`` plays, the
    same way. It stops at its defeat.
 3. Each recording's players and feature cells match the replay. Playing the
@@ -91,6 +94,7 @@ def write_preferences(path):
     """A preferences file that records nothing on its own and asks no question."""
     lines = [
         PREFERENCES_HEADER,
+        quote_preference("open-annihilation.update-check") + " " + quote_preference("never"),
         quote_preference("open-annihilation.content-updates") + " " + quote_preference("never"),
         quote_preference("open-annihilation.first-run") + " " + quote_preference("done"),
         quote_preference("open-annihilation.replays.record") + " " + quote_preference("off"),
@@ -468,6 +472,69 @@ def expect_played_file(native, game_dir, work, replay, live, label, ticks, units
     return playback, created
 
 
+def expect_indexed(native, game_dir, work, replay, victory_tick):
+    """Indexes a victory file. A finished recording with no commander's death ends finished."""
+    user = work / "mission-0-index"
+    preferences = work / "mission-0-index.conf"
+    output = work / "mission-0-index.json"
+    lines = [
+        PREFERENCES_HEADER,
+        quote_preference("open-annihilation.update-check") + " " + quote_preference("never"),
+        quote_preference("open-annihilation.content-updates") + " " + quote_preference("never"),
+        quote_preference("open-annihilation.first-run") + " " + quote_preference("done"),
+        quote_preference("open-annihilation.replays.record") + " " + quote_preference("off"),
+    ]
+    preferences.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"replays campaign: indexing {replay.name}", flush=True)
+    command = [
+        *RUNNER,
+        str(native),
+        "--game-dir",
+        str(game_dir),
+        "--skip-intro",
+        "--mute",
+        "--replay-index",
+        str(replay),
+        "--output",
+        str(output),
+        "--user-folder",
+        str(user),
+        "--preferences-file",
+        str(preferences),
+    ]
+    result = subprocess.run(
+        command,
+        cwd=work,
+        env=game_environment(),
+        timeout=RUN_TIMEOUT_SECONDS,
+        check=False,
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    text = result.stdout + result.stderr
+    if result.returncode != 0 or not output.is_file():
+        show(text)
+        raise ScriptFailure(
+            f"indexing {replay.name} ended with status {result.returncode}"
+        )
+    try:
+        parsed = json.loads(output.read_text(encoding="utf-8"))
+    except (UnicodeError, ValueError) as error:
+        show(text)
+        raise ScriptFailure(f"the index of {replay.name} is not JSON: {error}") from error
+    ended = parsed.get("ended", {})
+    if ended.get("how") != "finished" or ended.get("tick") != victory_tick:
+        show(text)
+        raise ScriptFailure(
+            f"{replay.name} indexed ended {ended.get('how')} at tick {ended.get('tick')}, "
+            f"not finished at {victory_tick}"
+        )
+    print(
+        f"replays campaign: {replay.name} indexed, ended finished at tick {ended.get('tick')}"
+    )
+
+
 def expect_mission_zero(native, game_dir, work):
     """Mission 0's 2400-tick run, its own victory trace, and the file of that victory."""
     mission_name = MISSIONS[0][0]
@@ -518,6 +585,7 @@ def expect_mission_zero(native, game_dir, work):
     _playback, created = expect_played_file(
         native, game_dir, work, replay, live, "mission-0", victory_tick, units
     )
+    expect_indexed(native, game_dir, work, replay, victory_tick)
     print(
         f"replays campaign: {CAMPAIGN} mission 0 ({mission_name}), victory at tick {victory_tick}, "
         f"the same {own_bytes}-byte trace with recording on and off; "
