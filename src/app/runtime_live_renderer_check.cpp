@@ -108,10 +108,55 @@ int Runtime::check_live_renderer() {
             write_picture(options_.snapshot / name, frame);
         }
     };
+    uint64_t borrowed_vertex_frames{}, borrowed_vertex_models{};
+    const auto bounds_and_picks = [&] {
+        std::vector<int32_t> result;
+        for (const auto& slot : match_->world().slots)
+            if (const auto bounds = live_unit_bounds(slot.unit_index)) {
+                const float x = static_cast<float>((int64_t{bounds->x1} + bounds->x2) * 0.5);
+                const float y = static_cast<float>((int64_t{bounds->y1} + bounds->y2) * 0.5);
+                result.insert(
+                    result.end(),
+                    {slot.unit_index,
+                     bounds->x1,
+                     bounds->y1,
+                     bounds->x2,
+                     bounds->y2,
+                     live_unit_under(x, y)}
+                );
+            }
+        return result;
+    };
     const auto snapshot = [&] {
         // Console echoes are transient interface messages, not battlefield
         // changes; keep them out of frozen-frame comparisons.
         oa::sim::messages::clear_messages(match_->state().game);
+        // The reference owns every model's planned vertices. Normal frames
+        // borrow exclusive original or presentation instances through the
+        // scene join; all existing moving, mirrored and water fixtures
+        // compare their pixels, bounds and picks against that reference.
+        const bool compare_vertices = live_renderer_active();
+        const auto tick_before = match_timing_.tick;
+        renderer::Surface captured;
+        std::vector<int32_t> captured_picks;
+        auto& plans = match_models().unit_plans;
+        if (compare_vertices) {
+            plans.snapshot_unlinked_vertices = true;
+            const bool models_ready = live_models_on_card();
+            const auto differences = draw_turned_frame_both_ways();
+            require(differences.empty(), "captured vertex reference changed the card's picture");
+            // A cold frame prepares model lighting and switches from
+            // projected shadow images to the card's casts. Compare two
+            // frames of the same ordinary path after that transition.
+            if (models_ready != live_models_on_card())
+                require(
+                    draw_turned_frame_both_ways().empty(),
+                    "warmed captured vertex reference changed the card's picture"
+                );
+            captured = match_world_cpu_;
+            captured_picks = bounds_and_picks();
+            plans.snapshot_unlinked_vertices = false;
+        }
         // Every turned frame is drawn again on the card, its overlay added
         // there, and shows what the processor's frame shows.
         const auto differences = draw_turned_frame_both_ways();
@@ -122,6 +167,23 @@ int Runtime::check_live_renderer() {
                 "live renderer check: the turned frame on the card is not the processor's: " +
                 differences
             );
+        if (compare_vertices) {
+            require(
+                match_world_cpu_.width == captured.width &&
+                    match_world_cpu_.height == captured.height &&
+                    match_world_cpu_.rgb == captured.rgb,
+                "borrowed unit vertices differ from the captured reference picture"
+            );
+            require(
+                bounds_and_picks() == captured_picks,
+                "borrowed unit vertices differ from the captured reference bounds or picks"
+            );
+            require(match_timing_.tick == tick_before, "vertex comparison advanced simulation");
+            ++borrowed_vertex_frames;
+            for (const auto& draw : match_models().draws.models)
+                borrowed_vertex_models += draw.stand_in < 0 && draw.shown_position.has_value() &&
+                                          draw.shown_vertices.empty();
+        }
         return match_world_cpu_;
     };
     // A key goes in as the event loop takes it: with the place a keyboard
@@ -2937,6 +2999,12 @@ int Runtime::check_live_renderer() {
         );
     }
     engine_settings_->current = water_settings_saved;
+    require(
+        borrowed_vertex_frames != 0 && borrowed_vertex_models != 0,
+        "no exclusive unit instance exercised borrowed vertex planning"
+    );
+    std::cout << "live renderer check: " << borrowed_vertex_frames
+              << " borrowed-vertex frames match captured pixels, bounds and picks\n";
     reset_live_renderer();
     return_to_skirmish_menu();
     std::cout

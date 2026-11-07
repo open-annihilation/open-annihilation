@@ -122,6 +122,9 @@ struct UnitPlans {
     std::vector<uint32_t> carried_in_run;
     /// Counts the runs planned, for carried_in_run.
     uint32_t runs{};
+    /// Captures otherwise exclusive unit instances for a reference drawing.
+    /// Normal frames borrow them until the frame's scene has consumed them.
+    bool snapshot_unlinked_vertices{};
     /// The vertex buffers of the last frame's model draws
     /// (ModelDraw::shown_vertices), which this frame's take over.
     std::vector<std::vector<std::vector<oa::formats::objects3d::FixedVector3>>> spare_vertices;

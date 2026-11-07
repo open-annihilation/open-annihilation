@@ -534,8 +534,10 @@ struct UnitPlanFrame {
     /// gets a record of its own.
     bool live_world{};
     /// The live renderer is active: each model drawn keeps its place and
-    /// its pieces' vertices as planned.
+    /// any transforms a shared instance could lose during later planning.
     bool live_renderer{};
+    /// Captures exclusive unit instances for a reference drawing too.
+    bool snapshot_unlinked_vertices{};
 };
 
 // The units a drawing thread takes at a time to plan: few enough that the
@@ -602,6 +604,7 @@ oa::Rect32 model_region(
 /// @param level how finely it is drawn
 /// @param stand_in the place of a 3D feature's stand-in record in the list;
 ///     -1 for a unit
+/// @param snapshot_vertices captures transforms that later planning may change
 /// @param[out] drawn its draw, made afresh; the vertex buffers it holds are
 ///     reused for its pieces' vertices
 /// @param[out] carried a record of each unit it carries where the live
@@ -615,6 +618,7 @@ void plan_model(
     bool idle,
     model_render::UnitSupersampling level,
     int32_t stand_in,
+    bool snapshot_vertices,
     ModelDraw& drawn,
     std::vector<ModelDraw>& carried
 ) {
@@ -626,13 +630,16 @@ void plan_model(
     model_render::plan_unit_supersampled(renderer, bridge, model, region, idle, level, drawn.plan);
     if (frame.live_renderer && drawn.plan.linked.drawn) {
         drawn.shown_position = model.unit->position;
-        const auto pieces = model.instance->pieces();
-        vertices.resize(pieces.size());
-        for (std::size_t piece = 0; piece < pieces.size(); ++piece)
-            vertices[piece].assign(
-                pieces[piece].transformed_vertices.begin(), pieces[piece].transformed_vertices.end()
-            );
-        drawn.shown_vertices = std::move(vertices);
+        if (snapshot_vertices) {
+            const auto pieces = model.instance->pieces();
+            vertices.resize(pieces.size());
+            for (std::size_t piece = 0; piece < pieces.size(); ++piece)
+                vertices[piece].assign(
+                    pieces[piece].transformed_vertices.begin(),
+                    pieces[piece].transformed_vertices.end()
+                );
+            drawn.shown_vertices = std::move(vertices);
+        }
     }
     if (stand_in >= 0)
         drawn.model.unit = nullptr;
@@ -715,6 +722,7 @@ void plan_unit_model(
             plan.idle,
             frame.level,
             -1,
+            plan.linked || frame.snapshot_unlinked_vertices,
             plan.draw,
             plan.carried
         );
@@ -731,6 +739,7 @@ void plan_unit_model(
         plan.idle,
         frame.level,
         -1,
+        plan.linked || frame.snapshot_unlinked_vertices,
         plan.draw,
         plan.carried
     );
@@ -785,6 +794,11 @@ void plan_unit_draws(
         plan.linked =
             unit != nullptr && (unit->attach_parent != 0 || unit->attach_first_child != 0 ||
                                 unit_plans.carried_in_run[plan.unit_index] == unit_plans.runs);
+        // Exclusive original and presentation instances stay unchanged
+        // until this draw's scene consumes them. Only shared attachment
+        // plans need their own vertex buffers.
+        if (frame.live_renderer && (plan.linked || frame.snapshot_unlinked_vertices))
+            give_spare_vertices(unit_plans, plan.draw);
         if (plan.linked)
             unit_plans.order.push_back(place);
     }
@@ -1917,7 +1931,9 @@ bool Runtime::draw_match_surface() {
     const auto unit_level = directed || full_presentation() || far
                                 ? model_render::UnitSupersampling::off
                                 : unit_supersampling_;
-    const UnitPlanFrame plan_frame{unit_level, live_world, live_renderer_active()};
+    const UnitPlanFrame plan_frame{
+        unit_level, live_world, live_renderer_active(), models.unit_plans.snapshot_unlinked_vertices
+    };
     // A model's draw adds the units it carries after it (plan_model).
     std::vector<ModelDraw> carried_draws;
     // A model readied and planned for the frame's draws on this thread.
@@ -1937,6 +1953,7 @@ bool Runtime::draw_match_surface() {
             idle,
             level,
             stand_in,
+            true,
             drawn,
             carried_draws
         );
@@ -2088,14 +2105,12 @@ bool Runtime::draw_match_surface() {
     // else what its plan worked out before (plan_unit_draws).
     const auto plan_unit = [&](uint16_t unit_index, UnitPlan& plan) {
         if (dots) {
-            const auto model = unit_model(models, unit_index);
+            const auto& model = plan.model;
             if (model.instance == nullptr)
                 return;
             // Where the unit shows: between the ticks, or on another
             // machine's playout, where its copies are drawn.
-            const bool shown_elsewhere =
-                between_ticks ||
-                mirrored_pose(models, world_record, unit_index, moment).has_value();
+            const bool shown_elsewhere = between_ticks || plan.pose.has_value();
             const auto screen =
                 shown_elsewhere
                     ? project_match_point(
@@ -2408,6 +2423,7 @@ bool Runtime::draw_match_surface() {
     }
     std::vector<uint16_t> units_to_draw;
     std::vector<oa::present::world_renderer::UnitDrawSite> unit_sites;
+    auto& unit_plans = models.unit_plans;
     for (auto& slot : match_->world().slots) {
         if (slot.unit_index == 0 || slot.unit == nullptr || slot.record.type_index == 0)
             continue;
@@ -2429,6 +2445,15 @@ bool Runtime::draw_match_surface() {
         const auto model = unit_model(models, slot.unit_index);
         if (model.instance == nullptr)
             continue;
+        // These lookups also serve the deferred plan: no tick runs between
+        // finding a unit's draw site and preparing its model in draw order.
+        const auto place = units_to_draw.size();
+        if (unit_plans.plans.size() <= place)
+            unit_plans.plans.emplace_back();
+        auto& plan = unit_plans.plans[place];
+        plan.unit_index = slot.unit_index;
+        plan.model = model;
+        plan.pose = pose;
         units_to_draw.push_back(slot.unit_index);
         unit_sites.push_back(
             {pose ? pose->position.z : model.unit->position.z,
@@ -2453,17 +2478,12 @@ bool Runtime::draw_match_surface() {
     // before the list takes them: what each is drawn as is found here, in
     // the order, then each is planned on whichever drawing thread takes it
     // (plan_unit_draws). A frame of dots plans none.
-    auto& unit_plans = models.unit_plans;
-    if (unit_plans.plans.size() < units_to_draw.size())
-        unit_plans.plans.resize(units_to_draw.size());
     const auto plan_unit_run = [&] {
         if (dots)
             return;
         for (const auto place : unit_plans.run) {
             const uint16_t unit_index = units_to_draw[place];
             auto& plan = unit_plans.plans[place];
-            plan.unit_index = unit_index;
-            plan.model = unit_model(models, unit_index);
             if (plan.model.instance == nullptr)
                 continue;
             // The movement state's speed: an idle mobile shows the first
@@ -2476,11 +2496,9 @@ bool Runtime::draw_match_surface() {
             // every frame, whole ticks included: they stand on its playout,
             // near its simulated place and moved on ahead of it between
             // records.
-            plan.pose = mirrored_pose(models, world_record, unit_index, moment);
             plan.from_copies =
                 (between_ticks && unit_or_cargo_moved(models, world_record, unit_index)) ||
                 plan.pose.has_value();
-            give_spare_vertices(unit_plans, plan.draw);
         }
         plan_unit_draws(models, plan_frame, draw_pool_.get());
     };
