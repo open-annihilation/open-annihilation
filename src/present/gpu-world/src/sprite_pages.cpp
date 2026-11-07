@@ -16,6 +16,8 @@ namespace {
 
 /// A colour channel's whole brightness.
 constexpr size_t white_level = 255;
+/// Exact white covers a complete aligned two-by-two box at the next level.
+constexpr uint16_t white_frame_side = 2;
 
 /// Brings a page side inside min_page_size..max_page_size and rounds it up
 /// to a power of two.
@@ -153,13 +155,34 @@ FrameResult SpritePages::refuse(FrameStatus status) noexcept {
 
 FrameResult
 SpritePages::frame(uint64_t frame_id, DrawMode mode, const formats::gaf::RenderedFrame& source) {
-    if (!has_palette_)
+    return place_frame(frame_id, mode, source, false);
+}
+
+FrameResult SpritePages::white_frame(uint64_t frame_id, uint32_t page) {
+    if (page >= pages_.size() || pages_[page].size == 0)
+        return refuse(FrameStatus::no_room);
+    formats::gaf::RenderedFrame source;
+    source.width = white_frame_side;
+    source.height = white_frame_side;
+    return place_frame(frame_id, DrawMode::opaque, source, true, page);
+}
+
+FrameResult SpritePages::place_frame(
+    uint64_t frame_id,
+    DrawMode mode,
+    const formats::gaf::RenderedFrame& source,
+    bool white,
+    uint32_t page
+) {
+    if (!white && !has_palette_)
         return refuse(FrameStatus::no_palette);
     if (mode == DrawMode::greyed && !has_gray_table_)
         return refuse(FrameStatus::no_gray_table);
     if (const auto found = index_.find(frame_id);
         found != index_.end() && found->second[mode_index(mode)] != none) {
         const uint32_t entry = found->second[mode_index(mode)];
+        if (page != none && entries_[entry].record.page != page)
+            return refuse(FrameStatus::no_room);
         unlink(entry);
         link_newest(entry);
         ++statistics_.hits;
@@ -168,7 +191,7 @@ SpritePages::frame(uint64_t frame_id, DrawMode mode, const formats::gaf::Rendere
     if (source.width == 0 || source.height == 0)
         return refuse(FrameStatus::empty);
     const size_t pixel_count = size_t{source.width} * source.height;
-    if (source.pixels.size() != pixel_count || source.coverage.size() != pixel_count)
+    if (!white && (source.pixels.size() != pixel_count || source.coverage.size() != pixel_count))
         return refuse(FrameStatus::malformed);
     const uint32_t slot_width = cell_side(source.width);
     const uint32_t slot_height = cell_side(source.height);
@@ -184,7 +207,11 @@ SpritePages::frame(uint64_t frame_id, DrawMode mode, const formats::gaf::Rendere
 
     const uint32_t entry = new_entry();
     Placement placement;
-    while (!place(slot_width, slot_height, entry, placement)) {
+    while (!place(slot_width, slot_height, entry, placement, page)) {
+        if (page != none) {
+            free_entries_.push_back(entry);
+            return refuse(FrameStatus::no_room);
+        }
         if (can_add_page(side)) {
             add_page(side);
             continue;
@@ -232,7 +259,7 @@ SpritePages::frame(uint64_t frame_id, DrawMode mode, const formats::gaf::Rendere
     no_modes.fill(none);
     const auto held = index_.try_emplace(frame_id, no_modes).first;
     held->second[mode_index(mode)] = entry;
-    write_slot(entry, source);
+    write_slot(entry, source, white);
     frame_bytes_ += slot_texel_bytes(placed.slot);
     ++frames_alive_;
     ++statistics_.decodes;
@@ -357,7 +384,11 @@ void SpritePages::release_page(uint32_t page) noexcept {
 }
 
 bool SpritePages::place(
-    uint32_t slot_width, uint32_t slot_height, uint32_t entry, Placement& placement
+    uint32_t slot_width,
+    uint32_t slot_height,
+    uint32_t entry,
+    Placement& placement,
+    uint32_t required_page
 ) {
     // Every slot side is a multiple of cell_alignment, a page's side a power
     // of two, and a shelf starts at 0 or after whole slots, so shelf rows,
@@ -372,6 +403,8 @@ bool SpritePages::place(
     bool best_open = false;
     uint32_t shelf_page = none;
     for (uint32_t page = 0; page < pages_.size(); ++page) {
+        if (required_page != none && page != required_page)
+            continue;
         const uint32_t size = pages_[page].size;
         if (size == 0)
             continue;
@@ -543,7 +576,9 @@ void SpritePages::unlink(uint32_t entry) noexcept {
     unlinked.older = none;
 }
 
-void SpritePages::write_slot(uint32_t entry, const formats::gaf::RenderedFrame& source) noexcept {
+void SpritePages::write_slot(
+    uint32_t entry, const formats::gaf::RenderedFrame& source, bool white
+) noexcept {
     const Entry& written = entries_[entry];
     Page& page = pages_[written.record.page];
     const size_t row_bytes = size_t{page.size} * texel_bytes;
@@ -567,6 +602,10 @@ void SpritePages::write_slot(uint32_t entry, const formats::gaf::RenderedFrame& 
         uint8_t* out = texels + (size_t{rect.y} + y) * row_bytes + size_t{rect.x} * texel_bytes;
         const size_t source_row = size_t{y} * rect.width;
         for (uint32_t x = 0; x < rect.width; ++x, out += texel_bytes) {
+            if (white) {
+                std::fill_n(out, texel_bytes, uint8_t{white_level});
+                continue;
+            }
             const size_t offset = source_row + x;
             if (coverage[offset] == 0)
                 continue;

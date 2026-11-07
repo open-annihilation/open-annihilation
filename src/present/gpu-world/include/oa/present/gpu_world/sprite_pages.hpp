@@ -264,6 +264,20 @@ class SpritePages {
     /// @return the record, or why there is none
     FrameResult frame(uint64_t frame_id, DrawMode mode, const formats::gaf::RenderedFrame& source);
 
+    /// Returns a two-by-two opaque white frame on one existing page.
+    ///
+    /// The generated texels are white independently of the palette and gamma.
+    /// The frame uses an ordinary aligned cell,
+    /// transparent gutter, least-recently-used entry and frame hold. Only the
+    /// named page may supply room: nothing is evicted, grown or moved for it.
+    /// Palette changes and clear drop it as they drop ordinary frames.
+    ///
+    /// @param frame_id a caller-reserved number distinct from every other frame
+    /// @param page the live page that must hold the frame
+    /// @return the opaque record, or no_room when the page is absent, has no room
+    ///     or the number already names a frame on another page
+    FrameResult white_frame(uint64_t frame_id, uint32_t page);
+
     /// Returns a held frame in a mode, counting it as used now.
     ///
     /// @param frame_id the caller's number for the frame
@@ -397,8 +411,31 @@ class SpritePages {
     /// @param slot_height cell height in texels, a multiple of cell_alignment
     /// @param entry the entry the slot is for
     /// @param[out] placement the page and the slot's top-left corner
-    /// @return false when no live page has room
-    bool place(uint32_t slot_width, uint32_t slot_height, uint32_t entry, Placement& placement);
+    /// @param page the required page, or none to search every live page
+    /// @return false when no permitted live page has room
+    bool place(
+        uint32_t slot_width,
+        uint32_t slot_height,
+        uint32_t entry,
+        Placement& placement,
+        uint32_t page = none
+    );
+
+    /// Places a decoded or generated frame through the common cell allocator.
+    ///
+    /// @param frame_id the caller's distinct frame number
+    /// @param mode the frame's drawing mode
+    /// @param source dimensions, hotspot and, unless white, palette pixels
+    /// @param white true to generate exact white texels instead of palette pixels
+    /// @param page the required page, or none to permit allocation and eviction
+    /// @return the record or why it could not be placed
+    FrameResult place_frame(
+        uint64_t frame_id,
+        DrawMode mode,
+        const formats::gaf::RenderedFrame& source,
+        bool white,
+        uint32_t page = none
+    );
 
     /// Returns the side of the page a slot needs: the ordinary page, or a
     /// larger power of two for a slot that does not fit one.
@@ -471,7 +508,10 @@ class SpritePages {
     ///
     /// @param entry the entry whose slot is written
     /// @param source the frame as the GAF reader renders it
-    void write_slot(uint32_t entry, const formats::gaf::RenderedFrame& source) noexcept;
+    /// @param white true to generate exact white texels instead of palette pixels
+    void write_slot(
+        uint32_t entry, const formats::gaf::RenderedFrame& source, bool white = false
+    ) noexcept;
 
     /// Counts a refusal.
     ///

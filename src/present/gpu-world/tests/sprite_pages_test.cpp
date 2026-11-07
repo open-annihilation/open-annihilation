@@ -43,11 +43,13 @@ using oa::present::gpu_world::texel_bytes;
 using Texel = std::array<uint8_t, texel_bytes>;
 
 constexpr Texel transparent{0, 0, 0, 0};
+constexpr Texel opaque_white{255, 255, 255, 255};
 constexpr uint8_t full_alpha = oa::present::gpu_world::opaque_alpha;
 constexpr uint32_t gutter = oa::present::gpu_world::frame_gutter;
 constexpr uint32_t alignment = oa::present::gpu_world::cell_alignment;
 constexpr size_t palette_entries = oa::present::gpu_world::gray_table_entries;
 constexpr float plain_gamma = 1.0F;
+constexpr uint16_t white_side = 2;
 
 // A palette whose channels tell the indices apart.
 Palette test_palette() {
@@ -143,6 +145,26 @@ bool aligned(const FrameRecord& record) {
            slot.height % alignment == 0;
 }
 
+/// Checks the white plateau and every texel of its transparent aligned cell.
+void check_white_frame(const SpritePages& pages, const FrameRecord& record) {
+    OA_CHECK(record.mode == DrawMode::opaque);
+    OA_CHECK(record.rect.width == white_side && record.rect.height == white_side);
+    OA_CHECK(record.origin_x == 0 && record.origin_y == 0);
+    OA_CHECK(aligned(record));
+    // All four plateau texels share one exact box in a half-sized level.
+    OA_CHECK(record.rect.x % alignment == 0 && record.rect.y % alignment == 0);
+    const TexelRect slot = slot_of(record);
+    for (uint32_t y = 0; y < slot.height; ++y)
+        for (uint32_t x = 0; x < slot.width; ++x) {
+            const bool inside =
+                x >= gutter && y >= gutter && x < gutter + white_side && y < gutter + white_side;
+            OA_CHECK(
+                texel_at(pages, record.page, slot.x + x, slot.y + y) ==
+                (inside ? opaque_white : transparent)
+            );
+        }
+}
+
 bool overlap(const TexelRect& a, const TexelRect& b) {
     return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height &&
            b.y < a.y + a.height;
@@ -181,6 +203,112 @@ size_t mismatched_texels(
         }
     }
     return mismatches;
+}
+
+/// Generated white shares the requested page without consulting its palette colours.
+void test_exact_white_frame() {
+    constexpr uint64_t source_id = 21, white_id = 22;
+    SpritePages pages;
+    OA_CHECK(pages.white_frame(white_id, 0).status == FrameStatus::no_room);
+    OA_CHECK(pages.memory().pages == 0 && pages.memory().frames == 0);
+    const Palette palette = test_palette();
+    const RenderedFrame source = covered_frame(4, 4, 3);
+    pages.set_palette(palette, 1.7F);
+    const FrameResult coloured = pages.frame(source_id, DrawMode::opaque, source);
+    OA_CHECK(coloured.status == FrameStatus::ok);
+    pages.clear_dirty(coloured.record.page);
+    const uint64_t revision = pages.pages()[coloured.record.page].revision;
+    const FrameResult white = pages.white_frame(white_id, coloured.record.page);
+    OA_CHECK(white.status == FrameStatus::ok);
+    OA_CHECK(white.record.page == coloured.record.page);
+    OA_CHECK(!overlap(slot_of(white.record), slot_of(coloured.record)));
+    check_white_frame(pages, white.record);
+    OA_CHECK(mismatched_texels(pages, coloured.record, source, palette, 1.7F, nullptr) == 0);
+    OA_CHECK(pages.pages()[white.record.page].revision == revision + 1);
+    OA_CHECK(same_rect(pages.pages()[white.record.page].dirty, slot_of(white.record)));
+    pages.clear_dirty(white.record.page);
+    const auto hits = pages.statistics().hits;
+    const auto decodes = pages.statistics().decodes;
+    const FrameResult repeated = pages.white_frame(white_id, coloured.record.page);
+    OA_CHECK(repeated.status == FrameStatus::ok);
+    OA_CHECK(same_rect(repeated.record.rect, white.record.rect));
+    OA_CHECK(pages.statistics().hits == hits + 1 && pages.statistics().decodes == decodes);
+    OA_CHECK(pages.pages()[white.record.page].dirty.empty());
+    OA_CHECK(pages.pages()[white.record.page].revision == revision + 1);
+    OA_CHECK(pages.find(white_id, DrawMode::opaque).status == FrameStatus::ok);
+
+    // A different gamma clears ordinary and generated frames alike.
+    pages.set_palette(palette, 0.8F);
+    OA_CHECK(!pages.holds(white_id, DrawMode::opaque));
+    OA_CHECK(pages.memory().frames == 0 && pages.memory().page_bytes == 0);
+    const FrameResult recoloured = pages.frame(source_id, DrawMode::opaque, source);
+    const FrameResult regenerated = pages.white_frame(white_id, recoloured.record.page);
+    OA_CHECK(regenerated.status == FrameStatus::ok);
+    check_white_frame(pages, regenerated.record);
+    pages.forget(white_id);
+    OA_CHECK(!pages.holds(white_id, DrawMode::opaque));
+    OA_CHECK(pages.holds(source_id, DrawMode::opaque));
+}
+
+/// Exact-page requests never take spare room elsewhere, evict a frame or grow pages.
+void test_white_frame_requires_its_page() {
+    constexpr uint32_t page_side = 64;
+    constexpr size_t one_page = size_t{page_side} * page_side * texel_bytes;
+    constexpr uint64_t full_id = 31, small_id = 32, white_id = 33;
+    SpritePages pages(Limits{page_side, page_side, 2 * one_page, 4 * one_page});
+    pages.set_palette(test_palette(), plain_gamma);
+    const FrameResult full = pages.frame(full_id, DrawMode::opaque, covered_frame(60, 60));
+    const FrameResult small = pages.frame(small_id, DrawMode::opaque, covered_frame(4, 4));
+    OA_CHECK(full.status == FrameStatus::ok && small.status == FrameStatus::ok);
+    OA_CHECK(full.record.page != small.record.page);
+    const auto before = pages.memory();
+    const auto before_statistics = pages.statistics();
+    const auto full_pixels = pages.pages()[full.record.page].texels;
+    const auto small_pixels = pages.pages()[small.record.page].texels;
+    OA_CHECK(pages.white_frame(white_id, full.record.page).status == FrameStatus::no_room);
+    OA_CHECK(pages.pages()[full.record.page].texels == full_pixels);
+    OA_CHECK(pages.pages()[small.record.page].texels == small_pixels);
+    OA_CHECK(pages.memory().page_bytes == before.page_bytes);
+    OA_CHECK(pages.memory().frame_bytes == before.frame_bytes);
+    OA_CHECK(pages.memory().frames == before.frames);
+    OA_CHECK(pages.statistics().evictions == before_statistics.evictions);
+    OA_CHECK(pages.statistics().growths == before_statistics.growths);
+    const FrameResult white = pages.white_frame(white_id, small.record.page);
+    OA_CHECK(white.status == FrameStatus::ok && white.record.page == small.record.page);
+    check_white_frame(pages, white.record);
+    const auto white_pixels = pages.pages()[white.record.page].texels;
+    OA_CHECK(pages.white_frame(white_id, full.record.page).status == FrameStatus::no_room);
+    OA_CHECK(pages.pages()[white.record.page].texels == white_pixels);
+    OA_CHECK(pages.white_frame(white_id, UINT32_MAX).status == FrameStatus::no_room);
+    pages.clear();
+    OA_CHECK(pages.white_frame(white_id, small.record.page).status == FrameStatus::no_room);
+    OA_CHECK(pages.memory().frames == 0 && pages.memory().pages == 0);
+}
+
+/// Generated white is held by the current frame and otherwise evicts in ordinary LRU order.
+void test_white_frame_holds_and_evicts() {
+    constexpr uint32_t page_side = 64;
+    constexpr size_t one_page = size_t{page_side} * page_side * texel_bytes;
+    constexpr uint64_t small_id = 41, white_id = 42, full_id = 43;
+    SpritePages pages(Limits{page_side, page_side, one_page});
+    pages.set_palette(test_palette(), plain_gamma);
+    const FrameResult small = pages.frame(small_id, DrawMode::opaque, covered_frame(4, 4));
+    const FrameResult white = pages.white_frame(white_id, small.record.page);
+    OA_CHECK(white.status == FrameStatus::ok);
+    pages.begin_frame();
+    OA_CHECK(pages.white_frame(white_id, small.record.page).status == FrameStatus::ok);
+    OA_CHECK(
+        pages.frame(full_id, DrawMode::opaque, covered_frame(60, 60)).status == FrameStatus::no_room
+    );
+    OA_CHECK(!pages.holds(small_id, DrawMode::opaque));
+    OA_CHECK(pages.holds(white_id, DrawMode::opaque));
+    check_white_frame(pages, white.record);
+    pages.begin_frame();
+    const FrameResult full = pages.frame(full_id, DrawMode::opaque, covered_frame(60, 60));
+    OA_CHECK(full.status == FrameStatus::ok);
+    OA_CHECK(!pages.holds(white_id, DrawMode::opaque));
+    OA_CHECK(pages.memory().pages == 1 && pages.memory().page_bytes == one_page);
+    OA_CHECK(pages.white_frame(white_id, full.record.page).status == FrameStatus::no_room);
 }
 
 void test_limits_normalised() {
@@ -1068,6 +1196,9 @@ int main(int argc, char** argv) {
         const auto assets = oa::test::require_game_assets("the installed GAF sprite pages sweep");
         test_installed_sweep(assets);
     } else {
+        test_exact_white_frame();
+        test_white_frame_requires_its_page();
+        test_white_frame_holds_and_evicts();
         test_limits_normalised();
         test_opaque_frame();
         test_gamma_matches_device_palette();
