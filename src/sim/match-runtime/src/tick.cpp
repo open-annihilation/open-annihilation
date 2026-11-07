@@ -5,6 +5,7 @@
 #include "oa/sim/scenario/commander_rules.hpp"
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
+#include "route_prefix.hpp"
 #include "oa/sim/ground_orders/shared_routes.hpp"
 
 #include <algorithm>
@@ -314,12 +315,13 @@ void Match::advance_path_search() {
                             )
                         };
                         const bool direct_goal = count == 2 && route[1] == destination;
-                        const bool same_route = count == navigation.count && count > 1 &&
-                                                std::equal(
-                                                    route.begin() + 1,
-                                                    route.begin() + count,
-                                                    navigation.points.begin() + 1
-                                                );
+                        const bool same_route =
+                            sim::ground_orders::route_present(navigation) &&
+                            navigation.count <= navigation.points.size() &&
+                            is_route_prefix(
+                                std::span{navigation.points}.first(navigation.count),
+                                std::span{route}.first(count)
+                            );
                         // A static guide cannot resolve settled traffic by
                         // reinstalling the same route or its clear goal leg.
                         // A real terrain detour remains useful even when its
