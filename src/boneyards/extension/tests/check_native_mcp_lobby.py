@@ -756,6 +756,22 @@ def drive_chat(client):
         client, "Chat players", lambda rows: OTHER_PLAYER in rows, f"listed {OTHER_PLAYER}"
     )
     require("oa_check" in players, f"the players are {players}")
+    # Grade 1 is the red square (oa_check) and grade 2 the amber one
+    # (Ghost_Commander). The words follow those squares.
+    step("reading each player's latency")
+    latency_labels = sorted(
+        {
+            str(leaf.get("label") or "")
+            for leaf in leaves(tree_of(client))
+            if leaf.get("visible")
+            and str(leaf.get("name") or "") == "LatencyIcon"
+            and str(leaf.get("window") or "") == "Chat players"
+        }
+    )
+    require(
+        latency_labels == ["Latency fair", "Latency poor"],
+        f"the latency words are {latency_labels}",
+    )
     step(f"choosing {OTHER_PLAYER} and reading the player pane")
     client.call("ui.select", {"list": "Chat players", "item": OTHER_PLAYER}, CALL_TIMEOUT)
     poll_leaf(client, "PAGE")

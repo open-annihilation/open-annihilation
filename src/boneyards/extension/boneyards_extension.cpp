@@ -956,16 +956,8 @@ std::string icon_label(const oa::boneyards::screens::PlayerIconWords& words) {
         std::snprintf(line, sizeof line, pattern.c_str(), title.c_str());
         return std::string(line);
     }
-    if (words.kind == screens::PlayerIconKind::latency) {
-        const char* phrase = "Latency unknown";
-        if (words.latency_grade == 1)
-            phrase = "Latency good";
-        else if (words.latency_grade == 2)
-            phrase = "Latency fair";
-        else if (words.latency_grade == 3)
-            phrase = "Latency poor";
-        return spoken(phrase);
-    }
+    if (words.kind == screens::PlayerIconKind::latency)
+        return spoken(screens::latency_grade_phrase(words.latency_grade));
     return {};
 }
 

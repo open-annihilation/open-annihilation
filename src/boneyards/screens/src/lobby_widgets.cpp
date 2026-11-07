@@ -1540,6 +1540,17 @@ void player_row_set_user_icon(PlayerRowIcons* row, int32_t frame) {
     bind_images(row->user_icon, "Widgets.Gaf", "User_Icons", frame);
 }
 
+const char* latency_grade_phrase(int32_t grade) noexcept {
+    // The drawn square runs from 1 (red, the worst) to 3 (green, the best).
+    if (grade == 1)
+        return "Latency poor";
+    if (grade == 2)
+        return "Latency fair";
+    if (grade == 3)
+        return "Latency good";
+    return "Latency unknown";
+}
+
 bool player_icon_words(const Window* icon, PlayerIconWords* out) {
     if (out != nullptr)
         *out = {};
@@ -1566,8 +1577,8 @@ bool player_icon_words(const Window* icon, PlayerIconWords* out) {
     }
     out->kind = PlayerIconKind::latency;
     const int32_t grade = player->icons.latency_frame;
-    // The lobby's grades run from 1 (best) to 3 (worst). Anything else has
-    // no name, and the picture is left as the row drew it.
+    // The drawn square runs from 1 (red, the worst) to 3 (green, the best).
+    // Anything else has no name, and the picture is left as the row drew it.
     out->latency_grade = grade >= 1 && grade <= 3 ? grade : 0;
     return true;
 }

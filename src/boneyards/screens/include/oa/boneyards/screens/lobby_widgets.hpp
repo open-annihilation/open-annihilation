@@ -374,9 +374,20 @@ struct PlayerIconWords {
     PlayerIconKind kind = PlayerIconKind::none;
     /// Short rank title. Empty when the frame has none. Static storage.
     const char* rank = "";
-    /// 1, 2 or 3 for a latency grade. 0 when the frame is not one of those.
+    /// 1, 2 or 3 for a latency grade. 1 is the red square and 3 the green.
+    /// 0 when the frame is not one of those.
     int32_t latency_grade = 0;
 };
+
+/// The words a latency grade speaks, before translation.
+///
+/// Grade 1 is the red square and speaks "Latency poor", grade 2 the amber
+/// square and "Latency fair", and grade 3 the green square and "Latency good".
+/// Any other grade speaks "Latency unknown".
+///
+/// @param grade the latency grade, or 0 when the frame is not a grade
+/// @return the catalogue key; never null
+const char* latency_grade_phrase(int32_t grade) noexcept;
 
 /// Reads the rank or latency a player-row icon is showing.
 ///
