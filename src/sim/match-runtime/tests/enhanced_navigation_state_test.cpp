@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <span>
 #include <string>
@@ -399,6 +400,23 @@ void static_barrier_keeps_shared_route_access() {
             [](const routes::RoutePoint& point) { return point[1] == 72 || point[1] == 200; }
         )
     );
+    constexpr uint32_t crossing_tick_limit = 240;
+    bool crossed = false;
+    for (uint32_t tick = 0; tick < crossing_tick_limit && ground->navigation.goal != nullptr;
+         ++tick) {
+        const auto before_x = unit.record.cell_x;
+        fixture.run(1);
+        if (before_x < wall_x && unit.record.cell_x >= wall_x) {
+            crossed = true;
+            CHECK(std::any_of(bridge_rows.begin(), bridge_rows.end(), [&](int32_t row) {
+                return unit.record.cell_z >= row && unit.record.cell_z < row + 4;
+            }));
+        }
+    }
+    CHECK(crossed);
+    CHECK(ground->navigation.goal == nullptr);
+    CHECK(std::abs((unit.record.position.x >> 16) - 200) <= 16);
+    CHECK(std::abs((unit.record.position.z >> 16) - 136) <= 16);
 }
 
 /// Finds a genuine temporary traffic head while two units pass each other.
