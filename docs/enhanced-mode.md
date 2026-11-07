@@ -26,7 +26,7 @@ rechecks every returned edge against current passability and player knowledge.
 Narrow corridors outside the coarse graph retain the ordinary path search.
 
 Local steering gives moving traffic temporary detours and yields by waiting
-time, with unit ID breaking ties. The original mission and route remain in
+time measured at the start of the tick, with unit ID breaking ties. The original mission and route remain in
 place, and the final footprint occupancy test still prevents overlap. A short
 mobile blockage can wait before requesting another full path; after 30
 consecutive collision-blocked ticks it must replan, even if boundary jitter moves it
@@ -114,33 +114,44 @@ not establish sustained 30 Hz simulation or 60 FPS rendering.
 
 ## Version 2 checkpoint
 
-Paired Check-build runs on the same M5, map and seed compared 30 warmup
-ticks and 300 measured ticks. Two combat runs per version retained the same
-digest within that version: v1 `4f1722b3e338a32d`, v2 `f0c69d05ffa5d08f`.
-The host had other active workloads, so wall-time ranges describe these runs.
+Paired Check-build runs on the same M5, Core Prime Industrial Area and seed 7
+compared 30 warmup ticks and 300 measured ticks. Two combat runs per version
+retained identical results within that version: v1 `4f1722b3e338a32d`,
+v2 `943bf1ddd2329180`. Other host workloads varied, so these wall-time ranges
+do not establish a uniform speedup.
 
 | Workload | Rules | Median tick | p95 tick | p99 tick |
 | --- | --- | --- | --- | --- |
-| 20,000-unit combat, two runs | v1 | 25.2–28.5 ms | 40.2–40.5 ms | 54.5–71.9 ms |
-| 20,000-unit combat, two runs | v2 | 23.4–27.0 ms | 34.4–39.1 ms | 51.2–56.5 ms |
-| 20,000-unit group march | v1 | 11.9 ms | 18.7 ms | 31.9 ms |
-| 20,000-unit group march | v2 | 9.5 ms | 13.3 ms | 24.0 ms |
+| 20,000-unit combat, two runs | v1 | 12.9–18.0 ms | 21.9–27.3 ms | 27.8–30.2 ms |
+| 20,000-unit combat, two runs | v2 | 10.8–12.1 ms | 15.3–25.2 ms | 18.1–36.6 ms |
+| Dense 20,000-unit group march | v1 | 16.9 ms | 26.4 ms | 34.5 ms |
+| Dense 20,000-unit group march | v2 | 19.7 ms | 24.9 ms | 36.5 ms |
+| Active 20,000-unit march, two runs | v1 | 6.2–8.8 ms | 11.3–17.9 ms | 13.1–25.2 ms |
+| Active 20,000-unit march, two runs | v2 | 8.8–11.2 ms | 13.8–18.2 ms | 16.1–20.8 ms |
 
-Combat sighting-resolution attempts fell from 194,599,924 to 11,806,637;
+Combat sighting-resolution attempts fell from 194,599,924 to 7,044,792;
 these counts exclude bucket collection, sorting and membership filtering.
-The group march kept all 20,000 units alive. Units advancing at least 16
-pixels toward their assigned goals rose from 12,646 to 13,544. No unit
-completed its long trip within the measured interval; some remained stalled.
-The v2 march used 26 shared-route hits and 27 ordinary search starts.
-This stress layout starts touching-width rows at 32-pixel spacing, with only
-96 pixels between the opposing fronts and hold fire enabled. It measures
-congestion after early contact, rather than sustained motion across open ground.
+The default dense march starts touching-width rows at 32-pixel spacing,
+with only 96 pixels between the opposing fronts and hold fire enabled.
+It measures congestion after early contact, rather than sustained open-ground
+motion. All 20,000 units survived; units advancing at least 16 pixels toward
+their goals rose from 12,646 to 13,545. Total goal-distance improvement was
+478,187 pixels for v1 and 485,923 for v2. Many remained stalled.
 
-A separate v2 combat run completed 1,000 measured ticks, ending with 19,281
-units and no projectile allocation failures. It measured 15.2 ms median,
-40.9 ms p95 and 74.2 ms p99. Combat tails therefore still miss the 33.3 ms
-simulation target. These are simulation measurements; rendered frame rate,
-AI-heavy workloads and gaming-desktop results remain unvalidated.
+The active march uses the video's separate capture fixture: 48-pixel spacing
+and banks offset 1,024 pixels away from the centre, with the same engine
+physics and pose recording disabled for timing. This configuration is not
+the default CLI layout. Both versions had 19,840 units advance at least 16
+pixels. V2 performed 499 shared-route hits and 548 ordinary search starts;
+v1 started 217 ordinary searches. V2's extra steering and replanning have
+costs; these results do not establish that every formation moves faster.
+
+A separate v2 combat run completed 1,000 measured ticks, ending with 19,292
+units and no projectile allocation failures. It measured 11.4 ms median,
+15.4 ms p95 and 19.6 ms p99, with a 61.2 ms maximum. Most simulation ticks
+fit the 33.3 ms target in these runs, but occasional long ticks remain.
+Rendered frame rate, AI-heavy workloads and gaming-desktop results remain
+unvalidated.
 
 ## Remaining work
 

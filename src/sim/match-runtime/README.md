@@ -701,7 +701,10 @@ rule tables retain owner-local navigation across saves. They are saved but
 excluded from shared world/trace digests. The current map revision is kept
 separately from the cache's last processed revision so a pending invalidation
 survives a load. The actual-progress clock is separate from the legacy
-mobility record's occupancy-change clock. Off and preset v1 allocate none
+mobility record's occupancy-change clock. Tick-start priorities are derived
+from those clocks before unit updates, so earlier movers cannot erase their
+waiting priority. Sustained blockage bypasses the static cache and uses dynamic
+occupancy for the next full search. Off and preset v1 allocate none
 of this v2 storage.
 
 ## Verification
