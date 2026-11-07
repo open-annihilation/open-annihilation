@@ -56,6 +56,7 @@ struct LocalFlowHead {
     uint32_t tick{};     ///< tick on which this effective head was used
     uint8_t count{};     ///< zero brakes; two or three points steer
     bool active{};
+    bool mobile_blocked{}; ///< previous route probe found moving traffic
 };
 
 /// Canonical bytes per retained head, without native padding or pointers.
@@ -103,15 +104,14 @@ bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8
 /// Integrates v2 ground movement while retaining the final occupancy veto.
 ///
 /// The saved last-motion tick advances only on actual position changes. A
-/// transient moving blockage can wait locally before setting collision_blocked
-/// and asking the navigator to find another route. No unit is moved through an
-/// occupied footprint.
+/// collision flag remains authoritative for mirrored movement. A caller can
+/// defer navigation retries for transient mobile traffic before steering.
+/// No unit is moved through an occupied footprint.
 ///
 /// @param[in,out] unit unit to move
 /// @param[in,out] movement motion and last actual progress tick
 /// @param tick current simulation tick
 /// @param local_simulation whether this machine owns the movement
-/// @param mobile_blocked whether the route probe found moving traffic
 /// @param host collision and spatial operations
 /// @param[in,out] counters blockage and deferred-replan counts
 void integrate_local_flow(
@@ -119,7 +119,6 @@ void integrate_local_flow(
     Movement& movement,
     uint32_t tick,
     bool local_simulation,
-    bool mobile_blocked,
     Host& host,
     LocalFlowCounters& counters
 );
