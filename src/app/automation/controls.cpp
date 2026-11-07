@@ -566,9 +566,14 @@ std::vector<std::string> dialog_names(const std::vector<AutomationControl>& cont
 
 void write_dialogs_and_focus(JsonWriter& json, const std::vector<AutomationControl>& controls) {
     const AutomationControl* focused = nullptr;
-    for (const AutomationControl& control : controls)
-        if (control.focused && focused == nullptr)
-            focused = &control;
+    for (const AutomationControl& control : controls) {
+        // A hidden control stays in the tree. The focus the screen names is
+        // the first one that is shown, so a kit screen's control wins over a
+        // hidden control underneath it.
+        if (!control.focused || control.hidden || focused != nullptr)
+            continue;
+        focused = &control;
+    }
     json.key("dialogs");
     json.begin_array();
     for (const std::string& dialog : dialog_names(controls))
@@ -579,6 +584,8 @@ void write_dialogs_and_focus(JsonWriter& json, const std::vector<AutomationContr
         json.string(focused->name);
     else
         json.null();
+    json.key("focus_shown");
+    json.boolean(focused != nullptr && focused->focus_shown);
 }
 
 void answer_controls(Endpoint& endpoint, const Request& request, Answer& answer) {

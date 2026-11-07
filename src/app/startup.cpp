@@ -434,6 +434,12 @@ void check_game_files_options(Options& options) {
         return PhotoGroup::mode;
     if (text == "time")
         return PhotoGroup::time;
+    if (text == "camera")
+        return PhotoGroup::camera;
+    if (text == "capture")
+        return PhotoGroup::capture;
+    if (text == "live")
+        return PhotoGroup::live;
     return std::nullopt;
 }
 
@@ -1923,7 +1929,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-replays-content] "
                      "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
                      "[--check-renderer-proof] [--check-live-renderer] "
-                     "[--check-briefing-narration] [--check-photo [mode]] "
+                     "[--check-briefing-narration] [--check-photo [mode|time|camera|capture|live]] "
                      "[--check-director-view] "
                      "[--check-director-render] [--check-interpolation] "
                      "[--check-unit-playout] [--check-running-while-inactive] "
@@ -2198,11 +2204,11 @@ void write_startup_line(std::string_view text) {
         );
     if (result.force_capable && !result.check_render_tiers && !result.check_build_preview &&
         !result.check_dialog_backdrop && !result.check_engine_settings &&
-        !result.check_kill_board && !result.check_underwater_features)
+        !result.check_kill_board && !result.check_photo && !result.check_underwater_features)
         throw std::runtime_error(
             "--force-capable is accepted only with --check-render-tiers, "
             "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-            "--check-kill-board and --check-underwater-features"
+            "--check-kill-board, --check-photo and --check-underwater-features"
         );
     if (result.render_fault && !result.check_renderer_ladder)
         throw std::runtime_error("--render-fault needs --check-renderer-ladder");

@@ -113,12 +113,44 @@ reach(const DisplayList& list, Point finger, int32_t reach, DisabledControl disa
 struct Interaction {
     ControlId hovered{no_control}; ///< the control under the pointer
     ControlId pressed{no_control}; ///< the control a held press is on
-    ControlId focused{no_control}; ///< the control the keys act on
-    bool focus_shown{};            ///< a key has shown the focus
+    ControlId focused{
+        no_control
+    }; ///< the control the keys act on, whether or not the ring is drawn
+    /// The keys act on the focused control. A screen opens with this false
+    /// (focus_opened) unless it asks for the ring, and the focused control is
+    /// set either way. A pointer move does not clear it. Enter does, except on
+    /// a text field, and the hidden-ring key table then applies again, as at
+    /// open. The ring itself is drawn only while focus_ring_visible.
+    bool focus_shown{};
+    /// The pointer has hidden the ring. The focused control still takes the
+    /// keys. Only the drawing reads this.
+    bool pointer_hid_ring{};
     /// How far a finger's held press was moved to reach the control it took.
     /// Its later moves and its release are moved by the same amount.
     Point finger_shift{};
 };
+
+/// Tells whether the focus ring is drawn.
+///
+/// The keys read focus_shown. The drawing reads this: a pointer move hides
+/// the ring without taking the keys off the focused control.
+///
+/// @param interaction the focus
+/// @return true when the ring is drawn
+[[nodiscard]] inline bool focus_ring_visible(const Interaction& interaction) noexcept {
+    return interaction.focus_shown && !interaction.pointer_hid_ring;
+}
+
+/// A key shows the ring again on the control that already has the focus.
+///
+/// An opening focus (focus_shown false) is left alone, so the hidden-ring
+/// key table still applies. A text field's ring was not hidden.
+///
+/// @param[in,out] interaction the focus
+inline void show_ring_for_key(Interaction& interaction) noexcept {
+    if (interaction.focus_shown && interaction.focused != no_control)
+        interaction.pointer_hid_ring = false;
+}
 
 /// What a pointer event asks the screen to do.
 enum class PointerResult : uint8_t {
@@ -134,14 +166,18 @@ struct PointerOutcome {
     Point at{};                    ///< the point the event used, after a finger's shift
 };
 
-/// Moves the hover to the control under the pointer.
+/// Moves the hover to the control under the pointer, and hides the focus ring.
 ///
 /// While a press is held, the point is moved by the finger's shift first.
+/// A move hides the ring, except on a text field, which keeps its ring, its
+/// caret and its typing. The focused control stays, and the next key still
+/// acts on it. An opening focus is not hidden this way, so its key table
+/// still holds. Only the drawing reads the hide.
 ///
-/// @param[in,out] interaction the pointer's place; its hover changes
+/// @param[in,out] interaction the pointer's place; its hover changes and the ring hides
 /// @param list the display list
 /// @param point the pointer, in points
-/// @return redraw when the hover moves, otherwise none
+/// @return redraw when the hover moves or the ring's visibility changes, otherwise none
 [[nodiscard]] PointerOutcome
 pointer_move(Interaction& interaction, const DisplayList& list, Point point);
 
@@ -183,9 +219,9 @@ finger_down(Interaction& interaction, const DisplayList& list, Point finger, int
 pointer_up(Interaction& interaction, const DisplayList& list, Point point);
 
 /// Shows an interaction on the parts that draw its controls: a part is
-/// focused when it draws the focused control and a key has shown the focus,
-/// and pressed when it draws the held control. A part that draws no control
-/// is neither.
+/// focused when it draws the focused control and the ring is drawn
+/// (focus_ring_visible), and pressed when it draws the held control. A part
+/// that draws no control is neither.
 ///
 /// @param[in,out] list the display list; its items' focused and pressed states change
 /// @param interaction the focus and the held control
@@ -266,21 +302,45 @@ struct KeyOutcome {
     Key key{};                     ///< the key
 };
 
+/// Places the focus a screen opens with.
+///
+/// The first control of the declared order is focused, and the ring is
+/// drawn only when `show` is true. An empty order leaves the focus unset.
+/// A focus already set is left where it is, so a later layout does not
+/// move it. `show` is the preference that asks every screen to open with
+/// the ring; the kit does not read that preference.
+///
+/// @param[in,out] interaction the focus
+/// @param list the display list, for its declared order
+/// @param show true to draw the ring on the first control
+void focus_opened(Interaction& interaction, const DisplayList& list, bool show) noexcept;
+
 /// Applies one key to a kit screen.
 ///
-/// Tab and Shift+Tab move in the declared order. Up and Down move by where
-/// controls sit. Left and Right go to a focused control that takes steps,
-/// and otherwise move by where controls sit. With no focus shown, Up and
-/// Shift+Tab show it on the last control of the order, and Tab, Down, Left,
-/// Right and Space on the first. Space goes to the focused control. Enter
-/// goes to it when it is a button, a link, a list row or a tab, and
-/// otherwise the screen accepts. Escape cancels. Page Up and Page Down
-/// scroll. Home and End go to a focused text field, which moves its caret,
-/// and otherwise scroll. Backspace and Delete go to a focused text field and
-/// otherwise do nothing. Yes, No and Info do nothing: a screen that answers
-/// to Info does so before it calls key.
+/// A screen opens with the first control of its declared order focused and
+/// the ring hidden (focus_opened), unless it asks for the ring.
 ///
-/// @param[in,out] interaction the focus; a move shows it and sets the control
+/// While the ring is hidden, Tab moves to the control after the focused one
+/// and shows the ring there. From none, or from a control that is not in
+/// the order, that is the first. Shift+Tab moves to the control before it
+/// and shows the ring; from the first, or from none, that is the last. Up
+/// shows the ring on the last control. Down, Left, Right and Space show it
+/// on the first. Enter does not show the ring: the screen accepts. Escape
+/// cancels. The other keys do what they do with nothing focused.
+///
+/// While the ring shows, Tab and Shift+Tab move in the declared order. Up
+/// and Down move by where controls sit. Left and Right go to a focused
+/// control that takes steps, and otherwise move by where controls sit.
+/// Space goes to the focused control. Enter goes to it when it is a button,
+/// a link, a list row or a tab, and otherwise the screen accepts, and then
+/// the ring is hidden, except on a text field, which keeps its ring, its
+/// caret and its typing. The focused control stays. Escape cancels. Page Up
+/// and Page Down scroll. Home and End go to a focused text field, which
+/// moves its caret, and otherwise scroll. Backspace and Delete go to a
+/// focused text field and otherwise do nothing. Yes, No and Info do
+/// nothing: a screen that answers to Info does so before it calls key.
+///
+/// @param[in,out] interaction the focus; a move shows the ring and sets the control
 /// @param list the display list
 /// @param key the key
 /// @return what the screen does
@@ -367,7 +427,7 @@ struct AutomationEntry {
     Rect rect{};        ///< where it lies, in points
     bool shown{};       ///< some of its press area is in view
     bool enabled{};     ///< a press can reach it
-    bool focused{};     ///< the focus is shown on it
+    bool focused{};     ///< it holds the keyboard focus, whether or not the ring is drawn
     bool checked{};     ///< a switch that is on, or a chosen row
     std::string text;   ///< its caption or its value
     bool focusable{};   ///< the arrows and Tab can stop on it; a part never

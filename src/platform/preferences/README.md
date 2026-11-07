@@ -204,6 +204,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.access.sticky-modifiers` | 0 or 1 | 0 |
 | `open-annihilation.access.pointer-keys` | 0 or 1 | 0 |
 | `open-annihilation.access.hold-to-confirm` | 0 or 1. Self-destruct, surrender and quitting need the long-press time, and a ring fills while the press is held | 0 |
+| `open-annihilation.access.always-show-focus` | 0 or 1. Absent, or anything that is not a whole number above 0, leaves the focus ring hidden until a key shows it. 1 draws the ring on the first item when a kit screen opens. The kit does not read this key; each screen is told. Settings does not offer a row for it yet | 0 |
 | `open-annihilation.access.edge-scroll` | 0 or 1. Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys and the touch edge band while a drag is held keep moving the view | 1 |
 | `open-annihilation.access.move-overlays` | 0 or 1. On, the keys overlay, the chat line and the latch chips show at the places `open-annihilation.overlay.<overlay>.<class>` holds; off, where they lay themselves out. Settings › Accessibility reads and writes it | 0 |
 | `open-annihilation.access.order-wheel` | `off`, `hold-right` or `hold-middle`. Holding that mouse button on the battlefield opens the order wheel; a short click or a drag still does what the button does. Any other text reads as `off` | `off` |

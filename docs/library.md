@@ -420,16 +420,21 @@ replay was recorded with Ridge 2.8 (rev 1).", "Needs the map Ridge Reach.",
 and the expansion's name, or "Needs Open Annihilation 0.9.2." **Watch**
 becomes **Get Ridge 2.8 and watch**, **Get it and watch**, **Get them and
 watch** or **Turn on and watch**. One press fetches every missing package,
-or turns the expansions on, and then plays. Several packages go together.
-A newer engine opens **Check for updates** and fetches nothing else. A
+or turns the expansions on, and then plays. Several packages go together. A
+newer engine opens **Check for updates** and fetches nothing else. A
 recording names >=0.9.1 as the first release that reads a .oademo. This
 build already reads that format, so that line does not ask for an update. A
 release the catalogue does not list says "Ridge 2.8 is not in Core Prime's
 catalogue." The replay can be kept and exported. While the registry cannot
 be reached the card says "You're offline." and "Get Ridge 2.8 when you're
-back online.", and the chip stays. The mutators that were chosen, and the
-expansions that were on, are put back when the replay ends. Another release
-of a mod that is already installed says "This replay was recorded with Ridge
+back online.", and the chip stays. A mutator the replay needs plays in its
+match only, and is not left chosen afterwards. A replay that switched the
+mod or the expansions keeps its end screen up until **Main Menu**, as any
+replay does. The player's mod and expansions are then put back, and the
+Library opens again on Replays, on that replay and at the same scroll.
+Leaving the replay early comes back the same way. If the game is quit or
+stops during that replay, the next start puts them back. Another release of
+a mod that is already installed says "This replay was recorded with Ridge
 2.8 (rev 1). You have 2.9." **Get Ridge 2.8 and watch** is shown. That press
 leaves the installed release where it is.
 

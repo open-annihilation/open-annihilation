@@ -1388,6 +1388,97 @@ void list_keys_move_the_selection() {
     );
 }
 
+/// The Library opens as the game does: the tab's search is focused and the
+/// ring is shown before the layout, and focus_opened leaves that focus.
+/// Tab and Shift+Tab move on from the search. Typing at open searches.
+void the_screen_opens_on_its_search() {
+    const kit::Frame regular = fixture::frames()[1].frame;
+    lib::Library library = with_ridge();
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    lib::focus_tab_search(library, state);
+    const kit::DisplayList list = laid_out(library, state, regular);
+    const kit::Control* search = fixture::named(list, "library.search");
+    OA_CHECK(search != nullptr);
+    if (search == nullptr)
+        return;
+    OA_CHECK(state.interaction.focused == search->id && state.interaction.focus_shown);
+    const kit::ControlId kept = state.interaction.focused;
+    kit::focus_opened(state.interaction, list, false);
+    OA_CHECK(state.interaction.focused == kept && state.interaction.focus_shown);
+    bool drawn = false;
+    for (const kit::Item& item : list.items)
+        if (const auto* look = std::get_if<kit::SearchLook>(&item.look))
+            if (look->focused)
+                drawn = true;
+    OA_CHECK(drawn);
+
+    const auto at = std::find(list.tab_order.begin(), list.tab_order.end(), search->id);
+    OA_CHECK(at != list.tab_order.end());
+    if (at == list.tab_order.end() || list.tab_order.empty())
+        return;
+    const auto index = static_cast<std::size_t>(at - list.tab_order.begin());
+    const auto count = list.tab_order.size();
+    const kit::ControlId next = list.tab_order[(index + 1) % count];
+    const kit::ControlId previous = list.tab_order[(index + count - 1) % count];
+    std::ignore = lib::library_key(library, state, list, kit::Key::tab);
+    OA_CHECK(state.interaction.focused == next && state.interaction.focus_shown);
+
+    lib::Library backing = with_ridge();
+    lib::set_tab(backing, lib::Tab::mods);
+    lib::ScreenState back;
+    lib::focus_tab_search(backing, back);
+    const kit::DisplayList back_list = laid_out(backing, back, regular);
+    kit::focus_opened(back.interaction, back_list, false);
+    std::ignore = lib::library_key(backing, back, back_list, kit::Key::back_tab);
+    OA_CHECK(back.interaction.focused == previous && back.interaction.focus_shown);
+
+    lib::Library typed_library = with_ridge();
+    lib::set_tab(typed_library, lib::Tab::mods);
+    lib::ScreenState typed;
+    lib::focus_tab_search(typed_library, typed);
+    const kit::DisplayList typed_list = laid_out(typed_library, typed, regular);
+    kit::focus_opened(typed.interaction, typed_list, false);
+    OA_CHECK(lib::library_text(typed_library, typed, typed_list, "ridge").redraw);
+    OA_CHECK(typed_library.query == "ridge");
+    OA_CHECK(typed.search.text == "ridge");
+}
+
+lib::ScreenResult click(
+    lib::Library& library,
+    lib::ScreenState& state,
+    const kit::DisplayList& list,
+    std::string_view name,
+    int32_t finger_reach = 0
+);
+
+/// A click in the search, a pointer move and then typing leave the text in
+/// the field, and the field is still drawn focused.
+void a_pointer_move_keeps_the_search() {
+    const kit::Frame regular = fixture::frames()[1].frame;
+    lib::Library library = with_ridge();
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, regular);
+    std::ignore = click(library, state, list, "library.search");
+    const kit::Control* search = fixture::named(list, "library.search");
+    OA_CHECK(search != nullptr);
+    if (search == nullptr)
+        return;
+    const kit::Point away{search->rect.x + search->rect.width + 24, search->rect.y + 4};
+    std::ignore = lib::library_pointer(library, state, list, lib::PointerKind::move, 0, away, 0);
+    OA_CHECK(lib::library_text(library, state, list, "ridge").redraw);
+    OA_CHECK(library.query == "ridge");
+    OA_CHECK(state.search.text == "ridge");
+    list = laid_out(library, state, regular);
+    bool drawn = false;
+    for (const kit::Item& item : list.items)
+        if (const auto* look = std::get_if<kit::SearchLook>(&item.look))
+            if (look->focused && look->field.text == "ridge")
+                drawn = true;
+    OA_CHECK(drawn);
+}
+
 /// Tab and Shift+Tab follow the declared order.
 void tab_follows_the_declared_order() {
     lib::Library library = with_ridge();
@@ -1400,9 +1491,18 @@ void tab_follows_the_declared_order() {
         visited.push_back(state.interaction.focused);
         list = laid_out(library, state, large);
     }
-    OA_CHECK(visited == list.tab_order);
+    // A state that has not been given the search walks from the first stop,
+    // so the first Tab lands on the second and a full cycle ends on the first.
+    std::vector<kit::ControlId> opened_walk;
+    if (!list.tab_order.empty()) {
+        opened_walk.insert(opened_walk.end(), list.tab_order.begin() + 1, list.tab_order.end());
+        opened_walk.push_back(list.tab_order.front());
+    }
+    OA_CHECK(visited == opened_walk);
+    OA_CHECK(state.interaction.focus_shown);
+    OA_CHECK(state.interaction.focused == list.tab_order.front());
     static_cast<void>(lib::library_key(library, state, list, kit::Key::back_tab));
-    OA_CHECK(state.interaction.focused == list.tab_order[list.tab_order.size() - 2]);
+    OA_CHECK(state.interaction.focused == list.tab_order.back());
 
     // The orders, by name: Compact's list page and its details page, and
     // Regular's ends.
@@ -1480,7 +1580,7 @@ lib::ScreenResult click(
     lib::ScreenState& state,
     const kit::DisplayList& list,
     std::string_view name,
-    int32_t finger_reach = 0
+    int32_t finger_reach
 ) {
     const kit::Control* control = fixture::named(list, name);
     OA_CHECK(control != nullptr);
@@ -1491,6 +1591,46 @@ lib::ScreenResult click(
         lib::library_pointer(library, state, list, lib::PointerKind::down, 1, at, finger_reach)
     );
     return lib::library_pointer(library, state, list, lib::PointerKind::up, 1, at, finger_reach);
+}
+
+/// At Compact, with no mod played, a click on the base-game row opens its
+/// details on Back. A pointer move hides the ring, and Return still presses
+/// Back.
+void a_move_after_a_click_presses_back() {
+    lib::Inputs inputs = fixture::fixture_inputs();
+    for (lib::Installed& package : inputs.installed)
+        package.playing = false;
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    lib::focus_tab_search(library, state);
+    const kit::Frame compact = fixture::frames()[0].frame;
+    kit::DisplayList list = laid_out(library, state, compact);
+    std::ignore = click(library, state, list, "library.row.base-game");
+    if (!library.details_open || !state.details_page)
+        std::fprintf(stderr, "the base-game row did not open its details\n");
+    OA_CHECK(library.details_open && state.details_page);
+    OA_CHECK(state.interaction.focus_shown);
+    list = laid_out(library, state, compact);
+    const kit::Control* focused = kit::control_of(list, state.interaction.focused);
+    if (focused == nullptr || focused->name != "library.back") {
+        std::fprintf(
+            stderr,
+            "the details focused \"%s\"\n",
+            focused != nullptr ? focused->name.c_str() : "nothing"
+        );
+    }
+    OA_CHECK(focused != nullptr && focused->name == "library.back");
+    const kit::ControlId back = state.interaction.focused;
+    std::ignore =
+        lib::library_pointer(library, state, list, lib::PointerKind::move, 0, kit::Point{4, 4}, 0);
+    OA_CHECK(state.interaction.focus_shown && state.interaction.pointer_hid_ring);
+    OA_CHECK(state.interaction.focused == back);
+    std::ignore = lib::library_key(library, state, list, kit::Key::enter);
+    if (library.details_open || state.details_page)
+        std::fprintf(stderr, "return after the move did not press Back\n");
+    OA_CHECK(!library.details_open && !state.details_page);
 }
 
 /// A click, a double click or a tap on a row selects it and gets nothing; at
@@ -7905,6 +8045,9 @@ int main() {
     tab_commands_change_tabs();
     controller_buttons();
     list_keys_move_the_selection();
+    the_screen_opens_on_its_search();
+    a_pointer_move_keeps_the_search();
+    a_move_after_a_click_presses_back();
     tab_follows_the_declared_order();
     pressing_rows_selects_and_never_gets();
     the_title_bar_holds_a_close_mark();

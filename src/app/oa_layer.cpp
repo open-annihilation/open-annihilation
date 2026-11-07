@@ -1300,6 +1300,11 @@ LayerAnswer WorkScreen::tick() {
 
 NoticeScreen::NoticeScreen(OaLayer& layer, Screen shown_over, kit::Notice told, Host answers)
     : layer_(layer), over_(shown_over), notice_(std::move(told)), host_(std::move(answers)) {
+    // The first button is focused. The ring waits for a key, unless the
+    // preference asks for it.
+    if (!notice_.open_caption.empty())
+        notice_.marked = kit::notice_open;
+    notice_.focus_shown = layer_.always_show_focus();
 }
 
 int32_t NoticeScreen::shown_height() const {
@@ -1359,7 +1364,7 @@ NoticeScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32
 
 LayerAnswer NoticeScreen::key(kit::Key pressed, uint32_t /*sdl_key*/) {
     const auto before = pointed_look(notice_);
-    const LayerAnswer answer = take(kit::notice_key(notice_, pressed));
+    const LayerAnswer answer = take(kit::notice_model_key(notice_, pressed));
     return with_moved_look(answer, pointed_look(notice_) != before, revision_);
 }
 
@@ -1372,7 +1377,8 @@ kit::Interaction NoticeScreen::interaction() const {
     shown.hovered = notice_.hovered;
     shown.pressed = notice_.pressed;
     shown.focused = notice_.marked;
-    shown.focus_shown = notice_.marked != kit::no_control;
+    shown.focus_shown = notice_.focus_shown;
+    shown.pointer_hid_ring = notice_.pointer_hid_ring;
     shown.finger_shift = {notice_.finger_shift_x, notice_.finger_shift_y};
     return shown;
 }
@@ -1407,6 +1413,12 @@ LayerAnswer NoticeScreen::take(kit::NoticeAction action) {
 
 QuestionScreen::QuestionScreen(OaLayer& layer, Screen shown_over, kit::Question asked, Host answers)
     : layer_(layer), over_(shown_over), question_(std::move(asked)), host_(std::move(answers)) {
+    // The caller’s marked button stays the default. Return answers it while
+    // the ring is hidden. The ring waits for a key, unless the preference
+    // asks for it. The screen keeps that choice when a host replaces the
+    // question (changed).
+    focus_shown_ = layer_.always_show_focus();
+    question_.focus_shown = focus_shown_;
 }
 
 int32_t QuestionScreen::shown_height() const {
@@ -1464,13 +1476,20 @@ QuestionScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int
     default:
         break;
     }
+    // Capture the ring before an answer replaces the question.
+    focus_shown_ = question_.focus_shown;
+    pointer_hid_ring_ = question_.pointer_hid_ring;
     const LayerAnswer answer = take(outcome, 0);
     return with_moved_look(answer, pointed_look(question_) != before, revision_);
 }
 
 LayerAnswer QuestionScreen::key(kit::Key pressed, uint32_t sdl_key) {
     const auto before = pointed_look(question_);
-    const LayerAnswer answer = take(kit::question_key(question_, pressed), sdl_key);
+    const kit::QuestionAnswer outcome = kit::question_model_key(question_, pressed);
+    // Capture the ring before an answer replaces the question.
+    focus_shown_ = question_.focus_shown;
+    pointer_hid_ring_ = question_.pointer_hid_ring;
+    const LayerAnswer answer = take(outcome, sdl_key);
     return with_moved_look(answer, pointed_look(question_) != before, revision_);
 }
 
@@ -1483,7 +1502,8 @@ kit::Interaction QuestionScreen::interaction() const {
     shown.hovered = question_.hovered;
     shown.pressed = question_.pressed;
     shown.focused = question_.marked;
-    shown.focus_shown = question_.marked != kit::no_control;
+    shown.focus_shown = question_.focus_shown;
+    shown.pointer_hid_ring = question_.pointer_hid_ring;
     shown.finger_shift = {question_.finger_shift_x, question_.finger_shift_y};
     return shown;
 }
@@ -2943,8 +2963,9 @@ class RegisteredKitScreen final : public LayerScreen {
     ///
     /// @param name the screen's name, copied
     /// @param desc the descriptor; its function pointers and model are copied
-    RegisteredKitScreen(std::string name, KitScreenDesc desc)
-        : name_(std::move(name)), desc_(desc) {}
+    /// @param show_focus true when the ring is drawn on the first item at open
+    RegisteredKitScreen(std::string name, KitScreenDesc desc, bool show_focus)
+        : name_(std::move(name)), desc_(desc), show_focus_(show_focus) {}
 
     /// Returns the screen's name.
     ///
@@ -2988,6 +3009,9 @@ class RegisteredKitScreen final : public LayerScreen {
         frame_ = seen.frame;
         has_frame_ = true;
         list_ = desc_.lay_out(desc_.model, frame_);
+        // The first layout names the first control. A later one leaves a
+        // focus the player has already moved.
+        kit::focus_opened(interaction_, list_, show_focus_);
         ++revision_;
     }
 
@@ -3133,8 +3157,10 @@ class RegisteredKitScreen final : public LayerScreen {
         if (result == 2)
             return LayerAnswer::close;
         if (result == 1) {
-            if (desc_.lay_out != nullptr && has_frame_)
+            if (desc_.lay_out != nullptr && has_frame_) {
                 list_ = desc_.lay_out(desc_.model, frame_);
+                kit::focus_opened(interaction_, list_, show_focus_);
+            }
             ++revision_;
             return LayerAnswer::redraw;
         }
@@ -3158,7 +3184,7 @@ class RegisteredKitScreen final : public LayerScreen {
         }
         shown.items = std::move(items);
         kit::mark_states(shown, interaction_);
-        if (interaction_.focus_shown)
+        if (kit::focus_ring_visible(interaction_))
             if (const kit::Control* control = kit::control_of(shown, interaction_.focused))
                 kit::add_focus_ring(shown, control->rect, true);
         return shown;
@@ -3166,6 +3192,7 @@ class RegisteredKitScreen final : public LayerScreen {
 
     std::string name_;               ///< the screen's name
     KitScreenDesc desc_{};           ///< the descriptor, copied at the open
+    bool show_focus_{};              ///< the ring is drawn on the first item at open
     kit::DisplayList list_{};        ///< what it draws, from lay_out
     kit::Interaction interaction_{}; ///< the pointer and the focus
     kit::Frame frame_{};             ///< the frame it was laid out for
@@ -3199,6 +3226,24 @@ GalleryScreen& OaLayer::open_gallery() {
     return opened;
 }
 
+bool OaLayer::always_show_focus() const {
+    const auto found =
+        runtime_.preference_values_.find("open-annihilation.access.always-show-focus");
+    if (found == runtime_.preference_values_.end())
+        return false;
+    // A whole number above 0. A blank, a sign, a space or any other
+    // character leaves the ring hidden. A number too long to store still
+    // counts when one of its digits is not zero.
+    bool above_zero = false;
+    for (const char digit : found->second) {
+        if (digit < '0' || digit > '9')
+            return false;
+        if (digit != '0')
+            above_zero = true;
+    }
+    return above_zero;
+}
+
 bool OaLayer::open_registered_screen(std::string_view name) {
     const ScreenRegistry& registry = runtime_.screens_;
     const KitScreenDesc* found = nullptr;
@@ -3211,7 +3256,7 @@ bool OaLayer::open_registered_screen(std::string_view name) {
     }
     if (found == nullptr || found->lay_out == nullptr)
         return false;
-    push(std::make_unique<RegisteredKitScreen>(std::string(name), *found));
+    push(std::make_unique<RegisteredKitScreen>(std::string(name), *found, always_show_focus()));
     return true;
 }
 
@@ -4713,6 +4758,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
         button.text = std::move(text);
         button.visible = true;
         button.enabled = modal == nullptr;
+        button.hidden = modal != nullptr;
         place_control(
             button,
             place,
@@ -4782,6 +4828,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
             control.visible = entry.shown;
             control.enabled = entry.enabled;
             control.focused = entry.focused;
+            control.focus_shown = entry.focused && kit::focus_ring_visible(screen.interaction());
             control.checked = entry.checked;
             control.text = entry.text;
             if (entry.role != kit::AccessRole::unset) {

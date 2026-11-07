@@ -308,6 +308,7 @@ add_subdirectory(src/data/mutator-import)
 add_subdirectory(src/present/world-renderer)
 add_subdirectory(src/present/gpu-world)
 add_subdirectory(src/present/unit-playout)
+add_subdirectory(src/present/photo)
 add_subdirectory(src/ui/frontend-renderer)
 add_subdirectory(src/ui/kit)
 add_subdirectory(src/ui/engine-settings)
@@ -1133,6 +1134,16 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-far-view-test PRIVATE oa-app-headers oa-formats-tnt oa-formats-hpi
     oa-platform-job-pool oa-ui-engine-settings oa-test-support oa-options)
   add_test(NAME app-far-view COMMAND oa-app-far-view-test)
+  # Photo mode's zoom: the whole map through eight times on the processor
+  # and the turned view, and no farther out than Full's classic view draws,
+  # on maps that fit, maps between Full's floor and normal size, maps past
+  # that floor and maps past the farthest zoom. The player's zoom settings
+  # are not an argument.
+  add_executable(oa-app-photo-camera-test src/app/photo_camera_test.cpp src/app/photo_camera.cpp
+    src/app/far_view.cpp)
+  target_link_libraries(oa-app-photo-camera-test PRIVATE oa-app-headers oa-formats-tnt oa-formats-hpi
+    oa-platform-job-pool oa-ui-engine-settings oa-test-support oa-options)
+  add_test(NAME app-photo-camera COMMAND oa-app-photo-camera-test)
   # The battlefield's thin lines drawn band by band: lines of the frame and
   # selection lines of the model bridge, 2 pixels thick as a reduced scene
   # draws them, cover the pixels a square pen gives across the bands' edges,
@@ -1404,7 +1415,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_team_panels.cpp
   src/app/runtime_scroll_bars.cpp
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
-  src/app/runtime_photo_mode.cpp src/app/runtime_photo_check.cpp
+  src/app/photo_camera.cpp src/app/runtime_photo_mode.cpp src/app/runtime_photo_check.cpp
+  src/app/runtime_photo_capture.cpp src/app/photo_writer.cpp
   src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
   src/app/runtime_engine_settings.cpp
@@ -1566,7 +1578,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-video-capture oa-app-render-host
   oa-ui-frontend-renderer oa-ui-gui-input oa-ui-frontend-state oa-audio-sdl
   oa-platform-preferences oa-app-command-line oa-formats-tnt oa-sim-unit-spawn-runtime oa-data-mission-types oa-data-limits oa-data-pe-icon oa-present-world-renderer oa-sim-combat-state oa-sim-match-runtime oa-sim-brains oa-sim-unit-effects oa-sim-map-runtime oa-base-game-loop oa-sim-gameplay-input oa-sim-sprite-animation oa-ui-screen-registry oa-options
-  oa-ui-hud oa-present-model oa-present-unit-playout oa-ui-frontend oa-ui-campaign oa-sim-session oa-ui-console
+  oa-ui-hud oa-present-model oa-present-unit-playout oa-present-photo oa-ui-frontend oa-ui-campaign oa-sim-session oa-ui-console
   oa-ui-services oa-sim-mission-units oa-sim-match-runtime-mission-units oa-sim-selection oa-sim-messages oa-sim-speed
   oa-data-campaign-assets oa-sim-profile oa-sim-state-hash oa-app-extensions
   oa-ui-engine-settings oa-platform-app-menu oa-platform-text-font oa-platform-job-pool
@@ -3464,6 +3476,84 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-photo-time PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_photo_time_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Photo mode's camera on the processor: the whole map and eight times,
+      # each drawn at the battlefield's size with units as models unless a
+      # forced budget refuses them, a pan to the view's limits, follow, and
+      # the same world after leaving as a pass that never entered.
+      set(oa_photo_camera_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-camera")
+      file(MAKE_DIRECTORY "${oa_photo_camera_dir}")
+      add_test(NAME native-photo-camera COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo camera
+        --preferences-file "${oa_photo_camera_dir}/photo-camera.conf")
+      set_tests_properties(native-photo-camera PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_camera_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same on Full, on SDL's software renderer taken as capable: every
+      # zoom offered is drawn by Full, and a zoom Full cannot draw is not
+      # offered.
+      set(oa_photo_camera_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-camera-full")
+      file(MAKE_DIRECTORY "${oa_photo_camera_full_dir}")
+      add_test(NAME native-photo-camera-full COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo camera --hardware-acceleration=full --force-capable
+        --preferences-file "${oa_photo_camera_full_dir}/photo-camera.conf")
+      set_tests_properties(native-photo-camera-full PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_camera_full_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # A photo of the same fight, Off, on the dummy drivers: the PNG is the
+      # battlefield with the player's gamma, pinned below, a second photo in
+      # that second is named with " 2", and one taken with the played profile
+      # id ridge lands in Screenshots/ridge.
+      set(oa_photo_capture_sha256 "48703554acde88c7f988913c5cf3aa78e0ddf8c1959277fadd4660c261f4afb5")
+      set(oa_photo_capture_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-capture")
+      file(MAKE_DIRECTORY "${oa_photo_capture_dir}/user")
+      add_test(NAME native-photo-capture COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo capture
+        --user-folder "${oa_photo_capture_dir}/user"
+        --preferences-file "${oa_photo_capture_dir}/photo-capture.conf")
+      set_tests_properties(native-photo-capture PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_capture_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo capture: ${oa_photo_capture_sha256}"
+        FAIL_REGULAR_EXPRESSION "photo capture check:")
+      # Basic saves the battlefield the screen shows, below zoom 1 as well.
+      set(oa_photo_capture_basic_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-capture-basic")
+      file(MAKE_DIRECTORY "${oa_photo_capture_basic_dir}/user")
+      add_test(NAME native-photo-capture-basic COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo capture
+        --hardware-acceleration=basic --force-capable
+        --user-folder "${oa_photo_capture_basic_dir}/user"
+        --preferences-file "${oa_photo_capture_basic_dir}/photo-capture.conf")
+      set_tests_properties(native-photo-capture-basic PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_capture_basic_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo capture basic: equal"
+        FAIL_REGULAR_EXPRESSION "photo capture check:")
+      # The same photo read back from the Full tier before the photo line.
+      set(oa_photo_capture_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-capture-full")
+      file(MAKE_DIRECTORY "${oa_photo_capture_full_dir}/user")
+      add_test(NAME native-photo-capture-full COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo capture
+        --hardware-acceleration=full --force-capable
+        --user-folder "${oa_photo_capture_full_dir}/user"
+        --preferences-file "${oa_photo_capture_full_dir}/photo-capture.conf")
+      set_tests_properties(native-photo-capture-full PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_capture_full_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo capture full: drawn"
+        FAIL_REGULAR_EXPRESSION "photo capture check:")
+      # A photo of the turned view on the system video driver. No device skips.
+      set(oa_photo_capture_live_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-capture-live")
+      file(MAKE_DIRECTORY "${oa_photo_capture_live_dir}/user")
+      add_test(NAME native-photo-capture-live COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo live --hardware-acceleration=full
+        --user-folder "${oa_photo_capture_live_dir}/user"
+        --preferences-file "${oa_photo_capture_live_dir}/photo-capture.conf")
+      set_tests_properties(native-photo-capture-live PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_capture_live_dir}"
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy"
+        SKIP_RETURN_CODE 77
+        PASS_REGULAR_EXPRESSION "photo capture live: equal"
+        FAIL_REGULAR_EXPRESSION "photo capture check:")
       # A small director script rendered over the headless skirmish with
       # encoding off, whole and its second chunk alone: every chunk's frames,
       # sound and manifests are written, neither a chunk's sound nor the

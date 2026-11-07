@@ -109,12 +109,13 @@ checks the anchor colour on each player's units and minimap dot.
 
 ## Limitations
 
-The war-map and chat colours are published here and not yet drawn. Health,
-selection, build sites and radar marks take their palette indices from
+Health, selection, build sites and radar marks take their palette indices from
 `paint_mark_slots`. Produced and consumed resource figures take
 `resource_produced` and `resource_consumed`, matched when the slots are
-painted. The kit draws its state colours from these tables. Shape marks are
-not drawn; only whether they are in effect is answered. Boneyards chat colours are unchanged. There is no whole-screen
+painted. The kit draws its state colours from these tables. The Boneyards
+war-map links and auras, side icons, chat role tints, latency pictures and
+whisper-lock and muzzle names follow the active mode. Shape marks are not
+drawn; only whether they are in effect is answered. There is no whole-screen
 filter. Achromatopsia shares four greys across the ten players, and the
 shapes tell those players apart. The simulation is severity 1.0 only. The
 mode is this machine's presentation: another player sees the colours that

@@ -425,7 +425,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             room::room_lamp_shown(lamp(laid), static_cast<uint64_t>(SDL_GetTicks())),
             pressed_ == view_control && hovered_ == view_control ? room::ButtonCondition::pressed
                                                                  : room::ButtonCondition::normal,
-            focused_ == Held::view
+            focus_ring_ && focused_ == Held::view
         );
         paint_room_parts(canvas, view_, laid.bounds, parts);
         if (laid.side.width > 0) {
@@ -445,7 +445,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
                 if (pressed_ == fetch_control && hovered_ == fetch_control)
                     look.condition = room::ButtonCondition::pressed;
                 room::draw_room_button(side, art, look);
-                if (focused_ == Held::fetch)
+                if (focus_ring_ && focused_ == Held::fetch)
                     room::draw_room_focus(side, art, laid.side);
             } else if (laid.bar) {
                 room::draw_room_bar(side, art, laid.side, laid.bar_done, bar_whole);
@@ -511,6 +511,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             pressed_ = kit::no_control;
             if (focused_ != Held::none) {
                 focused_ = Held::none;
+                focus_ring_ = false;
                 ++revision_;
             }
             return LayerAnswer::pass;
@@ -537,7 +538,8 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// @param pressed the key
     /// @return none or redraw when the row takes it; pass otherwise
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
-        if (pressed == kit::Key::info && focused_ == Held::view && card_.key_info(card_slot)) {
+        if (pressed == kit::Key::info && focus_ring_ && focused_ == Held::view &&
+            card_.key_info(card_slot)) {
             ++revision_;
             return LayerAnswer::none;
         }
@@ -669,7 +671,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             shown_state.focused = view_control;
         else if (focused_ == Held::fetch)
             shown_state.focused = fetch_control;
-        shown_state.focus_shown = focused_ != Held::none;
+        shown_state.focus_shown = focus_ring_;
         return shown_state;
     }
 
@@ -687,13 +689,29 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         if (card_.open_slot() != card_before)
             ++revision_;
         const Geometry laid = geometry(view_);
-        const Held was = focused_;
-        if (focused_ != Held::none && mp::multiplayer_battle_room_focus() > 0)
+        const bool ring_was = focus_ring_;
+        if (focused_ != Held::none && mp::multiplayer_battle_room_focus() > 0) {
             focused_ = Held::none;
-        if (focused_ == Held::fetch && !laid.fetch_button)
+            focus_ring_ = false;
+        }
+        if (focused_ == Held::fetch && !laid.fetch_button) {
             focused_ = Held::none;
+            focus_ring_ = false;
+        }
+        // Once the row has a place, its first button is focused with the ring
+        // hidden, unless the battle room already has the focus. That focus is
+        // not taken, and a later clear stays cleared.
+        if (laid.ok && !opened_focus_) {
+            opened_focus_ = true;
+            if (focused_ == Held::none && mp::multiplayer_battle_room_focus() <= 0) {
+                focused_ = laid.fetch_button ? Held::fetch : Held::view;
+                focus_ring_ = runtime_.oa_layer().always_show_focus();
+            }
+        }
         const std::string stamp = stamp_of(laid);
-        if (focused_ != was || stamp != stamp_) {
+        // The picture changes when the ring does, or when what the row draws
+        // changes. A focus placed with the ring hidden draws nothing new.
+        if (stamp != stamp_ || ring_was != focus_ring_) {
             stamp_ = std::move(stamp);
             ++revision_;
         }
@@ -1080,6 +1098,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     LayerAnswer take_focus(Held which) {
         focused_ = which;
         pressed_ = kit::no_control;
+        focus_ring_ = true;
         mp::multiplayer_set_battle_room_focus(mp::kNoControl);
         ++revision_;
         return LayerAnswer::redraw;
@@ -1091,6 +1110,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// @return redraw
     LayerAnswer hand_focus(int32_t index) {
         focused_ = Held::none;
+        focus_ring_ = false;
         mp::multiplayer_set_battle_room_focus(index);
         ++revision_;
         return LayerAnswer::redraw;
@@ -1123,11 +1143,20 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
                 return take_focus(Held::view);
             return LayerAnswer::pass;
         }
+        // The ring is hidden: Tab and Shift+Tab move and show it. Every other
+        // key is the battle room's, including Return, until a key shows the ring.
+        if (!focus_ring_ && pressed != kit::Key::tab && pressed != kit::Key::back_tab)
+            return LayerAnswer::pass;
         if (pressed == kit::Key::enter || pressed == kit::Key::space) {
             if (focused_ == Held::fetch && laid.fetch_button)
                 runtime_.fetch_host_mutators();
             else
                 open_view();
+            if (pressed == kit::Key::enter) {
+                focus_ring_ = false;
+                ++revision_;
+                return LayerAnswer::redraw;
+            }
             return LayerAnswer::none;
         }
         if (pressed == kit::Key::tab) {
@@ -1215,6 +1244,8 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     kit::ControlId hovered_{kit::no_control}; ///< the button under the pointer
     kit::ControlId pressed_{kit::no_control}; ///< the button a press is held on
     Held focused_{Held::none};                ///< the button the keyboard focus is on
+    bool focus_ring_{};                       ///< the focus ring is drawn on that button
+    bool opened_focus_{};                     ///< the screen has placed its opening focus
     uint64_t revision_{};                     ///< counts the changes to how it looks
     std::string stamp_{};                     ///< what it last showed
     mp::PresenceCardTrigger card_{};          ///< when the card opens and closes

@@ -199,6 +199,31 @@ constexpr std::array<game_files::Part, 7> shown_parts{
     return total;
 }
 
+/// True when open-annihilation.access.always-show-focus is a whole number
+/// above zero. The same reading as OaLayer::always_show_focus: absent, empty
+/// or anything that is not digits is off.
+///
+/// @param file the preferences file
+/// @return true when the ring shows as a screen opens
+[[nodiscard]] bool read_always_show_focus(const fs::path& file) {
+    try {
+        const auto values = oa::platform::preferences::load(file);
+        const auto found = values.find("open-annihilation.access.always-show-focus");
+        if (found == values.end())
+            return false;
+        bool above_zero = false;
+        for (const char digit : found->second) {
+            if (digit < '0' || digit > '9')
+                return false;
+            if (digit != '0')
+                above_zero = true;
+        }
+        return above_zero;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 /// Reads the backups setting from the preferences file.
 ///
 /// @param file the preferences file
@@ -364,6 +389,7 @@ struct GameFilesScreen::State {
     GameFilesHooks hooks_{};                ///< the platform's hooks
     std::unique_ptr<text_font::FontStack> font_owner_{};
     view::Interaction interaction_{};
+    bool show_focus_{}; ///< the ring shows on the first stop when the screen opens
     std::optional<GameFilesEnd> end_{};
     std::optional<RenderState> render_state_{};
     WindowFrame frame_; ///< the frame shown on the window
@@ -443,6 +469,9 @@ void GameFilesScreen::State::start() {
     fonts = font_owner_.get();
     text_family = game_files_text_family(request_.preferences_file);
     backed_up_ = read_backed_up(
+        request_.preferences_file.value_or(oa::platform::preferences::default_file())
+    );
+    show_focus_ = read_always_show_focus(
         request_.preferences_file.value_or(oa::platform::preferences::default_file())
     );
     if (request_.entry == GameFilesEntry::first_run)
@@ -792,11 +821,14 @@ void GameFilesScreen::State::repaint() {
     if (viewport.width <= 0 || viewport.height <= 0)
         return;
     layout = view::lay_out(model, viewport, game_files_measure(fonts, text_family));
-    // A shown focus that left the layout moves to its first control.
+    // A focus that left the layout moves to its first control. The ring stays
+    // as it was. An empty focus takes that first control, with the ring hidden
+    // unless the preference asks for it.
     const std::vector<oa::ui::kit::ControlId>& order = layout.list.tab_order;
-    if (interaction_.focus_shown && !order.empty() &&
+    if (interaction_.focused != oa::ui::kit::no_control && !order.empty() &&
         std::find(order.begin(), order.end(), interaction_.focused) == order.end())
         interaction_.focused = order.front();
+    oa::ui::kit::focus_opened(interaction_, layout.list, show_focus_);
     oa::ui::kit::mark_states(layout.list, interaction_);
     if (canvas.width != viewport.width || canvas.height != viewport.height)
         canvas = paint::make_canvas(viewport.width, viewport.height);

@@ -674,7 +674,23 @@ void Runtime::check_keys_overlay() {
         resize(640, 480);
         select_commander();
         open_overlay();
-        require(!overlay_state().focus_shown, "the overlay opened with its focus shown");
+        require(list_scrolls(), "the overlay's groups do not scroll at 640x480");
+        require(
+            !overlay_state().focus_shown && overlay_state().focused == editor::id_overlay_edit,
+            "the overlay did not open on EDIT KEYS… with the ring hidden"
+        );
+        // The ring is sampled on EDIT KEYS…. Open focus is already there, so
+        // Tab walks on to the close mark, the list and back, and shows it.
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        require(
+            overlay_state().focus_shown && overlay_state().focused == editor::id_overlay_close,
+            "Tab did not show the focus on the close mark"
+        );
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        require(
+            overlay_state().focused == editor::id_overlay_list,
+            "Tab did not reach the list on the way back to EDIT KEYS…"
+        );
         tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         require(
             overlay_state().focus_shown && overlay_state().focused == editor::id_overlay_edit,
@@ -690,7 +706,6 @@ void Runtime::check_keys_overlay() {
             overlay_state().focused == editor::id_overlay_edit,
             "Shift+Tab did not go back to EDIT KEYS…"
         );
-        require(list_scrolls(), "the overlay's groups do not scroll at 640x480");
         tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         require(overlay_state().focused == editor::id_overlay_list, "Tab did not reach the list");
@@ -742,7 +757,14 @@ void Runtime::check_keys_overlay() {
         frames(1);
         say_step("Enter on EDIT KEYS… opens oa.key-editor");
         open_overlay();
+        // Tab moves on to the close mark and shows the ring. Shift+Tab brings
+        // it back to EDIT KEYS…, and Return there opens the editor.
         tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_LSHIFT);
+        require(
+            overlay_state().focus_shown && overlay_state().focused == editor::id_overlay_edit,
+            "Tab and Shift+Tab did not show the focus on EDIT KEYS…"
+        );
         tap(SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
         require(
             oa_layer().find(editor::screen_name) != nullptr, "Enter did not open oa.key-editor"

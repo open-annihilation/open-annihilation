@@ -678,6 +678,27 @@ bool follow_chosen(Session& session) noexcept {
     return true;
 }
 
+/// The control Return and Space act on before a key has shown the ring: the
+/// card, source, online choice or footer button the step opened on.
+///
+/// @param session the session
+/// @return that control
+kit::ControlId opening_target(const Session& session) noexcept {
+    if (session.model.step == Step::language)
+        return card_id + session.carousel.selected;
+    if (session.model.step == Step::game)
+        return session.model.source >= 0 ? source_id + session.model.source : locate_id;
+    if (session.model.step == Step::online)
+        return session.model.online_on ? on_id : off_id;
+    if (session.model.step == Step::buttons)
+        return start_id;
+    // The changed-install question's default is its first button.
+    if (session.model.step == Step::copying && !session.model.copy.changed.empty() &&
+        !session.model.copy.checked)
+        return changed_choose_id;
+    return next_id;
+}
+
 /// Moves the carousel one card, wrapping from either end when it has more than one.
 ///
 /// @param[in,out] model the carousel
@@ -2504,7 +2525,7 @@ void reset_copy_continue(Session& session) noexcept {
     session.copy_list = {};
 }
 
-void ensure_focus(Session& session, const kit::DisplayList& list) {
+void ensure_focus(Session& session, const kit::DisplayList& list, bool show) {
     const bool placed =
         session.focus_ready && kit::control_of(list, session.interaction.focused) != nullptr;
     if (placed) {
@@ -2515,21 +2536,14 @@ void ensure_focus(Session& session, const kit::DisplayList& list) {
         return;
     }
     session.focus_ready = true;
-    session.interaction.focus_shown = true;
-    kit::ControlId wanted = next_id;
-    if (session.model.step == Step::language)
-        wanted = card_id + session.carousel.selected;
-    else if (session.model.step == Step::game)
-        wanted = session.model.source >= 0 ? source_id + session.model.source : locate_id;
-    else if (session.model.step == Step::online)
-        wanted = session.model.online_on ? on_id : off_id;
-    else if (session.model.step == Step::buttons)
-        wanted = start_id;
-    else
-        wanted = next_id;
-    if (kit::control_of(list, wanted) == nullptr && !list.tab_order.empty())
-        wanted = list.tab_order.front();
-    session.interaction.focused = wanted;
+    kit::ControlId focused =
+        list.tab_order.empty() ? opening_target(session) : list.tab_order.front();
+    if (kit::control_of(list, focused) == nullptr)
+        focused = opening_target(session);
+    session.interaction.focused = focused;
+    session.interaction.focus_shown = show;
+    if (show)
+        session.interaction.pointer_hid_ring = false;
 }
 
 Scene lay_out(const Session& session, const kit::Frame& frame, const kit::Fonts* fonts) {
@@ -2615,6 +2629,8 @@ Outcome pointer(
 }
 
 Outcome key(Session& session, const Scene& scene, kit::Key pressed) {
+    if (pressed != kit::Key::escape)
+        kit::show_ring_for_key(session.interaction);
     Outcome outcome;
     if (stop_copy_continue(session))
         outcome.redraw = true;
@@ -2668,6 +2684,26 @@ Outcome key(Session& session, const Scene& scene, kit::Key pressed) {
             const int32_t next = kit::choice_step(index, count, pressed);
             if (next != session.model.source)
                 return activate(session, scene, source_id + next);
+        }
+    }
+    // Before a key shows the ring, Tab and Shift+Tab move on from the first
+    // stop. Return and Space still do what the step did when it opened, and
+    // the language arrows still turn the carousel, without drawing the ring.
+    if (!session.interaction.focus_shown && pressed != kit::Key::tab &&
+        pressed != kit::Key::back_tab) {
+        if (pressed == kit::Key::enter || pressed == kit::Key::space) {
+            const kit::ControlId target = opening_target(session);
+            if (kit::control_of(scene.list, target) == nullptr)
+                return outcome;
+            return activate(session, scene, target);
+        }
+        if (session.model.step == Step::language &&
+            (pressed == kit::Key::left || pressed == kit::Key::right)) {
+            if (step_carousel(session.carousel, pressed == kit::Key::right)) {
+                follow_chosen(session);
+                outcome.redraw = true;
+            }
+            return outcome;
         }
     }
     const kit::ControlId focused = session.interaction.focused;
@@ -2740,7 +2776,7 @@ void draw(const kit::Canvas& canvas, const Scene& scene, const Session& session)
     kit::DisplayList question = scene.question_list;
     kit::mark_states(question, session.interaction);
     const bool asking = scene.question.width > 0 && scene.question.height > 0;
-    if (session.interaction.focus_shown) {
+    if (kit::focus_ring_visible(session.interaction)) {
         if (const kit::Control* control = kit::control_of(list, session.interaction.focused)) {
             if (asking) {
                 // The question's buttons are ringed on the question.

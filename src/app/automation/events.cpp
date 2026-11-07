@@ -427,7 +427,6 @@ void watch_focus(EventWatch& watch, const Observed& now, const EventHooks& hooks
 }
 
 void watch_events(EventWatch& watch, const Observed& now, const EventHooks& hooks) {
-    watch_focus(watch, now, hooks);
     if (!watch.seen) {
         watch.seen = true;
         watch.screen = now.screen;
@@ -440,6 +439,9 @@ void watch_events(EventWatch& watch, const Observed& now, const EventHooks& hook
         send_screen(hooks, now.screen, &watch.screen, now.dialogs);
         watch.screen = now.screen;
     }
+    // The screen is heard before the focus on it, so a change of screen
+    // announces the screen and then the control that opened focused.
+    watch_focus(watch, now, hooks);
     watch_room(watch, now.room, hooks);
     if (now.match != watch.match) {
         if (watch.match != nullptr)

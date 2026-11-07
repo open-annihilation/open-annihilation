@@ -298,6 +298,44 @@ void check_selection() {
     OA_CHECK(pressed.scroll_points == layout.scroll_max_points);
     chooser::scroll(layout, pressed, -100000);
     OA_CHECK(pressed.scroll_points == before);
+
+    // A row the locator opened on, ring hidden: Tab moves on and shows the
+    // ring, Shift+Tab moves back, and Return selects until the ring shows,
+    // then presses the row and hides the ring.
+    const chooser::Layout fresh = chooser::lay_out(sample(false), {}, viewport, {});
+    const int32_t count = static_cast<int32_t>(fresh.focus_order.size());
+    int32_t entry = -1;
+    for (int32_t index = 0; index < count; ++index) {
+        if (fresh.focus_order[static_cast<std::size_t>(index)].kind == chooser::TargetKind::entry) {
+            entry = index;
+            break;
+        }
+    }
+    OA_CHECK(entry >= 0 && count > 1);
+    if (entry >= 0 && count > 1) {
+        chooser::UiState tabbed;
+        tabbed.focus = entry;
+        const chooser::Outcome moved = chooser::key(fresh, tabbed, chooser::Key::tab);
+        OA_CHECK(tabbed.focus_shown);
+        OA_CHECK(tabbed.focus == (entry + 1) % count);
+        OA_CHECK(
+            moved.command == chooser::Command::select_entry ||
+            moved.command == chooser::Command::none
+        );
+        chooser::UiState backed;
+        backed.focus = entry;
+        std::ignore = chooser::key(fresh, backed, chooser::Key::back_tab);
+        OA_CHECK(backed.focus_shown);
+        OA_CHECK(backed.focus == (entry + count - 1) % count);
+        chooser::UiState hidden;
+        hidden.focus = entry;
+        const chooser::Outcome selected = chooser::key(fresh, hidden, chooser::Key::enter);
+        OA_CHECK(hidden.focus == entry && hidden.focus_shown);
+        OA_CHECK(selected.command == chooser::Command::select_entry);
+        const chooser::Outcome activated = chooser::key(fresh, hidden, chooser::Key::enter);
+        OA_CHECK(!hidden.focus_shown);
+        OA_CHECK(activated.command == chooser::Command::activate_entry);
+    }
 }
 
 /// One case of the recorded layouts: a model and what the locator keeps between frames.

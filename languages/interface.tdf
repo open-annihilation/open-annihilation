@@ -11994,6 +11994,14 @@
 	it=La scheda grafica non ha potuto disegnare il campo di battaglia, quindi ora lo scala soltanto. Puoi riprovare Completo in Grafica, nelle impostazioni di OA.;
 	}
 
+[The graphics card draws no farther out than this.]
+	{
+	de=Die Grafikkarte zeichnet nicht weiter herausgezoomt als bis hierher.;
+	fr=La carte graphique ne dessine pas plus loin que ça.;
+	es=La tarjeta gráfica no dibuja más lejos que esto.;
+	it=La scheda grafica non disegna più lontano di così.;
+	}
+
 [The host's mutators. Only the host can change them.]
 	{
 	de=Die Mutatoren des Gastgebers. Nur der Gastgeber kann sie ändern.;
@@ -26188,6 +26196,70 @@
 	fr=Mode photo;
 	es=Modo foto;
 	it=Modalità foto;
+	}
+
+[Saved {name}]
+	{
+	de=Gespeichert: {name};
+	fr=Enregistré : {name};
+	es=Guardada: {name};
+	it=Salvata: {name};
+	}
+
+[Photo not saved: {reason}]
+	{
+	de=Foto nicht gespeichert: {reason};
+	fr=Photo non enregistrée : {reason};
+	es=Foto no guardada: {reason};
+	it=Foto non salvata: {reason};
+	}
+
+[photo mode is not on]
+	{
+	de=Der Fotomodus ist nicht an;
+	fr=Le mode photo n'est pas activé;
+	es=El modo foto no está activado;
+	it=La modalità foto non è attiva;
+	}
+
+[four photos are still being saved]
+	{
+	de=Vier Fotos werden noch gespeichert;
+	fr=Quatre photos sont encore en cours d'enregistrement;
+	es=Aún se están guardando cuatro fotos;
+	it=Quattro foto sono ancora in salvataggio;
+	}
+
+[the picture could not be read]
+	{
+	de=Das Bild konnte nicht gelesen werden;
+	fr=L'image n'a pas pu être lue;
+	es=No se pudo leer la imagen;
+	it=Non è stato possibile leggere l'immagine;
+	}
+
+[the graphics device was lost]
+	{
+	de=Das Grafikgerät ist verloren;
+	fr=L'appareil graphique a été perdu;
+	es=Se perdió el dispositivo gráfico;
+	it=Il dispositivo grafico è andato perso;
+	}
+
+[the file could not be written]
+	{
+	de=Die Datei konnte nicht geschrieben werden;
+	fr=Le fichier n'a pas pu être écrit;
+	es=No se pudo escribir el archivo;
+	it=Non è stato possibile scrivere il file;
+	}
+
+[the picture could not be drawn]
+	{
+	de=Das Bild konnte nicht gezeichnet werden;
+	fr=L'image n'a pas pu être dessinée;
+	es=No se pudo dibujar la imagen;
+	it=Non è stato possibile disegnare l'immagine;
 	}
 
 [Play]

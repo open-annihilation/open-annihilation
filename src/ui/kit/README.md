@@ -154,19 +154,38 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   fraction of a point for a screen at a fractional scale, and by the
   `DisabledControl` rule, a disabled control the finger is on blocking the
   press and every search), `mark_states` (the focused and held parts of an
-  `Interaction`), the keys, Tab in a declared order, the arrows by where
+  `Interaction`; the focused mark is drawn only while the ring is visible,
+  `focus_ring_visible`), the keys, Tab in a declared order, the arrows by where
   controls sit (`focus_toward`; given the scroll areas, judged with them
   laid out whole), the wheel, and a text
   field's editing: `insert_text` for typed text and `edit_text` for Backspace,
-  Delete, Left, Right, Home and End. For automation, `automation_entries`
-  lists the named controls, and `automation_parts` lists each control
-  followed by the parts of it that take a press of their own (an
-  `AutomationEntry` with `part` set): a switch's halves `<name>.off` and
-  `<name>.on`, a strip's levels where `level_at` finds them, a row of
-  buttons' buttons, and an open drop-down's items at `choice_item`, each
-  named by its control's `Control::parts` word, else its place from 1. A
-  control's rectangle there is the part of it a press reaches. The
-  endpoint lists them after `oa.` (docs/automation.md).
+  Delete, Left, Right, Home and End. `focus_opened` puts the focus on the
+  first control of the declared order. The ring stays hidden unless the
+  caller asks for it; the kit does not read the preference. That hidden-ring
+  table applies at open, and again once Enter has hidden the ring: Tab moves to the next control and shows the ring, Shift+Tab to
+  the previous (from the first, the last), Up shows the last, and Down,
+  Left, Right and Space the first. Enter accepts and does not show the
+  ring. Once a click or a key has placed the focus, the keys act on that
+  control whether or not the pointer has hidden the ring. While the ring shows, the keys
+  work as before, and Enter then hides the ring. A pointer move hides the
+  ring on every control except a text field, which keeps its ring, its
+  caret and its typing. The focused control stays, and the next key still
+  acts on it: Return presses it, the arrows move on from it, Space acts on
+  it, and the ring shows again there.
+  For automation, `automation_entries` lists the named controls, and
+  `automation_parts` lists each control followed by the parts of it that
+  take a press of their own (an `AutomationEntry` with `part` set): a
+  switch's halves `<name>.off` and `<name>.on`, a strip's levels where
+  `level_at` finds them, a row of buttons' buttons, and an open drop-down's
+  items at `choice_item`, each named by its control's `Control::parts`
+  word, else its place from 1. A control's rectangle there is the part of
+  it a press reaches. `focused` is true for the control that holds the
+  keyboard focus whether or not the ring is drawn; a part is never focused.
+  Each entry also carries `role`, `label`, `value_text`, `has_value` and
+  `value`, `least`, `most` and `step` (when `has_range`), `place` and
+  `set_size`, `chosen` and `pressed`. The endpoint lists them after `oa.`
+  (docs/automation.md). The screen object, not each control, says whether
+  the ring is drawn (`focus_shown`).
 - `looks.hpp`: how a control looks. A look owns its texts. A text field's
   state, `TextField`, is its text and its caret. A picture item draws its
   `PictureLook`'s picture, such as a mod's badge, or else the canvas's icon.
@@ -843,11 +862,27 @@ the arrows judge every control where it lies with the areas laid out whole:
 a row moved back by its area's offset, a control under an area's view moved
 down by its limit, every row a candidate whether its area shows it or not,
 so that from a button under a list Up reaches the list's last row, as the
-folder chooser's arrows do. Tab follows the declared order and wraps. Up and Down
-never follow that order. Left and Right go to a focused text field, which
-moves its caret, as do Home, End, Backspace and Delete. Tabs and cards do not
-take Left and Right: the arrows move the focus between them. Enter goes to a
-focused button, link, list row or tab.
+folder chooser's arrows do. A screen opens on the first control of its
+declared order, with the ring hidden unless it asks for the ring. The
+Library opens on its tab's search, with the ring shown, as it did before.
+The hidden-ring table applies at open, and again once Enter has hidden the
+ring. Tab from the opening control moves to the next
+and shows the ring; Shift+Tab moves to the previous, which from the first
+is the last, and shows it. With the ring hidden, Up shows it on the last
+control and Down, Left, Right and Space on the first, and Enter accepts
+without showing it. Once a click or a key has placed the focus, the keys
+act on that control whether or not the pointer has hidden the ring. With the
+ring shown,
+Tab follows the declared order and wraps. Up and Down never follow that
+order. Left and Right go to a focused text field, which moves its caret,
+as do Home, End, Backspace and Delete. Tabs and cards do not take Left and
+Right: the arrows move the focus between them. Enter goes to a focused
+button, link, list row or tab, and then the ring is hidden; on a text field
+Enter accepts and the field keeps its ring. A pointer move
+hides the ring on every control except a text field, which keeps its ring,
+its caret and its typing. The focused control stays, and the next key still
+acts on it: Return presses it, the arrows move on from it, Space acts on
+it, and the ring shows again there.
 
 ## Tests
 
@@ -897,9 +932,11 @@ lies outside it, a picture drawn filtered, a mark, a moved origin, and a
 button and a display list drawn through the same functions as on the crisp
 form. Its text checks read the bundled fonts beside the test.
 `ui-kit-input` checks reach (with a reach of a fraction of a point too, and
-a disabled control blocking a finger), `mark_states`, the pointer, Tab, the
-arrows (with a scroll area laid out whole too), the keys and
-their values, the wheel's fractions, the names, the parts automation lists
+a disabled control blocking a finger), `mark_states` (the ring's mark only
+while it is shown, and the focused entry while it is not), the pointer (a
+move hides the ring), Tab, the arrows (with a scroll area laid out whole
+too), the keys with the ring hidden and with it shown, the wheel's
+fractions, the names, the parts automation lists
 (a switch's halves splitting it, a strip's levels where `level_at` finds
 them, an open drop-down's items at `choice_item` and a screen's own item
 control listed once, a menu with a divider naming the other items by their

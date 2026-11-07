@@ -531,7 +531,7 @@ Network play's own checks, the last rows, are in every build.
 | `--render-fault POINT[@FRAME]` | Forces only that failure, for `--check-renderer-ladder`. |
 | `--check-briefing-narration` | Checks a briefing's narration plays and stops when it should. |
 | `--check-director-view` | Checks the director's view of a headless skirmish. |
-| `--check-photo [mode\|time]` | Checks photo mode in a window. `mode` enters, hides the interface and leaves. `time` freezes, steps, draws between ticks and runs slowly, then holds a picture in a shared match. |
+| `--check-photo [mode\|time\|camera\|capture\|live]` | Checks photo mode in a window. `mode` enters, hides the interface and leaves. `time` freezes, steps, draws between ticks and runs slowly, then holds a picture in a shared match. `camera` frames from the whole map to eight times, pans, follows and turns. `capture` saves a photo of the battlefield in the render mode in use. `live` saves a photo of the turned view, and skips when no graphics device can draw it. |
 | `--check-director-render` | Renders a small director script and checks the files it writes; with `--hardware-acceleration=full`, on the graphics card's Full tier. |
 | `--check-interpolation` | Checks the frames drawn between ticks, and the frames at whole ticks with Smooth motion Off. |
 | `--check-unit-playout` | Checks another machine's units move evenly. |

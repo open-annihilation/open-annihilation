@@ -1183,9 +1183,9 @@ int Runtime::run() {
         // go through the same path a player uses. The dummy drivers give
         // that window no screen.
         if (options_.check_photo) {
-            check_photo();
+            const int photo_status = check_photo();
             flush_preferences();
-            return 0;
+            return photo_status;
         }
         if (options_.check_key_timing) {
             check_key_timing();

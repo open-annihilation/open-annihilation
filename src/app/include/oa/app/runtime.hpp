@@ -267,6 +267,7 @@ enum class AwayAction : uint8_t;
 PaletteBytes load_active_palette(const AssetStore& assets);
 
 struct MatchConsole;
+class PhotoWriter;
 struct MatchModels;
 struct WorldDrawList;
 class GafFrameCache;
@@ -2438,6 +2439,11 @@ class Runtime final : public menu::Host,
     /// @param state state to free; null is allowed
     static void destroy_photo_state(PhotoState* state) noexcept;
 
+    /// Frees the photo writer, after it has finished the photo in hand.
+    ///
+    /// @param writer the writer; null is allowed
+    static void destroy_photo_writer(PhotoWriter* writer) noexcept;
+
     /// Puts the running match into photo mode: the battlefield alone, from
     /// the camera the player had, with the interface put away. A match on
     /// this machine freezes. A shared match, a watcher and a replay keep
@@ -2450,6 +2456,11 @@ class Runtime final : public menu::Host,
     ///
     /// @return true when photo mode is on afterwards
     [[nodiscard]] bool enter_photo_mode();
+
+    /// Clears the pointer's hover: the unit and the feature under it, and the
+    /// panel lines they draw in the bottom bar. Photo mode does this when it
+    /// opens and when it closes, so a visit does not leave a line behind.
+    void clear_match_hover() noexcept;
 
     /// Takes the running match out of photo mode, if it is in it, and puts
     /// back the layout, camera, zoom, follow, live camera and keys overlay
@@ -2501,10 +2512,26 @@ class Runtime final : public menu::Host,
     /// Frozen, Slow and its ticks a second, or Held, are added with the
     /// game clock. In a shared match or for a watcher the clock is always
     /// there, with the latest under-attack line and how many chat lines
-    /// have arrived. Freeze does not stop that clock.
+    /// have arrived. Freeze does not stop that clock. Once a photo has been
+    /// saved or refused, that sentence follows.
     ///
     /// @return the line
     [[nodiscard]] std::string photo_status_line();
+
+    /// Saves the battlefield as it is shown, at the window's size, in the
+    /// render mode in use. The photo screen, the cursor and the badge are
+    /// not in the picture. The file is written on the photo writer's thread.
+    /// Outside photo mode, or when the picture cannot be taken, nothing is
+    /// written and the status says why.
+    void take_photo();
+
+    /// Waits until every photo already accepted has been written, then
+    /// reports the latest one on the status line.
+    void wait_for_photos();
+
+    /// Writes every photo already accepted and joins the writer thread.
+    /// A photo still queued is finished, not dropped.
+    void finish_photo_writes() noexcept;
 
     /// The latest under-attack line posted since photo mode opened.
     ///
@@ -2617,6 +2644,53 @@ class Runtime final : public menu::Host,
     /// Writes the held picture over the battlefield the frame just drew.
     void show_held_photo_picture();
 
+    /// In photo mode, when the zoom is farther out than the offer, takes the
+    /// zoom to that end in this frame, about the battlefield's centre.
+    ///
+    /// The offer's far end moves closer when the tier in use changes. Easing
+    /// across it would draw a frame the tier does not draw. Does nothing
+    /// outside photo mode, while a picture is held, and when the zoom is
+    /// already within the offer.
+    void snap_photo_zoom_to_far_end();
+
+    /// The zoom photo mode offers on the tier in use: farthest out, then
+    /// closest in. Out to the whole map and in to eight times, or the closest
+    /// zoom that tier draws when it cannot draw one of those. Outside photo
+    /// mode this is the offer the picture in use would give.
+    ///
+    /// @return farthest out, then closest in, in layout pixels per map pixel
+    [[nodiscard]] std::array<float, 2> photo_zoom_limits() const noexcept;
+
+    /// Why photo mode's zoom stops short of the whole map. Empty when the
+    /// offer reaches the whole map.
+    ///
+    /// @return the reason, for the panel
+    [[nodiscard]] std::string photo_zoom_reason() const;
+
+    /// Turns the live camera by a yaw change, within the limits Alt and a
+    /// drag use. The lock is the player's Unlocked camera setting, read as a
+    /// drag reads it. Accepted in photo mode where the turned view can be
+    /// drawn, including when the camera is already at the limit. Refused
+    /// elsewhere and while a picture is held, and the camera does not move.
+    ///
+    /// @param yaw_delta_degrees the turn, in degrees; positive turns one way
+    /// @return true when the turned view accepted the turn
+    [[nodiscard]] bool photo_turn(float yaw_delta_degrees);
+
+    /// Tilts the live camera by an elevation change, within the limits Alt
+    /// and a drag use. Accepted and refused as photo_turn is.
+    ///
+    /// @param pitch_delta_degrees the tilt, in degrees, from the classic view
+    /// @return true when the turned view accepted the tilt
+    [[nodiscard]] bool photo_tilt(float pitch_delta_degrees);
+
+    /// Why a turn or a tilt is refused. Empty when photo mode can turn the
+    /// view, and when photo mode is not open. A held picture refuses them
+    /// with no reason here; photo mode's line says Held.
+    ///
+    /// @return the reason Settings gives, for the panel
+    [[nodiscard]] std::string photo_turn_reason();
+
     /// Sets the director's camera: the view the next bind and the next
     /// draws use. Nothing is bound or drawn.
     ///
@@ -2691,7 +2765,10 @@ class Runtime final : public menu::Host,
     /// Runs --check-photo: the group named on the command line.
     ///
     /// Throws std::runtime_error when a check fails.
-    void check_photo();
+    ///
+    /// @return 0 when the check passed, or 77 when the turned-view check has
+    ///     no graphics device
+    [[nodiscard]] int check_photo();
 
     /// Runs --check-photo mode: photo mode in a window over the skirmish's
     /// fight. Throws std::runtime_error when a check fails.
@@ -2702,6 +2779,20 @@ class Runtime final : public menu::Host,
     /// shared match and a watcher holding the picture. Throws
     /// std::runtime_error when a check fails.
     void check_photo_time();
+
+    /// Runs --check-photo camera: the photo zoom, pan, follow and turn over
+    /// the skirmish's fight. Throws std::runtime_error when a check fails.
+    void check_photo_camera();
+
+    /// Runs --check-photo capture: a photo of the fight, in the render mode
+    /// in use. Throws std::runtime_error when a check fails.
+    void check_photo_capture();
+
+    /// Runs --check-photo live: a photo of the turned view.
+    ///
+    /// @return 77 when the machine has no graphics device, otherwise 0
+    /// @throws std::runtime_error when a check fails
+    [[nodiscard]] int check_photo_live();
 
     /// Runs --generate-script: opens the recording through the extension
     /// that replays it, replays it to its end in director mode without
@@ -9010,10 +9101,22 @@ class Runtime final : public menu::Host,
     /// @return one byte per battlefield pixel, nonzero where terrain is frontmost
     [[nodiscard]] std::vector<uint8_t> live_terrain_visibility_mask() const;
     /// Scrolls the rotated view in screen directions through its ground projection.
+    ///
+    /// In photo mode the place is held within View past the map's edge, as a
+    /// classic scroll is (held_view). Play's turned pan is not held.
+    ///
     /// @param screen_dx horizontal screen pixels to move the camera
     /// @param screen_dy vertical screen pixels to move the camera
     /// @return true when the live camera handled the scroll, including an active drag
     bool scroll_live_match_view(double screen_dx, double screen_dy);
+
+    /// Holds a turned view's place within View past the map's edge while photo
+    /// mode is the caller. The limits are a classic scroll's (held_view).
+    ///
+    /// @param x the place's map column
+    /// @param z the place's map row
+    /// @return the held place
+    [[nodiscard]] std::array<double, 2> held_photo_place(double x, double z) const;
     /// Applies camera permission and angle limits without moving the view centre.
     /// @param allowed whether camera rotation is enabled
     /// @param unlocked whether angles outside the art-friendly range are allowed
@@ -12248,7 +12351,8 @@ class Runtime final : public menu::Host,
     /// the camera than kMostModelOffset map pixels. Such a frame draws no
     /// model of a unit, feature, projectile, fragment or debris, no health
     /// bar or squad digit, and a model bridge of one pixel. A director's
-    /// frame never does.
+    /// frame never does. Photo mode skips the After zoom choice and keeps
+    /// the memory and the reach.
     ///
     /// @return true when the units are drawn as dots
     [[nodiscard]] bool dots_frame() const noexcept;
@@ -12260,10 +12364,17 @@ class Runtime final : public menu::Host,
     /// 32-bit build at most an eighth of the free address space or
     /// kRenderedUnitsAddressCap where that is not known. OA_RENDERED_UNITS_BUDGET,
     /// a number of bytes, replaces it, and on a 32-bit build is cut to the
-    /// free address space.
+    /// free address space. force_rendered_units_budget replaces both for
+    /// this process.
     ///
     /// @return bytes
     [[nodiscard]] uint64_t rendered_units_budget() const noexcept;
+
+    /// Replaces the models' budget for this process. No value uses the
+    /// machine's budget and OA_RENDERED_UNITS_BUDGET again.
+    ///
+    /// @param bytes the budget, in bytes; no value clears the replacement
+    void force_rendered_units_budget(std::optional<uint64_t> bytes) noexcept;
 
     /// Returns how many map pixels across the battlefield shows at the current zoom.
     ///
@@ -12719,6 +12830,71 @@ class Runtime final : public menu::Host,
     ///
     /// Does nothing without a renderer or a world layer.
     void present_photo_world();
+
+    /// The photo writer, started on the first photo.
+    ///
+    /// @return the writer
+    PhotoWriter& photo_files();
+
+    /// Moves finished photos onto the status line and the photo screen's line.
+    void publish_photo_status();
+
+    /// Reports that a photo was written. The file name is not translated.
+    ///
+    /// @param file_name the file's name, without a folder
+    void note_photo_saved(std::string file_name);
+
+    /// Reports that a photo was not written.
+    ///
+    /// @param reason the reason, in English, as the interface catalogue lists it
+    void note_photo_refused(std::string_view reason);
+
+    /// The folder Ctrl+F9's shots use, where a photo is written.
+    ///
+    /// @return the folder; empty when no match is running
+    [[nodiscard]] fs::path photo_shots_folder();
+
+    /// Makes the screenshot folder, as a screenshot does, and names it.
+    ///
+    /// @param[out] folder the folder
+    /// @return false when the folder cannot be made
+    bool prepare_photo_folder(fs::path& folder);
+
+    /// Copies the processor's battlefield and applies the player's gamma once.
+    ///
+    /// @param[out] rgb the picture
+    /// @param[out] width its width
+    /// @param[out] height its height
+    /// @return false when the battlefield is empty
+    [[nodiscard]] bool copy_world_with_player_gamma(
+        std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height
+    ) const;
+
+    /// Reads the battlefield's rectangle from the window, as RGB24, after the
+    /// frame has been drawn and before anything further is drawn over it.
+    /// The card's gamma is left as the frame has it. The picture is the size
+    /// read, the window's pixels, as a capture of the window keeps its read.
+    ///
+    /// @param[out] rgb the picture
+    /// @param[out] width the width read
+    /// @param[out] height the height read
+    /// @return false when the rectangle cannot be read
+    [[nodiscard]] bool
+    copy_presented_battlefield(std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height);
+
+    /// Captures the battlefield by the render mode in use. A mode that cannot
+    /// capture does not fall back to another. While a picture is held, the
+    /// capture is the held copy (capture_photo_picture) with the player's
+    /// gamma once, at the copy's size.
+    ///
+    /// @param[out] rgb the picture
+    /// @param[out] width its width
+    /// @param[out] height its height
+    /// @param[out] reason why it could not be captured, in English
+    /// @return false when nothing was captured
+    [[nodiscard]] bool capture_photo_pixels(
+        std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height, std::string& reason
+    );
 
     /// Draws the layers over the HUD and world layers and presents the frame:
     /// a placed dialog's part over the side column, the OA settings layer, the
@@ -18730,6 +18906,10 @@ class Runtime final : public menu::Host,
 
     /// Centres the camera on a unit through the camera setter.
     ///
+    /// Play centres the unit's ground point. Photo mode centres the place the
+    /// unit is drawn: its z less half its height, as project_match_point
+    /// places it.
+    ///
     /// @param id unit id; 0 or an empty slot does nothing
     void center_camera_on_unit(uint16_t id);
 
@@ -18882,7 +19062,9 @@ class Runtime final : public menu::Host,
     /// under the focus there (zoom_view_about): the pointer where it is now
     /// while the wheel zooms about it, else the point the zoom was given. A
     /// zoom outside the limits, as a change of the limits leaves it, eases
-    /// back within them about the battlefield's centre. A followed unit,
+    /// back within them about the battlefield's centre. In photo mode a zoom
+    /// farther out than the offer, after the tier in use changed, is taken
+    /// to that end in this frame instead. A followed unit,
     /// which only the settings dialog's ease and a change of the limits
     /// leave followed, stays at the centre at every frame of the ease, while
     /// a menu holds the match too.
@@ -22047,6 +22229,8 @@ class Runtime final : public menu::Host,
     /// while the frames draw the view between map pixels). Nothing while a
     /// menu holds the match, when nothing is tracked or when the director
     /// draws. The camera is this player's view, not the simulation's state.
+    /// In photo mode the place is where the unit is drawn, half its height
+    /// above the ground. Play centres the ground point.
     void place_tracking_camera();
 
     /// Chooses the fraction of a tick the frame about to be drawn shows.
@@ -22443,6 +22627,14 @@ class Runtime final : public menu::Host,
     std::unique_ptr<PhotoState, void (*)(PhotoState*) noexcept> photo_{
         nullptr, destroy_photo_state
     };
+    /// Writes photos off the frame's thread. Null until the first photo.
+    std::unique_ptr<PhotoWriter, void (*)(PhotoWriter*) noexcept> photo_writer_{
+        nullptr, destroy_photo_writer
+    };
+    /// The latest photo sentence, empty until one is saved or refused.
+    std::string photo_notice_;
+    /// The turned view's frame is being saved, so its picture is read back.
+    bool photo_capture_live_ = false;
     // The --stage file's state while its match runs; null without one.
     std::unique_ptr<StageState, void (*)(StageState*) noexcept> stage_{
         nullptr, destroy_stage_state

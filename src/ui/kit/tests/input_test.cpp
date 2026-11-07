@@ -713,6 +713,8 @@ void keys_on_a_stepping_control_stay_with_it() {
     OA_CHECK(enter.result == kit::KeyResult::accept);
     OA_CHECK(enter.control == kit::no_control);
     OA_CHECK(interaction.focused == 2);
+    OA_CHECK(!interaction.focus_shown);
+    interaction.focus_shown = true;
 
     const kit::KeyOutcome space = kit::key(interaction, list, kit::Key::space);
     OA_CHECK(space.result == kit::KeyResult::to_control);
@@ -769,6 +771,8 @@ void keys_on_a_button_a_link_and_a_list_row() {
     const kit::KeyOutcome entered = kit::key(interaction, list, kit::Key::enter);
     OA_CHECK(entered.result == kit::KeyResult::to_control);
     OA_CHECK(entered.control == 1);
+    OA_CHECK(!interaction.focus_shown && interaction.focused == 1);
+    interaction.focus_shown = true;
     const kit::KeyOutcome right = kit::key(interaction, list, kit::Key::right);
     OA_CHECK(right.result == kit::KeyResult::redraw);
     OA_CHECK(right.control == 3);
@@ -778,14 +782,21 @@ void keys_on_a_button_a_link_and_a_list_row() {
     OA_CHECK(interaction.focused == 3);
 
     interaction.focused = 4;
+    interaction.focus_shown = true;
     OA_CHECK(kit::key(interaction, list, kit::Key::enter).result == kit::KeyResult::to_control);
+    OA_CHECK(!interaction.focus_shown);
     interaction.focused = 5;
+    interaction.focus_shown = true;
     const kit::KeyOutcome row = kit::key(interaction, list, kit::Key::enter);
     OA_CHECK(row.result == kit::KeyResult::to_control && row.control == 5);
+    OA_CHECK(!interaction.focus_shown);
     interaction.focused = 6;
+    interaction.focus_shown = true;
     const kit::KeyOutcome group = kit::key(interaction, list, kit::Key::enter);
     OA_CHECK(group.result == kit::KeyResult::accept);
     OA_CHECK(interaction.focused == 6);
+    OA_CHECK(!interaction.focus_shown);
+    interaction.focus_shown = true;
 
     interaction.focused = 5;
     const kit::KeyOutcome wrapped = kit::key(interaction, list, kit::Key::tab);
@@ -974,7 +985,10 @@ void automation_reads_the_named_controls() {
 
     interaction.focus_shown = false;
     const std::vector<kit::AutomationEntry> plain = kit::automation_entries(list, interaction);
-    OA_CHECK(!plain[0].focused);
+    // The tree names the focused control from the moment it is focused,
+    // whether or not the ring is drawn.
+    OA_CHECK(plain[0].focused);
+    OA_CHECK(!plain[1].focused);
 
     OA_CHECK(kit::control_named(list, "screen.ok") == 1);
     OA_CHECK(kit::control_named(list, "screen.row") == 3);
@@ -1493,7 +1507,11 @@ void a_text_field_and_a_tab_take_their_keys() {
         OA_CHECK(outcome.control == 1 && outcome.key == pressed);
         OA_CHECK(interaction.focused == 1);
     }
+    // Enter accepts, and the field keeps its ring and its editing keys.
     OA_CHECK(kit::key(interaction, list, kit::Key::enter).result == kit::KeyResult::accept);
+    OA_CHECK(interaction.focus_shown && interaction.focused == 1);
+    const kit::KeyOutcome erased = kit::key(interaction, list, kit::Key::backspace);
+    OA_CHECK(erased.result == kit::KeyResult::to_control && erased.control == 1);
     OA_CHECK(kit::key(interaction, list, kit::Key::page_down).result == kit::KeyResult::scroll);
     const kit::KeyOutcome down = kit::key(interaction, list, kit::Key::down);
     OA_CHECK(down.result == kit::KeyResult::redraw && down.control == 2);
@@ -1508,8 +1526,11 @@ void a_text_field_and_a_tab_take_their_keys() {
 
     // A tab takes Enter and Space; Left and Right move the focus instead.
     interaction.focused = 3;
+    interaction.focus_shown = true;
     const kit::KeyOutcome entered = kit::key(interaction, list, kit::Key::enter);
     OA_CHECK(entered.result == kit::KeyResult::to_control && entered.control == 3);
+    OA_CHECK(!interaction.focus_shown);
+    interaction.focus_shown = true;
     OA_CHECK(kit::key(interaction, list, kit::Key::space).result == kit::KeyResult::to_control);
     OA_CHECK(kit::key(interaction, list, kit::Key::right).result == kit::KeyResult::none);
 
@@ -1517,6 +1538,224 @@ void a_text_field_and_a_tab_take_their_keys() {
     kit::Interaction fresh;
     OA_CHECK(kit::key(fresh, list, kit::Key::backspace).result == kit::KeyResult::none);
     OA_CHECK(!fresh.focus_shown);
+}
+
+/// A pointer move keeps a focused text field's ring. On every other kind of
+/// control it hides the ring and leaves the focus, so the next key still
+/// acts on that control.
+void a_pointer_move_keeps_a_text_fields_ring() {
+    kit::DisplayList list;
+    kit::Control field = placed(1, {0, 0, 80, 16});
+    field.kind = kit::ControlKind::text_field;
+    list.controls.push_back(field);
+    kit::Control button = placed(2, {0, 24, 40, 16});
+    button.kind = kit::ControlKind::button;
+    list.controls.push_back(button);
+    list.tab_order = {1, 2};
+    list.items.push_back(kit::Item{});
+    list.items.back().control = 1;
+
+    kit::Interaction on_field;
+    on_field.focused = 1;
+    on_field.focus_shown = true;
+    const kit::PointerOutcome over = kit::pointer_move(on_field, list, {10, 8});
+    OA_CHECK(over.result == kit::PointerResult::redraw && over.control == 1);
+    OA_CHECK(on_field.focused == 1 && on_field.focus_shown);
+    const kit::PointerOutcome away = kit::pointer_move(on_field, list, {10, 30});
+    OA_CHECK(away.result == kit::PointerResult::redraw && away.control == 2);
+    OA_CHECK(on_field.hovered == 2 && on_field.focused == 1 && on_field.focus_shown);
+    kit::mark_states(list, on_field);
+    OA_CHECK(list.items[0].state.focused);
+
+    kit::Interaction on_button;
+    on_button.focused = 2;
+    on_button.focus_shown = true;
+    std::ignore = kit::pointer_move(on_button, list, {10, 8});
+    OA_CHECK(on_button.focused == 2 && on_button.focus_shown && on_button.pointer_hid_ring);
+    OA_CHECK(!kit::focus_ring_visible(on_button));
+}
+
+/// A screen opens on its first control with the ring hidden, and each key does as key says.
+void the_open_focus_follows_the_key_table() {
+    kit::DisplayList list;
+    list.controls.push_back(placed(1, {0, 0, 30, 16}));
+    kit::Control slider = placed(2, {0, 20, 30, 16});
+    slider.kind = kit::ControlKind::slider;
+    slider.steps = true;
+    list.controls.push_back(slider);
+    list.controls.push_back(placed(3, {50, 20, 30, 16}));
+    kit::Control link = placed(4, {0, 40, 30, 16});
+    link.kind = kit::ControlKind::link;
+    list.controls.push_back(link);
+    kit::Control item = placed(5, {0, 60, 30, 16});
+    item.kind = kit::ControlKind::list_item;
+    list.controls.push_back(item);
+    list.tab_order = {1, 2, 3, 4, 5};
+
+    kit::Interaction opened;
+    kit::focus_opened(opened, list, false);
+    OA_CHECK(opened.focused == 1 && !opened.focus_shown);
+    kit::focus_opened(opened, list, true);
+    OA_CHECK(opened.focused == 1 && !opened.focus_shown);
+    kit::Interaction asked;
+    kit::focus_opened(asked, list, true);
+    OA_CHECK(asked.focused == 1 && asked.focus_shown);
+    kit::Interaction empty;
+    kit::focus_opened(empty, kit::DisplayList{}, false);
+    OA_CHECK(empty.focused == kit::no_control && !empty.focus_shown);
+
+    const auto hidden = [&](kit::Key key) {
+        kit::Interaction interaction;
+        interaction.focused = 1;
+        return kit::key(interaction, list, key);
+    };
+    const kit::KeyOutcome tab = hidden(kit::Key::tab);
+    OA_CHECK(tab.result == kit::KeyResult::redraw && tab.control == 2);
+    kit::Interaction after_tab;
+    after_tab.focused = 1;
+    OA_CHECK(kit::key(after_tab, list, kit::Key::tab).result == kit::KeyResult::redraw);
+    OA_CHECK(after_tab.focused == 2 && after_tab.focus_shown);
+    const kit::KeyOutcome back = hidden(kit::Key::back_tab);
+    OA_CHECK(back.result == kit::KeyResult::redraw && back.control == 5);
+    const kit::KeyOutcome up = hidden(kit::Key::up);
+    OA_CHECK(up.result == kit::KeyResult::redraw && up.control == 5);
+    for (const kit::Key key : {kit::Key::down, kit::Key::left, kit::Key::right, kit::Key::space}) {
+        const kit::KeyOutcome shown = hidden(key);
+        OA_CHECK(shown.result == kit::KeyResult::redraw && shown.control == 1);
+    }
+    kit::Interaction resting;
+    resting.focused = 1;
+    const kit::KeyOutcome accepted = kit::key(resting, list, kit::Key::enter);
+    OA_CHECK(accepted.result == kit::KeyResult::accept && accepted.control == kit::no_control);
+    OA_CHECK(resting.focused == 1 && !resting.focus_shown);
+    OA_CHECK(kit::key(resting, list, kit::Key::escape).result == kit::KeyResult::cancel);
+    OA_CHECK(kit::key(resting, list, kit::Key::page_down).result == kit::KeyResult::scroll);
+    OA_CHECK(kit::key(resting, list, kit::Key::page_up).result == kit::KeyResult::scroll);
+    OA_CHECK(kit::key(resting, list, kit::Key::home).result == kit::KeyResult::scroll);
+    OA_CHECK(kit::key(resting, list, kit::Key::end).result == kit::KeyResult::scroll);
+    OA_CHECK(kit::key(resting, list, kit::Key::yes).result == kit::KeyResult::none);
+    OA_CHECK(kit::key(resting, list, kit::Key::no).result == kit::KeyResult::none);
+    OA_CHECK(kit::key(resting, list, kit::Key::info).result == kit::KeyResult::none);
+    OA_CHECK(kit::key(resting, list, kit::Key::backspace).result == kit::KeyResult::none);
+    OA_CHECK(!resting.focus_shown && resting.focused == 1);
+
+    // One control: Tab shows the ring on it.
+    kit::DisplayList only;
+    only.controls.push_back(placed(1, {0, 0, 30, 16}));
+    only.tab_order = {1};
+    kit::Interaction single;
+    single.focused = 1;
+    const kit::KeyOutcome only_tab = kit::key(single, only, kit::Key::tab);
+    OA_CHECK(only_tab.result == kit::KeyResult::redraw && only_tab.control == 1);
+    OA_CHECK(single.focus_shown);
+
+    // The ring is showing. Enter presses a button and hides the ring.
+    kit::Interaction shown;
+    shown.focused = 1;
+    shown.focus_shown = true;
+    const kit::KeyOutcome pressed = kit::key(shown, list, kit::Key::enter);
+    OA_CHECK(pressed.result == kit::KeyResult::to_control && pressed.control == 1);
+    OA_CHECK(shown.focused == 1 && !shown.focus_shown);
+    shown.focus_shown = true;
+    const kit::KeyOutcome spaced = kit::key(shown, list, kit::Key::space);
+    OA_CHECK(spaced.result == kit::KeyResult::to_control && spaced.control == 1);
+    OA_CHECK(shown.focus_shown);
+    OA_CHECK(kit::key(shown, list, kit::Key::tab).control == 2);
+    OA_CHECK(shown.focus_shown && shown.focused == 2);
+    OA_CHECK(kit::key(shown, list, kit::Key::back_tab).control == 1);
+    // Down from the button hits the slider directly under it.
+    OA_CHECK(kit::key(shown, list, kit::Key::down).control == 2);
+    OA_CHECK(shown.focus_shown);
+    shown.focused = 2;
+    const kit::KeyOutcome stepped = kit::key(shown, list, kit::Key::right);
+    OA_CHECK(stepped.result == kit::KeyResult::to_control && stepped.control == 2);
+    OA_CHECK(shown.focus_shown);
+    const kit::KeyOutcome slider_enter = kit::key(shown, list, kit::Key::enter);
+    OA_CHECK(slider_enter.result == kit::KeyResult::accept);
+    OA_CHECK(shown.focused == 2 && !shown.focus_shown);
+    shown.focus_shown = true;
+    OA_CHECK(kit::key(shown, list, kit::Key::escape).result == kit::KeyResult::cancel);
+    OA_CHECK(shown.focus_shown && shown.focused == 2);
+    OA_CHECK(kit::key(shown, list, kit::Key::page_up).result == kit::KeyResult::scroll);
+    OA_CHECK(kit::key(shown, list, kit::Key::left).result == kit::KeyResult::to_control);
+
+    // A pointer move hides the ring and leaves the focused control. The keys
+    // still act on it: the hidden-ring table is only for an opening focus.
+    kit::Interaction moving;
+    moving.focused = 1;
+    moving.focus_shown = true;
+    const kit::PointerOutcome moved = kit::pointer_move(moving, list, {10, 8});
+    OA_CHECK(moved.result == kit::PointerResult::redraw && moved.control == 1);
+    OA_CHECK(moving.hovered == 1 && moving.focused == 1 && moving.focus_shown);
+    OA_CHECK(moving.pointer_hid_ring && !kit::focus_ring_visible(moving));
+    list.controls[0].name = "screen.first";
+    const std::vector<kit::AutomationEntry> entries = kit::automation_entries(list, moving);
+    OA_CHECK(!entries.empty() && entries[0].focused);
+
+    kit::DisplayList marked;
+    marked.items.push_back(kit::Item{});
+    marked.items.back().control = 1;
+    kit::mark_states(marked, moving);
+    OA_CHECK(!marked.items[0].state.focused);
+}
+
+/// A click focuses a control. A pointer move hides the ring, and Return,
+/// Down and Space still act on that control. The ring shows again on the
+/// key. An opening focus is left for the hidden-ring table.
+void a_click_then_a_move_keeps_the_keys() {
+    kit::DisplayList list;
+    list.controls.push_back(placed(1, {0, 0, 40, 16}));
+    list.controls.push_back(placed(2, {0, 24, 40, 16}));
+    list.controls.push_back(placed(3, {0, 48, 40, 16}));
+    list.tab_order = {1, 2, 3};
+    list.items.push_back(kit::Item{});
+    list.items.back().control = 2;
+
+    // A key has shown the ring, so a press moves the focus, as a click does
+    // once the ring shows.
+    kit::Interaction interaction;
+    interaction.focus_shown = true;
+    interaction.focused = 1;
+    OA_CHECK(kit::pointer_down(interaction, list, {10, 30}).control == 2);
+    const kit::PointerOutcome released = kit::pointer_up(interaction, list, {10, 30});
+    OA_CHECK(released.result == kit::PointerResult::activated && released.control == 2);
+    OA_CHECK(interaction.focused == 2 && interaction.focus_shown && !interaction.pointer_hid_ring);
+
+    std::ignore = kit::pointer_move(interaction, list, {10, 4});
+    OA_CHECK(interaction.focused == 2 && interaction.focus_shown && interaction.pointer_hid_ring);
+    OA_CHECK(!kit::focus_ring_visible(interaction));
+    kit::mark_states(list, interaction);
+    OA_CHECK(!list.items[0].state.focused);
+
+    const kit::KeyOutcome entered = kit::key(interaction, list, kit::Key::enter);
+    OA_CHECK(entered.result == kit::KeyResult::to_control && entered.control == 2);
+    OA_CHECK(interaction.focused == 2 && !interaction.focus_shown);
+
+    interaction.focus_shown = true;
+    interaction.focused = 2;
+    interaction.pointer_hid_ring = false;
+    std::ignore = kit::pointer_move(interaction, list, {10, 4});
+    const kit::KeyOutcome down = kit::key(interaction, list, kit::Key::down);
+    OA_CHECK(down.result == kit::KeyResult::redraw && down.control == 3);
+    OA_CHECK(interaction.focused == 3 && interaction.focus_shown && !interaction.pointer_hid_ring);
+
+    interaction.focused = 2;
+    interaction.focus_shown = true;
+    interaction.pointer_hid_ring = false;
+    std::ignore = kit::pointer_move(interaction, list, {10, 4});
+    const kit::KeyOutcome spaced = kit::key(interaction, list, kit::Key::space);
+    OA_CHECK(spaced.result == kit::KeyResult::to_control && spaced.control == 2);
+    OA_CHECK(interaction.focused == 2 && interaction.focus_shown && !interaction.pointer_hid_ring);
+
+    // The opening focus has not been moved. A pointer move does not hide a
+    // ring that is not drawn, and Down still shows the first control.
+    kit::Interaction opening;
+    opening.focused = 1;
+    std::ignore = kit::pointer_move(opening, list, {10, 8});
+    OA_CHECK(!opening.focus_shown && !opening.pointer_hid_ring && opening.focused == 1);
+    const kit::KeyOutcome first = kit::key(opening, list, kit::Key::down);
+    OA_CHECK(first.result == kit::KeyResult::redraw && first.control == 1);
+    OA_CHECK(opening.focus_shown && !opening.pointer_hid_ring);
 }
 
 } // namespace
@@ -1547,6 +1786,8 @@ int main() {
     right_reaches_the_button_inside_a_row();
     an_earlier_place_in_tab_order_wins_a_tie();
     keys_with_no_focus_show_an_end_of_the_order();
+    the_open_focus_follows_the_key_table();
+    a_click_then_a_move_keeps_the_keys();
     keys_on_a_stepping_control_stay_with_it();
     keys_on_a_button_a_link_and_a_list_row();
     the_wheel_keeps_the_dialogs_fractions();
@@ -1565,6 +1806,7 @@ int main() {
     a_stray_caret_settles_on_a_boundary();
     editing_takes_whole_characters();
     a_text_field_and_a_tab_take_their_keys();
+    a_pointer_move_keeps_a_text_fields_ring();
     the_states_show_the_focus_and_the_press();
     return oa::test::check_exit_status();
 }

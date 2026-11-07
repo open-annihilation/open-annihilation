@@ -53,8 +53,8 @@ inline constexpr std::string_view library_screen_name = "library";
 inline constexpr std::string_view replay_expansion_preference =
     "open-annihilation.replay-expansions";
 
-/// `wait` until that replay starts, then `play` until its match ends.
-/// A mod switched for the same replay uses this state too.
+/// `wait` until that replay starts, then `play` until the player leaves its
+/// end screen. A mod switched for the same replay uses this state too.
 inline constexpr std::string_view replay_expansion_state_preference =
     "open-annihilation.replay-expansions-state";
 
@@ -505,12 +505,24 @@ struct Runtime::LibraryHost {
     std::optional<oa::ui::library::EntryId> kept_selection{};
     /// The selection the Library showed as kept_selection was last applied.
     std::optional<oa::ui::library::EntryId> kept_selection_shown{};
+    /// The replay a restarted run still has to select, once Recordings has
+    /// been read. None once that row is selected, or when the return named none.
+    std::optional<std::string> kept_replay{};
+    /// How far that replay's list was scrolled, in points.
+    int32_t kept_replay_scroll{};
+    /// Compact showed that replay's own page.
+    bool kept_replay_page{};
 
     /// Selects kept_selection when it shows, and forgets it then. Until it
     /// shows, the visible mod with the same key is selected, when there is
     /// one: the catalogue that names its registry may not have arrived yet.
     /// A selection it changes is brought into view (ScreenState::reveal_row).
     void select_kept();
+
+    /// Selects kept_replay once Recordings has been read, at the scroll the
+    /// return kept, and forgets it then. Until that row is listed, it stays.
+    /// Opening the Library again forgets it.
+    void select_kept_replay();
 
     /// Returns the selected entry's place among the visible entries.
     ///
@@ -584,8 +596,9 @@ struct Runtime::LibraryHost {
     void pump_replay_pictures(Runtime& runtime, const oa::ui::kit::DisplayList& list);
 
     /// Closes the replay WATCH opened once its match has ended, so that the
-    /// replay's hooks are closed once. When that replay turned expansions on,
-    /// the player's own set is put back.
+    /// replay's hooks are closed once. When that replay turned expansions on
+    /// or played another mod, the end screen stays until the player leaves
+    /// it, and the player's own set is put back then.
     ///
     /// @param runtime the runtime
     void end_watched_replay(Runtime& runtime);

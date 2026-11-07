@@ -392,8 +392,16 @@ table (16 screens) is refused, and the start stops.
 The kit keeps no state of a screen's own. The engine keeps the pointer's
 hover and press and the focus, and draws them on a copy of the list
 `lay_out` returned: the control under the pointer lights up, a press held
-on it shows the held look, and the focused control wears the focus ring.
-The list the extension returned is left as it was.
+on it shows the held look, and the focused control wears the focus ring
+once a key has shown it. The screen opens with the first control of
+`tab_order` focused and the ring hidden, unless the player has set
+`open-annihilation.access.always-show-focus` to 1, which draws the ring on
+that first control. The Library opens on its tab's search, with the ring
+shown, as it did before. A pointer move hides the ring on every control
+except a text field, which keeps its ring, its caret and its typing. The
+focused control stays, and the next key still acts on it. The hidden-ring
+key table applies only while the opening focus has not been moved by a
+click or a key. The list the extension returned is left as it was.
 
 **The layout.** `lay_out` returns the screen's display list for a frame:
 `items`, what is drawn, in drawing order; `controls`, what a press can
@@ -708,34 +716,55 @@ answers in the painter's pixels.
 
 ## Focus and touch
 
-A kit screen and a Settings page are driven by the kit's one input model
-([input.hpp][input]), which the engine applies for the extension:
+A kit screen is driven by the kit's one input model
+([input.hpp][input]), which the engine applies for the extension. It opens
+with the first control of `tab_order` focused and the ring hidden, unless
+`open-annihilation.access.always-show-focus` is 1. The Library opens on its
+tab's search, with the ring shown, as it did before. Opened with the
+pointer, Settings has nothing focused and draws no ring.
 
-- **Tab** follows the declared order, `DisplayList::tab_order` (a page's
-  rows in its table's order), and wraps round; Shift+Tab goes back. Only
-  the controls in it take the focus (decision D30).
-- **The arrows** and a controller's stick move the focus by where controls
-  lie, not by that order (`kit::focus_toward`): to the nearest control that
-  lies wholly that way, one in line first. A control's own scroll area is
-  searched first. Left and Right go to a focused control that steps, such
-  as a switch, a slider or a drop-down, rather than moving the focus. The
-  weighting is one function, to be tuned after controller playtests.
-- **Enter** presses a focused button, link, list row or tab, and **Space**
-  the focused control. With no focus shown, the first key shows it: Tab,
-  Down, Left, Right and Space on the first control of the order, Up and
-  Shift+Tab on the last.
+- **While the opening focus has not been moved by a click or a key,** Tab
+  moves to the next control and shows the ring there. Shift+Tab moves to
+  the previous, which from the first is the last, and shows the ring. Up
+  shows the ring on the last control. Down, Left, Right and Space show it
+  on the first. Enter does the screen's default and does not show the ring.
+  Escape cancels. From no focus, or from a control that is not in the
+  order, Tab shows the first and Shift+Tab the last.
+- **While the ring shows,** Tab follows the declared order,
+  `DisplayList::tab_order` (a page's rows in its table's order), and wraps
+  round; Shift+Tab goes back. Only the controls in it take the focus
+  (decision D30). The arrows and a controller's stick move the focus by
+  where controls lie, not by that order (`kit::focus_toward`): to the
+  nearest control that lies wholly that way, one in line first. A control's
+  own scroll area is searched first. Left and Right go to a focused control
+  that steps, such as a switch, a slider or a drop-down, rather than moving
+  the focus. The weighting is one function, to be tuned after controller
+  playtests. Enter presses a focused button, link, list row or tab, and
+  otherwise accepts, and then the ring is hidden, except on a text field,
+  which keeps its ring, its caret and its typing. The focused control
+  stays. Space presses the focused control.
+- **A pointer move** hides the ring on every control except a text field,
+  which keeps its ring, its caret and its typing. The focused control
+  stays, and the next key still acts on it: Return presses it, the arrows
+  move on from it, Space acts on it, and the ring shows again there. The
+  move does not change what the keys act on. A question and a notice do
+  the same: the move hides the ring, and the marked button keeps the keys.
 - **A finger's press** goes to the nearest enabled control within the touch
   controls' reach (`kit::reach`), which the engine gives in the screen's
   points, so a small control is reached by a finger that lands near it.
   Keep controls far enough apart that the nearest one is the one meant.
+  Once the ring is shown, a press on a focusable control moves the focus to
+  it.
 
 So a layout needs no focus or touch code: it places its controls, gives
 each a name and lists the Tab order.
 
-A notice and a prompt keep a simpler form of it: the arrows and Tab move
-the mark between their buttons, Space presses the marked one, and a prompt
-takes Enter as Space; a press or a finger with the same reach answers them
-too.
+A notice and a prompt open with the first button marked and the ring
+hidden. Tab and Shift+Tab move the mark and show the ring. Up shows the
+last button, and Down, Left, Right and Space the first. Enter with the ring
+hidden does what it does today: a notice closes, and a prompt answers the
+marked button. Enter with the ring shown presses the marked button and
+hides the ring. A press or a finger with the same reach answers them too.
 
 ## Automation names
 

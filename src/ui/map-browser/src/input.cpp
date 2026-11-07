@@ -191,15 +191,10 @@ kit::ControlId grid_entry(const Browser& browser, const kit::DisplayList& list) 
 /// @param browser the browser
 /// @param list the display list
 /// @param from the control the focus is on
-/// @param shown the focus shows
 /// @param forward Tab rather than Shift+Tab
 /// @return the control; no_control when nothing takes the focus
 kit::ControlId tab_target(
-    const Browser& browser,
-    const kit::DisplayList& list,
-    kit::ControlId from,
-    bool shown,
-    bool forward
+    const Browser& browser, const kit::DisplayList& list, kit::ControlId from, bool forward
 ) {
     const kit::ControlId entry = grid_entry(browser, list);
     std::vector<kit::ControlId> stops;
@@ -210,7 +205,9 @@ kit::ControlId tab_target(
         return kit::no_control;
     const kit::ControlId at = ids::is_card(from) ? entry : from;
     const auto found = std::find(stops.begin(), stops.end(), at);
-    if (!shown || found == stops.end())
+    // A control that is not in the order, including no focus yet, shows an
+    // end. A control that is in the order moves to the next or the previous.
+    if (found == stops.end())
         return forward ? stops.front() : stops.back();
     const auto place = static_cast<std::size_t>(found - stops.begin());
     const std::size_t next =
@@ -320,6 +317,7 @@ act(Browser& browser,
     if (id == ids::search) {
         state.interaction.focused = ids::search;
         state.interaction.focus_shown = true;
+        state.interaction.pointer_hid_ring = false;
         return redrawn();
     }
     if (id == ids::cancel || id == ids::close)
@@ -366,6 +364,7 @@ ScreenResult browser_find(ScreenState& state, const kit::DisplayList& list) {
         return {};
     state.interaction.focused = ids::search;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
     return redrawn();
 }
 
@@ -474,19 +473,25 @@ ScreenResult browser_pointer(
 ScreenResult
 browser_key(Browser& browser, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
     kit::Interaction& interaction = state.interaction;
+    // The first stop takes the keys from the first key, with the ring hidden,
+    // unless the host already opened the screen (and may have asked for the ring).
+    kit::focus_opened(interaction, list, false);
+    if (pressed != kit::Key::escape && pressed != kit::Key::yes && pressed != kit::Key::no &&
+        pressed != kit::Key::info)
+        kit::show_ring_for_key(interaction);
     const bool on_search = interaction.focus_shown && interaction.focused == ids::search;
     switch (pressed) {
     case kit::Key::escape:
         return asking(BrowserAction::cancel);
     case kit::Key::tab:
     case kit::Key::back_tab: {
-        const kit::ControlId next = tab_target(
-            browser, list, interaction.focused, interaction.focus_shown, pressed == kit::Key::tab
-        );
+        const kit::ControlId next =
+            tab_target(browser, list, interaction.focused, pressed == kit::Key::tab);
         if (next == kit::no_control)
             return {};
         interaction.focused = next;
         interaction.focus_shown = true;
+        interaction.pointer_hid_ring = false;
         reveal(state, list, next);
         return redrawn();
     }

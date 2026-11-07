@@ -513,13 +513,14 @@ bool stop_copy_continue(Session& session) noexcept;
 /// @param[in,out] session the session
 void reset_copy_continue(Session& session) noexcept;
 
-/// Places the focus on the step's first control, once per step. On the
-/// language step a focus on a card follows the card the carousel turns to,
-/// so the focus ring marks the chosen card and no other.
+/// Places the focus on the step's first tab stop, once per step, with the
+/// ring hidden unless `show` is set. On the language step a focus that is
+/// already on a card follows the card the carousel turns to.
 ///
 /// @param[in,out] session the session
 /// @param list the scene's controls
-void ensure_focus(Session& session, const kit::DisplayList& list);
+/// @param show true draws the ring on that first stop
+void ensure_focus(Session& session, const kit::DisplayList& list, bool show = false);
 
 /// Where a finger is.
 enum class PointerKind : uint8_t {

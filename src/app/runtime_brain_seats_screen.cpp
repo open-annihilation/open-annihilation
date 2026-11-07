@@ -1179,6 +1179,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             card_pressed_ = false;
             if (focused_slot_ >= 0) {
                 focused_slot_ = -1;
+                focus_ring_ = false;
                 ++revision_;
             }
             return LayerAnswer::pass;
@@ -1336,7 +1337,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         shown_state.hovered = control_id(hovered_slot_);
         shown_state.pressed = control_id(pressed_slot_);
         shown_state.focused = control_id(focused_slot_);
-        shown_state.focus_shown = focused_slot_ >= 0;
+        shown_state.focus_shown = focus_ring_;
         return shown_state;
     }
 
@@ -1359,12 +1360,41 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         if (focused_slot_ >= 0 && !has_button(laid, focused_slot_)) {
             focused_slot_ = -1;
             pressed_slot_ = -1;
+            focus_ring_ = false;
             ++revision_;
         }
         if (focused_slot_ >= 0 && runtime_.frontend_focus() >= 0) {
             focused_slot_ = -1;
             pressed_slot_ = -1;
+            focus_ring_ = false;
             ++revision_;
+        }
+        // Once a button exists, the first one is focused with the ring hidden,
+        // unless the screen under this one already has the focus. That focus
+        // is not taken, and a later clear stays cleared.
+        if (laid.ok && !opened_focus_) {
+            opened_focus_ = true;
+            if (focused_slot_ < 0 && runtime_.frontend_focus() < 0) {
+                int32_t first = -1;
+                for (const Stop& stop : stops_of(laid)) {
+                    if (!stop.button)
+                        continue;
+                    first = stop.id;
+                    break;
+                }
+                if (first < 0) {
+                    for (const SeatButton& button : laid.buttons) {
+                        first = button.slot;
+                        break;
+                    }
+                }
+                if (first >= 0) {
+                    focused_slot_ = first;
+                    focus_ring_ = runtime_.oa_layer().always_show_focus();
+                    if (focus_ring_)
+                        ++revision_;
+                }
+            }
         }
         if (card_.open_slot() != mp::presence_card_no_slot && card_.open_slot() != menu_card_slot &&
             !has_button(laid, card_.open_slot()))
@@ -1967,7 +1997,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             room::draw_room_button(parts, art, look);
         }
         room::draw_room_notch(parts, art, notch, menu_.seat == button.slot, held_here);
-        if (focused_slot_ == button.slot)
+        if (focus_ring_ && focused_slot_ == button.slot)
             room::draw_room_focus(parts, art, button.campaign ? button.rect : notch);
     }
 
@@ -2177,6 +2207,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     LayerAnswer take_focus(int32_t slot) {
         focused_slot_ = slot;
         pressed_slot_ = -1;
+        focus_ring_ = true;
         if (runtime_.frontend_focus() != -1)
             runtime_.set_frontend_focus(-1);
         ++revision_;
@@ -2189,6 +2220,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     /// @return redraw
     LayerAnswer hand_focus(int32_t gadget) {
         focused_slot_ = -1;
+        focus_ring_ = false;
         runtime_.set_frontend_focus(gadget);
         ++revision_;
         return LayerAnswer::redraw;
@@ -2261,8 +2293,14 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             }
             return LayerAnswer::pass;
         }
+        // The ring is hidden: Tab and Shift+Tab move and show it. Every other
+        // key is the screen's, including Return, until a key shows the ring.
+        if (!focus_ring_ && pressed != kit::Key::tab && pressed != kit::Key::back_tab)
+            return LayerAnswer::pass;
         if (pressed == kit::Key::enter || pressed == kit::Key::space) {
             open_menu(focused_slot_);
+            if (pressed == kit::Key::enter)
+                focus_ring_ = false;
             return LayerAnswer::redraw;
         }
         const std::vector<Stop> stops = stops_of(laid);
@@ -2457,6 +2495,8 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     int32_t pressed_slot_{-1}; ///< the notch a left press is held on; -1 for none
     int32_t right_pressed_slot_{-1}; ///< the button a right press is held on; -1 for none
     int32_t focused_slot_{-1};       ///< the notch the keyboard focus is on; -1 for none
+    bool focus_ring_{};              ///< the focus ring is drawn on that notch
+    bool opened_focus_{};            ///< the screen has placed its opening focus
     bool have_pointer_{};            ///< the pointer has been seen
     kit::Point pointer_layer_{};     ///< the pointer, in the layer's points
     bool card_pressed_{};            ///< a press started on the open card

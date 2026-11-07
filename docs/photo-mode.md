@@ -77,6 +77,29 @@ shows it too. The line keeps the game clock, and that clock goes on.
 The line names the state: Frozen, Slow and its ticks a second, or Held,
 with the game clock.
 
+## Camera
+
+The view runs from the whole map out to eight times normal size, whatever
+Maximum zoom out and Maximum zoom in are set to. Where the picture in use
+cannot draw a zoom, the view reaches the closest it can draw in that frame.
+
+Units stay models at every zoom. They are drawn as dots only when the
+machine cannot spare the memory, or when they sit farther from the camera
+than the models can be placed. A far view costs what it costs in play.
+
+The view stays within View past the map's edge, as in play, in the turned
+view as well. Follow follows a unit for this visit and centres it where
+it is drawn. A pan stops the follow.
+
+Turning and tilting work where the machine draws the turned view, within
+the same limits as holding Alt and dragging. Classic view and Unlocked
+camera work as in play. Elsewhere a turn is refused, and the reason is the
+one Settings gives: Needs Full acceleration, Needs Allow full 3D mode, or
+Not available here. A held picture is not turned, tilted, panned or zoomed.
+The picture does not roll, and it is not a perspective view.
+
+Leaving puts the zoom and the angles back.
+
 ## Leaving
 
 Escape leaves photo mode. Opening the game menu leaves photo mode first,
@@ -89,3 +112,22 @@ you leave the match, when a game is loaded, or when the run quits.
 Leaving a replay keeps the pause and the speed it had. Pause, and + and
 −, change them as they do outside photo mode. Run puts back the speed
 the replay had when you entered.
+
+## Taking a photo
+
+A photo saves the battlefield as you see it, at the window's size, in the
+render mode in use. The saved picture is the battlefield alone. It is a
+PNG, written where the screenshots go: `Screenshots` and the folder of the
+mod you are playing, `Screenshots/default` with no mod, or the Image Output
+Directory when you have set one.
+
+While you hold the picture in a shared match, a photo saves the held
+battlefield, as the screen shows it, not the battle going on underneath.
+
+The name is `Photo <YYYY-MM-DD> <HH.MM.SS> <map>.png`, in your local time.
+A photo of Canal Crossing taken at 13:12:08 on 5 November 2026 is
+`Photo 2026-11-05 13.12.08 Canal Crossing.png`. A second photo in that
+same second is numbered `2`, and a third is numbered `3`, before `.png`.
+
+When the file has been written, the line says "Saved" and the file's name.
+When nothing was written, the line says "Photo not saved" and why.

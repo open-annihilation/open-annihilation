@@ -659,7 +659,7 @@ bool held(const Building& building, kit::ControlId id) {
 /// @return true while it has the focus
 bool focused(const Building& building, kit::ControlId id) {
     const kit::Interaction& interaction = building.state->interaction;
-    return interaction.focus_shown && interaction.focused == id;
+    return kit::focus_ring_visible(interaction) && interaction.focused == id;
 }
 
 /// Returns a button's width as Settings sizes its buttons (Cancel, OK,
@@ -8377,7 +8377,7 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
 /// @param[in,out] building the layout
 void add_focus_ring(Building& building) {
     const kit::Interaction& interaction = building.state->interaction;
-    if (!interaction.focus_shown || interaction.focused == kit::no_control ||
+    if (!kit::focus_ring_visible(interaction) || interaction.focused == kit::no_control ||
         interaction.focused == controls::search || interaction.focused == controls::active_search)
         return;
     for (const kit::Item& item : building.list.items)
@@ -8423,7 +8423,7 @@ void add_open_menu(Building& building, int32_t footer_line) {
     look.total = count;
     look.chosen = menu_open.chosen;
     look.marked = building.state->menu_marked;
-    look.focus_shown = building.state->interaction.focus_shown;
+    look.focus_shown = kit::focus_ring_visible(building.state->interaction);
     // A menu with a heading names each row: a heading is a divider, which
     // takes no press and no name.
     const bool headed = std::any_of(
@@ -8521,7 +8521,7 @@ void append_fitted(
 /// @return the icon's control; none when neither rests on a key icon
 kit::ControlId key_tip_id(const ScreenState& state) noexcept {
     const kit::Interaction& interaction = state.interaction;
-    if (interaction.focus_shown && controls::registry_key_control(interaction.focused))
+    if (kit::focus_ring_visible(interaction) && controls::registry_key_control(interaction.focused))
         return interaction.focused;
     if (controls::registry_key_control(interaction.hovered))
         return interaction.hovered;

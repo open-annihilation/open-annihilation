@@ -38,7 +38,8 @@ struct Runtime::PhotoState {
     bool show_health_bars{};  ///< health bars over the bare battlefield
 
     /// The player's camera and battlefield rectangle at entry. The on-screen
-    /// test collects against these while the photo camera is bound for drawing.
+    /// test collects against these. The picture uses the photo camera, and
+    /// the Game block keeps this one.
     uint32_t kept_camera_x{};
     uint32_t kept_camera_y{};
     oa::Rect32 kept_rect{};

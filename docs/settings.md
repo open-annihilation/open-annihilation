@@ -1280,7 +1280,8 @@ of the game's file types this copy opens.
 - **Your files** is not a setting: it shows where your saved games,
   screenshots, films, recordings and mods go, the Open Annihilation folder
   in your Documents folder unless you moved it. **SAVES**, **SCREENSHOTS**
-  and **MODS** open those folders in the system's file manager. Films and
+  and **MODS** open those folders in the system's file manager.
+  **SCREENSHOTS** opens the photos as well as the screenshots. Films and
   the recordings of network games are in its `Films` and `Recordings`
   folders, which have no button. `Saves`, `Screenshots`, `Films` and
   `Recordings` each hold a folder for each mod, named after its id, and

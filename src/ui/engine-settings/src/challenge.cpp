@@ -467,7 +467,8 @@ kit::DisplayList challenge_list(const ChallengeModel& model, const kit::Fonts* f
 
     const kit::Interaction& interaction = model.interaction;
     for (const PlacedButton& button : buttons) {
-        const bool marked = interaction.focus_shown && interaction.focused == button.id;
+        const bool marked =
+            kit::focus_ring_visible(interaction) && interaction.focused == button.id;
         const bool hovered = interaction.hovered == button.id;
         const bool held = interaction.pressed == button.id && hovered;
         add_button(list, button, marked, hovered, held);
@@ -484,6 +485,7 @@ kit::DisplayList challenge_list(const ChallengeModel& model, const kit::Fonts* f
 void challenge_settle(ChallengeModel& model) {
     model.interaction.focused = challenge_focus_control(model.window);
     model.interaction.focus_shown = true;
+    model.interaction.pointer_hid_ring = false;
     model.interaction.hovered = kit::no_control;
     model.interaction.pressed = kit::no_control;
     model.interaction.finger_shift = {};

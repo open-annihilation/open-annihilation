@@ -1306,6 +1306,59 @@ draws of one frame match. The pause and the speed stay as they were. In
 a shared match and for a watcher those commands are refused, the clock
 goes on, and a held picture stays byte for byte the same for 30 ticks
 and is live again after leaving. The preferences file is unchanged.
+`native-photo-camera` (`--check-photo camera`) plays the same fight twice
+in a window on the dummy drivers. One pass enters photo mode, zooms to the
+whole map and to eight times, draws each at the battlefield's size, pans to
+the view's limits and follows a unit, and leaves. The other never enters.
+At the last tick the two worlds read back the same. Units stay models
+unless a budget forced through rendered_units_budget_override refuses them,
+and then they are dots. For the visit, Zoomed out units is Dots and After
+zoom is 1/2, and both are put back. The hover is cleared on entering and
+on leaving. A pan moves the photo camera and the Game block's camera stays
+where it was on entering. At eight times the followed unit, after the
+frame's placement, is inside the battlefield's middle half. Play's zoom
+settings are unchanged, and so is the preferences file.
+`native-photo-camera-full` is that check with Full taken as capable
+on SDL's software renderer: every zoom it offers is drawn by Full, and a
+zoom Full cannot draw is not offered, with the reason.
+`native-live-renderer`'s photo-mode turn reads the unlocked turns from the
+setting, holds a pan toward each edge at the whole map and at eight times,
+and draws the frame at Full's floor after Classic view. A picture held in
+the turned view, with the skirmish read as a shared match, refuses a turn,
+a tilt, the wheel and the zoom keys, keeps its zoom when the view goes
+classic under Full, and gives its camera back when it is let go.
+`native-photo-capture` (`--check-photo capture`) takes a photo of that fight
+in photo mode, on the dummy drivers, and reads the PNG back. The check sets
+the player's gamma to the saved value 20. The picture is the window's
+battlefield with that gamma once, pinned by its SHA-256: the frame the
+window presented, outside the photo line, and the processor's battlefield
+mapped through the gamma table. A second photo in the same second is named
+with ` 2`. The file is under `Screenshots/default`. The check sets the
+played profile id to ridge for one photo, which is written under
+`Screenshots/ridge`. The preferences file is unchanged, and a pass that
+takes no photo reads back as the pass that does. Leaving and entering again
+shows `Photo mode  Esc leaves`, then Frozen and the clock, and no photo's
+sentence until the next photo. Then, in a shared match, it holds the
+picture, lets the match run 30 ticks and takes a photo: the photo is the
+held copy with that gamma once and the frame the window presented, outside
+the photo line, and a photo taken after letting go differs from it. The
+Basic and Full checks below end with the same held photo. The check
+removes the photos it wrote.
+`native-photo-capture-basic` (`--hardware-acceleration=basic --force-capable`)
+saves the battlefield the screen shows, the area pass below zoom 1 included,
+at 640x480 and 1280x720 and at zooms 0.5, 1 and 2. The photo matches the
+frame the window presented, outside the photo line, and the processor's
+battlefield mapped through the gamma table.
+`native-photo-capture-full` (`--hardware-acceleration=full --force-capable`)
+reads the battlefield the Full tier drew, at the window's pixel size, before
+the photo line, and requires that Full drew the frame. The photo matches the
+frame the window presented, outside the photo line. Its pixels are not pinned.
+`native-photo-capture-live` (`--check-photo live --hardware-acceleration=full`)
+photographs the turned view on the system video driver, with the player's
+gamma once, and skips with status 77 when no device can draw it. Then it
+holds the turned view in a shared match, drawn as played frames are, and
+the photo taken 30 ticks later is the held copy, not the live picture. The
+check removes the photos it wrote.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
 a skirmish, then the overlays' places: Move overlays off by default with
 Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move

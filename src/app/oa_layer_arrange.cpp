@@ -785,6 +785,8 @@ class ArrangeScreen final : public LayerScreen {
         if (!laid_)
             return LayerAnswer::none;
         const auto focused = handle_of(interaction_.focused);
+        if (pressed != kit::Key::yes && pressed != kit::Key::no && pressed != kit::Key::info)
+            kit::show_ring_for_key(interaction_);
         if (focused && interaction_.focus_shown) {
             int32_t across = 0;
             int32_t down = 0;
@@ -1227,7 +1229,7 @@ class ArrangeScreen final : public LayerScreen {
         look.hovered = interaction_.hovered == id;
         look.held = interaction_.pressed == id && interaction_.hovered == id;
         kit::draw_button(canvas, box, look);
-        if (interaction_.focus_shown && interaction_.focused == id)
+        if (kit::focus_ring_visible(interaction_) && interaction_.focused == id)
             kit::draw_focus_ring(canvas, box, false);
     }
 
@@ -1277,7 +1279,7 @@ class ArrangeScreen final : public LayerScreen {
             kit::Align::left,
             kit::colour::on_accent
         );
-        if (interaction_.focus_shown && interaction_.focused == id)
+        if (kit::focus_ring_visible(interaction_) && interaction_.focused == id)
             kit::draw_focus_ring(canvas, box, false);
     }
 

@@ -13,6 +13,7 @@
 
 #include "director_state.hpp"
 #include "oa_layer.hpp"
+#include "photo_camera.hpp"
 #include "photo_state.hpp"
 
 #include "presentation_interpolation.hpp"
@@ -20,6 +21,7 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/sim/messages.hpp"
 #include "oa/sim/selection.hpp"
+#include "oa/sim/spatial_state/spatial.hpp"
 #include "oa/sim/speed.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/console/hotkeys.hpp"
@@ -41,6 +43,9 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+
+static_assert(oa::app::kPhotoProcessorFloor == oa::app::kMinBattlefieldZoom);
+static_assert(oa::app::kPhotoFullFloor == oa::app::kMinFullBattlefieldZoom);
 
 namespace oa::app {
 namespace {
@@ -276,55 +281,62 @@ void Runtime::refresh_photo_kept_view() {
 }
 
 std::string Runtime::photo_status_line() {
+    // A photo that finished since the last line is reported here, on the
+    // frame's thread.
+    publish_photo_status();
     // The engine's own words, from the interface catalogue. 3.1c's tables
     // have none of these, so translate_ui would leave them in English.
     std::string line{oa::data::languages::interface_text("Photo mode")};
     line += "  ";
     line += oa::data::languages::interface_text("Esc leaves");
-    if (photo_ == nullptr || match_ == nullptr)
-        return line;
-    const uint32_t bits = current_extension_state();
-    const bool shared =
-        (bits & (extension_state::shared_match | extension_state::local_watcher)) != 0;
-    // A shared match never shows Frozen: its clock is the battle's, and it
-    // keeps running. Freeze is this machine's hold, beside the pause key.
-    // A replay says Frozen only while its own pause is on.
-    const bool replay = !shared && photo_time_is_replay();
-    const bool replay_paused =
-        replay && (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
-    const bool frozen =
-        !shared && (replay ? replay_paused : photo_->time == PhotoState::Time::frozen);
-    const bool slow = !shared && !frozen && photo_->time == PhotoState::Time::slow;
-    if (frozen) {
-        line += "  ";
-        line += oa::data::languages::interface_text("Frozen");
-    } else if (slow) {
-        line += "  ";
-        line += oa::data::languages::interface_text("Slow");
-        line += ' ';
-        line += std::to_string(photo_->slow_speed * 3);
+    if (photo_ != nullptr && match_ != nullptr) {
+        const uint32_t bits = current_extension_state();
+        const bool shared =
+            (bits & (extension_state::shared_match | extension_state::local_watcher)) != 0;
+        // A shared match never shows Frozen: its clock is the battle's, and it
+        // keeps running. Freeze is this machine's hold, beside the pause key.
+        // A replay says Frozen only while its own pause is on.
+        const bool replay = !shared && photo_time_is_replay();
+        const bool replay_paused =
+            replay && (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+        const bool frozen =
+            !shared && (replay ? replay_paused : photo_->time == PhotoState::Time::frozen);
+        const bool slow = !shared && !frozen && photo_->time == PhotoState::Time::slow;
+        if (frozen) {
+            line += "  ";
+            line += oa::data::languages::interface_text("Frozen");
+        } else if (slow) {
+            line += "  ";
+            line += oa::data::languages::interface_text("Slow");
+            line += ' ';
+            line += std::to_string(photo_->slow_speed * 3);
+        }
+        if (photo_->picture_held) {
+            line += "  ";
+            line += oa::data::languages::interface_text("Held");
+        }
+        if (shared || frozen || slow || photo_->picture_held) {
+            char clock[64]{};
+            hud::format_game_time(clock, sizeof clock, match_->state().game.tick);
+            line += "  ";
+            line += clock;
+        }
+        if (shared) {
+            const std::string under_attack = photo_latest_under_attack();
+            if (!under_attack.empty()) {
+                line += "  ";
+                line += under_attack;
+            }
+            line += "  ";
+            line += std::to_string(photo_chat_lines_since_enter());
+            line += ' ';
+            line += oa::data::languages::interface_text("chat lines");
+        }
     }
-    if (photo_->picture_held) {
+    if (!photo_notice_.empty()) {
         line += "  ";
-        line += oa::data::languages::interface_text("Held");
+        line += photo_notice_;
     }
-    if (!shared && !frozen && !slow && !photo_->picture_held)
-        return line;
-    char clock[64]{};
-    hud::format_game_time(clock, sizeof clock, match_->state().game.tick);
-    line += "  ";
-    line += clock;
-    if (!shared)
-        return line;
-    const std::string under_attack = photo_latest_under_attack();
-    if (!under_attack.empty()) {
-        line += "  ";
-        line += under_attack;
-    }
-    line += "  ";
-    line += std::to_string(photo_chat_lines_since_enter());
-    line += ' ';
-    line += oa::data::languages::interface_text("chat lines");
     return line;
 }
 
@@ -346,6 +358,97 @@ std::string Runtime::photo_latest_under_attack() {
         }
     );
     return latest;
+}
+
+namespace {
+
+/// The offer for the picture that is drawing now.
+///
+/// @param turned the turned view is drawing
+/// @param card Full's classic view is drawing
+/// @param map_width map pixels across the shown map
+/// @param map_height map pixels down it
+/// @param battlefield_width screen pixels across the battlefield
+/// @param battlefield_height screen pixels down it
+/// @return the offer
+PhotoZoomRange photo_offer_now(
+    bool turned,
+    bool card,
+    int32_t map_width,
+    int32_t map_height,
+    int32_t battlefield_width,
+    int32_t battlefield_height
+) noexcept {
+    const PhotoTier tier = turned ? PhotoTier::turned
+                           : card ? PhotoTier::full_classic
+                                  : PhotoTier::processor;
+    return photo_zoom_range(tier, map_width, map_height, battlefield_width, battlefield_height);
+}
+
+} // namespace
+
+std::array<float, 2> Runtime::photo_zoom_limits() const noexcept {
+    const auto [map_width, map_height] = shown_map_size();
+    const PhotoZoomRange offer = photo_offer_now(
+        live_renderer_active(),
+        full_presentation(),
+        map_width,
+        map_height,
+        match_layout_.battlefield_width(),
+        match_layout_.battlefield_height()
+    );
+    return {offer.least, offer.most};
+}
+
+std::string Runtime::photo_zoom_reason() const {
+    const auto [map_width, map_height] = shown_map_size();
+    const PhotoZoomRange offer = photo_offer_now(
+        live_renderer_active(),
+        full_presentation(),
+        map_width,
+        map_height,
+        match_layout_.battlefield_width(),
+        match_layout_.battlefield_height()
+    );
+    if (offer.cut != PhotoZoomCut::card)
+        return {};
+    return std::string(
+        oa::data::languages::interface_text("The graphics card draws no farther out than this.")
+    );
+}
+
+void Runtime::snap_photo_zoom_to_far_end() {
+    // A held picture keeps the zoom and the target it was copied with, even
+    // when a failed turned frame leaves the view classic under the hold.
+    if (!photo_mode() || !selected_tnt_ || photo_camera_locked())
+        return;
+    const std::array<float, 2> offered = photo_zoom_limits();
+    const float least = offered[0];
+    // Already within the offer: a wheel zoom still eases. Only a zoom the
+    // tier in use no longer draws is taken there before the frame.
+    if (!(match_zoom_ < least))
+        return;
+    match_zoom_target_ = least;
+    const auto wide = static_cast<float>(match_layout_.battlefield_width());
+    const auto high = static_cast<float>(match_layout_.battlefield_height());
+    zoom_focus_ = {
+        false,
+        static_cast<float>(match_layout_.left) + wide / 2.0F,
+        static_cast<float>(match_layout_.top) + high / 2.0F
+    };
+    zoom_view_about(least, static_cast<double>(wide) / 2.0, static_cast<double>(high) / 2.0);
+}
+
+void Runtime::clear_match_hover() noexcept {
+    hovered_.reset();
+    hovered_match_unit_ = 0;
+    unit_panel_hover_name_.clear();
+    unit_panel_hover_description_.clear();
+    if (match_ == nullptr)
+        return;
+    auto& game = match_->state().game;
+    game.cursor_unit_id = 0;
+    game.cursor_feature = oa::sim::spatial_state::no_feature;
 }
 
 uint32_t Runtime::photo_chat_lines_since_enter() {
@@ -419,6 +522,8 @@ bool Runtime::enter_photo_mode() {
     match_tracking_ = false;
     tracked_match_unit_ = 0;
     match_->state().game.follow_unit = 0;
+    // The pointer pass keeps running and would leave its line in the bar.
+    clear_match_hover();
     terrain_cache_cam_x_ = kUncachedTerrainCamera;
     frame_without_cursor_ = true;
     if (photo_->keys_overlay) {
@@ -439,12 +544,19 @@ bool Runtime::enter_photo_mode() {
         leave_photo_mode();
         return false;
     }
+    // A photo that finished while photo mode was off still reaches the status
+    // line. The line itself starts clear, including a visit after one that
+    // saved a photo.
+    publish_photo_status();
+    photo_notice_.clear();
     return true;
 }
 
 void Runtime::leave_photo_mode(bool match_ending) noexcept {
     if (photo_ == nullptr)
         return;
+    // A feature the photo view put under the pointer stays in the bar.
+    clear_match_hover();
     // The time field alone: this function must not ask the extension, whose
     // state hook can throw. A replay's pause bit and speed are left as they are.
     const bool resume =

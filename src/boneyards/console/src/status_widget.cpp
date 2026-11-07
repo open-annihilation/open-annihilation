@@ -7,16 +7,21 @@
 
 #include "oa/boneyards/font_atlases.hpp"
 #include "oa/boneyards/rover_session.hpp"
+#include "oa/boneyards/screens/chat.hpp"
+#include "oa/boneyards/screens/galaxy.hpp"
 #include "oa/boneyards/utf8.hpp"
 
 #include "oa/platform/system.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -35,6 +40,78 @@ namespace {
 
 constexpr int32_t k_screen_width = 640;
 constexpr int32_t k_screen_height = 480;
+// Colour-vision mode the open hat fonts were tinted for. Not a mode until the fonts exist.
+uint8_t g_role_font_mode = 0xFF;
+Handle g_muzzle_font = k_no_handle;
+
+std::span<const uint8_t> palette_bytes(const StatusWidget* widget) {
+    if (widget == nullptr || widget->config.palette == nullptr)
+        return {};
+    return std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(widget->config.palette->entries), sizeof(oa::Palette)
+    );
+}
+
+void publish_role_fonts(StatusWidget* widget) {
+    if (widget == nullptr || widget->navigation == nullptr)
+        return;
+    screens::ChatSession& session = widget->navigation->session;
+    const screens::HatFonts& fonts = widget->system.hat_fonts;
+    session.system_font = fonts.small_green;
+    session.rank_0x15_font = fonts.small_orange;
+    session.arm_font = fonts.small_blue;
+    session.core_font = fonts.small_red;
+}
+
+void release_muzzle_font() {
+    if (g_muzzle_font >= 0)
+        font_release(g_muzzle_font);
+    g_muzzle_font = k_no_handle;
+    screens::boneyards_muzzle_font(k_no_handle);
+}
+
+// Tints the four chat roles, and a muzzled name while a mode is on. Off uses today's indices and
+// the dim font for a muzzled name.
+void tint_role_fonts(StatusWidget* widget) {
+    if (widget == nullptr || widget->toolkit == nullptr)
+        return;
+    auto& fonts = widget->system.hat_fonts;
+    if (fonts.small < 0)
+        return;
+    const screens::GalaxyChatColours colours = screens::galaxy_chat_colours(palette_bytes(widget));
+    const Handle previous[] = {
+        fonts.small_green, fonts.small_orange, fonts.small_blue, fonts.small_red
+    };
+    fonts.small_green =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.system));
+    fonts.small_orange =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.newsbot));
+    fonts.small_blue =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.arm));
+    fonts.small_red =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.core));
+    for (const Handle old : previous) {
+        if (old >= 0)
+            font_release(old);
+    }
+    release_muzzle_font();
+    if (present::colour_vision::active_mode() != present::colour_vision::Mode::off) {
+        const int32_t ink = screens::muzzle_name_index(palette_bytes(widget));
+        g_muzzle_font = toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(ink));
+        screens::boneyards_muzzle_font(g_muzzle_font);
+    }
+    g_role_font_mode = static_cast<uint8_t>(present::colour_vision::active_mode());
+    publish_role_fonts(widget);
+}
+
+void refresh_role_fonts(StatusWidget* widget) {
+    if (widget == nullptr || !widget->system.fonts_loaded)
+        return;
+    if (g_role_font_mode == static_cast<uint8_t>(present::colour_vision::active_mode()))
+        return;
+    tint_role_fonts(widget);
+}
+
 const char* const k_cursor_file = "cursors.gaf";
 const char* const k_cursor_sequence = "cursornormal";
 // Key values of typed characters.
@@ -140,8 +217,13 @@ FontAtlas* open_analogue_atlas() {
 // toolkit whose drawing is redirected into the frame being drawn; images, the
 // cursor's frames among them, stay with the console store.
 void attach_toolkit(StatusWidget* widget) {
-    if (widget->config.palette == nullptr)
+    if (widget->config.palette == nullptr) {
+        screens::boneyards_use_palette(nullptr, 0);
         return;
+    }
+    screens::boneyards_use_palette(
+        reinterpret_cast<const uint8_t*>(widget->config.palette->entries), sizeof(oa::Palette)
+    );
     ToolkitConfig config{};
     config.width = k_screen_width;
     config.height = k_screen_height;
@@ -181,6 +263,10 @@ void ensure_window_resources(StatusWidget* widget) {
         widget->galaxy_graphics = std::make_unique<GalaxyGraphics>();
         if (!galaxy_load_graphics(*widget->galaxy_graphics, widget->config.files))
             widget->galaxy_graphics.reset();
+        else
+            widget->galaxy_graphics->palette = widget->config.palette;
+    } else {
+        widget->galaxy_graphics->palette = widget->config.palette;
     }
 }
 
@@ -1063,10 +1149,7 @@ void console_open_main_frame(StatusWidget* widget) {
             f.small = font_load("BYHatFontSmall87.gaf");
             f.small_dim = toolkit_font_tint(widget->toolkit, f.small, 0x5a);
             f.small_light = toolkit_font_tint(widget->toolkit, f.small, 0x54);
-            f.small_green = toolkit_font_tint(widget->toolkit, f.small, 0xe9);
-            f.small_orange = toolkit_font_tint(widget->toolkit, f.small, 0xc7);
-            f.small_blue = toolkit_font_tint(widget->toolkit, f.small, 0xe2);
-            f.small_red = toolkit_font_tint(widget->toolkit, f.small, 0xd4);
+            tint_role_fonts(widget);
             f.medium = font_load("BYHatFontMedium90.gaf");
             f.button_pressed = toolkit_font_tint(widget->toolkit, f.medium, 0x5d);
             f.button_normal = toolkit_font_tint(widget->toolkit, f.medium, 0x57);
@@ -1189,6 +1272,8 @@ void console_release_gui(StatusWidget* widget) {
         };
         for (Handle font : handles)
             font_release(font);
+        release_muzzle_font();
+        g_role_font_mode = 0xFF;
         widget->system.hat_fonts = {};
         widget->system.fonts_loaded = false;
         screens::function_button_fonts(nullptr);
@@ -1215,6 +1300,7 @@ void boneyards_status_widget_destroy(StatusWidget* widget) {
     }
     font_atlas_close(widget->analogues);
     widget->analogues = nullptr;
+    screens::boneyards_use_palette(nullptr, 0);
     if (widget->navigation != nullptr) {
         screens::boneyards_screens_release(widget->navigation);
         delete widget->navigation;
@@ -1508,6 +1594,13 @@ struct DesktopShift {
 void boneyards_status_widget_draw(StatusWidget* widget, Surface* target, int32_t origin_y) {
     if (widget == nullptr || !desktop_has_windows(&widget->desktop))
         return;
+    if (widget->config.palette != nullptr)
+        screens::boneyards_use_palette(
+            reinterpret_cast<const uint8_t*>(widget->config.palette->entries), sizeof(oa::Palette)
+        );
+    if (widget->galaxy_graphics != nullptr)
+        widget->galaxy_graphics->palette = widget->config.palette;
+    refresh_role_fonts(widget);
     message_box_keep_in_front(&widget->desktop);
     ScopedServices scope(widget);
     const DesktopShift shift(&widget->desktop, origin_y);

@@ -187,10 +187,12 @@ class LanguageNoticeScreen final : public LayerScreen {
     /// @param runtime the runtime
     /// @param notice what it shows
     /// @param tag the language it is about
-    LanguageNoticeScreen(Runtime& runtime, settings::LanguageNotice notice, std::string tag)
-        : runtime_(runtime), model_(std::move(notice)), tag_(std::move(tag)) {
-        interaction_.focused = 1;
-        interaction_.focus_shown = true;
+    /// @param show_focus the ring is drawn on Use English when the notice opens
+    LanguageNoticeScreen(
+        Runtime& runtime, settings::LanguageNotice notice, std::string tag, bool show_focus
+    )
+        : runtime_(runtime), model_(std::move(notice)), tag_(std::move(tag)),
+          show_focus_(show_focus) {
         rebuild();
     }
 
@@ -288,9 +290,11 @@ class LanguageNoticeScreen final : public LayerScreen {
         return LayerAnswer::none;
     }
 
-    /// Takes a key. Escape and N close the notice for this run. Enter and
-    /// Space press the focused button when it is enabled. Y presses Download
-    /// when it is enabled.
+    /// Takes a key. Escape and N close the notice for this run. Enter with
+    /// the ring hidden downloads when that button is enabled, which is what
+    /// Enter does today. Enter with the ring shown presses the focused
+    /// button and the kit hides the ring. Y presses Download when it is
+    /// enabled. Space and the arrows, while the ring is hidden, show it.
     ///
     /// @param pressed the key
     /// @return what the notice did
@@ -316,6 +320,13 @@ class LanguageNoticeScreen final : public LayerScreen {
         }
         if (outcome.result == kit::KeyResult::to_control)
             return activate(outcome.control);
+        // Enter with the ring hidden is the screen's default: Download.
+        if (outcome.result == kit::KeyResult::accept) {
+            const kit::Control* download = kit::control_of(list_, 1);
+            if (download == nullptr || !download->enabled)
+                return LayerAnswer::none;
+            return activate(download->id);
+        }
         return LayerAnswer::none;
     }
 
@@ -375,6 +386,9 @@ class LanguageNoticeScreen final : public LayerScreen {
         }
         list_ =
             settings::layout_language_notice(model_, frame, LanguageNoticeHost::fonts(runtime_));
+        // Use English is the first button. The layout's own ring, on
+        // Download, is stripped again in shown_list.
+        kit::focus_opened(interaction_, list_, show_focus_);
         ++revision_;
     }
 
@@ -390,7 +404,7 @@ class LanguageNoticeScreen final : public LayerScreen {
                 items.push_back(std::move(item));
         list.items = std::move(items);
         kit::mark_states(list, interaction_);
-        if (interaction_.focus_shown)
+        if (kit::focus_ring_visible(interaction_))
             if (const kit::Control* control = kit::control_of(list, interaction_.focused))
                 kit::add_focus_ring(list, control->rect, true);
         return list;
@@ -422,7 +436,8 @@ class LanguageNoticeScreen final : public LayerScreen {
     Runtime& runtime_;               ///< the runtime
     settings::LanguageNotice model_; ///< what the notice shows
     std::string tag_;                ///< the language it is about
-    kit::DisplayList list_{};        ///< the question, focus ring on Download
+    bool show_focus_{};              ///< the ring is drawn on Use English when the notice opens
+    kit::DisplayList list_{};        ///< the question
     kit::Interaction interaction_{}; ///< the pointer and the focus
     kit::Frame frame_{};             ///< the frame it was last laid out on
     bool have_frame_{};              ///< lay_out has seen a frame
@@ -750,7 +765,9 @@ void LanguageNoticeHost::tell(Runtime& runtime) {
     run.system_case = decided->system_case;
     run.download_failed = false;
     runtime.oa_layer().show_when_free(
-        std::make_unique<LanguageNoticeScreen>(runtime, model(runtime), run.tag)
+        std::make_unique<LanguageNoticeScreen>(
+            runtime, model(runtime), run.tag, runtime.oa_layer().always_show_focus()
+        )
     );
 }
 

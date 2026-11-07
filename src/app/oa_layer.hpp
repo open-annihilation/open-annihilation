@@ -1175,6 +1175,15 @@ class OaLayer {
     /// @param[in,out] controls the list they are appended to
     void automation_controls(std::vector<AutomationControl>& controls) const;
 
+    /// Tells whether a kit screen opens with its focus ring drawn.
+    ///
+    /// `open-annihilation.access.always-show-focus` is 0 or 1. Absent, or
+    /// anything that is not a whole number above 0, leaves the ring hidden
+    /// until a key shows it.
+    ///
+    /// @return true when the preference is on
+    [[nodiscard]] bool always_show_focus() const;
+
     /// Returns how far the nearest pressable control of a screen that shows
     /// lies from a point, in the same canvas pixels a finger's claim uses.
     ///
@@ -2142,9 +2151,12 @@ class QuestionScreen final : public LayerScreen {
     [[nodiscard]] const oa::ui::kit::Question& question() const noexcept { return question_; }
 
     /// Tells the screen its host changed the question: it keeps the size
-    /// class the layer lays it out at, whatever the host put in its place.
+    /// class the layer lays it out at, and the ring state the screen holds,
+    /// whatever the host put in its place.
     void changed() noexcept {
         question_.size_class = size_class_;
+        question_.focus_shown = focus_shown_;
+        question_.pointer_hid_ring = pointer_hid_ring_;
         ++revision_;
     }
 
@@ -2274,6 +2286,11 @@ class QuestionScreen final : public LayerScreen {
     uint64_t revision_{};            ///< counts the changes to its look
     /// The size class the layer lays the question out at (lay_out).
     oa::ui::kit::SizeClass size_class_{oa::ui::kit::SizeClass::compact};
+    /// The ring state, kept across a host replacing the question. A key that
+    /// showed the ring keeps it; an untouched prompt stays without one.
+    bool focus_shown_{};
+    /// The pointer hid the ring, kept across a host replacing the question.
+    bool pointer_hid_ring_{};
     bool any_menu_{}; ///< shows on any menu, never in a match
 };
 

@@ -272,6 +272,10 @@ void Runtime::draw_loading_screen() {
 }
 
 void Runtime::teardown_match() {
+    // Photos accepted during the match finish writing before the match goes.
+    // Leaving photo mode does not join them: the player can leave while a
+    // photo is still queued.
+    finish_photo_writes();
     // Orders a stepped clock still holds go with the match. The bag is
     // keyed by this runtime, so a later match at the same address starts clear.
     drop_held_play_orders();

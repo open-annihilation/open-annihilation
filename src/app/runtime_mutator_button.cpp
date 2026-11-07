@@ -922,7 +922,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
             condition = room::ButtonCondition::disabled;
         else if (pressed_ && hovered_)
             condition = room::ButtonCondition::pressed;
-        draw_mutators_switch(parts, art, laid.frame, lamp_shown(laid), condition, focused_);
+        draw_mutators_switch(parts, art, laid.frame, lamp_shown(laid), condition, focus_ring_);
         paint_room_parts(canvas, view_, laid.bounds, parts);
         if (laid.reason) {
             const room::SourceRect line = points_rect_frame(view_, *laid.reason);
@@ -993,6 +993,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
             pressed_ = false;
             if (focused_) {
                 focused_ = false;
+                focus_ring_ = false;
                 ++revision_;
             }
             return LayerAnswer::pass;
@@ -1019,7 +1020,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @param pressed the key
     /// @return none or redraw when the button takes it; pass otherwise
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
-        if (pressed == kit::Key::info && focused_ && card_.key_info(card_slot)) {
+        if (pressed == kit::Key::info && focused_ && focus_ring_ && card_.key_info(card_slot)) {
             ++revision_;
             return LayerAnswer::none;
         }
@@ -1125,7 +1126,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
         shown_state.hovered = hovered_ ? button_id : kit::no_control;
         shown_state.pressed = pressed_ ? button_id : kit::no_control;
         shown_state.focused = focused_ ? button_id : kit::no_control;
-        shown_state.focus_shown = focused_;
+        shown_state.focus_shown = focus_ring_;
         return shown_state;
     }
 
@@ -1144,6 +1145,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
             const bool gadget_focus = !battle && runtime_.frontend_focus() >= 0;
             if (room_focus || gadget_focus) {
                 focused_ = false;
+                focus_ring_ = false;
                 ++revision_;
             }
         }
@@ -1155,6 +1157,20 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
         if (card_.open_slot() != card_before)
             ++revision_;
         const Geometry laid = laid_out(view_);
+        // Once the button has a place, it is focused with the ring hidden,
+        // unless the screen under it already has the focus. That focus is
+        // not taken, and a later clear stays cleared.
+        if (laid.ok && !opened_focus_) {
+            opened_focus_ = true;
+            const bool room_focus = laid.battle && mp::multiplayer_battle_room_focus() > 0;
+            const bool gadget_focus = !laid.battle && runtime_.frontend_focus() >= 0;
+            if (!focused_ && !room_focus && !gadget_focus) {
+                focused_ = true;
+                focus_ring_ = runtime_.oa_layer().always_show_focus();
+                if (focus_ring_)
+                    ++revision_;
+            }
+        }
         std::string now = count_text(chosen_count());
         now += '/';
         now += std::to_string(static_cast<int32_t>(lamp_shown(laid)));
@@ -1221,6 +1237,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     LayerAnswer take_focus(bool battle) {
         focused_ = true;
         pressed_ = false;
+        focus_ring_ = true;
         if (battle)
             mp::multiplayer_set_battle_room_focus(mp::kNoControl);
         else
@@ -1236,6 +1253,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @return redraw
     LayerAnswer hand_focus(int32_t index, bool battle) {
         focused_ = false;
+        focus_ring_ = false;
         if (battle)
             mp::multiplayer_set_battle_room_focus(index);
         else
@@ -1266,9 +1284,18 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
                 return take_focus(laid.battle);
             return LayerAnswer::pass;
         }
+        // The ring is hidden: Tab and Shift+Tab move and show it. Every other
+        // key is the screen's, including Return, until a key shows the ring.
+        if (!focus_ring_ && pressed != kit::Key::tab && pressed != kit::Key::back_tab)
+            return LayerAnswer::pass;
         if (pressed == kit::Key::enter || pressed == kit::Key::space) {
             if (!laid.locked)
                 open_picker();
+            if (pressed == kit::Key::enter) {
+                focus_ring_ = false;
+                ++revision_;
+                return LayerAnswer::redraw;
+            }
             return LayerAnswer::none;
         }
         if (pressed == kit::Key::tab) {
@@ -1530,6 +1557,8 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     bool hovered_{};                 ///< the pointer is over the button
     bool pressed_{};                 ///< a press on the button is held
     bool focused_{};                 ///< the keyboard focus is on the button
+    bool focus_ring_{};              ///< the focus ring is drawn on the button
+    bool opened_focus_{};            ///< the screen has placed its opening focus
     uint64_t revision_{};            ///< counts the changes to how it looks
     std::string seal_{};             ///< the words and the lamp last drawn
     mp::PresenceCardTrigger card_{}; ///< when the card opens and closes

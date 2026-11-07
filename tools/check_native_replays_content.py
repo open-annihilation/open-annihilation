@@ -542,6 +542,8 @@ def main():
             and "Getting ridge-reach" not in played.stdout
             and "replays content: ridge playing" in played.stdout
             and "replays content: ridge again" in played.stdout
+            and played.stdout.count("replays content: end screen stayed until Main Menu") >= 2
+            and played.stdout.count("replays content: library open on default/ridge.oademo") >= 2
             and "replays content: the next start played nothing" in played.stdout
             and "replays content: no mod" in played.stdout
             and "a stop during the replay chose No Mod" in played.stdout
@@ -658,8 +660,10 @@ def main():
         expansion.returncode == 0
         and "Turn on and watch" in expansion.stdout
         and "replays content: expansion playing" in expansion.stdout
+        and "replays content: end screen stayed until Main Menu" in expansion.stdout
         and "0 missing, 0 extra" in expansion.stdout
         and "replays content: expansions restored" in expansion.stdout
+        and "replays content: library open on default/expansion.oademo" in expansion.stdout
         and "replays content: the next start played nothing" in expansion.stdout
         and "a stop during the replay put the set back" in expansion.stdout
         and "a start that ended before the replay put the set back" in expansion.stdout

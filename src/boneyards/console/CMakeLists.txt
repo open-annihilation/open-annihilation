@@ -7,7 +7,7 @@ add_library(oa::boneyards::console ALIAS oa-boneyards-console)
 target_include_directories(oa-boneyards-console PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(oa-boneyards-console PUBLIC oa-boneyards-toolkit oa-boneyards-screens oa-boneyards-client
   oa-formats-gaf oa-boneyards-html oa-ui-frontend-renderer PRIVATE oa-formats-png ZLIB::ZLIB oa-options
-  oa-formats-tdf oa-ui-gui-layout oa-data-languages oa-platform-shims)
+  oa-formats-tdf oa-ui-gui-layout oa-data-languages oa-platform-shims oa-present-colour-vision)
 target_compile_features(oa-boneyards-console PUBLIC cxx_std_20)
 
 # Headers beside the console sources (galaxy drawing, the console's state).
@@ -81,6 +81,11 @@ if(BUILD_TESTING)
     endif()
     if(test_id STREQUAL "boneyards-navigation")
       target_link_libraries(oa-boneyards-console-${test_id} PRIVATE oa-boneyards-screens-replies)
+    endif()
+    # The war-map colour checks name the colour-vision mode. A private link on
+    # the console library does not publish that header to this executable.
+    if(test_id STREQUAL "galaxy-graphics")
+      target_link_libraries(oa-boneyards-console-${test_id} PRIVATE oa-present-colour-vision)
     endif()
     # The language catalogue and the new screens are read from the source tree.
     # The analogue atlas is the committed file, so a tall glyph is measured

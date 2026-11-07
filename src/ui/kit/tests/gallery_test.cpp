@@ -728,6 +728,8 @@ void using_the_samples_changes_the_model_alone(const Case& shown, const kit::Fra
         expect(
             drawn != laid.list.items.end() && drawn->state.on, shown, "the switch does not show On"
         );
+        // The click's pointer move hid the ring. Space presses the switch only while it shows.
+        model.interaction.focus_shown = true;
         std::ignore = kit::gallery_act(model, frame, fonts(), key_event(kit::Key::space));
         expect(
             !model.toggle_on && same_samples(model, before),

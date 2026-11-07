@@ -1260,14 +1260,22 @@ void keys_move_focus_and_press() {
         {ControlKind::choose_installer},
     };
     OA_CHECK(layout.focus_order == expected);
+    // The screen opens on the first stop with the ring hidden. The first Tab
+    // is the second stop. Shift+Tab from a fresh screen is the last stop.
+    kit::focus_opened(interaction, layout.list, false);
+    OA_CHECK(!interaction.focus_shown);
+    OA_CHECK(game_files::screen_control(interaction.focused) == expected[0]);
+    game_files::Interaction shift{};
+    OA_CHECK(
+        game_files::key(model, shift, layout, game_files::Key::back_tab).command == Command::redraw
+    );
+    OA_CHECK(shift.focus_shown && game_files::screen_control(shift.focused) == expected[3]);
     OA_CHECK(
         game_files::key(model, interaction, layout, game_files::Key::tab).command == Command::redraw
     );
     OA_CHECK(
-        interaction.focus_shown && game_files::screen_control(interaction.focused) == expected[0]
+        interaction.focus_shown && game_files::screen_control(interaction.focused) == expected[1]
     );
-    static_cast<void>(game_files::key(model, interaction, layout, game_files::Key::tab));
-    OA_CHECK(game_files::screen_control(interaction.focused) == expected[1]);
     static_cast<void>(game_files::key(model, interaction, layout, game_files::Key::back_tab));
     OA_CHECK(game_files::screen_control(interaction.focused) == expected[0]);
     static_cast<void>(game_files::key(model, interaction, layout, game_files::Key::back_tab));
@@ -1278,6 +1286,10 @@ void keys_move_focus_and_press() {
         game_files::key(model, interaction, layout, game_files::Key::enter).command ==
         Command::open_language
     );
+    // Return on the control the ring shows presses it and hides the ring.
+    // The focus stays, so the next Tab still moves on from that control.
+    OA_CHECK(!interaction.focus_shown);
+    OA_CHECK(game_files::screen_control(interaction.focused) == expected[0]);
     static_cast<void>(game_files::key(model, interaction, layout, game_files::Key::tab));
     static_cast<void>(game_files::key(model, interaction, layout, game_files::Key::tab));
     OA_CHECK(

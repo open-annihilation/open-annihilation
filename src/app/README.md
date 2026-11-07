@@ -3928,6 +3928,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   two drawn passes of the fight in a window, one of them through photo mode,
   read back as one world, including a shared match and a watcher. Clicks,
   follow, Settings, Escape and a resize go through that window.
+  `runtime_photo_capture.cpp` saves that battlefield (`take_photo`) in the
+  render mode in use, or, while a shared match's picture is held, the held
+  copy with the player's gamma. `photo_writer.cpp` encodes the PNG and
+  writes it on its own thread, into the screenshots folder. The same check
+  runs `--check-photo capture` (`native-photo-capture`,
+  `native-photo-capture-basic`, `native-photo-capture-full`) and
+  `--check-photo live` (`native-photo-capture-live`).
 - Director scripts ([docs/director.md](../../docs/director.md)):
   `runtime_director.cpp` runs `--generate-script` (the recording replayed
   undrawn through the extension that replays it, its timeline recorded and

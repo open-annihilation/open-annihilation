@@ -222,6 +222,73 @@ void check_keys() {
     OA_CHECK(saw_card);
 }
 
+/// The language step opens on Skip with the ring hidden. The first Tab is
+/// Back, Shift+Tab is the last card, Return with the ring hidden picks the
+/// chosen language, and Return on Next presses it and hides the ring.
+void the_language_step_opens_on_its_first_stop() {
+    Session session;
+    Card english;
+    english.tag = "en";
+    english.own_name = "English";
+    english.english_name = "English";
+    english.kind = CardKind::built_in;
+    english.current = true;
+    Card german;
+    german.tag = "de";
+    german.own_name = "Deutsch";
+    german.english_name = "German";
+    german.kind = CardKind::built_in;
+    session.model.cards = {english, german};
+    session.carousel.selected = 0;
+    oa::ui::first_run::bind(session);
+    oa::ui::kit::Frame frame;
+    frame.area = {0, 0, 1280, 720};
+    frame.size_class = oa::ui::kit::SizeClass::large;
+    const auto scene = oa::ui::first_run::lay_out(session, frame, nullptr);
+    OA_CHECK(scene.list.tab_order.size() >= 2);
+    if (scene.list.tab_order.size() < 2)
+        return;
+    oa::ui::first_run::ensure_focus(session, scene.list);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::skip_id);
+    OA_CHECK(session.interaction.focused == scene.list.tab_order.front());
+    OA_CHECK(!session.interaction.focus_shown);
+
+    std::ignore = oa::ui::first_run::key(session, scene, oa::ui::kit::Key::tab);
+    OA_CHECK(session.interaction.focused == scene.list.tab_order[1]);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::back_id);
+    OA_CHECK(session.interaction.focus_shown);
+
+    Session backing = session;
+    backing.interaction = {};
+    backing.focus_ready = false;
+    const auto back_scene = oa::ui::first_run::lay_out(backing, frame, nullptr);
+    oa::ui::first_run::ensure_focus(backing, back_scene.list);
+    std::ignore = oa::ui::first_run::key(backing, back_scene, oa::ui::kit::Key::back_tab);
+    OA_CHECK(backing.interaction.focused == back_scene.list.tab_order.back());
+    OA_CHECK(backing.interaction.focus_shown);
+
+    Session plain = session;
+    plain.interaction = {};
+    plain.focus_ready = false;
+    const auto plain_scene = oa::ui::first_run::lay_out(plain, frame, nullptr);
+    oa::ui::first_run::ensure_focus(plain, plain_scene.list);
+    const auto picked = oa::ui::first_run::key(plain, plain_scene, oa::ui::kit::Key::enter);
+    OA_CHECK(picked.ask == Ask::pick);
+    OA_CHECK(plain.interaction.focused == oa::ui::first_run::skip_id);
+    OA_CHECK(!plain.interaction.focus_shown);
+
+    Session shown = session;
+    shown.interaction = {};
+    shown.focus_ready = false;
+    const auto shown_scene = oa::ui::first_run::lay_out(shown, frame, nullptr);
+    oa::ui::first_run::ensure_focus(shown, shown_scene.list);
+    shown.interaction.focused = oa::ui::first_run::next_id;
+    shown.interaction.focus_shown = true;
+    const auto advanced = oa::ui::first_run::key(shown, shown_scene, oa::ui::kit::Key::enter);
+    OA_CHECK(advanced.ask == Ask::advance);
+    OA_CHECK(!shown.interaction.focus_shown);
+}
+
 /// The step line the setup chrome will draw.
 ///
 /// @param scene the layout
@@ -1171,7 +1238,11 @@ void expect_marked(
     const bool ring_on_face = control != nullptr && slot != nullptr &&
                               control->rect.x == slot->face.x && control->rect.y == slot->face.y &&
                               control->rect.width == slot->face.width;
-    if (!on_chosen || !ringed || !active_right || !ring_on_face) {
+    // While the ring is hidden the keyboard focus is the first stop, and the
+    // carousel's own mark is the chosen card.
+    const bool on_first = !scene.list.tab_order.empty() && focused == scene.list.tab_order.front();
+    const bool marked = session.interaction.focus_shown ? on_chosen && ring_on_face : on_first;
+    if (!marked || !ringed || !active_right) {
         std::fprintf(
             stderr,
             "%s: chosen %d, focus %d, ring %d, %d active\n",
@@ -1182,10 +1253,9 @@ void expect_marked(
             active
         );
     }
-    OA_CHECK(on_chosen);
+    OA_CHECK(marked);
     OA_CHECK(ringed);
     OA_CHECK(active_right);
-    OA_CHECK(ring_on_face);
 }
 
 /// Left, left, right on the language carousel: after every key, part way
@@ -1219,12 +1289,16 @@ void check_box_follows_choice() {
             oa::ui::kit::Key::left, oa::ui::kit::Key::left, oa::ui::kit::Key::right
         };
         for (const oa::ui::kit::Key pressed : keys) {
+            const int32_t before = session.carousel.selected;
             const auto moved = oa::ui::first_run::key(session, scene, pressed);
             OA_CHECK(moved.redraw);
-            // The focus follows at once, before the screen is laid out again.
+            // The carousel moves and the ring stays hidden. The keyboard focus
+            // stays on the first stop until a key shows the ring.
+            OA_CHECK(session.carousel.selected != before);
+            OA_CHECK(!session.interaction.focus_shown);
             OA_CHECK(
-                session.interaction.focused ==
-                oa::ui::first_run::card_id + session.carousel.selected
+                !scene.list.tab_order.empty() &&
+                session.interaction.focused == scene.list.tab_order.front()
             );
             oa::ui::first_run::tick(session, oa::ui::kit::carousel_move_ms / 4);
             scene = oa::ui::first_run::lay_out(session, frame, nullptr);
@@ -1757,6 +1831,9 @@ void check_changed_question() {
         oa::ui::kit::control_of(scene.list, oa::ui::first_run::changed_leave_id);
     OA_CHECK(skip != nullptr && skip->text == "Skip");
     session.interaction.focused = oa::ui::first_run::changed_leave_id;
+    // The earlier Return hid the ring, and the pointer did not show it again.
+    // Return presses Skip only while the ring shows.
+    session.interaction.focus_shown = true;
     OA_CHECK(oa::ui::first_run::key(session, scene, oa::ui::kit::Key::enter).ask == Ask::skip);
 
     // Past changed_files_shown archives, one fewer is named and the rest
@@ -1788,6 +1865,7 @@ int main() {
     check_coaches(oa::ui::kit::SizeClass::large, 1280, 720, false);
     check_coaches(oa::ui::kit::SizeClass::large, 1280, 720, true);
     check_keys();
+    the_language_step_opens_on_its_first_stop();
     check_wrap_click_and_buttons();
     check_lookup();
     check_leave_word();

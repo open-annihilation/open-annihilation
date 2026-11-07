@@ -91,6 +91,13 @@ struct GalaxyGraphics {
     std::array<std::optional<formats::gaf::Archive>, screens::kMaxGalaxyPlanets> pans;
     std::array<const formats::gaf::Sequence*, screens::kMaxGalaxyPlanets> pan_sequences{};
     std::array<PanoramaStrip, screens::kMaxGalaxyPlanets> pan_strips{};
+    // Palette the colour-vision mode matches. Null keeps today's link colours and aura pixels.
+    const oa::Palette* palette = nullptr;
+    // Arm then Core aura pixels saved before a colour-vision mode rewrites them, in walk order.
+    // Empty while those archives are unchanged.
+    std::array<std::vector<std::vector<uint8_t>>, 2> aura_originals{};
+    // Colour-vision mode last applied to the auras. Off means the archives are unchanged.
+    uint8_t aura_mode = 0;
 };
 
 /// Finds the first sequence of an archive with a name, ignoring case.
@@ -285,7 +292,8 @@ void galaxy_draw_star_layer(Surface* target, const screens::GalaxyStarLayer& lay
 ///
 /// Once galaxy_shows_war_map says so (map data is present, and while it
 /// loads only with GalaxyView.show_map_while_loading set): the
-/// three star layers, each visible connector in its colour, then each
+/// three star layers, each visible connector in its colour (the active
+/// colour-vision mode's side colour when one is on), then each
 /// visible planet in id order: the aura of its current side at its activity
 /// frame, the capitol marker of its initial side, the selection and
 /// passover rings when selected or hovered, its sprite at its frame and,

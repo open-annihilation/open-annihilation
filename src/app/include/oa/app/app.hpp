@@ -193,6 +193,12 @@ enum class PhotoGroup : uint8_t {
     mode,
     /// freeze, step, the eighths between ticks, slow play and a held picture
     time,
+    /// the zoom, the pan, the follow and the turn
+    camera,
+    /// a photo of the window's battlefield, in the render mode in use
+    capture,
+    /// a photo of the turned view
+    live,
 };
 
 /// A renderer failure --render-fault forces in --check-renderer-ladder.
@@ -770,9 +776,12 @@ struct Options {
     // that the match's sounds reach the director's sound hooks. Implies
     // --headless-check and --skip-intro.
     bool check_director_view = false;
-    /// --check-photo [mode]: photo mode in a window over the skirmish's
-    /// fight. A fixed-clock, unattended run that skips the intro. It opens
-    /// a window, as the key table does.
+    /// --check-photo [mode|time|camera|capture|live]: photo mode in a window
+    /// over the skirmish's fight. `mode` enters and leaves, `time` stops,
+    /// steps, slows and holds the picture, `camera` zooms, pans, follows and
+    /// turns, `capture` saves a photo and `live` saves the turned view. A
+    /// fixed-clock, unattended run that skips the intro. It opens a window,
+    /// as the key table does.
     bool check_photo = false;
     /// The part of --check-photo that runs.
     PhotoGroup photo_group = PhotoGroup::mode;

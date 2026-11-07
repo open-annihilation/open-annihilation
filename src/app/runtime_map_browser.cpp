@@ -903,6 +903,14 @@ struct Runtime::MapBrowserScreen final : LayerScreen {
         hooks.ask = ask_picture;
         hooks.failed = picture_failed;
         list_ = mb::browser_layout(model_, state_, frame_, *fonts, hooks);
+        // The ring is drawn from the state this layout reads. Place the
+        // opening focus first, then lay out again when that moved it.
+        const kit::ControlId was_focused = state_.interaction.focused;
+        const bool was_shown = state_.interaction.focus_shown;
+        kit::focus_opened(state_.interaction, list_, runtime_.oa_layer().always_show_focus());
+        if (state_.interaction.focused != was_focused ||
+            state_.interaction.focus_shown != was_shown)
+            list_ = mb::browser_layout(model_, state_, frame_, *fonts, hooks);
     }
 
     /// Counts the cards whose pictures show, to tell a frame that decoded one.

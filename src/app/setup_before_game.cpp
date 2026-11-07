@@ -2346,9 +2346,23 @@ SetupBefore run_setup_before_game(
     SetupBefore ended = SetupBefore::skipped;
     uint64_t last_ticks = 0;
 
+    // The same reading as OaLayer::always_show_focus. The kit does not read it.
+    const bool show_focus = [&offers] {
+        const auto found = offers.values.find("open-annihilation.access.always-show-focus");
+        if (found == offers.values.end())
+            return false;
+        bool above_zero = false;
+        for (const char digit : found->second) {
+            if (digit < '0' || digit > '9')
+                return false;
+            if (digit != '0')
+                above_zero = true;
+        }
+        return above_zero;
+    }();
     const auto relayout = [&](const kit::Frame& placed) {
         first_run::Scene laid = first_run::lay_out(session, placed, nullptr);
-        first_run::ensure_focus(session, laid.list);
+        first_run::ensure_focus(session, laid.list, show_focus);
         return laid;
     };
 

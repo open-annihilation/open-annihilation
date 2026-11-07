@@ -473,6 +473,7 @@ AddRegistryAction from_pointer(AddRegistry& window, const kit::PointerOutcome& o
             outcome.control == add_registry_key_field_control) {
             window.interaction.focused = outcome.control;
             window.interaction.focus_shown = true;
+            window.interaction.pointer_hid_ring = false;
             return AddRegistryAction::start_typing;
         }
         return action_for(window, outcome.control);
@@ -576,7 +577,9 @@ bool add_registry_editable(const AddRegistry& window) noexcept {
 }
 
 std::optional<kit::Rect> add_registry_field(const AddRegistry& window) noexcept {
-    if (!add_registry_editable(window) || !window.interaction.focus_shown)
+    // The caret is the field's own look. It shows on the focused field
+    // whether or not the focus ring is drawn.
+    if (!add_registry_editable(window))
         return std::nullopt;
     const FieldGeometry fields = field_geometry(window);
     if (window.interaction.focused == add_registry_key_field_control && fields.key_field)
@@ -622,7 +625,7 @@ kit::DisplayList add_registry_list(const AddRegistry& window, const kit::Fonts* 
                                 std::string_view placeholder,
                                 const std::string& value,
                                 std::size_t caret) {
-        const bool focused = editable && interaction.focus_shown && interaction.focused == id;
+        const bool focused = editable && interaction.focused == id;
         kit::SearchLook look;
         look.placeholder = std::string(placeholder);
         look.field.text = value;
@@ -711,7 +714,8 @@ kit::DisplayList add_registry_list(const AddRegistry& window, const kit::Fonts* 
     list.items.push_back(std::move(footer));
 
     for (const PlacedButton& button : placed.buttons) {
-        const bool marked = interaction.focus_shown && interaction.focused == button.id;
+        const bool marked =
+            kit::focus_ring_visible(interaction) && interaction.focused == button.id;
         const bool hovered = interaction.hovered == button.id;
         const bool held = interaction.pressed == button.id && hovered;
         kit::ButtonLook look{};
@@ -758,7 +762,9 @@ kit::DisplayList add_registry_list(const AddRegistry& window, const kit::Fonts* 
 void add_registry_settle(AddRegistry& window) noexcept {
     window.interaction.focused =
         add_registry_editable(window) ? add_registry_url_control : add_registry_cancel_control;
-    window.interaction.focus_shown = true;
+    // That control is already the first stop. The ring stays hidden until a
+    // key shows it; the field's caret does not wait for the ring.
+    window.interaction.focus_shown = false;
     window.interaction.hovered = kit::no_control;
     window.interaction.pressed = kit::no_control;
     window.interaction.finger_shift = {};
@@ -779,8 +785,24 @@ AddRegistryAction add_registry_text(AddRegistry& window, std::string_view utf8) 
 }
 
 AddRegistryAction add_registry_key(AddRegistry& window, kit::Key pressed, const kit::Fonts* fonts) {
+    const bool on_field = add_registry_editable(window) &&
+                          (window.interaction.focused == add_registry_url_control ||
+                           window.interaction.focused == add_registry_key_field_control);
+    const bool field_key = pressed == kit::Key::left || pressed == kit::Key::right ||
+                           pressed == kit::Key::home || pressed == kit::Key::end ||
+                           pressed == kit::Key::backspace || pressed == kit::Key::delete_forward ||
+                           pressed == kit::Key::space;
+    // The address opens focused, with its caret and no ring. Its own keys
+    // keep editing it. Tab is what shows the ring, on the next stop.
+    const bool restore_hidden = on_field && field_key && !window.interaction.focus_shown;
+    if (restore_hidden) {
+        window.interaction.focus_shown = true;
+        window.interaction.pointer_hid_ring = false;
+    }
     const kit::DisplayList list = add_registry_list(window, fonts);
     const kit::KeyOutcome outcome = kit::key(window.interaction, list, pressed);
+    if (restore_hidden)
+        window.interaction.focus_shown = false;
     switch (outcome.result) {
     case kit::KeyResult::none:
     case kit::KeyResult::scroll:
@@ -790,7 +812,9 @@ AddRegistryAction add_registry_key(AddRegistry& window, kit::Key pressed, const 
     case kit::KeyResult::cancel:
         return AddRegistryAction::cancel;
     case kit::KeyResult::accept:
-        return add_registry_editable(window) ? AddRegistryAction::check : AddRegistryAction::none;
+        // Enter with the ring hidden does what Enter does as the window
+        // opens: CHECK while the address can be typed, CANCEL otherwise.
+        return add_registry_editable(window) ? AddRegistryAction::check : AddRegistryAction::cancel;
     case kit::KeyResult::to_control:
         break;
     }

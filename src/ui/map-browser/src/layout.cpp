@@ -770,7 +770,7 @@ void add_source_pill(
     look.text = caption;
     look.state = on ? kit::PillState::active : kit::PillState::inactive;
     look.hovered = hovered(building, id);
-    look.focused = interaction.focus_shown && interaction.focused == id;
+    look.focused = kit::focus_ring_visible(interaction) && interaction.focused == id;
     const std::size_t before = building.list.controls.size();
     kit::add_pill(building.list, rect, look, id, unique_name(building, std::string(name)));
     move_controls(building.list, before, building.top);
@@ -866,7 +866,7 @@ void add_bar(Building& building) {
     kit::SearchLook look;
     look.field = building.state->search;
     const kit::Interaction& interaction = building.state->interaction;
-    look.focused = interaction.focus_shown && interaction.focused == ids::search;
+    look.focused = kit::focus_ring_visible(interaction) && interaction.focused == ids::search;
     look.hovered = hovered(building, ids::search);
     look.placeholder =
         cut(building,
@@ -1508,7 +1508,7 @@ void add_footer(Building& building) {
 /// @param[in,out] building the layout
 void add_focus_ring(Building& building) {
     const kit::Interaction& interaction = building.state->interaction;
-    if (!interaction.focus_shown || interaction.focused == kit::no_control ||
+    if (!kit::focus_ring_visible(interaction) || interaction.focused == kit::no_control ||
         interaction.focused == ids::search)
         return;
     for (const auto* group : {&building.top, &building.cards, &building.footer})

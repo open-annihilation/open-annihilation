@@ -1702,7 +1702,7 @@ DisplayList notice_list(const Notice& notice, const Fonts* fonts, const LookUp& 
             placed.open_button,
             button_look(open, false, notice_open, notice.hovered, notice.pressed),
             notice_open,
-            notice.marked == notice_open
+            notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_open
         );
     }
     add_button_item(
@@ -1710,7 +1710,7 @@ DisplayList notice_list(const Notice& notice, const Fonts* fonts, const LookUp& 
         placed.ok_button,
         button_look(ok, true, notice_ok, notice.hovered, notice.pressed),
         notice_ok,
-        notice.marked == notice_ok
+        notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_ok
     );
     add_edge(list, placed.height, width);
     return list;
@@ -1842,7 +1842,7 @@ DisplayList question_list(const Question& question, const Fonts* fonts) {
             placed.buttons[index],
             question_button_look(button, control, question.hovered, question.pressed),
             control,
-            question.marked == control
+            question.focus_shown && !question.pointer_hid_ring && question.marked == control
         );
     }
     add_edge(list, placed.height, width);
@@ -1856,7 +1856,14 @@ NoticeAction notice_pointer_move(Notice& notice, Point at, int32_t height) {
         at.y += notice.finger_shift_y;
     }
     const ControlId hovered = hit(notice_controls(notice, height), at);
-    if (hovered == notice.hovered)
+    // A move hides the ring. The marked button keeps the keys, so the next
+    // key still acts on it. An opening focus is left for its key table.
+    bool hid = false;
+    if (notice.focus_shown && !notice.pointer_hid_ring) {
+        notice.pointer_hid_ring = true;
+        hid = true;
+    }
+    if (hovered == notice.hovered && !hid)
         return NoticeAction::none;
     notice.hovered = hovered;
     return NoticeAction::redraw;
@@ -1935,6 +1942,94 @@ NoticeAction notice_key(Notice& notice, Key key) {
     }
 }
 
+namespace {
+
+/// Returns a notice's buttons in Tab order: the open button, then OK.
+///
+/// @param notice the notice
+/// @return the order; OK alone when it has no open caption
+std::vector<ControlId> notice_tab_order(const Notice& notice) {
+    if (notice_opens(notice))
+        return {notice_open, notice_ok};
+    return {notice_ok};
+}
+
+/// Moves a mark one step along an order and wraps.
+///
+/// @param marked the mark
+/// @param order the buttons
+/// @param forward true to move on, false to move back
+/// @return the button
+ControlId step_order(ControlId marked, const std::vector<ControlId>& order, bool forward) {
+    if (order.empty())
+        return marked;
+    const auto found = std::find(order.begin(), order.end(), marked);
+    if (found == order.end())
+        return forward ? order.front() : order.back();
+    const auto count = static_cast<std::ptrdiff_t>(order.size());
+    const std::ptrdiff_t at = found - order.begin();
+    const std::ptrdiff_t step = forward ? 1 : count - 1;
+    return order[static_cast<std::size_t>((at + step) % count)];
+}
+
+/// Tells whether a key shows the ring again after the pointer hid it.
+///
+/// Escape, Yes, No and Info do what they do without revealing it.
+///
+/// @param key the key
+/// @return true when the key shows the ring
+bool reveals_ring(Key key) noexcept {
+    return key != Key::escape && key != Key::yes && key != Key::no && key != Key::info;
+}
+
+} // namespace
+
+NoticeAction notice_model_key(Notice& notice, Key key) {
+    // The pointer hid the ring. The marked button still has the keys, and
+    // this key shows the ring again there.
+    const bool reveal = notice.focus_shown && notice.pointer_hid_ring && reveals_ring(key);
+    if (reveal)
+        notice.pointer_hid_ring = false;
+    NoticeAction action = NoticeAction::none;
+    if (!notice.focus_shown) {
+        const std::vector<ControlId> order = notice_tab_order(notice);
+        switch (key) {
+        case Key::tab:
+        case Key::back_tab:
+            notice.marked = step_order(notice.marked, order, key == Key::tab);
+            notice.focus_shown = true;
+            action = NoticeAction::redraw;
+            break;
+        case Key::up:
+            if (!order.empty())
+                notice.marked = order.back();
+            notice.focus_shown = true;
+            action = NoticeAction::redraw;
+            break;
+        case Key::down:
+        case Key::left:
+        case Key::right:
+        case Key::space:
+            if (!order.empty())
+                notice.marked = order.front();
+            notice.focus_shown = true;
+            action = NoticeAction::redraw;
+            break;
+        default:
+            action = notice_key(notice, key);
+            break;
+        }
+    } else if (key == Key::enter) {
+        notice.focus_shown = false;
+        action = notice_key(notice, Key::space);
+    } else {
+        action = notice_key(notice, key);
+    }
+    if (reveal && action == NoticeAction::none)
+        return NoticeAction::redraw;
+    return action;
+}
+
 QuestionAnswer
 question_pointer_move(Question& question, Point at, int32_t height, const Fonts* fonts) {
     if (question.pressed != no_control) {
@@ -1942,7 +2037,14 @@ question_pointer_move(Question& question, Point at, int32_t height, const Fonts*
         at.y += question.finger_shift_y;
     }
     const ControlId hovered = hit(question_controls(question, height, fonts), at);
-    if (hovered == question.hovered)
+    // A move hides the ring. The marked button keeps the keys, so the next
+    // key still acts on it. An opening focus is left for its key table.
+    bool hid = false;
+    if (question.focus_shown && !question.pointer_hid_ring) {
+        question.pointer_hid_ring = true;
+        hid = true;
+    }
+    if (hovered == question.hovered && !hid)
         return {};
     question.hovered = hovered;
     return look_changed(true);
@@ -2020,6 +2122,53 @@ QuestionAnswer question_key(Question& question, Key key) {
     }
 }
 
+QuestionAnswer question_model_key(Question& question, Key key) {
+    // The pointer hid the ring. The marked button still has the keys, and
+    // this key shows the ring again there.
+    const bool reveal = question.focus_shown && question.pointer_hid_ring && reveals_ring(key);
+    if (reveal)
+        question.pointer_hid_ring = false;
+    const auto count =
+        static_cast<int32_t>(std::min(question.buttons.size(), most_question_buttons));
+    QuestionAnswer outcome{};
+    if (!question.focus_shown && count > 0) {
+        const auto marked = static_cast<int32_t>(question.marked);
+        switch (key) {
+        case Key::tab:
+        case Key::back_tab: {
+            const int32_t next = marked < 0 || marked >= count
+                                     ? (key == Key::tab ? 0 : count - 1)
+                                     : (marked + (key == Key::tab ? 1 : count - 1)) % count;
+            question.marked = static_cast<ControlId>(next);
+            question.focus_shown = true;
+            return look_changed(true);
+        }
+        case Key::up:
+            question.marked = static_cast<ControlId>(count - 1);
+            question.focus_shown = true;
+            return look_changed(true);
+        case Key::down:
+        case Key::left:
+        case Key::right:
+        case Key::space:
+            question.marked = 0;
+            question.focus_shown = true;
+            return look_changed(true);
+        default:
+            return question_key(question, key);
+        }
+    }
+    if (question.focus_shown && key == Key::enter) {
+        question.focus_shown = false;
+        outcome = question_key(question, Key::enter);
+    } else {
+        outcome = question_key(question, key);
+    }
+    if (reveal && outcome.action == QuestionAction::none)
+        return look_changed(true);
+    return outcome;
+}
+
 void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_up) {
     const PlacedNotice placed = place_notice(notice, canvas.fonts);
     const int32_t width = box_width(notice.size_class);
@@ -2044,7 +2193,7 @@ void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_
                 notice.hovered,
                 notice.pressed
             ),
-            notice.marked == notice_open
+            notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_open
         );
     }
     draw_marked_button(
@@ -2053,7 +2202,7 @@ void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_
         button_look(
             shown(look_up, notice.ok_caption), true, notice_ok, notice.hovered, notice.pressed
         ),
-        notice.marked == notice_ok
+        notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_ok
     );
     draw_window_edge(canvas, whole);
 }
@@ -2128,7 +2277,7 @@ void draw_question(const Canvas& canvas, const Question& question) {
             canvas,
             placed.buttons[index],
             question_button_look(button, control, question.hovered, question.pressed),
-            question.marked == control
+            question.focus_shown && !question.pointer_hid_ring && question.marked == control
         );
     }
     draw_window_edge(canvas, whole);

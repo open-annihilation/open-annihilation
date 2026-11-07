@@ -899,6 +899,55 @@ void tab_walk(const kit::Frame& frame) {
     OA_CHECK(wrapped != nullptr && wrapped->name != first);
 }
 
+/// The picker opens on its first stop with the ring hidden. The first Tab is
+/// the second stop, Shift+Tab is the last, Return with the ring hidden does
+/// what Enter on the list does, and Return on Cancel presses it and hides
+/// the ring.
+///
+/// @param frame the frame
+void the_screen_opens_on_its_first_stop(const kit::Frame& frame) {
+    Session opened = open_at(frame, false);
+    OA_CHECK(!opened.list.tab_order.empty());
+    if (opened.list.tab_order.empty())
+        return;
+    const kit::ControlId first = opened.list.tab_order.front();
+    const kit::ControlId second =
+        opened.list.tab_order.size() > 1 ? opened.list.tab_order[1] : first;
+    const kit::ControlId last = opened.list.tab_order.back();
+    kit::focus_opened(opened.state.interaction, opened.list, false);
+    OA_CHECK(opened.state.interaction.focused == first);
+    OA_CHECK(!opened.state.interaction.focus_shown);
+    opened.key(kit::Key::tab);
+    OA_CHECK(opened.state.interaction.focused == second);
+    OA_CHECK(opened.state.interaction.focus_shown);
+
+    Session back = open_at(frame, false);
+    kit::focus_opened(back.state.interaction, back.list, false);
+    back.key(kit::Key::back_tab);
+    OA_CHECK(back.state.interaction.focused == last);
+    OA_CHECK(back.state.interaction.focus_shown);
+
+    Session plain = open_at(frame, false);
+    kit::focus_opened(plain.state.interaction, plain.list, false);
+    const picker::ScreenResult hidden = plain.key(kit::Key::enter);
+    OA_CHECK(hidden.action == picker::PickerAction::none);
+    if (is_compact(frame))
+        OA_CHECK(plain.state.details_page);
+    else
+        OA_CHECK(plain.state.interaction.focus_shown);
+
+    Session shown = open_at(frame, false);
+    const kit::Control* cancel = find_named(shown.list, picker::name_cancel);
+    OA_CHECK(cancel != nullptr && cancel->enabled);
+    if (cancel == nullptr)
+        return;
+    shown.state.interaction.focused = cancel->id;
+    shown.state.interaction.focus_shown = true;
+    const picker::ScreenResult closed = shown.key(kit::Key::enter);
+    OA_CHECK(closed.action == picker::PickerAction::cancel);
+    OA_CHECK(!shown.state.interaction.focus_shown);
+}
+
 /// The keys of the list and the details.
 ///
 /// @param where the size class
@@ -1004,6 +1053,32 @@ void commands(const kit::Frame& frame) {
     applying.lay();
     const picker::ScreenResult waiting = applying.command(picker::ScreenCommand::use);
     OA_CHECK(waiting.action == picker::PickerAction::use);
+}
+
+/// A click in the search, a pointer move and then typing leave the text in
+/// the field, and the field is still drawn focused.
+///
+/// @param frame the frame
+void a_pointer_move_keeps_the_search(const kit::Frame& frame) {
+    Session session = open_at(frame, false);
+    std::ignore = tap(session, picker::name_search, std::nullopt);
+    OA_CHECK(picker::focused_field(session.state, session.list).has_value());
+    const kit::Control* search = find_named(session.list, picker::name_search);
+    OA_CHECK(search != nullptr);
+    if (search == nullptr)
+        return;
+    const kit::Point away{search->rect.x + search->rect.width + 16, search->rect.y + 4};
+    session.pointer(picker::PointerKind::move, 0, away, 0);
+    OA_CHECK(picker::focused_field(session.state, session.list).has_value());
+    session.text("abcd");
+    OA_CHECK(session.model.query == "abcd");
+    OA_CHECK(session.state.search.text == "abcd");
+    bool drawn = false;
+    for (const kit::Item& item : session.list.items)
+        if (const auto* look = std::get_if<kit::SearchLook>(&item.look))
+            if (look->focused && look->field.text == "abcd")
+                drawn = true;
+    OA_CHECK(drawn);
 }
 
 /// Typing and Backspace in the search, and typing while it has not the focus.
@@ -1473,9 +1548,11 @@ int main() {
         tap_uninstalled(size.frame);
         move_with_up_and_down(size.frame);
         tab_walk(size.frame);
+        the_screen_opens_on_its_first_stop(size.frame);
         keys_of_step_3(size.name, size.frame);
         commands(size.frame);
         search_text(size.frame);
+        a_pointer_move_keeps_the_search(size.frame);
         option_controls(size.frame);
         read_only(size.frame);
         press_cut_switch(size.frame);

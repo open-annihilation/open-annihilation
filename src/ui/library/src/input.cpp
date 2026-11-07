@@ -613,6 +613,7 @@ void focus_search(ScreenState& state) {
     state.menu = MenuKind::none;
     state.interaction.focused = controls::search;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
 }
 
 /// Gives the Active tab's maps search the focus.
@@ -622,6 +623,7 @@ void focus_maps_search(ScreenState& state) {
     state.menu = MenuKind::none;
     state.interaction.focused = controls::active_search;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
 }
 
 /// Returns the first map link the pane shows, top to bottom and left to right.
@@ -732,6 +734,7 @@ ScreenResult enter_list(Library& library, ScreenState& state, const kit::Display
         return {};
     state.interaction.focused = *action;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
     show_in_details(state, list, *action);
     return redrawn();
 }
@@ -1033,6 +1036,7 @@ ScreenResult begin_key_use(Library& library, ScreenState& state, const Entry& en
     state.menu = MenuKind::none;
     state.interaction.focused = controls::use_confirm;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
     return redrawn();
 }
 
@@ -1145,7 +1149,10 @@ ScreenResult open_map_pack(Library& library, ScreenState& state, kit::ControlId 
             }
         }
     }
-    if (state.interaction.focus_shown)
+    // Enter hides the ring before the link is followed. The press still lands
+    // on the pack's list. A pointer press that never showed the ring, and was
+    // not already on this link, leaves the focus where it is.
+    if (state.interaction.focus_shown || state.interaction.focused == id)
         state.interaction.focused = controls::list;
     return redrawn();
 }
@@ -2062,8 +2069,10 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         return {};
     }
     // A focus the screen no longer shows moves to the list, to the maps
-    // search when a map link scrolled away, or to the first stop.
-    if (interaction.focus_shown && kit::control_of(list, interaction.focused) == nullptr) {
+    // search when a map link scrolled away, or to the first stop. The ring
+    // stays hidden when it was hidden.
+    if (interaction.focused != kit::no_control &&
+        kit::control_of(list, interaction.focused) == nullptr) {
         const bool map_link = controls::active_from_control(interaction.focused);
         if (kit::control_of(list, controls::list) != nullptr)
             interaction.focused = controls::list;
@@ -2072,6 +2081,12 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         else
             interaction.focused = list.tab_order.empty() ? kit::no_control : list.tab_order.front();
     }
+    // The first stop takes the keys from the first key, with the ring hidden,
+    // unless the host already opened the screen (and may have asked for the ring).
+    kit::focus_opened(interaction, list, false);
+    if (pressed != kit::Key::escape && pressed != kit::Key::yes && pressed != kit::Key::no &&
+        pressed != kit::Key::info)
+        kit::show_ring_for_key(interaction);
     if (state.menu != MenuKind::none) {
         if (const std::optional<ScreenResult> taken = menu_key(library, state, list, pressed))
             return *taken;
@@ -2127,12 +2142,16 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         }
         if (on_list || focus == kit::no_control)
             return enter_list(library, state, list);
-        if (on_drop_down)
+        if (on_drop_down) {
+            interaction.focus_shown = false;
             return activate(library, state, list, focus, std::nullopt, std::nullopt);
-        // Enter on a switch toggles it. The kit sends Enter only to a button,
-        // a link, a list row or a tab.
-        if (controls::registry_switch_control(focus))
+        }
+        // Enter on a switch toggles it and hides the ring. The kit sends Enter
+        // only to a button, a link, a list row or a tab.
+        if (controls::registry_switch_control(focus)) {
+            interaction.focus_shown = false;
             return activate(library, state, list, focus, pressed, std::nullopt);
+        }
         break;
     case kit::Key::space:
         if (on_list)

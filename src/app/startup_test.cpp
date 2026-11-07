@@ -1477,15 +1477,19 @@ int main() {
         "--force-capable goes with --check-underwater-features"
     );
     expect(
+        parse({"--check-photo", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-photo"
+    );
+    expect(
         rejection({"--force-capable"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
                 "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-                "--check-kill-board and "
+                "--check-kill-board, --check-photo and "
                 "--check-underwater-features" &&
             rejection({"--force-capable", "--check-navigation"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
                 "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-                "--check-kill-board and "
+                "--check-kill-board, --check-photo and "
                 "--check-underwater-features",
         "--force-capable is refused without a check that takes it"
     );
@@ -2242,7 +2246,7 @@ int main() {
         rejection({"--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
             "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-            "--check-kill-board and "
+            "--check-kill-board, --check-photo and "
             "--check-underwater-features",
         "--force-capable alone is refused"
     );
@@ -2250,7 +2254,7 @@ int main() {
         rejection({"--check-match-layers", "--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
             "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-            "--check-kill-board and "
+            "--check-kill-board, --check-photo and "
             "--check-underwater-features",
         "--force-capable with another check is refused"
     );
@@ -2305,6 +2309,30 @@ int main() {
     expect(
         photo_mode.check_photo && photo_mode.photo_group == oa::app::PhotoGroup::mode,
         "--check-photo mode names the mode group"
+    );
+    const auto photo_time = parse({"--check-photo", "time"});
+    expect(
+        photo_time.check_photo && photo_time.photo_group == oa::app::PhotoGroup::time,
+        "--check-photo time names the time group"
+    );
+    const auto photo_camera = parse({"--check-photo", "camera"});
+    expect(
+        photo_camera.check_photo && photo_camera.photo_group == oa::app::PhotoGroup::camera,
+        "--check-photo camera names the camera group"
+    );
+    const auto photo_capture = parse({"--check-photo", "capture"});
+    expect(
+        photo_capture.check_photo && photo_capture.photo_group == oa::app::PhotoGroup::capture,
+        "--check-photo capture names the capture group"
+    );
+    const auto photo_live = parse({"--check-photo", "live"});
+    expect(
+        photo_live.check_photo && photo_live.photo_group == oa::app::PhotoGroup::live,
+        "--check-photo live names the live group"
+    );
+    expect(
+        parse({"--check-photo", "capture", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-photo"
     );
     const auto photo_language = parse({"--check-photo", "german"});
     expect(

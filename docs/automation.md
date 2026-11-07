@@ -151,7 +151,7 @@ print(read(sock)[0]["screen"])  # main_menu
 | Request | What it answers |
 |---|---|
 | `hello` | the protocol's version, the engine's, the window's size, where the game's 640x480 canvas lies in it, the tick rate (30) |
-| `screen` | the screen shown (`main_menu`, `skirmish`, `mp_battleroom`, `match` and the like), the dialogs over it, the control that takes the keys, the pointer, in a match where the camera looks, and `hovered`, the control under the pointer or null |
+| `screen` | the screen shown (`main_menu`, `skirmish`, `mp_battleroom`, `match` and the like), the dialogs over it, the control that takes the keys (the first one that is focused and not hidden), `focus_shown` (whether that control's ring is drawn), the pointer, in a match where the camera looks, and `hovered`, the control under the pointer or null |
 | `controls` | an extension's windows first, then a message box's, then Open Annihilation's own screens' ([below](#oas-own-screens)), then every control of the panel that takes the pointer, a dialog's first: its name, its kind, the extension window it belongs to (or none), its place on the canvas and in the window, its state and text, and a list's rows. A map list's rows are the words it shows, and `item_keys` names each row ([below](#a-map-lists-names)). Each control also has `role` and `label`, and `hidden`, `expanded`, `pressed`, `modal` and, except on a list, `selected`. A slider has `value`, `min`, `max` and `step`. A control in a set has `position` and `set_size`. An extension's windows, a package's windows and a screen's own controls under a modal stay listed, with `hidden` true and `enabled` false. A screen button that an extension's button covers, or that lies wholly inside the rectangle where an extension window's art takes the press, is listed with `hidden` true. It stays enabled. Open Annihilation's own screens under a modal one are not listed, as before |
 | `input` | once the game has taken the events it was given, the frame and tick at which it took them ([below](#input)) |
 | `frame` | the frame the game presented in its window, or the one it composed, whole or a region of it, as RGB pixels, a PNG file, or a hash and mean colour |
@@ -554,7 +554,10 @@ are this machine's. The ended `match` line carries the shared `winner`.
 only a hidden control is focused), `label` and `role`. A hidden control
 is passed over. It is sent once when the focused control changes, not
 when the focus stays, and not the first frame after the subscription
-starts to include `focus`.
+starts to include `focus`. When the screen changes, the `screen` event
+is sent before the `focus` event, so the screen is heard first. A kit
+screen names its first control from the moment it opens, whether or not
+the ring is drawn; `screen`'s `focus_shown` says which.
 The endpoint learns them by comparing what the game holds from one frame
 to the next; nothing is added to the game to produce them.
 

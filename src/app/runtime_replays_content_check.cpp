@@ -31,11 +31,11 @@
 // start plays nothing. The same holds after a start that ended during the
 // replay and one that ended before the replay began.
 //
-// Get Ridge 2.8 and watch, and Turn on and watch, end through the replay's
-// own end and the restart that puts the player's choice back. The check
-// starts that replay the way the game does, and the start after it plays
-// nothing. Watch on the same Ridge replay, once No Mod is back, plays it
-// with the installed release and puts No Mod back again.
+// Get Ridge 2.8 and watch, Watch of the installed Ridge, and Turn on and
+// watch, end through the replay's own end. The end screen stays until Main
+// Menu. The restart that follows puts the player's choice back and opens
+// the Library on Replays with that replay chosen. The start after it plays
+// nothing.
 
 #include "library_host.hpp"
 #include "oa_layer.hpp"
@@ -639,7 +639,8 @@ void Runtime::check_replays_content() {
         require(!host.replays_reading(), "the Recordings folder was not read");
     };
     // The player's own start: start_scene borrows the pending replay for this
-    // start and drops it, then the match ends and the player's choice comes back.
+    // start and drops it. The replay then runs to its own end. The end screen
+    // stays until Main Menu, and the frame after that puts the choice back.
     const auto play_through = [&] {
         require(
             call_hook_or_raise<&Extension::start_scene>(extension_, *this),
@@ -650,20 +651,53 @@ void Runtime::check_replays_content() {
             [&] { return screen_ == Screen::match && match_ != nullptr; },
             "the replay did not start"
         );
-        const uint32_t first_tick = match_->state().game.tick;
-        for (int frame = 0; frame < kMostFrames && match_ != nullptr &&
-                            match_->state().game.tick < first_tick + kWatchedTicks;
-             ++frame) {
-            static_cast<void>(run_granted_ticks(1));
+        // The recording ends when its players leave, with no result. A
+        // player's replay stops on that last frame. Granting ticks runs the
+        // match on past it to the end screen, whose put-back this tests.
+        constexpr int kReplayTickBudget = 8000;
+        int replay_ticks = 0;
+        while (screen_ != Screen::campaign_end && replay_ticks < kReplayTickBudget) {
+            if (match_ != nullptr && !match_finished_) {
+                const GrantedTicks grant = run_granted_ticks(30);
+                replay_ticks += grant.ran > 0 ? static_cast<int>(grant.ran) : 1;
+            } else {
+                ++replay_ticks;
+            }
             run_frame(running);
             require(running, "a frame ended the run");
         }
+        require(screen_ == Screen::campaign_end, "the replay did not reach its end screen");
+        require(!soft_restart_requested(), "the end screen did not stay until Main Menu");
+        frames(4);
         require(
-            match_ != nullptr && match_->state().game.tick >= first_tick + kWatchedTicks,
-            "the replay did not play its ticks"
+            screen_ == Screen::campaign_end && !soft_restart_requested(),
+            "the end screen did not stay until Main Menu"
         );
-        leave_match();
-        load(Screen::main_menu);
+        require(step_end_screen_to_panel().panel, "the end screen reached no panel");
+        frames(2);
+        require(
+            screen_ == Screen::campaign_end && !soft_restart_requested(),
+            "the end screen did not stay until Main Menu"
+        );
+        const auto* end_menu = widget("MainMenu");
+        require(end_menu != nullptr && end_menu->common.active != 0, "Main Menu is not shown");
+        click_end_panel(static_cast<std::size_t>(end_menu - resources_.layout.gadgets.data()));
+        require(screen_ == Screen::main_menu, "Main Menu did not leave the end screen");
+        std::cout << "replays content: end screen stayed until Main Menu\n";
+    };
+    // The restart after Main Menu opens the Library itself, on this replay.
+    const auto library_on_replay = [&](std::string_view path) {
+        until(
+            kDownloadWaitMs,
+            [&] {
+                return oa_layer().find(library_screen_name) != nullptr &&
+                       host.model.tab == library::Tab::replays && host.model.replays.selected &&
+                       *host.model.replays.selected == path;
+            },
+            "the Library did not open on the replay"
+        );
+        require(match_ == nullptr && screen_ != Screen::match, "the Library opened over a match");
+        std::cout << "replays content: library open on " << path << '\n';
     };
     const auto next_start_idle = [&] {
         require(
@@ -810,6 +844,7 @@ void Runtime::check_replays_content() {
             require(expansion_off(expansion_id), "the expansion stayed on after the replay");
             require(state_key_gone(), "the replay's expansion state was kept");
             std::cout << "replays content: expansions restored\n";
+            library_on_replay("default/expansion.oademo");
             arm_stop(expansion_id, "play", "killed");
             return;
         }
@@ -861,6 +896,7 @@ void Runtime::check_replays_content() {
                 "the mod preference was not cleared"
             );
             std::cout << "replays content: no mod\n";
+            library_on_replay("default/ridge.oademo");
             open_replays();
             const auto shown = show("default/ridge.oademo");
             static_cast<void>(shown);
@@ -900,6 +936,7 @@ void Runtime::check_replays_content() {
                 "the mod preference was not cleared"
             );
             std::cout << "replays content: no mod\n";
+            library_on_replay("default/ridge.oademo");
             std::ifstream saved(user_folder_ / std::string(kRidgePathName));
             std::string folder_text;
             std::getline(saved, folder_text);

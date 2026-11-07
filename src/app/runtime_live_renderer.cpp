@@ -19,6 +19,7 @@
 #include "renderer_live_scene.hpp"
 #include "renderer_water_surface.hpp"
 #include "xrgb_conversion.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/job_pool.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/present/colour_vision/colour_vision.hpp"
@@ -32,6 +33,7 @@
 #include <iostream>
 #include <limits>
 #include <span>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -507,6 +509,51 @@ bool Runtime::live_renderer_active() const noexcept {
            (live_renderer_->camera.yaw_degrees != 0 || live_renderer_->camera.pitch_degrees != 0);
 }
 
+std::string Runtime::photo_turn_reason() {
+    // Outside photo mode the panel is not up, so there is no reason to give.
+    if (!photo_mode())
+        return {};
+    const bool match_ready = screen_ == Screen::match && match_ && selected_tnt_;
+    const bool full_or_headless = full_presentation() || options_.headless_check;
+    if (!match_ready || !full_or_headless)
+        return std::string(oa::data::languages::interface_text("Needs Full acceleration"));
+    if (!engine_settings().allow_full_3d)
+        return std::string(oa::data::languages::interface_text("Needs Allow full 3D mode"));
+    // Opening the device is what tells a software renderer from Metal or Vulkan.
+    // The setting is already on, so a machine with no device is not that line.
+    auto& live = ensure_live_renderer();
+    if (renderer_live_gpu::device(live.gpu) == nullptr)
+        return std::string(oa::data::languages::interface_text("Not available here"));
+    return {};
+}
+
+bool Runtime::photo_turn(float yaw_delta_degrees) {
+    // A held picture is not turned. Its camera comes back when it is let go.
+    if (!photo_mode() || photo_camera_locked() || !photo_turn_reason().empty())
+        return false;
+    auto& live = *live_renderer_;
+    // A fresh camera and reset() are locked. A drag reads the setting at its
+    // start; a turn and a tilt do the same before they move.
+    renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
+    renderer_live_camera::orbit(live.camera, yaw_delta_degrees, 0.0F);
+    live.dragging = false;
+    live.drag_button = 0;
+    live.failed = false;
+    return true;
+}
+
+bool Runtime::photo_tilt(float pitch_delta_degrees) {
+    if (!photo_mode() || photo_camera_locked() || !photo_turn_reason().empty())
+        return false;
+    auto& live = *live_renderer_;
+    renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
+    renderer_live_camera::orbit(live.camera, 0.0F, pitch_delta_degrees);
+    live.dragging = false;
+    live.drag_button = 0;
+    live.failed = false;
+    return true;
+}
+
 bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
     // A held picture is not turned.
     if (photo_camera_locked())
@@ -767,7 +814,20 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
             float dx{}, dz{};
             if (renderer_live_camera::pan_delta(live.projection, ground.x, ground.y, dx, dz)) {
                 const auto place = match_view_place();
-                place_match_view(place[0] - dx, place[1] - dz);
+                double pan_x = place[0] - static_cast<double>(dx);
+                double pan_z = place[1] - static_cast<double>(dz);
+                // Play's turned drag is not held. Photo mode stays on the map.
+                if (photo_mode()) {
+                    const std::array<double, 2> held = held_photo_place(pan_x, pan_z);
+                    pan_x = held[0];
+                    pan_z = held[1];
+                }
+                place_match_view(pan_x, pan_z);
+                // The next pan widens from this place, which is on the map.
+                if (photo_mode()) {
+                    const auto placed = match_view_place();
+                    remember_placed_view(placed[0], placed[1]);
+                }
             }
         }
         return true;
@@ -804,10 +864,23 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
     zoom_focus_ = {false, x, y};
     const float half_width = match_layout_.battlefield_width() / (2 * zoom);
     const float half_height = match_layout_.battlefield_height() / (2 * zoom);
-    place_match_view(
-        view.focus_x - half_width, view.focus_z - view.focus_y * height_lift - half_height
-    );
-    view_hold_ = {true, view.focus_x, view.focus_z - view.focus_y * height_lift};
+    // Play's turned wheel is not held. Photo mode stays within the map's
+    // edge, and the next pan widens from that held place.
+    if (photo_mode()) {
+        const float lifted = view.focus_z - view.focus_y * height_lift;
+        const std::array<double, 2> held = held_photo_place(
+            static_cast<double>(view.focus_x - half_width),
+            static_cast<double>(lifted - half_height)
+        );
+        place_match_view(held[0], held[1]);
+        const auto placed = match_view_place();
+        remember_placed_view(placed[0], placed[1]);
+    } else {
+        place_match_view(
+            view.focus_x - half_width, view.focus_z - view.focus_y * height_lift - half_height
+        );
+        view_hold_ = {true, view.focus_x, view.focus_z - view.focus_y * height_lift};
+    }
     live.view = view;
     if (renderer_live_camera::projection(live.camera, live.view, live.projection))
         rebuild_live_picking();
@@ -1011,13 +1084,15 @@ bool Runtime::render_live_match_surface() {
         // A frame drawn to be presented, in a window that presents through
         // the device the card draws on, stays on the card: the painters
         // paint the overlay canvas and the card adds it as the window
-        // presents the frame. Any other frame is read back.
+        // presents the frame. Any other frame is read back. A photo's own
+        // frame is read back too, so the picture can be saved.
         live.gpu.keep_on_card =
-            (presenting_frame_ && match_use_layers_ && director_ == nullptr &&
-             !options_.headless_check && render_run_ && render_run_->host != nullptr &&
-             render_run_->host->presenting_on_card() &&
-             sdl_.renderer == render_run_->host->renderer()) ||
-            turned_overlay_checked_;
+            !photo_capture_live_ &&
+            ((presenting_frame_ && match_use_layers_ && director_ == nullptr &&
+              !options_.headless_check && render_run_ && render_run_->host != nullptr &&
+              render_run_->host->presenting_on_card() &&
+              sdl_.renderer == render_run_->host->renderer()) ||
+             turned_overlay_checked_);
         const auto model_draws =
             renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
         Span drawing(Stage::gpu_total);
@@ -1183,7 +1258,15 @@ bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {
         return false;
     stop_match_tracking();
     const auto place = match_view_place();
-    place_match_view(place[0] + dx, place[1] + dz);
+    double x = place[0] + static_cast<double>(dx);
+    double z = place[1] + static_cast<double>(dz);
+    // Play's turned pan is not held. Photo mode stays within the map's edge.
+    if (photo_mode()) {
+        const std::array<double, 2> held = held_photo_place(x, z);
+        x = held[0];
+        z = held[1];
+    }
+    place_match_view(x, z);
     const auto moved = match_view_place();
     remember_placed_view(moved[0], moved[1]);
     return true;

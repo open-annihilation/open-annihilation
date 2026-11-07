@@ -905,7 +905,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         for (const SeatRow& row : laid.rows) {
             room::RoomCanvas res = room::room_canvas(grown(row.res, room_focus_margin), &frame);
             draw_brain_cell(res, art, row);
-            if (focused_slot_ == row.slot)
+            if (focus_ring_ && focused_slot_ == row.slot)
                 room::draw_room_focus(res, art, row.res);
             paint_room_parts(canvas, view_, laid.bounds, res);
             if (row.mem.width > 0 && !row.level_words.empty()) {
@@ -1017,6 +1017,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             card_pressed_ = false;
             if (button == SDL_BUTTON_LEFT && focused_slot_ >= 0) {
                 focused_slot_ = -1;
+                focus_ring_ = false;
                 ++revision_;
             }
             return LayerAnswer::pass;
@@ -1187,7 +1188,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         shown_state.pressed =
             pressed_part_ == Part::cell ? control_id(pressed_slot_) : kit::no_control;
         shown_state.focused = control_id(focused_slot_);
-        shown_state.focus_shown = focused_slot_ >= 0;
+        shown_state.focus_shown = focus_ring_;
         return shown_state;
     }
 
@@ -1214,12 +1215,43 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         if (focused_slot_ >= 0 && button_of(laid, focused_slot_) == nullptr) {
             focused_slot_ = -1;
             pressed_slot_ = -1;
+            focus_ring_ = false;
             ++revision_;
         }
         if (focused_slot_ >= 0 && mp::multiplayer_battle_room_focus() != mp::kNoControl) {
             focused_slot_ = -1;
             pressed_slot_ = -1;
+            focus_ring_ = false;
             ++revision_;
+        }
+        // Once the rows exist, the first button is focused with the ring
+        // hidden, unless the battle room already has the focus. That focus is
+        // not taken from the room, and a later clear stays cleared.
+        if (laid.ok && !opened_focus_) {
+            opened_focus_ = true;
+            if (focused_slot_ < 0 && mp::multiplayer_battle_room_focus() == mp::kNoControl) {
+                int32_t first = -1;
+                for (const Stop& stop : stops_of(laid)) {
+                    if (!stop.button)
+                        continue;
+                    first = stop.id;
+                    break;
+                }
+                if (first < 0) {
+                    for (const SeatRow& row : laid.rows) {
+                        if (!row.button)
+                            continue;
+                        first = row.slot;
+                        break;
+                    }
+                }
+                if (first >= 0) {
+                    focused_slot_ = first;
+                    focus_ring_ = runtime_.oa_layer().always_show_focus();
+                    if (focus_ring_)
+                        ++revision_;
+                }
+            }
         }
         if (card_.open_slot() != mp::presence_card_no_slot && card_.open_slot() != menu_card_slot &&
             row_of(laid, card_.open_slot()) == nullptr)
@@ -1786,6 +1818,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     LayerAnswer take_focus(int32_t slot) {
         focused_slot_ = slot;
         pressed_slot_ = -1;
+        focus_ring_ = true;
         mp::multiplayer_set_battle_room_focus(mp::kNoControl);
         ++revision_;
         return LayerAnswer::redraw;
@@ -1797,6 +1830,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// @return redraw
     LayerAnswer hand_focus(int32_t index) {
         focused_slot_ = -1;
+        focus_ring_ = false;
         mp::multiplayer_set_battle_room_focus(index);
         ++revision_;
         return LayerAnswer::redraw;
@@ -1876,10 +1910,17 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             }
             return LayerAnswer::pass;
         }
+        // The ring is hidden: Tab and Shift+Tab move and show it. Every other
+        // key is the battle room's, including Return, which stays the room's
+        // own key until the ring is showing.
+        if (!focus_ring_ && pressed != kit::Key::tab && pressed != kit::Key::back_tab)
+            return LayerAnswer::pass;
         if (pressed == kit::Key::enter || pressed == kit::Key::space) {
             const SeatRow* row = button_of(laid, focused_slot_);
             if (row != nullptr && row->enabled)
                 open_menu(focused_slot_);
+            if (pressed == kit::Key::enter)
+                focus_ring_ = false;
             return LayerAnswer::redraw;
         }
         const std::vector<Stop> stops = stops_of(laid);
@@ -2112,6 +2153,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     Part pressed_part_{Part::none}; ///< the part of that row
     uint8_t pressed_button_{};      ///< the pointer's button that holds the press
     int32_t focused_slot_{-1};      ///< the cell the keyboard focus is on; -1 for none
+    bool focus_ring_{};             ///< the focus ring is drawn on that cell
+    bool opened_focus_{};           ///< the screen has placed its opening focus
     bool have_pointer_{};           ///< the pointer has been seen
     kit::Point pointer_layer_{};    ///< the pointer, in the layer's points
     bool card_pressed_{};           ///< a press started on the open card

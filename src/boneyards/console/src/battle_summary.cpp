@@ -6,9 +6,12 @@
 // the Battles and Forming counts and, for a contested planet, each side's
 // wins beside its logo.
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 
 #include "console_state.hpp"
+#include "oa/boneyards/screens/galaxy.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/raster.hpp"
 #include "oa/present/surface.hpp"
 
@@ -48,6 +51,67 @@ constexpr const char* k_icon_name = "SmallArmIcon"; // both icons carry it
 constexpr const char* k_battles_caption = "Battles:";
 constexpr const char* k_forming_caption = "Forming:";
 constexpr int32_t k_state_normal = 1;
+// Colour-vision mode last applied to the side icons. Off means the loaded icons are unchanged.
+// 0xFF is not a mode: the next summary applies the mode to the icons it loads.
+uint8_t g_logo_mode = 0;
+
+void drop_side_icon_colours() {
+    g_logo_mode = 0xFF;
+}
+
+void recolour_index(Handle image, uint8_t from, uint8_t to) {
+    if (image < 0 || from == to)
+        return;
+    Surface surface{};
+    if (!image_surface(image, &surface) || surface.pixels == nullptr || surface.width <= 0 ||
+        surface.height <= 0)
+        return;
+    for (int32_t row = 0; row < surface.height; ++row) {
+        uint8_t* pixels = surface.pixels + static_cast<std::ptrdiff_t>(row) * surface.pitch;
+        for (int32_t column = 0; column < surface.width; ++column) {
+            if (pixels[column] == from)
+                pixels[column] = to;
+        }
+    }
+}
+
+void replace_logo(Handle& slot, Window* icon, int32_t frame) {
+    if (slot >= 0)
+        image_release(slot);
+    slot = image_load(screens::kWidgetsGaf, k_logos_sequence, frame, screens::kWidgetKey);
+    if (icon != nullptr && slot >= 0)
+        window_set_state_image(icon, k_state_normal, slot);
+}
+
+// Reloads the side icons when the colour-vision mode changes, and recolours only each logo's body.
+// Off reloads the stored pictures and leaves them alone.
+void refresh_side_icons(BattleSummary* summary) {
+    const auto now = static_cast<uint8_t>(present::colour_vision::active_mode());
+    if (summary == nullptr || now == g_logo_mode)
+        return;
+    replace_logo(summary->arm_logo, summary->arm_icon, k_logo_arm);
+    replace_logo(summary->core_logo, summary->core_icon, k_logo_core);
+    if (now != static_cast<uint8_t>(present::colour_vision::Mode::off)) {
+        const screens::SideIconColours bodies =
+            screens::side_icon_colours(screens::boneyards_palette());
+        recolour_index(
+            summary->arm_logo,
+            static_cast<uint8_t>(screens::side_icon_body::arm),
+            static_cast<uint8_t>(bodies.arm)
+        );
+        recolour_index(
+            summary->core_logo,
+            static_cast<uint8_t>(screens::side_icon_body::core),
+            static_cast<uint8_t>(bodies.core)
+        );
+    }
+    g_logo_mode = now;
+}
+
+void follow_role_font(Window* label, Handle font) {
+    if (label != nullptr && font >= 0 && label->font != font)
+        window_set_font_handle(label, font);
+}
 
 Window*
 add_label(MainFrame* frame, int32_t x, int32_t y, const char* text, Handle font, int32_t width) {
@@ -141,6 +205,7 @@ BattleSummary* battle_summary_create(MainFrame* frame) {
         summary->core_wins,
     };
     show(all, sizeof all / sizeof all[0], false);
+    refresh_side_icons(summary);
     (void)image_surface(frame->base.states.images[k_state_normal], &summary->background);
     if (screens::GalaxyView* galaxy = galaxy_of(summary)) {
         galaxy->territory.planet = screens::kNoPlanet;
@@ -155,6 +220,8 @@ void battle_summary_release(BattleSummary* summary) {
     image_release(summary->core_logo);
     summary->arm_logo = k_no_handle;
     summary->core_logo = k_no_handle;
+    // The next summary loads its own icons. A mode still on must recolour those, not skip them.
+    drop_side_icon_colours();
 }
 
 namespace {
@@ -294,9 +361,19 @@ void battle_summary_update(BattleSummary* summary) {
     };
     show(contested, sizeof contested / sizeof contested[0], t.contested_shown);
     stack_labels(summary);
+    refresh_side_icons(summary);
+    if (summary->frame != nullptr && summary->frame->owner != nullptr) {
+        const Handle role = summary->frame->owner->system.hat_fonts.small_green;
+        follow_role_font(summary->name, role);
+        follow_role_font(summary->battles, role);
+        follow_role_font(summary->forming, role);
+        follow_role_font(summary->arm_wins, role);
+        follow_role_font(summary->core_wins, role);
+    }
 }
 
 void battle_summary_draw(BattleSummary* summary) {
+    refresh_side_icons(summary);
     Surface* background = &summary->background;
     if (background->pixels == nullptr)
         return;

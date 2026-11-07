@@ -851,6 +851,7 @@ ScreenResult open_page(const Picker& picker, ScreenState& state) {
     if (state.interaction.focus_shown) {
         state.interaction.focused = page_focus(picker);
         state.interaction.focus_shown = true;
+        state.interaction.pointer_hid_ring = false;
     }
     return redrawn();
 }
@@ -877,6 +878,7 @@ void focus_search(ScreenState& state) {
     state.menu = Menu::none;
     state.interaction.focused = controls::search;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
 }
 
 /// The first control the layout put in Tab's order.
@@ -908,7 +910,7 @@ kit::ControlId first_detail(const kit::DisplayList& list) {
 /// @param[in,out] state the screen's state
 /// @param list the display list
 void repair_focus(ScreenState& state, const kit::DisplayList& list) {
-    if (!state.interaction.focus_shown)
+    if (state.interaction.focused == kit::no_control)
         return;
     if (kit::control_of(list, state.interaction.focused) != nullptr)
         return;
@@ -1758,6 +1760,7 @@ ScreenResult activate(
     } else if (id == controls::search) {
         state.interaction.focused = controls::search;
         state.interaction.focus_shown = true;
+        state.interaction.pointer_hid_ring = false;
     } else if (finger) {
         return {};
     }
@@ -1876,6 +1879,7 @@ ScreenResult enter_list(const Picker& picker, ScreenState& state, const kit::Dis
         return {};
     state.interaction.focused = detail;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
     show_in_details(state, list, detail);
     return redrawn();
 }
@@ -2021,6 +2025,7 @@ ScreenResult picker_pointer(
         if (pressed.control == controls::search) {
             interaction.focused = controls::search;
             interaction.focus_shown = true;
+            interaction.pointer_hid_ring = false;
             answered.redraw = true;
         }
         if (finger && !menu_item_control(pressed.control)) {
@@ -2084,7 +2089,13 @@ picker_key(Picker& picker, ScreenState& state, const kit::DisplayList& list, kit
         if (const std::optional<ScreenResult> taken = menu_key(picker, state, list, pressed))
             return *taken;
     }
+    // The first stop takes the keys from the first key, with the ring hidden,
+    // unless the host already opened the screen (and may have asked for the ring).
+    kit::focus_opened(state.interaction, list, false);
     kit::Interaction& interaction = state.interaction;
+    if (pressed != kit::Key::escape && pressed != kit::Key::yes && pressed != kit::Key::no &&
+        pressed != kit::Key::info)
+        kit::show_ring_for_key(interaction);
     const kit::ControlId focus = interaction.focus_shown ? interaction.focused : kit::no_control;
     const bool on_search = focus == controls::search;
     const bool on_list = focus == controls::list;
@@ -2112,13 +2123,19 @@ picker_key(Picker& picker, ScreenState& state, const kit::DisplayList& list, kit
         }
         if (on_list || focus == kit::no_control)
             return enter_list(picker, state, list);
-        if (focus == controls::filter)
+        if (focus == controls::filter) {
+            interaction.focus_shown = false;
             return toggle_menu(picker, state, list, Menu::filter, {});
-        if (focus == controls::tags)
+        }
+        if (focus == controls::tags) {
+            interaction.focus_shown = false;
             return toggle_menu(picker, state, list, Menu::tags, {});
+        }
         if (const std::optional<ScreenResult> stepped =
-                step_key(picker, state, list, focus, pressed))
+                step_key(picker, state, list, focus, pressed)) {
+            interaction.focus_shown = false;
             return *stepped;
+        }
         break;
     case kit::Key::space:
         if (on_list) {

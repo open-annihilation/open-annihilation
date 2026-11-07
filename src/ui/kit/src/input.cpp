@@ -442,7 +442,7 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
     entry.rect = control.rect;
     entry.shown = in_view(control);
     entry.enabled = control.enabled;
-    entry.focused = interaction.focus_shown && interaction.focused == control.id;
+    entry.focused = interaction.focused != no_control && interaction.focused == control.id;
     entry.checked = control.checked;
     entry.text = control.text;
     entry.focusable = control.focusable;
@@ -669,7 +669,7 @@ void mark_states(DisplayList& list, const Interaction& interaction) noexcept {
             item.state.pressed = false;
             continue;
         }
-        item.state.focused = interaction.focus_shown && item.control == interaction.focused;
+        item.state.focused = focus_ring_visible(interaction) && item.control == interaction.focused;
         item.state.pressed =
             interaction.pressed != no_control && item.control == interaction.pressed;
     }
@@ -679,7 +679,23 @@ PointerOutcome pointer_move(Interaction& interaction, const DisplayList& list, P
     if (interaction.pressed != no_control)
         point = shifted(point, interaction.finger_shift);
     const ControlId hovered = hit(list, point);
-    if (hovered == interaction.hovered)
+    // A move hides the ring, except on a text field: the field keeps its
+    // ring, its caret and its typing. The focused control stays either way,
+    // so the next key still acts on the control a click or a key placed.
+    // An opening focus is left for the hidden-ring key table.
+    const Control* focused = control_of(list, interaction.focused);
+    const bool field = focused != nullptr && focused->kind == ControlKind::text_field;
+    bool hid = false;
+    if (field) {
+        if (interaction.pointer_hid_ring) {
+            interaction.pointer_hid_ring = false;
+            hid = true;
+        }
+    } else if (interaction.focus_shown && !interaction.pointer_hid_ring) {
+        interaction.pointer_hid_ring = true;
+        hid = true;
+    }
+    if (hovered == interaction.hovered && !hid)
         return {PointerResult::none, hovered, point};
     interaction.hovered = hovered;
     return {PointerResult::redraw, hovered, point};
@@ -715,6 +731,9 @@ PointerOutcome pointer_up(Interaction& interaction, const DisplayList& list, Poi
     interaction.hovered = hovered;
     const ControlId held = interaction.pressed;
     interaction.pressed = no_control;
+    // A completed press shows the ring again. A later move hides it.
+    if (held != no_control)
+        interaction.pointer_hid_ring = false;
     if (held == no_control)
         return {PointerResult::none, no_control, point};
     if (hovered != held)
@@ -879,12 +898,42 @@ show_end(Interaction& interaction, const DisplayList& list, bool last, Key press
         return outcome_of(KeyResult::none, no_control, pressed);
     interaction.focused = last ? list.tab_order.back() : list.tab_order.front();
     interaction.focus_shown = true;
+    interaction.pointer_hid_ring = false;
+    return outcome_of(KeyResult::redraw, interaction.focused, pressed);
+}
+
+/// Shows the ring on the control Tab or Shift+Tab reaches while the ring is hidden.
+///
+/// From a control in the order, Tab moves on and Shift+Tab moves back, and
+/// the ring is shown there. From none, or from a control that is not in the
+/// order, Tab shows the first and Shift+Tab the last, as they do today.
+///
+/// @param[in,out] interaction the focus
+/// @param list the display list
+/// @param forward true for Tab, false for Shift+Tab
+/// @param pressed the key
+/// @return redraw, or none when the order is empty
+[[nodiscard]] KeyOutcome
+show_hidden_tab(Interaction& interaction, const DisplayList& list, bool forward, Key pressed) {
+    if (list.tab_order.empty())
+        return outcome_of(KeyResult::none, no_control, pressed);
+    const auto found = std::find(list.tab_order.begin(), list.tab_order.end(), interaction.focused);
+    if (found == list.tab_order.end())
+        return show_end(interaction, list, !forward, pressed);
+    interaction.focused = next_in_tab_order(list, interaction.focused, forward);
+    interaction.focus_shown = true;
+    interaction.pointer_hid_ring = false;
     return outcome_of(KeyResult::redraw, interaction.focused, pressed);
 }
 
 } // namespace
 
 KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
+    // A key shows the ring again where a click or a key left the focus. Escape
+    // and the screen's own Yes, No and Info leave a pointer-hidden ring hidden.
+    // An opening focus is unchanged, so the hidden-ring table still applies.
+    if (pressed != Key::escape && pressed != Key::yes && pressed != Key::no && pressed != Key::info)
+        show_ring_for_key(interaction);
     const bool shown = interaction.focus_shown && interaction.focused != no_control;
     const Control* focused = shown ? control_of(list, interaction.focused) : nullptr;
 
@@ -912,15 +961,29 @@ KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
     case Key::enter:
         if (focused != nullptr &&
             (focused->kind == ControlKind::button || focused->kind == ControlKind::link ||
-             focused->kind == ControlKind::list_item || focused->kind == ControlKind::tab))
+             focused->kind == ControlKind::list_item || focused->kind == ControlKind::tab)) {
+            // The press stands, and the ring goes, so the next keys are the
+            // screen's until a key shows the ring again.
+            interaction.focus_shown = false;
             return outcome_of(KeyResult::to_control, interaction.focused, pressed);
+        }
+        // A text field keeps its ring, its caret and its typing, as it does
+        // through a pointer move: the screen accepts and the field still edits.
+        if (shown && (focused == nullptr || focused->kind != ControlKind::text_field))
+            interaction.focus_shown = false;
         return outcome_of(KeyResult::accept, no_control, pressed);
     case Key::up:
-    case Key::back_tab:
         if (!shown)
             return show_end(interaction, list, true, pressed);
         break;
+    case Key::back_tab:
+        if (!shown)
+            return show_hidden_tab(interaction, list, false, pressed);
+        break;
     case Key::tab:
+        if (!shown)
+            return show_hidden_tab(interaction, list, true, pressed);
+        break;
     case Key::down:
     case Key::left:
     case Key::right:
@@ -942,6 +1005,7 @@ KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
             return outcome_of(KeyResult::none, interaction.focused, pressed);
         interaction.focused = next;
         interaction.focus_shown = true;
+        interaction.pointer_hid_ring = false;
         return outcome_of(KeyResult::redraw, next, pressed);
     }
 
@@ -960,7 +1024,19 @@ KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
         return outcome_of(KeyResult::none, interaction.focused, pressed);
     interaction.focused = next;
     interaction.focus_shown = true;
+    interaction.pointer_hid_ring = false;
     return outcome_of(KeyResult::redraw, next, pressed);
+}
+
+void focus_opened(Interaction& interaction, const DisplayList& list, bool show) noexcept {
+    if (interaction.focused != no_control)
+        return;
+    if (list.tab_order.empty())
+        return;
+    interaction.focused = list.tab_order.front();
+    interaction.focus_shown = show;
+    if (show)
+        interaction.pointer_hid_ring = false;
 }
 
 namespace {

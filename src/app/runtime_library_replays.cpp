@@ -2610,8 +2610,9 @@ struct ReplayContentAccess {
         const fs::path& mod_folder
     );
 
-    /// Puts the player's expansions and mod back once the replay that changed
-    /// them has ended, and at the next start when that replay will not play.
+    /// Puts the player's expansions and mod back once the player has left the
+    /// end screen of the replay that changed them, and at the next start when
+    /// that replay will not play. The end screen itself keeps the choice.
     ///
     /// @param runtime the runtime
     /// @return true when a restart was asked for
@@ -3376,6 +3377,11 @@ bool ReplayContentAccess::restore_replay_expansions(Runtime& runtime) {
     }
     if (runtime.screen_ == Screen::match || runtime.match_ != nullptr)
         return false;
+    // The end screen stays until the player leaves it. A later start is not
+    // on that screen, so a replay that never reached it still puts the choice
+    // back, and does not play.
+    if (runtime.screen_ == Screen::campaign_end)
+        return false;
 
     const auto saved_expansions =
         runtime.preference_values_.find(std::string(replay_expansion_preference));
@@ -3930,6 +3936,27 @@ bool Runtime::LibraryHost::pump_replays(Runtime& runtime) {
     return true;
 }
 
+void Runtime::LibraryHost::select_kept_replay() {
+    if (!kept_replay || !replays || !replays->listed)
+        return;
+    const std::string path = *kept_replay;
+    if (!model.replays.selected || *model.replays.selected != path)
+        library::select_replay(model, path);
+    // The folder can finish before this replay is in the list the filter
+    // shows. The next read tries again. Opening the Library forgets it.
+    if (!model.replays.selected || *model.replays.selected != path)
+        return;
+    if (model.tab == library::Tab::replays) {
+        state.list_scroll = kept_replay_scroll;
+        if (const std::optional<std::size_t> place = library::replay_place(model, path))
+            state.reveal_row = static_cast<int32_t>(*place);
+        state.replay_page =
+            kept_replay_page && model.replays.selected && *model.replays.selected == path;
+    }
+    kept_replay.reset();
+    ++model_revision;
+}
+
 bool Runtime::LibraryHost::replays_reading() {
     if (!replays)
         return false;
@@ -4272,8 +4299,13 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
     }
     const int turned =
         ReplayContentAccess::switch_for_replay(runtime, pending.file, pending.turn_on, mod_folder);
-    if (turned == 2)
+    if (turned == 2) {
+        // The Library is still open, so this row crosses the restart into the
+        // run that plays the replay and the one that puts the choice back.
+        library::select_replay(model, pending.path);
+        runtime.keep_library_for_restart();
         return;
+    }
     if (turned == 0) {
         library::refuse_replay(
             model,
@@ -4448,8 +4480,14 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
         if (!turn_on.empty() || !mod_folder.empty()) {
             const int turned =
                 ReplayContentAccess::switch_for_replay(runtime, *file, turn_on, mod_folder);
-            if (turned == 2)
+            if (turned == 2) {
+                // The Library is still open, so this row crosses the restart
+                // into the run that plays the replay and the one that puts
+                // the choice back.
+                library::select_replay(model, result.replay);
+                runtime.keep_library_for_restart();
                 return false;
+            }
             if (turned == 0) {
                 library::refuse_replay(
                     model,
@@ -5292,10 +5330,12 @@ void Runtime::LibraryHost::end_watched_replay(Runtime& runtime) {
         call_hook_or_report<&ReplayHooks::close>(hooks, runtime.hook_error_report());
     }
     // A replay that turned expansions on, or played another mod, puts the
-    // player's set back once its match has ended, including one the next run
-    // started after a restart. A switch still waiting to play is left.
-    if (!in_match)
-        static_cast<void>(ReplayContentAccess::restore_replay_expansions(runtime));
+    // player's set back once the player has left its end screen, including
+    // one the next run started after a restart. A switch still waiting to
+    // play is left. The row the Library showed crosses that restart.
+    if (!in_match && ReplayContentAccess::restore_replay_expansions(runtime) &&
+        runtime.library_return_)
+        runtime.library_kept_ = runtime.library_return_;
 }
 
 } // namespace oa::app

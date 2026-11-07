@@ -1051,7 +1051,12 @@ void Runtime::place_tracking_camera() {
     const FixedVec3 shown = shown_unit_position(
         models, world, tracked_match_unit_, tick_fraction(presentation_alpha())
     );
-    centre_view_on(static_cast<int32_t>(shown.x), static_cast<int32_t>(shown.z));
+    // Photo mode centres the place the unit is drawn. Play keeps the ground
+    // point, as 3.1c does.
+    int32_t drawn_z = static_cast<int32_t>(shown.z);
+    if (photo_mode())
+        drawn_z -= static_cast<int32_t>(shown.y) / 2;
+    centre_view_on(static_cast<int32_t>(shown.x), drawn_z);
 }
 
 const oa::formats::gaf::RenderedFrame*
@@ -1412,6 +1417,10 @@ void Runtime::render_match_surface() {
 bool Runtime::draw_match_surface() {
     if (!match_ || !selected_tnt_)
         throw std::logic_error("match renderer requires an initialized offline match");
+    // Before any pixel. A turned view that just ended can leave the zoom
+    // farther out than Full draws; easing would hand those frames to the
+    // processor. Photo mode takes the zoom to the new end first.
+    snap_photo_zoom_to_far_end();
     // The drawing rebuilds piece placements the match reads, so it rounds as
     // the ticks do.
     oa::base::float_precision::restore_program_float_control();
@@ -1553,7 +1562,9 @@ bool Runtime::draw_match_surface() {
     ensure_radar_surfaces();
     if (directed)
         bind_director_view();
-    else
+    else if (!photo_mode())
+        // Photo mode draws from its own camera. The Game block keeps the
+        // player's, so the match does not follow the photo camera.
         bind_match_view();
     // The frame's on-screen list, after the ticks and before the drawing: the
     // pointer and the under-attack notice test the list the frame drawn last

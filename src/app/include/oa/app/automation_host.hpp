@@ -110,7 +110,11 @@ struct AutomationControl {
     int32_t height{}; ///< its height in canvas pixels
     bool visible{};   ///< it is shown
     bool enabled{};   ///< it is shown and not grayed out
-    bool focused{};   ///< it holds the keyboard focus
+    bool focused{};   ///< it holds the keyboard focus, whether or not the ring is drawn
+    /// The focus ring is drawn on it. The screen object writes this once, as
+    /// `focus_shown`. A control that is not the focused one leaves it false.
+    /// The tree does not write it on each control.
+    bool focus_shown{};
     bool checked{};   ///< a check box is checked
     std::string text; ///< its caption, its label's text or a field's typed text
     /// A masked field. An answer gives `text_length` and does not give the text.

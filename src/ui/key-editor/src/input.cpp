@@ -386,6 +386,7 @@ bool in_list(const kit::DisplayList& list, kit::Point at) {
 void focus_on(ScreenState& state, kit::ControlId id) {
     state.interaction.focused = id;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
 }
 
 /// Scrolls the list so one slot is wholly in view.
@@ -1120,7 +1121,12 @@ EditorResult escape_key(Editor& editor, ScreenState& state) {
 /// @param state the focus
 /// @return true when the details should take a stick
 bool details_focused(const ScreenState& state) {
-    return state.details_page || detail_control(state.interaction.focused);
+    if (state.details_page)
+        return true;
+    // A focus placed at open, before the ring shows, does not scroll the details.
+    if (!state.interaction.focus_shown)
+        return false;
+    return detail_control(state.interaction.focused);
 }
 
 /// Scrolls one pane by the wheel.
@@ -2427,8 +2433,21 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
         return menu_key(editor, state, list, pressed);
     if (pressed == kit::Key::escape)
         return escape_key(editor, state);
+    // The list's own keys return before kit::key. Show the ring again on the
+    // control a click or a key placed; an opening focus is left as it is.
+    if (pressed != kit::Key::yes && pressed != kit::Key::no && pressed != kit::Key::info)
+        kit::show_ring_for_key(state.interaction);
 
-    const bool on_search = state.interaction.focused == controls::search;
+    // The first stop takes the keys from the first key, with the ring hidden,
+    // unless the host already opened the screen (and may have asked for the ring).
+    // While that opening focus has not been moved, the aimed control is none,
+    // so a key does what it did when nothing was focused, and Tab still moves
+    // on from the real focus. A pointer move hides the ring and leaves the
+    // aimed control, so the keys still act on the row a click chose.
+    kit::focus_opened(state.interaction, list, false);
+    const kit::ControlId aimed =
+        state.interaction.focus_shown ? state.interaction.focused : kit::no_control;
+    const bool on_search = aimed == controls::search;
     if (on_search && (pressed == kit::Key::left || pressed == kit::Key::right ||
                       pressed == kit::Key::home || pressed == kit::Key::end ||
                       pressed == kit::Key::backspace || pressed == kit::Key::delete_forward)) {
@@ -2438,22 +2457,20 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
         }
         return {};
     }
-    if (pressed == kit::Key::delete_forward && chord_row(state.interaction.focused)) {
+    if (pressed == kit::Key::delete_forward && chord_row(aimed)) {
         editor.remove_chord(
-            state.selected,
-            static_cast<std::size_t>(state.interaction.focused - controls::chord_row_first)
+            state.selected, static_cast<std::size_t>(aimed - controls::chord_row_first)
         );
         return redrawn();
     }
-    if (pressed == kit::Key::delete_forward && chord_remove(state.interaction.focused)) {
+    if (pressed == kit::Key::delete_forward && chord_remove(aimed)) {
         editor.remove_chord(
-            state.selected,
-            static_cast<std::size_t>(state.interaction.focused - controls::chord_first)
+            state.selected, static_cast<std::size_t>(aimed - controls::chord_first)
         );
         return redrawn();
     }
 
-    const kit::ControlId focused = state.interaction.focused;
+    const kit::ControlId focused = aimed;
     const bool on_view = focused == controls::view_list || focused == controls::view_keyboard ||
                          focused == controls::view_mouse;
     const bool on_layer = focused == controls::layer_none || focused == controls::layer_shift ||
@@ -2506,11 +2523,15 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
         return move_key(state, list, pressed);
     if (on_key && (pressed == kit::Key::enter || pressed == kit::Key::space)) {
         const std::string code = code_of_key(state, focused);
-        if (!code.empty())
+        if (!code.empty()) {
+            // Return presses the key and hides the ring. Space keeps it.
+            if (pressed == kit::Key::enter)
+                state.interaction.focus_shown = false;
             return press_picture_key(editor, state, code);
+        }
     }
 
-    const bool on_list = state.interaction.focused == controls::list;
+    const bool on_list = aimed == controls::list;
     if (on_list &&
         (pressed == kit::Key::up || pressed == kit::Key::down || pressed == kit::Key::page_up ||
          pressed == kit::Key::page_down || pressed == kit::Key::home || pressed == kit::Key::end)) {
@@ -2596,6 +2617,9 @@ EditorResult editor_text(
     }
     if (state.prompt != Prompt::none)
         return {};
+    // Typed text reaches the search whenever it holds the focus. The editor
+    // opens on the List tab, so an opening focus never lands on the search.
+    // Return hides the ring and the next character is still taken.
     if (state.interaction.focused != controls::search)
         return {};
     if (!kit::insert_text(state.search, utf8))

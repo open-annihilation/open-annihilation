@@ -5,14 +5,18 @@
 #include "galaxy_graphics.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "oa/present/blit.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/display.hpp"
 
 namespace oa::boneyards::console {
@@ -206,6 +210,126 @@ Rect32 clip_within(const Surface& target, const Rect32& clip) {
     };
 }
 
+// Arm is slot 0 and Core slot 1 of the saved aura pixels. The independent aura is never saved.
+int aura_saved_slot(AuraSide side) {
+    if (side == AuraSide::arm)
+        return 0;
+    if (side == AuraSide::core)
+        return 1;
+    return -1;
+}
+
+void collect_pixel_buffers(
+    formats::gaf::Frame& frame, std::vector<std::vector<uint8_t>*>& buffers
+) {
+    if (!frame.pixels.empty())
+        buffers.push_back(&frame.pixels);
+    for (formats::gaf::Frame& layer : frame.layers)
+        collect_pixel_buffers(layer, buffers);
+}
+
+std::vector<std::vector<uint8_t>*> aura_pixel_buffers(formats::gaf::Archive& archive) {
+    std::vector<std::vector<uint8_t>*> buffers;
+    for (formats::gaf::Sequence& sequence : archive.sequences)
+        for (formats::gaf::Frame& frame : sequence.frames)
+            collect_pixel_buffers(frame, buffers);
+    return buffers;
+}
+
+std::span<const uint8_t> graphics_palette(const GalaxyGraphics& graphics) {
+    if (graphics.palette == nullptr)
+        return {};
+    return std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(graphics.palette->entries), sizeof(oa::Palette)
+    );
+}
+
+void restore_aura(GalaxyGraphics& graphics, AuraSide side) {
+    const int slot = aura_saved_slot(side);
+    if (slot < 0)
+        return;
+    const auto saved_slot = static_cast<std::size_t>(slot);
+    const std::vector<std::vector<uint8_t>>& saved = graphics.aura_originals[saved_slot];
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (saved.empty() || !graphics.auras[archive_slot])
+        return;
+    const std::vector<std::vector<uint8_t>*> buffers =
+        aura_pixel_buffers(*graphics.auras[archive_slot]);
+    if (buffers.size() != saved.size())
+        return;
+    for (std::size_t i = 0; i < buffers.size(); ++i) {
+        if (buffers[i]->size() == saved[i].size())
+            *buffers[i] = saved[i];
+    }
+}
+
+void save_aura(GalaxyGraphics& graphics, AuraSide side) {
+    const int slot = aura_saved_slot(side);
+    if (slot < 0)
+        return;
+    std::vector<std::vector<uint8_t>>& saved =
+        graphics.aura_originals[static_cast<std::size_t>(slot)];
+    if (!saved.empty())
+        return;
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (!graphics.auras[archive_slot])
+        return;
+    for (const std::vector<uint8_t>* buffer : aura_pixel_buffers(*graphics.auras[archive_slot]))
+        saved.push_back(*buffer);
+}
+
+void remap_aura(GalaxyGraphics& graphics, AuraSide side, std::span<const uint8_t> palette) {
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (!graphics.auras[archive_slot])
+        return;
+    const std::array<uint8_t, 256> map = screens::galaxy_aura_map(side == AuraSide::arm, palette);
+    for (std::vector<uint8_t>* buffer : aura_pixel_buffers(*graphics.auras[archive_slot]))
+        present::colour_vision::remap_indices(*buffer, map, static_cast<int>(screens::kWidgetKey));
+}
+
+void forget_aura(GalaxyGraphics& graphics, AuraSide side) {
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (graphics.auras[archive_slot])
+        forget_decoded(graphics, *graphics.auras[archive_slot]);
+}
+
+// A colour-vision mode recolours the Arm and Core auras in place, and off puts the saved pixels
+// back. The same mode applied twice leaves the pixels alone, so an unchanged mode does not rewrite
+// a frame.
+void apply_aura_colours(GalaxyGraphics& graphics) {
+    const auto now = static_cast<uint8_t>(present::colour_vision::active_mode());
+    if (now == graphics.aura_mode)
+        return;
+    restore_aura(graphics, AuraSide::arm);
+    restore_aura(graphics, AuraSide::core);
+    if (now == static_cast<uint8_t>(present::colour_vision::Mode::off)) {
+        const bool restored =
+            !graphics.aura_originals[0].empty() || !graphics.aura_originals[1].empty();
+        graphics.aura_originals[0].clear();
+        graphics.aura_originals[1].clear();
+        graphics.aura_mode = now;
+        if (restored) {
+            forget_aura(graphics, AuraSide::arm);
+            forget_aura(graphics, AuraSide::core);
+        }
+        return;
+    }
+    const std::span<const uint8_t> palette = graphics_palette(graphics);
+    if (palette.size() < static_cast<std::size_t>(oa::present::colour_vision::kPaletteColours) * 4U)
+        return;
+    save_aura(graphics, AuraSide::arm);
+    save_aura(graphics, AuraSide::core);
+    remap_aura(graphics, AuraSide::arm, palette);
+    remap_aura(graphics, AuraSide::core, palette);
+    graphics.aura_mode = now;
+    forget_aura(graphics, AuraSide::arm);
+    forget_aura(graphics, AuraSide::core);
+}
+
+uint8_t shown_link_colour(const GalaxyGraphics& graphics, int32_t stored) {
+    return static_cast<uint8_t>(screens::galaxy_link_index(stored, graphics_palette(graphics)));
+}
+
 } // namespace
 
 const formats::gaf::Sequence*
@@ -233,6 +357,13 @@ bool galaxy_load_auras(GalaxyGraphics& graphics, char side, const FileReader& fi
     const auto index = static_cast<std::size_t>(slot);
     auto& archive = graphics.auras[index];
     auto& sequences = graphics.aura_sequences[index];
+    if (slot == AuraSide::arm || slot == AuraSide::core) {
+        const int saved = aura_saved_slot(slot);
+        if (saved >= 0)
+            graphics.aura_originals[static_cast<std::size_t>(saved)].clear();
+        // Not a mode: the next draw puts back any side still recoloured, then applies the mode.
+        graphics.aura_mode = 0xFF;
+    }
     archive = load_archive(files, k_aura_gafs[index]);
     if (!archive)
         return false;
@@ -507,6 +638,7 @@ void galaxy_draw_star_layer(Surface* target, const screens::GalaxyStarLayer& lay
 }
 
 void galaxy_draw(GalaxyGraphics& graphics, const screens::GalaxyView& view, Surface* viewer) {
+    apply_aura_colours(graphics);
     if (screens::galaxy_shows_war_map(&view)) {
         for (const screens::GalaxyStarLayer& layer : view.star_layers)
             galaxy_draw_star_layer(viewer, layer);
@@ -519,7 +651,7 @@ void galaxy_draw(GalaxyGraphics& graphics, const screens::GalaxyView& view, Surf
                     c.view_ay,
                     c.view_bx,
                     c.view_by,
-                    static_cast<uint8_t>(c.color)
+                    shown_link_colour(graphics, c.color)
                 );
         }
         const int32_t scale = view.scale;

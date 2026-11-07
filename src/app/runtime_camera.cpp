@@ -17,6 +17,7 @@
 #include "oa/present/world_renderer/world_camera.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -62,9 +63,18 @@ static_assert(
     "the model budget's share, unknown budget and address cap are the bridge's"
 );
 
+/// A budget forced for this process, ahead of the environment and the machine.
+std::optional<uint64_t>& rendered_units_budget_force() noexcept {
+    static std::optional<uint64_t> forced;
+    return forced;
+}
+
 // OA_RENDERED_UNITS_BUDGET, a number of bytes, or nothing when it is unset
 // or not a number. Read once; a failure to read it leaves the machine's budget.
+// A budget forced for this process replaces both.
 std::optional<uint64_t> rendered_units_budget_override() noexcept {
+    if (rendered_units_budget_force().has_value())
+        return rendered_units_budget_force();
     static const std::optional<uint64_t> parsed = []() noexcept -> std::optional<uint64_t> {
         try {
             const std::optional<std::string> text =
@@ -124,6 +134,10 @@ full_screen_edge_point(SDL_Window* window, SDL_Renderer* renderer, int32_t width
 #endif
 
 } // namespace
+
+void Runtime::force_rendered_units_budget(std::optional<uint64_t> bytes) noexcept {
+    rendered_units_budget_force() = bytes;
+}
 
 bool Runtime::radar_contains(float x, float y) const {
     return radar_picture_.width > 0 && radar_picture_.height > 0 &&
@@ -597,8 +611,14 @@ void Runtime::EngineSettingsState::ease_zoom_about_centre(Runtime& runtime, floa
         static_cast<float>(layout.left) + static_cast<float>(layout.battlefield_width()) / 2.0F,
         static_cast<float>(layout.top) + static_cast<float>(layout.battlefield_height()) / 2.0F
     };
-    runtime.match_zoom_target_ =
-        std::clamp(target, runtime.least_match_zoom(), runtime.most_match_zoom());
+    float least = runtime.least_match_zoom();
+    float most = runtime.most_match_zoom();
+    if (runtime.photo_mode()) {
+        const std::array<float, 2> offered = runtime.photo_zoom_limits();
+        least = offered[0];
+        most = offered[1];
+    }
+    runtime.match_zoom_target_ = std::clamp(target, least, most);
 }
 
 float Runtime::least_match_zoom() const noexcept {
@@ -629,11 +649,15 @@ bool Runtime::dots_frame() const noexcept {
     namespace settings = oa::ui::engine_settings;
     if (screen_ != Screen::match || director_mode() || !(match_zoom_ > 0.0F))
         return false;
-    const settings::EngineSettings chosen =
-        engine_settings_ ? engine_settings_->current : settings::EngineSettings{};
-    if (chosen.zoomed_out_units == settings::ZoomedOutUnits::dots &&
-        match_zoom_ < settings::zoomed_out_zoom(chosen.zoomed_out_after))
-        return true;
+    // Photo mode keeps models at every zoom. The player's Zoomed out units
+    // choice is play's. The memory and the reach below still apply.
+    if (!photo_mode()) {
+        const settings::EngineSettings chosen =
+            engine_settings_ ? engine_settings_->current : settings::EngineSettings{};
+        if (chosen.zoomed_out_units == settings::ZoomedOutUnits::dots &&
+            match_zoom_ < settings::zoomed_out_zoom(chosen.zoomed_out_after))
+            return true;
+    }
     // At every zoom, models whose drawing would take more of the machine's
     // memory than it can spare are drawn as dots. Past the drawing's floor,
     // so is a view whose units drawn reach farther from the camera than the
@@ -692,10 +716,20 @@ void Runtime::step_match_zoom() {
         return;
     // The limits move with the tier, the window, the map and the zoom's
     // settings: the target keeps within them, and a view zoomed past them
-    // eases back within them about the battlefield's centre.
-    const float least = least_match_zoom();
-    const float most = most_match_zoom();
+    // eases back within them about the battlefield's centre. Photo mode
+    // uses its own range, so play's settings are left as they are.
+    float least = least_match_zoom();
+    float most = most_match_zoom();
+    if (photo_mode()) {
+        const std::array<float, 2> offered = photo_zoom_limits();
+        least = offered[0];
+        most = offered[1];
+    }
     match_zoom_target_ = std::clamp(match_zoom_target_, least, most);
+    // The offer's far end moved closer than the zoom because the tier
+    // changed. Take it there before this frame eases, and before it draws.
+    if (photo_mode() && match_zoom_ < least)
+        snap_photo_zoom_to_far_end();
     const auto bf_w = static_cast<float>(match_layout_.battlefield_width());
     const auto bf_h = static_cast<float>(match_layout_.battlefield_height());
     if (match_zoom_ < least || match_zoom_ > most)
@@ -835,9 +869,14 @@ bool Runtime::zoom_match_from_key(std::string_view id) {
 
 float Runtime::wheel_zoom_target(float wheel_y) {
     // A target something else set since the wheel's last step begins the
-    // count again.
-    const float least = least_match_zoom();
-    const float most = most_match_zoom();
+    // count again. Photo mode counts within its own range.
+    float least = least_match_zoom();
+    float most = most_match_zoom();
+    if (photo_mode()) {
+        const std::array<float, 2> offered = photo_zoom_limits();
+        least = offered[0];
+        most = offered[1];
+    }
     if (zoom_wheel_.target != match_zoom_target_)
         zoom_wheel_ = {std::clamp(match_zoom_target_, least, most), 0.0, match_zoom_target_};
     const auto from = static_cast<double>(zoom_wheel_.from);
@@ -960,6 +999,27 @@ void Runtime::pan_match_camera() {
     if (dx == 0 && dz == 0)
         return;
     scroll_match_view(dx, dz, step);
+}
+
+std::array<double, 2> Runtime::held_photo_place(double x, double z) const {
+    // A place past the map, then zoomed to eight times, puts a tile's corner
+    // past the card's largest coordinate. The card refuses that frame and
+    // the full tier stops for the session. The limits are the classic view's.
+    const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
+    const auto [map_width, map_height] = shown_map_size();
+    const auto along = [&](double place, int32_t battlefield, int32_t map, double centre) {
+        return held_view(
+            place,
+            static_cast<double>(battlefield) / zoom,
+            static_cast<double>(map),
+            past_map_edge_share(),
+            view_hold_from(centre)
+        );
+    };
+    return {
+        along(x, match_layout_.battlefield_width(), map_width, view_hold_.centre_x),
+        along(z, match_layout_.battlefield_height(), map_height, view_hold_.centre_z)
+    };
 }
 
 void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {

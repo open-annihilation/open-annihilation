@@ -1914,11 +1914,15 @@ void Runtime::center_camera_on_unit(uint16_t id) {
     const auto* unit = match_->world().slots[id].unit;
     if (unit == nullptr)
         return;
-    set_camera_position(
-        static_cast<int32_t>(unit->position[0] >> 16) - visible_map_width() / 2,
-        static_cast<int32_t>(unit->position[2] >> 16) - visible_map_height() / 2,
-        0
-    );
+    const int32_t x = static_cast<int32_t>(unit->position[0] >> 16);
+    int32_t z = static_cast<int32_t>(unit->position[2] >> 16);
+    // Photo mode centres the place the unit is drawn. Play keeps the ground
+    // point, as 3.1c does.
+    if (photo_mode()) {
+        const int32_t height = static_cast<int32_t>(unit->position[1] >> 16);
+        z -= height / 2;
+    }
+    set_camera_position(x - visible_map_width() / 2, z - visible_map_height() / 2, 0);
 }
 
 void Runtime::apply_match_hud_for_selection() {

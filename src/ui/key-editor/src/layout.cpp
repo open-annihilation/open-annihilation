@@ -146,7 +146,7 @@ bool held(const ScreenState& state, kit::ControlId id) noexcept {
 /// @param id the control
 /// @return true when it is shown there
 bool focused_on(const ScreenState& state, kit::ControlId id) noexcept {
-    return state.interaction.focus_shown && state.interaction.focused == id;
+    return kit::focus_ring_visible(state.interaction) && state.interaction.focused == id;
 }
 
 /// A button's width: the kit's button, or the caption when that is wider.
@@ -2098,7 +2098,7 @@ void add_menu(
     look.total = count;
     look.chosen = menu_chosen(editor, state.menu, state, entries);
     look.marked = marked;
-    look.focus_shown = state.interaction.focus_shown;
+    look.focus_shown = kit::focus_ring_visible(state.interaction);
     look.row_height = metrics.row_height;
     look.heading_gap = metrics.space;
     look.rule_height = std::max(metrics.space, int32_t{4});
@@ -2162,7 +2162,7 @@ void add_menu(
 void add_focus(
     Built& built, const ScreenState& state, const kit::Metrics& metrics, const Window& window
 ) {
-    if (!state.interaction.focus_shown || state.interaction.focused == kit::no_control)
+    if (!kit::focus_ring_visible(state.interaction) || state.interaction.focused == kit::no_control)
         return;
     if (state.interaction.focused == controls::search)
         return;

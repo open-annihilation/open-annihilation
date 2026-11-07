@@ -464,7 +464,10 @@ void Runtime::check_registered_kit() {
             close_button.has_value() && close_button->dialog == "oa.check.screen",
             "the screen's dialog is not oa.check.screen"
         );
-        require(top->interaction().focused == kit::no_control, "the screen opened with a focus");
+        require(
+            top->interaction().focused == 1 && !top->interaction().focus_shown,
+            "the screen did not open on its first control with the ring hidden"
+        );
         bool watch_focus = false;
         int32_t edge_x = 0;
         int32_t edge_y = 0;
@@ -521,7 +524,8 @@ void Runtime::check_registered_kit() {
             std::cout << "registered kit check: hovering the button changes its pixels\n";
             watch_focus = true;
         }
-        const std::array<kit::ControlId, 4> order{1, 2, 3, 4};
+        // Open focus is already on the first control, so Tab starts at the second.
+        const std::array<kit::ControlId, 3> order{2, 3, 4};
         for (const kit::ControlId id : order) {
             tap(SDLK_TAB);
             top = oa_layer().top();

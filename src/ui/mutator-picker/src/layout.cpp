@@ -598,7 +598,8 @@ bool held(const Building& building, kit::ControlId id, bool enabled) noexcept {
 /// @param id the control
 /// @return true while the focus is shown there
 bool focused_on(const Building& building, kit::ControlId id) noexcept {
-    return building.state->interaction.focus_shown && building.state->interaction.focused == id;
+    return kit::focus_ring_visible(building.state->interaction) &&
+           building.state->interaction.focused == id;
 }
 
 /// Returns the control of a number, searching every group.
@@ -2642,7 +2643,7 @@ void declare_tabs(Building& building, bool page) {
 /// @param window the window
 void add_focus_ring(Building& building, const Window& window) {
     const kit::Interaction& interaction = building.state->interaction;
-    if (!interaction.focus_shown || interaction.focused == kit::no_control)
+    if (!kit::focus_ring_visible(interaction) || interaction.focused == kit::no_control)
         return;
     if (interaction.focused == controls::search)
         return;
@@ -2696,7 +2697,7 @@ void add_open_menu(Building& building, int32_t footer_line) {
     look.total = count;
     look.chosen = menu_open.chosen;
     look.marked = marked;
-    look.focus_shown = building.state->interaction.focus_shown;
+    look.focus_shown = kit::focus_ring_visible(building.state->interaction);
     // Every item is a named control, including those the menu has scrolled
     // out of the eight it shows. One past that window has no rectangle, so
     // it is not drawn and a press does not reach it.
