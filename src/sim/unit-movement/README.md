@@ -37,10 +37,12 @@ penalty, braking, same-cell integration and blocked/accepted transitions.
 ## Enhanced traffic
 
 `local_flow.hpp` supplies the optional Enhanced v2 traffic steering. Bounded
-footprint probes select short avoidance legs around moving occupants; final
-collision checks still reject occupied terrain. Waiting priority uses clocks
-captured before any unit moves in the tick, with unit IDs breaking ties.
-The original navigator keeps its mission and destination.
+footprint probes select short avoidance legs around mobile ground occupants,
+including idle units. The match checks known static terrain before looking
+for traffic beyond it; unknown cells keep the ordinary fog classification.
+Final collision checks still reject occupied terrain. Waiting priority uses
+clocks captured before any unit moves in the tick, with unit IDs breaking
+ties. The original navigator keeps its mission and destination.
 
 A retained avoidance leg completes within five world units of its target or
 after crossing the target's forward plane. This lets a turning unit resume
@@ -48,10 +50,23 @@ its route without circling a short waypoint. A replacement route also clears
 the previous avoidance leg. Neither operation resets the consecutive collision
 clock that restores normal replanning after 30 blocked ticks.
 
+After that clock reaches 30, local recovery can try another passing leg once
+every 30 ticks, staggered by unit ID. It does not defer ordinary replanning
+again or reset the collision clock. A leg completed on this tick supplies
+short-lived direction history: an immediate sideways return cannot undo it,
+but useful forward rejoining remains available. Mature recovery may reverse
+when a passing place changes. Older inactive heads do not restrict later
+maneuvers or a different goal.
+
 `unit-local-flow` checks clearance, priorities, coherent turns, bounded retries
 and canonical saved heads. `unit-local-flow-steering` runs the actual ground
 steering and integration through sustained opposing traffic, checking arrival,
 zero overlap, repeated-run determinism and a radius-only completion control.
+`unit-local-flow-queue` adds stock two-cell footprints, a passing lane that
+opens after sustained blockage, immediate-return controls and an idle queue.
+These fixtures do not establish repaired flow in the connected 20,000-unit
+installed-map recordings; their current bridge limits are recorded in
+[Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
 
 ## TNT terrain and four-point ground pose
 

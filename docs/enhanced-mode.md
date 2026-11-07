@@ -25,14 +25,18 @@ destinations, ignores moving traffic when building those static routes, and
 rechecks every returned edge against current passability and player knowledge.
 Narrow corridors outside the coarse graph retain the ordinary path search.
 
-Local steering gives moving traffic temporary detours and yields by waiting
-time measured at the start of the tick, with unit ID breaking ties. The original mission and route remain in
-place, and the final footprint occupancy test still prevents overlap. A short
-mobile blockage can wait before requesting another full path; after 30
-consecutive collision-blocked ticks it must replan, even if boundary jitter moves it
-slightly. Target searches
-use nearby spatial buckets when that reduces work, retaining the legacy
-candidate order, target selection and random draws.
+Local steering gives moving units temporary detours around mobile ground
+traffic, including idle units, and yields by waiting time measured at the
+start of the tick, with unit ID breaking ties. The original mission and route
+remain in place, and the final footprint occupancy test still prevents
+overlap. A short mobile blockage can wait before requesting another full
+path. After 30 consecutive collision-blocked ticks, ordinary replanning
+resumes even if boundary jitter
+moves the unit slightly. A local passing attempt can also retry once every
+30 ticks, staggered by unit ID, without restarting that grace period.
+Target searches use nearby spatial buckets and a sightings membership index
+when that reduces work, retaining the legacy candidate order, target
+selection and random draws.
 
 These changes do not yet establish smooth frame rates at that population.
 Ray tracing remains future work and will be a separate graphics choice.
@@ -51,9 +55,11 @@ Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
 Version 1 remains supported with its original behavior and simulation hash.
-Version 2 saves pending shared fields, the current static-map revision,
-temporary traffic heads and actual-progress clocks. These owner-local
-navigation tables stay outside shared world and trace hashes.
+Version 2 saves five owner-local navigation tables: shared fields, the
+current static-map revision, temporary traffic heads, actual-progress clocks
+and the shared-route scan clock. The scan clock prevents a load pass and a
+regular pass at the same tick from polling the unit ranges twice. These
+tables stay outside shared world and trace hashes.
 
 In multiplayer, every player must select the same mode before entering
 the battle room. Enhanced games require matching supported versions and
@@ -193,6 +199,49 @@ A subsequent 300-tick combat benchmark preserves the v1 digest
 14.6 ms median, 32.3 ms p95 and 71.7 ms p99, with a 561.6 ms maximum wall
 time. Host load varies, and long ticks remain; these results do not establish
 smooth whole-battle performance.
+
+## Congestion and CPU checkpoint
+
+Shared-route polling now visits at most 1,024 unit slots per tick across the
+active players independently of the ordinary search cursor and its credit.
+It skips a unit whose full search is already active, leaving that search's
+route and completion authoritative. Sustained mobile blockage normally
+bypasses the static fields for dynamic replanning; a known static barrier
+on the next short route leg still permits the shared terrain detour.
+
+Static-map changes, including wrecks, retain useful fields and mark them
+dirty rather than discarding every frontier. Returned connections are
+checked against the current map. Completed dirty fields refresh one at a
+time, at 30-tick intervals, at least 60 ticks after completion. A route can
+skip its first coarse anchor when a bounded footprint check clears the
+connection to the next corner. Local passing also rejects an immediate
+sideways return that would undo a leg completed on that tick, while allowing
+forward rejoining and a mature recovery to reverse.
+
+The connected 20,000-unit recordings still show very little passage through
+the centre bridges. In the 1,800-tick comparison, recorded bridge crossings
+involve four distinct units in combat and eleven in the hold-fire march.
+The count requires a completed side change inside the bridge lane; touching
+the bridge or crossing elsewhere on the map does not count. Sampling can
+hide additional crossings between recorded ticks. These results do not
+establish repaired bridge flow, despite the smaller steering fixtures'
+progress.
+
+Separate frozen-workload comparisons measure target-query and death-cleanup
+changes apart from these route changes. Each uses 20,000 starting units,
+Core Prime Industrial Area, seed 7 and 1,800 ticks without warmup. Both sides
+of each pair retain digest `d13d0852756db488` and 18,902 final units.
+Filtering nearby target slots by the sightings membership index before
+sorting changes median tick wall time from 11.219 to 10.339 ms and p95 from
+14.906 to 14.521 ms. P99 worsens from
+19.120 to 28.634 ms in that pair, so this is not a uniform latency improvement.
+
+Ground-only v2 matches also skip air-target cleanup until a flying driver or
+air goal has existed. Thereafter every death keeps the cleanup, including
+mirrored, arrived and restored goals. In its separate paired run, total
+thread CPU time at the two large death bursts falls from 45.181 to 26.368 ms
+at tick 147 and from 40.370 to 23.455 ms at tick 228. These are whole-tick CPU
+measurements, not rendered frame times or a whole-battle tail-latency claim.
 
 ## Remaining work
 

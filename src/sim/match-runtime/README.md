@@ -690,9 +690,32 @@ footprint, occupancy and feature changes refresh.
 Enhanced preset v2 keeps bounded shared reverse fields in `EnhancedState`.
 The fields classify static obstacles without mobile occupancy, retain player
 knowledge, and validate returned edges before publishing through `accept_path`.
-Local traffic heads temporarily steer around movers while preserving the
-original navigator and final occupancy veto. `enhanced_counters` exposes
-cumulative routing, traffic and target-query work without changing decisions.
+Static-map revisions retain useful fields and mark them dirty; a failed field
+is discarded. At each 30-tick boundary, at most one completed dirty field
+refreshes, oldest first, after at least 60 ticks since completion. Building
+frontiers continue, and returned connections still check the current terrain
+and player knowledge.
+A clear, budgeted connection to the next corner can omit the first coarse
+anchor without changing the field or the ordinary navigator.
+
+An independent scan polls at most 1,024 unit slots per simulation tick,
+divided among active players, using tick-derived ranges. It does not spend
+the ordinary search credit or move its cursors. The unit of an active full
+search is skipped, so a ready shared route cannot replace its navigation
+before that worker completes. Shared publication uses `accept_path` and the
+same route-change flag as a full search; it adds no network transport budget.
+
+Local traffic heads temporarily steer around mobile ground units, including
+idle units, while preserving the original navigator and final occupancy veto.
+Visible static barriers are classified before traffic. After 30 consecutive
+collision-blocked ticks, dynamic replanning resumes and local recovery may
+retry once every 30 ticks, staggered by unit ID, without resetting the
+collision clock. Sustained blockage normally bypasses the static cache.
+A known static barrier within an eight-cell lookahead of the next original
+route leg still permits a shared lookup, so a traffic wait cannot prevent the
+first terrain detour. `enhanced_counters` exposes cumulative routing, traffic
+and target-query work without changing decisions.
+
 Nearby target queries preserve ascending sighting order and exact legacy
 filtering; broad or crowded queries use the full scan. A preallocated slot
 membership index is rebuilt with each player's sightings, retaining the same
@@ -701,16 +724,35 @@ IDs, while every visited bucket slot still consumes the original raw-query
 limit. Radar membership is consulted only when the search allows radar
 fallback; its source list size still contributes to that query limit.
 
-The `shared-routes`, `flow-map-version`, `local-flow` and `flow-progress`
-rule tables retain owner-local navigation across saves. They are saved but
-excluded from shared world/trace digests. The current map revision is kept
-separately from the cache's last processed revision so a pending invalidation
-survives a load. The actual-progress clock is separate from the legacy
-mobility record's occupancy-change clock. Tick-start priorities are derived
-from those clocks before unit updates, so earlier movers cannot erase their
-waiting priority. Sustained blockage bypasses the static cache and uses dynamic
-occupancy for the next full search. Off and preset v1 allocate none
-of this v2 storage.
+Five rule tables retain owner-local navigation across saves:
+
+| Table | Saved state |
+| --- | --- |
+| `shared-routes` | Retained fields, pending work, dirty refresh state and cache budgets |
+| `flow-map-version` | Current static-map revision |
+| `local-flow` | Temporary traffic heads and consecutive collision clocks |
+| `flow-progress` | Actual-progress ticks |
+| `shared-route-scan` | Whether a unit range was polled and the tick of that scan |
+
+They are excluded from shared world/trace digests. The scan clock is exactly
+five canonical bytes: a flag of zero or one followed by a little-endian
+32-bit tick; an unset flag requires a zero tick. It prevents a load pass and
+regular pass at the same tick from polling twice. The current map revision
+is separate from the cache's last processed revision so a pending
+invalidation survives a load. The actual-progress clock is separate from
+the legacy mobility record's occupancy-change clock. Tick-start priorities
+are derived from those clocks before unit updates, so earlier movers cannot
+erase their waiting priority. Off and preset v1 allocate none of this v2
+storage.
+
+V2 also keeps a sticky flag for air-target cleanup. A flying driver or an
+installed or restored air goal sets it permanently. Deaths can skip the
+order, mirrored-goal and arrived-goal sweeps only before that flag is set;
+Off and v1 keep their unconditional sweeps. The flag and target membership
+index are private derived state, outside the saved navigation tables and
+shared hashes. Isolated 20,000-unit CPU measurements and the remaining
+installed-map congestion are described in
+[Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
 
 ## Verification
 
