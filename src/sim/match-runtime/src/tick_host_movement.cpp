@@ -3,6 +3,7 @@
 
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
+#include "live_route_corner.hpp"
 
 #include "oa/sim/air/flight.hpp"
 #include "oa/sim/air/host.hpp"
@@ -13,6 +14,8 @@
 
 namespace oa::sim::match_runtime {
 namespace {
+constexpr uint8_t ground_occupancy = 1;
+constexpr uint32_t live_route_corner_version = 3;
 
 /// Identifies goal geometry without retaining order pointers or native padding.
 ///
@@ -166,6 +169,51 @@ void TickHost::movement_tick(oa::Unit& record) {
         sim::ground_orders::tick_navigation(view(s, g, flags), match.simulation_.tick, *this);
         if (defer_replan)
             g.movement.flags |= collision;
+        bool advanced_corner = false;
+        const bool head_joins_corner =
+            !flow_head || !flow_head->active ||
+            (flow_head->count == 3 && flow_head->points[2] == g.navigation.points[2]);
+        if (flow_head && match.rules().setup.enhanced_mode.version >= live_route_corner_version &&
+            !parent_index && head_joins_corner &&
+            (g.movement.flags & sim::unit_movement::occupancy_mask) == ground_occupancy &&
+            live_route_corner_due(flow_head->blocked_ticks, match.simulation_.tick, s.unit_index)) {
+            if (const auto* klass = match.movement_class_map(g.movement_class)) {
+                auto classifier = klass->record;
+                classifier.occupancy_before_tick = 0;
+                const auto player = s.record.owner_index;
+                const auto known_static_clear = [&](int16_t x, int16_t z) {
+                    if (player >= OA_PLAYER_COUNT || x < 0 || z < 0 ||
+                        uint32_t(x) + uint32_t(classifier.footprint_x) >=
+                            match.spatial_.terrain_width ||
+                        uint32_t(z) + uint32_t(classifier.footprint_z) >=
+                            match.spatial_.terrain_height)
+                        return false;
+                    const auto sight_width = match.spatial_.terrain_width >> 1;
+                    const auto sight_height = match.spatial_.terrain_height >> 1;
+                    for (int32_t dz = 0; dz < classifier.footprint_z; ++dz)
+                        for (int32_t dx = 0; dx < classifier.footprint_x; ++dx) {
+                            const auto sight_x = uint32_t(x + dx) >> 1;
+                            const auto sight_z = uint32_t(z + dz) >> 1;
+                            const auto index = size_t(sight_z) * sight_width + sight_x;
+                            if (sight_x >= sight_width || sight_z >= sight_height ||
+                                index >= match.sight_.player_bits.size() ||
+                                (match.sight_.player_bits[index] & (1u << player)) == 0)
+                                return false;
+                        }
+                    return sim::ground_orders::static_flow_passable(
+                        classifier, x, z, match.spatial_
+                    );
+                };
+                advanced_corner = try_advance_visible_corner(
+                    g.geometry,
+                    g.navigation,
+                    classifier.footprint_x,
+                    classifier.footprint_z,
+                    known_static_clear,
+                    match.enhanced_->local_flow_counters.probes
+                );
+            }
+        }
         auto effective_navigation = g.navigation;
         if (flow_head && !parent_index) {
             const bool had_head = flow_head->active;
@@ -189,8 +237,8 @@ void TickHost::movement_tick(oa::Unit& record) {
                                                sim::unit_movement::local_flow_completed_last_tick(
                                                    *flow_head, match.simulation_.tick
                                                );
-                if (flow_head->active &&
-                    (flow_head->goal_key != goal_key || completed_head || recover)) {
+                if (flow_head->active && (flow_head->goal_key != goal_key || completed_head ||
+                                          (recover && !advanced_corner))) {
                     flow_head->active = false;
                     flow_head->count =
                         completed_head ? sim::unit_movement::local_flow_completed_count : 0;
