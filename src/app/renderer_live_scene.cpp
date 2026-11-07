@@ -47,6 +47,8 @@ constexpr uint64_t digest_prime_2 = 0xC2B2AE3D27D4EB4FULL;
 constexpr uint64_t digest_prime_4 = 0x85EBCA77C2B2AE63ULL;
 constexpr uint64_t digest_prime_5 = 0x27D4EB2F165667C5ULL;
 constexpr std::size_t maximum_vertices = renderer_live_gpu::largest_vertex_count;
+/// Surface vertices available to a unit's reflected geometry.
+constexpr std::size_t reflection_vertex_allowance = 24576;
 constexpr uint32_t maximum_atlas_edge = 4096;
 /// A terrain material's square in the atlas at full detail: the tile's 32
 /// pixels in its own palette and in the grey one side by side, each with its
@@ -4825,7 +4827,7 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
                                 (reference.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0 &&
                                 in.water.reflections > 0 && in.water.detail > 0;
         if (reflecting)
-            detail.surface += 24576;
+            detail.surface += reflection_vertex_allowance;
         const auto shadow = shadow_of_draw(in, draw);
         if (shadow_on_card(in, scene, index, shadow))
             detail.shadow = allowance->second.body * (shadow.building ? 2 : 1);
@@ -5520,7 +5522,7 @@ bool draw_on_card(
 /// @param last the draw after the last
 void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     auto& list = pass.list;
-    std::size_t reflection_budget = 24576;
+    std::size_t reflection_budget = reflection_vertex_allowance;
     std::array<std::optional<AtlasRect>, 256> colors;
     std::unordered_map<const Sprite*, AtlasRect> textures;
     ModelMaterials materials{colors, textures};

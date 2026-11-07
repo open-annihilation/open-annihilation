@@ -45,6 +45,8 @@ constexpr float orbit_degrees_per_pixel = 0.25F;
 /// Painted height cell edge and the classic projection's height lift.
 constexpr int terrain_cell_edge = 16;
 constexpr float height_lift = 0.5F;
+/// Projected diameter at which ordinary units use owner-coloured markers.
+constexpr float unit_marker_pixels = 5.0F;
 
 /// The frame's triangles the pick passes over at once where its point lies
 /// outside their bounds (LiveRenderer::pick_blocks).
@@ -881,7 +883,7 @@ bool Runtime::render_live_match_surface() {
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
         inputs.clip_height = match_world_cpu_.height;
-        inputs.unit_marker_pixels = 5;
+        inputs.unit_marker_pixels = unit_marker_pixels;
         for (uint8_t owner = 0; owner < inputs.owner_colors.size(); ++owner) {
             const auto index = oa::ui::hud::player_dot_color(match_->state(), owner);
             std::copy_n(
