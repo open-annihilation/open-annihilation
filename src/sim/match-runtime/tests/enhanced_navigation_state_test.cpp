@@ -206,7 +206,9 @@ void malformed_state_is_rejected_atomically() {
 }
 
 /// Rebuilds the fixture with one real, permissive ground movement class.
-void configure_movement_class(Fixture& fixture, uint16_t per_player_limit = 4) {
+void configure_movement_class(
+    Fixture& fixture, uint16_t per_player_limit = 4, uint16_t unit_player_mask = 3
+) {
     fixture.match.reset();
     fixture.fields[1].movement_class = 1;
     fixture.metadata.footprint_x = fixture.metadata.footprint_z = 1;
@@ -238,10 +240,12 @@ void configure_movement_class(Fixture& fixture, uint16_t per_player_limit = 4) {
         }
     };
     input.rules = options_for(2).rules;
-    input.unit_player_mask = 3;
+    input.unit_player_mask = unit_player_mask;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});
-    for (uint8_t player = 0; player < 2; ++player) {
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        if ((unit_player_mask & (1u << player)) == 0)
+            continue;
         fixture.match->simulation().players[player].present = true;
         fixture.match->simulation().players[player].status = 1;
         std::array<uint8_t, 10> allies{};
@@ -368,6 +372,159 @@ void shared_poll_progresses_without_legacy_credit() {
         CHECK(ground->navigation.count >= 2);
         CHECK(ground->navigation.last_search_tick == request_tick + 2);
         CHECK(jobs.unit_cursor[0] == distant_cursor && jobs.unit_cursor[1] == distant_cursor);
+    }
+}
+
+/// Shares a depleted extraction budget in turn among the active player slots.
+void shared_poll_rotates_extraction_opportunities() {
+    constexpr std::array<uint8_t, 2> sparse_players{1, 8};
+    constexpr uint32_t first_tick = 120, probes_for_one_route = 2;
+    // These are the shared-route table's serialized advance clock and budget.
+    constexpr size_t cache_tick = 32, advanced_flag = 48, advanced_tick = 52;
+    constexpr size_t remaining_probes = 60;
+    const auto write32 = [](std::vector<uint8_t>& bytes, size_t offset, uint32_t value) {
+        CHECK(offset + sizeof(value) <= bytes.size());
+        for (size_t byte = 0; byte < sizeof(value); ++byte)
+            bytes[offset + byte] = static_cast<uint8_t>(value >> (byte * 8));
+    };
+    for (const size_t active_count : {size_t{2}, size_t{1}}) {
+        const auto players = std::span{sparse_players}.last(active_count);
+        uint16_t player_mask = 0;
+        std::array<uint8_t, OA_PLAYER_COUNT> allies{};
+        for (const auto player : players) {
+            player_mask |= uint16_t(1u << player);
+            allies[player] = 1;
+        }
+        auto options = options_for(2);
+        options.unit_player_mask = player_mask;
+        Fixture fixture(options);
+        configure_movement_class(fixture, 4, player_mask);
+        auto& match = *fixture.match;
+        std::vector<uint16_t> units;
+        for (size_t seat = 0; seat < players.size(); ++seat) {
+            match.configure_player_alliances(players[seat], allies);
+            auto& unit = fixture.spawn(players[seat], 72, uint32_t(40 + seat * 48));
+            units.push_back(unit.unit_index);
+            CHECK(!match.order_refused(match.issue_ground_move(
+                unit.unit_index, {88 << 16, 0, int32_t(40 + seat * 48) << 16}, false
+            )));
+        }
+        match.configure_outcomes(players.front(), allies, false);
+        fixture.run(1);
+        CHECK(match.participant_count() == active_count);
+        auto& jobs = match.path_search_jobs();
+        jobs.tick_credit = 0;
+        jobs.credit.fill(0);
+
+        routes::FlowCache cache(16, 16);
+        const routes::FlowSampler sampler{
+            nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+                return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
+            }
+        };
+        std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+        uint32_t count{};
+        cache.advance(first_tick - 2, 0, sampler);
+        for (size_t seat = 0; seat < units.size(); ++seat) {
+            const auto* ground = match.ground_runtime(units[seat]);
+            CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+            const routes::FlowContext context{0, players[seat], 0, 0, 1, 1};
+            for (const auto expected : {routes::FlowResult::fallback, routes::FlowResult::pending})
+                CHECK(
+                    cache.route(
+                        context,
+                        match.state().units[units[seat]],
+                        *ground->navigation.goal,
+                        points,
+                        count,
+                        sampler
+                    ) == expected
+                );
+        }
+        cache.advance(first_tick - 1, 0, sampler);
+        for (size_t seat = 0; seat < units.size(); ++seat) {
+            const routes::FlowContext context{0, players[seat], 0, 0, 1, 1};
+            CHECK(
+                cache.route(
+                    context,
+                    match.state().units[units[seat]],
+                    *match.ground_runtime(units[seat])->navigation.goal,
+                    points,
+                    count,
+                    sampler
+                ) == routes::FlowResult::ready
+            );
+            CHECK(count == 2);
+        }
+        const auto ready_fields = cache.state_bytes();
+        const std::vector<uint8_t> ready(ready_fields.begin(), ready_fields.end());
+        const auto& shared = table(match, "shared-routes");
+        const auto& revision = table(match, "flow-map-version");
+        constexpr std::array<uint8_t, 4> current_revision{};
+        CHECK(revision.restore(revision.context, current_revision));
+        const auto& scan = table(match, "shared-route-scan");
+        constexpr std::array<uint8_t, 5> unscanned{};
+        CHECK(scan.restore(scan.context, unscanned));
+        for (uint32_t tick = first_tick; tick < first_tick + 2; ++tick) {
+            auto bytes = ready;
+            write32(bytes, cache_tick, tick);
+            write32(bytes, advanced_flag, 1);
+            write32(bytes, advanced_tick, tick);
+            write32(bytes, remaining_probes, probes_for_one_route);
+            CHECK(shared.restore(shared.context, bytes));
+            for (const auto unit : units) {
+                auto& navigation = match.ground_runtime(unit)->navigation;
+                navigation.count = 0;
+                navigation.flags = routes::search_pending_flag;
+                navigation.last_search_tick = 0;
+            }
+            match.simulation().tick = tick;
+            const auto before = match.enhanced_counters();
+            match.advance_path_search();
+            CHECK(match.fault() == nullptr);
+            const auto after = match.enhanced_counters();
+            CHECK(after.shared_route_requests == before.shared_route_requests + active_count);
+            CHECK(after.shared_route_hits == before.shared_route_hits + 1);
+            CHECK(after.shared_route_waits == before.shared_route_waits + active_count - 1);
+            CHECK(after.full_route_searches == before.full_route_searches);
+            CHECK(match.path_search_worker().exhausted());
+            for (size_t seat = 0; seat < units.size(); ++seat) {
+                const auto& navigation = match.ground_runtime(units[seat])->navigation;
+                const bool first = seat == tick % active_count;
+                CHECK(navigation.last_search_tick == (first ? tick : uint32_t{0}));
+                CHECK(navigation.count == (first ? 2u : 0u));
+                CHECK(navigation.needs_search() != first);
+            }
+            const auto spent = bytes_of(shared);
+            CHECK(
+                std::all_of(
+                    spent.begin() + remaining_probes,
+                    spent.begin() + remaining_probes + 4,
+                    [](uint8_t byte) { return byte == 0; }
+                )
+            );
+            const auto scanned = bytes_of(scan);
+            CHECK(scanned[0] == 1);
+            for (size_t byte = 1; byte < scanned.size(); ++byte)
+                CHECK(scanned[byte] == static_cast<uint8_t>(tick >> ((byte - 1) * 8)));
+
+            // Re-arm even the successful claimant so only the once-per-tick
+            // scan guard can prevent another poll from spending shared work.
+            for (const auto unit : units) {
+                auto& navigation = match.ground_runtime(unit)->navigation;
+                navigation.count = 0;
+                navigation.flags = routes::search_pending_flag;
+                navigation.last_search_tick = 0;
+            }
+            match.advance_path_search();
+            CHECK(match.enhanced_counters().shared_route_requests == after.shared_route_requests);
+            CHECK(bytes_of(shared) == spent);
+            CHECK(bytes_of(scan) == scanned);
+            for (const auto unit : units) {
+                const auto& navigation = match.ground_runtime(unit)->navigation;
+                CHECK(navigation.count == 0 && navigation.last_search_tick == 0);
+            }
+        }
     }
 }
 
@@ -957,6 +1114,7 @@ int main() {
         navigation_state_survives_restore();
         malformed_state_is_rejected_atomically();
         shared_poll_progresses_without_legacy_credit();
+        shared_poll_rotates_extraction_opportunities();
         shared_poll_preserves_an_active_full_search();
         sustained_blockage_bypasses_shared_routes();
         static_barrier_keeps_shared_route_access();
