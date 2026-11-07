@@ -133,7 +133,7 @@ int Runtime::check_live_renderer() {
         oa::sim::messages::clear_messages(match_->state().game);
         // The reference owns every model's planned vertices. Normal frames
         // borrow exclusive original or presentation instances through the
-        // scene join; all existing moving, mirrored and water fixtures
+        // scene join; all existing moving and water fixtures
         // compare their pixels, bounds and picks against that reference.
         const bool compare_vertices = compare_vertex_storage && live_renderer_active();
         const auto tick_before = match_timing_.tick;
