@@ -13,7 +13,6 @@
 namespace oa::sim::match_runtime {
 namespace {
 
-constexpr uint32_t local_flow_wait_ticks = 30;
 constexpr uint32_t local_flow_arrival_distance = 5 * 65536;
 
 /// Identifies goal geometry without retaining order pointers or native padding.
@@ -160,8 +159,7 @@ void TickHost::movement_tick(oa::Unit& record) {
         // navigator's retry decision ignores a short-lived mobile blockage.
         const auto collision = g.movement.flags & sim::unit_movement::collision_blocked;
         const bool defer_replan =
-            flow_head && flow_head->mobile_blocked && collision != 0 &&
-            match.simulation_.tick - g.movement.last_motion_tick < local_flow_wait_ticks;
+            flow_head && sim::unit_movement::local_flow_defer_replan(*flow_head, g.movement);
         if (defer_replan) {
             g.movement.flags &= uint8_t(~sim::unit_movement::collision_blocked);
             ++match.enhanced_->local_flow_counters.deferred_replans;
@@ -193,9 +191,10 @@ void TickHost::movement_tick(oa::Unit& record) {
                              uint32_t(target_z) - uint32_t(g.geometry.position[2])
                          )
                      ) < local_flow_arrival_distance ||
-                     match.simulation_.tick - g.movement.last_motion_tick >= local_flow_wait_ticks))
+                     flow_head->blocked_ticks >= sim::unit_movement::local_flow_retry_ticks))
                     flow_head->active = false;
-                if (!flow_head->active) {
+                if (!flow_head->active &&
+                    flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks) {
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &match;
                     probe.at = [](void* context,
@@ -363,6 +362,10 @@ void TickHost::movement_tick(oa::Unit& record) {
                 match.simulation_.tick,
                 sim::simulation_state::locally_simulated(u),
                 *this
+            );
+        if (flow_head && !air_driven && !g.mirrored_driver)
+            sim::unit_movement::record_local_flow_block(
+                *flow_head, (g.movement.flags & sim::unit_movement::collision_blocked) != 0
             );
     }
     g.write_slot();

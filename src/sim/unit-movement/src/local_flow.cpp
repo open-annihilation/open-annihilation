@@ -135,6 +135,20 @@ bool clear_segment(
 
 } // namespace
 
+void record_local_flow_block(LocalFlowHead& head, bool blocked) noexcept {
+    constexpr uint8_t maximum_blocked_ticks = local_flow_retry_ticks + 1;
+    head.blocked_ticks =
+        blocked ? static_cast<uint8_t>(
+                      std::min<unsigned>(unsigned(head.blocked_ticks) + 1, maximum_blocked_ticks)
+                  )
+                : uint8_t{0};
+}
+
+bool local_flow_defer_replan(const LocalFlowHead& head, const Movement& movement) noexcept {
+    return head.mobile_blocked && (movement.flags & collision_blocked) != 0 &&
+           head.blocked_ticks < local_flow_retry_ticks;
+}
+
 LocalFlowDecision choose_local_flow(
     const Unit& unit,
     const Movement& movement,
@@ -266,6 +280,7 @@ bool write_local_flow_heads(
         write(head.tick, 4);
         write(head.count, 1);
         write((head.active ? 1u : 0u) | (head.mobile_blocked ? 2u : 0u), 1);
+        write(head.blocked_ticks, 1);
     }
     return true;
 }
@@ -278,7 +293,8 @@ bool read_local_flow_heads(
         return false;
     // Validate the complete table before changing any live head.
     for (size_t offset = 0; offset < bytes.size(); offset += local_flow_head_bytes)
-        if (bytes[offset + 24] > 3 || bytes[offset + 24] == 1 || bytes[offset + 25] > 3)
+        if (bytes[offset + 24] > 3 || bytes[offset + 24] == 1 || bytes[offset + 25] > 3 ||
+            bytes[offset + 26] > local_flow_retry_ticks + 1)
             return false;
     size_t offset = 0;
     const auto read = [&](unsigned count) {
@@ -297,6 +313,7 @@ bool read_local_flow_heads(
         const auto flags = read(1);
         head.active = (flags & 1) != 0;
         head.mobile_blocked = (flags & 2) != 0;
+        head.blocked_ticks = static_cast<uint8_t>(read(1));
     }
     return true;
 }

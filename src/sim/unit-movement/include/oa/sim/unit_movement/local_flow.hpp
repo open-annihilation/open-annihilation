@@ -56,11 +56,29 @@ struct LocalFlowHead {
     uint32_t tick{};     ///< tick on which this effective head was used
     uint8_t count{};     ///< zero brakes; two or three points steer
     bool active{};
-    bool mobile_blocked{}; ///< previous route probe found moving traffic
+    bool mobile_blocked{};   ///< previous route probe found moving traffic
+    uint8_t blocked_ticks{}; ///< consecutive occupancy vetoes, saturated at 31
 };
 
 /// Canonical bytes per retained head, without native padding or pointers.
-inline constexpr size_t local_flow_head_bytes = 26;
+inline constexpr size_t local_flow_head_bytes = 27;
+
+/// Number of consecutive blocked ticks before the navigator retries the route.
+inline constexpr uint8_t local_flow_retry_ticks = 30;
+
+/// Records an occupancy result independently of subpixel motion within a cell.
+///
+/// @param[in,out] head retained local traffic state
+/// @param blocked whether the final occupancy veto remains set
+void record_local_flow_block(LocalFlowHead& head, bool blocked) noexcept;
+
+/// Tests whether a transient traffic blockage can wait before replanning.
+///
+/// @param head retained local traffic state
+/// @param movement authoritative movement and collision result
+/// @return true only during the bounded local traffic retry window
+[[nodiscard]] bool
+local_flow_defer_replan(const LocalFlowHead& head, const Movement& movement) noexcept;
 
 /// Writes retained heads as canonical little-endian save bytes.
 ///
