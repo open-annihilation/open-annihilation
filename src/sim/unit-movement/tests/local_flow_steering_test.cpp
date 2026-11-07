@@ -3,6 +3,7 @@
 
 #include "oa/base/game_math.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
+#include "oa/sim/ground_orders/steering_target.hpp"
 #include "oa/sim/unit_movement/local_flow.hpp"
 #include "oa/test/check.hpp"
 
@@ -182,6 +183,7 @@ struct Result {
     uint32_t arrived{};
     uint32_t last_arrival{};
     uint32_t end_tick{};
+    uint32_t peak_queries{};
     unsigned overlaps{};
     uint64_t digest{14695981039346656037ull};
     bool operator==(const Result&) const = default;
@@ -189,8 +191,12 @@ struct Result {
 
 enum class CohortKind { opposing, crossing };
 
-Result
-run_cohorts(bool passed_plane, bool history = false, CohortKind kind = CohortKind::opposing) {
+Result run_cohorts(
+    bool passed_plane,
+    bool history = false,
+    CohortKind kind = CohortKind::opposing,
+    bool controller_probe = false
+) {
     Arena arena;
     if (kind == CohortKind::opposing) {
         for (int16_t i = 0; i < 4; ++i)
@@ -247,9 +253,32 @@ run_cohorts(bool passed_plane, bool history = false, CohortKind kind = CohortKin
                 probe.allow_reverse = recovery;
                 if (probe.previous_head != nullptr)
                     ++result.history_transitions;
-                const auto decision = movement::choose_local_flow(
-                    agent.unit, agent.motion, agent.destination, arena.tick, arena, probe, counters
-                );
+                const auto queries = counters.probes;
+                const auto decision =
+                    controller_probe ? movement::choose_local_flow(
+                                           agent.unit,
+                                           agent.motion,
+                                           agent.destination,
+                                           ground::steering_target(
+                                               agent.unit, ground::steering_points(agent.navigation)
+                                           )
+                                               .point,
+                                           arena.tick,
+                                           arena,
+                                           probe,
+                                           counters
+                                       )
+                                     : movement::choose_local_flow(
+                                           agent.unit,
+                                           agent.motion,
+                                           agent.destination,
+                                           arena.tick,
+                                           arena,
+                                           probe,
+                                           counters
+                                       );
+                result.peak_queries =
+                    std::max(result.peak_queries, static_cast<uint32_t>(counters.probes - queries));
                 agent.head.mobile_blocked = decision.mobile_blocked;
                 if (decision.adjusted) {
                     agent.head.points = {
@@ -477,6 +506,32 @@ void test_history_in_actual_opposing_and_crossing_steering() {
         OA_CHECK(history.blocked <= current.blocked);
     }
 }
+
+/// Keeps real opposing and crossing traffic legal with the controller's projected scan.
+void test_controller_probe_in_opposing_and_crossing_traffic() {
+    constexpr uint32_t maximum_queries = 128;
+    for (const auto kind : {CohortKind::opposing, CohortKind::crossing}) {
+        const auto current = run_cohorts(true, true, kind, true);
+        const auto control = run_cohorts(true, true, kind);
+        OA_CHECK(current == run_cohorts(true, true, kind, true));
+        OA_CHECK(current.arrived == (kind == CohortKind::opposing ? agent_count : crossing_count));
+        OA_CHECK(current.last_arrival <= tick_limit && current.overlaps == 0);
+        OA_CHECK(current.peak_queries <= maximum_queries);
+        std::printf(
+            "controller cohorts crossing %d: arrival %u / %u, vetoes %llu / %llu, "
+            "orbit windows %llu / %llu, turn %llu / %llu\n",
+            kind == CohortKind::crossing,
+            current.last_arrival,
+            control.last_arrival,
+            static_cast<unsigned long long>(current.blocked),
+            static_cast<unsigned long long>(control.blocked),
+            static_cast<unsigned long long>(current.closed_orbit_windows),
+            static_cast<unsigned long long>(control.closed_orbit_windows),
+            static_cast<unsigned long long>(current.turn),
+            static_cast<unsigned long long>(control.turn)
+        );
+    }
+}
 } // namespace
 
 int main() {
@@ -484,5 +539,6 @@ int main() {
     test_waypoint_completion_geometry();
     test_sustained_opposing_cohorts();
     test_history_in_actual_opposing_and_crossing_steering();
+    test_controller_probe_in_opposing_and_crossing_traffic();
     return oa::test::check_exit_status();
 }

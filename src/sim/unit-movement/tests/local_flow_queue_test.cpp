@@ -3,6 +3,7 @@
 
 #include "oa/base/game_math.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
+#include "oa/sim/ground_orders/steering_target.hpp"
 #include "oa/sim/unit_movement/local_flow.hpp"
 #include "oa/test/check.hpp"
 
@@ -171,6 +172,7 @@ struct QueueResult {
     uint64_t adjustments{};
     uint32_t arrival_tick{};
     uint32_t recoveries{};
+    uint32_t peak_queries{};
     uint32_t first_attempt_after_opening{};
     uint32_t overlaps{};
     bool mature_when_lane_opens{};
@@ -179,7 +181,8 @@ struct QueueResult {
 };
 
 /// Drives a stock-sized unit around traffic while its full route stays pending.
-QueueResult run_queue(bool renew_local_attempts, bool filter_previous = true) {
+QueueResult
+run_queue(bool renew_local_attempts, bool filter_previous = true, bool controller_probe = false) {
     QueueArena arena;
     movement::Movement motion{};
     motion.flags = ground_occupancy;
@@ -232,9 +235,24 @@ QueueResult run_queue(bool renew_local_attempts, bool filter_previous = true) {
                     ? &head
                     : nullptr;
             probe.allow_reverse = recovery;
-            const auto decision = movement::choose_local_flow(
-                unit, motion, destination, arena.tick, arena, probe, counters
-            );
+            const auto queries = counters.probes;
+            const auto decision =
+                controller_probe
+                    ? movement::choose_local_flow(
+                          unit,
+                          motion,
+                          destination,
+                          ground::steering_target(unit, ground::steering_points(route)).point,
+                          arena.tick,
+                          arena,
+                          probe,
+                          counters
+                      )
+                    : movement::choose_local_flow(
+                          unit, motion, destination, arena.tick, arena, probe, counters
+                      );
+            result.peak_queries =
+                std::max(result.peak_queries, static_cast<uint32_t>(counters.probes - queries));
             head.mobile_blocked = decision.mobile_blocked;
             if (decision.adjusted) {
                 head.points = {
@@ -317,6 +335,7 @@ struct TrainResult {
     uint32_t arrived{};
     uint32_t last_arrival{};
     uint32_t overlaps{};
+    uint32_t peak_queries{};
     uint64_t digest{14695981039346656037ull};
     bool operator==(const TrainResult&) const = default;
 };
@@ -328,7 +347,8 @@ TrainResult run_train(
     bool renew_local_attempts,
     bool idle_mobile = true,
     ArrivalLayout arrivals = ArrivalLayout::spread,
-    bool filter_previous = true
+    bool filter_previous = true,
+    bool controller_probe = false
 ) {
     constexpr size_t history_size = 61;
     constexpr int16_t goal_spacing = 48;
@@ -402,9 +422,25 @@ TrainResult run_train(
                         ? &head
                         : nullptr;
                 probe.allow_reverse = recovery;
-                const auto decision = movement::choose_local_flow(
-                    unit, motion, destinations[index], arena.tick, arena, probe, counters
-                );
+                const auto queries = counters.probes;
+                const auto decision =
+                    controller_probe
+                        ? movement::choose_local_flow(
+                              unit,
+                              motion,
+                              destinations[index],
+                              ground::steering_target(unit, ground::steering_points(routes[index]))
+                                  .point,
+                              arena.tick,
+                              arena,
+                              probe,
+                              counters
+                          )
+                        : movement::choose_local_flow(
+                              unit, motion, destinations[index], arena.tick, arena, probe, counters
+                          );
+                result.peak_queries =
+                    std::max(result.peak_queries, static_cast<uint32_t>(counters.probes - queries));
                 head.mobile_blocked = decision.mobile_blocked;
                 if (decision.adjusted) {
                     head.points = {
@@ -601,7 +637,7 @@ struct ReversalResult {
 };
 
 /// Drives a two-cell mover through a passing lane without changing its route.
-ReversalResult run_reversal_history(bool history) {
+ReversalResult run_reversal_history(bool history, bool controller_probe = false) {
     constexpr size_t history_size = 61;
     constexpr uint64_t orbit_travel = 24 * fixed_one;
     constexpr uint32_t orbit_radius = 5 * fixed_one;
@@ -652,9 +688,21 @@ ReversalResult run_reversal_history(bool history) {
             probe.previous_head = history && (just_reached || previous_tick) ? &head : nullptr;
             probe.allow_reverse = recovery;
             const auto queries = counters.probes;
-            const auto decision = movement::choose_local_flow(
-                unit, motion, destination, arena.tick, arena, probe, counters
-            );
+            const auto decision =
+                controller_probe
+                    ? movement::choose_local_flow(
+                          unit,
+                          motion,
+                          destination,
+                          ground::steering_target(unit, ground::steering_points(route)).point,
+                          arena.tick,
+                          arena,
+                          probe,
+                          counters
+                      )
+                    : movement::choose_local_flow(
+                          unit, motion, destination, arena.tick, arena, probe, counters
+                      );
             result.peak_queries =
                 std::max(result.peak_queries, static_cast<uint32_t>(counters.probes - queries));
             head.mobile_blocked = decision.mobile_blocked;
@@ -869,7 +917,7 @@ struct GapResult {
 };
 
 /// Reproduces a one-tick choice gap caused by real progress-clock priority.
-GapResult run_completion_gap(bool bridge_previous_tick) {
+GapResult run_completion_gap(bool bridge_previous_tick, bool controller_probe = false) {
     constexpr size_t history_size = 61;
     constexpr uint64_t orbit_travel = 24 * fixed_one;
     constexpr uint32_t orbit_radius = 5 * fixed_one;
@@ -922,9 +970,21 @@ GapResult run_completion_gap(bool bridge_previous_tick) {
             if (bridge_previous_tick && previous_tick)
                 ++result.bridged_gaps;
             const auto queries = counters.probes;
-            const auto decision = movement::choose_local_flow(
-                unit, motion, destination, arena.tick, arena, probe, counters
-            );
+            const auto decision =
+                controller_probe
+                    ? movement::choose_local_flow(
+                          unit,
+                          motion,
+                          destination,
+                          ground::steering_target(unit, ground::steering_points(route)).point,
+                          arena.tick,
+                          arena,
+                          probe,
+                          counters
+                      )
+                    : movement::choose_local_flow(
+                          unit, motion, destination, arena.tick, arena, probe, counters
+                      );
             result.peak_queries =
                 std::max(result.peak_queries, static_cast<uint32_t>(counters.probes - queries));
             head.mobile_blocked = decision.mobile_blocked;
@@ -1031,6 +1091,210 @@ void test_one_tick_priority_gap_keeps_the_completed_passing_leg() {
     );
 }
 
+/// Exercises projected traffic scans without changing the original route controller.
+void test_controller_probe_preserves_queue_completion() {
+    constexpr uint32_t maximum_queries = 128;
+    const auto queue = run_queue(true, true, true);
+    const auto queue_control = run_queue(true, true);
+    OA_CHECK(queue == run_queue(true, true, true));
+    OA_CHECK(queue.arrival_tick != 0 && queue.arrival_tick <= tick_limit);
+    OA_CHECK(queue.overlaps == 0 && queue.peak_queries <= maximum_queries);
+    std::printf(
+        "controller queue: arrival %u / %u, vetoes %llu / %llu, adjustments %llu / %llu\n",
+        queue.arrival_tick,
+        queue_control.arrival_tick,
+        static_cast<unsigned long long>(queue.blocked_ticks),
+        static_cast<unsigned long long>(queue_control.blocked_ticks),
+        static_cast<unsigned long long>(queue.adjustments),
+        static_cast<unsigned long long>(queue_control.adjustments)
+    );
+    for (const auto layout : {ArrivalLayout::spread, ArrivalLayout::column}) {
+        const auto current = run_train(true, true, layout, true, true);
+        const auto control = run_train(true, true, layout, true);
+        OA_CHECK(current == run_train(true, true, layout, true, true));
+        OA_CHECK(current.arrived == maximum_movers && current.last_arrival <= tick_limit);
+        OA_CHECK(current.overlaps == 0 && current.peak_queries <= maximum_queries);
+        std::printf(
+            "controller train column %d: arrival %u / %u, vetoes %llu / %llu, orbit windows "
+            "%llu / %llu, turn %llu / %llu\n",
+            layout == ArrivalLayout::column,
+            current.last_arrival,
+            control.last_arrival,
+            static_cast<unsigned long long>(current.blocked_ticks),
+            static_cast<unsigned long long>(control.blocked_ticks),
+            static_cast<unsigned long long>(current.orbit_windows),
+            static_cast<unsigned long long>(control.orbit_windows),
+            static_cast<unsigned long long>(current.turn),
+            static_cast<unsigned long long>(control.turn)
+        );
+    }
+    const auto passing = run_reversal_history(true, true);
+    const auto passing_control = run_reversal_history(true);
+    OA_CHECK(passing == run_reversal_history(true, true));
+    OA_CHECK(passing.arrival != 0 && passing.arrival <= tick_limit);
+    OA_CHECK(passing.overlaps == 0 && passing.peak_queries <= maximum_queries);
+    const auto gap = run_completion_gap(true, true);
+    const auto gap_control = run_completion_gap(true);
+    OA_CHECK(gap == run_completion_gap(true, true));
+    OA_CHECK(gap.arrival != 0 && gap.arrival <= tick_limit);
+    OA_CHECK(gap.overlaps == 0 && gap.peak_queries <= maximum_queries);
+    std::printf(
+        "controller passing: arrival %u / %u, legs %u / %u, opposite %u / %u, orbit windows "
+        "%llu / %llu; priority gap: arrival %u / %u, legs %u / %u, opposite %u / %u, "
+        "orbit windows %llu / %llu\n",
+        passing.arrival,
+        passing_control.arrival,
+        passing.legs,
+        passing_control.legs,
+        passing.opposite_legs,
+        passing_control.opposite_legs,
+        static_cast<unsigned long long>(passing.closed_orbit_windows),
+        static_cast<unsigned long long>(passing_control.closed_orbit_windows),
+        gap.arrival,
+        gap_control.arrival,
+        gap.legs,
+        gap_control.legs,
+        gap.opposite_legs,
+        gap_control.opposite_legs,
+        static_cast<unsigned long long>(gap.closed_orbit_windows),
+        static_cast<unsigned long long>(gap_control.closed_orbit_windows)
+    );
+}
+
+struct ProjectedRouteResult {
+    std::array<movement::Fixed, 3> final_position{};
+    uint64_t blocked_ticks{};
+    uint64_t adjustments{};
+    uint32_t arrival_tick{};
+    uint32_t overlaps{};
+    uint32_t peak_queries{};
+    bool operator==(const ProjectedRouteResult&) const = default;
+};
+
+/// Resumes a route beside traffic after a previous passing leg moved off its line.
+ProjectedRouteResult run_projected_route(bool project_probe) {
+    constexpr uint16_t queued_unit_id = 4;
+    constexpr int16_t passing_row = lane_row + footprint;
+    constexpr int16_t destination_z = 552;
+    QueueArena arena;
+    arena.tick = lane_opens_at + 1;
+    auto& unit = arena.movers[0];
+    arena.remove_occupancy(unit);
+    unit.id = queued_unit_id;
+    unit.cell = {blocked_column, passing_row};
+    unit.position = {centre(blocked_column) * fixed_one, 0, destination_z * fixed_one};
+    arena.insert_occupancy(unit);
+    OA_CHECK(arena.can_occupy(unit, unit.cell, ground_occupancy));
+    movement::Movement motion{};
+    motion.flags = ground_occupancy;
+    movement::LocalFlowHead head{};
+    movement::LocalFlowCounters counters{};
+    ground::Navigation route{};
+    route.count = 3;
+    route.flags = ground::route_present_flag | ground::search_pending_flag;
+    route.points[0] = {centre(start_column - footprint * 2), centre(lane_row)};
+    route.points[1] = route.points[2] = {destination_x, destination_z};
+    const auto destination = ground::steering_points(route)[1];
+    ProjectedRouteResult result{};
+    for (arena.tick = lane_opens_at + 1; arena.tick <= lane_opens_at + tick_limit; ++arena.tick) {
+        arena.progress[queued_unit_id] = motion.last_motion_tick;
+        const bool recovery = movement::local_flow_recovery_due(head, arena.tick, queued_unit_id);
+        const bool reached = head.active && movement::local_flow_head_reached(unit, head);
+        const bool previous_tick = movement::local_flow_completed_last_tick(head, arena.tick);
+        if (reached) {
+            head.active = false;
+            head.count = movement::local_flow_completed_count;
+            head.tick = arena.tick;
+        } else if (head.active && recovery) {
+            head.active = false;
+            head.count = 0;
+        }
+        if (!head.active && (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
+            auto probe = arena.probe();
+            probe.previous_head = reached || previous_tick ? &head : nullptr;
+            probe.allow_reverse = recovery;
+            const auto points = ground::steering_points(route);
+            const auto target =
+                project_probe ? ground::steering_target(unit, points).point : points[1];
+            const auto queries = counters.probes;
+            const auto decision = movement::choose_local_flow(
+                unit, motion, points[1], target, arena.tick, arena, probe, counters
+            );
+            result.peak_queries =
+                std::max(result.peak_queries, static_cast<uint32_t>(counters.probes - queries));
+            head.mobile_blocked = decision.mobile_blocked;
+            if (decision.adjusted) {
+                head.points = {
+                    ground::RoutePoint{
+                        static_cast<int16_t>(unit.position[0] >> 16),
+                        static_cast<int16_t>(unit.position[2] >> 16)
+                    },
+                    ground::RoutePoint{
+                        static_cast<int16_t>(decision.target[0] >> 16),
+                        static_cast<int16_t>(decision.target[2] >> 16)
+                    },
+                    route.points[2]
+                };
+                head.count = 3;
+                head.active = true;
+            }
+        }
+        if (head.active)
+            head.tick = arena.tick;
+        auto effective = route;
+        if (head.active)
+            std::copy(head.points.begin(), head.points.end(), effective.points.begin());
+        ground::steer_ground(
+            unit,
+            motion,
+            effective,
+            acceleration,
+            acceleration,
+            0,
+            ground::FastUnitSteering::as_3_1c
+        );
+        movement::integrate_local_flow(unit, motion, arena.tick, true, arena, counters);
+        movement::record_local_flow_block(head, (motion.flags & movement::collision_blocked) != 0);
+        if (oa::base::game_math::distance(
+                unit.position[0] - destination[0], unit.position[2] - destination[2]
+            ) < uint32_t(arrival_radius)) {
+            result.arrival_tick = arena.tick - lane_opens_at;
+            break;
+        }
+    }
+    result.final_position = unit.position;
+    result.blocked_ticks = counters.blocked_ticks;
+    result.adjustments = counters.steering_adjustments;
+    result.overlaps = arena.overlaps;
+    return result;
+}
+
+/// Checks that traffic detection follows the direction the controller actually drives.
+void test_projected_probe_rejoins_the_original_route() {
+    constexpr uint32_t maximum_queries = 128;
+    const auto projected = run_projected_route(true);
+    const auto raw_waypoint = run_projected_route(false);
+    OA_CHECK(projected == run_projected_route(true));
+    OA_CHECK(raw_waypoint == run_projected_route(false));
+    OA_CHECK(projected.arrival_tick != 0 && projected.arrival_tick < tick_limit / 2);
+    OA_CHECK(raw_waypoint.arrival_tick == 0);
+    OA_CHECK(projected.overlaps == 0 && raw_waypoint.overlaps == 0);
+    OA_CHECK(projected.adjustments != 0 && raw_waypoint.adjustments == 0);
+    OA_CHECK(projected.blocked_ticks < raw_waypoint.blocked_ticks / 4);
+    OA_CHECK(raw_waypoint.blocked_ticks == tick_limit);
+    OA_CHECK(projected.peak_queries <= maximum_queries);
+    OA_CHECK(raw_waypoint.peak_queries <= maximum_queries);
+    std::printf(
+        "projected route: arrival %u / %u, blocked %llu / %llu, adjustments %llu / %llu\n",
+        projected.arrival_tick,
+        raw_waypoint.arrival_tick,
+        static_cast<unsigned long long>(projected.blocked_ticks),
+        static_cast<unsigned long long>(raw_waypoint.blocked_ticks),
+        static_cast<unsigned long long>(projected.adjustments),
+        static_cast<unsigned long long>(raw_waypoint.adjustments)
+    );
+}
+
 } // namespace
 
 int main() {
@@ -1042,5 +1306,7 @@ int main() {
     test_completed_local_legs_keep_the_north_passing_lane();
     test_history_does_not_block_forward_or_recovery_legs();
     test_one_tick_priority_gap_keeps_the_completed_passing_leg();
+    test_projected_probe_rejoins_the_original_route();
+    test_controller_probe_preserves_queue_completion();
     return oa::test::check_exit_status();
 }
