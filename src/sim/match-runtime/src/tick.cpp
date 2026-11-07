@@ -425,15 +425,20 @@ void Match::advance_path_search() {
             for (size_t byte = 1; byte < scan.size(); ++byte)
                 scan[byte] = static_cast<uint8_t>(simulation_.tick >> ((byte - 1) * 8));
             uint32_t active_players = 0;
+            std::array<uint8_t, OA_PLAYER_COUNT> active_slots{};
             for (uint8_t player = 0; player < simulation_.players.size(); ++player)
                 if (sim::simulation_state::player_slot_active(player, simulation_.players[player]))
-                    ++active_players;
+                    active_slots[active_players++] = player;
             constexpr uint32_t shared_units_per_tick = 1024;
             const auto per_player = shared_units_per_tick / std::max(active_players, uint32_t{1});
-            for (uint8_t player = 0; player < simulation_.players.size(); ++player) {
+            for (uint32_t seat = 0; seat < active_players; ++seat) {
+                // Extraction shares a bounded probe budget. Rotate its first
+                // claimant so a large army cannot always exhaust it before
+                // another player's pending routes are polled.
+                const auto player =
+                    active_slots[(uint64_t(simulation_.tick) + seat) % active_players];
                 auto& record = simulation_.players[player];
-                if (!sim::simulation_state::player_slot_active(player, record) ||
-                    record.units.empty())
+                if (record.units.empty())
                     continue;
                 // Pending fields must be revisited independently of full A*
                 // jobs, whose cursor can take minutes to circle a large army.
