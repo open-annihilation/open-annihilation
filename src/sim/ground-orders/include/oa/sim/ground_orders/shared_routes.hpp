@@ -12,11 +12,33 @@
 #include <memory>
 #include <span>
 
+namespace oa::sim::spatial_state {
+struct CellClassifier;
+struct World;
+} // namespace oa::sim::spatial_state
+
 namespace oa::sim::ground_orders {
+
+/// Tests the static footprint without scanning its speed-class perimeter.
+///
+/// This has the same blocked/passable result as classify_movement_cell with
+/// occupancy_before_tick zero: buildings and features block; mobiles do not.
+///
+/// @param movement movement class footprint, slopes and water limits
+/// @param x footprint origin column
+/// @param z footprint origin row
+/// @param world canonical spatial plots and occupants
+/// @return whether the complete static footprint is passable
+[[nodiscard]] bool static_flow_passable(
+    const sim::spatial_state::CellClassifier& movement,
+    int32_t x,
+    int32_t z,
+    const sim::spatial_state::World& world
+) noexcept;
 
 /// Bounded shared-route storage and work. Construction allocates; ticks do not.
 struct FlowLimits {
-    uint32_t fields{16};
+    uint32_t fields{64};
     uint32_t total_cells{2'097'152};
     uint32_t work_per_tick{2048};
     uint32_t route_probes_per_tick{65'536};

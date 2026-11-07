@@ -226,7 +226,8 @@ void Match::advance_path_search() {
             // Structures/features still block. Objects with movement state
             // have object_present set and are ignored at revision zero.
             classifier.occupancy_before_tick = 0;
-            return sim::spatial_state::classify_movement_cell(classifier, x, z, match.spatial_);
+            return sim::ground_orders::static_flow_passable(classifier, x, z, match.spatial_) ? 1
+                                                                                              : 0;
         }
     };
     const bool shared_routes = rules().setup.enhanced_mode.enabled &&

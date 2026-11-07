@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ground_orders/shared_routes.hpp"
+#include "oa/sim/spatial_state/cell_classifier.hpp"
 
 #include <algorithm>
 #include <array>
@@ -148,6 +149,29 @@ RoutePoint point_at(int32_t x, int32_t z, const FlowContext& context) noexcept {
     };
 }
 } // namespace
+
+bool static_flow_passable(
+    const sim::spatial_state::CellClassifier& movement,
+    int32_t x,
+    int32_t z,
+    const sim::spatial_state::World& world
+) noexcept {
+    if (x < 0 || z < 0 || movement.footprint_x <= 0 || movement.footprint_z <= 0 ||
+        uint64_t{static_cast<uint32_t>(x)} + static_cast<uint32_t>(movement.footprint_x) >=
+            world.terrain_width ||
+        uint64_t{static_cast<uint32_t>(z)} + static_cast<uint32_t>(movement.footprint_z) >=
+            world.terrain_height)
+        return false;
+    auto classifier = movement;
+    classifier.occupancy_before_tick = 0;
+    for (int32_t row = 0; row < classifier.footprint_z; ++row)
+        for (int32_t column = 0; column < classifier.footprint_x; ++column)
+            if (sim::spatial_state::classify_movement_plot(
+                    classifier, x + column, z + row, world
+                ) == 0)
+                return false;
+    return true;
+}
 
 FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
     : width_(width), height_(height), columns_(width / stride + (width % stride != 0)),

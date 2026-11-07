@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ground_orders/shared_routes.hpp"
+#include "oa/sim/spatial_state/cell_classifier.hpp"
 
 #include <algorithm>
 #include <array>
@@ -86,6 +87,41 @@ FlowResult query(
 void finish(FlowCache& cache, Grid& grid, uint32_t revision = 0) {
     for (uint32_t tick = 1; tick < 40; ++tick)
         cache.advance(tick, revision, grid.sampler());
+}
+
+void static_sampler_matches_full_classifier_passability() {
+    namespace spatial = oa::sim::spatial_state;
+    spatial::World world;
+    world.terrain_width = world.terrain_height = 16;
+    world.plots.resize(256);
+    std::array<spatial::Unit, 3> units{};
+    world.units = units;
+    world.sea_level = 20;
+    units[1].object_present = true; // mobiles are ignored, including old ones
+    units[1].object_tick = 0;
+    units[2].object_present = false; // structures still block
+    spatial::CellClassifier movement{1, 1, 10, -10, 6, 3, 8, 4, 0};
+    for (uint32_t variant = 0; variant < 5; ++variant) {
+        for (uint32_t i = 0; i < world.plots.size(); ++i) {
+            auto& plot = world.plots[i];
+            plot = {};
+            plot.low_height = static_cast<uint8_t>(variant == 2 ? 8 + i % 25 : 20);
+            plot.high_height = static_cast<uint8_t>(plot.low_height + (variant == 2 ? i % 10 : 0));
+            plot.blocking_feature = variant == 1 && i % 17 == 0;
+            plot.ground = variant == 3 && i % 19 == 0 ? 1 : variant == 4 && i % 23 == 0 ? 2 : 0;
+        }
+        for (int16_t width = 1; width <= 4; ++width)
+            for (int16_t depth = 1; depth <= 4; ++depth) {
+                movement.footprint_x = width;
+                movement.footprint_z = depth;
+                for (int32_t z = -1; z <= 16; ++z)
+                    for (int32_t x = -1; x <= 16; ++x)
+                        CHECK(
+                            static_flow_passable(movement, x, z, world) ==
+                            (spatial::classify_movement_cell(movement, x, z, world) != 0)
+                        );
+            }
+    }
 }
 
 void shared_cohort_and_budget() {
@@ -271,6 +307,7 @@ void malformed_frontiers_are_rejected() {
 } // namespace
 
 int main() {
+    static_sampler_matches_full_classifier_passability();
     small_output_and_extraction_budget_are_bounded();
     malformed_frontiers_are_rejected();
     shared_cohort_and_budget();
