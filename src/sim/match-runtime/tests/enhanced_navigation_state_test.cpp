@@ -442,75 +442,57 @@ void shared_poll_preserves_an_active_full_search() {
     CHECK(match.path_search_worker().start_cell() == held_start);
 }
 
-/// A long mobile blockage must escape a ready field that ignores traffic.
+/// Lets a mature traffic blockage reach full search despite shared lookup results.
 void sustained_blockage_bypasses_shared_routes() {
-    for (const uint8_t blocked_ticks :
-         {uint8_t(flow::local_flow_retry_ticks - 1), flow::local_flow_retry_ticks}) {
-        Fixture fixture(options_for(2));
-        configure_movement_class(fixture);
-        auto& unit = fixture.spawn(0, 64, 64);
-        auto& match = *fixture.match;
-        CHECK(!match.order_refused(
-            match.issue_ground_move(unit.unit_index, {200 << 16, 0, 200 << 16}, false)
-        ));
-        fixture.run(1);
-        auto* ground = match.ground_runtime(unit.unit_index);
-        CHECK(ground != nullptr && ground->movement_class == 1);
-        CHECK(ground->navigation.goal != nullptr);
-        match.simulation().tick = 123;
+    for (const bool pending : {false, true}) {
+        for (const uint8_t blocked_ticks :
+             {uint8_t(flow::local_flow_retry_ticks - 1), flow::local_flow_retry_ticks}) {
+            Fixture fixture(options_for(2));
+            configure_movement_class(fixture);
+            auto& unit = fixture.spawn(0, 64, 64);
+            auto& match = *fixture.match;
+            CHECK(!match.order_refused(
+                match.issue_ground_move(unit.unit_index, {200 << 16, 0, 64 << 16}, false)
+            ));
+            fixture.run(1);
+            auto* ground = match.ground_runtime(unit.unit_index);
+            CHECK(ground != nullptr && ground->movement_class == 1);
+            CHECK(ground->navigation.goal != nullptr);
+            match.simulation().tick = 123;
 
-        // This field is already complete and usable. An empty cache would
-        // let its first request fall through to A* even without the bypass.
-        routes::FlowCache cache(16, 16);
-        const routes::FlowSampler sampler{
-            nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
-                return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
-            }
-        };
-        cache.advance(121, 0, sampler);
-        const routes::FlowContext context{0, 0, 0, 0, 1, 1};
-        std::array<routes::RoutePoint, routes::navigation_capacity> points{};
-        uint32_t count{};
-        CHECK(
-            cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
-            routes::FlowResult::fallback
-        );
-        CHECK(
-            cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
-            routes::FlowResult::pending
-        );
-        cache.advance(122, 0, sampler);
-        CHECK(
-            cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
-            routes::FlowResult::ready
-        );
-        const auto& shared = table(match, "shared-routes");
-        CHECK(shared.restore(shared.context, cache.state_bytes()));
-        const auto& revision = table(match, "flow-map-version");
-        constexpr std::array<uint8_t, 4> current_revision{};
-        CHECK(revision.restore(revision.context, current_revision));
+            install_poll_field(match, unit.unit_index, match.simulation().tick, pending);
 
-        std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
-        heads[unit.unit_index].blocked_ticks = blocked_ticks;
-        std::vector<uint8_t> bytes(heads.size() * flow::local_flow_head_bytes);
-        CHECK(flow::write_local_flow_heads(heads, bytes));
-        const auto& steering = table(match, "local-flow");
-        CHECK(steering.restore(steering.context, bytes));
-        ground->navigation.flags |= routes::search_pending_flag;
-        ground->navigation.last_search_tick = 0;
+            std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
+            heads[unit.unit_index].blocked_ticks = blocked_ticks;
+            std::vector<uint8_t> bytes(heads.size() * flow::local_flow_head_bytes);
+            CHECK(flow::write_local_flow_heads(heads, bytes));
+            const auto& steering = table(match, "local-flow");
+            CHECK(steering.restore(steering.context, bytes));
+            ground->navigation.flags |= routes::search_pending_flag;
+            ground->navigation.last_search_tick = 0;
+            auto& jobs = match.path_search_jobs();
+            jobs.tick_credit = match.participant_count();
+            jobs.credit.fill(0);
+            jobs.round_robin = 0;
+            jobs.unit_cursor[0] =
+                static_cast<uint32_t>(match.simulation().players[0].units.size() - 1);
 
-        const auto before = match.enhanced_counters();
-        match.advance_path_search();
-        CHECK(match.fault() == nullptr);
-        const auto after = match.enhanced_counters();
-        if (blocked_ticks < flow::local_flow_retry_ticks) {
-            CHECK(after.shared_route_requests == before.shared_route_requests + 1);
-            CHECK(after.shared_route_hits == before.shared_route_hits + 1);
-            CHECK(after.full_route_searches == before.full_route_searches);
-        } else {
-            CHECK(after.shared_route_requests == before.shared_route_requests);
-            CHECK(after.full_route_searches == before.full_route_searches + 1);
-            CHECK(ground->navigation.last_search_tick == match.simulation().tick);
+            const auto before = match.enhanced_counters();
+            match.advance_path_search();
+            CHECK(match.fault() == nullptr);
+            const auto after = match.enhanced_counters();
+            const bool mature = blocked_ticks >= flow::local_flow_retry_ticks;
+            const uint64_t queries = !pending && !mature ? 1 : 2;
+            CHECK(after.shared_route_requests == before.shared_route_requests + queries);
+            CHECK(after.shared_route_hits == before.shared_route_hits + (pending ? 0 : queries));
+            CHECK(after.shared_route_waits == before.shared_route_waits + (pending ? queries : 0));
+            CHECK(after.full_route_searches == before.full_route_searches + (mature ? 1 : 0));
+            CHECK(
+                ground->navigation.last_search_tick ==
+                (mature || !pending ? match.simulation().tick : uint32_t{0})
+            );
+            if (mature)
+                CHECK(!match.path_search_worker().exhausted());
         }
     }
 }
@@ -627,6 +609,120 @@ void static_barrier_keeps_shared_route_access() {
     CHECK(ground->navigation.goal == nullptr);
     CHECK(std::abs((unit.record.position.x >> 16) - 200) <= 16);
     CHECK(std::abs((unit.record.position.z >> 16) - 136) <= 16);
+}
+
+/// Gives a mature queue a terrain detour beyond its short traffic probe.
+void far_terrain_detour_releases_a_mature_queue() {
+    constexpr uint32_t width = 32, height = 32;
+    constexpr int32_t wall_x = 16, bridge_depth = 4;
+    constexpr std::array<int32_t, 2> bridge_rows{4, 12};
+    constexpr uint16_t east = 49152;
+    constexpr uint32_t congestion_ticks = 50, request_tick = 120, arrival_tick_limit = 500;
+    constexpr int32_t destination_x = 424, destination_z = 136;
+    Fixture fixture(options_for(2));
+    fixture.map.attribute_width = width;
+    fixture.map.attribute_height = height;
+    fixture.map.attributes.resize(width * height);
+    fixture.terrain_values.resize(width * height);
+    fixture.collision_plots.resize(width * height);
+    fixture.altitude_cells.resize((width / 2) * (height / 2));
+    configure_movement_class(fixture);
+    auto& match = *fixture.match;
+    for (uint32_t z = 0; z < height; ++z)
+        if (std::none_of(bridge_rows.begin(), bridge_rows.end(), [z](int32_t row) {
+                return int32_t(z) >= row && int32_t(z) < row + bridge_depth;
+            }))
+            match.spatial().plots[size_t(z) * width + wall_x].blocking_feature = true;
+    auto& unit = fixture.spawn(0, 95, 136);
+    auto& blocker = fixture.spawn(0, 104, 136);
+    // Start immediately before contact so neither unit has a newer progress
+    // clock. The leading unit keeps its priority while the mover accumulates
+    // actual occupancy vetoes, rather than receiving a restored collision age.
+    unit.record.position.x = (96 << 16) - 1;
+    unit.record.heading = blocker.record.heading = east;
+    blocker.record.flags &= ~OA_UNIT_FLAG_MOVE_ORDER_MASK;
+    CHECK(!match.order_refused(match.issue_ground_move(
+        unit.unit_index, {destination_x << 16, 0, destination_z << 16}, false
+    )));
+    auto& jobs = match.path_search_jobs();
+    jobs.tick_credit = 0;
+    jobs.credit.fill(0);
+    fixture.run(congestion_ticks);
+    auto* ground = match.ground_runtime(unit.unit_index);
+    CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+    CHECK(match.local_flow_head(unit.unit_index)->blocked_ticks >= flow::local_flow_retry_ticks);
+    CHECK(match.local_flow_head(unit.unit_index)->mobile_blocked);
+    CHECK((ground->movement.flags & flow::collision_blocked) != 0);
+    CHECK(unit.record.position.x == (96 << 16) - 1);
+    CHECK(unit.record.position.z == (136 << 16));
+    CHECK(ground->navigation.count == 2);
+    CHECK(wall_x - unit.record.cell_x > 8);
+    CHECK(blocker.record.position.x == (104 << 16));
+    CHECK(blocker.record.position.z == (136 << 16));
+    CHECK(match.ground_runtime(blocker.unit_index)->navigation.goal == nullptr);
+    auto& sight = match.sight_mutable().player_bits;
+    std::fill(sight.begin(), sight.end(), uint16_t{1});
+
+    routes::FlowCache cache(width, height);
+    const routes::FlowSampler sampler{
+        &match, [](void* context, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+            const auto& world = static_cast<runtime::Match*>(context)->spatial();
+            if (x < 0 || z < 0 || uint32_t(x) >= world.terrain_width ||
+                uint32_t(z) >= world.terrain_height)
+                return 0;
+            return world.plots[size_t(z) * world.terrain_width + size_t(x)].blocking_feature ? 0
+                                                                                             : 1;
+        }
+    };
+    const routes::FlowContext context{0, 0, 0, 0, 1, 1};
+    std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+    uint32_t count{};
+    cache.advance(request_tick - 2, 0, sampler);
+    CHECK(
+        cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+        routes::FlowResult::fallback
+    );
+    CHECK(
+        cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+        routes::FlowResult::pending
+    );
+    cache.advance(request_tick - 1, 0, sampler);
+    CHECK(
+        cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+        routes::FlowResult::ready
+    );
+    CHECK(count >= 3);
+    const auto& shared = table(match, "shared-routes");
+    CHECK(shared.restore(shared.context, cache.state_bytes()));
+    const auto& revision = table(match, "flow-map-version");
+    constexpr std::array<uint8_t, 4> current_revision{};
+    CHECK(revision.restore(revision.context, current_revision));
+    ground->navigation.flags |= routes::search_pending_flag;
+    ground->navigation.last_search_tick = 0;
+    match.simulation().tick = request_tick;
+    const auto before = match.enhanced_counters();
+    match.advance_path_search();
+    CHECK(match.fault() == nullptr);
+    const auto delivered = match.enhanced_counters();
+    bool crossed = false;
+    for (uint32_t tick = 0; tick < arrival_tick_limit && ground->navigation.goal != nullptr;
+         ++tick) {
+        const auto previous_x = unit.record.cell_x;
+        fixture.run(1);
+        if (previous_x < wall_x && unit.record.cell_x >= wall_x) {
+            crossed = true;
+            CHECK(std::any_of(bridge_rows.begin(), bridge_rows.end(), [&](int32_t row) {
+                return unit.record.cell_z >= row && unit.record.cell_z < row + bridge_depth;
+            }));
+        }
+    }
+    CHECK(crossed);
+    CHECK(ground->navigation.goal == nullptr);
+    CHECK(std::abs((unit.record.position.x >> 16) - destination_x) <= 16);
+    CHECK(std::abs((unit.record.position.z >> 16) - destination_z) <= 16);
+    CHECK(delivered.shared_route_requests == before.shared_route_requests + 1);
+    CHECK(delivered.shared_route_hits == before.shared_route_hits + 1);
+    CHECK(delivered.full_route_searches == before.full_route_searches);
 }
 
 /// Finds a genuine temporary traffic head while two units pass each other.
@@ -864,6 +960,7 @@ int main() {
         shared_poll_preserves_an_active_full_search();
         sustained_blockage_bypasses_shared_routes();
         static_barrier_keeps_shared_route_access();
+        far_terrain_detour_releases_a_mature_queue();
         delivered_shared_routes_keep_their_retry_interval();
         accepted_routes_release_old_traffic_heads();
         passing_units_rejoin_and_arrive();
