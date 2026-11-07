@@ -1259,10 +1259,13 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
     }
     if (argument == "--benchmark-rules-version") {
         options.benchmark_options_named = true;
-        const auto version = parse_count(option_value(cursor));
-        if (version < 1 || version > 2)
+        const std::string_view text = option_value(cursor);
+        uint32_t version{};
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), version);
+        if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
+            (version != 1 && version != 2))
             throw std::runtime_error("--benchmark-rules-version expects 1 or 2");
-        options.benchmark_rules_version = static_cast<uint32_t>(version);
+        options.benchmark_rules_version = version;
         return true;
     }
     if (argument == "--benchmark-scenario") {
