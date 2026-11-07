@@ -577,6 +577,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     ///     must outlive the match.
     /// @param services Engine boundaries; must outlive the match.
     Match(const OfflineInputs& input, OfflineServices& services);
+    /// Releases the match and its preallocated engine state.
     ~Match();
     Match(const Match&) = delete;
     Match& operator=(const Match&) = delete;

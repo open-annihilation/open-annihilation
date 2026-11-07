@@ -11,7 +11,8 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 1 permits up to 10,000 units per participating player. It
+Rules version 2 is the current preset. It retains version 1's capacity of
+10,000 units per participating player. It
 allocates ranges only for participating players, with at most 32,767 units
 across the match. Two players can therefore field 10,000 units each.
 Spectators do not consume a unit range. The projectile pool holds 32,767
@@ -19,8 +20,20 @@ records, with allocation failures reported by the benchmark.
 
 Scanner and jammer contact queries reuse the spatial projection within a
 contact-picture pass. These changes establish capacity and remove repeated
-work; they do not yet establish smooth frame rates at that population.
-Movement and pathfinding improvements and ray tracing remain future work.
+work. Version 2 additionally shares bounded coarse routes between nearby
+destinations, ignores moving traffic when building those static routes, and
+rechecks every returned edge against current passability and player knowledge.
+Narrow corridors outside the coarse graph retain the ordinary path search.
+
+Local steering gives moving traffic temporary detours and yields by waiting
+time, with unit ID breaking ties. The original mission and route remain in
+place, and the final footprint occupancy test still prevents overlap. A short
+mobile blockage can wait before requesting another full path. Target searches
+use nearby spatial buckets when that reduces work, retaining the legacy
+candidate order, target selection and random draws.
+
+These changes do not yet establish smooth frame rates at that population.
+Ray tracing remains future work and will be a separate graphics choice.
 
 The engine resolves the preset over the selected game's profile before
 building the world. Its version enters the simulation hash. With the mode
@@ -35,17 +48,28 @@ mode Off. Unsupported versions and malformed metadata are refused.
 Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
+Version 1 remains supported with its original behavior and simulation hash.
+Version 2 saves pending shared fields, the current static-map revision,
+temporary traffic heads and actual-progress clocks. These owner-local
+navigation tables stay outside shared world and trace hashes.
 
 In multiplayer, every player must select the same mode before entering
 the battle room. Enhanced games require matching supported versions and
 simulation hashes before START. A guest does not automatically adopt the
 host's mode in this implementation. Enhanced matches cannot start with
 legacy clients.
+The current movement transport still has a small per-tick route-update budget.
+The new effective traffic heads are replicated, but simultaneous changes from
+thousands of movers require a complete tick-batch transport before large
+network battles can be treated as validated.
 
 ## Measuring battles
 
 The simulation-only benchmark runs repeatable idle, marching and combat
-workloads with a fixed seed and writes a JSON report. For example:
+workloads with a fixed seed and writes a JSON report. `group-march` gives both
+armies distinct, footprint-checked arrival positions in shared destination
+regions. Its report counts unique units making progress, arrivals and stalls,
+including the initially near, middle and far thirds of each army. For example:
 
 ```sh
 ./run.sh --game-dir /path/to/TotalAnnihilation --enhanced-mode \
@@ -68,6 +92,10 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
+Use `--benchmark-rules-version 1` or `2` with Enhanced Mode to compare the
+presets on the same seed. The report includes simulation phase timings and
+cumulative route, local-flow and targeting work; percentiles of individual
+phases are not additive.
 
 ## First 20,000-unit checkpoint
 
@@ -87,12 +115,11 @@ not establish sustained 30 Hz simulation or 60 FPS rendering.
 1. Measure simulation phases and AI work separately. Reduce the long ticks
    before making a whole-battle smoothness claim. Compare the same seeded
    workloads on the Mac and a gaming desktop.
-2. Add movement changes through preset v2. Share coarse corridors between
-   related orders, build tiled flow fields within fixed budgets, distribute
-   legal arrival positions, and let units yield locally before requesting
-   another full path. Keep the final occupancy veto. Add choke, crossing
-   and opposing-flow scenarios measuring blocked ticks, replans, queue age
-   and arrival spread, with no overlap or starvation. Preserve Off and v1.
+2. Validate v2 flow on sustained installed-map battles and extend it where
+   measured stalls remain. The synthetic counterflow, crossing and choke
+   fixtures check arrival, determinism and zero overlap; those results alone
+   do not establish that every installed-map group finishes its trip. Preserve
+   Off and v1, and add complete tick batches for large network route bursts.
 3. Separate simulation from presentation. The current application ticks and
    renders on the same thread: a 27 ms tick can miss a 16.7 ms frame deadline.
    Keep mutable World ownership on the simulation thread, queue commands for

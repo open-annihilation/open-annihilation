@@ -687,6 +687,23 @@ for the next player with a waiting unit, expands it and publishes a finished
 route through `accept_path`. Each movement class keeps a persistent map that
 footprint, occupancy and feature changes refresh.
 
+Enhanced preset v2 keeps bounded shared reverse fields in `EnhancedState`.
+The fields classify static obstacles without mobile occupancy, retain player
+knowledge, and validate returned edges before publishing through `accept_path`.
+Local traffic heads temporarily steer around movers while preserving the
+original navigator and final occupancy veto. `enhanced_counters` exposes
+cumulative routing, traffic and target-query work without changing decisions.
+Nearby target queries preserve ascending sighting order and exact legacy
+filtering; broad or crowded queries use the full scan.
+
+The `shared-routes`, `flow-map-version`, `local-flow` and `flow-progress`
+rule tables retain owner-local navigation across saves. They are saved but
+excluded from shared world/trace digests. The current map revision is kept
+separately from the cache's last processed revision so a pending invalidation
+survives a load. The actual-progress clock is separate from the legacy
+mobility record's occupancy-change clock. Off and preset v1 allocate none
+of this v2 storage.
+
 ## Verification
 
 The `match-runtime` tests cover case sensitivity, immediate call return
