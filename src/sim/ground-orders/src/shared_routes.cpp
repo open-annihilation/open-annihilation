@@ -522,8 +522,34 @@ FlowResult FlowCache::route(
         static_cast<int32_t>(static_cast<uint32_t>(node) % columns_) * static_cast<int32_t>(stride);
     int32_t z =
         static_cast<int32_t>(static_cast<uint32_t>(node) / columns_) * static_cast<int32_t>(stride);
-    if (points[0] != point_at(x, z, context))
+    const bool has_start_anchor = points[0] != point_at(x, z, context);
+    if (has_start_anchor)
         points[count++] = point_at(x, z, context);
+    const auto ready = [&]() {
+        if (has_start_anchor && count >= 3 &&
+            points[2] != point_at(goal.cell[0], goal.cell[1], context)) {
+            constexpr int32_t cell_width = 16, half_cell = cell_width / 2;
+            const int32_t to_x =
+                (int32_t(points[2][0]) - int32_t(context.footprint_x) * half_cell) / cell_width;
+            const int32_t to_z =
+                (int32_t(points[2][1]) - int32_t(context.footprint_z) * half_cell) / cell_width;
+            const auto next_dx = static_cast<uint32_t>(std::abs(to_x - unit.cell_x));
+            const auto next_dz = static_cast<uint32_t>(std::abs(to_z - unit.cell_z));
+            const auto probes =
+                uint64_t{1} + std::max(next_dx, next_dz) + uint64_t{2} * std::min(next_dx, next_dz);
+            // The anchor connects the unit to the coarse tree, but is not a
+            // required arrival point when its next corner is already visible.
+            // A short hook here can otherwise turn a stock unit away from the
+            // following leg or pull a whole queue onto one occupied cell.
+            if (probes <= get32(state + 60) &&
+                line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, to_x, to_z)) {
+                std::move(points.begin() + 2, points.begin() + count, points.begin() + 1);
+                --count;
+            }
+        }
+        increment(state, 1);
+        return FlowResult::ready;
+    };
     uint8_t previous = unseen;
     for (uint32_t walked = 0; walked < 128; ++walked) {
         const auto direction = directions[node];
@@ -543,8 +569,7 @@ FlowResult FlowCache::route(
                     points[count++] = finish;
                 }
                 if (count >= 2) {
-                    increment(state, 1);
-                    return FlowResult::ready;
+                    return ready();
                 }
             }
             if (direction == root) {
@@ -585,8 +610,7 @@ FlowResult FlowCache::route(
         }
     }
     if (count >= 2) {
-        increment(state, 1);
-        return FlowResult::ready;
+        return ready();
     }
     count = 0;
     return fallback();

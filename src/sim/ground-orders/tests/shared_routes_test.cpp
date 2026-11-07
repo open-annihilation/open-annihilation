@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ground_orders/shared_routes.hpp"
+#include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/spatial_state/cell_classifier.hpp"
+#include "oa/base/game_math.hpp"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdio>
 #include <cmath>
 #include <cstdlib>
@@ -635,6 +638,207 @@ void long_shortcut_cannot_starve_a_small_budget_prefix() {
     CHECK(cache.counters().hits == 6);
 }
 
+/// Supplies full static-footprint collision checks to one real steering driver.
+struct StaticSteeringHost : oa::sim::unit_movement::Host, Host {
+    Grid& grid;
+
+    explicit StaticSteeringHost(Grid& value) : grid(value) {}
+
+    bool can_occupy(
+        const oa::sim::unit_movement::Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy
+    ) override {
+        constexpr uint8_t ground_occupancy = 1;
+        if (occupancy != ground_occupancy || cell[0] < 0 || cell[1] < 0 ||
+            int32_t(cell[0]) + unit.footprint[0] > int32_t(grid.width) ||
+            int32_t(cell[1]) + unit.footprint[1] > int32_t(grid.height))
+            return false;
+        for (int16_t z = 0; z < unit.footprint[1]; ++z)
+            for (int16_t x = 0; x < unit.footprint[0]; ++x)
+                if (!grid.cells[size_t(cell[1] + z) * grid.width + size_t(cell[0] + x)])
+                    return false;
+        return true;
+    }
+
+    void remove_occupancy(oa::sim::unit_movement::Unit&) override {}
+
+    void insert_occupancy(oa::sim::unit_movement::Unit&) override {}
+
+    void update_spatial_membership(oa::sim::unit_movement::Unit&) override {}
+
+    void cancel_search(Navigation&) override {}
+
+    void play_sound(oa::sim::simulation_state::Unit&, uint32_t) override {}
+
+    void wake_weapon(oa::sim::simulation_state::Unit&, uint32_t) override {}
+
+    oa::sim::simulation_state::Unit* find_target(oa::sim::simulation_state::Unit&) override {
+        return nullptr;
+    }
+
+    bool issue_attack(oa::sim::simulation_state::Unit&, oa::sim::simulation_state::Unit&) override {
+        return false;
+    }
+
+    uint32_t random(uint32_t) override { return 0; }
+};
+
+struct CornerArrival {
+    uint32_t tick{};
+    uint64_t distance{};
+    uint64_t turn{};
+    uint32_t blocked{};
+    std::array<int32_t, 3> position{};
+    bool operator==(const CornerArrival&) const = default;
+};
+
+/// Follows the actual navigator, turn, acceleration and collision steps to a corner.
+CornerArrival
+steer_to_corner(Grid& grid, std::span<const RoutePoint> points, const RoutePoint& corner) {
+    namespace movement = oa::sim::unit_movement;
+    constexpr int32_t fixed_one = 65536;
+    constexpr uint8_t ground_occupancy = 1;
+    constexpr uint16_t east = 49152;
+    oa::sim::unit_spawn::LegacyWorld world(2);
+    movement::Unit unit{};
+    unit.position = {int32_t(points[0][0]) * fixed_one, 0, int32_t(points[0][1]) * fixed_one};
+    constexpr int32_t cell_shift = 4, half_cell = 8;
+    unit.cell = {
+        static_cast<int16_t>((int32_t(points[0][0]) - half_cell) >> cell_shift),
+        static_cast<int16_t>((int32_t(points[0][1]) - half_cell) >> cell_shift)
+    };
+    unit.footprint = {2, 2};
+    unit.flags = ground_occupancy;
+    unit.id = 1;
+    unit.heading = east;
+    unit.type.maximum_speed = 18 * fixed_one / 10;
+    unit.type.maximum_turn = 1120;
+    movement::Movement motion{};
+    motion.flags = ground_occupancy;
+    motion.speed = unit.type.maximum_speed;
+    motion.velocity = movement::aim_velocity(east, 0, motion.speed);
+    Navigation navigation{};
+    navigation.flags = route_present_flag;
+    navigation.count = static_cast<uint32_t>(points.size());
+    std::copy(points.begin(), points.end(), navigation.points.begin());
+    std::array<uint8_t, 3> weapons{};
+    UnitView view{world.unit(1), unit, motion, navigation, false, weapons};
+    StaticSteeringHost host(grid);
+    CornerArrival result{};
+    constexpr int32_t acceleration = fixed_one / 10;
+    for (uint32_t tick = 1; tick <= 900; ++tick) {
+        tick_navigation(view, tick, host);
+        if (navigation.points[0] == corner) {
+            result.tick = tick;
+            break;
+        }
+        const auto previous = unit.position;
+        const auto heading = unit.heading;
+        steer_ground(
+            unit, motion, navigation, acceleration, acceleration, 0, FastUnitSteering::as_3_1c
+        );
+        result.turn += std::abs(std::bit_cast<int16_t>(uint16_t(unit.heading - heading)));
+        movement::integrate_unattached(unit, motion, tick, true, host);
+        result.distance += oa::base::game_math::distance(
+            unit.position[0] - previous[0], unit.position[2] - previous[2]
+        );
+        result.blocked += (motion.flags & movement::collision_blocked) != 0;
+    }
+    result.position = unit.position;
+    return result;
+}
+
+/// Removes a short anchor hook only when the next corner has a clear footprint path.
+void visible_first_corner_does_not_require_a_short_anchor_turn() {
+    Grid grid(64, 64);
+    for (uint32_t z = 16; z <= 48; ++z)
+        grid.cells[z * 64 + 32] = 0;
+    FlowCache cache(64, 64), loaded(64, 64);
+    auto unit = unit_at(15, 15, 2);
+    unit.position.x += 7 << 16;
+    unit.position.z += 7 << 16;
+    const auto goal = circle(56, 32);
+    (void)query(cache, grid, unit, goal, context(1));
+    (void)query(cache, grid, unit, goal, context(1));
+    finish(cache, grid);
+    CHECK(loaded.restore(cache.state_bytes()));
+    std::array<RoutePoint, navigation_capacity> points{}, restored{};
+    uint32_t count{}, restored_count{};
+    CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
+    CHECK(
+        loaded.route(context(1), unit, goal, restored, restored_count, grid.sampler()) ==
+        FlowResult::ready
+    );
+    CHECK(count == restored_count);
+    CHECK(std::equal(points.begin(), points.begin() + count, restored.begin()));
+    CHECK(
+        std::equal(
+            cache.state_bytes().begin(), cache.state_bytes().end(), loaded.state_bytes().begin()
+        )
+    );
+    CHECK(count == 5);
+    CHECK(points[0] == (RoutePoint{263, 263}));
+    CHECK(points[1] == (RoutePoint{336, 208}));
+
+    // The previous extractor required a turn toward(272,272), then a sharp
+    // turn back toward the visible corner. Keep it as a physical control.
+    std::vector<RoutePoint> anchor_control(points.begin(), points.begin() + count);
+    anchor_control.insert(anchor_control.begin() + 1, RoutePoint{272, 272});
+    const auto original = steer_to_corner(grid, anchor_control, RoutePoint{336, 208});
+    const auto direct = steer_to_corner(grid, std::span(points).first(count), RoutePoint{336, 208});
+    CHECK(original.tick != 0 && direct.tick != 0);
+    CHECK(direct.tick + 5 < original.tick);
+    CHECK(direct.distance < original.distance);
+    CHECK(direct.turn * 2 < original.turn);
+    CHECK(direct.blocked == 0 && original.blocked == 0);
+    CHECK(direct == steer_to_corner(grid, std::span(points).first(count), RoutePoint{336, 208}));
+    std::printf(
+        "start-anchor: corner arrival%u ->%u ticks, turn%.1f ->%.1f degrees\n",
+        original.tick,
+        direct.tick,
+        double(original.turn) * 360 / 65536,
+        double(direct.turn) * 360 / 65536
+    );
+
+    // The optional ray must not turn a valid route into an unbounded query.
+    FlowCache limited(64, 64, {1, 256, 2048, 512});
+    (void)query(limited, grid, unit, goal, context(1));
+    (void)query(limited, grid, unit, goal, context(1));
+    finish(limited, grid);
+    limited.advance(40, 0, grid.sampler());
+    const auto probes_before = grid.queries;
+    uint32_t waiting = 0;
+    for (uint32_t i = 0; i < 1000; ++i)
+        waiting += query(limited, grid, unit, goal, context(1)) == FlowResult::pending;
+    CHECK(waiting > 900);
+    CHECK(grid.queries - probes_before <= 512);
+    limited.advance(41, 0, grid.sampler());
+    CHECK(query(limited, grid, unit, goal, context(1)) == FlowResult::ready);
+}
+
+/// Keeps the anchor when skipping it would cut a blocked two-cell corner.
+void a_blocked_first_corner_keeps_the_start_anchor() {
+    Grid grid(32, 32);
+    for (uint32_t z = 2; z < 28; ++z)
+        for (uint32_t x = 2; x < 28; ++x)
+            if ((x * 17 + z * 23) % 43 == 0)
+                grid.cells[z * 32 + x] = 0;
+    FlowCache cache(32, 32);
+    auto unit = unit_at(2, 4, 2);
+    unit.position.x += 7 << 16;
+    unit.position.z += 7 << 16;
+    const auto goal = circle(28, 28);
+    (void)query(cache, grid, unit, goal, context(1));
+    (void)query(cache, grid, unit, goal, context(1));
+    finish(cache, grid);
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
+    CHECK(count == 7);
+    CHECK(points[0] == (RoutePoint{55, 87}));
+    CHECK(points[1] == (RoutePoint{80, 80}));
+    CHECK(points[2] == (RoutePoint{272, 272}));
+}
+
 void malformed_frontiers_are_rejected() {
     Grid grid(32, 32);
     FlowCache cache(32, 32, {1, 64, 1}), restored(32, 32, {1, 64, 1});
@@ -671,6 +875,8 @@ void malformed_frontiers_are_rejected() {
 } // namespace
 
 int main() {
+    visible_first_corner_does_not_require_a_short_anchor_turn();
+    a_blocked_first_corner_keeps_the_start_anchor();
     unrelated_revisions_keep_complete_routes_and_admissions();
     changing_revisions_cannot_restart_building_frontiers();
     periodic_refresh_discovers_a_new_bridge();
