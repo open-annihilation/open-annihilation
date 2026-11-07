@@ -1694,15 +1694,28 @@ void test_shared_solid_materials() {
                 ProcessorPicture processor;
                 scene.begin_frame(processor, 0);
                 scene.plan_unit(actor);
+                const auto body_batches = [&] {
+                    return std::ranges::count_if(card.frame.batches, [](const card::Batch& batch) {
+                        return batch.operation == card::Operation::draw &&
+                               batch.target == card::TargetHandle{};
+                    });
+                };
                 const auto original = card.raster(scene, zoom);
-                const auto original_batches = card.frame.batches.size();
+                const auto original_batches = body_batches();
                 scene.share_solid_materials = true;
                 const auto shared = card.raster(scene, zoom);
                 OA_CHECK(shared.rgba == original.rgba);
                 OA_CHECK(card.stage.error().empty());
                 if (!submerged) {
+                    std::printf(
+                        "shared materials zoom %.2f gamma %.2f: %td to %td body batches\n",
+                        zoom,
+                        gamma,
+                        original_batches,
+                        body_batches()
+                    );
                     OA_CHECK(original_batches == face_count);
-                    OA_CHECK(card.frame.batches.size() == 1);
+                    OA_CHECK(body_batches() == 1);
                 }
                 actor.unit->state_flags |= draw::unit_state_cloaked;
                 scene.begin_frame(processor, 1);
