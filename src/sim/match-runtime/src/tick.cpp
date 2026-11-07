@@ -251,6 +251,8 @@ bool Match::prepare_search_job(
 }
 
 void Match::advance_path_search() {
+    if (enhanced_ && enhanced_->static_passability_memo)
+        enhanced_->static_passability_memo->begin_pass();
     // Static fields ignore temporary mobile occupancy. Unknown plots retain
     // the ordinary search's passable classification, so fields reveal no fog.
     sim::ground_orders::FlowSampler flow_sampler{
@@ -279,8 +281,15 @@ void Match::advance_path_search() {
             // Structures/features still block. Objects with movement state
             // have object_present set and are ignored at revision zero.
             classifier.occupancy_before_tick = 0;
-            return sim::ground_orders::static_flow_passable(classifier, x, z, match.spatial_) ? 1
-                                                                                              : 0;
+            auto* memo = match.enhanced_ ? match.enhanced_->static_passability_memo.get() : nullptr;
+            uint8_t value{};
+            if (memo && memo->find(class_index, x, z, value))
+                return value;
+            value =
+                sim::ground_orders::static_flow_passable(classifier, x, z, match.spatial_) ? 1 : 0;
+            if (memo)
+                memo->remember(class_index, x, z, value);
+            return value;
         }
     };
     const bool shared_routes = rules().setup.enhanced_mode.enabled &&
