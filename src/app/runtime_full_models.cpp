@@ -29,6 +29,7 @@
 // as in a cached image, and flat, where it is a colour as in a flat draw.
 // Nothing here writes the match or the planner's state.
 #include "runtime_full.hpp"
+#include "full_plane_orders.hpp"
 #include "renderer_water_shading.hpp"
 #include "renderer_aircraft_shadow.hpp"
 
@@ -154,9 +155,6 @@ constexpr double sloped_shown_margin = -0.5;
 /// start and its multiplier.
 constexpr uint64_t shape_digest_start = 0xcbf29ce484222325ULL;
 constexpr uint64_t shape_digest_multiplier = 0x100000001b3ULL;
-/// The most units whose polygon order is kept from frame to frame; one
-/// more forgets them all.
-constexpr size_t most_kept_plane_orders = 4096;
 /// The edge of the white page every solid fill draws from, so that each
 /// renderer draws the fill with the batch's own blend.
 constexpr uint32_t solid_page_edge = 2;
@@ -623,7 +621,6 @@ struct PlaneOrderScratch {
 
 /// A unit's polygon order, kept while its polygons keep their shape.
 struct KeptPlaneOrder {
-    uint64_t shape{};            ///< the digest of the shape the order was found for
     std::vector<uint32_t> order; ///< the polygons by their place in the processor's order
     /// Where each polygon in drawing order lies under one drawn before it
     /// (find_plane_cuts): its cuts from first_cut[k] to first_cut[k + 1],
@@ -632,6 +629,13 @@ struct KeptPlaneOrder {
     std::vector<uint32_t> first_cut;
     std::vector<PlaneCut> cuts;
     std::vector<PlanePoint> cut_points;
+
+    /// Returns the capacity held by the result's buffers.
+    /// @return allocated bytes, excluding the vector objects
+    [[nodiscard]] size_t bytes() const noexcept {
+        return (order.capacity() + first_cut.capacity()) * sizeof(uint32_t) +
+               cuts.capacity() * sizeof(PlaneCut) + cut_points.capacity() * sizeof(PlanePoint);
+    }
 };
 
 /// The cuts of a unit's polygons in drawing order (KeptPlaneOrder), with the
@@ -866,12 +870,16 @@ double twice_cut_area(std::span<const CutPoint> polygon) noexcept {
 ///
 /// @param corners the frame's corners
 /// @param polygons the unit's polygons
+/// @param[out] shape exact normalized values beside the lookup digest
 /// @return the digest
-uint64_t
-polygon_shape(std::span<const Corner> corners, std::span<const Polygon> polygons) noexcept {
+uint64_t polygon_shape(
+    std::span<const Corner> corners, std::span<const Polygon> polygons, std::vector<int64_t>& shape
+) {
     uint64_t digest = shape_digest_start;
-    const auto fold = [&digest](int64_t value) {
+    shape.clear();
+    const auto fold = [&digest, &shape](int64_t value) {
         digest = (digest ^ static_cast<uint64_t>(value)) * shape_digest_multiplier;
+        shape.push_back(value);
     };
     fold(static_cast<int64_t>(polygons.size()));
     if (polygons.empty())
@@ -1293,34 +1301,32 @@ void find_plane_cuts(
 }
 
 /// Orders a unit's polygons as its depth plane shows them (find_plane_order),
-/// with the order kept for the unit while its polygons keep their shape.
+/// reusing exact normalized shapes across units and frames.
 ///
 /// The cuts found with the order (find_plane_cuts) are kept with it.
 ///
-/// @param unit_key the unit's draw state, which the order is kept by
 /// @param corners the frame's corners
 /// @param[in,out] polygons the unit's polygons, reordered
 /// @param[in,out] scratch the scratch
-/// @param[in,out] kept the orders kept by unit
+/// @param[in,out] kept the bounded orders kept by exact polygon shape
 /// @return the cuts of the polygons in their new order, which the next call changes
 PlaneCuts order_as_depth_plane(
-    const void* unit_key,
     std::span<const Corner> corners,
     std::vector<Polygon>& polygons,
     PlaneOrderScratch& scratch,
-    std::unordered_map<const void*, KeptPlaneOrder>& kept
+    PlaneOrderCache<KeptPlaneOrder>& kept
 ) {
     if (polygons.empty())
         return {};
-    const uint64_t shape = polygon_shape(corners, polygons);
-    if (kept.size() >= most_kept_plane_orders && !kept.contains(unit_key))
-        kept.clear();
-    KeptPlaneOrder& entry = kept[unit_key];
-    if (entry.order.size() != polygons.size() || entry.shape != shape) {
-        find_plane_order(corners, polygons, scratch, entry.order);
-        find_plane_cuts(corners, polygons, scratch, entry);
-        entry.shape = shape;
+    const uint64_t shape = polygon_shape(corners, polygons, kept.shape());
+    const auto* found = kept.find(shape);
+    if (!found) {
+        auto& next = kept.scratch();
+        find_plane_order(corners, polygons, scratch, next.order);
+        find_plane_cuts(corners, polygons, scratch, next);
+        found = &kept.publish(shape);
     }
+    const auto& entry = *found;
     const Corner& origin = corners[polygons.front().first_corner];
     auto& ordered = scratch.ordered;
     ordered.clear();
@@ -1478,8 +1484,8 @@ struct ModelStage::Impl {
     std::vector<Corner> corners;
     std::vector<Polygon> polygons;
     PlaneOrderScratch plane_order;
-    /// Each depth-plane unit's polygon order, by its draw state.
-    std::unordered_map<const void*, KeptPlaneOrder> kept_plane_orders;
+    /// Polygon ordering and cuts shared only by complete equal normalized shapes.
+    PlaneOrderCache<KeptPlaneOrder> kept_plane_orders;
     /// The pieces of the unit's polygons that clearing cut, and their
     /// corners; with the scratch the cutting works in.
     std::vector<CutPiece> cut_pieces;
@@ -1666,7 +1672,10 @@ class Emitter {
     }
 
     /// Keeps ordinary draw buffers and releases an unusually large draw's storage.
-    ~Emitter() { impl_.emission.trim(); }
+    ~Emitter() {
+        impl_.emission.trim();
+        impl_.kept_plane_orders.trim_scratch();
+    }
 
     /// Emits the frame's shadows and composes them.
     ///
@@ -3519,7 +3528,7 @@ void Emitter::draw_model(const ModelDraw& drawn) {
         0, lift > 0 ? int32_t{static_cast<uint8_t>(lift + base)} : -1, own, is_digger(model)
     );
     cut_under_nearer(order_as_depth_plane(
-        model.state, impl_.corners, impl_.polygons, impl_.plane_order, impl_.kept_plane_orders
+        impl_.corners, impl_.polygons, impl_.plane_order, impl_.kept_plane_orders
     ));
     cut_under_clearing(0, impl_.polygons.size());
     emit_polygons(canvas);
