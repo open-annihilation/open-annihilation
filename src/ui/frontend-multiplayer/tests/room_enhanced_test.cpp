@@ -100,16 +100,17 @@ void classic_rooms_keep_their_start_rules() {
 }
 
 void matching_machines_can_start() {
-    for (bool hosting : {false, true}) {
-        Room room(hosting);
-        room.presence(0, record(1));
-        room.presence(1, record(1));
-        expect(mp::lobby_enhanced_allow_start(room.lobby), "matching enhanced peers may start");
-        expect(
-            mp::lobby_enhanced_start_problem(room.lobby) == nullptr,
-            "matching enhanced peers have no refusal"
-        );
-    }
+    for (const uint32_t version : {1u, 2u, 3u})
+        for (bool hosting : {false, true}) {
+            Room room(hosting);
+            room.presence(0, record(version));
+            room.presence(1, record(version));
+            expect(mp::lobby_enhanced_allow_start(room.lobby), "matching enhanced peers may start");
+            expect(
+                mp::lobby_enhanced_start_problem(room.lobby) == nullptr,
+                "matching enhanced peers have no refusal"
+            );
+        }
 }
 
 void enhanced_rooms_require_matching_acknowledgments() {
@@ -139,6 +140,21 @@ void enhanced_rooms_require_matching_acknowledgments() {
     room.lobby.presence_records.block_player[1] = 200;
     room.lobby.presence_records.peer_id[1] = 201;
     expect(!mp::lobby_enhanced_allow_start(room.lobby), "an earlier presence cannot acknowledge");
+}
+
+void regional_rooms_do_not_upgrade_earlier_peers() {
+    for (const bool hosting : {false, true}) {
+        Room room(hosting);
+        room.presence(0, record(2));
+        room.presence(1, record(3));
+        expect(!mp::lobby_enhanced_allow_start(room.lobby), "v2 and v3 do not mix");
+        expect(
+            std::strstr(mp::lobby_enhanced_start_problem(room.lobby), "version") != nullptr,
+            "the v2/v3 refusal names the version"
+        );
+        room.presence(0, record(3));
+        expect(mp::lobby_enhanced_allow_start(room.lobby), "matching v3 peers may start");
+    }
 }
 
 void enhanced_rules_must_agree() {
@@ -237,6 +253,7 @@ int main() {
     matching_machines_can_start();
     enhanced_rooms_require_matching_acknowledgments();
     enhanced_rules_must_agree();
+    regional_rooms_do_not_upgrade_earlier_peers();
     guests_do_not_silently_adopt_another_mode();
     watchers_agree_and_computers_use_their_machine();
     the_host_checks_every_machine_and_guests_check_the_host();

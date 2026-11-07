@@ -20,8 +20,10 @@ inline constexpr uint32_t off_version = 0;
 inline constexpr uint32_t capacity_version = 1;
 /// The preset adding shared routing and local unit flow.
 inline constexpr uint32_t flow_version = 2;
+/// The preset using regional shared-route construction and retained fields.
+inline constexpr uint32_t regional_flow_version = 3;
 /// The Enhanced Mode preset supplied by this build.
-inline constexpr uint32_t current_version = flow_version;
+inline constexpr uint32_t current_version = regional_flow_version;
 
 /// Tells whether this build can resolve a preset, including Off.
 ///
@@ -42,7 +44,8 @@ inline constexpr uint32_t current_version = flow_version;
 /// match choices and must resolve completely at the requested version.
 /// Version 1 permits 10000 units per participating player and 32767
 /// projectiles. Version 2 adds routing and unit-flow changes while retaining
-/// those capacities. Rendering remains independent. Errors leave no usable resolution.
+/// those capacities. Version 3 selects regional shared-route construction.
+/// Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes
 /// @param source the name used by profile diagnostics

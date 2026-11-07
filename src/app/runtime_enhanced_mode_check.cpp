@@ -7,6 +7,7 @@
 #include "engine_settings_state.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/sim/unit_spawn/restore_ranges.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
 #include "oa/sim/unit_movement/local_flow.hpp"
@@ -71,6 +72,17 @@ void Runtime::check_enhanced_mode() {
     require(enhanced_mode_version(*this) == mode::current_version, "On did not resolve the preset");
     const std::string enhanced_hash = simulation_hash(*this);
     require(enhanced_hash != released_hash, "the preset did not enter the simulation hash");
+    for (const uint32_t previous : {mode::capacity_version, mode::flow_version}) {
+        require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
+        require(enhanced_mode_version(*this) == previous, "an earlier preset was upgraded");
+        require(simulation_hash(*this) != enhanced_hash, "different presets share an identity");
+        release_enhanced_rules_once(true);
+        require(
+            enhanced_mode_version(*this) == mode::current_version,
+            "releasing old rules did not restore the new-game preset"
+        );
+        require(simulation_hash(*this) == enhanced_hash, "releasing old rules changed identity");
+    }
     constexpr std::array renderers{
         settings::HardwareAcceleration::off,
         settings::HardwareAcceleration::basic,
@@ -357,6 +369,35 @@ void Runtime::check_enhanced_mode() {
     );
     leave_match();
     load(Screen::main_menu);
+    for (const uint32_t previous : {mode::capacity_version, mode::flow_version}) {
+        require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
+        bootstrap_match(
+            {.units_per_player = 10'000, .place_commanders = false, .seat_roster = true}
+        );
+        for (const auto& request : reordered_units)
+            require(match_->create(request) != nullptr, "old-save fixture could not spawn");
+        enter_match_view();
+        const std::string old_hash = simulation_hash(*this);
+        const fs::path old_save =
+            options_.preferences_file->parent_path() /
+            oa::platform::path_from_utf8("enhanced-v" + std::to_string(previous) + ".sav");
+        require(save_match_game(old_save, "Earlier Enhanced rules", 0), "old rules did not save");
+        leave_match();
+        load(Screen::main_menu);
+        require(
+            enhanced_mode_version(*this) == mode::current_version,
+            "old-save fixture changed the new-game preference"
+        );
+        require(load_saved_game(old_save), "an earlier Enhanced save did not load");
+        require(enhanced_mode_version(*this) == previous, "an earlier save was upgraded");
+        require(simulation_hash(*this) == old_hash, "an earlier save changed rules identity");
+        leave_match();
+        load(Screen::main_menu);
+        require(
+            enhanced_mode_version(*this) == mode::current_version,
+            "leaving an earlier save kept its old rules"
+        );
+    }
     require(
         !hold_enhanced_rules_once(mode::current_version + 1), "an unknown version was accepted"
     );

@@ -11,7 +11,7 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 2 is the current preset. It retains version 1's capacity of
+Rules version 3 is the current preset. It retains the earlier presets' capacity of
 10,000 units per participating player. It
 allocates ranges only for participating players, with at most 32,767 units
 across the match. Two players can therefore field 10,000 units each.
@@ -20,10 +20,14 @@ records, with allocation failures reported by the benchmark.
 
 Scanner and jammer contact queries reuse the spatial projection within a
 contact-picture pass. These changes establish capacity and remove repeated
-work. Version 2 additionally shares bounded coarse routes between nearby
+work. Version 2 introduced bounded coarse routes shared between nearby
 destinations, ignores moving traffic when building those static routes, and
 rechecks every returned edge against current passability and player knowledge.
 Narrow corridors outside the coarse graph retain the ordinary path search.
+Version 3 groups more destinations into each shared field, returns shorter
+route prefixes and retains useful fields when an extracted edge becomes
+blocked. Its construction work stays bounded. Earlier presets keep their
+original routing policy.
 
 Local steering gives moving units temporary detours around mobile ground
 traffic, including idle units, and yields by waiting time measured at the
@@ -54,7 +58,7 @@ mode Off. Unsupported versions and malformed metadata are refused.
 Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
-Version 1 remains supported with its original behavior and simulation hash.
+Versions 1 and 2 remain supported with their original behavior and simulation hashes.
 Version 2 saves five owner-local navigation tables: shared fields, the
 current static-map revision, temporary traffic heads, actual-progress clocks
 and the shared-route scan clock. The scan clock prevents a load pass and a
@@ -100,7 +104,7 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1` or `2` with Enhanced Mode to compare the
+Use `--benchmark-rules-version 1`, `2` or `3` with Enhanced Mode to compare the
 presets on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.

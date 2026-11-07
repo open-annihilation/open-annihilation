@@ -22,6 +22,11 @@ constexpr std::string_view capacity_sim_hash =
     "13cff985db3bf81ac26152dadf25e95ff0dfe788f009b78a6d7b278981990e1b";
 constexpr std::string_view capacity_canonical_hash =
     "274c2e562b1fb155ac2edf75a483218b1a28c7503f7b55ac8f4b5bda63d0493f";
+// The version-2 identity remains independent of the current preset.
+constexpr std::string_view flow_sim_hash =
+    "2b7bb180e975630800fa1123c8dde85bd76952f644ec5ef74facc6cf4696bee3";
+constexpr std::string_view flow_canonical_hash =
+    "4289710df599269b47eda5874eb5ae071d21a1097005d1df7e50a2fc93a8fec9";
 
 /// A chosen mod with its own unit capacity and unrelated gameplay rule.
 constexpr std::string_view mod_text =
@@ -80,6 +85,8 @@ void check_versioned_identity() {
         capacity_canonical_hash
     );
     OA_CHECK(enhanced::rules_version(current.profile.rules) == enhanced::flow_version);
+    OA_CHECK(profiles::digest_text(current.profile.sim_hash) == flow_sim_hash);
+    OA_CHECK(profiles::digest_text(current.profile.full_hash) == flow_canonical_hash);
     OA_CHECK(current.profile.sim_hash != previous.profile.sim_hash);
     OA_CHECK(current.profile.full_hash != previous.profile.full_hash);
     OA_CHECK(current.profile.limits == previous.profile.limits);
@@ -98,6 +105,35 @@ void check_versioned_identity() {
     }
 }
 
+/// Gives regional routing a new identity without changing the earlier preset.
+void check_regional_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto flow = enhanced::resolve_profile(bytes(text), "base", {}, enhanced::flow_version);
+    const auto regional =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::regional_flow_version);
+    OA_CHECK(flow.resolution && regional.resolution);
+    if (!flow.resolution || !regional.resolution)
+        return;
+    OA_CHECK(enhanced::current_version == enhanced::regional_flow_version);
+    OA_CHECK(
+        enhanced::rules_version(regional.resolution->profile.rules) ==
+        enhanced::regional_flow_version
+    );
+    OA_CHECK(regional.resolution->profile.sim_hash != flow.resolution->profile.sim_hash);
+    auto prior = regional.resolution->profile.rules;
+    prior.setup.enhanced_mode.version = enhanced::flow_version;
+    OA_CHECK(prior == flow.resolution->profile.rules);
+    auto canonical = regional.resolution->canonical;
+    constexpr std::string_view regional_rule = "\"setup.enhanced-mode\":{\"version\":3}";
+    constexpr std::string_view flow_rule = "\"setup.enhanced-mode\":{\"version\":2}";
+    const auto version_at = canonical.find(regional_rule);
+    OA_CHECK(version_at != std::string::npos);
+    if (version_at != std::string::npos) {
+        canonical.replace(version_at, regional_rule.size(), flow_rule);
+        OA_CHECK(canonical == flow.resolution->canonical);
+    }
+}
+
 /// Preserves the original version selected by a bare profile switch.
 void check_profile_default_version() {
     const std::string text = std::string{mod_text} + "  setup.enhanced-mode: true\n";
@@ -112,7 +148,7 @@ void check_profile_default_version() {
     OA_CHECK(current.resolution.has_value());
     if (current.resolution)
         OA_CHECK(
-            enhanced::rules_version(current.resolution->profile.rules) == enhanced::flow_version
+            enhanced::rules_version(current.resolution->profile.rules) == enhanced::current_version
         );
 }
 
@@ -191,7 +227,7 @@ void check_refusals() {
         bytes(requires_enhanced), "chosen", options, enhanced::current_version
     );
     OA_CHECK(on.resolution.has_value());
-    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 3\n";
+    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 4\n";
     const auto bad_profile =
         enhanced::resolve_profile(bytes(unsupported), "chosen", options, enhanced::current_version);
     OA_CHECK(!bad_profile.resolution);
@@ -223,11 +259,13 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::off_version));
     OA_CHECK(enhanced::supported_version(enhanced::capacity_version));
     OA_CHECK(enhanced::supported_version(enhanced::flow_version));
+    OA_CHECK(enhanced::supported_version(enhanced::regional_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
     OA_CHECK(!enhanced::supported_version(enhanced::current_version + 1));
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
     check_off_identity();
     check_versioned_identity();
+    check_regional_identity();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();

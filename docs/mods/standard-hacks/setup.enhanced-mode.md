@@ -18,8 +18,9 @@ supports compact participating-player unit ranges, up to 10,000 units per
 player and 32,767 units across a match, and a 32,767-record projectile pool.
 It also reuses spatial projections during contact scans. Renderer selection
 is independent. Version 2 adds shared routing and local unit flow while
-retaining those capacities. Recorded version-1 matches keep their original
-rules.
+retaining those capacities. Version 3 selects regional shared-route
+construction. Versions 1 and 2 remain available for saved and recorded games
+with their original rules.
 
 ## Configuration example
 
@@ -62,7 +63,7 @@ Hack id `setup.enhanced-mode`, written under the profile's `hacks` block.
 
 | Parameter | Type | Unit | Allowed | Length | Baseline (3.1c) | Default | Adjustable | Scope | Overridden by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `version` | `int` | - | `1` to `2` | - | `1` | `1` | `match` | `sim` | - |
+| `version` | `int` | - | `1` to `3` | - | `1` | `1` | `match` | `sim` | - |
 
 Adjustable: `match`: as `install`, and the host may also change it for one game.
 

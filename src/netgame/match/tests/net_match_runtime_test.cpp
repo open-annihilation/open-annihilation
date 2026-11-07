@@ -66,6 +66,7 @@ constexpr uint32_t kUptimeMilliseconds = 1000;
 constexpr uint32_t released_mode = 0;
 constexpr uint32_t enhanced_capacity_mode = 1;
 constexpr uint32_t enhanced_flow_mode = 2;
+constexpr uint32_t enhanced_regional_flow_mode = 3;
 constexpr uint16_t participating_players = (1u << 0) | (1u << 1);
 // The transport machines' air transport, air pad and cargo types. The cargo
 // stands kCargoHeight units high; the pad's landing piece sits on its deck.
@@ -877,7 +878,8 @@ void replicated_play() {
 void local_traffic_heads_keep_their_copies() {
     // Keep both routes above the map's hidden bottom edge.
     constexpr uint16_t traffic_map_cells = kMapCells * 2;
-    for (const uint32_t version : {released_mode, enhanced_capacity_mode, enhanced_flow_mode}) {
+    for (const uint32_t version :
+         {released_mode, enhanced_capacity_mode, enhanced_flow_mode, enhanced_regional_flow_mode}) {
         Pair pair(0, traffic_map_cells, false, false, false, false, version);
         auto& host = *pair.host;
         auto& joiner = *pair.joiner;
@@ -951,7 +953,7 @@ void local_traffic_heads_keep_their_copies() {
             CHECK(tracked.differing == 0);
         }
         CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
-        if (version == enhanced_flow_mode) {
+        if (version >= enhanced_flow_mode) {
             if (!saw_head || !saw_original_route || !resumed)
                 std::fprintf(
                     stderr,

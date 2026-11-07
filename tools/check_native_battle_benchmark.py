@@ -116,7 +116,7 @@ def main():
             else:
                 require(report["projectile_high_water"] > 0 or report["damaged_unit_ticks"] > 0,
                         "combat fixture did not fire or damage units")
-        group_reference = None
+        group_references = {}
         work_keys = ("shared_route_requests", "shared_route_hits", "shared_route_fields",
                      "shared_route_cells", "shared_route_waits", "shared_route_invalidations",
                      "full_route_searches", "target_queries", "target_candidates",
@@ -124,8 +124,8 @@ def main():
                      "local_flow_probes", "local_flow_moving_blockers",
                      "local_flow_steering_adjustments", "local_flow_yielded_ticks",
                      "local_flow_blocked_ticks", "local_flow_deferred_replans")
-        for version in (1, 2, 2):
-            name = f"group-{version}-{'repeat' if group_reference else 'first'}"
+        for version in (1, 2, 2, 3, 3):
+            name = f"group-{version}-{'repeat' if version in group_references else 'first'}"
             process, report = play(native, game_dir, workdir, name,
                                    ("--enhanced-mode", "--benchmark-rules-version", str(version),
                                     "--benchmark-scenario", "group-march", "--benchmark-map",
@@ -148,14 +148,15 @@ def main():
                         "v1 acquired the new routing or local-flow behavior")
                 continue
             require(report["shared_route_hits"] > 0 and 0 < report["shared_route_fields"] < 48,
-                    "v2 group movement did not share route construction")
+                    f"v{version} group movement did not share route construction")
+            group_reference = group_references.get(version)
             if group_reference:
                 require(report["world_digest"] == group_reference["world_digest"] and
                         report["simulation_hash"] == group_reference["simulation_hash"] and
                         report["goal_progress"] == group_reference["goal_progress"] and
                         all(report[key] == group_reference[key] for key in work_keys),
-                        "seeded v2 group movement or work counts changed on repeat")
-            group_reference = report
+                        f"seeded v{version} group movement or work counts changed on repeat")
+            group_references[version] = report
         process, report = play(native, game_dir, workdir, "version-with-mode-off",
                                ("--no-enhanced-mode", "--benchmark-rules-version", "1"))
         require(process.returncode != 0 and report is not None and not report["completed"],
