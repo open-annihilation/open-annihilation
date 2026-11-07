@@ -61,7 +61,7 @@ void main() {
         uintBitsToFloat(frame.words[instance + 6u]),
         uintBitsToFloat(frame.words[instance + 7u])
     );
-    const vec3 world = origin + vec3(
+    precise vec3 world = origin + vec3(
         uintBitsToFloat(frame.words[vertex]),
         uintBitsToFloat(frame.words[vertex + 1u]),
         uintBitsToFloat(frame.words[vertex + 2u])

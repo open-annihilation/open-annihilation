@@ -64,7 +64,7 @@ void main() {
         uintBitsToFloat(frame.words[instance + 6u]),
         uintBitsToFloat(frame.words[instance + 7u])
     );
-    const vec3 world = origin + vec3(
+    precise vec3 world = origin + vec3(
         uintBitsToFloat(frame.words[vertex]),
         uintBitsToFloat(frame.words[vertex + 1u]),
         uintBitsToFloat(frame.words[vertex + 2u])
@@ -74,7 +74,8 @@ void main() {
     const vec3 model_place = vec3(
         uintBitsToFloat(frame.words[record + 7u]), base, uintBitsToFloat(frame.words[record + 8u])
     );
-    const vec3 whole = floor(world - model_place);
+    precise vec3 relative = world - model_place;
+    const vec3 whole = floor(relative);
     const float half_height = floor(whole.y * 0.5);
     const float quarter_height = floor(whole.y * 0.25);
     // A building's picture is taken out of its silhouette where it stands.
