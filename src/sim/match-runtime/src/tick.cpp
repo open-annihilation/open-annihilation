@@ -7,6 +7,7 @@
 #include "enhanced_state.hpp"
 #include "oa/sim/ground_orders/shared_routes.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -431,6 +432,41 @@ void Match::advance_path_search() {
         if (auto* slot = (*ctx.find)(unit))
             changed_tick = ctx.match->spatial_units_[slot->unit_index].object_tick;
     };
+    if (shared_routes) {
+        auto& scan = enhanced_->shared_route_scan_state;
+        uint32_t previous_tick = 0;
+        for (size_t byte = 1; byte < scan.size(); ++byte)
+            previous_tick |= uint32_t(scan[byte]) << ((byte - 1) * 8);
+        if (scan[0] == 0 || previous_tick != simulation_.tick) {
+            scan[0] = 1;
+            for (size_t byte = 1; byte < scan.size(); ++byte)
+                scan[byte] = static_cast<uint8_t>(simulation_.tick >> ((byte - 1) * 8));
+            uint32_t active_players = 0;
+            for (uint8_t player = 0; player < simulation_.players.size(); ++player)
+                if (sim::simulation_state::player_slot_active(player, simulation_.players[player]))
+                    ++active_players;
+            constexpr uint32_t shared_units_per_tick = 1024;
+            const auto per_player = shared_units_per_tick / std::max(active_players, uint32_t{1});
+            for (uint8_t player = 0; player < simulation_.players.size(); ++player) {
+                auto& record = simulation_.players[player];
+                if (!sim::simulation_state::player_slot_active(player, record) ||
+                    record.units.empty())
+                    continue;
+                // Pending fields must be revisited independently of full A*
+                // jobs, whose cursor can take minutes to circle a large army.
+                // Tick-derived ranges need no queue or per-unit allocation.
+                const auto first = static_cast<size_t>(
+                    uint64_t(simulation_.tick) * per_player % record.units.size()
+                );
+                const auto count = std::min(record.units.size(), size_t(per_player));
+                for (size_t offset = 0; offset < count; ++offset) {
+                    auto& unit = record.units[(first + offset) % record.units.size()];
+                    if (unit.record.type_index != 0 && unit.record.movement != 0)
+                        (void)access.navigator(access.context, unit);
+                }
+            }
+        }
+    }
     auto& game = simulation_.record.game;
     const auto player_count = participant_count();
     uint16_t units_per_player = game.pool_units_per_player;

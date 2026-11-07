@@ -601,7 +601,27 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
              },
              false}
         );
-        if (!routes_added || !heads_added || !revision_added || !progress_added)
+        const bool scan_added = add_rule_state(
+            rule_state_,
+            {"shared-route-scan",
+             enhanced_.get(),
+             [](void* context) -> std::span<const uint8_t> {
+                 return static_cast<EnhancedState*>(context)->shared_route_scan_state;
+             },
+             [](void* context, std::span<const uint8_t> bytes) {
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 if (bytes.size() != state.shared_route_scan_state.size() || bytes[0] > 1 ||
+                     (bytes[0] == 0 &&
+                      std::any_of(bytes.begin() + 1, bytes.end(), [](uint8_t byte) {
+                          return byte != 0;
+                      })))
+                     return false;
+                 std::copy(bytes.begin(), bytes.end(), state.shared_route_scan_state.begin());
+                 return true;
+             },
+             false}
+        );
+        if (!routes_added || !heads_added || !revision_added || !progress_added || !scan_added)
             fault_.note("Enhanced navigation state could not be registered");
     }
     spatial_.plots.resize(cells);
