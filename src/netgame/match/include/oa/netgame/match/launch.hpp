@@ -107,7 +107,7 @@ void match_show_whole_map(World* world) noexcept;
 /// @param[in,out] world Match world whose players and units are updated.
 void match_assign_unit_ranges(World* world) noexcept;
 
-/// Gives Enhanced Mode participants dense ranges in original player-slot order.
+/// Gives Enhanced Mode participants dense ranges in canonical peer-id order.
 ///
 /// The original allocation also includes players defeated or dropped later.
 /// The pool must contain exactly one reserved record plus a full range for

@@ -36,6 +36,7 @@
 #include "oa/sim/state_hash.hpp"
 #include "oa/sim/unit_health/veterancy.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
+#include "oa/sim/unit_spawn/restore_ranges.hpp"
 #include "oa/sim/trace.hpp"
 #include "oa/ui/hud/order_panel.hpp"
 #include "oa/ui/hud/player_records.hpp"
@@ -1363,6 +1364,16 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
     auto& state = saveload_state();
     state.restore_failures = 0;
     oa::World& world = match_->state();
+    if (enhanced_mode_version(*this) != 0) {
+        uint32_t version{};
+        uint16_t mask{};
+        std::vector<uint8_t> order;
+        if (!persist::save_read_enhanced_mode(bank, version, &mask, &order) ||
+            version != enhanced_mode_version(*this) || mask != match_->unit_player_mask() ||
+            !sim::unit_spawn::restore_unit_player_order(world, order))
+            throw std::runtime_error("the saved Enhanced Mode unit ranges cannot be restored");
+        match_->rebind_player_ranges();
+    }
     // The camera held on the map as the game holds it: a view past the
     // map's edges reaches no save and no strike.
     const auto camera = on_map_camera();
@@ -1404,8 +1415,18 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
 
 void Runtime::save_mod_profile(persist::Bank* bank) const {
     namespace profiles = oa::data::mod_profile;
+    std::vector<uint8_t> unit_order;
+    if (enhanced_mode_version(*this) != 0 && match_) {
+        const auto& world = match_->state();
+        for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
+            if (world.game.players[player].first_unit != 0)
+                unit_order.push_back(player);
+        std::sort(unit_order.begin(), unit_order.end(), [&](uint8_t a, uint8_t b) {
+            return world.game.players[a].first_unit < world.game.players[b].first_unit;
+        });
+    }
     if (!persist::save_write_enhanced_mode(
-            bank, enhanced_mode_version(*this), match_ ? match_->unit_player_mask() : 0
+            bank, enhanced_mode_version(*this), match_ ? match_->unit_player_mask() : 0, unit_order
         ))
         throw std::runtime_error("the Enhanced Mode rules version cannot be saved");
     const auto* profile = mod_profile();

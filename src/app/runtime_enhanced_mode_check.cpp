@@ -7,6 +7,7 @@
 #include "engine_settings_state.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/sim/unit_spawn/restore_ranges.hpp"
 
 #include <array>
 #include <cstdio>
@@ -118,9 +119,52 @@ void Runtime::check_enhanced_mode() {
         enhanced_mode_version(*this) == mode::off_version, "a released save acquired new rules"
     );
     require(engine_settings().enhanced_mode, "loading changed the menu preference");
+    std::array<sim::unit_spawn::Request, 2> reordered_units{};
+    std::array<bool, 2> found_units{};
+    for (const auto& slot : match_->world().slots) {
+        const auto& unit = slot.record;
+        if (unit.type_index == 0 || unit.owner_index >= reordered_units.size())
+            continue;
+        auto& request = reordered_units[unit.owner_index];
+        request.player = unit.owner_index;
+        request.type = unit.type_index;
+        request.position = {
+            static_cast<uint32_t>(unit.position.x),
+            static_cast<uint32_t>(unit.position.y),
+            static_cast<uint32_t>(unit.position.z)
+        };
+        request.finished = true;
+        request.state = kGroundOccupancyState;
+        found_units[unit.owner_index] = true;
+    }
+    require(found_units[0] && found_units[1], "the allocation-order fixture lacks its units");
     leave_match();
     load(Screen::main_menu);
     require(enhanced_mode_version(*this) == mode::current_version, "leaving lost the menu's On");
+    bootstrap_match({.units_per_player = 10'000, .place_commanders = false, .seat_roster = true});
+    constexpr std::array<uint8_t, 2> reversed_order{1, 0};
+    require(
+        sim::unit_spawn::restore_unit_player_order(match_->state(), reversed_order),
+        "the allocation-order fixture could not assign reversed ranges"
+    );
+    match_->rebind_player_ranges();
+    for (const auto& request : reordered_units)
+        require(match_->create(request) != nullptr, "the allocation-order fixture could not spawn");
+    enter_match_view();
+    const fs::path ordered_save = options_.preferences_file->parent_path() / "ordered.sav";
+    require(
+        save_match_game(ordered_save, "Reversed unit ranges", 0), "reversed ranges did not save"
+    );
+    require(load_saved_game(ordered_save), "reversed ranges did not load");
+    require(
+        match_->state().game.players[1].base_unit_id == 1 &&
+            match_->state().game.players[0].base_unit_id == 10'001 &&
+            match_->state().units[1].type_index == reordered_units[1].type &&
+            match_->state().units[10'001].type_index == reordered_units[0].type,
+        "the saved allocation order changed unit ownership or ids"
+    );
+    leave_match();
+    load(Screen::main_menu);
     require(
         !hold_enhanced_rules_once(mode::current_version + 1), "an unknown version was accepted"
     );

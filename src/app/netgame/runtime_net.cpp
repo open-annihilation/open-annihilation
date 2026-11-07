@@ -1745,9 +1745,15 @@ struct NetworkPlay::NetHost {
         if (setup.enhanced_mode_version != 0) {
             // Playback preserves the compact pool's range order. Watchers
             // own no range and have no unit commands to record.
+            std::vector<uint8_t> unit_owners;
             for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
                 if (world.game.players[slot].first_unit != 0)
-                    add_player(slot);
+                    unit_owners.push_back(slot);
+            std::sort(unit_owners.begin(), unit_owners.end(), [&](uint8_t a, uint8_t b) {
+                return world.game.players[a].first_unit < world.game.players[b].first_unit;
+            });
+            for (const auto slot : unit_owners)
+                add_player(slot);
         } else {
             for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
                 const auto& player = world.game.players[slot];
