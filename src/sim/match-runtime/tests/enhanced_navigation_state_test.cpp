@@ -182,6 +182,126 @@ void malformed_state_is_rejected_atomically() {
     CHECK(bytes_of(steering) == valid);
 }
 
+/// Rebuilds the fixture with one real, permissive ground movement class.
+void configure_movement_class(Fixture& fixture) {
+    fixture.match.reset();
+    fixture.fields[1].movement_class = 1;
+    fixture.metadata.footprint_x = fixture.metadata.footprint_z = 1;
+    fixture.metadata.max_water_depth = 255;
+    fixture.metadata.max_slope = fixture.metadata.bad_slope = 255;
+    fixture.metadata.max_water_slope = fixture.metadata.bad_water_slope = 255;
+    runtime::OfflineInputs input{
+        fixture.map,
+        fixture.loaded,
+        fixture.types,
+        fixture.fields,
+        fixture.weapons,
+        fixture.terrain_values,
+        fixture.masks,
+        8,
+        8,
+        4,
+        2,
+        0,
+        30,
+        1,
+        &fixture.scenario,
+        {},
+        fixture.collision_plots,
+        oa::sim::visibility_state::AltitudeSightData{
+            8, 8, fixture.altitude_cells, fixture.altitude_patterns
+        }
+    };
+    input.rules = options_for(2).rules;
+    input.unit_player_mask = 3;
+    fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
+    fixture.match->configure_strategic_environment({0, 0.5F, 0});
+    for (uint8_t player = 0; player < 2; ++player) {
+        fixture.match->simulation().players[player].present = true;
+        fixture.match->simulation().players[player].status = 1;
+        std::array<uint8_t, 10> allies{};
+        allies[player] = 1;
+        fixture.match->configure_player_alliances(player, allies);
+        if (player == 0)
+            fixture.match->configure_outcomes(0, allies, false);
+    }
+    CHECK(fixture.match->fault() == nullptr);
+    CHECK(fixture.match->movement_map(1) != nullptr);
+}
+
+/// A long mobile blockage must escape a ready field that ignores traffic.
+void sustained_blockage_bypasses_shared_routes() {
+    for (const uint8_t blocked_ticks :
+         {uint8_t(flow::local_flow_retry_ticks - 1), flow::local_flow_retry_ticks}) {
+        Fixture fixture(options_for(2));
+        configure_movement_class(fixture);
+        auto& unit = fixture.spawn(0, 64, 64);
+        auto& match = *fixture.match;
+        CHECK(!match.order_refused(
+            match.issue_ground_move(unit.unit_index, {200 << 16, 0, 200 << 16}, false)
+        ));
+        fixture.run(1);
+        auto* ground = match.ground_runtime(unit.unit_index);
+        CHECK(ground != nullptr && ground->movement_class == 1);
+        CHECK(ground->navigation.goal != nullptr);
+        match.simulation().tick = 123;
+
+        // This field is already complete and usable. An empty cache would
+        // let its first request fall through to A* even without the bypass.
+        routes::FlowCache cache(16, 16);
+        const routes::FlowSampler sampler{
+            nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+                return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
+            }
+        };
+        cache.advance(121, 0, sampler);
+        const routes::FlowContext context{0, 0, 0, 0, 1, 1};
+        std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+        uint32_t count{};
+        CHECK(
+            cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+            routes::FlowResult::fallback
+        );
+        CHECK(
+            cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+            routes::FlowResult::pending
+        );
+        cache.advance(122, 0, sampler);
+        CHECK(
+            cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+            routes::FlowResult::ready
+        );
+        const auto& shared = table(match, "shared-routes");
+        CHECK(shared.restore(shared.context, cache.state_bytes()));
+        const auto& revision = table(match, "flow-map-version");
+        constexpr std::array<uint8_t, 4> current_revision{};
+        CHECK(revision.restore(revision.context, current_revision));
+
+        std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
+        heads[unit.unit_index].blocked_ticks = blocked_ticks;
+        std::vector<uint8_t> bytes(heads.size() * flow::local_flow_head_bytes);
+        CHECK(flow::write_local_flow_heads(heads, bytes));
+        const auto& steering = table(match, "local-flow");
+        CHECK(steering.restore(steering.context, bytes));
+        ground->navigation.flags |= routes::search_pending_flag;
+        ground->navigation.last_search_tick = 0;
+
+        const auto before = match.enhanced_counters();
+        match.advance_path_search();
+        CHECK(match.fault() == nullptr);
+        const auto after = match.enhanced_counters();
+        if (blocked_ticks < flow::local_flow_retry_ticks) {
+            CHECK(after.shared_route_requests == before.shared_route_requests + 1);
+            CHECK(after.shared_route_hits == before.shared_route_hits + 1);
+            CHECK(after.full_route_searches == before.full_route_searches);
+        } else {
+            CHECK(after.shared_route_requests == before.shared_route_requests);
+            CHECK(after.full_route_searches == before.full_route_searches + 1);
+            CHECK(ground->navigation.last_search_tick == match.simulation().tick);
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -189,6 +309,7 @@ int main() {
         version_one_and_off_keep_no_flow_state();
         navigation_state_survives_restore();
         malformed_state_is_rejected_atomically();
+        sustained_blockage_bypasses_shared_routes();
         std::cout << "Enhanced navigation state: restore and pending invalidation match\n";
         return 0;
     } catch (const std::exception& error) {
