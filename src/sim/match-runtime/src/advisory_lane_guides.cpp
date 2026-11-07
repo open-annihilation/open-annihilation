@@ -48,13 +48,37 @@ bool touches(const unit_movement::Unit& unit, const ground::CorridorGeometry& c)
            int32_t(unit.cell[1]) + unit.footprint[1] - 1 >= c.plots.top;
 }
 
-bool beyond_exit(const unit_movement::Unit& unit, const AdvisoryLaneState& s) noexcept {
-    const auto axis = s.corridor.axis == ground::CorridorAxis::x ? 0u : 1u;
-    const auto first = axis == 0 ? s.corridor.plots.left : s.corridor.plots.top;
-    const auto last = axis == 0 ? s.corridor.plots.right : s.corridor.plots.bottom;
-    return s.direction == ground::CorridorDirection::increasing
+bool beyond_exit(
+    const unit_movement::Unit& unit,
+    const ground::CorridorGeometry& corridor,
+    ground::CorridorDirection direction
+) noexcept {
+    const auto axis = corridor.axis == ground::CorridorAxis::x ? 0u : 1u;
+    const auto first = axis == 0 ? corridor.plots.left : corridor.plots.top;
+    const auto last = axis == 0 ? corridor.plots.right : corridor.plots.bottom;
+    return direction == ground::CorridorDirection::increasing
                ? unit.cell[axis] > last
                : int32_t(unit.cell[axis]) + unit.footprint[axis] - 1 < first;
+}
+
+bool entered_body(
+    const unit_movement::Unit& unit,
+    const ground::CorridorGeometry& corridor,
+    ground::CorridorDirection direction
+) noexcept {
+    if (contains(corridor.origins, unit.cell))
+        return true;
+    if (!touches(unit, corridor))
+        return false;
+    const auto axis = corridor.axis == ground::CorridorAxis::x ? 0u : 1u;
+    const auto lower = axis == 0 ? corridor.origins.top : corridor.origins.left;
+    const auto upper = axis == 0 ? corridor.origins.bottom : corridor.origins.right;
+    if (unit.cell[1 - axis] < lower || unit.cell[1 - axis] > upper)
+        return false;
+    const auto first = axis == 0 ? corridor.origins.left : corridor.origins.top;
+    const auto last = axis == 0 ? corridor.origins.right : corridor.origins.bottom;
+    return direction == ground::CorridorDirection::increasing ? unit.cell[axis] > last
+                                                              : unit.cell[axis] < first;
 }
 
 bool point_at(
@@ -204,7 +228,7 @@ void rejoin(
             const bool ahead = s.direction == ground::CorridorDirection::increasing
                                    ? target_plane > actual_plane
                                    : target_plane < actual_plane;
-            if (!ahead || !beyond_exit(target_unit, s) ||
+            if (!ahead || !beyond_exit(target_unit, s.corridor, s.direction) ||
                 !known_segment(unit, n.points[target], sampler, budget))
                 continue;
             out.rejoin[0] = {
@@ -253,7 +277,8 @@ AdvisoryLaneDecision choose_advisory_lane(
     if (!identity || !geometry || geometry->id != state.corridor.id ||
         geometry->revision != state.corridor.revision || geometry->footprint != unit.footprint)
         state = {};
-    if (state.phase != AdvisoryLanePhase::none && state.entered && beyond_exit(unit, state)) {
+    if (state.phase != AdvisoryLanePhase::none && state.entered &&
+        beyond_exit(unit, state.corridor, state.direction)) {
         out.released = true;
         out.corridor = state.corridor.id;
         rejoin(unit, n, sampler, budget, state, out);
@@ -261,7 +286,8 @@ AdvisoryLaneDecision choose_advisory_lane(
         out.reset_local_head = true;
         return out;
     }
-    const bool inside = state.phase != AdvisoryLanePhase::none && touches(unit, state.corridor);
+    const bool inside =
+        state.phase != AdvisoryLanePhase::none && state.entered && touches(unit, state.corridor);
     if (!inside && state.phase != AdvisoryLanePhase::none &&
         (!approach || approach->id != state.corridor.id || approach->direction != state.direction))
         state = {};
@@ -270,7 +296,8 @@ AdvisoryLaneDecision choose_advisory_lane(
         geometry->footprint == unit.footprint && n.count >= 2 && n.count <= n.points.size() &&
         ground::route_present(n)) {
         int16_t lane{};
-        if (ground::corridor_lane(*geometry, approach->direction, lane)) {
+        if (ground::corridor_lane(*geometry, approach->direction, lane) &&
+            !beyond_exit(unit, *geometry, approach->direction)) {
             state.goal = n.goal;
             state.order = n.goal->order;
             state.generation = generation;
@@ -278,17 +305,19 @@ AdvisoryLaneDecision choose_advisory_lane(
             state.corridor = *geometry;
             state.direction = approach->direction;
             state.lane = lane;
-            state.phase = approach->already_inside ? AdvisoryLanePhase::crossing
-                                                   : AdvisoryLanePhase::approach;
-            state.entered = approach->already_inside;
-            state.admitted_route = n.points;
-            state.admitted_count = n.count;
-            state.entry_segment = approach->entry_segment;
-            state.exit_segment = approach->exit_segment;
+            state.entered = entered_body(unit, *geometry, approach->direction);
+            state.phase = state.entered ? AdvisoryLanePhase::crossing : AdvisoryLanePhase::approach;
+            // First observed inside units have no traversed prefix recorded by this guide.
+            if (!state.entered) {
+                state.admitted_route = n.points;
+                state.admitted_count = n.count;
+                state.entry_segment = approach->entry_segment;
+                state.exit_segment = approach->exit_segment;
+            }
         }
     }
     if (state.phase != AdvisoryLanePhase::none) {
-        if (touches(unit, state.corridor)) {
+        if (entered_body(unit, state.corridor, state.direction)) {
             state.entered = true;
             state.phase = AdvisoryLanePhase::crossing;
         }
@@ -299,11 +328,22 @@ AdvisoryLaneDecision choose_advisory_lane(
             const int64_t dx = (unit.position[0] >> 16) - entrance[0];
             const int64_t dz = (unit.position[2] >> 16) - entrance[1];
             constexpr int64_t waypoint_reached_squared = 26;
-            if (state.phase == AdvisoryLanePhase::approach &&
-                dx * dx + dz * dz < waypoint_reached_squared)
-                state.phase = AdvisoryLanePhase::crossing;
-            const bool crossing = state.phase == AdvisoryLanePhase::crossing;
-            if (known_segment(unit, crossing ? exit : entrance, sampler, budget)) {
+            const bool entrance_reached = state.phase == AdvisoryLanePhase::approach &&
+                                          dx * dx + dz * dz < waypoint_reached_squared;
+            bool crossing = state.phase == AdvisoryLanePhase::crossing || entrance_reached;
+            bool visible = false;
+            if (crossing) {
+                visible = known_segment(unit, exit, sampler, budget);
+                if (visible)
+                    state.phase = AdvisoryLanePhase::crossing;
+                else if (!state.entered) {
+                    state.phase = AdvisoryLanePhase::approach;
+                    crossing = false;
+                }
+            }
+            if (!crossing)
+                visible = known_segment(unit, entrance, sampler, budget);
+            if (visible) {
                 out.steering.points[0] = {
                     static_cast<int16_t>(unit.position[0] >> 16),
                     static_cast<int16_t>(unit.position[2] >> 16)

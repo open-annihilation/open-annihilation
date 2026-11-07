@@ -20,6 +20,7 @@ struct AdvisoryLaneState {
     int16_t lane{};
     AdvisoryLanePhase phase{};
     bool entered{}, steering_active{};
+    // First observed inside crossings keep all admission fields zero and request search on release.
     std::array<ground_orders::RoutePoint, ground_orders::navigation_capacity> admitted_route{};
     uint32_t admitted_count{};
     uint16_t entry_segment{}, exit_segment{};
