@@ -694,7 +694,12 @@ Local traffic heads temporarily steer around movers while preserving the
 original navigator and final occupancy veto. `enhanced_counters` exposes
 cumulative routing, traffic and target-query work without changing decisions.
 Nearby target queries preserve ascending sighting order and exact legacy
-filtering; broad or crowded queries use the full scan.
+filtering; broad or crowded queries use the full scan. A preallocated slot
+membership index is rebuilt with each player's sightings, retaining the same
+knowledge lifetime. It excludes own and unknown slots before sorting nearby
+IDs, while every visited bucket slot still consumes the original raw-query
+limit. Radar membership is consulted only when the search allows radar
+fallback; its source list size still contributes to that query limit.
 
 The `shared-routes`, `flow-map-version`, `local-flow` and `flow-progress`
 rule tables retain owner-local navigation across saves. They are saved but
