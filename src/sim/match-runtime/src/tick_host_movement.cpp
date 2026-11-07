@@ -16,6 +16,10 @@ namespace {
 constexpr uint32_t local_flow_wait_ticks = 30;
 constexpr uint32_t local_flow_arrival_distance = 5 * 65536;
 
+/// Identifies goal geometry without retaining order pointers or native padding.
+///
+/// @param goal original navigation goal
+/// @return stable geometry key
 uint64_t local_flow_goal_key(const sim::ground_orders::Goal& goal) noexcept {
     uint64_t key = 14695981039346656037ull;
     const auto add = [&key](uint32_t value) {
@@ -38,6 +42,10 @@ uint64_t local_flow_goal_key(const sim::ground_orders::Goal& goal) noexcept {
     return key;
 }
 
+/// Converts a unit centre to the whole-world coordinates used by route heads.
+///
+/// @param unit moving unit
+/// @return current X/Z route point
 sim::ground_orders::RoutePoint local_flow_point(const sim::unit_movement::Unit& unit) noexcept {
     return {
         static_cast<int16_t>(unit.position[0] >> 16), static_cast<int16_t>(unit.position[2] >> 16)

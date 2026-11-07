@@ -20,16 +20,35 @@ constexpr uint16_t eighth_turn = 8192;
 constexpr uint16_t quarter_turn = 16384;
 constexpr uint16_t half_turn = 32768;
 
+/// Converts a unit centre to its footprint-origin cell.
+///
+/// @param position signed 16.16 coordinate
+/// @param footprint footprint width along the coordinate
+/// @return the footprint-origin cell
 int16_t cell_for(Fixed position, int16_t footprint) noexcept {
     constexpr uint32_t half_cell = 8 * one_world_unit;
     const auto biased = uint32_t(position) - uint32_t(footprint) * half_cell + half_cell;
     return static_cast<int16_t>(std::bit_cast<Fixed>(biased) >> 20);
 }
 
+/// Locates the footprint at a candidate position.
+///
+/// @param unit unit providing its footprint
+/// @param position candidate signed 16.16 position
+/// @return footprint-origin cell
 std::array<int16_t, 2> cell_at(const Unit& unit, const std::array<Fixed, 3>& position) noexcept {
     return {cell_for(position[0], unit.footprint[0]), cell_for(position[2], unit.footprint[1])};
 }
 
+/// Advances a bounded distance along a planar vector without wrapping.
+///
+/// @param origin starting position
+/// @param dx vector X component
+/// @param dz vector Z component
+/// @param distance distance to advance
+/// @param length vector length, greater than zero
+/// @param[out] out candidate position, unchanged when it is outside fixed-point range
+/// @return whether the candidate fits
 bool offset_point(
     const std::array<Fixed, 3>& origin,
     Fixed dx,
@@ -49,6 +68,14 @@ bool offset_point(
     return true;
 }
 
+/// Counts and performs one final occupancy query.
+///
+/// @param unit moving unit
+/// @param cell candidate footprint origin
+/// @param occupancy movement layer
+/// @param host occupancy operations
+/// @param[in,out] counters footprint-query count
+/// @return whether the footprint is clear
 bool clear_cell(
     const Unit& unit,
     std::array<int16_t, 2> cell,
@@ -61,6 +88,13 @@ bool clear_cell(
 }
 
 /// Tests a bounded short segment, including the two sides of diagonal cell crossings.
+///
+/// @param unit moving unit
+/// @param target candidate signed 16.16 position
+/// @param occupancy movement layer
+/// @param host occupancy operations
+/// @param[in,out] counters footprint-query count
+/// @return whether all sampled footprints and adjoining diagonal cells are clear
 bool clear_segment(
     const Unit& unit,
     const std::array<Fixed, 3>& target,
