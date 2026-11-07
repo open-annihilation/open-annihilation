@@ -11,64 +11,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 
 namespace oa::sim::match_runtime {
 namespace {
 // Ticks between a player slot's deadlines: the local slot's outcome checks,
 // the slot's economy settlement and the viewpoint's contact scan.
 constexpr uint32_t player_update_period = 30;
-
-/// Tests a short original route leg for known static barriers, ignoring traffic.
-///
-/// A long collision wait must not keep a unit's first terrain detour out of
-/// the shared planner. Eight cell steps, including diagonal sides, bound the
-/// work; unknown terrain keeps the sampler's ordinary passable classification.
-bool static_route_obstructed(
-    const oa::Unit& unit,
-    const sim::ground_orders::Navigation& navigation,
-    const sim::ground_orders::FlowContext& context,
-    const sim::ground_orders::FlowSampler& sampler
-) noexcept {
-    if (!navigation.goal || !sampler.cell)
-        return false;
-    int32_t x = unit.cell_x, z = unit.cell_z;
-    int32_t to_x = navigation.goal->cell[0], to_z = navigation.goal->cell[1];
-    if (navigation.count >= 2 && navigation.count <= navigation.points.size()) {
-        constexpr int32_t cell_shift = 4, cell_width = 1 << cell_shift;
-        constexpr int32_t half_cell = cell_width / 2;
-        to_x = (int32_t(navigation.points[1][0]) + half_cell -
-                int32_t(context.footprint_x) * half_cell) >>
-               cell_shift;
-        to_z = (int32_t(navigation.points[1][1]) + half_cell -
-                int32_t(context.footprint_z) * half_cell) >>
-               cell_shift;
-    }
-    const auto blocked = [&](int32_t cx, int32_t cz) {
-        return sampler.cell(sampler.context, context.movement_class, context.player, cx, cz) == 0;
-    };
-    const int32_t width = std::abs(to_x - x), height = std::abs(to_z - z);
-    const int32_t step_x = x < to_x ? 1 : -1, step_z = z < to_z ? 1 : -1;
-    int32_t error = width - height;
-    constexpr unsigned lookahead_cells = 8;
-    for (unsigned step = 0; step < lookahead_cells && (x != to_x || z != to_z); ++step) {
-        const auto twice = error * 2;
-        const bool move_x = twice > -height, move_z = twice < width;
-        if (move_x && move_z && (blocked(x + step_x, z) || blocked(x, z + step_z)))
-            return true;
-        if (move_x) {
-            error -= height;
-            x += step_x;
-        }
-        if (move_z) {
-            error += width;
-            z += step_z;
-        }
-        if (blocked(x, z))
-            return true;
-    }
-    return false;
-}
 } // namespace
 
 void Match::tick() {
@@ -344,15 +292,8 @@ void Match::advance_path_search() {
                     static_cast<uint32_t>(klass->record.footprint_x),
                     static_cast<uint32_t>(klass->record.footprint_z)
                 };
-                // Settled traffic needs the dynamic search. A known wall in
-                // the original route still needs a shared terrain detour,
-                // even when the collision wait began before the first search.
-                const bool shared_route_allowed =
-                    !traffic ||
-                    traffic->blocked_ticks < sim::unit_movement::local_flow_retry_ticks ||
-                    static_route_obstructed(unit.record, navigation, flow, *ctx.sampler);
-                if (!shared_route_allowed)
-                    return &navigation;
+                const bool mature_collision =
+                    traffic && traffic->blocked_ticks >= sim::unit_movement::local_flow_retry_ticks;
                 std::array<sim::ground_orders::RoutePoint, sim::ground_orders::navigation_capacity>
                     route{};
                 uint32_t count{};
@@ -360,6 +301,32 @@ void Match::advance_path_search() {
                     flow, unit.record, *navigation.goal, route, count, *ctx.sampler
                 );
                 if (result == sim::ground_orders::FlowResult::ready) {
+                    if (mature_collision) {
+                        constexpr int32_t cell_width = 16, half_cell = cell_width / 2;
+                        const sim::ground_orders::RoutePoint destination{
+                            static_cast<int16_t>(
+                                int32_t(navigation.goal->cell[0]) * cell_width +
+                                int32_t(flow.footprint_x) * half_cell
+                            ),
+                            static_cast<int16_t>(
+                                int32_t(navigation.goal->cell[1]) * cell_width +
+                                int32_t(flow.footprint_z) * half_cell
+                            )
+                        };
+                        const bool direct_goal = count == 2 && route[1] == destination;
+                        const bool same_route = count == navigation.count && count > 1 &&
+                                                std::equal(
+                                                    route.begin() + 1,
+                                                    route.begin() + count,
+                                                    navigation.points.begin() + 1
+                                                );
+                        // A static guide cannot resolve settled traffic by
+                        // reinstalling the same route or its clear goal leg.
+                        // A real terrain detour remains useful even when its
+                        // first wall is farther away than a local traffic probe.
+                        if (direct_goal || same_route)
+                            return &navigation;
+                    }
                     std::array<uint8_t, 3> flags{};
                     sim::ground_orders::UnitView view{
                         unit,
@@ -381,7 +348,7 @@ void Match::advance_path_search() {
                 }
                 // Returning no job lets the cursor visit other units. Do
                 // not consume the ordinary search's 60-tick retry stamp.
-                if (result == sim::ground_orders::FlowResult::pending)
+                if (result == sim::ground_orders::FlowResult::pending && !mature_collision)
                     return nullptr;
             }
         }
