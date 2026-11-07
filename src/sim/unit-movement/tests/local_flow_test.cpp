@@ -1,0 +1,420 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+#include "oa/sim/unit_movement/local_flow.hpp"
+#include "oa/base/game_math.hpp"
+#include "oa/test/check.hpp"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <cstdlib>
+#include <limits>
+
+using namespace oa::sim::unit_movement;
+
+namespace {
+constexpr Fixed fixed_one = 65536;
+constexpr Fixed cell_width = 16 * fixed_one;
+constexpr Fixed arrival_radius = 5 * fixed_one;
+constexpr uint16_t east = 49152;
+constexpr uint16_t west = 16384;
+constexpr int16_t map_width = 32;
+constexpr int16_t map_height = 24;
+constexpr std::size_t maximum_agents = 8;
+constexpr uint32_t battle_tick_limit = 1200;
+constexpr uint64_t maximum_queries_per_choice = 128;
+
+struct Agent {
+    Unit unit{};
+    Movement movement{};
+    std::array<Fixed, 3> destination{};
+    std::array<Fixed, 3> detour{};
+    bool has_detour{};
+    bool travelling{true};
+    uint32_t arrival_tick{};
+};
+
+struct Grid : Host {
+    std::array<int16_t, std::size_t(map_width) * map_height> occupants{};
+    std::array<bool, std::size_t(map_width) * map_height> walls{};
+    std::array<Agent, maximum_agents> agents{};
+    std::size_t count{};
+    uint32_t tick{};
+    unsigned overlap_count{};
+
+    static std::size_t index(int16_t x, int16_t z) {
+        return std::size_t(z) * map_width + std::size_t(x);
+    }
+
+    bool inside(std::array<int16_t, 2> cell, std::array<int16_t, 2> footprint) const {
+        return cell[0] >= 0 && cell[1] >= 0 && cell[0] + footprint[0] <= map_width &&
+               cell[1] + footprint[1] <= map_height;
+    }
+
+    Agent&
+    add(int16_t x,
+        int16_t z,
+        uint16_t heading,
+        int16_t goal_x,
+        int16_t goal_z,
+        std::array<int16_t, 2> footprint = {1, 1}) {
+        if (count == agents.size())
+            std::abort();
+        auto& agent = agents[count++];
+        auto& unit = agent.unit;
+        unit.id = static_cast<int16_t>(count);
+        unit.cell = {x, z};
+        unit.footprint = footprint;
+        unit.position = {
+            (x * 16 + footprint[0] * 8) * fixed_one, 0, (z * 16 + footprint[1] * 8) * fixed_one
+        };
+        unit.heading = heading;
+        unit.flags = 1;
+        unit.type.maximum_speed = 2 * fixed_one;
+        unit.type.maximum_turn = 4096;
+        agent.movement.flags = 1;
+        agent.destination = {
+            (goal_x * 16 + footprint[0] * 8) * fixed_one,
+            0,
+            (goal_z * 16 + footprint[1] * 8) * fixed_one
+        };
+        insert_occupancy(unit);
+        return agent;
+    }
+
+    bool can_occupy(const Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy) override {
+        if (occupancy != 1 || !inside(cell, unit.footprint))
+            return false;
+        for (int16_t z = cell[1]; z < cell[1] + unit.footprint[1]; ++z)
+            for (int16_t x = cell[0]; x < cell[0] + unit.footprint[0]; ++x) {
+                const auto plot = index(x, z);
+                if (walls[plot] || (occupants[plot] != 0 && occupants[plot] != unit.id))
+                    return false;
+            }
+        return true;
+    }
+
+    void remove_occupancy(Unit& unit) override {
+        for (int16_t z = unit.cell[1]; z < unit.cell[1] + unit.footprint[1]; ++z)
+            for (int16_t x = unit.cell[0]; x < unit.cell[0] + unit.footprint[0]; ++x) {
+                const auto plot = index(x, z);
+                if (occupants[plot] != unit.id)
+                    ++overlap_count;
+                occupants[plot] = 0;
+            }
+    }
+
+    void insert_occupancy(Unit& unit) override {
+        if (!inside(unit.cell, unit.footprint)) {
+            ++overlap_count;
+            return;
+        }
+        for (int16_t z = unit.cell[1]; z < unit.cell[1] + unit.footprint[1]; ++z)
+            for (int16_t x = unit.cell[0]; x < unit.cell[0] + unit.footprint[0]; ++x) {
+                const auto plot = index(x, z);
+                if (walls[plot] || (occupants[plot] != 0 && occupants[plot] != unit.id))
+                    ++overlap_count;
+                occupants[plot] = unit.id;
+            }
+    }
+
+    void update_spatial_membership(Unit&) override {}
+
+    LocalFlowBlocker probe(const Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy) {
+        if (occupancy != 1 || !inside(cell, unit.footprint))
+            return {LocalFlowObstacle::stationary};
+        LocalFlowBlocker selected;
+        for (int16_t z = cell[1]; z < cell[1] + unit.footprint[1]; ++z)
+            for (int16_t x = cell[0]; x < cell[0] + unit.footprint[0]; ++x) {
+                const auto plot = index(x, z);
+                if (walls[plot])
+                    return {LocalFlowObstacle::stationary};
+                const auto id = occupants[plot];
+                if (id == 0 || id == unit.id)
+                    continue;
+                const auto& other = agents[std::size_t(id - 1)];
+                if (!other.travelling)
+                    return {LocalFlowObstacle::stationary};
+                if (selected.obstacle == LocalFlowObstacle::clear || id < selected.unit_id)
+                    selected = {
+                        LocalFlowObstacle::moving,
+                        static_cast<uint16_t>(id),
+                        other.unit.heading,
+                        tick - other.movement.last_motion_tick
+                    };
+            }
+        return selected;
+    }
+
+    LocalFlowProbe query() {
+        return {
+            this,
+            [](void* context, const Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy) {
+                return static_cast<Grid*>(context)->probe(unit, cell, occupancy);
+            }
+        };
+    }
+};
+
+Fixed distance(std::array<Fixed, 3> from, std::array<Fixed, 3> to) {
+    return oa::base::game_math::distance(to[0] - from[0], to[2] - from[2]);
+}
+
+void test_priority_and_stationary_obstacles() {
+    Grid grid;
+    auto& first = grid.add(8, 6, west, 2, 6);
+    auto& second = grid.add(6, 6, east, 14, 6);
+    grid.tick = 20;
+    first.movement.last_motion_tick = grid.tick;
+    second.movement.last_motion_tick = grid.tick;
+    LocalFlowCounters counters;
+    auto decision = choose_local_flow(
+        second.unit, second.movement, second.destination, grid.tick, grid, grid.query(), counters
+    );
+    OA_CHECK(decision.mobile_blocked);
+    OA_CHECK(decision.adjusted);
+    OA_CHECK(counters.yielded_ticks == 1);
+    OA_CHECK(counters.probes <= maximum_queries_per_choice);
+    const auto repeated = choose_local_flow(
+        second.unit, second.movement, second.destination, grid.tick, grid, grid.query(), counters
+    );
+    OA_CHECK(repeated.target == decision.target);
+    second.movement.last_motion_tick = 10;
+    decision = choose_local_flow(
+        second.unit, second.movement, second.destination, grid.tick, grid, grid.query(), counters
+    );
+    OA_CHECK(decision.mobile_blocked);
+    OA_CHECK(!decision.adjusted);
+    second.movement.last_motion_tick = grid.tick;
+    first.travelling = false;
+    decision = choose_local_flow(
+        second.unit, second.movement, second.destination, grid.tick, grid, grid.query(), counters
+    );
+    OA_CHECK(!decision.mobile_blocked);
+    OA_CHECK(!decision.adjusted);
+    first.travelling = true;
+    first.unit.heading = east;
+    decision = choose_local_flow(
+        second.unit, second.movement, second.destination, grid.tick, grid, grid.query(), counters
+    );
+    OA_CHECK(decision.mobile_blocked);
+    OA_CHECK(!decision.adjusted);
+}
+
+void test_diagonal_corner_clearance() {
+    Grid grid;
+    grid.add(8, 6, west, 2, 6);
+    auto& yielding = grid.add(6, 6, east, 14, 6);
+    // The forward-right diagonal is empty, but its adjoining south cell is a wall.
+    grid.walls[Grid::index(6, 7)] = true;
+    LocalFlowCounters counters;
+    const auto decision = choose_local_flow(
+        yielding.unit, yielding.movement, yielding.destination, 0, grid, grid.query(), counters
+    );
+    OA_CHECK(decision.adjusted);
+    OA_CHECK(decision.target[2] < yielding.unit.position[2]);
+    OA_CHECK(counters.probes <= maximum_queries_per_choice);
+}
+
+void test_collision_veto_and_last_progress() {
+    Grid grid;
+    auto& agent = grid.add(4, 4, east, 10, 4);
+    grid.walls[Grid::index(5, 4)] = true;
+    agent.unit.position[0] = 5 * cell_width - 1;
+    agent.movement.last_motion_tick = 4;
+    agent.movement.speed = fixed_one;
+    agent.movement.velocity = {fixed_one, 0, 0};
+    LocalFlowCounters counters;
+    const auto before = agent.unit.position;
+    integrate_local_flow(agent.unit, agent.movement, 10, true, grid, counters);
+    OA_CHECK(agent.unit.position == before);
+    OA_CHECK(agent.movement.last_motion_tick == 4);
+    OA_CHECK((agent.movement.flags & collision_blocked) != 0);
+    OA_CHECK(counters.blocked_ticks == 1);
+    integrate_local_flow(agent.unit, agent.movement, 34, true, grid, counters);
+    OA_CHECK((agent.movement.flags & collision_blocked) != 0);
+    OA_CHECK(counters.blocked_ticks == 2);
+    OA_CHECK(grid.overlap_count == 0);
+    agent.movement.flags = 1;
+    integrate_local_flow(agent.unit, agent.movement, 35, true, grid, counters);
+    OA_CHECK((agent.movement.flags & collision_blocked) != 0);
+}
+
+struct BattleResult {
+    uint64_t blocked{};
+    uint64_t deferred{};
+    uint64_t adjustments{};
+    uint64_t probes{};
+    uint32_t arrived{};
+    uint32_t last_arrival{};
+    uint64_t digest{};
+    unsigned overlaps{};
+    bool operator==(const BattleResult&) const = default;
+};
+
+enum class Traffic { counterflow, crossing, choke, mixed_footprints };
+
+BattleResult run_traffic(Traffic traffic, bool enhanced) {
+    Grid grid;
+    if (traffic == Traffic::crossing) {
+        grid.add(4, 11, east, 24, 11);
+        grid.add(24, 11, west, 4, 11);
+        grid.add(14, 1, 32768, 14, 21);
+        grid.add(14, 21, 0, 14, 1);
+    } else if (traffic == Traffic::mixed_footprints) {
+        grid.add(4, 11, east, 24, 11, {2, 2});
+        grid.add(24, 11, west, 4, 11);
+    } else {
+        grid.add(4, 11, east, 24, 11);
+        grid.add(24, 11, west, 4, 11);
+        if (traffic == Traffic::choke)
+            for (int16_t z = 0; z < map_height; ++z)
+                if (z < 9 || z > 13)
+                    for (int16_t x = 11; x <= 17; ++x)
+                        grid.walls[Grid::index(x, z)] = true;
+    }
+    LocalFlowCounters counters;
+    for (grid.tick = 1; grid.tick <= battle_tick_limit; ++grid.tick) {
+        bool travelling = false;
+        for (std::size_t i = 0; i < grid.count; ++i) {
+            auto& agent = grid.agents[i];
+            if (!agent.travelling)
+                continue;
+            travelling = true;
+            if (distance(agent.unit.position, agent.destination) < arrival_radius) {
+                agent.travelling = false;
+                agent.arrival_tick = grid.tick;
+                agent.movement.speed = 0;
+                agent.movement.velocity = {};
+                continue;
+            }
+            if (agent.has_detour && distance(agent.unit.position, agent.detour) < arrival_radius)
+                agent.has_detour = false;
+            if (enhanced && !agent.has_detour) {
+                const auto before_queries = counters.probes;
+                const auto decision = choose_local_flow(
+                    agent.unit,
+                    agent.movement,
+                    agent.destination,
+                    grid.tick,
+                    grid,
+                    grid.query(),
+                    counters
+                );
+                OA_CHECK(counters.probes - before_queries <= maximum_queries_per_choice);
+                if (decision.adjusted) {
+                    agent.detour = decision.target;
+                    agent.has_detour = true;
+                }
+            }
+            const auto target = agent.has_detour ? agent.detour : agent.destination;
+            const auto heading = aim_angles(agent.unit.position, target).heading;
+            const auto difference = std::bit_cast<int16_t>(uint16_t(heading - agent.unit.heading));
+            turn(agent.unit, agent.movement, difference);
+            accelerate(agent.unit, agent.movement, fixed_one / 2, 0);
+            if (enhanced)
+                integrate_local_flow(agent.unit, agent.movement, grid.tick, true, grid, counters);
+            else {
+                integrate_unattached(agent.unit, agent.movement, grid.tick, true, grid);
+                if ((agent.movement.flags & collision_blocked) != 0)
+                    ++counters.blocked_ticks;
+            }
+        }
+        if (!travelling)
+            break;
+    }
+    BattleResult result;
+    result.blocked = counters.blocked_ticks;
+    result.deferred = counters.deferred_replans;
+    result.adjustments = counters.steering_adjustments;
+    result.probes = counters.probes;
+    result.overlaps = grid.overlap_count;
+    constexpr uint64_t hash_multiplier = 1099511628211;
+    result.digest = 1469598103934665603;
+    for (std::size_t i = 0; i < grid.count; ++i) {
+        const auto& agent = grid.agents[i];
+        if (agent.arrival_tick != 0)
+            ++result.arrived;
+        result.last_arrival = std::max(result.last_arrival, agent.arrival_tick);
+        for (const auto coordinate : agent.unit.position) {
+            result.digest ^= uint32_t(coordinate);
+            result.digest *= hash_multiplier;
+        }
+        result.digest ^= agent.arrival_tick;
+        result.digest *= hash_multiplier;
+    }
+    return result;
+}
+
+void test_retained_head_save_bytes() {
+    std::array<LocalFlowHead, 2> heads{};
+    heads[0].points = {{{-2, 7}, {1234, -2345}, {32767, -32768}}};
+    heads[0].goal_key = 0x0123456789abcdef;
+    heads[0].tick = 0x76543210;
+    heads[0].count = 3;
+    heads[0].active = true;
+    heads[0].mobile_blocked = true;
+    heads[1].count = 0;
+    heads[1].active = true;
+    std::array<uint8_t, local_flow_head_bytes * heads.size()> bytes{};
+    OA_CHECK(write_local_flow_heads(heads, bytes));
+    // Negative coordinates and the geometry key use explicit little-endian bytes.
+    OA_CHECK(bytes[0] == 0xfe && bytes[1] == 0xff);
+    OA_CHECK(bytes[12] == 0xef && bytes[19] == 0x01);
+    OA_CHECK(bytes[20] == 0x10 && bytes[23] == 0x76);
+    OA_CHECK(bytes[24] == 3 && bytes[25] == 3);
+    std::array<LocalFlowHead, heads.size()> restored{};
+    OA_CHECK(read_local_flow_heads(restored, bytes));
+    std::array<uint8_t, bytes.size()> round_trip{};
+    OA_CHECK(write_local_flow_heads(restored, round_trip));
+    OA_CHECK(bytes == round_trip);
+    OA_CHECK(restored[0].points == heads[0].points);
+    OA_CHECK(restored[0].goal_key == heads[0].goal_key);
+    OA_CHECK(restored[0].tick == heads[0].tick);
+    OA_CHECK(restored[0].active && restored[0].mobile_blocked);
+    OA_CHECK(restored[1].active && restored[1].count == 0);
+    OA_CHECK(!write_local_flow_heads(heads, std::span(bytes).first(bytes.size() - 1)));
+    OA_CHECK(!read_local_flow_heads(restored, std::span(bytes).first(bytes.size() - 1)));
+    constexpr size_t saved_count_offset = 24;
+    constexpr size_t saved_flags_offset = 25;
+    for (const uint8_t invalid_count : {uint8_t{1}, uint8_t{4}}) {
+        auto invalid = bytes;
+        invalid[local_flow_head_bytes + saved_count_offset] = invalid_count;
+        OA_CHECK(!read_local_flow_heads(restored, invalid));
+        OA_CHECK(write_local_flow_heads(restored, round_trip));
+        OA_CHECK(bytes == round_trip);
+    }
+    auto invalid = bytes;
+    invalid[local_flow_head_bytes + saved_flags_offset] = 4;
+    OA_CHECK(!read_local_flow_heads(restored, invalid));
+    OA_CHECK(write_local_flow_heads(restored, round_trip));
+    OA_CHECK(bytes == round_trip);
+}
+
+void test_counterflow_crossing_and_choke() {
+    for (const auto traffic :
+         {Traffic::counterflow, Traffic::crossing, Traffic::choke, Traffic::mixed_footprints}) {
+        const auto enhanced = run_traffic(traffic, true);
+        const auto repeated = run_traffic(traffic, true);
+        const auto legacy = run_traffic(traffic, false);
+        const uint32_t expected_arrivals = traffic == Traffic::crossing ? 4 : 2;
+        OA_CHECK(enhanced == repeated);
+        OA_CHECK(enhanced.overlaps == 0);
+        OA_CHECK(enhanced.arrived == expected_arrivals);
+        OA_CHECK(enhanced.last_arrival < battle_tick_limit);
+        OA_CHECK(enhanced.blocked < legacy.blocked);
+        OA_CHECK(enhanced.adjustments > 0);
+    }
+}
+} // namespace
+
+int main() {
+    test_priority_and_stationary_obstacles();
+    test_diagonal_corner_clearance();
+    test_collision_veto_and_last_progress();
+    test_retained_head_save_bytes();
+    test_counterflow_crossing_and_choke();
+    return oa::test::check_exit_status();
+}
