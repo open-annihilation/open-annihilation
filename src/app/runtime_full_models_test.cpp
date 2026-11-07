@@ -30,6 +30,7 @@
 // moving pieces, as a metal extractor's arms spin, the face shown at each
 // pixel held to the processor's.
 #include "runtime_full.hpp"
+#include "full_plane_orders.hpp"
 #include "renderer_water_shading.hpp"
 
 #include "oa/formats/objects3d.hpp"
@@ -199,6 +200,138 @@ constexpr std::size_t installed_model_other_face_pixels = 16;
 /// their roots take, drawn as moving pieces, as a metal extractor spins its
 /// arms.
 constexpr std::array<int16_t, 2> installed_piece_turns{0x1c00, 0x5400};
+
+/// Supplies an independently identifiable result with measurable retained storage.
+struct PlaneOrderResult {
+    uint64_t serial{};
+    std::vector<uint8_t> storage;
+
+    /// Returns the capacity whose lifetime belongs to the result.
+    /// @return bytes retained by storage
+    [[nodiscard]] size_t bytes() const noexcept { return storage.capacity(); }
+};
+
+using PlaneOrderCache = full::PlaneOrderCache<PlaneOrderResult>;
+
+/// Gives each shape a triangle whose final corner has a distinct depth.
+void plane_shape(PlaneOrderCache& cache, uint64_t serial) {
+    cache.shape() = {1, 3, 0, 0, 128, 8, 0, 128, 0, 8, static_cast<int64_t>(serial)};
+}
+
+/// Shares one exact shape across twenty thousand unit identities.
+void test_shared_plane_order_population() {
+    constexpr uint64_t population = 20000;
+    constexpr uint64_t digest = 37;
+    constexpr uint64_t expected = 19;
+    PlaneOrderCache cache;
+    for (uint64_t actor = 0; actor < population; ++actor) {
+        plane_shape(cache, expected);
+        const PlaneOrderResult* result = cache.find(digest);
+        if (result == nullptr) {
+            cache.scratch().serial = expected;
+            result = &cache.publish(digest);
+        }
+        OA_CHECK(result->serial == expected);
+    }
+    OA_CHECK(cache.builds() == 1);
+    OA_CHECK(cache.hits() == population - 1);
+    OA_CHECK(cache.size() == 1);
+    OA_CHECK(cache.bytes() <= PlaneOrderCache::byte_limit);
+}
+
+/// Retains the last full capacity of distinct shapes without a whole-cache flush.
+void test_distinct_plane_order_capacity() {
+    constexpr uint64_t population = 20000;
+    constexpr uint64_t capacity = 4096;
+    PlaneOrderCache cache;
+    OA_CHECK(PlaneOrderCache::entry_limit == capacity);
+    for (uint64_t serial = 0; serial < population; ++serial) {
+        plane_shape(cache, serial);
+        OA_CHECK(cache.find(serial) == nullptr);
+        cache.scratch().serial = serial;
+        OA_CHECK(cache.publish(serial).serial == serial);
+        OA_CHECK(cache.size() <= capacity);
+        OA_CHECK(cache.bytes() <= PlaneOrderCache::byte_limit);
+    }
+    OA_CHECK(cache.builds() == population);
+    OA_CHECK(cache.size() == capacity);
+    for (uint64_t serial = population - capacity; serial < population; ++serial) {
+        plane_shape(cache, serial);
+        const PlaneOrderResult* result = cache.find(serial);
+        OA_CHECK(result != nullptr);
+        if (result != nullptr)
+            OA_CHECK(result->serial == serial);
+    }
+    OA_CHECK(cache.hits() == capacity);
+    OA_CHECK(cache.builds() == population);
+}
+
+/// Verifies complete shape equality when different geometry has the same digest.
+void test_plane_order_digest_collisions() {
+    constexpr uint64_t digest = 83;
+    constexpr uint64_t original = 11;
+    constexpr uint64_t changed = 29;
+    PlaneOrderCache cache;
+    plane_shape(cache, original);
+    OA_CHECK(cache.find(digest) == nullptr);
+    cache.scratch().serial = original;
+    std::ignore = cache.publish(digest);
+    plane_shape(cache, changed);
+    OA_CHECK(cache.find(digest) == nullptr);
+    cache.scratch().serial = changed;
+    std::ignore = cache.publish(digest);
+    for (const uint64_t serial : {original, changed}) {
+        plane_shape(cache, serial);
+        const PlaneOrderResult* result = cache.find(digest);
+        OA_CHECK(result != nullptr);
+        if (result != nullptr)
+            OA_CHECK(result->serial == serial);
+    }
+    plane_shape(cache, original);
+    cache.shape().front() = 2;
+    OA_CHECK(cache.find(digest) == nullptr);
+    plane_shape(cache, original);
+    cache.shape().push_back(0);
+    OA_CHECK(cache.find(digest) == nullptr);
+    OA_CHECK(cache.size() == 2);
+    OA_CHECK(cache.builds() == 2);
+}
+
+/// Bounds retained result bytes and releases transient results that cannot be cached.
+void test_plane_order_memory_bound() {
+    constexpr uint64_t shapes = 8;
+    constexpr size_t payload_bytes = PlaneOrderCache::byte_limit / 4;
+    PlaneOrderCache cache;
+    for (uint64_t serial = 0; serial < shapes; ++serial) {
+        plane_shape(cache, serial);
+        cache.scratch().serial = serial;
+        cache.scratch().storage.resize(payload_bytes);
+        OA_CHECK(cache.publish(serial).serial == serial);
+        OA_CHECK(cache.bytes() <= PlaneOrderCache::byte_limit);
+        OA_CHECK(cache.size() < 4);
+    }
+    plane_shape(cache, shapes - 1);
+    const PlaneOrderResult* last = cache.find(shapes - 1);
+    OA_CHECK(last != nullptr && last->serial == shapes - 1);
+    const auto kept_bytes = cache.bytes();
+    const auto kept_entries = cache.size();
+    constexpr uint64_t oversized = 97;
+    plane_shape(cache, oversized);
+    cache.scratch().serial = oversized;
+    cache.scratch().storage.resize(PlaneOrderCache::byte_limit + 1);
+    OA_CHECK(cache.publish(oversized).serial == oversized);
+    OA_CHECK(cache.find(oversized) == nullptr);
+    OA_CHECK(cache.bytes() == kept_bytes);
+    OA_CHECK(cache.size() == kept_entries);
+    cache.trim_scratch();
+    OA_CHECK(cache.shape().capacity() == 0);
+    OA_CHECK(cache.scratch().bytes() == 0);
+    cache.clear();
+    OA_CHECK(cache.size() == 0);
+    OA_CHECK(cache.bytes() == 0);
+    plane_shape(cache, shapes - 1);
+    OA_CHECK(cache.find(shapes - 1) == nullptr);
+}
 
 /// A gray palette: entry i is (i, i, i).
 oa::Palette gray_palette() {
@@ -1546,6 +1679,57 @@ void test_resting_on_depth_plane() {
     OA_CHECK(square == static_cast<std::size_t>(4 * half_side * half_side));
     OA_CHECK(panel > 0);
     OA_CHECK(card.stage.counts().polygons == 2);
+}
+
+/// Reuses translated geometry without sharing its current materials or depth context.
+void test_shared_depth_plane_geometry() {
+    constexpr int32_t separation = 24;
+    constexpr int32_t translated_x = 5;
+    constexpr int32_t translated_z = 7;
+    constexpr uint16_t submerged_sea_level = 8;
+    const auto first_model = resting_model();
+    auto second_model = std::make_shared<Model>(*first_model);
+    second_model->objects[0].primitives[0].color_index = third_ink;
+    second_model->objects[1].primitives[0].color_index = fourth_ink;
+    Scene scene;
+    auto& first = scene.add_unit(first_model, 1, unit_x - separation, unit_z);
+    auto& second = scene.add_unit(second_model, 2, unit_x + separation, unit_z);
+    first.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    second.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    second.unit->owner_index = 1;
+    Card retained(scene);
+    ProcessorPicture processor;
+    std::vector<uint8_t> previous;
+    constexpr unsigned contexts = 5;
+    for (unsigned context = 0; context < contexts; ++context) {
+        if (context == 2) {
+            for (auto& actor : scene.units) {
+                actor.unit->position.x += translated_x * unit;
+                actor.unit->position.z += translated_z * unit;
+            }
+        }
+        if (context == 3)
+            scene.world->game.sea_level = submerged_sea_level;
+        if (context == 4) {
+            second.unit->state_flags |= draw::unit_state_cloaked;
+            first.unit->heading = static_cast<uint16_t>(turned_heading.xz);
+        }
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(first);
+        scene.plan_unit(second);
+        scene.raster_processor(processor);
+        const auto warm = retained.raster(scene);
+        Card fresh(scene);
+        const auto cold = fresh.raster(scene);
+        OA_CHECK(warm.rgba == cold.rgba);
+        OA_CHECK(retained.stage.error().empty());
+        OA_CHECK(fresh.stage.error().empty());
+        if (context == 0)
+            check_exact("shared depth-plane materials", compare(warm, processor, scene));
+        if (context == 1)
+            OA_CHECK(warm.rgba == previous);
+        previous = warm.rgba;
+    }
 }
 
 // Units with a depth plane whose polygons no order shows: a panel through a
@@ -3230,6 +3414,10 @@ int main(int argc, char** argv) {
         test_installed_unit_models(assets, argc > 2 ? argv[2] : nullptr);
         test_installed_unit_faces(assets);
     } else {
+        test_shared_plane_order_population();
+        test_distinct_plane_order_capacity();
+        test_plane_order_digest_collisions();
+        test_plane_order_memory_bound();
         test_square();
         test_repeated_draw_storage();
         test_back_face();
@@ -3237,6 +3425,7 @@ int main(int argc, char** argv) {
         test_textured_trapezoid();
         test_depth_sorted();
         test_resting_on_depth_plane();
+        test_shared_depth_plane_geometry();
         test_no_order_shows();
         test_lit_building();
         test_cloaked();
