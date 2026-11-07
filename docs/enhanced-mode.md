@@ -227,6 +227,11 @@ passing head intact. The saved head remains 27 bytes. Traffic probes follow
 the movement controller's projected aim; passing directions retain the
 original route intent and bounded lookahead.
 
+A unit stationary for at least 30 ticks may voluntarily yield its traffic
+priority during its staggered mature retry. Eligibility uses the same
+tick-start motion snapshot as ordinary priority comparisons. The recovery
+keeps the existing passing candidates, footprint checks and native movement.
+
 Physical footprint results share a fixed 640 KiB scratch memo within one
 planner invocation. Each lookup still checks the requesting player's current
 fog first. A new invocation, including another load pass at the same tick,
@@ -240,6 +245,17 @@ the bridge or crossing elsewhere on the map does not count. Sampling can
 hide additional crossings between recorded ticks. These results do not
 establish repaired bridge flow, despite the smaller steering fixtures'
 progress.
+
+A subsequent recovery-only comparison repeats 1,800 ticks with the same
+20,000 starting units, goals and production routing limits. Mean Euclidean
+goal-distance improvement rises from 1,008.65 to 1,028.38 pixels. The original
+rear cohorts, 1,378 ARM and 1,219 CORE units, improve from 269.39 to 283.03
+pixels on ARM and from 230.36 to 242.34 on CORE. All 601 recorded samples
+have zero stock-footprint overlaps.
+The rear still makes little goalward progress during the final ten seconds:
+6.56 pixels on ARM and 8.41 on CORE, with medians near zero. Only five distinct
+units cross the centre bridges, including repeated returns. This improves
+stationary recovery but does not resolve sustained congestion or bridge flow.
 
 Separate frozen-workload comparisons measure target-query and death-cleanup
 changes apart from these route changes. Each uses 20,000 starting units,
