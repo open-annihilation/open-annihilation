@@ -224,10 +224,7 @@ QueueResult run_queue(bool renew_local_attempts, bool filter_previous = true) {
         ) {
             head.active = false;
             head.count = 0;
-        } else if (
-            !head.active && head.count == movement::local_flow_completed_count && !previous_tick
-        )
-            head.count = 0;
+        }
         if (!head.active && (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
             auto probe = arena.probe();
             probe.previous_head =
@@ -396,10 +393,7 @@ TrainResult run_train(
             ) {
                 head.active = false;
                 head.count = 0;
-            } else if (
-                !head.active && head.count == movement::local_flow_completed_count && !previous_tick
-            )
-                head.count = 0;
+            }
             if (!head.active &&
                 (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
                 auto probe = arena.probe();
@@ -652,10 +646,7 @@ ReversalResult run_reversal_history(bool history) {
         } else if (head.active && recovery) {
             head.active = false;
             head.count = 0;
-        } else if (
-            !head.active && head.count == movement::local_flow_completed_count && !previous_tick
-        )
-            head.count = 0;
+        }
         if (!head.active && (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
             auto probe = arena.probe();
             probe.previous_head = history && (just_reached || previous_tick) ? &head : nullptr;
@@ -922,10 +913,7 @@ GapResult run_completion_gap(bool bridge_previous_tick) {
         } else if (head.active && recovery) {
             head.active = false;
             head.count = 0;
-        } else if (
-            !head.active && head.count == movement::local_flow_completed_count && !previous_tick
-        )
-            head.count = 0;
+        }
         if (!head.active && (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
             auto probe = arena.probe();
             probe.previous_head =

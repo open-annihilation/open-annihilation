@@ -238,11 +238,7 @@ run_cohorts(bool passed_plane, bool history = false, CohortKind kind = CohortKin
             } else if (agent.head.active && recovery) {
                 agent.head.active = false;
                 agent.head.count = 0;
-            } else if (
-                !agent.head.active && agent.head.count == movement::local_flow_completed_count &&
-                !previous_tick
-            )
-                agent.head.count = 0;
+            }
             if (!agent.head.active &&
                 (agent.head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
                 auto probe = arena.probe();
