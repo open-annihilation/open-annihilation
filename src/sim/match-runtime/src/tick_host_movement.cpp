@@ -5,6 +5,7 @@
 #include "enhanced_state.hpp"
 #include "live_route_corner.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/air/flight.hpp"
 #include "oa/sim/air/host.hpp"
 #include "oa/sim/ground_orders/steering_target.hpp"
@@ -456,7 +457,18 @@ void TickHost::movement_tick(oa::Unit& record) {
         }
         g.geometry.flags &= ~sim::unit_movement::position_dirty;
     } else {
-        if (enhanced_flow && !air_driven)
+        if (enhanced_flow && !air_driven && !g.mirrored_driver &&
+            match.rules().setup.enhanced_mode.version >=
+                static_cast<int32_t>(data::enhanced_mode::swept_ground_version))
+            (void)sim::unit_movement::integrate_swept_local_flow(
+                g.geometry,
+                g.movement,
+                match.simulation_.tick,
+                sim::simulation_state::locally_simulated(u),
+                *this,
+                match.enhanced_->local_flow_counters
+            );
+        else if (enhanced_flow && !air_driven)
             sim::unit_movement::integrate_local_flow(
                 g.geometry,
                 g.movement,
