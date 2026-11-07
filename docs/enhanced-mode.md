@@ -313,16 +313,46 @@ causes occasional longer wall times: one 52.460 ms Stop-fixture tick used
 only 11.949 ms of thread CPU. The larger installed-map congestion remains
 unresolved in the hold-fire crossing workload.
 
+## Version 3 installed-map checkpoint
+
+The current preset repeats the connected, native 20,000-unit capture on Core
+Prime Industrial Area for 1,800 ticks. Troops retain stock two-cell footprints,
+48-pixel initial spacing and 1,024-pixel bank offsets. Combat uses actual
+attack orders, with 9,567 ARM and 9,499 CORE units surviving. All 934 recorded
+deaths match the native per-tick census and lethal-hit records; the first is
+at tick 145. The final world digest is `2c965e3f554a1a34`.
+
+On the same M5, this Check-build capture records simulation thread CPU time:
+
+| Mean tick | Median tick | p95 tick | p99 tick | Maximum tick |
+| --- | --- | --- | --- | --- |
+| 11.20 ms | 11.44 ms | 14.05 ms | 15.54 ms | 29.10 ms |
+
+None of these 1,800 ticks exceeds the 33.3 ms CPU budget. Other host work
+can still extend wall time. This is one scripted battle with no strategic
+AI or rendered frames, and does not establish rendered frame rate, desktop
+performance or a causal speedup over captures made under different host load.
+Pose and census recording occurs outside the timed simulation step.
+
+The matching hold-fire march still shows poor flow. Only 12 distinct units
+complete a side change inside the centre bridge lanes. The original rear
+cohorts improve their goal distance by means of just 15.74 ARM and 17.93 CORE
+pixels during the final ten seconds, with medians of 2.52 and 2.64 pixels.
+Every recorded footprint is physically legal and no sample has overlapping
+units, but shared-route coverage and low CPU cost have not resolved the
+waypoint pile-ups.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
    before making a whole-battle smoothness claim. Compare the same seeded
    workloads on the Mac and a gaming desktop.
-2. Validate v2 flow on sustained installed-map battles and extend it where
+2. Validate v3 flow on sustained installed-map battles and extend it where
    measured stalls remain. The synthetic counterflow, crossing and choke
    fixtures check arrival, determinism and zero overlap; those results alone
    do not establish that every installed-map group finishes its trip. Preserve
-   Off and v1, and add complete tick batches for large network route bursts.
+   Off and earlier presets, and add complete tick batches for large network
+   route bursts.
 3. Separate simulation from presentation. The current application ticks and
    renders on the same thread: a 27 ms tick can miss a 16.7 ms frame deadline.
    Keep mutable World ownership on the simulation thread, queue commands for
