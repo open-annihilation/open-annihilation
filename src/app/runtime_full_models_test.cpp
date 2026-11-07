@@ -58,12 +58,55 @@
 #include <cstring>
 #include <deque>
 #include <memory>
+#include <new>
 #include <set>
 #include <span>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
+
+namespace {
+thread_local bool watch_emission_allocations{};
+thread_local size_t emission_allocation_count{};
+thread_local size_t emission_allocation_bytes{};
+} // namespace
+
+/// Counts ordinary allocations while an emission case watches them.
+void* operator new(size_t size) {
+    if (watch_emission_allocations) {
+        ++emission_allocation_count;
+        emission_allocation_bytes += size;
+    }
+    if (void* result = std::malloc(size == 0 ? 1 : size))
+        return result;
+    throw std::bad_alloc{};
+}
+
+/// Counts an array allocation through the ordinary allocation watch.
+void* operator new[](size_t size) {
+    return ::operator new(size);
+}
+
+/// Releases an ordinary allocation.
+void operator delete(void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases an array allocation.
+void operator delete[](void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases a sized ordinary allocation.
+void operator delete(void* pointer, size_t) noexcept {
+    std::free(pointer);
+}
+
+/// Releases a sized array allocation.
+void operator delete[](void* pointer, size_t) noexcept {
+    std::free(pointer);
+}
 
 namespace {
 
@@ -948,7 +991,10 @@ struct Card {
         view.height = canvas.height;
         canvas.clear();
         frame.reset();
-        stage.emit_frame(scene.inputs(with_shadow_sprite), view, executor, frame);
+        const auto inputs = scene.inputs(with_shadow_sprite);
+        stage.emit_shadows(inputs, view, executor, frame);
+        for (const auto& entry : scene.list.draws)
+            stage.emit_draw(inputs, view, entry, executor, frame);
         OA_CHECK(stage.upload(executor));
         OA_CHECK(card::check_frame(frame).empty());
         const bool executed = executor.execute(frame, canvas.target);
@@ -1208,6 +1254,49 @@ void test_square() {
     scene.raster_processor(processor);
     const CardPicture turned = card.raster(scene);
     check_exact("square turned", compare(turned, processor, scene), edge_pixels_allowed);
+}
+
+/// Reuses geometry storage across the per-draw entry point used by a match frame.
+void test_repeated_draw_storage() {
+    constexpr size_t draw_count = 20000;
+    Scene scene;
+    SceneUnit& square = scene.add_unit(square_model(ink), 1, unit_x, unit_z);
+    Card card(scene);
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(square);
+    full::SceneView view;
+    view.width = card.canvas.width;
+    view.height = card.canvas.height;
+    const auto inputs = scene.inputs();
+    const auto& entry = scene.list.draws.front();
+    // Warm both the stage's buffers and the output frame's capacity.
+    for (size_t index = 0; index < draw_count; ++index)
+        card.stage.emit_draw(inputs, view, entry, card.executor, card.frame);
+    const auto vertices = card.frame.vertices.size();
+    const auto indices = card.frame.indices.size();
+    const auto polygons = card.stage.counts().polygons;
+    OA_CHECK(vertices == draw_count * 4);
+    OA_CHECK(indices == draw_count * 6);
+    card.frame.reset();
+    emission_allocation_count = 0;
+    emission_allocation_bytes = 0;
+    watch_emission_allocations = true;
+    for (size_t index = 0; index < draw_count; ++index)
+        card.stage.emit_draw(inputs, view, entry, card.executor, card.frame);
+    watch_emission_allocations = false;
+    OA_CHECK(emission_allocation_count == 0);
+    OA_CHECK(emission_allocation_bytes == 0);
+    OA_CHECK(card.frame.vertices.size() == vertices);
+    OA_CHECK(card.frame.indices.size() == indices);
+    OA_CHECK(card.stage.counts().polygons == polygons + draw_count);
+    OA_CHECK(card::check_frame(card.frame).empty());
+    std::printf(
+        "repeated model draws: %zu emissions, %zu ordinary allocations, %zu requested bytes\n",
+        draw_count,
+        emission_allocation_count,
+        emission_allocation_bytes
+    );
 }
 
 // A square wound away from the camera draws nothing on either side.
@@ -3142,6 +3231,7 @@ int main(int argc, char** argv) {
         test_installed_unit_faces(assets);
     } else {
         test_square();
+        test_repeated_draw_storage();
         test_back_face();
         test_textured();
         test_textured_trapezoid();

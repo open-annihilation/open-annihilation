@@ -1375,6 +1375,70 @@ void cut_away(
 // ---------------------------------------------------------------------------
 // The stage's state
 
+/// Keeps one draw's geometry and clipping buffers for the next draw.
+struct ModelEmissionBuffers {
+    /// Retained geometry storage; a larger draw gives its buffers back when it ends.
+    static constexpr size_t maximum_kept_bytes = 256 * 1024;
+    std::vector<card::Vertex> vertices;
+    std::vector<card::Index> indices;
+    std::vector<card::Vertex> wet_vertices;
+    std::vector<card::Index> wet_indices;
+    std::vector<card::Vertex> strip_vertices;
+    std::vector<card::Index> strip_indices;
+    std::vector<card::Vertex> hole_vertices;
+    std::vector<card::Index> hole_indices;
+    std::vector<card::Vertex> hole_points;
+    std::vector<uint32_t> hole_ends;
+    std::vector<card::Vertex> hole_next_points;
+    std::vector<uint32_t> hole_next_ends;
+    std::vector<card::Vertex> hole_rest;
+    std::vector<card::Vertex> hole_inner;
+    std::vector<double> hole_sides;
+    std::vector<HoleEdge> hole_edges;
+    std::vector<HoleBox> hole_boxes;
+
+    /// Empties the draw while retaining its buffers' capacity.
+    void clear() noexcept {
+        vertices.clear();
+        indices.clear();
+        wet_vertices.clear();
+        wet_indices.clear();
+        strip_vertices.clear();
+        strip_indices.clear();
+        hole_vertices.clear();
+        hole_indices.clear();
+        hole_points.clear();
+        hole_ends.clear();
+        hole_next_points.clear();
+        hole_next_ends.clear();
+        hole_rest.clear();
+        hole_inner.clear();
+        hole_sides.clear();
+        hole_edges.clear();
+        hole_boxes.clear();
+    }
+
+    /// Returns the capacity held by the draw's buffers, excluding their vector objects.
+    [[nodiscard]] size_t bytes() const noexcept {
+        return (vertices.capacity() + wet_vertices.capacity() + strip_vertices.capacity() +
+                hole_vertices.capacity() + hole_points.capacity() + hole_next_points.capacity() +
+                hole_rest.capacity() + hole_inner.capacity()) *
+                   sizeof(card::Vertex) +
+               (indices.capacity() + wet_indices.capacity() + strip_indices.capacity() +
+                hole_indices.capacity()) *
+                   sizeof(card::Index) +
+               (hole_ends.capacity() + hole_next_ends.capacity()) * sizeof(uint32_t) +
+               hole_sides.capacity() * sizeof(double) + hole_edges.capacity() * sizeof(HoleEdge) +
+               hole_boxes.capacity() * sizeof(HoleBox);
+    }
+
+    /// Releases buffers whose combined capacity exceeds the retained storage limit.
+    void trim() noexcept {
+        if (bytes() > maximum_kept_bytes)
+            *this = {};
+    }
+};
+
 struct ModelStage::Impl {
     Palette palette{};
     float gamma{1.0F};
@@ -1442,6 +1506,7 @@ struct ModelStage::Impl {
     std::vector<FixedVector3> points;
     std::vector<gw::PixelPoint> projected;
     oa::formats::gaf::RenderedFrame rendered;
+    ModelEmissionBuffers emission;
 
     /// Forgets the pages' and meshes' state, keeping the executor's handles
     /// for close or upload to free.
@@ -1566,6 +1631,7 @@ class Emitter {
           scale_(pixels_per_map_pixel(view)), whole_scale_(std::floor(scale_) == scale_),
           texel_offset_(whole_scale_ ? texel_edge : texel_centre),
           camera_x_(fixed_of_pixels(view.camera_x)), camera_z_(fixed_of_pixels(view.camera_y)) {
+        impl_.emission.clear();
         // The battlefield's rectangle in the target, and where the frame's
         // pixel (0, 0) lands in it: the view's offset moves every vertex by
         // its negative at the zoom, as the sprite stage moves its own.
@@ -1598,6 +1664,9 @@ class Emitter {
             );
         }
     }
+
+    /// Keeps ordinary draw buffers and releases an unusually large draw's storage.
+    ~Emitter() { impl_.emission.trim(); }
 
     /// Emits the frame's shadows and composes them.
     ///
@@ -1812,26 +1881,26 @@ class Emitter {
     float pan_y_{};
     int32_t camera_x_{}; ///< the camera, 16.16
     int32_t camera_z_{};
-    std::vector<card::Vertex> vertices_;
-    std::vector<card::Index> indices_;
-    std::vector<card::Vertex> wet_vertices_;
-    std::vector<card::Index> wet_indices_;
+    std::vector<card::Vertex>& vertices_{impl_.emission.vertices};
+    std::vector<card::Index>& indices_{impl_.emission.indices};
+    std::vector<card::Vertex>& wet_vertices_{impl_.emission.wet_vertices};
+    std::vector<card::Index>& wet_indices_{impl_.emission.wet_indices};
     /// A textured quad's strips, built beside its corners and triangles.
-    std::vector<card::Vertex> strip_vertices_;
-    std::vector<card::Index> strip_indices_;
+    std::vector<card::Vertex>& strip_vertices_{impl_.emission.strip_vertices};
+    std::vector<card::Index>& strip_indices_{impl_.emission.strip_indices};
     /// A polygon's triangles with its holes left out, and the scratch the
     /// cutting works in (leave_out_holes).
-    std::vector<card::Vertex> hole_vertices_;
-    std::vector<card::Index> hole_indices_;
-    std::vector<card::Vertex> hole_points_;
-    std::vector<uint32_t> hole_ends_;
-    std::vector<card::Vertex> hole_next_points_;
-    std::vector<uint32_t> hole_next_ends_;
-    std::vector<card::Vertex> hole_rest_;
-    std::vector<card::Vertex> hole_inner_;
-    std::vector<double> hole_sides_;
-    std::vector<HoleEdge> hole_edges_;
-    std::vector<HoleBox> hole_boxes_;
+    std::vector<card::Vertex>& hole_vertices_{impl_.emission.hole_vertices};
+    std::vector<card::Index>& hole_indices_{impl_.emission.hole_indices};
+    std::vector<card::Vertex>& hole_points_{impl_.emission.hole_points};
+    std::vector<uint32_t>& hole_ends_{impl_.emission.hole_ends};
+    std::vector<card::Vertex>& hole_next_points_{impl_.emission.hole_next_points};
+    std::vector<uint32_t>& hole_next_ends_{impl_.emission.hole_next_ends};
+    std::vector<card::Vertex>& hole_rest_{impl_.emission.hole_rest};
+    std::vector<card::Vertex>& hole_inner_{impl_.emission.hole_inner};
+    std::vector<double>& hole_sides_{impl_.emission.hole_sides};
+    std::vector<HoleEdge>& hole_edges_{impl_.emission.hole_edges};
+    std::vector<HoleBox>& hole_boxes_{impl_.emission.hole_boxes};
 };
 
 uint64_t Emitter::frame_number(const void* key) {
@@ -4173,6 +4242,7 @@ void ModelStage::close(card::Executor& executor) noexcept {
     bright_pages_.reset_memory_limit();
     impl_->forget_contents();
     impl_->kept_plane_orders.clear();
+    impl_->emission = {};
 }
 
 void ModelStage::begin_frame() noexcept {
