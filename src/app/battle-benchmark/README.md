@@ -48,7 +48,11 @@ Spatial projection preparations, projected slots, bucket queries and bucket
 candidates describe query work. Projectile capacity and failed allocations
 expose a saturated shot pool.
 Shared-route and local-flow work counters have an explicit cumulative
-setup/warmup/measured scope. `goal_metrics_available` distinguishes a movement
+setup/warmup/measured scope. `full_route_searches` counts traditional route
+searches started; target query, candidate and full-scan counts show how much
+target selection examines. Standable terminal cells do not establish route
+connectivity; the progress summaries expose incomplete trips on the installed
+map. `goal_metrics_available` distinguishes a movement
 assignment from the zero-filled default summaries. `simulation_phase_ns`
 holds timing dictionaries for named phases over measured ticks; their
 percentiles are not additive.

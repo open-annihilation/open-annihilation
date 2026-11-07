@@ -19,6 +19,7 @@
 #include "match_models.hpp"
 #include "stage_state.hpp"
 #include "oa/sim/selection.hpp"
+#include "oa/sim/match_runtime/enhanced_counters.hpp"
 #include "oa/platform/files.hpp"
 #include "match_fault.hpp"
 #include <SDL3/SDL.h>
@@ -37,6 +38,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -58,10 +60,9 @@ struct BattleTickProfile {
     void mark(int32_t category) {
         const auto now = BenchClock::now();
         if (category >= 0 && category < OA_PROFILE_CATEGORY_COUNT)
-            elapsed[static_cast<std::size_t>(category)] +=
-                static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(now - last).count()
-                );
+            elapsed[static_cast<std::size_t>(category)] += static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(now - last).count()
+            );
         last = now;
     }
 
@@ -1547,7 +1548,10 @@ void Runtime::run_battle_benchmark() {
     auto kept_preferences = preferences_;
     auto kept_skirmish = skirmish_settings_;
     const uint16_t kept_limit = frontend_game().max_units_setting;
+    bool held_rules_for_setup = false;
     const auto restore_setup = [&] {
+        if (held_rules_for_setup)
+            release_enhanced_rules_once(true);
         std::swap(preferences_, kept_preferences);
         std::swap(skirmish_settings_, kept_skirmish);
         frontend_game().max_units_setting = kept_limit;
@@ -1572,6 +1576,7 @@ void Runtime::run_battle_benchmark() {
     write_report();
     std::vector<uint64_t> samples;
     samples.reserve(report.measured_ticks);
+    std::array<std::vector<benchmark::ProgressState>, 2> goal_progress;
     const auto census = [this] {
         std::size_t live = 0;
         if (match_)
@@ -1590,6 +1595,26 @@ void Runtime::run_battle_benchmark() {
         report.bucket_candidates = spatial.bucket_candidates;
         report.projectile_capacity = oa::world_projectile_capacity(&match_->world().record);
         report.projectile_allocation_failures = match_->projectile_usage().allocation_failures;
+        const auto flow = match_->enhanced_counters();
+        report.shared_route_requests = flow.shared_route_requests;
+        report.shared_route_hits = flow.shared_route_hits;
+        report.shared_route_fields = flow.shared_route_fields;
+        report.shared_route_cells = flow.shared_route_cells;
+        report.shared_route_waits = flow.shared_route_waits;
+        report.shared_route_invalidations = flow.shared_route_invalidations;
+        report.full_route_searches = flow.full_route_searches;
+        report.local_flow_probes = flow.local_flow_probes;
+        report.local_flow_moving_blockers = flow.moving_blockers;
+        report.local_flow_steering_adjustments = flow.steering_adjustments;
+        report.local_flow_yielded_ticks = flow.yielded_ticks;
+        report.local_flow_blocked_ticks = flow.blocked_ticks;
+        report.local_flow_deferred_replans = flow.deferred_replans;
+        report.target_queries = flow.target_queries;
+        report.target_candidates = flow.target_candidates;
+        report.target_full_scans = flow.target_full_scans;
+        if (report.goal_metrics_available)
+            for (std::size_t side = 0; side < goal_progress.size(); ++side)
+                report.goal_progress[side] = benchmark::summarize_progress(goal_progress[side]);
     };
     try {
         if (options_.benchmark_rules_version != 0) {
@@ -1597,6 +1622,7 @@ void Runtime::run_battle_benchmark() {
                 throw std::runtime_error("a benchmark rules version requires Enhanced Mode");
             if (!hold_enhanced_rules_once(options_.benchmark_rules_version))
                 throw std::runtime_error("the benchmark Enhanced rules version is unsupported");
+            held_rules_for_setup = true;
             report.enhanced_version = options_.benchmark_rules_version;
         }
         const auto capacity = report.enhanced_mode
@@ -1637,6 +1663,8 @@ void Runtime::run_battle_benchmark() {
             enter_match_view();
         if (screen_ != Screen::match || !match_ || !selected_tnt_)
             throw std::runtime_error("battle benchmark could not start its skirmish");
+        // A loaded match now owns the held rules until its normal teardown.
+        held_rules_for_setup = false;
         report.unit_limit = match_->state().game.units_per_player;
         if (report.unit_limit < options_.benchmark_units)
             throw std::runtime_error(
@@ -1658,19 +1686,85 @@ void Runtime::run_battle_benchmark() {
             if (slot.unit != nullptr && slot.record.type_index != 0 && slot.record.owner_index < 2)
                 armies[slot.record.owner_index].push_back(slot.unit_index);
         constexpr std::array<std::string_view, 2> unit_names{"ARMPW", "CORAK"};
+        std::array<uint16_t, 2> troop_types;
+        std::array<uint16_t, 2> commander_types;
         for (uint8_t side = 0; side < 2; ++side) {
             if (armies[side].size() != 1)
                 throw std::runtime_error(
                     "battle benchmark needs exactly one starting commander per side"
                 );
-            const auto type = sim::unit_spawn::find_type_index(spawn_type_names_, unit_names[side]);
-            if (type == 0 || type >= spawn_types_.size())
+            troop_types[side] =
+                sim::unit_spawn::find_type_index(spawn_type_names_, unit_names[side]);
+            if (troop_types[side] == 0 || troop_types[side] >= spawn_types_.size())
                 throw std::runtime_error(
                     "battle benchmark lacks unit type " + std::string(unit_names[side])
                 );
-            const auto& definition = spawn_types_[type];
-            if (definition.footprint_x > 2 || definition.footprint_z > 2)
+            commander_types[side] = match_->world().slots[armies[side][0]].record.type_index;
+            if (commander_types[side] == 0 || commander_types[side] >= spawn_types_.size())
+                throw std::runtime_error("battle benchmark has an unknown commander type");
+            const auto& definition = spawn_types_[troop_types[side]];
+            if (definition.footprint_x <= 0 || definition.footprint_z <= 0 ||
+                definition.footprint_x > 2 || definition.footprint_z > 2)
                 throw std::runtime_error("battle benchmark units exceed its placement spacing");
+        }
+        std::optional<benchmark::Layout> arrivals;
+        if (options_.benchmark_scenario == "group-march") {
+            const auto available =
+                benchmark::maximum_layout_units(width, height, benchmark::arrival_spacing);
+            const auto destinations = benchmark::plan_group_arrivals(width, height, available);
+            if (!destinations.layout)
+                throw std::runtime_error(destinations.error);
+            std::array<std::vector<benchmark::Footprint>, 2> footprints;
+            for (uint8_t side = 0; side < 2; ++side) {
+                const auto& troop = spawn_types_[troop_types[side]];
+                const auto& commander = spawn_types_[commander_types[side]];
+                if (commander.footprint_x <= 0 || commander.footprint_z <= 0)
+                    throw std::runtime_error("battle benchmark commander has an invalid footprint");
+                footprints[side].assign(
+                    options_.benchmark_units,
+                    {static_cast<uint16_t>(troop.footprint_x),
+                     static_cast<uint16_t>(troop.footprint_z)}
+                );
+                footprints[side][0] = {
+                    static_cast<uint16_t>(commander.footprint_x),
+                    static_cast<uint16_t>(commander.footprint_z)
+                };
+            }
+
+            struct ArrivalContext {
+                sim::match_runtime::Match& match;
+                const std::array<uint16_t, 2>& troop_types;
+                const std::array<uint16_t, 2>& commander_types;
+                const std::array<std::vector<benchmark::Footprint>, 2>& footprints;
+            } context{*match_, troop_types, commander_types, footprints};
+
+            const auto can_stand =
+                [](void* opaque, uint8_t side, std::size_t index, benchmark::Point point) {
+                    auto& access = *static_cast<ArrivalContext*>(opaque);
+                    const auto footprint = access.footprints[side][index];
+                    const auto type =
+                        index == 0 ? access.commander_types[side] : access.troop_types[side];
+                    const auto cell_x = (point.x + 8 - footprint.x * 8) / 16;
+                    const auto cell_z = (point.z + 8 - footprint.z * 8) / 16;
+                    return access.match.site_clear_for(type, cell_x, cell_z, 0, 1);
+                };
+            // Validate terrain before the additional armies occupy their start
+            // sites. The original commanders' occupied cells are skipped too.
+            auto selected = benchmark::select_arrivals(
+                width,
+                height,
+                *destinations.layout,
+                {std::span<const benchmark::Footprint>(footprints[0]),
+                 std::span<const benchmark::Footprint>(footprints[1])},
+                {&context, can_stand}
+            );
+            if (!selected.layout)
+                throw std::runtime_error("battle benchmark arrival sites: " + selected.error);
+            arrivals = std::move(*selected.layout);
+        }
+        for (uint8_t side = 0; side < 2; ++side) {
+            const auto type = troop_types[side];
+            const auto& definition = spawn_types_[type];
             for (const auto& point : planned.layout->armies[side]) {
                 if (armies[side].size() == options_.benchmark_units)
                     break;
@@ -1701,6 +1795,10 @@ void Runtime::run_battle_benchmark() {
                     std::to_string(side)
                 );
         }
+        report.goal_metrics_available =
+            options_.benchmark_scenario == "march" || options_.benchmark_scenario == "group-march";
+        for (auto& progress : goal_progress)
+            progress.reserve(options_.benchmark_units);
         for (uint8_t side = 0; side < 2; ++side)
             for (std::size_t index = 0; index < armies[side].size(); ++index) {
                 const auto unit = armies[side][index];
@@ -1711,14 +1809,18 @@ void Runtime::run_battle_benchmark() {
                             "battle benchmark could not issue an attack order"
                         );
                 } else {
-                    if (options_.benchmark_scenario == "march") {
+                    if (report.goal_metrics_available) {
                         const auto& record = match_->world().slots[unit].record;
-                        const auto x =
-                            static_cast<uint32_t>(
-                                static_cast<int32_t>(width) - (record.position.x >> kFixedShift)
-                            )
-                            << kFixedShift;
-                        const auto z = static_cast<uint32_t>(record.position.z);
+                        const benchmark::Point start{
+                            record.position.x >> kFixedShift, record.position.z >> kFixedShift
+                        };
+                        const auto goal =
+                            arrivals
+                                ? arrivals->armies[side][index]
+                                : benchmark::Point{static_cast<int32_t>(width) - start.x, start.z};
+                        goal_progress[side].push_back(benchmark::begin_progress(start, goal));
+                        const auto x = static_cast<uint32_t>(goal.x) << kFixedShift;
+                        const auto z = static_cast<uint32_t>(goal.z) << kFixedShift;
                         const sim::ground_orders::Point destination{
                             static_cast<int32_t>(x),
                             static_cast<int32_t>(
@@ -1757,11 +1859,22 @@ void Runtime::run_battle_benchmark() {
                     previous_health[index] = slot.record.health;
                 }
             }
+            if (compare && report.goal_metrics_available)
+                for (std::size_t side = 0; side < armies.size(); ++side)
+                    for (std::size_t index = 0; index < armies[side].size(); ++index) {
+                        const auto& slot = match_->world().slots[armies[side][index]];
+                        benchmark::sample_progress(
+                            goal_progress[side][index],
+                            {slot.record.position.x >> kFixedShift,
+                             slot.record.position.z >> kFixedShift},
+                            slot.unit != nullptr && slot.record.type_index != 0
+                        );
+                    }
             report.projectile_high_water =
                 std::max<uint64_t>(report.projectile_high_water, match_->projectiles().size());
             report.activity_observed =
                 options_.benchmark_scenario == "idle" ||
-                (options_.benchmark_scenario == "march"
+                (report.goal_metrics_available
                      ? report.moved_unit_ticks != 0
                      : report.projectile_high_water != 0 || report.damaged_unit_ticks != 0);
         };
@@ -1769,11 +1882,14 @@ void Runtime::run_battle_benchmark() {
         BattleTickProfile tick_profile;
         tick_profile.previous = match_->profile;
         match_->profile = {&tick_profile, BattleTickProfile::sample};
+
         struct RestoreProfile {
             sim::match_runtime::Match& match;
             BattleTickProfile& profile;
+
             ~RestoreProfile() { match.profile = profile.previous; }
         } restore_profile{*match_, tick_profile};
+
         std::array<std::vector<uint64_t>, OA_PROFILE_CATEGORY_COUNT> phase_samples;
         for (auto& phase : phase_samples)
             phase.reserve(report.measured_ticks);
@@ -1783,7 +1899,9 @@ void Runtime::run_battle_benchmark() {
             ++report.successful_warmup_ticks;
             note_activity(true);
         }
-        std::printf("battle benchmark: measuring %zu units for %zu ticks\n", census(), report.measured_ticks);
+        std::printf(
+            "battle benchmark: measuring %zu units for %zu ticks\n", census(), report.measured_ticks
+        );
         std::fflush(stdout);
         for (std::size_t tick = 0; tick < report.measured_ticks; ++tick) {
             const auto started = BenchClock::now();
@@ -1807,7 +1925,15 @@ void Runtime::run_battle_benchmark() {
         report.world_digest = digest.data();
         report.ticks = benchmark::summarize(samples);
         constexpr std::array<std::string_view, OA_PROFILE_CATEGORY_COUNT> phase_names{
-            "sync", "units", "logic", "render_static", "render_stuff", "render_fog", "effects", "projectiles", "misc"
+            "sync",
+            "units",
+            "logic",
+            "render_static",
+            "render_stuff",
+            "render_fog",
+            "effects",
+            "projectiles",
+            "misc"
         };
         for (std::size_t phase = 0; phase < phase_samples.size(); ++phase)
             report.simulation_phases.push_back(
@@ -1827,6 +1953,34 @@ void Runtime::run_battle_benchmark() {
             static_cast<double>(report.ticks.p99_ns) / 1.0e6,
             static_cast<double>(report.ticks.max_ns) / 1.0e6
         );
+        std::printf("battle benchmark phase p50 ms:");
+        for (const auto& phase : report.simulation_phases)
+            std::printf(
+                " %s=%.3f", phase.name.c_str(), static_cast<double>(phase.ticks.p50_ns) / 1.0e6
+            );
+        std::printf(
+            "\nbattle benchmark routing: %llu requests, %llu hits, %llu fields, %llu full "
+            "searches; "
+            "%llu blocked unit-ticks\n",
+            static_cast<unsigned long long>(report.shared_route_requests),
+            static_cast<unsigned long long>(report.shared_route_hits),
+            static_cast<unsigned long long>(report.shared_route_fields),
+            static_cast<unsigned long long>(report.full_route_searches),
+            static_cast<unsigned long long>(report.local_flow_blocked_ticks)
+        );
+        if (report.goal_metrics_available)
+            for (std::size_t side = 0; side < report.goal_progress.size(); ++side) {
+                const auto& progress = report.goal_progress[side];
+                std::printf(
+                    "battle benchmark side %zu: %llu/%llu progressed, %llu arrived, longest stall "
+                    "%llu ticks\n",
+                    side,
+                    static_cast<unsigned long long>(progress.progressed_units),
+                    static_cast<unsigned long long>(progress.goal_units),
+                    static_cast<unsigned long long>(progress.arrived_units),
+                    static_cast<unsigned long long>(progress.longest_stall_ticks)
+                );
+            }
         std::fflush(stdout);
     } catch (const std::exception& error) {
         report.completed = false;

@@ -114,13 +114,13 @@ void layouts() {
 /// Checks shared destination patches, static rejection and real footprint reservations.
 void group_arrivals() {
     constexpr uint32_t width = 8192, height = 8192;
-    const auto small = benchmark::plan_group_arrivals(width, height, 128);
+    const auto small = benchmark::plan_group_arrivals(width, height, 1000);
     CHECK(small.layout.has_value());
     if (!small.layout)
         return;
     for (uint8_t side = 0; side < 2; ++side) {
         const auto& points = small.layout->armies[side];
-        CHECK(points.size() == 128);
+        CHECK(points.size() == 1000);
         const auto region_x = points.front().x / benchmark::shared_goal_region_pixels;
         const auto region_z = points.front().z / benchmark::shared_goal_region_pixels;
         for (const auto point : points) {
@@ -133,7 +133,7 @@ void group_arrivals() {
         }
     }
     CHECK(
-        small.layout->armies == benchmark::plan_group_arrivals(width, height, 128).layout->armies
+        small.layout->armies == benchmark::plan_group_arrivals(width, height, 1000).layout->armies
     );
     CHECK(!benchmark::plan_group_arrivals(256, 256, 1000).layout);
     CHECK(!benchmark::plan_group_arrivals(UINT32_MAX, height, 1).layout);
@@ -295,6 +295,10 @@ void reports() {
     report.shared_route_requests = 48;
     report.shared_route_hits = 40;
     report.shared_route_fields = 4;
+    report.full_route_searches = 3;
+    report.target_queries = 100;
+    report.target_candidates = 120;
+    report.target_full_scans = 0;
     report.local_flow_blocked_ticks = 6;
     report.goal_metrics_available = true;
     report.goal_progress[0].goal_units = 24;
@@ -336,6 +340,8 @@ void reports() {
     CHECK(json.find("\"bucket_candidates\": 4000") != std::string::npos);
     CHECK(json.find("\"shared_route_requests\": 48") != std::string::npos);
     CHECK(json.find("\"shared_route_hits\": 40") != std::string::npos);
+    CHECK(json.find("\"full_route_searches\": 3") != std::string::npos);
+    CHECK(json.find("\"target_candidates\": 120") != std::string::npos);
     CHECK(json.find("\"local_flow_blocked_ticks\": 6") != std::string::npos);
     CHECK(json.find("\"goal_metrics_available\": true") != std::string::npos);
     CHECK(json.find("\"goal_progress\": [{\"goal_units\": 24") != std::string::npos);

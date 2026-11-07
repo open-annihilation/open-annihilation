@@ -119,6 +119,8 @@ def main():
         group_reference = None
         work_keys = ("shared_route_requests", "shared_route_hits", "shared_route_fields",
                      "shared_route_cells", "shared_route_waits", "shared_route_invalidations",
+                     "full_route_searches", "target_queries", "target_candidates",
+                     "target_full_scans",
                      "local_flow_probes", "local_flow_moving_blockers",
                      "local_flow_steering_adjustments", "local_flow_yielded_ticks",
                      "local_flow_blocked_ticks", "local_flow_deferred_replans")

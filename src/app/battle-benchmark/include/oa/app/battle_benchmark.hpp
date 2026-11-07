@@ -77,8 +77,9 @@ struct LayoutResult {
 
 /// Orders arrival candidates in the opposite half-map by shared goal region.
 ///
-/// Positions in one 512-pixel region are contiguous. The caller may skip
-/// blocked points without losing all the candidates in that region.
+/// Complete 512-pixel regions precede partial edge regions, so a clear
+/// patch holds 1,000 distinct one-cell arrivals. Positions in one region
+/// are contiguous; the caller may skip blocked points in that region.
 /// No point's terrain or footprint is checked here.
 ///
 /// @param width map width in whole pixels, at most 32767
@@ -222,8 +223,10 @@ struct Report {
     uint64_t bucket_candidates{};
     uint64_t shared_route_requests{}, shared_route_hits{}, shared_route_fields{};
     uint64_t shared_route_cells{}, shared_route_waits{}, shared_route_invalidations{};
+    uint64_t full_route_searches{};
     uint64_t local_flow_probes{}, local_flow_moving_blockers{}, local_flow_steering_adjustments{};
     uint64_t local_flow_yielded_ticks{}, local_flow_blocked_ticks{}, local_flow_deferred_replans{};
+    uint64_t target_queries{}, target_candidates{}, target_full_scans{};
     bool goal_metrics_available{};
     std::array<ProgressSummary, 2> goal_progress{};
     std::string routing_metrics_scope{"cumulative_setup_warmup_and_measured"};

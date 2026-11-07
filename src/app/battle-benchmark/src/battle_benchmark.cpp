@@ -193,11 +193,25 @@ LayoutResult plan_group_arrivals(uint32_t width, uint32_t height, std::size_t pe
     const auto middle_region = static_cast<int32_t>(height / 2 / shared_goal_region_pixels);
     for (uint8_t side = 0; side < result.layout->armies.size(); ++side) {
         auto& points = result.layout->armies[side];
+        const auto region_columns =
+            (width + shared_goal_region_pixels - 1) / shared_goal_region_pixels;
+        const auto region_rows =
+            (height + shared_goal_region_pixels - 1) / shared_goal_region_pixels;
+        std::vector<std::size_t> region_population(region_columns * region_rows);
+        const auto region_index = [&](Point point) {
+            return static_cast<std::size_t>(point.z / shared_goal_region_pixels) * region_columns +
+                   point.x / shared_goal_region_pixels;
+        };
+        for (const auto point : points)
+            ++region_population[region_index(point)];
+        constexpr auto region_cells = shared_goal_region_pixels / arrival_spacing;
+        constexpr auto full_region_population = region_cells * region_cells;
         const auto key = [&](Point point) {
             const auto region_x = point.x / static_cast<int32_t>(shared_goal_region_pixels);
             const auto region_z = point.z / static_cast<int32_t>(shared_goal_region_pixels);
             const auto from_middle = region_z - middle_region;
             return std::tuple{
+                region_population[region_index(point)] == full_region_population ? 0 : 1,
                 side == 0 ? region_x : -region_x,
                 from_middle < 0 ? -from_middle : from_middle,
                 region_z,
@@ -410,12 +424,16 @@ std::string report_json(const Report& report) {
     number("shared_route_cells", report.shared_route_cells);
     number("shared_route_waits", report.shared_route_waits);
     number("shared_route_invalidations", report.shared_route_invalidations);
+    number("full_route_searches", report.full_route_searches);
     number("local_flow_probes", report.local_flow_probes);
     number("local_flow_moving_blockers", report.local_flow_moving_blockers);
     number("local_flow_steering_adjustments", report.local_flow_steering_adjustments);
     number("local_flow_yielded_ticks", report.local_flow_yielded_ticks);
     number("local_flow_blocked_ticks", report.local_flow_blocked_ticks);
     number("local_flow_deferred_replans", report.local_flow_deferred_replans);
+    number("target_queries", report.target_queries);
+    number("target_candidates", report.target_candidates);
+    number("target_full_scans", report.target_full_scans);
     text("routing_metrics_scope", report.routing_metrics_scope);
     out << ",\n  \"goal_metrics_available\": "
         << (report.goal_metrics_available ? "true" : "false");
