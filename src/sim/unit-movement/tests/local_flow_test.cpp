@@ -315,6 +315,66 @@ void test_priority_and_stationary_obstacles() {
     OA_CHECK(!decision.adjusted);
 }
 
+void test_units_turning_together_keep_their_route() {
+    Grid grid;
+    auto& blocker = grid.add(8, 6, 0, 14, 6);
+    auto& following = grid.add(6, 6, 0, 14, 6);
+    grid.tick = 20;
+    blocker.movement.last_motion_tick = grid.tick - 1;
+    following.movement.last_motion_tick = grid.tick - 1;
+    grid.snapshot_progress();
+    LocalFlowCounters counters{};
+    const auto coherent_turn = choose_local_flow(
+        following.unit,
+        following.movement,
+        following.destination,
+        grid.tick,
+        grid,
+        grid.query(),
+        counters
+    );
+    // Both units face north while turning onto the same eastbound route.
+    OA_CHECK(coherent_turn.mobile_blocked);
+    OA_CHECK(!coherent_turn.adjusted);
+    OA_CHECK(coherent_turn.target == following.destination);
+    OA_CHECK(counters.yielded_ticks == 0);
+    OA_CHECK(counters.steering_adjustments == 0);
+
+    blocker.unit.heading = 32768;
+    const auto opposing_turn = choose_local_flow(
+        following.unit,
+        following.movement,
+        following.destination,
+        grid.tick,
+        grid,
+        grid.query(),
+        counters
+    );
+    OA_CHECK(opposing_turn.mobile_blocked);
+    OA_CHECK(opposing_turn.adjusted);
+    OA_CHECK(counters.yielded_ticks == 1);
+    // Yield forward and right of the eastbound route, even while facing north.
+    OA_CHECK(opposing_turn.target[0] > following.unit.position[0]);
+    OA_CHECK(opposing_turn.target[2] > following.unit.position[2]);
+
+    blocker.unit.heading = following.unit.heading;
+    blocker.movement.last_motion_tick = grid.tick - 5;
+    grid.snapshot_progress();
+    const auto stalled_leader = choose_local_flow(
+        following.unit,
+        following.movement,
+        following.destination,
+        grid.tick,
+        grid,
+        grid.query(),
+        counters
+    );
+    OA_CHECK(stalled_leader.mobile_blocked);
+    OA_CHECK(stalled_leader.adjusted);
+    OA_CHECK(counters.yielded_ticks == 2);
+    OA_CHECK(grid.overlap_count == 0);
+}
+
 void test_diagonal_corner_clearance() {
     Grid grid;
     grid.add(8, 6, west, 2, 6);
@@ -579,6 +639,7 @@ void test_counterflow_crossing_and_choke() {
 
 int main() {
     test_priority_and_stationary_obstacles();
+    test_units_turning_together_keep_their_route();
     test_sequential_progress_preserves_tick_start_priority();
     test_older_higher_id_keeps_priority_after_moving();
     test_diagonal_corner_clearance();
