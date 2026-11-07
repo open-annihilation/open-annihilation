@@ -190,6 +190,8 @@ void configure_movement_class(Fixture& fixture) {
     fixture.metadata.max_water_depth = 255;
     fixture.metadata.max_slope = fixture.metadata.bad_slope = 255;
     fixture.metadata.max_water_slope = fixture.metadata.bad_water_slope = 255;
+    const auto sight_width = static_cast<int32_t>(fixture.map.attribute_width / 2);
+    const auto sight_height = static_cast<int32_t>(fixture.map.attribute_height / 2);
     runtime::OfflineInputs input{
         fixture.map,
         fixture.loaded,
@@ -198,8 +200,8 @@ void configure_movement_class(Fixture& fixture) {
         fixture.weapons,
         fixture.terrain_values,
         fixture.masks,
-        8,
-        8,
+        sight_width,
+        sight_height,
         4,
         2,
         0,
@@ -209,7 +211,7 @@ void configure_movement_class(Fixture& fixture) {
         {},
         fixture.collision_plots,
         oa::sim::visibility_state::AltitudeSightData{
-            8, 8, fixture.altitude_cells, fixture.altitude_patterns
+            sight_width, sight_height, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
     input.rules = options_for(2).rules;
@@ -300,6 +302,103 @@ void sustained_blockage_bypasses_shared_routes() {
             CHECK(ground->navigation.last_search_tick == match.simulation().tick);
         }
     }
+}
+
+/// A crowded static edge must still reach a shared route through its bridge.
+void static_barrier_keeps_shared_route_access() {
+    Fixture fixture(options_for(2));
+    // Leave both bridges above the hidden 128-world-unit bottom edge.
+    fixture.map.attribute_height = 32;
+    fixture.map.attributes.resize(16 * 32);
+    fixture.terrain_values.resize(16 * 32);
+    fixture.collision_plots.resize(16 * 32);
+    fixture.altitude_cells.resize(8 * 16);
+    configure_movement_class(fixture);
+    auto& match = *fixture.match;
+    constexpr int32_t width = 16;
+    constexpr int32_t height = 32;
+    constexpr int32_t wall_x = 8;
+    constexpr std::array<int32_t, 2> bridge_rows{4, 12};
+    for (int32_t z = 0; z < height; ++z)
+        if (std::none_of(bridge_rows.begin(), bridge_rows.end(), [z](int32_t row) {
+                return z >= row && z < row + 4;
+            }))
+            match.spatial().plots[size_t(z) * width + wall_x].blocking_feature = true;
+    auto& unit = fixture.spawn(0, 72, 136);
+    CHECK(!match.order_refused(
+        match.issue_ground_move(unit.unit_index, {200 << 16, 0, 136 << 16}, false)
+    ));
+    fixture.run(1);
+    auto* ground = match.ground_runtime(unit.unit_index);
+    CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+    CHECK(ground->navigation.count == 2);
+    // This fixture tests known static terrain rather than discovery through fog.
+    auto& sight = match.sight_mutable().player_bits;
+    std::fill(sight.begin(), sight.end(), uint16_t{1});
+    match.simulation().tick = 123;
+
+    routes::FlowCache cache(width, height);
+    const routes::FlowSampler sampler{
+        &match, [](void* context, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+            auto& current = *static_cast<runtime::Match*>(context);
+            if (x < 0 || z < 0 || x >= width || z >= height)
+                return 0;
+            return current.spatial().plots[size_t(z) * width + size_t(x)].blocking_feature ? 0 : 1;
+        }
+    };
+    const routes::FlowContext context{0, 0, 0, 0, 1, 1};
+    std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+    uint32_t count{};
+    cache.advance(121, 0, sampler);
+    CHECK(
+        cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+        routes::FlowResult::fallback
+    );
+    CHECK(
+        cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+        routes::FlowResult::pending
+    );
+    cache.advance(122, 0, sampler);
+    CHECK(
+        cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
+        routes::FlowResult::ready
+    );
+    CHECK(count >= 3);
+    const auto& shared = table(match, "shared-routes");
+    CHECK(shared.restore(shared.context, cache.state_bytes()));
+    const auto& revision = table(match, "flow-map-version");
+    constexpr std::array<uint8_t, 4> current_revision{};
+    CHECK(revision.restore(revision.context, current_revision));
+
+    // A nearby crowd can report mobile blockage while the original route
+    // still points through a static wall. Its retry deadline must not prevent
+    // the shared static field from supplying the missing bridge detour.
+    std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
+    heads[unit.unit_index].blocked_ticks = flow::local_flow_retry_ticks + 1;
+    heads[unit.unit_index].mobile_blocked = true;
+    std::vector<uint8_t> bytes(heads.size() * flow::local_flow_head_bytes);
+    CHECK(flow::write_local_flow_heads(heads, bytes));
+    const auto& steering = table(match, "local-flow");
+    CHECK(steering.restore(steering.context, bytes));
+    ground->movement.flags |= flow::collision_blocked;
+    ground->navigation.flags |= routes::search_pending_flag;
+    ground->navigation.last_search_tick = 0;
+
+    const auto before = match.enhanced_counters();
+    match.advance_path_search();
+    CHECK(match.fault() == nullptr);
+    const auto after = match.enhanced_counters();
+    CHECK(after.shared_route_requests == before.shared_route_requests + 1);
+    CHECK(after.shared_route_hits == before.shared_route_hits + 1);
+    CHECK(after.full_route_searches == before.full_route_searches);
+    CHECK(ground->navigation.count >= 3);
+    CHECK(
+        std::any_of(
+            ground->navigation.points.begin(),
+            ground->navigation.points.begin() + ground->navigation.count,
+            [](const routes::RoutePoint& point) { return point[1] == 72 || point[1] == 200; }
+        )
+    );
 }
 
 /// Finds a genuine temporary traffic head while two units pass each other.
@@ -463,6 +562,7 @@ int main() {
         navigation_state_survives_restore();
         malformed_state_is_rejected_atomically();
         sustained_blockage_bypasses_shared_routes();
+        static_barrier_keeps_shared_route_access();
         accepted_routes_release_old_traffic_heads();
         passing_units_rejoin_and_arrive();
         std::cout << "Enhanced navigation state: restore and pending invalidation match\n";
