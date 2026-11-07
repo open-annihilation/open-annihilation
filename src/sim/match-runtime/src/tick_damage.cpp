@@ -4,6 +4,7 @@
 #include "oa/sim/ai.hpp"
 #include "oa/sim/scenario/commander_rules.hpp"
 #include "tick_internal.hpp"
+#include "enhanced_state.hpp"
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
 #include "oa/formats/tdf.hpp"
 
@@ -637,12 +638,17 @@ void Match::teardown_dead_unit(
         sim::ground_orders::release_navigation(search_.controller, ground->navigation);
     movement_.at(slot.unit_index).reset();
     release_air_driver(slot.unit_index);
-    for (auto& order : orders_)
-        sim::air::air_goal_unlink(&order->air_goal, &slot.record);
-    for (auto& goal : mirrored_air_goals_)
-        sim::air::air_goal_unlink(&goal, &slot.record);
-    for (auto& driver : air_drivers_)
-        sim::air::air_goal_unlink(&driver.arrived, &slot.record);
+    // A match that has never held an air goal has no air target pointers
+    // to clear. Once a flying driver or air goal exists, keep every sweep:
+    // an arrived copy can outlive the driver's current goal.
+    if (!enhanced_ || !enhanced_->shared_routes || enhanced_->air_goal_cleanup_required) {
+        for (auto& order : orders_)
+            sim::air::air_goal_unlink(&order->air_goal, &slot.record);
+        for (auto& goal : mirrored_air_goals_)
+            sim::air::air_goal_unlink(&goal, &slot.record);
+        for (auto& driver : air_drivers_)
+            sim::air::air_goal_unlink(&driver.arrived, &slot.record);
+    }
     auto& player = world_.players.at(slot.record.owner_index);
     if (player.current_count && --player.current_count == 0 && last_unit.lost != nullptr)
         last_unit.lost(last_unit.context, slot.record.owner_index);

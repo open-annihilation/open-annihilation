@@ -4,6 +4,7 @@
 // Saved orders: the order words a savegame keeps, taken from and given back
 // to the runtime order records.
 #include "tick_internal.hpp"
+#include "enhanced_state.hpp"
 
 #include "oa/data/mission_types.hpp"
 
@@ -349,6 +350,8 @@ sim::simulation_state::Order& Match::restore_saved_order(
         break;
     }
     case data::persist::SavedGoalKind::air_target: {
+        if (enhanced_ && enhanced_->shared_routes)
+            enhanced_->air_goal_cleanup_required = true;
         auto& air_goal = entry->air_goal;
         const auto& from = goal.air_target;
         air_goal.kind = sim::air::AirGoalKind::target;
@@ -367,6 +370,8 @@ sim::simulation_state::Order& Match::restore_saved_order(
         break;
     }
     case data::persist::SavedGoalKind::air_seek: {
+        if (enhanced_ && enhanced_->shared_routes)
+            enhanced_->air_goal_cleanup_required = true;
         auto& air_goal = entry->air_goal;
         const auto& from = goal.air_seek;
         air_goal.kind = sim::air::AirGoalKind::seek;

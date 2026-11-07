@@ -61,7 +61,7 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
 
-    Fixture() {
+    explicit Fixture(uint32_t enhanced_version = 0) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
         terrain_values.resize(map_cells * map_cells);
@@ -116,7 +116,11 @@ struct Fixture {
             map, loaded, types, fields,    weapons, terrain_values,  masks, 16, 16, 16,   2,
             0,   30,     1,     &scenario, {},      collision_plots, {},    0,  0,  0.0F, {}
         };
+        input.rules.setup.enhanced_mode.enabled = enhanced_version != 0;
+        input.rules.setup.enhanced_mode.version = enhanced_version;
+        input.unit_player_mask = 1;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
+        CHECK(match->fault() == nullptr);
         for (auto type : {copter_type, transport_type})
             match->state().unit_defs[type].default_mission_type =
                 sim::ground_orders::vtol_standby_kind;
@@ -387,6 +391,33 @@ void off_map_is_the_footprint_bucket() {
     CHECK(!air.outside_map(air.context, &south.record));
     CHECK(!air.outside_map(air.context, &middle.record));
 }
+
+// Arrived copies and mirrored goals must lose a dead target even after the
+// current goal has changed. Accessing a flying driver may populate either.
+void dead_targets_leave_arrived_and_mirrored_air_goals() {
+    for (const uint32_t version : {0u, 1u, 2u}) {
+        Fixture f(version);
+        auto& target = f.spawn(cargo_type, 160, 128);
+        auto& aircraft = f.spawn(copter_type, 256, 128);
+        auto* driver = f.match->air_driver(aircraft.unit_index);
+        CHECK(driver != nullptr);
+        driver->arrived =
+            sim::air::air_goal_over_unit(nullptr, &aircraft.record, &target.record, -1);
+        driver->local = false;
+        const auto mirrored =
+            sim::air::air_goal_over_unit(nullptr, &aircraft.record, &target.record, -1);
+        f.match->set_mirrored_air_goal(aircraft.unit_index, &mirrored);
+        CHECK(driver->arrived.target == &target.record);
+        CHECK(driver->goal != nullptr && driver->goal->target == &target.record);
+
+        const sim::match_runtime::KillOutcome outcome{sim::match_runtime::DeathKind::dismissed};
+        f.match->apply_kill(target.unit_index, outcome, 0, OA_PLAYER_COUNT);
+        CHECK(target.record.type_index == 0);
+        CHECK(driver->arrived.target == nullptr);
+        CHECK(driver->goal != nullptr && driver->goal->target == nullptr);
+        CHECK(f.match->fault() == nullptr);
+    }
+}
 } // namespace
 
 int main() {
@@ -400,6 +431,8 @@ int main() {
         {"grounded_standby_waits_on_weapons", grounded_standby_waits_on_weapons},
         {"loaded_transport_loiters", loaded_transport_loiters},
         {"off_map_is_the_footprint_bucket", off_map_is_the_footprint_bucket},
+        {"dead_targets_leave_arrived_and_mirrored_air_goals",
+         dead_targets_leave_arrived_and_mirrored_air_goals},
     };
     int failures = 0;
     for (const auto& [name, run] : cases) {

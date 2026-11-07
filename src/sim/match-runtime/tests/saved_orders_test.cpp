@@ -60,6 +60,19 @@ bool same(const Exported& a, const Exported& b) {
     return a.blobs == b.blobs && a.goals == b.goals;
 }
 
+uint16_t saved_air_target(sim::match_runtime::Match& match, uint16_t owner) {
+    uint16_t target = 0;
+    match.visit_saved_orders(
+        owner,
+        [](void* walk, const data::persist::SavedOrder*, const data::persist::SavedGoal* goal) {
+            CHECK(goal->kind == static_cast<int32_t>(data::persist::SavedGoalKind::air_target));
+            *static_cast<uint16_t*>(walk) = goal->air_target.target_id;
+        },
+        &target
+    );
+    return target;
+}
+
 std::vector<uint8_t> kinds(const sim::simulation_state::Order* head) {
     std::vector<uint8_t> out;
     for (auto* order = head; order != nullptr && out.size() < 16; order = order->next)
@@ -192,12 +205,46 @@ void attack_orders_survive_a_save() {
     CHECK(kinds(loaded_hunter.unit->primary) == kinds(hunter.unit->primary));
 }
 
+// A restored air goal can belong to a ground unit. Its pointer is separate
+// from the order's target-observer link and still needs death cleanup.
+void restored_ground_owned_air_goal_loses_dead_target() {
+    for (const uint32_t version : {0u, 1u, 2u}) {
+        Options options;
+        options.rules.setup.enhanced_mode.enabled = version != 0;
+        options.rules.setup.enhanced_mode.version = version;
+        Fixture f(options);
+        auto& owner = f.spawn(0, 64, 64);
+        auto& target = f.spawn(1, 128, 64);
+        CHECK(f.match->air_driver(owner.unit_index) == nullptr);
+        data::persist::SavedOrder order{};
+        order.kind = move_ground;
+        order.goal_kind = static_cast<int32_t>(data::persist::SavedGoalKind::air_target);
+        data::persist::SavedGoal goal{};
+        goal.kind = order.goal_kind;
+        goal.air_target.unit_id = owner.unit_index;
+        goal.air_target.target_id = target.unit_index;
+        auto tails = f.match->saved_order_tails(owner.unit_index);
+        (void)f.match->restore_saved_order(owner.unit_index, order, goal, tails);
+        auto before = exported(*f.match, owner.unit_index);
+        CHECK(before.goals.size() == 1);
+        CHECK(saved_air_target(*f.match, owner.unit_index) == target.unit_index);
+
+        const sim::match_runtime::KillOutcome outcome{sim::match_runtime::DeathKind::dismissed};
+        f.match->apply_kill(target.unit_index, outcome, 0, OA_PLAYER_COUNT);
+        auto after = exported(*f.match, owner.unit_index);
+        CHECK(after.goals.size() == 1);
+        CHECK(saved_air_target(*f.match, owner.unit_index) == 0);
+        CHECK(f.match->fault() == nullptr);
+    }
+}
+
 } // namespace
 
 int main() {
     try {
         orders_survive_a_save();
         attack_orders_survive_a_save();
+        restored_ground_owned_air_goal_loses_dead_target();
     } catch (const std::exception& failure) {
         std::cerr << "saved orders: " << failure.what() << '\n';
         return 1;

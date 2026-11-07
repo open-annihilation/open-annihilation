@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "tick_internal.hpp"
+#include "enhanced_state.hpp"
 
 #include <cstdint>
 
@@ -1169,6 +1170,8 @@ void TickHost::install_air_goal(
     }
     if (!goal)
         return;
+    if (match.enhanced_ && match.enhanced_->shared_routes)
+        match.enhanced_->air_goal_cleanup_required = true;
     order.raised_events &= ~sim::ground_orders::goal_event_mask;
     stored = *goal;
     stored.order_events = &order.raised_events;
