@@ -134,11 +134,8 @@ void shared_cohort_and_budget() {
         const auto before = cache.counters();
         cache.advance(tick, 0, grid.sampler());
         const auto after = cache.counters();
-        CHECK(
-            after.cells_cleared + after.cells_expanded - before.cells_cleared -
-                before.cells_expanded <=
-            128
-        );
+        CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
+        CHECK(after.cells_expanded - before.cells_expanded <= 128);
     }
     finish(cache, grid);
     uint32_t tick = 40;
@@ -165,6 +162,31 @@ void shared_cohort_and_budget() {
         static_cast<unsigned long long>(stats.cells_expanded),
         static_cast<unsigned long long>(grid.queries)
     );
+}
+
+void multiple_fields_clear_with_a_separate_byte_budget() {
+    Grid grid(336, 336);
+    FlowCache cache(336, 336);
+    const auto unit = unit_at(8, 8);
+    for (int16_t i = 0; i < 22; ++i) {
+        const auto goal = circle(
+            static_cast<int16_t>(16 + (i % 10) * 32), static_cast<int16_t>(16 + (i / 10) * 32)
+        );
+        CHECK(query(cache, grid, unit, goal) == FlowResult::fallback);
+        CHECK(query(cache, grid, unit, goal) == FlowResult::pending);
+    }
+    CHECK(cache.counters().fields_started == 22);
+    for (uint32_t tick = 1; tick <= 3; ++tick) {
+        const auto before = cache.counters();
+        cache.advance(tick, 0, grid.sampler());
+        const auto after = cache.counters();
+        CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
+        CHECK(after.cells_expanded - before.cells_expanded <= 2048);
+        cache.advance(tick, 0, grid.sampler());
+        CHECK(cache.counters().cells_cleared == after.cells_cleared);
+    }
+    CHECK(cache.counters().cells_cleared == 22 * 84 * 84);
+    CHECK(cache.counters().cells_expanded > 0);
 }
 
 void narrow_choke_and_mixed_footprints() {
@@ -307,6 +329,7 @@ void malformed_frontiers_are_rejected() {
 } // namespace
 
 int main() {
+    multiple_fields_clear_with_a_separate_byte_budget();
     static_sampler_matches_full_classifier_passability();
     small_output_and_extraction_budget_are_bounded();
     malformed_frontiers_are_rejected();

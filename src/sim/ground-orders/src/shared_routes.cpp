@@ -16,6 +16,7 @@ constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 
 constexpr std::size_t metadata_size = 80, key_size = 36;
 constexpr uint32_t empty = 0, clearing = 1, building = 2, complete = 3, failed = 4;
 constexpr uint8_t root = 0xfd, unseen = 0xff;
+constexpr uint32_t clear_bytes_per_tick = 65'536, clear_slice = 4'096;
 constexpr std::array<int32_t, 8> dx{1, 1, 0, -1, -1, -1, 0, 1};
 constexpr std::array<int32_t, 8> dz{0, 1, 1, 1, 0, -1, -1, -1};
 using Key = std::array<uint8_t, key_size>;
@@ -223,12 +224,54 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
     if (fields_ == 0)
         return;
     uint32_t cursor = get32(state + 40) % fields_;
-    uint32_t idle = 0;
-    for (uint32_t work = 0; work < work_per_tick_ && idle < fields_;) {
+    uint32_t idle = 0, work = 0, clear_budget = clear_bytes_per_tick;
+    // Clearing bytes is much cheaper than classifying graph edges. Share a
+    // separate byte budget in contiguous slices, rather than charging one
+    // search expansion for each byte and delaying large cohorts for seconds.
+    while (clear_budget != 0 && work < work_per_tick_ && idle < fields_) {
         auto* f = field(state, cells_, cursor);
         cursor = (cursor + 1) % fields_;
-        const auto phase = get32(f);
-        if (phase != clearing && phase != building) {
+        if (get32(f) != clearing) {
+            ++idle;
+            continue;
+        }
+        idle = 0;
+        auto* directions = f + metadata_size;
+        const auto clear = get32(f + 52);
+        const auto amount = std::min({cells_ - clear, clear_slice, clear_budget});
+        std::memset(directions + clear, unseen, amount);
+        put32(f + 52, clear + amount);
+        clear_budget -= amount;
+        increment(state, 3, amount);
+        if (clear + amount != cells_)
+            continue;
+        // Seeding performs line tests, so it consumes an expansion credit.
+        ++work;
+        const auto seed = connect_anchor(
+            columns_,
+            rows_,
+            static_cast<int32_t>(get32(f + 40)),
+            static_cast<int32_t>(get32(f + 44)),
+            f + 4,
+            sampler
+        );
+        if (seed < 0) {
+            put32(f, failed);
+            continue;
+        }
+        put32(f + 48, static_cast<uint32_t>(seed));
+        directions[seed] = root;
+        auto* queue = directions + cells_;
+        put32(queue, static_cast<uint32_t>(seed));
+        put32(f + 56, 0);
+        put32(f + 60, 1);
+        put32(f, building);
+    }
+    idle = 0;
+    for (; work < work_per_tick_ && idle < fields_;) {
+        auto* f = field(state, cells_, cursor);
+        cursor = (cursor + 1) % fields_;
+        if (get32(f) != building) {
             ++idle;
             continue;
         }
@@ -236,33 +279,6 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         ++work;
         auto* directions = f + metadata_size;
         auto* queue = directions + cells_;
-        if (phase == clearing) {
-            auto clear = get32(f + 52);
-            directions[clear++] = unseen;
-            put32(f + 52, clear);
-            increment(state, 3);
-            if (clear != cells_)
-                continue;
-            const auto seed = connect_anchor(
-                columns_,
-                rows_,
-                static_cast<int32_t>(get32(f + 40)),
-                static_cast<int32_t>(get32(f + 44)),
-                f + 4,
-                sampler
-            );
-            if (seed < 0) {
-                put32(f, failed);
-                continue;
-            }
-            put32(f + 48, static_cast<uint32_t>(seed));
-            directions[seed] = root;
-            put32(queue, static_cast<uint32_t>(seed));
-            put32(f + 56, 0);
-            put32(f + 60, 1);
-            put32(f, building);
-            continue;
-        }
         auto head = get32(f + 56), tail = get32(f + 60);
         if (head == tail) {
             put32(f, complete);

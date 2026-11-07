@@ -91,7 +91,8 @@ class FlowCache {
     /// @param limits maximum fields, total coarse cells and work per tick
     FlowCache(uint32_t width, uint32_t height, FlowLimits limits = {});
 
-    /// Spends at most the configured work budget on clearing and reverse expansion.
+    /// Clears at most 65,536 direction bytes and spends the configured expansion budget.
+    /// Seed connections consume expansion credits; clearing uses contiguous slices.
     ///
     /// @param tick deterministic simulation tick
     /// @param static_revision current buildings/features/terrain revision
