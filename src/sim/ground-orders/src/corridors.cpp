@@ -14,6 +14,116 @@ constexpr uint32_t maximum_map_cells = 2'097'152, maximum_map_side = 2047;
 constexpr int16_t maximum_footprint = 8, minimum_corridor_length = 4;
 constexpr uint32_t bucket_side = 8;
 constexpr int64_t fixed_one = 65536, half_cell = 8 * fixed_one, cell_step = 16 * fixed_one;
+constexpr uint32_t catalog_state_magic = 0x524f434f, catalog_state_format = 1;
+constexpr size_t state_header_bytes = 128, state_builder_bytes = 160;
+constexpr size_t state_geometry_bytes = 64, state_seed_bytes = 8;
+constexpr uint32_t state_active_flag = 1, state_clearing_flag = 2;
+
+struct StateWriter {
+    std::span<uint8_t> bytes;
+    size_t cursor{};
+
+    void integer(uint64_t value, size_t width) noexcept {
+        for (size_t byte = 0; byte < width; ++byte)
+            bytes[cursor++] = static_cast<uint8_t>(value >> (byte * 8));
+    }
+
+    void signed16(int16_t value) noexcept { integer(static_cast<uint16_t>(value), 2); }
+
+    void zero(size_t count) noexcept {
+        std::fill_n(bytes.begin() + static_cast<ptrdiff_t>(cursor), count, uint8_t{});
+        cursor += count;
+    }
+
+    void origin(CorridorOrigin value) noexcept {
+        signed16(value[0]);
+        signed16(value[1]);
+    }
+
+    void rectangle(const CorridorRectangle& value) noexcept {
+        signed16(value.left);
+        signed16(value.top);
+        signed16(value.right);
+        signed16(value.bottom);
+    }
+
+    void geometry(const CorridorGeometry& value) noexcept {
+        integer(value.id, 2);
+        integer(static_cast<uint8_t>(value.axis), 1);
+        integer(value.lane_count, 1);
+        origin(value.footprint);
+        rectangle(value.origins);
+        rectangle(value.plots);
+        rectangle(value.mouths[0]);
+        rectangle(value.mouths[1]);
+        origin(value.lane_origins);
+        integer(value.revision, 8);
+        zero(12);
+    }
+};
+
+struct StateReader {
+    std::span<const uint8_t> bytes;
+    size_t cursor{};
+    bool valid{true};
+
+    uint64_t integer(size_t width) noexcept {
+        uint64_t value{};
+        for (size_t byte = 0; byte < width; ++byte)
+            value |= uint64_t(bytes[cursor++]) << (byte * 8);
+        return value;
+    }
+
+    int16_t signed16() noexcept {
+        return std::bit_cast<int16_t>(static_cast<uint16_t>(integer(2)));
+    }
+
+    bool boolean() noexcept {
+        const auto value = integer(1);
+        valid &= value <= 1;
+        return value != 0;
+    }
+
+    void zero(size_t count) noexcept {
+        for (size_t byte = 0; byte < count; ++byte)
+            valid &= bytes[cursor++] == 0;
+    }
+
+    CorridorOrigin origin() noexcept { return {signed16(), signed16()}; }
+
+    CorridorRectangle rectangle() noexcept {
+        return {signed16(), signed16(), signed16(), signed16()};
+    }
+
+    CorridorGeometry geometry() noexcept {
+        CorridorGeometry value{};
+        value.id = static_cast<uint16_t>(integer(2));
+        const auto axis = integer(1);
+        valid &= axis <= static_cast<uint8_t>(CorridorAxis::z);
+        value.axis = static_cast<CorridorAxis>(axis);
+        value.lane_count = static_cast<uint8_t>(integer(1));
+        value.footprint = origin();
+        value.origins = rectangle();
+        value.plots = rectangle();
+        value.mouths[0] = rectangle();
+        value.mouths[1] = rectangle();
+        value.lane_origins = origin();
+        value.revision = integer(8);
+        zero(12);
+        return value;
+    }
+};
+
+bool same_rectangle(const CorridorRectangle& a, const CorridorRectangle& b) noexcept {
+    return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+}
+
+bool empty_geometry(const CorridorGeometry& geometry) noexcept {
+    std::array<uint8_t, state_geometry_bytes> bytes{};
+    StateWriter writer{bytes};
+    writer.geometry(geometry);
+    return std::all_of(bytes.begin(), bytes.end(), [](uint8_t byte) { return byte == 0; });
+}
 
 bool spend(CorridorBudget& budget) noexcept {
     if (budget.remaining == 0)
@@ -453,12 +563,398 @@ struct CorridorCatalog::State {
                 completed_section();
         }
     }
+
+    size_t wire_size() const noexcept;
+    void encode(std::span<uint8_t> output) const noexcept;
+    bool decode(std::span<const uint8_t> input) noexcept;
+    bool valid_geometry(const CorridorGeometry& geometry) const noexcept;
+    bool valid_build() const noexcept;
+    bool valid_buckets() const noexcept;
 };
+
+size_t CorridorCatalog::State::wire_size() const noexcept {
+    return enabled ? state_header_bytes + state_builder_bytes +
+                         size_t(corridor_capacity) * state_geometry_bytes +
+                         size_t(seed_capacity) * state_seed_bytes + size_t(bucket_count) * 8
+                   : 0;
+}
+
+void CorridorCatalog::State::encode(std::span<uint8_t> output) const noexcept {
+    StateWriter writer{output};
+    writer.integer(catalog_state_magic, 4);
+    writer.integer(catalog_state_format, 4);
+    writer.integer(width, 4);
+    writer.integer(height, 4);
+    writer.origin(footprint);
+    for (const auto value :
+         {corridor_capacity,
+          seed_capacity,
+          columns,
+          rows,
+          count,
+          queue_head,
+          queue_count,
+          clear_cursor})
+        writer.integer(value, 4);
+    writer.integer((active ? state_active_flag : 0) | (clearing ? state_clearing_flag : 0), 4);
+    for (const auto value : {revision, work_units, samples, rejected_seeds, uint64_t(wire_size())})
+        writer.integer(value, 8);
+    writer.zero(32);
+    const auto seed = [&](const Seed& value) {
+        writer.origin(value.origin);
+        writer.integer(static_cast<uint8_t>(value.axis), 1);
+        writer.zero(3);
+    };
+    seed(build.seed);
+    for (const auto value :
+         {build.section.major, build.section.minor, build.section.lower, build.section.upper})
+        writer.signed16(value);
+    writer.integer(static_cast<uint8_t>(build.section.phase), 1);
+    writer.integer(build.section.valid, 1);
+    writer.integer(build.section.wide, 1);
+    writer.zero(5);
+    writer.integer(static_cast<uint8_t>(build.phase), 1);
+    writer.zero(1);
+    for (const auto value :
+         {build.first, build.last, build.lower, build.upper, build.mouth_row, build.mouth_minor})
+        writer.signed16(value);
+    writer.integer(build.extension, 1);
+    writer.zero(9);
+    writer.geometry(build.result);
+    for (const auto value :
+         {build.bucket_x,
+          build.bucket_z,
+          build.bucket_first_x,
+          build.bucket_last_x,
+          build.bucket_last_z})
+        writer.integer(value, 4);
+    writer.zero(28);
+    for (uint32_t index = 0; index < corridor_capacity; ++index)
+        writer.geometry(corridors[index]);
+    for (uint32_t index = 0; index < seed_capacity; ++index)
+        seed(seeds[index]);
+    for (uint32_t index = 0; index < bucket_count; ++index)
+        writer.integer(buckets[index], 8);
+}
+
+bool CorridorCatalog::State::valid_geometry(const CorridorGeometry& geometry) const noexcept {
+    if (empty_geometry(geometry))
+        return true;
+    if (geometry.id > corridor_capacity || geometry.footprint != footprint ||
+        (geometry.axis != CorridorAxis::x && geometry.axis != CorridorAxis::z))
+        return false;
+    const auto valid_rectangle = [&](const CorridorRectangle& value) {
+        return value.left <= value.right && value.top <= value.bottom &&
+               valid({value.left, value.top}) && valid({value.right, value.bottom});
+    };
+    if (!valid_rectangle(geometry.origins) || !valid_rectangle(geometry.mouths[0]) ||
+        !valid_rectangle(geometry.mouths[1]))
+        return false;
+    const auto first =
+        geometry.axis == CorridorAxis::x ? geometry.origins.left : geometry.origins.top;
+    const auto last =
+        geometry.axis == CorridorAxis::x ? geometry.origins.right : geometry.origins.bottom;
+    const auto lower =
+        geometry.axis == CorridorAxis::x ? geometry.origins.top : geometry.origins.left;
+    const auto upper =
+        geometry.axis == CorridorAxis::x ? geometry.origins.bottom : geometry.origins.right;
+    const auto major_foot = footprint[geometry.axis == CorridorAxis::x ? 0 : 1];
+    const auto transverse_foot = footprint[geometry.axis == CorridorAxis::x ? 1 : 0];
+    if (int(last) - first + 1 < std::max<int>(minimum_corridor_length, 2 * major_foot) ||
+        int(upper) - lower + 1 > 2 * transverse_foot)
+        return false;
+    auto plots = geometry.origins;
+    plots.right = int16_t(plots.right + footprint[0] - 1);
+    plots.bottom = int16_t(plots.bottom + footprint[1] - 1);
+    if (!same_rectangle(geometry.plots, plots) ||
+        !same_rectangle(
+            geometry.mouths[0],
+            rectangle(geometry.axis, int16_t(first - major_foot), int16_t(first - 1), lower, upper)
+        ) ||
+        !same_rectangle(
+            geometry.mouths[1],
+            rectangle(geometry.axis, int16_t(last + 1), int16_t(last + major_foot), lower, upper)
+        ))
+        return false;
+    const int physical_width = int(upper) - lower + transverse_foot;
+    if (physical_width >= 2 * transverse_foot) {
+        const auto lane = int16_t(lower + (physical_width - 2 * transverse_foot) / 2);
+        return geometry.lane_count == 2 && geometry.lane_origins[0] == lane &&
+               geometry.lane_origins[1] == lane + transverse_foot;
+    }
+    return geometry.lane_count == 1 && geometry.lane_origins[0] == (int(lower) + upper) / 2 &&
+           geometry.lane_origins[1] == 0;
+}
+
+namespace {
+CorridorRectangle index_rectangle(
+    const CorridorGeometry& geometry, CorridorOrigin footprint, uint32_t width, uint32_t height
+) noexcept {
+    const int32_t left = std::min<int32_t>(
+        geometry.plots.left - footprint[0] + 1,
+        std::min(geometry.mouths[0].left, geometry.mouths[1].left)
+    );
+    const int32_t top = std::min<int32_t>(
+        geometry.plots.top - footprint[1] + 1,
+        std::min(geometry.mouths[0].top, geometry.mouths[1].top)
+    );
+    const int32_t right = std::max<int32_t>(
+        geometry.plots.right, std::max(geometry.mouths[0].right, geometry.mouths[1].right)
+    );
+    const int32_t bottom = std::max<int32_t>(
+        geometry.plots.bottom, std::max(geometry.mouths[0].bottom, geometry.mouths[1].bottom)
+    );
+    return {
+        int16_t(uint32_t(std::max(left, 0)) / bucket_side),
+        int16_t(uint32_t(std::max(top, 0)) / bucket_side),
+        int16_t(uint32_t(std::min(right, int32_t(width - 1))) / bucket_side),
+        int16_t(uint32_t(std::min(bottom, int32_t(height - 1))) / bucket_side)
+    };
+}
+} // namespace
+
+bool CorridorCatalog::State::valid_build() const noexcept {
+    const auto& value = build;
+    if (!valid(value.seed.origin) ||
+        (value.seed.axis != CorridorAxis::x && value.seed.axis != CorridorAxis::z))
+        return false;
+    const auto major_axis = value.seed.axis == CorridorAxis::x ? 0u : 1u;
+    const auto minor_axis = 1u - major_axis;
+    const int major_max = int(major_axis == 0 ? width : height) - footprint[major_axis];
+    const int minor_max = int(minor_axis == 0 ? width : height) - footprint[minor_axis];
+    const auto& section = value.section;
+    if (section.major < -1 || section.major > major_max + 1 ||
+        section.minor != value.seed.origin[minor_axis] || section.lower < 0 ||
+        section.upper < section.lower || section.upper > minor_max ||
+        int(section.upper) - section.lower + 1 > 2 * footprint[minor_axis] + 1 ||
+        (section.wide && (!section.valid || section.phase != SectionPhase::done)))
+        return false;
+    if (section.phase == SectionPhase::centre &&
+        (section.lower != 0 || section.upper != 0 || section.valid || section.wide))
+        return false;
+    if (section.phase != SectionPhase::done && (section.valid || section.wide))
+        return false;
+    const bool contains_minor = section.lower <= section.minor && section.minor <= section.upper;
+    if ((section.phase == SectionPhase::lower || section.phase == SectionPhase::upper) &&
+        (!contains_minor ||
+         (section.phase == SectionPhase::lower && section.upper != section.minor)))
+        return false;
+    if (!section.wide && int(section.upper) - section.lower + 1 > 2 * footprint[minor_axis])
+        return false;
+    if (section.valid && (section.minor < section.lower || section.minor > section.upper))
+        return false;
+    if (section.wide && int(section.upper) - section.lower + 1 != 2 * footprint[minor_axis] + 1)
+        return false;
+    if (value.first < 0 || value.first > value.last || value.last > major_max || value.lower < 0 ||
+        value.lower > value.upper || value.upper > minor_max || value.mouth_row < 0 ||
+        value.mouth_row > footprint[major_axis] || value.mouth_minor < -1 ||
+        value.mouth_minor > minor_max + 1)
+        return false;
+    if (value.phase == BuildPhase::baseline) {
+        if (value.first != 0 || value.last != 0 || value.lower != 0 || value.upper != 0 ||
+            section.major != value.seed.origin[major_axis])
+            return false;
+    } else if (
+        value.first > value.seed.origin[major_axis] || value.last < value.seed.origin[major_axis] ||
+        value.lower > value.seed.origin[minor_axis] ||
+        value.upper < value.seed.origin[minor_axis] ||
+        int(value.upper) - value.lower + 1 > 2 * footprint[minor_axis]
+    )
+        return false;
+    if ((value.phase == BuildPhase::lower || value.phase == BuildPhase::lower_mouth) &&
+        section.major != value.first - 1)
+        return false;
+    if ((value.phase == BuildPhase::upper || value.phase == BuildPhase::upper_mouth ||
+         value.phase == BuildPhase::index) &&
+        section.major != value.last + 1)
+        return false;
+    if (active &&
+        (value.phase == BuildPhase::baseline || value.phase == BuildPhase::lower ||
+         value.phase == BuildPhase::upper) &&
+        section.phase == SectionPhase::done)
+        return false;
+    if ((value.phase == BuildPhase::lower_mouth || value.phase == BuildPhase::upper_mouth ||
+         value.phase == BuildPhase::index) &&
+        (section.phase != SectionPhase::done || !section.valid))
+        return false;
+    if (active &&
+        (value.phase == BuildPhase::lower_mouth || value.phase == BuildPhase::upper_mouth) &&
+        value.mouth_row == footprint[major_axis])
+        return false;
+    const bool empty = empty_geometry(value.result);
+    if (!valid_geometry(value.result))
+        return false;
+    if (!empty && (value.result.axis != value.seed.axis ||
+                   !same_rectangle(
+                       value.result.origins,
+                       rectangle(value.seed.axis, value.first, value.last, value.lower, value.upper)
+                   )))
+        return false;
+    if (value.phase == BuildPhase::index) {
+        if (empty || value.result.id == 0 || value.mouth_row != footprint[major_axis] ||
+            value.mouth_minor != value.upper + 1 || !value.extension ||
+            (active && (count >= corridor_capacity || value.result.id != count + 1 ||
+                        value.result.revision != revision)))
+            return false;
+        const auto bounds = index_rectangle(value.result, footprint, width, height);
+        if (value.bucket_first_x != uint32_t(bounds.left) ||
+            value.bucket_last_x != uint32_t(bounds.right) ||
+            value.bucket_last_z != uint32_t(bounds.bottom) ||
+            value.bucket_x < uint32_t(bounds.left) || value.bucket_x > uint32_t(bounds.right) ||
+            value.bucket_z < uint32_t(bounds.top) || value.bucket_z > uint32_t(bounds.bottom))
+            return false;
+    } else if (
+        value.bucket_x || value.bucket_z || value.bucket_first_x || value.bucket_last_x ||
+        value.bucket_last_z ||
+        (!empty && (active || value.phase != BuildPhase::upper_mouth || value.result.id != 0 ||
+                    value.result.revision != 0))
+    )
+        return false;
+    return true;
+}
+
+bool CorridorCatalog::State::valid_buckets() const noexcept {
+    const auto allowed = corridor_capacity == maximum_corridors
+                             ? std::numeric_limits<uint64_t>::max()
+                             : (uint64_t{1} << corridor_capacity) - 1;
+    std::array<CorridorRectangle, maximum_corridors> bounds{};
+    for (uint32_t index = 0; index < count; ++index)
+        bounds[index] = index_rectangle(corridors[index], footprint, width, height);
+    CorridorRectangle partial{};
+    const bool indexing = active && build.phase == BuildPhase::index;
+    if (indexing)
+        partial = index_rectangle(build.result, footprint, width, height);
+    for (uint32_t index = 0; index < bucket_count; ++index) {
+        const auto bits = buckets[index];
+        if ((bits & ~allowed) != 0)
+            return false;
+        if (clearing) {
+            if (index < clear_cursor && bits != 0)
+                return false;
+            continue;
+        }
+        const CorridorOrigin at{int16_t(index % columns), int16_t(index / columns)};
+        uint64_t expected{};
+        for (uint32_t corridor = 0; corridor < count; ++corridor)
+            if (contains(bounds[corridor], at))
+                expected |= uint64_t{1} << corridor;
+        if (indexing && contains(partial, at) &&
+            (uint32_t(at[1]) < build.bucket_z ||
+             (uint32_t(at[1]) == build.bucket_z && uint32_t(at[0]) < build.bucket_x)))
+            expected |= uint64_t{1} << count;
+        if (bits != expected)
+            return false;
+    }
+    return true;
+}
+
+bool CorridorCatalog::State::decode(std::span<const uint8_t> input) noexcept {
+    if (!enabled || input.size() != wire_size())
+        return false;
+    StateReader reader{input};
+    if (reader.integer(4) != catalog_state_magic || reader.integer(4) != catalog_state_format ||
+        reader.integer(4) != width || reader.integer(4) != height || reader.origin() != footprint ||
+        reader.integer(4) != corridor_capacity || reader.integer(4) != seed_capacity ||
+        reader.integer(4) != columns || reader.integer(4) != rows)
+        return false;
+    count = static_cast<uint32_t>(reader.integer(4));
+    queue_head = static_cast<uint32_t>(reader.integer(4));
+    queue_count = static_cast<uint32_t>(reader.integer(4));
+    clear_cursor = static_cast<uint32_t>(reader.integer(4));
+    const auto flags = reader.integer(4);
+    if ((flags & ~(uint64_t(state_active_flag) | state_clearing_flag)) != 0 ||
+        count > corridor_capacity || queue_head >= seed_capacity || queue_count > seed_capacity ||
+        clear_cursor > bucket_count)
+        return false;
+    active = (flags & state_active_flag) != 0;
+    clearing = (flags & state_clearing_flag) != 0;
+    if ((clearing && (active || count != 0 || clear_cursor == bucket_count)) ||
+        (!clearing && clear_cursor != 0 && clear_cursor != bucket_count))
+        return false;
+    revision = reader.integer(8);
+    work_units = reader.integer(8);
+    samples = reader.integer(8);
+    rejected_seeds = reader.integer(8);
+    if (reader.integer(8) != wire_size() || samples > work_units)
+        return false;
+    reader.zero(32);
+    const auto seed = [&](Seed& value) {
+        value.origin = reader.origin();
+        const auto axis = reader.integer(1);
+        reader.valid &= axis <= static_cast<uint8_t>(CorridorAxis::z);
+        value.axis = static_cast<CorridorAxis>(axis);
+        reader.zero(3);
+        reader.valid &= valid(value.origin);
+    };
+    seed(build.seed);
+    build.section.major = reader.signed16();
+    build.section.minor = reader.signed16();
+    build.section.lower = reader.signed16();
+    build.section.upper = reader.signed16();
+    const auto section_phase = reader.integer(1);
+    reader.valid &= section_phase <= static_cast<uint8_t>(SectionPhase::done);
+    build.section.phase = static_cast<SectionPhase>(section_phase);
+    build.section.valid = reader.boolean();
+    build.section.wide = reader.boolean();
+    reader.zero(5);
+    const auto phase = reader.integer(1);
+    reader.valid &= phase <= static_cast<uint8_t>(BuildPhase::index);
+    build.phase = static_cast<BuildPhase>(phase);
+    reader.zero(1);
+    build.first = reader.signed16();
+    build.last = reader.signed16();
+    build.lower = reader.signed16();
+    build.upper = reader.signed16();
+    build.mouth_row = reader.signed16();
+    build.mouth_minor = reader.signed16();
+    build.extension = reader.boolean();
+    reader.zero(9);
+    build.result = reader.geometry();
+    build.bucket_x = static_cast<uint32_t>(reader.integer(4));
+    build.bucket_z = static_cast<uint32_t>(reader.integer(4));
+    build.bucket_first_x = static_cast<uint32_t>(reader.integer(4));
+    build.bucket_last_x = static_cast<uint32_t>(reader.integer(4));
+    build.bucket_last_z = static_cast<uint32_t>(reader.integer(4));
+    reader.zero(28);
+    for (uint32_t index = 0; index < corridor_capacity; ++index) {
+        auto& geometry = corridors[index];
+        geometry = reader.geometry();
+        const bool empty = empty_geometry(geometry);
+        if (!valid_geometry(geometry) || (!empty && geometry.id != index + 1) ||
+            (index < count && (empty || geometry.revision != revision)))
+            return false;
+        if (index < count)
+            for (uint32_t prior = 0; prior < index; ++prior)
+                if (same(geometry, corridors[prior]))
+                    return false;
+    }
+    for (uint32_t index = 0; index < seed_capacity; ++index)
+        seed(seeds[index]);
+    for (uint32_t index = 0; index < bucket_count; ++index)
+        buckets[index] = reader.integer(8);
+    if (!reader.valid || reader.cursor != input.size() || !valid_build() || !valid_buckets())
+        return false;
+    for (uint32_t offset = 0; offset < queue_count; ++offset) {
+        const auto& value = seeds[(queue_head + offset) % seed_capacity];
+        if (active && value.origin == build.seed.origin && value.axis == build.seed.axis)
+            return false;
+        for (uint32_t prior = 0; prior < offset; ++prior) {
+            const auto& other = seeds[(queue_head + prior) % seed_capacity];
+            if (value.origin == other.origin && value.axis == other.axis)
+                return false;
+        }
+    }
+    return true;
+}
 
 CorridorCatalog::CorridorCatalog(
     uint32_t width, uint32_t height, CorridorOrigin footprint, CorridorLimits limits
 )
-    : state_(std::make_unique<State>(width, height, footprint, limits)) {
+    : state_(std::make_unique<State>(width, height, footprint, limits)),
+      restore_state_(std::make_unique<State>(width, height, footprint, limits)) {
+    saved_size_ = state_->wire_size();
+    if (saved_size_ != 0)
+        saved_bytes_ = std::make_unique<uint8_t[]>(saved_size_);
 }
 
 CorridorCatalog::~CorridorCatalog() = default;
@@ -642,9 +1138,41 @@ CorridorStatus CorridorCatalog::status() const noexcept {
 
 uint64_t CorridorCatalog::allocated_bytes() const noexcept {
     const auto& state = *state_;
-    return sizeof(State) + uint64_t(state.corridor_capacity) * sizeof(CorridorGeometry) +
-           uint64_t(state.seed_capacity) * sizeof(State::Seed) +
-           uint64_t(state.bucket_count) * sizeof(uint64_t);
+    const auto native = sizeof(State) +
+                        uint64_t(state.corridor_capacity) * sizeof(CorridorGeometry) +
+                        uint64_t(state.seed_capacity) * sizeof(State::Seed) +
+                        uint64_t(state.bucket_count) * sizeof(uint64_t);
+    return sizeof(CorridorCatalog) + native * 2 + saved_size_;
+}
+
+size_t CorridorCatalog::saved_size() const noexcept {
+    return saved_size_;
+}
+
+bool CorridorCatalog::write_state(std::span<uint8_t> output) const noexcept {
+    if (saved_size_ == 0 || output.size() != saved_size_)
+        return false;
+    state_->encode(output);
+    return true;
+}
+
+std::span<const uint8_t> CorridorCatalog::state_bytes() const noexcept {
+    if (saved_size_ == 0)
+        return {};
+    const std::span<uint8_t> output{saved_bytes_.get(), saved_size_};
+    state_->encode(output);
+    return output;
+}
+
+bool CorridorCatalog::can_restore(std::span<const uint8_t> input) const noexcept {
+    return restore_state_->decode(input);
+}
+
+bool CorridorCatalog::restore(std::span<const uint8_t> input) noexcept {
+    if (!restore_state_->decode(input))
+        return false;
+    state_.swap(restore_state_);
+    return true;
 }
 
 } // namespace oa::sim::ground_orders

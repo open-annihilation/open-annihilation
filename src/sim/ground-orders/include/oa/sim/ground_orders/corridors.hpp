@@ -6,6 +6,7 @@
 #include "oa/sim/ground_orders/navigator.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -152,13 +153,28 @@ class CorridorCatalog {
     ) const noexcept;
     /// Returns bounded construction progress and cumulative work counters.
     [[nodiscard]] CorridorStatus status() const noexcept;
-    /// Returns allocated storage bytes, excluding allocator overhead.
+    /// Returns storage bytes including validation scratch and the encoded cache, excluding allocator overhead.
     [[nodiscard]] uint64_t allocated_bytes() const noexcept;
+    /// Returns the fixed canonical byte count for these bounds, or zero when disabled.
+    [[nodiscard]] std::size_t saved_size() const noexcept;
+    /// Writes every pending, published and partially indexed state in canonical little-endian form.
+    /// No allocation occurs; a buffer with a different size is left unchanged.
+    [[nodiscard]] bool write_state(std::span<uint8_t> output) const noexcept;
+    /// Encodes into the constructor-preallocated byte cache; the next call overwrites this view.
+    [[nodiscard]] std::span<const uint8_t> state_bytes() const noexcept;
+    /// Validates a compatible state using preallocated scratch without changing observable state.
+    [[nodiscard]] bool can_restore(std::span<const uint8_t> input) const noexcept;
+    /// Atomically restores exact construction timing; malformed or incompatible bytes change nothing.
+    /// Successful restoration invalidates borrowed geometry pointers and performs no rebuild.
+    [[nodiscard]] bool restore(std::span<const uint8_t> input) noexcept;
 
   private:
 
     struct State;
     std::unique_ptr<State> state_;
+    mutable std::unique_ptr<State> restore_state_;
+    mutable std::unique_ptr<uint8_t[]> saved_bytes_;
+    std::size_t saved_size_{};
 };
 
 } // namespace oa::sim::ground_orders
