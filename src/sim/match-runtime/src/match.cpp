@@ -408,6 +408,7 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         enhanced_->local_flow_save_bytes =
             std::make_unique<uint8_t[]>(slots_.size() * sim::unit_movement::local_flow_head_bytes);
         enhanced_->local_flow_progress_bytes = std::make_unique<uint8_t[]>(slots_.size() * 4);
+        enhanced_->local_flow_progress_at_tick_start = std::make_unique<uint32_t[]>(slots_.size());
         sighting_query_.reserve(slots_.size());
         for (size_t player = 0; player < seen_before_.size(); ++player) {
             seen_before_[player] = std::make_unique<sim::detection::SightedUnit[]>(slots_.size());
@@ -849,8 +850,12 @@ std::size_t Match::event_listener_count() const noexcept {
 }
 
 void Match::report_created(const sim::unit_spawn::Slot* slot, bool finished, uint16_t builder) {
-    if (enhanced_ && slot != nullptr && slot->unit_index < enhanced_->unit_count)
+    if (enhanced_ && slot != nullptr && slot->unit_index < enhanced_->unit_count) {
         enhanced_->local_flow_heads[slot->unit_index] = {};
+        const auto* ground = ground_runtime(slot->unit_index);
+        enhanced_->local_flow_progress_at_tick_start[slot->unit_index] =
+            ground != nullptr ? ground->movement.last_motion_tick : simulation_.tick;
+    }
     if (slot == nullptr || slot->unit == nullptr)
         return;
     const auto unit = slot->unit_index;
@@ -977,6 +982,15 @@ void Match::tick(sim::simulation_state::Host& host) {
         return;
     }
     resolve_effect_sequences();
+    if (enhanced_ && enhanced_->local_flow_progress_at_tick_start) {
+        for (size_t id = 0; id < enhanced_->unit_count; ++id) {
+            const auto* ground = ground_runtime(static_cast<uint16_t>(id));
+            enhanced_->local_flow_progress_at_tick_start[id] =
+                ground != nullptr ? ground->movement.last_motion_tick : 0;
+        }
+        enhanced_->local_flow_progress_snapshot_tick = simulation_.tick;
+        enhanced_->local_flow_progress_snapshot_valid = true;
+    }
     // The game loop's order: units and their scripts, projectiles, then
     // explosions, so records a script or an impact logs are stepped in the
     // tick that logs them.
