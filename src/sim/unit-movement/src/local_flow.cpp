@@ -203,8 +203,9 @@ LocalFlowDecision choose_local_flow(
         return result;
     ++counters.moving_blockers;
     result.mobile_blocked = true;
-    const auto heading = oa::base::game_math::direction(-dx, -dz);
-    const int difference = std::bit_cast<int16_t>(uint16_t(heading - blocker.heading));
+    // Traffic turning together still follows the same direction even while
+    // its current headings differ from the route ahead.
+    const int difference = std::bit_cast<int16_t>(uint16_t(unit.heading - blocker.heading));
     if (std::abs(difference) < eighth_turn && blocker.waiting_ticks <= 1)
         return result;
     const auto unit_id = static_cast<uint16_t>(unit.id);
@@ -216,6 +217,7 @@ LocalFlowDecision choose_local_flow(
         (waiting == blocker.waiting_ticks && unit_id < blocker.unit_id))
         return result;
     ++counters.yielded_ticks;
+    const auto heading = oa::base::game_math::direction(-dx, -dz);
     constexpr std::array<int32_t, 4> turns{-eighth_turn, eighth_turn, -quarter_turn, quarter_turn};
     for (const auto reach : {cell_step, cell_step * 2})
         for (const auto angle : turns) {
