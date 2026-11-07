@@ -306,6 +306,7 @@ void Match::advance_path_search() {
                     // The same publication seam as full A*: route_changed
                     // is picked up by the network's local-player tick hook.
                     (void)sim::ground_orders::accept_path(view, std::span{route}.first(count));
+                    ctx.match->enhanced_->local_flow_heads[slot->unit_index].active = false;
                     return nullptr;
                 }
                 // Returning no job lets the cursor visit other units. Do
@@ -346,6 +347,10 @@ void Match::advance_path_search() {
             flags
         };
         const bool unreachable = sim::ground_orders::accept_path(view, route);
+        // A replacement route supersedes the old traffic detour even when
+        // the destination has not changed. Keep its collision retry clock.
+        if (ctx.shared_routes)
+            ctx.match->enhanced_->local_flow_heads[slot->unit_index].active = false;
         if (!unreachable)
             return;
         const auto* goal = runtime->navigation.goal;
