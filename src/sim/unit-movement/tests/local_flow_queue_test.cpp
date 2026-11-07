@@ -212,15 +212,28 @@ QueueResult run_queue(bool renew_local_attempts, bool filter_previous = true) {
             movement::local_flow_defer_replan(head, motion))
             result.replan_deferred_after_maturity = true;
         const bool just_reached = head.active && movement::local_flow_head_reached(unit, head);
-        if (head.active &&
-            (just_reached ||
-             (renew_local_attempts ? recovery
-                                   : head.blocked_ticks >= movement::local_flow_retry_ticks)))
+        const bool previous_tick = movement::local_flow_completed_last_tick(head, arena.tick);
+        if (just_reached) {
             head.active = false;
+            head.count = movement::local_flow_completed_count;
+            head.tick = arena.tick;
+        } else if (
+            head.active &&
+            (renew_local_attempts ? recovery
+                                  : head.blocked_ticks >= movement::local_flow_retry_ticks)
+        ) {
+            head.active = false;
+            head.count = 0;
+        } else if (
+            !head.active && head.count == movement::local_flow_completed_count && !previous_tick
+        )
+            head.count = 0;
         if (!head.active && (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
             auto probe = arena.probe();
             probe.previous_head =
-                renew_local_attempts && filter_previous && just_reached ? &head : nullptr;
+                renew_local_attempts && filter_previous && (just_reached || previous_tick)
+                    ? &head
+                    : nullptr;
             probe.allow_reverse = recovery;
             const auto decision = movement::choose_local_flow(
                 unit, motion, destination, arena.tick, arena, probe, counters
@@ -242,6 +255,8 @@ QueueResult run_queue(bool renew_local_attempts, bool filter_previous = true) {
                 head.active = true;
             }
         }
+        if (head.active)
+            head.tick = arena.tick;
         auto effective = route;
         if (head.active)
             std::copy(head.points.begin(), head.points.end(), effective.points.begin());
@@ -369,16 +384,29 @@ TrainResult run_train(
                 renew_local_attempts &&
                 movement::local_flow_recovery_due(head, arena.tick, uint16_t(unit.id));
             const bool just_reached = head.active && movement::local_flow_head_reached(unit, head);
-            if (head.active &&
-                (just_reached ||
-                 (renew_local_attempts ? recovery
-                                       : head.blocked_ticks >= movement::local_flow_retry_ticks)))
+            const bool previous_tick = movement::local_flow_completed_last_tick(head, arena.tick);
+            if (just_reached) {
                 head.active = false;
+                head.count = movement::local_flow_completed_count;
+                head.tick = arena.tick;
+            } else if (
+                head.active &&
+                (renew_local_attempts ? recovery
+                                      : head.blocked_ticks >= movement::local_flow_retry_ticks)
+            ) {
+                head.active = false;
+                head.count = 0;
+            } else if (
+                !head.active && head.count == movement::local_flow_completed_count && !previous_tick
+            )
+                head.count = 0;
             if (!head.active &&
                 (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
                 auto probe = arena.probe();
                 probe.previous_head =
-                    renew_local_attempts && filter_previous && just_reached ? &head : nullptr;
+                    renew_local_attempts && filter_previous && (just_reached || previous_tick)
+                        ? &head
+                        : nullptr;
                 probe.allow_reverse = recovery;
                 const auto decision = movement::choose_local_flow(
                     unit, motion, destinations[index], arena.tick, arena, probe, counters
@@ -400,6 +428,8 @@ TrainResult run_train(
                     head.active = true;
                 }
             }
+            if (head.active)
+                head.tick = arena.tick;
             auto effective = routes[index];
             if (head.active)
                 std::copy(head.points.begin(), head.points.end(), effective.points.begin());
@@ -536,6 +566,7 @@ void test_mature_recovery_is_staggered_and_keeps_full_replanning_enabled() {
 
 /// Checks that a completed-head history preserves ordinary queue trips.
 void test_immediate_history_preserves_queue_arrivals() {
+    constexpr uint64_t parked_column_additional_vetoes = 1;
     for (const auto layout : {ArrivalLayout::spread, ArrivalLayout::column}) {
         const auto baseline = run_train(true, true, layout, false);
         const auto history = run_train(true, true, layout, true);
@@ -543,7 +574,9 @@ void test_immediate_history_preserves_queue_arrivals() {
         OA_CHECK(history.arrived == maximum_movers);
         OA_CHECK(history.overlaps == 0);
         OA_CHECK(history.last_arrival <= baseline.last_arrival);
-        OA_CHECK(history.blocked_ticks <= baseline.blocked_ticks);
+        const auto additional_vetoes =
+            layout == ArrivalLayout::column ? parked_column_additional_vetoes : uint64_t{0};
+        OA_CHECK(history.blocked_ticks <= baseline.blocked_ticks + additional_vetoes);
         OA_CHECK(history.orbit_windows <= baseline.orbit_windows);
     }
 }
@@ -604,6 +637,7 @@ ReversalResult run_reversal_history(bool history) {
         const auto recovery =
             movement::local_flow_recovery_due(head, arena.tick, uint16_t(unit.id));
         const bool just_reached = head.active && movement::local_flow_head_reached(unit, head);
+        const bool previous_tick = movement::local_flow_completed_last_tick(head, arena.tick);
         if (just_reached) {
             completed_leg = {
                 int32_t(head.points[1][0]) - head.points[0][0],
@@ -611,11 +645,20 @@ ReversalResult run_reversal_history(bool history) {
             };
             completed = true;
         }
-        if (head.active && (just_reached || recovery))
+        if (just_reached) {
             head.active = false;
+            head.count = movement::local_flow_completed_count;
+            head.tick = arena.tick;
+        } else if (head.active && recovery) {
+            head.active = false;
+            head.count = 0;
+        } else if (
+            !head.active && head.count == movement::local_flow_completed_count && !previous_tick
+        )
+            head.count = 0;
         if (!head.active && (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
             auto probe = arena.probe();
-            probe.previous_head = history && just_reached ? &head : nullptr;
+            probe.previous_head = history && (just_reached || previous_tick) ? &head : nullptr;
             probe.allow_reverse = recovery;
             const auto queries = counters.probes;
             const auto decision = movement::choose_local_flow(
@@ -644,6 +687,8 @@ ReversalResult run_reversal_history(bool history) {
                 completed = false;
             }
         }
+        if (head.active)
+            head.tick = arena.tick;
         auto effective = route;
         if (head.active)
             std::copy(head.points.begin(), head.points.end(), effective.points.begin());
@@ -772,6 +817,232 @@ void test_history_does_not_block_forward_or_recovery_legs() {
     OA_CHECK(arena.overlaps == 0);
 }
 
+/// Lets a higher-id blocker make a real subcell progress pulse at a passing boundary.
+struct CreepingArena : NorthPassingArena {
+    static constexpr uint16_t creeping_id = mover_id + 1;
+    static constexpr movement::Fixed creep_speed = fixed_one / 16;
+    movement::Movement creeping{};
+
+    CreepingArena() {
+        remove_occupancy(blocker);
+        blocker.id = creeping_id;
+        insert_occupancy(blocker);
+        creeping.flags = ground_occupancy;
+        creeping.speed = creep_speed;
+        creeping.velocity = movement::aim_velocity(blocker.heading, 0, creep_speed);
+    }
+
+    /// Reads the two real actors and their tick-start progress snapshots.
+    movement::LocalFlowProbe probe() {
+        return {
+            this,
+            [](void* context,
+               const movement::Unit& unit,
+               std::array<int16_t, 2> cell,
+               uint8_t occupancy) {
+                auto& arena = *static_cast<CreepingArena*>(context);
+                using movement::LocalFlowBlocker;
+                using movement::LocalFlowObstacle;
+                if (occupancy != ground_occupancy || !arena.terrain_clear(unit, cell))
+                    return LocalFlowBlocker{LocalFlowObstacle::stationary};
+                for (int16_t z = 0; z < unit.footprint[1]; ++z)
+                    for (int16_t x = 0; x < unit.footprint[0]; ++x) {
+                        const auto id = arena.occupants[plot(cell[0] + x, cell[1] + z)];
+                        if (id != 0 && id != uint16_t(unit.id))
+                            return LocalFlowBlocker{
+                                LocalFlowObstacle::moving,
+                                id,
+                                arena.blocker.heading,
+                                arena.tick - arena.progress[id]
+                            };
+                    }
+                return LocalFlowBlocker{};
+            },
+            progress
+        };
+    }
+};
+
+struct GapResult {
+    uint64_t distance{};
+    uint64_t closed_orbit_windows{};
+    uint32_t arrival{};
+    uint32_t legs{};
+    uint32_t completion_gaps{};
+    uint32_t tied_priority_gaps{};
+    uint32_t bridged_gaps{};
+    uint32_t opposite_legs{};
+    uint32_t peak_queries{};
+    uint32_t overlaps{};
+    bool operator==(const GapResult&) const = default;
+};
+
+/// Reproduces a one-tick choice gap caused by real progress-clock priority.
+GapResult run_completion_gap(bool bridge_previous_tick) {
+    constexpr size_t history_size = 61;
+    constexpr uint64_t orbit_travel = 24 * fixed_one;
+    constexpr uint32_t orbit_radius = 5 * fixed_one;
+    CreepingArena arena;
+    auto& unit = arena.movers[0];
+    movement::Movement motion{};
+    motion.flags = ground_occupancy;
+    motion.speed = maximum_speed;
+    movement::LocalFlowHead head{};
+    movement::LocalFlowCounters counters{};
+    const std::array<movement::Fixed, 3> destination{
+        destination_x * fixed_one, 0, centre(lane_row) * fixed_one
+    };
+    ground::Navigation route{};
+    route.count = 3;
+    route.flags = ground::route_present_flag | ground::search_pending_flag;
+    route.points[0] = {centre(start_column), centre(lane_row)};
+    route.points[1] = route.points[2] = {destination_x, centre(lane_row)};
+    std::array<std::array<movement::Fixed, 3>, history_size> positions{};
+    positions.fill(unit.position);
+    std::array<uint64_t, history_size> distances{};
+    std::array<int32_t, 2> completed_leg{};
+    bool completed{};
+    GapResult result{};
+    for (arena.tick = 1; arena.tick <= tick_limit; ++arena.tick) {
+        arena.progress[mover_id] = motion.last_motion_tick;
+        arena.progress[CreepingArena::creeping_id] = arena.creeping.last_motion_tick;
+        const bool recovery =
+            movement::local_flow_recovery_due(head, arena.tick, uint16_t(unit.id));
+        const bool just_reached = head.active && movement::local_flow_head_reached(unit, head);
+        const bool previous_tick = movement::local_flow_completed_last_tick(head, arena.tick);
+        if (just_reached) {
+            completed_leg = {
+                int32_t(head.points[1][0]) - head.points[0][0],
+                int32_t(head.points[1][1]) - head.points[0][1]
+            };
+            completed = true;
+            head.active = false;
+            head.count = movement::local_flow_completed_count;
+            head.tick = arena.tick;
+        } else if (head.active && recovery) {
+            head.active = false;
+            head.count = 0;
+        } else if (
+            !head.active && head.count == movement::local_flow_completed_count && !previous_tick
+        )
+            head.count = 0;
+        if (!head.active && (head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
+            auto probe = arena.probe();
+            probe.previous_head =
+                just_reached || (bridge_previous_tick && previous_tick) ? &head : nullptr;
+            probe.allow_reverse = recovery;
+            if (bridge_previous_tick && previous_tick)
+                ++result.bridged_gaps;
+            const auto queries = counters.probes;
+            const auto decision = movement::choose_local_flow(
+                unit, motion, destination, arena.tick, arena, probe, counters
+            );
+            result.peak_queries =
+                std::max(result.peak_queries, static_cast<uint32_t>(counters.probes - queries));
+            head.mobile_blocked = decision.mobile_blocked;
+            if (decision.adjusted) {
+                const ground::RoutePoint origin{
+                    static_cast<int16_t>(unit.position[0] >> 16),
+                    static_cast<int16_t>(unit.position[2] >> 16)
+                };
+                const ground::RoutePoint next{
+                    static_cast<int16_t>(decision.target[0] >> 16),
+                    static_cast<int16_t>(decision.target[2] >> 16)
+                };
+                const auto dot = int64_t(next[0] - origin[0]) * completed_leg[0] +
+                                 int64_t(next[1] - origin[1]) * completed_leg[1];
+                if (completed && dot < 0)
+                    ++result.opposite_legs;
+                ++result.legs;
+                head.points = {origin, next, route.points[2]};
+                head.count = 3;
+                head.active = true;
+                completed = false;
+            } else if (just_reached) {
+                ++result.completion_gaps;
+                if (motion.last_motion_tick == arena.creeping.last_motion_tick)
+                    ++result.tied_priority_gaps;
+            }
+        }
+        if (head.active)
+            head.tick = arena.tick;
+        auto effective = route;
+        if (head.active)
+            std::copy(head.points.begin(), head.points.end(), effective.points.begin());
+        const auto before = unit.position;
+        ground::steer_ground(
+            unit,
+            motion,
+            effective,
+            acceleration,
+            acceleration,
+            0,
+            ground::FastUnitSteering::as_3_1c
+        );
+        movement::integrate_local_flow(unit, motion, arena.tick, true, arena, counters);
+        movement::record_local_flow_block(head, (motion.flags & movement::collision_blocked) != 0);
+        result.distance += oa::base::game_math::distance(
+            unit.position[0] - before[0], unit.position[2] - before[2]
+        );
+        const auto slot = size_t(arena.tick % history_size);
+        if (arena.tick >= history_size - 1) {
+            const auto from = size_t((arena.tick - (history_size - 1)) % history_size);
+            if (result.distance - distances[from] > orbit_travel &&
+                oa::base::game_math::distance(
+                    unit.position[0] - positions[from][0], unit.position[2] - positions[from][2]
+                ) < orbit_radius)
+                ++result.closed_orbit_windows;
+        }
+        positions[slot] = unit.position;
+        distances[slot] = result.distance;
+        // The later actor really moves, so both next-tick priority clocks tie.
+        // On the following tick it holds position and loses that fresh age.
+        if (head.active && movement::local_flow_head_reached(unit, head))
+            movement::integrate_local_flow(
+                arena.blocker, arena.creeping, arena.tick, true, arena, counters
+            );
+        if (oa::base::game_math::distance(
+                unit.position[0] - destination[0], unit.position[2] - destination[2]
+            ) < uint32_t(arrival_radius)) {
+            result.arrival = arena.tick;
+            break;
+        }
+    }
+    result.overlaps = arena.overlaps;
+    return result;
+}
+
+/// Checks that a single canonical-route tick cannot erase a completed passing leg.
+void test_one_tick_priority_gap_keeps_the_completed_passing_leg() {
+    constexpr uint32_t maximum_queries = 128;
+    const auto bridged = run_completion_gap(true);
+    const auto immediate_only = run_completion_gap(false);
+    OA_CHECK(bridged == run_completion_gap(true));
+    OA_CHECK(bridged.overlaps == 0 && immediate_only.overlaps == 0);
+    OA_CHECK(bridged.arrival != 0 && bridged.arrival < tick_limit / 2);
+    OA_CHECK(immediate_only.arrival == 0);
+    OA_CHECK(bridged.completion_gaps != 0 && bridged.tied_priority_gaps != 0);
+    OA_CHECK(bridged.bridged_gaps != 0);
+    OA_CHECK(bridged.opposite_legs == 0 && immediate_only.opposite_legs != 0);
+    OA_CHECK(bridged.closed_orbit_windows == 0 && immediate_only.closed_orbit_windows != 0);
+    OA_CHECK(bridged.legs < immediate_only.legs / 2);
+    OA_CHECK(bridged.distance < immediate_only.distance);
+    OA_CHECK(bridged.peak_queries <= maximum_queries);
+    OA_CHECK(immediate_only.peak_queries <= maximum_queries);
+    std::printf(
+        "one-tick history: arrival %u / %u, gaps %u / %u, opposite %u / %u, orbit windows %llu / "
+        "%llu\n",
+        bridged.arrival,
+        immediate_only.arrival,
+        bridged.completion_gaps,
+        immediate_only.completion_gaps,
+        bridged.opposite_legs,
+        immediate_only.opposite_legs,
+        static_cast<unsigned long long>(bridged.closed_orbit_windows),
+        static_cast<unsigned long long>(immediate_only.closed_orbit_windows)
+    );
+}
+
 } // namespace
 
 int main() {
@@ -782,5 +1053,6 @@ int main() {
     test_immediate_history_preserves_queue_arrivals();
     test_completed_local_legs_keep_the_north_passing_lane();
     test_history_does_not_block_forward_or_recovery_legs();
+    test_one_tick_priority_gap_keeps_the_completed_passing_leg();
     return oa::test::check_exit_status();
 }

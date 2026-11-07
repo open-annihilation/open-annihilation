@@ -229,12 +229,25 @@ run_cohorts(bool passed_plane, bool history = false, CohortKind kind = CohortKin
                 agent.head.active &&
                 (passed_plane ? movement::local_flow_head_reached(agent.unit, agent.head)
                               : radius_only_reached(agent.unit, agent.head));
-            if (agent.head.active && (just_reached || recovery))
+            const bool previous_tick =
+                movement::local_flow_completed_last_tick(agent.head, arena.tick);
+            if (just_reached) {
                 agent.head.active = false;
+                agent.head.count = movement::local_flow_completed_count;
+                agent.head.tick = arena.tick;
+            } else if (agent.head.active && recovery) {
+                agent.head.active = false;
+                agent.head.count = 0;
+            } else if (
+                !agent.head.active && agent.head.count == movement::local_flow_completed_count &&
+                !previous_tick
+            )
+                agent.head.count = 0;
             if (!agent.head.active &&
                 (agent.head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
                 auto probe = arena.probe();
-                probe.previous_head = history && just_reached ? &agent.head : nullptr;
+                probe.previous_head =
+                    history && (just_reached || previous_tick) ? &agent.head : nullptr;
                 probe.allow_reverse = recovery;
                 if (probe.previous_head != nullptr)
                     ++result.history_transitions;
@@ -258,6 +271,8 @@ run_cohorts(bool passed_plane, bool history = false, CohortKind kind = CohortKin
                     agent.head.active = true;
                 }
             }
+            if (agent.head.active)
+                agent.head.tick = arena.tick;
             auto effective = agent.navigation;
             if (agent.head.active)
                 std::copy(
