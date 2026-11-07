@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ground_orders/shared_routes.hpp"
+#include "../src/footprint_segment.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/spatial_state/cell_classifier.hpp"
 #include "oa/base/game_math.hpp"
@@ -1195,6 +1196,410 @@ void regional_prefixes_continue_to_the_original_goal_after_restore() {
     CHECK(original.counters().invalidations == 1);
 }
 
+/// Prunes one visible BFS bend while retaining the origin, goal and later guide.
+void one_known_visible_bend_is_pruned_after_the_original_anchor() {
+    Grid grid(64, 64);
+    for (uint32_t z = 16; z <= 48; ++z)
+        grid.cells[z * 64 + 32] = 0;
+    FlowCache cache(64, 64, {1, 256, 2048}, FlowPreset::large_regions);
+    FlowCache loaded(64, 64, {1, 256, 2048}, FlowPreset::large_regions);
+    auto unit = unit_at(15, 15, 2);
+    unit.position.x += 7 << 16;
+    unit.position.z += 7 << 16;
+    const auto goal = circle(56, 32);
+    (void)query(cache, grid, unit, goal, context(1));
+    (void)query(cache, grid, unit, goal, context(1));
+    finish(cache, grid);
+    const std::vector<uint8_t> saved(cache.state_bytes().begin(), cache.state_bytes().end());
+    CHECK(loaded.restore(saved));
+    std::array<RoutePoint, navigation_capacity> points{}, resumed{};
+    uint32_t count{}, resumed_count{};
+    const auto before = grid.queries;
+    CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
+    const auto known_probes = grid.queries - before;
+    CHECK(count >= 2);
+    CHECK(points[1] != (RoutePoint{336, 208}));
+    CHECK(points[0] == (RoutePoint{263, 263}));
+    CHECK(points[count - 1] == (RoutePoint{912, 528}));
+    CHECK(
+        loaded.route(context(1), unit, goal, resumed, resumed_count, grid.sampler()) ==
+        FlowResult::ready
+    );
+    CHECK(count == resumed_count && points == resumed);
+    CHECK(
+        std::equal(
+            cache.state_bytes().begin(), cache.state_bytes().end(), loaded.state_bytes().begin()
+        )
+    );
+
+    struct Unknown {
+        FlowSampler physical{};
+        int32_t x{}, z{};
+    } unknown{grid.sampler(), unit.cell_x, unit.cell_z};
+
+    const FlowSampler unseen{
+        &unknown, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) -> uint8_t {
+            const auto& source = *static_cast<Unknown*>(p);
+            const auto value = source.physical.cell(source.physical.context, klass, player, x, z);
+            return x == source.x && z == source.z ? 2 : value;
+        }
+    };
+    CHECK(loaded.restore(saved));
+    const auto before_unknown = grid.queries;
+    CHECK(
+        loaded.route(context(1), unit, goal, resumed, resumed_count, unseen) == FlowResult::ready
+    );
+    const auto unknown_probes = grid.queries - before_unknown;
+    CHECK(resumed_count == count + 1);
+    CHECK(resumed[1] == (RoutePoint{336, 208}));
+    CHECK(points[0] == resumed[0]);
+    CHECK(std::equal(points.begin() + 1, points.begin() + count, resumed.begin() + 2));
+    // The unknown start passes the ordinary planner but rejects the one
+    // optional visible ray at its first probe; all mandatory work is equal.
+    const int32_t target_x = (resumed[2][0] - 16) / 16;
+    const int32_t target_z = (resumed[2][1] - 16) / 16;
+    const auto dx = static_cast<uint32_t>(std::abs(target_x - unit.cell_x));
+    const auto dz = static_cast<uint32_t>(std::abs(target_z - unit.cell_z));
+    const uint64_t chord_cost = 1 + std::max(dx, dz) + 2 * std::min(dx, dz);
+    CHECK(known_probes > unknown_probes);
+    CHECK(known_probes - unknown_probes + 1 <= chord_cost);
+    CHECK(chord_cost <= 128);
+    CHECK(goal.cell == (std::array<int16_t, 2>{56, 32}));
+
+    // The unknown-only first probe separates mandatory work from the extra
+    // visible chord. Give the ordinary guide exactly that work plus one spare.
+    FlowCache limited(
+        64, 64, {1, 256, 2048, static_cast<uint32_t>(unknown_probes)}, FlowPreset::large_regions
+    );
+    (void)query(limited, grid, unit, goal, context(1));
+    (void)query(limited, grid, unit, goal, context(1));
+    finish(limited, grid);
+    const auto before_limited = grid.queries;
+    CHECK(
+        limited.route(context(1), unit, goal, resumed, resumed_count, grid.sampler()) ==
+        FlowResult::ready
+    );
+    CHECK(grid.queries - before_limited + 1 == unknown_probes);
+    CHECK(resumed_count == count + 1);
+    const auto limited_bytes = limited.state_bytes();
+    CHECK(
+        limited_bytes[60] == 1 && limited_bytes[61] == 0 && limited_bytes[62] == 0 &&
+        limited_bytes[63] == 0
+    );
+}
+
+/// Unknown terrain and a newly blocked chord retain the already valid guide.
+void optional_visible_chords_fall_back_without_invalidating_the_field() {
+    Grid grid(64, 64);
+    for (uint32_t z = 16; z <= 48; ++z)
+        grid.cells[z * 64 + 32] = 0;
+    FlowCache cache(64, 64, {1, 256, 2048}, FlowPreset::large_regions);
+    auto unit = unit_at(15, 15, 2);
+    unit.position.x += 7 << 16;
+    unit.position.z += 7 << 16;
+    const auto goal = circle(56, 32);
+    (void)query(cache, grid, unit, goal, context(1));
+    (void)query(cache, grid, unit, goal, context(1));
+    finish(cache, grid);
+
+    struct Fog {
+        FlowSampler physical{};
+    } fog{grid.sampler()};
+
+    const FlowSampler unseen{
+        &fog, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) -> uint8_t {
+            const auto& sampler = static_cast<Fog*>(p)->physical;
+            const auto value = sampler.cell(sampler.context, klass, player, x, z);
+            return x == 24 && z == 14 ? 2 : value;
+        }
+    };
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(cache.route(context(1), unit, goal, points, count, unseen) == FlowResult::ready);
+    CHECK(count >= 3 && points[1] == (RoutePoint{336, 208}));
+    const auto unknown_count = count;
+    const auto unknown_points = points;
+    grid.cells[14 * 64 + 24] = 0;
+    CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
+    CHECK(count == unknown_count && points == unknown_points);
+    CHECK(cache.counters().fields_started == 1);
+    CHECK(cache.counters().invalidations == 0);
+}
+
+/// A longer clear ray cannot consume more than the optional per-request allowance.
+void optional_visible_chords_obey_the_per_request_cap() {
+    Grid grid(128, 128);
+    for (uint32_t z = 80; z < 128; ++z)
+        grid.cells[z * 128 + 100] = 0;
+    FlowCache cache(128, 128, {1, 1024, 2048}, FlowPreset::large_regions);
+    const auto unit = unit_at(4, 44, 2);
+    const auto goal = circle(112, 84);
+    (void)query(cache, grid, unit, goal, context(1));
+    (void)query(cache, grid, unit, goal, context(1));
+    finish(cache, grid);
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
+    CHECK(count == 3);
+    const int32_t target_x = (points[2][0] - 16) / 16;
+    const int32_t target_z = (points[2][1] - 16) / 16;
+    const auto dx = static_cast<uint32_t>(std::abs(target_x - unit.cell_x));
+    const auto dz = static_cast<uint32_t>(std::abs(target_z - unit.cell_z));
+    CHECK(1 + std::max(dx, dz) + 2 * std::min(dx, dz) == 129);
+    CHECK(points[0] == (RoutePoint{80, 720}));
+    CHECK(points[count - 1] != (RoutePoint{1808, 1360}));
+}
+
+/// An off-centre start can cross a blocked origin missed by a centre-to-centre ray.
+void visible_shortcuts_keep_off_centre_footprints_clear() {
+    for (const int16_t footprint : {int16_t{1}, int16_t{2}})
+        for (const bool transpose : {false, true}) {
+            Grid grid(32, 32);
+            const auto plot = [&](uint32_t x, uint32_t z) {
+                return transpose ? x * grid.width + z : z * grid.width + x;
+            };
+            grid.cells[plot(0, static_cast<uint32_t>(footprint))] = 0;
+            grid.cells[plot(12, 3)] = 0;
+            FlowCache cache(32, 32, {1, 64, 2048}, FlowPreset::large_regions);
+            auto unit = unit_at(0, 0, footprint);
+            if (transpose)
+                unit.position.x += 7 << 16;
+            else
+                unit.position.z += 7 << 16;
+            const auto goal = transpose ? circle(4, 16) : circle(16, 4);
+            const auto ctx = context(static_cast<uint32_t>(footprint - 1));
+            (void)query(cache, grid, unit, goal, ctx);
+            (void)query(cache, grid, unit, goal, ctx);
+            finish(cache, grid);
+            std::array<RoutePoint, navigation_capacity> points{};
+            uint32_t count{};
+            CHECK(cache.route(ctx, unit, goal, points, count, grid.sampler()) == FlowResult::ready);
+            const auto centre = static_cast<int16_t>(footprint * 8);
+            const RoutePoint required = transpose ? RoutePoint{centre, int16_t(64 + centre)}
+                                                  : RoutePoint{int16_t(64 + centre), centre};
+            CHECK(count == 4);
+            CHECK(points[1] == required);
+            CHECK(
+                points[0] == (RoutePoint{
+                                 static_cast<int16_t>(unit.position.x >> 16),
+                                 static_cast<int16_t>(unit.position.z >> 16)
+                             })
+            );
+            CHECK(
+                goal.cell ==
+                (transpose ? std::array<int16_t, 2>{4, 16} : std::array<int16_t, 2>{16, 4})
+            );
+        }
+}
+
+/// Produces the origin sequence from an independently sorted list of boundary events.
+std::vector<std::array<int16_t, 2>>
+sorted_segment_origins(const footprint_segment_detail::Segment& segment) {
+    using namespace footprint_segment_detail;
+
+    struct Event {
+        int64_t numerator{}, denominator{};
+        unsigned axis{};
+    };
+
+    std::vector<Event> events;
+    std::array<int16_t, 2> step{};
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        const auto delta = segment.to[axis] - segment.from[axis];
+        step[axis] = static_cast<int16_t>((delta > 0) - (delta < 0));
+        if (delta > 0)
+            for (int64_t line = (int64_t(segment.first[axis]) + 1) * cell_step;
+                 line <= segment.to[axis];
+                 line += cell_step)
+                events.push_back({line - segment.from[axis], delta, axis});
+        else if (delta < 0)
+            for (int64_t line = int64_t(segment.first[axis]) * cell_step; line > segment.to[axis];
+                 line -= cell_step)
+                events.push_back({segment.from[axis] - line, -delta, axis});
+    }
+    std::sort(events.begin(), events.end(), [](const Event& a, const Event& b) {
+        const auto left = a.numerator * b.denominator;
+        const auto right = b.numerator * a.denominator;
+        return left != right ? left < right : a.axis < b.axis;
+    });
+    auto cell = segment.first;
+    std::vector<std::array<int16_t, 2>> cells{cell};
+    for (size_t at = 0; at < events.size();) {
+        const auto& first = events[at];
+        const bool diagonal =
+            at + 1 < events.size() && first.numerator * events[at + 1].denominator ==
+                                          events[at + 1].numerator * first.denominator;
+        if (diagonal) {
+            CHECK(first.axis != events[at + 1].axis);
+            cells.push_back({static_cast<int16_t>(cell[0] + step[0]), cell[1]});
+            cells.push_back({cell[0], static_cast<int16_t>(cell[1] + step[1])});
+            cell[0] = static_cast<int16_t>(cell[0] + step[0]);
+            cell[1] = static_cast<int16_t>(cell[1] + step[1]);
+            at += 2;
+        } else {
+            cell[first.axis] = static_cast<int16_t>(cell[first.axis] + step[first.axis]);
+            ++at;
+        }
+        cells.push_back(cell);
+    }
+    CHECK(cell == segment.last);
+    return cells;
+}
+
+/// Exact fixed traversal agrees with sorted events across fractions, signs and footprints.
+void exact_footprint_segments_cover_boundary_events() {
+    namespace segment = footprint_segment_detail;
+    constexpr std::array<int32_t, 6> offsets{-8 * 65536, -7 * 65536, -1, 0, 1, 8 * 65536 - 1};
+    uint32_t cases = 0;
+    for (const auto footprint : {std::array<int16_t, 2>{1, 1}, {2, 2}, {2, 1}})
+        for (uint32_t sample = 0; sample < 2000; ++sample) {
+            oa::Unit unit{};
+            unit.cell_x = static_cast<int16_t>(int(sample % 5) - 2);
+            unit.cell_z = static_cast<int16_t>(int((sample / 5) % 5) - 2);
+            unit.footprint_x = footprint[0];
+            unit.footprint_z = footprint[1];
+            unit.position.x = static_cast<int32_t>(
+                (int64_t(unit.cell_x) * 16 + footprint[0] * 8) * 65536 +
+                offsets[sample % offsets.size()]
+            );
+            unit.position.z = static_cast<int32_t>(
+                (int64_t(unit.cell_z) * 16 + footprint[1] * 8) * 65536 +
+                offsets[(sample / 6) % offsets.size()]
+            );
+            const FlowContext ctx{
+                0, 0, 0, 0, static_cast<uint32_t>(footprint[0]), static_cast<uint32_t>(footprint[1])
+            };
+            const RoutePoint target{
+                static_cast<int16_t>(
+                    (int((sample * 7) % 17) - 8) * 16 + footprint[0] * 8 + int(sample % 3) - 1
+                ),
+                static_cast<int16_t>(
+                    (int((sample * 11) % 17) - 8) * 16 + footprint[1] * 8 + int((sample / 3) % 3) -
+                    1
+                )
+            };
+            segment::Segment line{};
+            CHECK(segment::make_segment(unit, ctx, target, line));
+            const auto expected = sorted_segment_origins(line);
+            const auto bound = segment::probe_bound(line);
+            std::vector<std::array<int16_t, 2>> actual;
+            uint32_t count{};
+            CHECK(
+                segment::visit_origins(
+                    line,
+                    bound,
+                    [&](int32_t x, int32_t z) {
+                        actual.push_back({static_cast<int16_t>(x), static_cast<int16_t>(z)});
+                        return true;
+                    },
+                    count
+                )
+            );
+            CHECK(actual == expected && count == expected.size() && count <= bound);
+            uint32_t calls = 0;
+            CHECK(!segment::visit_origins(
+                line,
+                bound - 1,
+                [&](int32_t, int32_t) {
+                    ++calls;
+                    return true;
+                },
+                count
+            ));
+            CHECK(calls == 0 && count == 0);
+            ++cases;
+        }
+    CHECK(cases == 6000);
+
+    const auto check_cells =
+        [](int32_t from, RoutePoint target, const std::vector<std::array<int16_t, 2>>& expected) {
+            auto unit = unit_at(0, 0);
+            unit.position.x = unit.position.z = from;
+            segment::Segment line{};
+            CHECK(segment::make_segment(unit, context(), target, line));
+            std::vector<std::array<int16_t, 2>> actual;
+            uint32_t count{};
+            CHECK(
+                segment::visit_origins(
+                    line,
+                    segment::probe_bound(line),
+                    [&](int32_t x, int32_t z) {
+                        actual.push_back({static_cast<int16_t>(x), static_cast<int16_t>(z)});
+                        return true;
+                    },
+                    count
+                )
+            );
+            CHECK(actual == expected && count == expected.size());
+        };
+    // A negative ray leaves the start boundary immediately, whereas a negative
+    // endpoint on that boundary stays in its native half-open cell.
+    check_cells(0, {-16, -16}, {{0, 0}, {-1, 0}, {0, -1}, {-1, -1}});
+    check_cells(8 * 65536, {0, 0}, {{0, 0}});
+    check_cells(8 * 65536, {16, 16}, {{0, 0}, {1, 0}, {0, 1}, {1, 1}});
+
+    auto long_unit = unit_at(0, 0);
+    long_unit.cell_x = -1024;
+    long_unit.position.x = static_cast<int32_t>((int64_t(-1024) * 16 + 8) * 65536);
+    segment::Segment long_line{};
+    CHECK(segment::make_segment(long_unit, context(), {16376, 8}, long_line));
+    CHECK(segment::probe_bound(long_line) == segment::maximum_origins);
+    uint32_t long_count{}, long_calls{};
+    CHECK(
+        segment::visit_origins(
+            long_line,
+            segment::maximum_origins,
+            [&](int32_t, int32_t) {
+                ++long_calls;
+                return true;
+            },
+            long_count
+        )
+    );
+    CHECK(long_count == segment::maximum_origins && long_calls == long_count);
+    CHECK(segment::make_segment(long_unit, context(), {16392, 8}, long_line));
+    CHECK(segment::probe_bound(long_line) == segment::maximum_origins + 1);
+    long_calls = 0;
+    CHECK(!segment::visit_origins(
+        long_line,
+        segment::maximum_origins,
+        [&](int32_t, int32_t) {
+            ++long_calls;
+            return true;
+        },
+        long_count
+    ));
+    CHECK(long_count == 0 && long_calls == 0);
+
+    auto unit = unit_at(0, 0, 2);
+    unit.position.z = 23 * 65536;
+    segment::Segment line{};
+    CHECK(segment::make_segment(unit, context(1), {144, 80}, line));
+    std::vector<std::array<int16_t, 2>> cells;
+    uint32_t count{};
+    CHECK(
+        segment::visit_origins(
+            line,
+            128,
+            [&](int32_t x, int32_t z) {
+                cells.push_back({static_cast<int16_t>(x), static_cast<int16_t>(z)});
+                return true;
+            },
+            count
+        )
+    );
+    CHECK(
+        cells.size() >= 2 && cells[0] == (std::array<int16_t, 2>{0, 0}) &&
+        cells[1] == (std::array<int16_t, 2>{0, 1})
+    );
+    ++unit.cell_x;
+    CHECK(!segment::make_segment(unit, context(1), {144, 80}, line));
+    --unit.cell_x;
+    CHECK(!segment::make_segment(unit, context(), {144, 80}, line));
+    unit.position.x = std::numeric_limits<int32_t>::min();
+    CHECK(!segment::make_segment(unit, context(1), {144, 80}, line));
+}
+
 void malformed_frontiers_are_rejected() {
     Grid grid(32, 32);
     FlowCache cache(32, 32, {1, 64, 1}), restored(32, 32, {1, 64, 1});
@@ -1231,6 +1636,11 @@ void malformed_frontiers_are_rejected() {
 } // namespace
 
 int main() {
+    exact_footprint_segments_cover_boundary_events();
+    visible_shortcuts_keep_off_centre_footprints_clear();
+    one_known_visible_bend_is_pruned_after_the_original_anchor();
+    optional_visible_chords_fall_back_without_invalidating_the_field();
+    optional_visible_chords_obey_the_per_request_cap();
     original_preset_keeps_its_state_and_guides();
     route_presets_keep_distinct_formats_and_goal_regions();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();

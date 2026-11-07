@@ -177,6 +177,11 @@ selects `FlowPreset::large_regions`: format 2, 96-cell regions and at most
 marks the field for bounded refresh while preserving other useful branches.
 The work and probe limits remain the same. Both formats use the same table
 layout and size; restoring another preset's format fails without changes.
+Format 2 can also remove one unnecessary bend after the anchor shortcut
+when the full chord is known and clear. It traces the actual fixed-point
+footprint pose, including both sides of exact corner crossings. This optional
+ray uses at most 128 probes per request within the existing per-tick extraction
+budget.
 
 ## Verification
 

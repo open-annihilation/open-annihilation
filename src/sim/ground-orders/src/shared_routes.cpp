@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ground_orders/shared_routes.hpp"
+#include "footprint_segment.hpp"
 #include "oa/sim/spatial_state/cell_classifier.hpp"
 
 #include <algorithm>
@@ -14,6 +15,7 @@ namespace {
 constexpr uint32_t magic = 0x3246414f, original_format = 1, regional_format = 2, stride = 4;
 constexpr uint32_t original_region = 32, large_region = 96;
 constexpr uint32_t original_prefix_edges = 128, regional_prefix_edges = 16;
+constexpr uint32_t visible_chord_probe_limit = 128;
 constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 64;
 constexpr std::size_t metadata_size = 80, key_size = 36;
 constexpr uint32_t empty = 0, clearing = 1, building = 2, complete = 3, failed = 4;
@@ -123,6 +125,29 @@ bool line_clear(
             return false;
     }
     return true;
+}
+
+/// Checks the actual fixed-point chord, retaining strict known-only visibility.
+bool known_segment_clear(
+    const FlowSampler& sampler,
+    const uint8_t* key,
+    const oa::Unit& unit,
+    const FlowContext& context,
+    RoutePoint target,
+    uint32_t maximum
+) noexcept {
+    footprint_segment_detail::Segment segment{};
+    if (!sampler.cell || !footprint_segment_detail::make_segment(unit, context, target, segment))
+        return false;
+    uint32_t count{};
+    return footprint_segment_detail::visit_origins(
+        segment,
+        maximum,
+        [&](int32_t x, int32_t z) {
+            return sampler.cell(sampler.context, get32(key), get32(key + 4), x, z) == 1;
+        },
+        count
+    );
 }
 
 // The nearest anchor first, then its eight neighbours. A narrow off-grid
@@ -537,6 +562,7 @@ FlowResult FlowCache::route(
     if (has_start_anchor)
         points[count++] = point_at(x, z, context);
     const auto ready = [&]() {
+        bool can_prune_corner = regional && !has_start_anchor;
         if (has_start_anchor && count >= 3 &&
             points[2] != point_at(goal.cell[0], goal.cell[1], context)) {
             constexpr int32_t cell_width = 16, half_cell = cell_width / 2;
@@ -556,6 +582,33 @@ FlowResult FlowCache::route(
                 line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, to_x, to_z)) {
                 std::move(points.begin() + 2, points.begin() + count, points.begin() + 1);
                 --count;
+                can_prune_corner = regional;
+            }
+        }
+        if (can_prune_corner && count >= 3) {
+            const int64_t dx = int64_t(points[2][0]) - points[0][0];
+            const int64_t dz = int64_t(points[2][1]) - points[0][1];
+            const int64_t px = int64_t(points[1][0]) - points[0][0];
+            const int64_t pz = int64_t(points[1][1]) - points[0][1];
+            const auto length = dx * dx + dz * dz;
+            const auto dot = px * dx + pz * dz;
+            const bool collinear_ahead = px * dz == pz * dx && dot >= 0 && dot <= length;
+            const int32_t to_x = (int32_t(points[2][0]) - int32_t(context.footprint_x) * 8) / 16;
+            const int32_t to_z = (int32_t(points[2][1]) - int32_t(context.footprint_z) * 8) / 16;
+            const auto width = static_cast<uint32_t>(std::abs(to_x - unit.cell_x));
+            const auto height = static_cast<uint32_t>(std::abs(to_z - unit.cell_z));
+            const auto probes =
+                uint64_t{1} + std::max(width, height) + uint64_t{2} * std::min(width, height);
+            // One visible chord can remove a genuine BFS bend. Preserve the
+            // original anchor shortcut's priority and the other units' credit.
+            if (length != 0 && !collinear_ahead && probes <= visible_chord_probe_limit &&
+                probes <= get32(state + 60)) {
+                if (known_segment_clear(
+                        bounded, key.data(), unit, context, points[2], static_cast<uint32_t>(probes)
+                    )) {
+                    std::move(points.begin() + 2, points.begin() + count, points.begin() + 1);
+                    --count;
+                }
             }
         }
         increment(state, 1);
