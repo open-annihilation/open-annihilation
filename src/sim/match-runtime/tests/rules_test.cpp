@@ -6,6 +6,7 @@
 // state a rule keeps outside the canonical records enters the state digest,
 // the trace and the computer players' view only once a rule adds a table.
 // A mutator digest enters the state digest and the trace with no table.
+// Owner-local tables remain saveable without entering shared digests.
 #include "combat_fixture.hpp"
 
 #include "oa/base/game_loop.hpp"
@@ -30,6 +31,7 @@ namespace trace = oa::sim::trace;
 /// A rule's table for the tests: four bytes of state.
 struct Counter {
     std::array<uint8_t, 4> bytes{};
+    uint32_t reads{};
 };
 
 /// Returns a counter's bytes.
@@ -37,7 +39,9 @@ struct Counter {
 /// @param context the counter
 /// @return its four bytes
 std::span<const uint8_t> counter_bytes(void* context) {
-    return static_cast<Counter*>(context)->bytes;
+    auto& counter = *static_cast<Counter*>(context);
+    ++counter.reads;
+    return counter.bytes;
 }
 
 /// Restores a counter from four bytes.
@@ -141,6 +145,7 @@ void rule_state_tables_are_named_once() {
     runtime::RuleState state{};
     Counter counter{};
     CHECK(runtime::add_rule_state(state, counter_table("reuse", counter)));
+    CHECK(runtime::digested_rule_state_count(state) == 1);
     CHECK(!runtime::add_rule_state(state, counter_table("reuse", counter)));
     CHECK(!runtime::add_rule_state(state, counter_table("", counter)));
     CHECK(!runtime::add_rule_state(state, counter_table(nullptr, counter)));
@@ -169,7 +174,83 @@ void rule_state_tables_are_named_once() {
             CHECK(runtime::add_rule_state(state, counter_table(name, counter)));
     }
     CHECK(state.count == runtime::rule_state_capacity);
+    CHECK(runtime::digested_rule_state_count(state) == runtime::rule_state_capacity);
     CHECK(!runtime::add_rule_state(state, counter_table("full", counter)));
+}
+
+/// Keeps owner-local bytes saveable while their presence and changes leave
+/// the state and trace identical to a match without such a table.
+void save_only_state_stays_out_of_digests() {
+    Options options{};
+    options.profile_sim_hash = oa::base::sha256::Digest{};
+    (*options.profile_sim_hash)[0] = 1;
+    Fixture f(options);
+    const auto plain_state = state_digest(*f.match);
+    const auto plain_total = total_digest(*f.match);
+    constexpr uint64_t initial_digest = 0x1234;
+    Counter cache{};
+    auto table = counter_table("route-cache", cache);
+    table.digest = false;
+    CHECK(runtime::add_rule_state(f.match->rule_state(), table));
+    CHECK(f.match->rule_state().count == 1);
+    CHECK(runtime::digested_rule_state_count(f.match->rule_state()) == 0);
+    CHECK(f.match->fold_rule_state(initial_digest) == initial_digest);
+    CHECK(state_digest(*f.match) == plain_state);
+    CHECK(total_digest(*f.match) == plain_total);
+    cache.bytes = {9, 8, 7, 6};
+    CHECK(state_digest(*f.match) == plain_state);
+    CHECK(total_digest(*f.match) == plain_total);
+    CHECK(cache.reads == 0);
+    trace::SectionDigest section{};
+    CHECK(!runtime::rule_state_digest(*f.match, section));
+
+    // Saving still sees the named table and can restore the bytes it owns.
+    const auto* saved = runtime::find_rule_state(f.match->rule_state(), "route-cache");
+    CHECK(saved != nullptr && !saved->digest);
+    CHECK(saved->bytes(saved->context).size() == cache.bytes.size());
+    CHECK(cache.reads == 1);
+    constexpr std::array<uint8_t, 4> restored{1, 2, 3, 4};
+    CHECK(saved->restore(saved->context, restored));
+    CHECK(cache.bytes == restored);
+}
+
+/// Keeps shared table bytes and trace item counts independent of interleaved
+/// owner-local tables, including when only a mutator digest is shared.
+void save_only_state_does_not_displace_shared_state() {
+    Options options{};
+    options.profile_sim_hash = oa::base::sha256::Digest{};
+    (*options.profile_sim_hash)[0] = 1;
+    Fixture f(options);
+    Fixture g(options);
+    Counter shared_a{{1, 2, 3, 4}}, shared_b{{1, 2, 3, 4}};
+    Counter cache_a{{5, 6, 7, 8}}, cache_b{{8, 7, 6, 5}};
+    auto local_a = counter_table("owner-a", cache_a);
+    auto local_b = counter_table("owner-b", cache_b);
+    local_a.digest = local_b.digest = false;
+    CHECK(runtime::add_rule_state(f.match->rule_state(), local_a));
+    CHECK(runtime::add_rule_state(f.match->rule_state(), counter_table("shared", shared_a)));
+    CHECK(runtime::add_rule_state(g.match->rule_state(), counter_table("shared", shared_b)));
+    CHECK(runtime::add_rule_state(g.match->rule_state(), local_b));
+    CHECK(state_digest(*f.match) == state_digest(*g.match));
+    CHECK(total_digest(*f.match) == total_digest(*g.match));
+    trace::SectionDigest section{};
+    CHECK(runtime::rule_state_digest(*f.match, section) && section.items == 1);
+    cache_a.bytes[0] = 3;
+    CHECK(state_digest(*f.match) == state_digest(*g.match));
+    CHECK(total_digest(*f.match) == total_digest(*g.match));
+    CHECK(cache_a.reads == 0 && cache_b.reads == 0);
+    shared_a.bytes[0] = 3;
+    CHECK(state_digest(*f.match) != state_digest(*g.match));
+    CHECK(total_digest(*f.match) != total_digest(*g.match));
+
+    options.mutator_digest = oa::base::sha256::Digest{};
+    (*options.mutator_digest)[0] = 1;
+    Fixture held(options);
+    Fixture held_with_cache(options);
+    CHECK(runtime::add_rule_state(held_with_cache.match->rule_state(), local_a));
+    CHECK(state_digest(*held.match) == state_digest(*held_with_cache.match));
+    CHECK(total_digest(*held.match) == total_digest(*held_with_cache.match));
+    CHECK(runtime::rule_state_digest(*held_with_cache.match, section) && section.items == 0);
 }
 
 /// A table enters the state digest and the trace with the profile's sim
@@ -240,6 +321,8 @@ int main() {
         mismatched_unit_type_rules_refuse_the_match();
         rule_state_tables_are_named_once();
         rule_state_enters_the_digests();
+        save_only_state_stays_out_of_digests();
+        save_only_state_does_not_displace_shared_state();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
