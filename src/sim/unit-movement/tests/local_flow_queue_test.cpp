@@ -50,6 +50,7 @@ struct QueueArena : movement::Host {
     std::array<movement::Unit, maximum_movers> movers{};
     std::array<bool, maximum_movers> travelling{};
     size_t mover_count{};
+    bool idle_units_are_mobile{true};
     int16_t back_column{};
     movement::Unit blocker{};
     uint32_t tick{};
@@ -143,7 +144,8 @@ struct QueueArena : movement::Host {
                     for (int16_t x = 0; x < unit.footprint[0]; ++x) {
                         const auto id = arena.occupants[plot(cell[0] + x, cell[1] + z)];
                         if (id != 0 && id != uint16_t(unit.id)) {
-                            if (id != blocker_id && !arena.travelling[id - mover_id])
+                            if (id != blocker_id && !arena.travelling[id - mover_id] &&
+                                !arena.idle_units_are_mobile)
                                 return LocalFlowBlocker{LocalFlowObstacle::stationary};
                             const auto heading = id == blocker_id
                                                      ? arena.blocker.heading
@@ -302,14 +304,21 @@ struct TrainResult {
     bool operator==(const TrainResult&) const = default;
 };
 
+enum class ArrivalLayout { spread, column };
+
 /// Drives every mover in a touching two-cell queue through the new passing area.
-TrainResult run_train(bool renew_local_attempts) {
+TrainResult run_train(
+    bool renew_local_attempts,
+    bool idle_mobile = true,
+    ArrivalLayout arrivals = ArrivalLayout::spread
+) {
     constexpr size_t history_size = 61;
     constexpr int16_t goal_spacing = 48;
     constexpr int16_t first_goal_offset = (maximum_movers - 1) * goal_spacing / 2;
     constexpr uint64_t orbit_travel = 24 * fixed_one;
     constexpr uint32_t orbit_radius = 5 * fixed_one;
     QueueArena arena(maximum_movers);
+    arena.idle_units_are_mobile = idle_mobile;
     std::array<movement::Movement, maximum_movers> motions{};
     std::array<movement::LocalFlowHead, maximum_movers> heads{};
     std::array<ground::Navigation, maximum_movers> routes{};
@@ -323,13 +332,13 @@ TrainResult run_train(bool renew_local_attempts) {
         const auto& unit = arena.movers[index];
         motions[index].flags = ground_occupancy;
         motions[index].speed = maximum_speed;
-        destinations[index] = {
-            destination_x * fixed_one,
-            0,
-            static_cast<movement::Fixed>(
-                (centre(lane_row) + int(index) * goal_spacing - first_goal_offset) * fixed_one
-            )
-        };
+        const auto goal_x = arrivals == ArrivalLayout::spread
+                                ? destination_x
+                                : destination_x - int(index) * goal_spacing;
+        const auto goal_z =
+            centre(lane_row) +
+            (arrivals == ArrivalLayout::spread ? int(index) * goal_spacing - first_goal_offset : 0);
+        destinations[index] = {goal_x * fixed_one, 0, goal_z * fixed_one};
         auto& route = routes[index];
         route.count = 3;
         route.flags = ground::route_present_flag | ground::search_pending_flag;
@@ -465,6 +474,29 @@ void test_whole_mature_train_recovers() {
     );
 }
 
+/// Checks that completed movable units remain fixed while followers pass them.
+void test_completed_mobile_units_do_not_wall_off_followers() {
+    const auto bypass = run_train(true, true, ArrivalLayout::column);
+    const auto parked_walls = run_train(true, false, ArrivalLayout::column);
+    OA_CHECK(bypass == run_train(true, true, ArrivalLayout::column));
+    OA_CHECK(bypass.arrived == maximum_movers);
+    OA_CHECK(bypass.arrived > parked_walls.arrived);
+    OA_CHECK(bypass.overlaps == 0 && parked_walls.overlaps == 0);
+    OA_CHECK(bypass.blocked_ticks < parked_walls.blocked_ticks / 2);
+    OA_CHECK(bypass.orbit_windows < parked_walls.orbit_windows / 4);
+    std::printf(
+        "idle bypass: arrivals %u / %u, last %u / %u, blocked %llu / %llu, orbits %llu / %llu\n",
+        bypass.arrived,
+        parked_walls.arrived,
+        bypass.last_arrival,
+        parked_walls.last_arrival,
+        static_cast<unsigned long long>(bypass.blocked_ticks),
+        static_cast<unsigned long long>(parked_walls.blocked_ticks),
+        static_cast<unsigned long long>(bypass.orbit_windows),
+        static_cast<unsigned long long>(parked_walls.orbit_windows)
+    );
+}
+
 /// Checks that a large mature cohort does not retry in one burst.
 void test_mature_recovery_is_staggered_and_keeps_full_replanning_enabled() {
     constexpr uint16_t population = 20000;
@@ -495,6 +527,7 @@ void test_mature_recovery_is_staggered_and_keeps_full_replanning_enabled() {
 int main() {
     test_mature_queue_recovers_without_renewing_replan_grace();
     test_whole_mature_train_recovers();
+    test_completed_mobile_units_do_not_wall_off_followers();
     test_mature_recovery_is_staggered_and_keeps_full_replanning_enabled();
     return oa::test::check_exit_status();
 }
