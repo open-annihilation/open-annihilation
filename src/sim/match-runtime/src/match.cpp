@@ -402,6 +402,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     if (enhanced_ && input.rules.setup.enhanced_mode.version >= 2) {
         enhanced_->unit_count = slots_.size();
         enhanced_->static_passability_memo = std::make_unique<StaticPassabilityMemo>();
+        enhanced_->order_ownership = std::make_unique<OrderOwnershipIndex>(slots_.size());
+        constexpr size_t orders_per_unit = 4;
+        orders_.reserve(slots_.size() * orders_per_unit);
         enhanced_->target_query_slots = std::make_unique<uint16_t[]>(2 * slots_.size());
         enhanced_->target_query_extras = std::make_unique<uint16_t[]>(slots_.size());
         enhanced_->target_sighting_membership =

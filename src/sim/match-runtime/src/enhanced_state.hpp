@@ -8,6 +8,7 @@
 #include "oa/sim/unit_movement/local_flow.hpp"
 #include "oa/sim/ground_orders/shared_routes.hpp"
 #include "static_passability_memo.hpp"
+#include "order_ownership.hpp"
 
 namespace oa::sim::match_runtime {
 
@@ -34,6 +35,7 @@ struct Match::EnhancedState {
     std::array<uint8_t, 5> shared_route_scan_state{};
     bool air_goal_cleanup_required{};
     std::unique_ptr<StaticPassabilityMemo> static_passability_memo{};
+    std::unique_ptr<OrderOwnershipIndex> order_ownership{};
 };
 
 } // namespace oa::sim::match_runtime
