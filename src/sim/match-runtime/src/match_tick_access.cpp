@@ -5,6 +5,7 @@
 // through the match's tick host.
 #include "match_tick_access.hpp"
 #include "tick_internal.hpp"
+#include "enhanced_state.hpp"
 
 namespace oa::sim::match_runtime {
 
@@ -79,6 +80,99 @@ bool MatchTickAccess::list_holds(
             return true;
     }
     return false;
+}
+
+bool MatchTickAccess::observer_lists_valid(Match& match) {
+    const auto active = static_cast<size_t>(std::count_if(
+        match.orders_.begin(), match.orders_.end(), [](const auto& entry) { return bool(entry); }
+    ));
+    for (size_t unit = 0; unit < match.units_.size(); ++unit) {
+        auto* cursor = match.target_observers_[unit];
+        size_t remaining = active;
+        while (cursor && remaining-- > 0) {
+            if (cursor->attack.target != &match.units_[unit] ||
+                match.runtime_order(&cursor->order) != cursor)
+                return false;
+            cursor = cursor->observer_next;
+        }
+        if (cursor)
+            return false;
+    }
+    for (const auto& entry : match.orders_) {
+        if (!entry)
+            continue;
+        if (!entry->attack.target) {
+            if (entry->observer_next)
+                return false;
+            continue;
+        }
+        auto** head = match.observer_head(*entry->attack.target);
+        if (!head)
+            return false;
+        auto* cursor = *head;
+        size_t remaining = active, found = 0;
+        while (cursor && remaining-- > 0) {
+            found += cursor == entry.get();
+            cursor = cursor->observer_next;
+        }
+        if (cursor || found != 1)
+            return false;
+    }
+    return true;
+}
+
+size_t MatchTickAccess::ownership_sequence(
+    const Match& match, std::span<const sim::simulation_state::Order*> output
+) {
+    size_t count = 0;
+    for (const auto& entry : match.orders_) {
+        if (!entry)
+            continue;
+        if (count < output.size())
+            output[count] = &entry->order;
+        ++count;
+    }
+    return count;
+}
+
+MatchTickAccess::ObserverPlace MatchTickAccess::replace_observer_head(
+    Match& match, sim::simulation_state::Unit& unit, ObserverPlace place
+) {
+    auto** head = match.observer_head(unit);
+    if (!head)
+        return {};
+    const ObserverPlace previous{*head};
+    *head = static_cast<Match::RuntimeOrder*>(const_cast<void*>(place.node));
+    return previous;
+}
+
+bool MatchTickAccess::replace_observer_certificate(
+    Match& match, const sim::simulation_state::Order& order, const sim::simulation_state::Unit& unit
+) {
+    if (!match.enhanced_ || !match.enhanced_->order_ownership)
+        return false;
+    auto* indexed = match.enhanced_->order_ownership->find(&order);
+    auto** head = match.observer_head(unit);
+    if (!indexed || !head)
+        return false;
+    indexed->observer_slot = static_cast<uint32_t>(head - match.target_observers_.get());
+    return true;
+}
+
+bool MatchTickAccess::reset_order_index(Match& match, size_t unit_slots) {
+    if (!match.orders_.empty() || !match.enhanced_ || !match.enhanced_->order_ownership)
+        return false;
+    match.enhanced_->order_ownership = std::make_unique<OrderOwnershipIndex>(unit_slots);
+    return true;
+}
+
+size_t MatchTickAccess::shrink_order_capacity(Match& match) {
+    match.orders_.shrink_to_fit();
+    return match.orders_.capacity();
+}
+
+size_t MatchTickAccess::order_capacity(const Match& match) {
+    return match.orders_.capacity();
 }
 
 } // namespace oa::sim::match_runtime

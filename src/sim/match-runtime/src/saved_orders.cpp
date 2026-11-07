@@ -290,6 +290,8 @@ sim::simulation_state::Order& Match::restore_saved_order(
         return id != 0 && id < units_.size() && live(&units_[id]) ? &units_[id] : nullptr;
     };
     auto entry = std::make_unique<RuntimeOrder>();
+    if (enhanced_ && enhanced_->order_ownership)
+        (void)enhanced_->order_ownership->fresh(&entry->order);
     entry->unit = &unit;
     auto& order = entry->order;
     order.kind = saved.kind;

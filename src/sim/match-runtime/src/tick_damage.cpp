@@ -28,6 +28,41 @@ constexpr int32_t dead_unit_sight_ticks =
 void restart_damage_countdown(oa::Unit& unit) noexcept {
     unit.damage_countdown = damage_script_countdown;
 }
+
+/// Compacts empty ownership slots in stable order before a later operation tick.
+template <typename Orders>
+void prepare_order_ownership(Orders& orders, OrderOwnershipIndex& index, uint32_t tick) {
+    const bool previous_holes = index.begin_tick(tick);
+    // At the capacity boundary, retain legacy storage reuse instead of
+    // allocating to keep holes. Repeated full-capacity replacement can still
+    // take the legacy linear cost; bulk deletion below that boundary cannot.
+    const bool recover_capacity = orders.size() == orders.capacity() && index.has_holes();
+    if (!previous_holes && !recover_capacity)
+        return;
+    std::erase_if(orders, [](const auto& entry) { return entry == nullptr; });
+    index.compacted();
+    for (size_t position = 0; position < orders.size(); ++position)
+        (void)index.remember_owner(&orders[position]->order, position);
+}
+
+/// Keeps the same bounded chain checks while an indexed certificate covers other heads.
+template <typename Record>
+void check_observer_chain(const Record* head, const Record& entry, bool targeted) noexcept {
+    const auto* cursor = head;
+    size_t seen = 0;
+    size_t steps = overlay_order_budget;
+    while (cursor != nullptr && steps-- > 0) {
+        if (cursor == &entry)
+            ++seen;
+        cursor = cursor->observer_next;
+    }
+    if (!targeted)
+        assert(seen == 0);
+    else if (cursor == nullptr)
+        assert(seen == 1);
+    else
+        assert(seen <= 1);
+}
 } // namespace
 
 bool side_commander(const oa::World& world, const oa::Unit& unit) noexcept {
@@ -55,6 +90,18 @@ std::size_t Match::order_bucket(const sim::simulation_state::Order* order) noexc
 Match::RuntimeOrder* Match::runtime_order(const sim::simulation_state::Order* order) {
     if (order == nullptr)
         return nullptr;
+    if (enhanced_ && enhanced_->order_ownership) {
+        const auto* indexed = enhanced_->order_ownership->find(order);
+        if (indexed && indexed->owner_index != OrderOwnershipIndex::no_owner) {
+            const auto position = static_cast<size_t>(indexed->owner_index);
+            assert(
+                position < orders_.size() && orders_[position] && &orders_[position]->order == order
+            );
+            if (position < orders_.size() && orders_[position] &&
+                &orders_[position]->order == order)
+                return orders_[position].get();
+        }
+    }
     for (auto* entry = order_buckets_[order_bucket(order)]; entry != nullptr;
          entry = entry->bucket_next)
         if (&entry->order == order)
@@ -68,7 +115,11 @@ const Match::RuntimeOrder* Match::runtime_order(const sim::simulation_state::Ord
 
 Match::RuntimeOrder& Match::adopt_order(std::unique_ptr<RuntimeOrder> entry) {
     auto& record = *entry;
+    if (enhanced_ && enhanced_->order_ownership)
+        prepare_order_ownership(orders_, *enhanced_->order_ownership, simulation_.tick);
     orders_.push_back(std::move(entry));
+    if (enhanced_ && enhanced_->order_ownership)
+        (void)enhanced_->order_ownership->remember_owner(&record.order, orders_.size() - 1);
     auto& head = order_buckets_[order_bucket(&record.order)];
     record.bucket_next = head;
     head = &record;
@@ -76,13 +127,40 @@ Match::RuntimeOrder& Match::adopt_order(std::unique_ptr<RuntimeOrder> entry) {
 }
 
 void Match::drop_order(const RuntimeOrder& record) {
+    auto* index = enhanced_ ? enhanced_->order_ownership.get() : nullptr;
+    if (index)
+        prepare_order_ownership(orders_, *index, simulation_.tick);
     for (auto** link = &order_buckets_[order_bucket(&record.order)]; *link != nullptr;
          link = &(*link)->bucket_next)
         if (*link == &record) {
             *link = record.bucket_next;
             break;
         }
-    std::erase_if(orders_, [&](const auto& candidate) { return candidate.get() == &record; });
+    if (!index) {
+        std::erase_if(orders_, [&](const auto& candidate) { return candidate.get() == &record; });
+        return;
+    }
+    size_t position = orders_.size();
+    if (const auto* indexed = index->find(&record.order)) {
+        assert(
+            indexed->observer_slot == OrderOwnershipIndex::no_observer ||
+            indexed->observer_slot == OrderOwnershipIndex::uncertified_observer
+        );
+        assert(indexed->owner_index != OrderOwnershipIndex::no_owner);
+        position = indexed->owner_index;
+        assert(position < orders_.size() && orders_[position].get() == &record);
+    }
+    if (position >= orders_.size() || orders_[position].get() != &record) {
+        const auto found = std::find_if(orders_.begin(), orders_.end(), [&](const auto& candidate) {
+            return candidate.get() == &record;
+        });
+        position = static_cast<size_t>(found - orders_.begin());
+    }
+    if (position < orders_.size()) {
+        index->forget(&record.order);
+        orders_[position].reset();
+        index->removed();
+    }
 }
 
 Match::RuntimeOrder** Match::observer_head(const sim::simulation_state::Unit& unit) noexcept {
@@ -441,9 +519,19 @@ void Match::release_target_observers(sim::simulation_state::Unit& target) {
     if (head == nullptr)
         return;
     auto* entry = *head;
-    std::size_t steps = orders_.size();
+    auto* index = enhanced_ ? enhanced_->order_ownership.get() : nullptr;
+    std::size_t steps = index ? index->active_count(orders_.size()) : orders_.size();
     while (entry != nullptr && steps-- > 0) {
         auto* next = entry->observer_next;
+        if (index) {
+            if (auto* indexed = index->find(&entry->order);
+                indexed && indexed->observer_slot != OrderOwnershipIndex::uncertified_observer) {
+                assert(
+                    indexed->observer_slot == static_cast<uint32_t>(head - target_observers_.get())
+                );
+                indexed->observer_slot = OrderOwnershipIndex::no_observer;
+            }
+        }
         lose_target(*entry, target);
         entry = next;
     }
@@ -475,23 +563,53 @@ void Match::link_target_observer(RuntimeOrder& entry, sim::simulation_state::Uni
     entry.attack.target = target;
     entry.observer_next = *head;
     *head = &entry;
+    if (enhanced_ && enhanced_->order_ownership) {
+        if (auto* indexed = enhanced_->order_ownership->find(&entry.order);
+            indexed && indexed->observer_slot != OrderOwnershipIndex::uncertified_observer) {
+            assert(indexed->observer_slot == OrderOwnershipIndex::no_observer);
+            indexed->observer_slot = static_cast<uint32_t>(head - target_observers_.get());
+        }
+    }
     check_target_observer(entry);
 }
 
 void Match::unlink_target_observer(RuntimeOrder& entry) {
+    auto* index = enhanced_ ? enhanced_->order_ownership.get() : nullptr;
+    auto* indexed = index ? index->find(&entry.order) : nullptr;
+    const bool certified =
+        indexed && indexed->observer_slot != OrderOwnershipIndex::uncertified_observer;
     if (entry.attack.target != nullptr) {
         if (auto** link = observer_head(*entry.attack.target)) {
+#ifndef NDEBUG
+            auto** head = link;
+#endif
+            if (certified)
+                assert(
+                    indexed->observer_slot == static_cast<uint32_t>(head - target_observers_.get())
+                );
             // Every order may watch one unit, so the list is never longer
             // than the orders there are; the bound only stops a damaged list
             // looping.
-            std::size_t steps = orders_.size();
+            std::size_t steps = index ? index->active_count(orders_.size()) : orders_.size();
             while (*link != nullptr && *link != &entry && steps-- > 0)
                 link = &(*link)->observer_next;
+            if (certified)
+                assert(*link == &entry);
             if (*link == &entry)
                 *link = entry.observer_next;
+#ifndef NDEBUG
+            if (certified)
+                check_observer_chain(*head, entry, false);
+#endif
+        } else if (certified) {
+            assert(false && "indexed observer target is outside the unit pool");
         }
         entry.attack.target = nullptr;
         entry.observer_next = nullptr;
+        if (certified)
+            indexed->observer_slot = OrderOwnershipIndex::no_observer;
+    } else if (certified) {
+        assert(indexed->observer_slot == OrderOwnershipIndex::no_observer);
     }
     check_target_observer(entry);
 }
@@ -499,6 +617,21 @@ void Match::unlink_target_observer(RuntimeOrder& entry) {
 void Match::check_target_observer(const RuntimeOrder& entry) const noexcept {
 #ifndef NDEBUG
     auto* target = entry.attack.target;
+    if (enhanced_ && enhanced_->order_ownership) {
+        const auto* indexed = enhanced_->order_ownership->find(&entry.order);
+        if (indexed && indexed->observer_slot != OrderOwnershipIndex::uncertified_observer) {
+            if (target == nullptr) {
+                assert(indexed->observer_slot == OrderOwnershipIndex::no_observer);
+                assert(entry.observer_next == nullptr);
+                return;
+            }
+            auto* const* head = const_cast<Match*>(this)->observer_head(*target);
+            assert(head != nullptr);
+            assert(indexed->observer_slot == static_cast<uint32_t>(head - target_observers_.get()));
+            check_observer_chain(*head, entry, true);
+            return;
+        }
+    }
     for (std::size_t index = 0; index < units_.size(); ++index) {
         const auto* unit = &units_[index];
         auto* cursor = target_observers_[index];
@@ -643,7 +776,8 @@ void Match::teardown_dead_unit(
     // an arrived copy can outlive the driver's current goal.
     if (!enhanced_ || !enhanced_->shared_routes || enhanced_->air_goal_cleanup_required) {
         for (auto& order : orders_)
-            sim::air::air_goal_unlink(&order->air_goal, &slot.record);
+            if (order)
+                sim::air::air_goal_unlink(&order->air_goal, &slot.record);
         for (auto& goal : mirrored_air_goals_)
             sim::air::air_goal_unlink(&goal, &slot.record);
         for (auto& driver : air_drivers_)

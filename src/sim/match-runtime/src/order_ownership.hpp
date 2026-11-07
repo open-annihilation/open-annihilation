@@ -148,6 +148,10 @@ class OrderOwnershipIndex {
     /// Records the stable removal of all empty ownership slots.
     void compacted() noexcept { holes_ = 0; }
 
+    /// Tests whether erased records leave any empty ownership slots.
+    /// @return whether stable compaction can recover storage
+    bool has_holes() const noexcept { return holes_ != 0; }
+
     /// Returns the number of active records, retaining legacy list-walk bounds.
     ///
     /// @param slots current ownership-vector size including holes

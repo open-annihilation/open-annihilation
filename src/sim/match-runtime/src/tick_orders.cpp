@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "tick_internal.hpp"
+#include "enhanced_state.hpp"
 
 #include "oa/sim/match_runtime/construction_orders.hpp"
 
@@ -117,6 +118,8 @@ sim::simulation_state::Order& Match::insert_ground_order(
         return refused_order();
     }
     auto entry = std::make_unique<RuntimeOrder>();
+    if (enhanced_ && enhanced_->order_ownership)
+        (void)enhanced_->order_ownership->fresh(&entry->order);
     entry->unit = &u;
     entry->order.kind = kind;
     entry->order.wake_tick = 0xffffffffu;
@@ -159,6 +162,8 @@ Match::issue_ground_move(uint16_t index, const sim::ground_orders::Point& destin
     if (!unit.record.type_index || !ground_runtime(index))
         return refused_order();
     auto entry = std::make_unique<RuntimeOrder>();
+    if (enhanced_ && enhanced_->order_ownership)
+        (void)enhanced_->order_ownership->fresh(&entry->order);
     entry->unit = &unit;
     // The command resolver gives aircraft VTOL_Move; its ground-goal branch
     // waits for arrival as Move_Ground does.
@@ -203,6 +208,8 @@ sim::simulation_state::Order& Match::issue_queued_command(
     if (!unit.record.type_index)
         return refused_order();
     auto entry = std::make_unique<RuntimeOrder>();
+    if (enhanced_ && enhanced_->order_ownership)
+        (void)enhanced_->order_ownership->fresh(&entry->order);
     entry->unit = &unit;
     entry->order.kind = kind;
     entry->order.wake_tick = 0xffffffffu;
@@ -239,6 +246,8 @@ Match::issue_state_order(uint16_t index, uint8_t kind, int32_t value) {
         return refused_order();
     }
     auto entry = std::make_unique<RuntimeOrder>();
+    if (enhanced_ && enhanced_->order_ownership)
+        (void)enhanced_->order_ownership->fresh(&entry->order);
     entry->unit = &unit;
     entry->order.kind = kind;
     entry->order.wake_tick = 0xffffffffu;
@@ -321,6 +330,8 @@ sim::simulation_state::Order& Match::issue_order(
     // only when the descriptor takes one), the point and the argument words,
     // each in every order family's copy of it; the third parameter is zero.
     auto entry = std::make_unique<RuntimeOrder>();
+    if (enhanced_ && enhanced_->order_ownership)
+        (void)enhanced_->order_ownership->fresh(&entry->order);
     entry->unit = &unit;
     entry->order.kind = kind;
     entry->order.wake_tick = 0xffffffffu;
@@ -788,6 +799,8 @@ bool Match::commit_attack_orders(
             return false;
         }
         auto entry = std::make_unique<RuntimeOrder>();
+        if (enhanced_ && enhanced_->order_ownership)
+            (void)enhanced_->order_ownership->fresh(&entry->order);
         entry->unit = &unit;
         entry->order.kind = request.kind;
         entry->order.wake_tick = 0xffffffffu;

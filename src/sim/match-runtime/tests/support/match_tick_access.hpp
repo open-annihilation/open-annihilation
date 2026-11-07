@@ -129,6 +129,58 @@ class MatchTickAccess {
     [[nodiscard]] static bool
     list_holds(Match& match, sim::simulation_state::Unit& unit, ObserverPlace place);
 
+    /// Audits every actual observer chain independently of its derived index.
+    ///
+    /// @param match match whose complete owned graph is checked
+    /// @return whether every owned order is on exactly its target's chain
+    [[nodiscard]] static bool observer_lists_valid(Match& match);
+
+    /// Lists active ownership records in their presentation order.
+    ///
+    /// @param match match whose ownership vector is read
+    /// @param[out] output room for canonical order pointers
+    /// @return the full number of active ownership records
+    static size_t
+    ownership_sequence(const Match& match, std::span<const sim::simulation_state::Order*> output);
+
+    /// Replaces an actual head for an explicit corruption audit, without updating certificates.
+    ///
+    /// @param match match whose head is changed
+    /// @param unit target whose observer head is changed
+    /// @param place replacement node from the same match
+    /// @return the previous observer head
+    static ObserverPlace
+    replace_observer_head(Match& match, sim::simulation_state::Unit& unit, ObserverPlace place);
+
+    /// Corrupts one derived membership value for an assertion negative control.
+    ///
+    /// @param match match whose derived entry is changed
+    /// @param order owned order with a certificate
+    /// @param unit wrong unit whose slot is recorded
+    /// @return whether a certificate was present
+    static bool replace_observer_certificate(
+        Match& match,
+        const sim::simulation_state::Order& order,
+        const sim::simulation_state::Unit& unit
+    );
+
+    /// Shrinks the bounded index before test orders are created, exercising overflow fallback.
+    ///
+    /// @param match empty Enhanced match
+    /// @param unit_slots unit slots used only to size the test index
+    /// @return whether the match had an empty ownership vector and an index
+    static bool reset_order_index(Match& match, size_t unit_slots);
+
+    /// Shrinks only test setup storage to exercise full-capacity replacement.
+    /// @param match match whose active ownership records remain in order
+    /// @return resulting ownership-vector capacity
+    static size_t shrink_order_capacity(Match& match);
+
+    /// Reads the ownership-vector capacity without changing the match.
+    /// @param match match whose vector is read
+    /// @return current ownership-vector capacity
+    static size_t order_capacity(const Match& match);
+
   private:
 
     std::unique_ptr<TickHost> host_;
