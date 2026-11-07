@@ -655,6 +655,9 @@ path and drawn population. Software frames include the final world image's
 byte count and SHA-256 outside the timed span; accelerated frames require
 a separate image readback check. These are rendering measurements, not a running battle's
 simulation or frame-rate guarantee.
+Paused benchmark scenes also hold presentation animation time and hide the
+live frame-statistics panel, whose changing numbers would contaminate the
+software image comparison. The benchmark's timing clock remains real time.
 
 The bench prints its lines on standard output, which the game writes into
 its log (or into the folder `--log-dir` names), each beginning `bench:`:

@@ -183,6 +183,10 @@ void Runtime::play_bench() {
     bench::View view;
     if (std::string error; !bench::read_view(options_.bench_file, view, error))
         fail(error);
+    // A paused rendering workload keeps wall-driven presentation animation
+    // fixed as well as its simulation. Bench timing still uses SDL's clock.
+    if (view.require_paused)
+        options_.fixed_clock = true;
     const char* label = view.label.c_str();
     bool running = true;
     const auto now = [] {
@@ -212,7 +216,9 @@ void Runtime::play_bench() {
         options_.stage_file = view.stage;
         apply_stage();
     }
-    show_frame_stats(true);
+    // Live timings are painted into the software battlefield itself; they
+    // would make identical paused scenes produce different image receipts.
+    show_frame_stats(!view.require_paused);
     // The warm-up's frames are timed too, so that the kept ground's
     // revision the span starts from is the frame before's.
     bench_timers::reset(view.stage_timers);
