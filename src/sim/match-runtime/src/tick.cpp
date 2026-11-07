@@ -344,6 +344,7 @@ void Match::advance_path_search() {
                     // usable route can still be picked up promptly.
                     navigation.last_search_tick = ctx.match->simulation_.tick;
                     ctx.match->enhanced_->local_flow_heads[slot->unit_index].active = false;
+                    ctx.match->enhanced_->local_flow_heads[slot->unit_index].count = 0;
                     return nullptr;
                 }
                 // Returning no job lets the cursor visit other units. Do
@@ -386,8 +387,10 @@ void Match::advance_path_search() {
         const bool unreachable = sim::ground_orders::accept_path(view, route);
         // A replacement route supersedes the old traffic detour even when
         // the destination has not changed. Keep its collision retry clock.
-        if (ctx.shared_routes)
+        if (ctx.shared_routes) {
             ctx.match->enhanced_->local_flow_heads[slot->unit_index].active = false;
+            ctx.match->enhanced_->local_flow_heads[slot->unit_index].count = 0;
+        }
         if (!unreachable)
             return;
         const auto* goal = runtime->navigation.goal;
