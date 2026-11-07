@@ -38,8 +38,8 @@ an unsupported step receives the ordinary blocked response. This corrects
 collision handling, but does not establish smooth movement through a crowded
 battlefield. Off and versions 1, 2 and 3 keep their original movement rules.
 
-Version 5 reserves a distinct rules identity for advisory corridor lanes
-and ground-turn anticipation. The version metadata prepares save, replay
+Version 5 reserves a distinct rules identity for advisory corridor lanes.
+The version metadata prepares save, replay
 and multiplayer agreement; it does not by itself implement those behaviors
 or establish improved bridge flow. Version 4 keeps its original ground
 movement and collision checks. Unit and projectile capacities and renderer

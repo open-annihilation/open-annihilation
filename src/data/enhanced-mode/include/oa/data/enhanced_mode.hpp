@@ -24,7 +24,7 @@ inline constexpr uint32_t flow_version = 2;
 inline constexpr uint32_t regional_flow_version = 3;
 /// The preset checking each swept ground step against current obstacles.
 inline constexpr uint32_t swept_ground_version = 4;
-/// The preset reserved for advisory corridor lanes and ground-turn anticipation.
+/// The preset reserved for advisory corridor lanes.
 inline constexpr uint32_t corridor_flow_version = 5;
 /// The Enhanced Mode preset supplied by this build.
 inline constexpr uint32_t current_version = corridor_flow_version;

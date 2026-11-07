@@ -273,6 +273,7 @@ void TickHost::stop_building(sim::unit_spawn::Slot& s, sim::simulation_state::Or
 
 void TickHost::destroy_order(oa::Unit& unit, sim::simulation_state::Order& order) {
     auto& s = slot(unit_view(unit));
+    match.forget_advisory_order(s.unit_index, &order);
     auto& record = owned(order);
     if (order.wait_events & 2)
         (void)dispatch_mission(match.state(), unit, order, 2);

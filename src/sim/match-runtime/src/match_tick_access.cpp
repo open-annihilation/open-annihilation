@@ -13,6 +13,100 @@ namespace oa::sim::match_runtime {
 
 static_assert(MatchTickAccess::building_flag == order_building_flag);
 
+MatchTickAccess::AdvisoryLaneInspection
+MatchTickAccess::advisory_lane(const Match& match, uint16_t unit) {
+    AdvisoryLaneInspection result;
+    const auto* state = match.enhanced_ ? match.enhanced_->advisory.get() : nullptr;
+    if (!state || unit >= state->unit_count)
+        return result;
+    const auto* movement = match.ground_runtime(unit);
+    const auto player = match.slots_[unit].record.owner_index;
+    if (movement && player < OA_PLAYER_COUNT)
+        for (size_t at = 0; at < match.movement_classes_.size(); ++at)
+            if (match.movement_classes_[at].map &&
+                match.movement_classes_[at].handle == movement->movement_class)
+                result.supported = state->catalog_indices[player][at] >= 0;
+    const auto& guide = state->guides[unit];
+    result.active = guide.steering_active;
+    result.entered = guide.entered;
+    result.phase = uint8_t(guide.phase);
+    result.direction = uint8_t(guide.direction);
+    result.corridor = guide.corridor.id;
+    result.generation = state->identities[unit].generation;
+    result.route_history = 14695981039346656037ull;
+    const auto fold = [&](uint32_t value) {
+        for (unsigned byte = 0; byte < 4; ++byte) {
+            result.route_history ^= uint8_t(value >> (byte * 8));
+            result.route_history *= 1099511628211ull;
+        }
+    };
+    fold(guide.admitted_count);
+    fold(guide.entry_segment);
+    fold(guide.exit_segment);
+    for (const auto& point : guide.admitted_route)
+        for (const auto coordinate : point)
+            fold(uint16_t(coordinate));
+    result.lane = guide.lane;
+    return result;
+}
+
+sim::ground_orders::CorridorStatus
+MatchTickAccess::advisory_catalog(const Match& match, uint16_t unit) {
+    const auto* state = match.enhanced_ ? match.enhanced_->advisory.get() : nullptr;
+    const auto* movement = match.ground_runtime(unit);
+    if (!state || !movement || unit >= state->unit_count)
+        return {};
+    const auto player = match.slots_[unit].record.owner_index;
+    if (player < OA_PLAYER_COUNT)
+        for (size_t at = 0; at < match.movement_classes_.size(); ++at)
+            if (match.movement_classes_[at].map &&
+                match.movement_classes_[at].handle == movement->movement_class) {
+                const auto index = state->catalog_indices[player][at];
+                if (index >= 0)
+                    return state->catalogs[size_t(index)].catalog->status();
+            }
+    return {};
+}
+
+MatchTickAccess::AdvisoryBudgetInspection MatchTickAccess::advisory_budget(const Match& match) {
+    AdvisoryBudgetInspection result;
+    const auto* state = match.enhanced_ ? match.enhanced_->advisory.get() : nullptr;
+    if (!state)
+        return result;
+    for (const auto& pool : {state->construction, state->query, state->active}) {
+        result.remaining += pool.remaining;
+        result.used += pool.used;
+    }
+    result.limit = result.remaining + result.used;
+    result.active_remaining = state->active.remaining;
+    result.active_used = state->active.used;
+    result.query_remaining = state->query.remaining;
+    result.active_cursor = state->active_cursor;
+    result.active_begin = state->active_begin;
+    result.active_stopped = state->active_stopped;
+    return result;
+}
+
+void MatchTickAccess::set_advisory_budget(Match& match, uint32_t limit) {
+    auto* state = match.enhanced_ ? match.enhanced_->advisory.get() : nullptr;
+    if (!state)
+        return;
+    state->budget_override = limit;
+    state->tick_valid = false;
+    state->construction = state->query = state->active = {};
+}
+
+void MatchTickAccess::tick_without_advisory_queries(Match& match) {
+    ++match.simulation_.tick;
+    if (match.enhanced_ && match.enhanced_->advisory) {
+        match.enhanced_->prepare_advisory_tick(match);
+        auto& query = match.enhanced_->advisory->query;
+        query.used += query.remaining;
+        query.remaining = 0;
+    }
+    match.tick();
+}
+
 MatchTickAccess::MatchTickAccess(Match& match) : host_(std::make_unique<TickHost>(match)) {
 }
 

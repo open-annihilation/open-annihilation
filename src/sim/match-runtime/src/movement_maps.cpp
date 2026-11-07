@@ -68,6 +68,7 @@ void Match::build_movement_maps() {
 }
 
 void Match::refresh_movement_maps(std::array<int16_t, 2> cell, std::array<int16_t, 2> footprint) {
+    advisory_static_change(cell, footprint);
     const auto rectangle = rectangle_of(cell, footprint);
     if (enhanced_ && enhanced_->shared_routes)
         ++enhanced_->shared_static_revision;

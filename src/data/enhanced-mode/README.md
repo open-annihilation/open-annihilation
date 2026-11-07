@@ -24,7 +24,7 @@ selects bounded obstacle checks along each ground step
 when its matching simulation implementation is integrated. It retains the
 earlier capacities and version-3 routing policy. `corridor_flow_version`
 and `current_version` are five. Version 5 reserves a separate identity for
-advisory corridor lanes and ground-turn anticipation. That version requires
+advisory corridor lanes. That version requires
 the matching flow behavior to be integrated and validated before adoption;
 version metadata alone does not provide it. Versions 1, 2, 3 and 4 keep
 their original canonical profiles and hashes. Graphics settings are

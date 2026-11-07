@@ -20,8 +20,8 @@ It also reuses spatial projections during contact scans. Renderer selection
 is independent. Version 2 adds shared routing and local unit flow while
 retaining those capacities. Version 3 selects regional shared-route
 construction. Version 4 selects bounded swept ground-step checks. Version 5
-reserves a distinct identity for advisory corridor lanes and ground-turn
-anticipation, requiring its matching simulation behavior and validation
+reserves a distinct identity for advisory corridor lanes,
+requiring its matching simulation behavior and validation
 before adoption. Versions 1, 2, 3 and 4 remain available for
 saved and recorded games with their original rules and hashes. The unit and
 projectile capacities stay the same.

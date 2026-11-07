@@ -121,6 +121,10 @@ void TickHost::movement_tick(oa::Unit& record) {
         if (flow_head->active)
             g.navigation.flags |= sim::ground_orders::route_changed_flag;
         *flow_head = {};
+        if (match.enhanced_->advisory &&
+            (match.enhanced_->advisory->guides[s.unit_index].phase != AdvisoryLanePhase::none ||
+             match.enhanced_->advisory->published_guides[s.unit_index].active))
+            match.reset_advisory_unit(s.unit_index);
     }
     // The driver's per-tick slot and the steering step run for carried units
     // too; the carried branch below then overrides their position, attitude,
@@ -216,6 +220,9 @@ void TickHost::movement_tick(oa::Unit& record) {
             }
         }
         auto effective_navigation = g.navigation;
+        if (match.enhanced_ && match.enhanced_->advisory)
+            (void)match.advisory_navigation(s, g, flags, effective_navigation);
+        const auto& advisory_navigation = effective_navigation;
         if (flow_head && !parent_index) {
             const bool had_head = flow_head->active;
             const auto previous_points = flow_head->points;
@@ -352,7 +359,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                             }
                         return result;
                     };
-                    const auto points = sim::ground_orders::steering_points(g.navigation);
+                    const auto points = sim::ground_orders::steering_points(advisory_navigation);
                     const auto target = sim::ground_orders::steering_target(g.geometry, points);
                     const auto decision = sim::unit_movement::choose_local_flow(
                         g.geometry,

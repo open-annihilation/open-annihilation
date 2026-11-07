@@ -25,6 +25,36 @@ namespace oa::sim::match_runtime {
 class MatchTickAccess {
   public:
 
+    /// Read-only owner-local advisory state for an actual native movement test.
+    struct AdvisoryLaneInspection {
+        bool supported{}, active{}, entered{};
+        uint8_t phase{}, direction{};
+        uint16_t corridor{};
+        uint64_t generation{};
+        uint64_t route_history{};
+        int16_t lane{};
+    };
+
+    /// Shared charged work across construction, discovery and reserved active advice.
+    struct AdvisoryBudgetInspection {
+        uint32_t limit{}, remaining{}, used{};
+        uint32_t active_remaining{}, active_used{};
+        uint32_t query_remaining{};
+        uint32_t active_cursor{}, active_begin{};
+        bool active_stopped{};
+    };
+
+    /// Returns the bounded lane state of one real Match unit.
+    static AdvisoryLaneInspection advisory_lane(const Match& match, uint16_t unit);
+    /// Returns this unit's player/class detector state, or an empty unsupported state.
+    static sim::ground_orders::CorridorStatus advisory_catalog(const Match& match, uint16_t unit);
+    /// Returns the match-wide finite work allowance and work already charged this tick.
+    static AdvisoryBudgetInspection advisory_budget(const Match& match);
+    /// Caps each reserved pool during test setup; zero forces ordinary native fallback.
+    static void set_advisory_budget(Match& match, uint32_t limit);
+    /// Runs one full native tick with new queries exhausted and the retained reserve available.
+    static void tick_without_advisory_queries(Match& match);
+
     /// The order flags' bit StartBuilding sets and StopBuilding clears.
     static constexpr uint8_t building_flag = 0x40;
 
