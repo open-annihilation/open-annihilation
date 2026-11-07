@@ -2049,8 +2049,9 @@ int Runtime::check_live_renderer() {
         require(snapshot().rgb == picture.rgb, "paused water effects changed between frames");
         save_picture(water_names[effect], picture);
     }
-    // Timings include CPU preparation and synchronous GPU readback. They are
-    // diagnostic costs, not the displayed game's frame rate.
+    // Timings include CPU preparation and synchronous GPU readback. Each
+    // sample draws one ordinary frame, without a vertex-storage reference.
+    // They are diagnostic costs, not the displayed game's frame rate.
     constexpr std::size_t timing_samples = 7;
     for (const float zoom : {1.0F, 0.25F}) {
         match_zoom_ = match_zoom_target_ = zoom;
@@ -2059,7 +2060,7 @@ int Runtime::check_live_renderer() {
         renderer::Surface disabled_water_picture;
         for (const uint32_t level : {0U, 100U}) {
             water_level(level);
-            const auto water_picture = snapshot();
+            const auto water_picture = snapshot(false);
             if (level == 0) {
                 disabled_water_vertices = live_renderer_vertex_count();
                 disabled_water_picture = water_picture;
@@ -2076,7 +2077,7 @@ int Runtime::check_live_renderer() {
             std::array<double, timing_samples> timings{};
             for (auto& elapsed : timings) {
                 const auto begin = std::chrono::steady_clock::now();
-                snapshot();
+                snapshot(false);
                 elapsed = std::chrono::duration<double, std::milli>(
                               std::chrono::steady_clock::now() - begin
                 )
@@ -2087,7 +2088,7 @@ int Runtime::check_live_renderer() {
                       << " median render/readback ms=" << timings[timing_samples / 2]
                       << " vertices=" << live_renderer_vertex_count() << '\n';
         }
-        save_picture(zoom == 1.0F ? "water-all.png" : "water-distant.png", snapshot());
+        save_picture(zoom == 1.0F ? "water-all.png" : "water-distant.png", snapshot(false));
     }
     if (!options_.snapshot.empty()) {
         // Canonical wind changes must not turn or restart stable map water flow.
