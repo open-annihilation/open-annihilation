@@ -58,6 +58,7 @@ constexpr int64_t cell_width = 16 * int64_t{pixel};
 constexpr int64_t half_cell = 8 * int64_t{pixel};
 constexpr uint32_t tick = 155;
 constexpr size_t maximum_queries = 256;
+constexpr uint8_t unrelated_movement_flag = 0x80;
 
 int64_t floor_divide(int64_t numerator, int64_t denominator) {
     const auto quotient = numerator / denominator;
@@ -97,7 +98,7 @@ movement::Movement motion(Fixed x, Fixed z, Fixed y = 0) {
     result.speed = 3 * pixel;
     result.turn = 31;
     result.last_motion_tick = 17;
-    result.flags = 1 | 0x80;
+    result.flags = 1 | unrelated_movement_flag;
     return result;
 }
 
@@ -579,7 +580,7 @@ void blocked_endpoint_preserves_flags_speed_and_attempted_y() {
                                     : command.velocity)
         );
         OA_CHECK(moving.last_motion_tick == tick && moving.turn == command.turn);
-        OA_CHECK((moving.flags & 0x80) != 0);
+        OA_CHECK((moving.flags & unrelated_movement_flag) != 0);
         OA_CHECK(host.change_count == 0);
         compare_legacy_blocked(before, command, unit, moving);
     }
