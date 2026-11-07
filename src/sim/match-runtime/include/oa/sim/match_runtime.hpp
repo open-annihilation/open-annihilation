@@ -582,7 +582,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     Match(const Match&) = delete;
     Match& operator=(const Match&) = delete;
 
-    /// Returns cumulative Enhanced work counters, or zero outside preset v2.
+    /// Returns cumulative Enhanced work counters; v1 reports its legacy searches.
     [[nodiscard]] EnhancedCounters enhanced_counters() const noexcept;
 
     /// Returns the effective local traffic route for network publication.
