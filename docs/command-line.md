@@ -650,7 +650,10 @@ partial staging, resumed simulation or a changed camera. The bench checks
 the roster before and after the run, checks live counters and the held tick
 each frame, and compares the saved-state digest outside the measured span.
 A successful paused span prints a `STATIC` line with its world digest and
-verified frame count. These are rendering measurements, not a running battle's
+verified frame count. Its `RENDER` line identifies the actual presentation
+path and drawn population. Software frames include the final world image's
+byte count and SHA-256 outside the timed span; accelerated frames require
+a separate image readback check. These are rendering measurements, not a running battle's
 simulation or frame-rate guarantee.
 
 The bench prints its lines on standard output, which the game writes into

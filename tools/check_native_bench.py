@@ -293,6 +293,11 @@ def main():
             if len(re.findall(r"^bench: FRAME ", paused.stdout, re.M)) != 3 or not re.search(
                     r"^bench: RESULT label=paused .* frames 3 .* ticks 0 ", paused.stdout, re.M):
                 fail(paused, "the paused rendering span did not measure three frames without ticks")
+            if not re.search(
+                    r"^bench: RENDER accelerated [01] full [01] turned 0 drawn \d+ "
+                    r"cpu_image_bytes \d+ cpu_image_sha256 (?:[0-9a-f]{64}|-)$",
+                    paused.stdout, re.M):
+                fail(paused, "the paused rendering span did not identify its actual renderer")
             wrong_population = run_bench(
                 arguments.native, arguments.game_dir, workdir, "wrong-population",
                 paused_view.replace("expected_live_units 2", "expected_live_units 3"))

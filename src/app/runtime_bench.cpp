@@ -12,6 +12,7 @@
 #include "oa/app/frame_coordinates.hpp"
 
 #include "oa/core/unit.h"
+#include "oa/base/sha256.hpp"
 #include "oa/sim/state_hash.hpp"
 #include "oa/ui/console/game_fields.hpp"
 
@@ -317,12 +318,15 @@ void Runtime::play_bench() {
     const std::array<int32_t, 2> held_camera{match_camera_x_, match_camera_z_};
     const float held_zoom = match_zoom_;
     const auto held_angles = live_camera_angles();
+    const bool held_acceleration = accelerated_presentation();
+    const bool held_full = full_presentation();
     const auto check_frame = [&] {
         check_population();
         check_paused();
         if (view.require_paused &&
             (held_camera != std::array<int32_t, 2>{match_camera_x_, match_camera_z_} ||
              held_zoom != match_zoom_ || held_angles != live_camera_angles() ||
+             held_acceleration != accelerated_presentation() || held_full != full_presentation() ||
              ((view.yaw != 0 || view.pitch != 0) != live_renderer_active())))
             fail("the paused benchmark changed its camera");
     };
@@ -439,6 +443,26 @@ void Runtime::play_bench() {
             static_cast<unsigned long long>(held_world),
             view.warmup_frames,
             frames
+        );
+        // The software world image is current here. Accelerated frames may
+        // retain older CPU pixels, so they need a separate readback check.
+        const bool cpu_image = !held_acceleration && !live_renderer_active();
+        const auto image_hash = oa::base::sha256::to_hex(
+            oa::base::sha256::digest_of(
+                cpu_image ? std::span<const uint8_t>{match_world_cpu_.rgb}
+                          : std::span<const uint8_t>{}
+            )
+        );
+        std::printf(
+            "bench: RENDER accelerated %u full %u turned %u drawn %u cpu_image_bytes %zu "
+            "cpu_image_sha256 %.*s\n",
+            unsigned(held_acceleration),
+            unsigned(held_full),
+            unsigned(live_renderer_active()),
+            frame_draws_.units_drawn,
+            cpu_image ? match_world_cpu_.rgb.size() : size_t{0},
+            cpu_image ? int(image_hash.size()) : 1,
+            cpu_image ? image_hash.data() : "-"
         );
     }
     const uint32_t ticks = match_timing_.tick - first_tick;
