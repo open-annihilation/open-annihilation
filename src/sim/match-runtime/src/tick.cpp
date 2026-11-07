@@ -363,6 +363,10 @@ void Match::advance_path_search() {
                     // The same publication seam as full A*: route_changed
                     // is picked up by the network's local-player tick hook.
                     (void)sim::ground_orders::accept_path(view, std::span{route}.first(count));
+                    // A delivered path gets the ordinary retry interval.
+                    // Pending fields keep the previous stamp so their first
+                    // usable route can still be picked up promptly.
+                    navigation.last_search_tick = ctx.match->simulation_.tick;
                     ctx.match->enhanced_->local_flow_heads[slot->unit_index].active = false;
                     return nullptr;
                 }
