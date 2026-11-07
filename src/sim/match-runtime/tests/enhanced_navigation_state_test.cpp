@@ -302,6 +302,159 @@ void sustained_blockage_bypasses_shared_routes() {
     }
 }
 
+/// Finds a genuine temporary traffic head while two units pass each other.
+uint16_t create_passing_head(Fixture& fixture) {
+    configure_movement_class(fixture);
+    auto& first = fixture.spawn(0, 72, 48);
+    auto& second = fixture.spawn(0, 72, 96);
+    const std::array<uint16_t, 2> units{first.unit_index, second.unit_index};
+    auto& match = *fixture.match;
+    (void)match.issue_ground_move(units[0], {72 << 16, 0, 112 << 16}, false);
+    (void)match.issue_ground_move(units[1], {72 << 16, 0, 24 << 16}, false);
+    for (uint32_t tick = 0; tick < 120; ++tick) {
+        fixture.run(1);
+        if (tick == 2)
+            for (size_t side = 0; side < units.size(); ++side) {
+                auto& navigation = match.ground_runtime(units[side])->navigation;
+                navigation.points[0] = {72, static_cast<int16_t>(side == 0 ? 48 : 96)};
+                navigation.points[1] =
+                    navigation.points[2] = {72, static_cast<int16_t>(side == 0 ? 112 : 24)};
+                navigation.count = 3;
+                navigation.flags = routes::route_present_flag | routes::route_changed_flag;
+            }
+        for (const auto unit : units)
+            if (match.local_flow_head(unit)->active)
+                return unit;
+    }
+    CHECK(false);
+    return 0;
+}
+
+/// New searches must replace temporary steering from an older route of the same goal.
+void accepted_routes_release_old_traffic_heads() {
+    for (const bool shared_path : {false, true}) {
+        Fixture fixture(options_for(2));
+        const auto unit = create_passing_head(fixture);
+        auto& match = *fixture.match;
+        auto* ground = match.ground_runtime(unit);
+        CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+        CHECK(match.local_flow_head(unit)->active);
+        match.simulation().tick = 123;
+
+        // Isolate this unit's request from the other passing unit's retry.
+        for (const auto& slot : match.world().slots)
+            if (auto* other = match.ground_runtime(slot.unit_index); other != nullptr) {
+                other->navigation.flags &= uint8_t(~routes::search_pending_flag);
+                other->navigation.last_search_tick = match.simulation().tick;
+            }
+
+        auto& steering = table(match, "local-flow");
+        std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
+        CHECK(flow::read_local_flow_heads(heads, bytes_of(steering)));
+        const uint8_t collision_ticks = shared_path ? 7 : flow::local_flow_retry_ticks;
+        heads[unit].blocked_ticks = collision_ticks;
+        std::vector<uint8_t> bytes(heads.size() * flow::local_flow_head_bytes);
+        CHECK(flow::write_local_flow_heads(heads, bytes));
+        CHECK(steering.restore(steering.context, bytes));
+
+        if (shared_path) {
+            routes::FlowCache cache(16, 16);
+            const routes::FlowSampler sampler{
+                nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+                    return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
+                }
+            };
+            const routes::FlowContext context{0, 0, 0, 0, 1, 1};
+            std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+            uint32_t count{};
+            cache.advance(121, 0, sampler);
+            CHECK(
+                cache.route(
+                    context,
+                    match.state().units[unit],
+                    *ground->navigation.goal,
+                    points,
+                    count,
+                    sampler
+                ) == routes::FlowResult::fallback
+            );
+            CHECK(
+                cache.route(
+                    context,
+                    match.state().units[unit],
+                    *ground->navigation.goal,
+                    points,
+                    count,
+                    sampler
+                ) == routes::FlowResult::pending
+            );
+            cache.advance(122, 0, sampler);
+            CHECK(
+                cache.route(
+                    context,
+                    match.state().units[unit],
+                    *ground->navigation.goal,
+                    points,
+                    count,
+                    sampler
+                ) == routes::FlowResult::ready
+            );
+            const auto& shared = table(match, "shared-routes");
+            CHECK(shared.restore(shared.context, cache.state_bytes()));
+            const auto& revision = table(match, "flow-map-version");
+            constexpr std::array<uint8_t, 4> current_revision{};
+            CHECK(revision.restore(revision.context, current_revision));
+        }
+
+        ground->navigation.flags |= routes::search_pending_flag;
+        ground->navigation.last_search_tick = 0;
+        const auto before = match.enhanced_counters();
+        match.advance_path_search();
+        CHECK(match.fault() == nullptr);
+        const auto after = match.enhanced_counters();
+        if (shared_path) {
+            CHECK(after.shared_route_hits == before.shared_route_hits + 1);
+            CHECK(after.full_route_searches == before.full_route_searches);
+        } else {
+            CHECK(after.full_route_searches == before.full_route_searches + 1);
+        }
+        CHECK(routes::route_present(ground->navigation));
+        CHECK(ground->navigation.count >= 2);
+        CHECK(!match.local_flow_head(unit)->active);
+        CHECK(match.local_flow_head(unit)->blocked_ticks == collision_ticks);
+    }
+}
+
+/// Opposing units must complete their moves naturally and remain at rest.
+void passing_units_rejoin_and_arrive() {
+    Fixture fixture(options_for(2));
+    (void)create_passing_head(fixture);
+    auto& match = *fixture.match;
+    std::vector<uint16_t> units;
+    for (const auto& slot : match.world().slots)
+        if (slot.unit != nullptr && slot.record.type_index != 0)
+            units.push_back(slot.unit_index);
+    CHECK(units.size() == 2);
+    fixture.run(240);
+    const std::array<int32_t, 2> goal_z{112, 24};
+    std::array<oa::FixedVec3, 2> arrivals{};
+    for (size_t side = 0; side < units.size(); ++side) {
+        const auto& unit = match.state().units[units[side]];
+        const int64_t dx = (unit.position.x >> 16) - 72;
+        const int64_t dz = (unit.position.z >> 16) - goal_z[side];
+        CHECK(dx * dx + dz * dz <= 16 * 16);
+        CHECK(match.ground_runtime(units[side])->navigation.goal == nullptr);
+        CHECK(!match.local_flow_head(units[side])->active);
+        arrivals[side] = unit.position;
+    }
+    fixture.run(60);
+    for (size_t side = 0; side < units.size(); ++side) {
+        const auto& unit = match.state().units[units[side]];
+        CHECK(unit.position.x == arrivals[side].x);
+        CHECK(unit.position.z == arrivals[side].z);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -310,6 +463,8 @@ int main() {
         navigation_state_survives_restore();
         malformed_state_is_rejected_atomically();
         sustained_blockage_bypasses_shared_routes();
+        accepted_routes_release_old_traffic_heads();
+        passing_units_rejoin_and_arrive();
         std::cout << "Enhanced navigation state: restore and pending invalidation match\n";
         return 0;
     } catch (const std::exception& error) {
