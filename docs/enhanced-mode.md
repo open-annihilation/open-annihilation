@@ -114,6 +114,8 @@ not establish sustained 30 Hz simulation or 60 FPS rendering.
 
 ## Version 2 checkpoint
 
+These timing runs precede the route-quality corrections described below.
+
 Paired Check-build runs on the same M5, Core Prime Industrial Area and seed 7
 compared 30 warmup ticks and 300 measured ticks. Two combat runs per version
 retained identical results within that version: v1 `4f1722b3e338a32d`,
@@ -152,6 +154,45 @@ units and no projectile allocation failures. It measured 11.4 ms median,
 fit the 33.3 ms target in these runs, but occasional long ticks remain.
 Rendered frame rate, AI-heavy workloads and gaming-desktop results remain
 unvalidated.
+
+## Route-quality checkpoint
+
+Enhanced v2 now completes a temporary avoidance leg after the unit passes its
+target, rather than requiring a turn back into a five-pixel arrival circle.
+A replacement path clears the old avoidance leg even when its destination
+has not changed. Shared routes preserve a clear lane to each unit's own
+destination, favour cardinal expansion at equal depth, and retain bounded
+route-prefix progress when a direct visibility test would exceed the tick's
+remaining probe budget. Off and v1 keep their previous movement behavior.
+
+The sustained eight-unit steering fixture, with one-cell footprints, completes
+in 466 ticks instead of 549. Its closed-orbit windows fall from 34 to zero,
+with no footprint overlaps. This fixture exercises the actual steering and
+integration functions; it does not establish stock two-cell traffic capacity.
+
+A separate 900-tick comparison repeats the original 20,000-unit march on Core
+Prime Industrial Area with byte-identical initial positions, seed 7, 48-pixel
+spacing and 1,024-pixel bank offsets. Units entering a tight orbit fall from
+10,792 to 7,142, a 33.8% reduction. Here an orbit means travelling more than
+24 pixels in 60 ticks while ending within five pixels of the window's start.
+Units travelling fewer than 16 pixels in the final 150 ticks fall from 11,283
+to 9,558. Median inward displacement increases from 552 to 630.5 pixels on
+the left and from 406.5 to 614.5 on the right. All 20,000 units survive this
+hold-fire comparison. Congestion and repeated local detours remain.
+
+An exact static-footprint audit finds 1,419 of that original march's mirrored
+goals blocked or on disconnected ground. The separate combat recording uses
+connected, mirrored troop placements and real attack orders, with stock
+footprints and movement. Its HUD counts the original roster's live targets
+with positive health and removes a unit on its actual lethal-hit tick.
+The dots are drawn from recorded engine positions; the recording does not
+measure the game's rendered frame rate.
+
+A subsequent 300-tick combat benchmark preserves the v1 digest
+`4f1722b3e338a32d` and the v2 digest `943bf1ddd2329180`. One v2 run measures
+14.6 ms median, 32.3 ms p95 and 71.7 ms p99, with a 561.6 ms maximum wall
+time. Host load varies, and long ticks remain; these results do not establish
+smooth whole-battle performance.
 
 ## Remaining work
 

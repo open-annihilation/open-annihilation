@@ -34,6 +34,25 @@ wrapped braking divisor gives no braking distance.
 `movement_test.cpp` checks turning wraparound, velocity axes, underwater
 penalty, braking, same-cell integration and blocked/accepted transitions.
 
+## Enhanced traffic
+
+`local_flow.hpp` supplies the optional Enhanced v2 traffic steering. Bounded
+footprint probes select short avoidance legs around moving occupants; final
+collision checks still reject occupied terrain. Waiting priority uses clocks
+captured before any unit moves in the tick, with unit IDs breaking ties.
+The original navigator keeps its mission and destination.
+
+A retained avoidance leg completes within five world units of its target or
+after crossing the target's forward plane. This lets a turning unit resume
+its route without circling a short waypoint. A replacement route also clears
+the previous avoidance leg. Neither operation resets the consecutive collision
+clock that restores normal replanning after 30 blocked ticks.
+
+`unit-local-flow` checks clearance, priorities, coherent turns, bounded retries
+and canonical saved heads. `unit-local-flow-steering` runs the actual ground
+steering and integration through sustained opposing traffic, checking arrival,
+zero overlap, repeated-run determinism and a radius-only completion control.
+
 ## TNT terrain and four-point ground pose
 
 `Terrain::height` extracts signed integer high words from 16.16 X/Z, locates

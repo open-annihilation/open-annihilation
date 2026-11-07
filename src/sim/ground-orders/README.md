@@ -150,6 +150,15 @@ edge and returned route edge is checked at footprint-cell resolution against
 current static passability and player knowledge. Narrow corridors outside
 the four-cell coarse graph fall back to ordinary search.
 
+Clear direct routes keep each unit's own destination instead of converging on
+the region's first destination or its coarse anchor. Direct visibility tests
+share the extraction probe budget; a ray that cannot finish within the remaining
+budget leaves that budget available for a coarse route prefix. Equal-depth
+field expansion tries cardinal neighbours before diagonals, avoiding unnecessary
+directional detours. The
+shared-route tests check individual lanes, wall-detour symmetry and regions
+split by an impassable wall.
+
 Each tick clears at most 65,536 direction bytes, spends at most 2,048 seed
 and expansion credits, and allows at most 65,536 cell probes for extraction.
 Pending requests leave the full search's retry stamp untouched. The cache
