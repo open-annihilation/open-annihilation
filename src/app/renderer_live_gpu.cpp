@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <unordered_map>
 #include <vector>
 
 namespace oa::app::renderer_live_gpu {
@@ -549,7 +550,7 @@ constexpr SDL_GPUTextureFormat shadow_map_format = SDL_GPU_TEXTUREFORMAT_R8_UNOR
 /// The shadows' map is made this many texels larger at a time.
 constexpr uint32_t shadow_map_step = 512;
 /// The words of an instance in ModelResources::frame: its type's corners,
-/// its vertices, pieces and textures, its brightness, and room.
+/// its vertices, pieces and textures, its brightness and world origin.
 constexpr uint32_t model_instance_words = 8;
 /// A triangle corner's vertex, and a texture, in ModelDraws::corners; an
 /// index's corner in ModelDraws::indices.
@@ -560,6 +561,8 @@ static_assert(model_corner_bits == model_piece_shift);
 /// textures it draws with.
 constexpr uint32_t model_field_limit = 1U << 16;
 constexpr uint32_t model_texture_limit = 1U << model_texture_bits;
+/// The bits a position range's count occupies in its bounds-cache key.
+constexpr uint32_t position_count_bits = 32;
 
 /// Whether a frame's model draws hold together: every instance's ranges in
 /// their lists and within the fields' limits, every corner of its type
@@ -584,6 +587,24 @@ bool valid_model_draws(
     const auto within = [](std::size_t first, std::size_t count, std::size_t size) {
         return first <= size && count <= size - first;
     };
+    const auto inside = [](float value, float low, float high) -> uint32_t {
+        return static_cast<uint32_t>(value >= low) & static_cast<uint32_t>(value <= high);
+    };
+    std::array<float, 3> all_low{coordinate_limit, coordinate_limit, coordinate_limit};
+    std::array<float, 3> all_high{-coordinate_limit, -coordinate_limit, -coordinate_limit};
+    uint32_t valid = 1;
+    for (std::size_t at = 0; at < models.positions.size(); at += 3)
+        for (std::size_t axis = 0; axis < all_low.size(); ++axis) {
+            const float value = models.positions[at + axis];
+            valid &= inside(value, -coordinate_limit, coordinate_limit);
+            all_low[axis] = std::min(all_low[axis], value);
+            all_high[axis] = std::max(all_high[axis], value);
+        }
+    if (valid == 0)
+        return false;
+    // The whole pose list's box usually proves every translated range.
+    // Near the coordinate limits, cache each exact range's box only once.
+    std::unordered_map<uint64_t, std::array<float, 6>> position_bounds;
 
     // Each type's corners are read once, for the most each names.
     struct TypeReach {
@@ -606,6 +627,49 @@ bool valid_model_draws(
             instance.texture_count > model_texture_limit ||
             !(instance.brightness >= 0 && instance.brightness <= 1))
             return false;
+        uint32_t origin_valid = 1;
+        uint32_t all_within = 1;
+        for (std::size_t axis = 0; axis < instance.origin.size(); ++axis) {
+            const float origin = instance.origin[axis];
+            origin_valid &= inside(origin, -coordinate_limit, coordinate_limit);
+            all_within &= inside(origin + all_low[axis], -coordinate_limit, coordinate_limit) &
+                          inside(origin + all_high[axis], -coordinate_limit, coordinate_limit);
+        }
+        if (origin_valid == 0)
+            return false;
+        if (all_within == 0 && instance.position_count != 0) {
+            const uint64_t key =
+                uint64_t{instance.positions} << position_count_bits | instance.position_count;
+            const auto [found, inserted] = position_bounds.try_emplace(key);
+            auto& bounds = found->second;
+            if (inserted) {
+                bounds = {
+                    coordinate_limit,
+                    coordinate_limit,
+                    coordinate_limit,
+                    -coordinate_limit,
+                    -coordinate_limit,
+                    -coordinate_limit
+                };
+                const std::size_t first = std::size_t{instance.positions} * 3;
+                const std::size_t end = first + std::size_t{instance.position_count} * 3;
+                for (std::size_t at = first; at < end; at += 3)
+                    for (std::size_t axis = 0; axis < instance.origin.size(); ++axis) {
+                        bounds[axis] = std::min(bounds[axis], models.positions[at + axis]);
+                        bounds[axis + 3] = std::max(bounds[axis + 3], models.positions[at + axis]);
+                    }
+            }
+            for (std::size_t axis = 0; axis < instance.origin.size(); ++axis)
+                valid &=
+                    inside(
+                        instance.origin[axis] + bounds[axis], -coordinate_limit, coordinate_limit
+                    ) &
+                    inside(
+                        instance.origin[axis] + bounds[axis + 3],
+                        -coordinate_limit,
+                        coordinate_limit
+                    );
+        }
         auto type = std::find_if(types.begin(), types.end(), [&](const TypeReach& reach) {
             return reach.corners == instance.corners && reach.corner_count == instance.corner_count;
         });
@@ -629,12 +693,6 @@ bool valid_model_draws(
             return false;
     }
     // Branch-free tests, as the frame's vertices are checked.
-    const auto inside = [](float value, float low, float high) -> uint32_t {
-        return static_cast<uint32_t>(value >= low) & static_cast<uint32_t>(value <= high);
-    };
-    uint32_t valid = 1;
-    for (const float value : models.positions)
-        valid &= inside(value, -coordinate_limit, coordinate_limit);
     for (const float value : models.textures)
         valid &= inside(value, 0, 1);
     for (const uint32_t frame : models.piece_frames)
@@ -1066,7 +1124,10 @@ bool prepare_models(
             instance.positions,
             instance.pieces,
             instance.textures,
-            std::bit_cast<uint32_t>(instance.brightness)
+            std::bit_cast<uint32_t>(instance.brightness),
+            std::bit_cast<uint32_t>(instance.origin[0]),
+            std::bit_cast<uint32_t>(instance.origin[1]),
+            std::bit_cast<uint32_t>(instance.origin[2])
         };
         at = std::copy(record.begin(), record.end(), at);
     }

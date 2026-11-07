@@ -654,6 +654,11 @@ int persistent_frames() {
         std::fprintf(stderr, "live GPU frame: %s\n", scene.error.c_str());
         return oa::test::check_exit_status();
     }
+    std::printf(
+        "Live GPU lifecycle: %s device on %s video, without a window\n",
+        SDL_GetGPUDeviceDriver(opened_device(scene.context)),
+        SDL_GetCurrentVideoDriver()
+    );
     const auto initial_vertices = scene.vertices;
     for (const auto& bound : vertex_bounds) {
         for (float accepted : {bound.low, bound.high}) {
@@ -2028,9 +2033,9 @@ struct ModelFrame {
         const uint32_t polygon_corner = (texture >> model_polygon_corner_shift) & 3U;
         const float* places = textures.data() + 4 * (drawn.textures + slot);
         Vertex made{};
-        made.x = positions[at];
-        made.height = positions[at + 1];
-        made.z = positions[at + 2];
+        made.x = drawn.origin[0] + positions[at];
+        made.height = drawn.origin[1] + positions[at + 1];
+        made.z = drawn.origin[2] + positions[at + 2];
         made.u = places[polygon_corner == 1 || polygon_corner == 2 ? 2 : 0];
         made.v = places[polygon_corner >= 2 ? 3 : 1];
         made.brightness = drawn.brightness;
@@ -2059,6 +2064,78 @@ struct ModelFrame {
         return out;
     }
 };
+
+/// Validate origins and translated ranges before any graphics device is opened.
+void model_origin_validation() {
+    ModelFrame models;
+    models.corners = {0, 0, 1, 0, 2, 0};
+    models.positions = {0, 0, 0, 1, 0, 0, 0, 0, 1};
+    models.piece_frames = {0};
+    models.textures = {0, 0, 1, 1};
+    models.indices = {0, 1, 2};
+    models.runs = {{0, 0, 3, 0}};
+    models.instances = {{0, 3, 0, 3, 0, 1, 0, 1, 1}};
+    Scene scene;
+    scene.context.device_unavailable = true;
+    const auto result = [&](const ModelFrame& frame) {
+        const auto draws = frame.draws(1);
+        return render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            small_target,
+            small_target,
+            classic_projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            nullptr,
+            nullptr,
+            {},
+            nullptr,
+            &draws
+        );
+    };
+    OA_CHECK(result(models) == Result::unavailable);
+    constexpr float limit = 32768;
+    for (std::size_t axis = 0; axis < 3; ++axis)
+        for (const float invalid :
+             {std::numeric_limits<float>::quiet_NaN(),
+              std::numeric_limits<float>::infinity(),
+              -std::numeric_limits<float>::infinity(),
+              std::nextafter(limit, std::numeric_limits<float>::infinity()),
+              std::nextafter(-limit, -std::numeric_limits<float>::infinity())}) {
+            auto broken = models;
+            broken.instances[0].origin[axis] = invalid;
+            OA_CHECK(result(broken) == Result::failed);
+            OA_CHECK(scene.pixels.empty());
+        }
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        auto translated = models;
+        translated.instances[0].origin[axis] = limit;
+        translated.positions[axis] = 1;
+        OA_CHECK(result(translated) == Result::failed);
+        translated.instances[0].origin[axis] = -limit;
+        translated.positions[axis] = -1;
+        OA_CHECK(result(translated) == Result::failed);
+        translated.positions[axis] = 0;
+        OA_CHECK(result(translated) == Result::unavailable);
+    }
+    // An unreferenced pose can widen the whole list's box. Only this
+    // instance's own range must fit after its origin is added.
+    models.positions.insert(models.positions.end(), {limit, limit, limit});
+    models.instances[0].origin = {16, 16, 16};
+    models.instances.push_back(models.instances[0]);
+    models.instances.back().origin = {-16, -16, -16};
+    OA_CHECK(result(models) == Result::unavailable);
+    models.instances.back().position_count = 4;
+    models.instances.back().origin = {16, 16, 16};
+    OA_CHECK(result(models) == Result::failed);
+}
 
 /// Adds a box of six faces, two pieces of three faces each, as a type's
 /// triangle corners: every face a fan of two triangles from its first
@@ -2180,7 +2257,8 @@ void card_models() {
                           const KeptGround* kept,
                           const Lights* lights,
                           const ModelFrame& drawn_models,
-                          uint64_t revision) {
+                          uint64_t revision,
+                          const std::array<float, 12>& camera = classic_projection) {
         const auto draws = drawn_models.draws(revision);
         const auto vertices = drawn_models.expanded(frame);
         const bool on_card = render(
@@ -2192,7 +2270,7 @@ void card_models() {
                                  1,
                                  size,
                                  size,
-                                 classic_projection,
+                                 camera,
                                  drawn,
                                  error,
                                  supersample,
@@ -2213,7 +2291,7 @@ void card_models() {
                                        1,
                                        size,
                                        size,
-                                       classic_projection,
+                                       camera,
                                        expected,
                                        error,
                                        supersample,
@@ -2231,6 +2309,22 @@ void card_models() {
         {28, 14, 6, 9, 6, 0.3F, 0.6F, 1, 2, 0, 0, 0}
     };
     const Lights lights{sources, {true, true, false}, 1.5};
+    // A repeated pose has one vertex range, with each instance translated
+    // independently. Texture frames, teams and brightness remain per draw.
+    auto shared = models;
+    shared.positions.assign(models.positions.begin(), models.positions.begin() + 24);
+    for (std::size_t at = 0; at < shared.positions.size(); at += 3) {
+        shared.positions[at] -= 3.25F;
+        shared.positions[at + 2] -= 4.5F;
+    }
+    for (uint32_t box = 0; box < box_count; ++box) {
+        auto& instance = shared.instances[box];
+        instance.positions = 0;
+        instance.origin = {
+            3.25F + float(box * 7 % 33), float(box % 5) * 0.75F, 4.5F + float(box * 13 % 31)
+        };
+    }
+    OA_CHECK(shared.positions.size() * box_count == models.positions.size());
     for (const bool multisampling : {true, false})
         for (const uint32_t supersample : {1U, 2U, 4U}) {
             context.multisampling_allowed = reference.multisampling_allowed = multisampling;
@@ -2239,8 +2333,54 @@ void card_models() {
             OA_CHECK(both(supersample, &kept, nullptr, models, 5));
             OA_CHECK(both(supersample, &kept, &lights, models, 5));
             OA_CHECK(context.lights_drawn == reference.lights_drawn);
+            OA_CHECK(both(supersample, &kept, &lights, shared, 5));
+            OA_CHECK(context.lights_drawn == reference.lights_drawn);
         }
     context.multisampling_allowed = reference.multisampling_allowed = true;
+    // Negative and large world coordinates remain visible through a
+    // compensating camera translation. Compare actual pixels with the
+    // processor-expanded positions, including fractional origins.
+    constexpr std::array<std::array<float, 3>, 2> origins{
+        {{-128.00390625F, -64.0625F, -256.015625F}, {30000.125F, 30000.375F, 30000.625F}}
+    };
+    for (const auto& offset : origins) {
+        auto translated = shared;
+        constexpr float fixed_fraction = 1.0F / 65536.0F;
+        constexpr float sample_edge_shift = 0.25F;
+        translated.positions[0] -= fixed_fraction;
+        translated.positions[3] += fixed_fraction;
+        for (auto& instance : translated.instances)
+            for (std::size_t axis = 0; axis < offset.size(); ++axis)
+                instance.origin[axis] += offset[axis];
+        // A local Q16 difference can round away at a large origin. Keep
+        // the left edge at a pixel centre to exercise that rounding.
+        for (auto& instance : translated.instances)
+            instance.origin[0] += sample_edge_shift;
+        auto camera = classic_projection;
+        for (std::size_t row = 0; row < offset.size(); ++row)
+            camera[row * 4 + 3] -= camera[row * 4] * offset[0] + camera[row * 4 + 1] * offset[1] +
+                                   camera[row * 4 + 2] * offset[2];
+        OA_CHECK(both(1, nullptr, nullptr, translated, 5, camera));
+        OA_CHECK(both(2, nullptr, nullptr, translated, 5, camera));
+        std::vector<uint8_t> without_models;
+        OA_CHECK(
+            render(
+                reference,
+                frame,
+                atlas,
+                atlas_width,
+                atlas_height,
+                1,
+                size,
+                size,
+                camera,
+                without_models,
+                error,
+                2
+            ) == Result::success
+        );
+        OA_CHECK(without_models != drawn);
+    }
     // The models change the picture.
     std::vector<uint8_t> bare;
     OA_CHECK(
@@ -2420,9 +2560,9 @@ std::vector<float> expected_shadow_map(const ModelFrame& models, const ShadowMap
             const float* point =
                 models.positions.data() + 3 * (instance.positions + (place & 0xffffU));
             // The whole pixels from the model's place.
-            const float whole_x = std::floor(point[0] - cast.across);
-            const float whole_y = std::floor(point[1] - cast.base);
-            const float whole_z = std::floor(point[2] - cast.down);
+            const float whole_x = std::floor((instance.origin[0] + point[0]) - cast.across);
+            const float whole_y = std::floor((instance.origin[1] + point[1]) - cast.base);
+            const float whole_z = std::floor((instance.origin[2] + point[2]) - cast.down);
             const float across =
                 cast.across + (cast.kind == shadow_cast_cut ? whole_x : whole_x + 5);
             const float down = cast.down - cast.ground_half + whole_z;
@@ -2629,6 +2769,78 @@ void card_shadows() {
         if (supersample == 1)
             single = shadowed;
     }
+    // Another instance shares the first box's posed vertices but casts
+    // from a different world origin. Expanding origins on the processor
+    // gives exactly the same shadow pixels as adding them in the stage.
+    auto shared = models;
+    auto translated = shared.instances[0];
+    translated.origin = {5.25F, 2.5F, -3.75F};
+    shared.instances.push_back(translated);
+    const auto instance = static_cast<uint32_t>(shared.instances.size() - 1);
+    const auto cast_index = static_cast<uint32_t>(shared.casts.size());
+    auto translated_cast = shared.casts[0];
+    translated_cast.instance = instance;
+    translated_cast.base += translated.origin[1];
+    translated_cast.across += translated.origin[0];
+    translated_cast.down += translated.origin[2];
+    translated_cast.light = 0.375F;
+    translated_cast.depth = 0.5F;
+    shared.casts.push_back(translated_cast);
+    for (uint32_t corner = 0; corner < 36; ++corner)
+        shared.cast_indices.push_back(cast_index << model_corner_bits | corner);
+    shared.cast_runs.back().index_count += 36;
+    auto expanded_origins = shared;
+    expanded_origins.positions.clear();
+    for (std::size_t at = 0; at < shared.instances.size(); ++at) {
+        auto& target = expanded_origins.instances[at];
+        const auto& source = shared.instances[at];
+        target.positions = static_cast<uint32_t>(expanded_origins.positions.size() / 3);
+        target.origin = {};
+        for (uint32_t vertex = 0; vertex < source.position_count; ++vertex)
+            for (std::size_t axis = 0; axis < source.origin.size(); ++axis)
+                expanded_origins.positions.push_back(
+                    source.origin[axis] +
+                    shared.positions[(std::size_t{source.positions} + vertex) * 3 + axis]
+                );
+    }
+    OA_CHECK(
+        expected_shadow_map(shared, shared.shadow_map) ==
+        expected_shadow_map(expanded_origins, expanded_origins.shadow_map)
+    );
+    for (const uint32_t supersample : {1U, 2U}) {
+        std::vector<uint8_t> shared_pixels;
+        for (const auto* source : {&shared, &expanded_origins}) {
+            const auto model_draws = source->draws(9);
+            OA_CHECK(
+                render(
+                    context,
+                    frame,
+                    atlas,
+                    2,
+                    1,
+                    1,
+                    size,
+                    size,
+                    classic_projection,
+                    shadowed,
+                    error,
+                    supersample,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    {},
+                    nullptr,
+                    &model_draws
+                ) == Result::success
+            );
+            if (source == &shared)
+                shared_pixels = shadowed;
+            else
+                OA_CHECK(shadowed == shared_pixels);
+        }
+        if (supersample == 1)
+            OA_CHECK(shared_pixels != single);
+    }
     // A frame whose map needs more texels makes the texture larger; the
     // next frame's shadows fall on the texels they fell on before.
     auto larger = models;
@@ -2779,6 +2991,7 @@ void card_shadows() {
 /// Run validation on every platform and skip real rendering only when no device is available.
 int main() {
     invalid_input();
+    model_origin_validation();
     if (oa::test::check_exit_status() != 0)
         return oa::test::check_exit_status();
     if (!SDL_Init(SDL_INIT_VIDEO)) {

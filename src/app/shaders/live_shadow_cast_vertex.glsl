@@ -3,7 +3,7 @@
 
 // The live renderer's units' shadows, cast: vertex stage
 // (renderer_live_gpu.cpp). A model's triangle corner from its type's
-// corners and its vertex as the processor placed it, laid in the shadows'
+// corners and its posed vertex with its instance's origin, laid in the shadows'
 // map, which spans the map as the game paints it (a row down is half a
 // pixel up): shadow_offset_x right of the model and at the ground's height
 // under it, as the game lays the model's picture, or sheared a quarter
@@ -59,7 +59,12 @@ void main() {
     const float ground_half = uintBitsToFloat(frame.words[record + 3u]);
     const uint place = corners[(frame.words[instance] + (index & 0xffffu)) * 2u];
     const uint vertex = frame.positions + (frame.words[instance + 1u] + (place & 0xffffu)) * 3u;
-    const vec3 world = vec3(
+    const vec3 origin = vec3(
+        uintBitsToFloat(frame.words[instance + 5u]),
+        uintBitsToFloat(frame.words[instance + 6u]),
+        uintBitsToFloat(frame.words[instance + 7u])
+    );
+    const vec3 world = origin + vec3(
         uintBitsToFloat(frame.words[vertex]),
         uintBitsToFloat(frame.words[vertex + 1u]),
         uintBitsToFloat(frame.words[vertex + 2u])

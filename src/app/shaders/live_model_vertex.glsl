@@ -3,7 +3,7 @@
 
 // The live renderer's models, vertex stage (renderer_live_gpu.cpp): a unit's
 // or feature's triangle corner from its type's corners, which stay on the
-// card, its vertex as the processor placed it and its texture's atlas place,
+// card, its posed vertex with its instance's origin and its texture's atlas place,
 // handed to the scene's fragment stage as the scene's vertex stage hands on
 // a model's vertex. Its camera is the scene's, through the same arithmetic.
 // tools/make_live_shaders.py compiles it for every graphics interface the
@@ -56,7 +56,12 @@ void main() {
     const uint place = corners[corner_at];
     const uint drawn = corners[corner_at + 1u];
     const uint vertex = frame.positions + (frame.words[instance + 1u] + (place & 0xffffu)) * 3u;
-    const vec3 world = vec3(
+    const vec3 origin = vec3(
+        uintBitsToFloat(frame.words[instance + 5u]),
+        uintBitsToFloat(frame.words[instance + 6u]),
+        uintBitsToFloat(frame.words[instance + 7u])
+    );
+    const vec3 world = origin + vec3(
         uintBitsToFloat(frame.words[vertex]),
         uintBitsToFloat(frame.words[vertex + 1u]),
         uintBitsToFloat(frame.words[vertex + 2u])

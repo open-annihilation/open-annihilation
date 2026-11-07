@@ -181,6 +181,8 @@ struct ModelInstance {
     uint32_t textures{};       ///< its first texture in ModelDraws::textures
     uint32_t texture_count{};  ///< its textures
     float brightness{1};       ///< RGB multiplier in [0,1], each corner's
+    /// World x, height and z added to its positions; zero keeps world positions.
+    std::array<float, 3> origin{};
 };
 
 /// Model draws render() draws together, before one of the frame's vertices:
@@ -257,8 +259,8 @@ struct ShadowMap {
 /// The units and features render() draws from their types' models, which
 /// stay on the card, rather than from the frame's vertices. Each triangle
 /// corner a frame draws is an index into its instance's type's corners, and
-/// the card takes from them its vertex, placed by the processor, and its
-/// texture's atlas place; every other attribute is a model's in the frame's
+/// the card takes its posed vertex, adds its instance's origin, and finds
+/// its texture in the atlas; every other attribute is a model's in the frame's
 /// vertices: the instance's brightness, full opacity, no emission or terrain
 /// and no colour modulation.
 struct ModelDraws {
@@ -275,7 +277,8 @@ struct ModelDraws {
     /// the same for two different lists of corners; zero for none.
     uint64_t corners_revision{};
     std::span<const ModelInstance> instances{};
-    /// Each instance's vertices in world x, height and z, within +/-32768.
+    /// Posed x, height and z shared by instances; each component and each
+    /// translated world component lies within +/-32768.
     std::span<const float> positions{};
     /// Each instance's pieces: 1 where the piece draws its first frame, 0
     /// where it draws its running one.
