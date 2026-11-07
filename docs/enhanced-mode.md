@@ -112,6 +112,33 @@ simulation ticks. Host load affects wall times. This is a scripted,
 simulation-only workload with no AI decisions or rendered frames; it does
 not establish sustained 30 Hz simulation or 60 FPS rendering.
 
+## Version 2 checkpoint
+
+Paired Check-build runs on the same M5, map and seed compared 30 warmup
+ticks and 300 measured ticks. Two combat runs per version retained the same
+digest within that version: v1 `4f1722b3e338a32d`, v2 `f0c69d05ffa5d08f`.
+The host had other active workloads, so wall-time ranges describe these runs.
+
+| Workload | Rules | Median tick | p95 tick | p99 tick |
+| --- | --- | --- | --- | --- |
+| 20,000-unit combat, two runs | v1 | 25.2–28.5 ms | 40.2–40.5 ms | 54.5–71.9 ms |
+| 20,000-unit combat, two runs | v2 | 23.4–27.0 ms | 34.4–39.1 ms | 51.2–56.5 ms |
+| 20,000-unit group march | v1 | 11.9 ms | 18.7 ms | 31.9 ms |
+| 20,000-unit group march | v2 | 9.5 ms | 13.3 ms | 24.0 ms |
+
+Combat sighting-resolution attempts fell from 194,599,924 to 11,806,637;
+these counts exclude bucket collection, sorting and membership filtering.
+The group march kept all 20,000 units alive. Units advancing at least 16
+pixels toward their assigned goals rose from 12,646 to 13,544. No unit
+completed its long trip within the measured interval; some remained stalled.
+The v2 march used 26 shared-route hits and 27 ordinary search starts.
+
+A separate v2 combat run completed 1,000 measured ticks, ending with 19,281
+units and no projectile allocation failures. It measured 15.2 ms median,
+40.9 ms p95 and 74.2 ms p99. Combat tails therefore still miss the 33.3 ms
+simulation target. These are simulation measurements; rendered frame rate,
+AI-heavy workloads and gaming-desktop results remain unvalidated.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
