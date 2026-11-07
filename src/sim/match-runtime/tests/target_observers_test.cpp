@@ -87,6 +87,7 @@ void ownership_index_retains_collisions_and_reused_addresses() {
         CHECK(index.fresh(&keys[i]));
         CHECK(index.remember_owner(&keys[i], i));
         index.find(&keys[i])->observer_slot = static_cast<uint32_t>(i);
+        index.find(&keys[i])->observer_previous = &keys[(i + 1) % 12];
     }
     CHECK(!index.fresh(&keys[12]));
     for (size_t i = 0; i < 12; i += 2)
@@ -95,10 +96,12 @@ void ownership_index_retains_collisions_and_reused_addresses() {
         CHECK(index.find(&keys[i]) != nullptr);
         CHECK(index.find(&keys[i])->owner_index == i);
         CHECK(index.find(&keys[i])->observer_slot == i);
+        CHECK(index.find(&keys[i])->observer_previous == &keys[(i + 1) % 12]);
     }
     for (size_t i = 0; i < 12; i += 2) {
         CHECK(index.fresh(&keys[i]));
         CHECK(index.find(&keys[i])->observer_slot == Index::no_observer);
+        CHECK(index.find(&keys[i])->observer_previous == nullptr);
     }
     CHECK(index.begin_tick(1) == false);
     index.removed();
@@ -263,6 +266,29 @@ void corrupt_missing_link() {
     throw std::runtime_error("missing observer link was accepted");
 }
 
+void corrupt_previous_link() {
+    Fixture f(mode_options(2));
+    auto& first = f.spawn(0, 32, 64);
+    auto& second = f.spawn(0, 48, 64);
+    auto& target = f.spawn(0, 128, 64);
+    auto& order = f.match->issue_guard(first.unit_index, target.unit_index, false);
+    (void)f.match->issue_guard(second.unit_index, target.unit_index, false);
+    CHECK(MatchTickAccess::replace_observer_previous(*f.match, order, nullptr));
+    MatchTickAccess::link_target(*f.match, order, nullptr);
+    throw std::runtime_error("corrupt preceding observer was accepted");
+}
+
+void cancelling_behind_a_new_observer() {
+    Fixture f(mode_options(2));
+    auto& first = f.spawn(0, 32, 64);
+    auto& second = f.spawn(0, 48, 64);
+    auto& target = f.spawn(0, 128, 64);
+    (void)f.match->issue_guard(first.unit_index, target.unit_index, false);
+    (void)f.match->issue_guard(second.unit_index, target.unit_index, false);
+    f.match->stop_orders(first.unit_index);
+    CHECK(MatchTickAccess::observer_lists_valid(*f.match));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -277,6 +303,12 @@ int main(int argc, char** argv) {
             corrupt_certificate();
         if (argc == 2 && std::string_view(argv[1]) == "--missing-observer-link")
             corrupt_missing_link();
+        if (argc == 2 && std::string_view(argv[1]) == "--bad-observer-predecessor")
+            corrupt_previous_link();
+        if (argc == 2 && std::string_view(argv[1]) == "--preceding-link-lifecycle") {
+            cancelling_behind_a_new_observer();
+            return 0;
+        }
         retarget_to_another_unit_leaves_the_first();
         retarget_to_no_unit_leaves_the_first();
         ownership_index_retains_collisions_and_reused_addresses();
@@ -288,6 +320,7 @@ int main(int argc, char** argv) {
         full_audit_detects_untracked_duplicate_heads();
         full_capacity_replacement_reuses_storage();
         retargeting_the_tail_of_a_long_live_chain();
+        cancelling_behind_a_new_observer();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

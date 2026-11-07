@@ -28,6 +28,7 @@ class OrderOwnershipIndex {
 
     struct Entry {
         const void* key{};
+        const void* observer_previous{};
         uint32_t owner_index{no_owner};
         uint32_t observer_slot{uncertified_observer};
     };

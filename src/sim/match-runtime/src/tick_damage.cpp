@@ -49,7 +49,7 @@ void prepare_order_ownership(Orders& orders, OrderOwnershipIndex& index, uint32_
 template <typename Record>
 void check_observer_chain(const Record* head, const Record& entry, bool targeted) noexcept {
     const auto* cursor = head;
-    size_t seen = 0;
+    [[maybe_unused]] size_t seen = 0;
     size_t steps = overlay_order_budget;
     while (cursor != nullptr && steps-- > 0) {
         if (cursor == &entry)
@@ -62,6 +62,25 @@ void check_observer_chain(const Record* head, const Record& entry, bool targeted
         assert(seen == 1);
     else
         assert(seen <= 1);
+}
+
+/// Updates the next certified node even when its preceding node is unindexed.
+template <typename Record>
+void update_observer_previous(
+    OrderOwnershipIndex* index,
+    Record* next,
+    [[maybe_unused]] const void* previous,
+    const void* replacement,
+    [[maybe_unused]] uint32_t slot
+) noexcept {
+    if (!index || !next)
+        return;
+    auto* indexed = index->find(&next->order);
+    if (!indexed || indexed->observer_slot == OrderOwnershipIndex::uncertified_observer)
+        return;
+    assert(indexed->observer_slot == slot);
+    assert(indexed->observer_previous == previous);
+    indexed->observer_previous = replacement;
 }
 } // namespace
 
@@ -530,6 +549,7 @@ void Match::release_target_observers(sim::simulation_state::Unit& target) {
                     indexed->observer_slot == static_cast<uint32_t>(head - target_observers_.get())
                 );
                 indexed->observer_slot = OrderOwnershipIndex::no_observer;
+                indexed->observer_previous = nullptr;
             }
         }
         lose_target(*entry, target);
@@ -562,11 +582,20 @@ void Match::link_target_observer(RuntimeOrder& entry, sim::simulation_state::Uni
     }
     entry.attack.target = target;
     entry.observer_next = *head;
+    auto* index = enhanced_ ? enhanced_->order_ownership.get() : nullptr;
+    update_observer_previous(
+        index,
+        entry.observer_next,
+        nullptr,
+        &entry.order,
+        static_cast<uint32_t>(head - target_observers_.get())
+    );
     *head = &entry;
-    if (enhanced_ && enhanced_->order_ownership) {
-        if (auto* indexed = enhanced_->order_ownership->find(&entry.order);
+    if (index) {
+        if (auto* indexed = index->find(&entry.order);
             indexed && indexed->observer_slot != OrderOwnershipIndex::uncertified_observer) {
             assert(indexed->observer_slot == OrderOwnershipIndex::no_observer);
+            assert(indexed->observer_previous == nullptr);
             indexed->observer_slot = static_cast<uint32_t>(head - target_observers_.get());
         }
     }
@@ -580,23 +609,39 @@ void Match::unlink_target_observer(RuntimeOrder& entry) {
         indexed && indexed->observer_slot != OrderOwnershipIndex::uncertified_observer;
     if (entry.attack.target != nullptr) {
         if (auto** link = observer_head(*entry.attack.target)) {
-#ifndef NDEBUG
             auto** head = link;
-#endif
-            if (certified)
+            RuntimeOrder* previous = nullptr;
+            if (certified) {
                 assert(
                     indexed->observer_slot == static_cast<uint32_t>(head - target_observers_.get())
                 );
-            // Every order may watch one unit, so the list is never longer
-            // than the orders there are; the bound only stops a damaged list
-            // looping.
-            std::size_t steps = index ? index->active_count(orders_.size()) : orders_.size();
-            while (*link != nullptr && *link != &entry && steps-- > 0)
-                link = &(*link)->observer_next;
-            if (certified)
+                if (indexed->observer_previous) {
+                    previous = runtime_order(
+                        static_cast<const sim::simulation_state::Order*>(indexed->observer_previous)
+                    );
+                    assert(previous && previous->attack.target == entry.attack.target);
+                    if (previous)
+                        link = &previous->observer_next;
+                }
                 assert(*link == &entry);
-            if (*link == &entry)
+            } else {
+                // Overflow records retain the original bounded chain walk.
+                std::size_t steps = index ? index->active_count(orders_.size()) : orders_.size();
+                while (*link != nullptr && *link != &entry && steps-- > 0) {
+                    previous = *link;
+                    link = &(*link)->observer_next;
+                }
+            }
+            if (*link == &entry) {
+                update_observer_previous(
+                    index,
+                    entry.observer_next,
+                    &entry.order,
+                    previous ? &previous->order : nullptr,
+                    static_cast<uint32_t>(head - target_observers_.get())
+                );
                 *link = entry.observer_next;
+            }
 #ifndef NDEBUG
             if (certified)
                 check_observer_chain(*head, entry, false);
@@ -606,10 +651,13 @@ void Match::unlink_target_observer(RuntimeOrder& entry) {
         }
         entry.attack.target = nullptr;
         entry.observer_next = nullptr;
-        if (certified)
+        if (certified) {
             indexed->observer_slot = OrderOwnershipIndex::no_observer;
+            indexed->observer_previous = nullptr;
+        }
     } else if (certified) {
         assert(indexed->observer_slot == OrderOwnershipIndex::no_observer);
+        assert(indexed->observer_previous == nullptr);
     }
     check_target_observer(entry);
 }
@@ -622,12 +670,24 @@ void Match::check_target_observer(const RuntimeOrder& entry) const noexcept {
         if (indexed && indexed->observer_slot != OrderOwnershipIndex::uncertified_observer) {
             if (target == nullptr) {
                 assert(indexed->observer_slot == OrderOwnershipIndex::no_observer);
+                assert(indexed->observer_previous == nullptr);
                 assert(entry.observer_next == nullptr);
                 return;
             }
             auto* const* head = const_cast<Match*>(this)->observer_head(*target);
             assert(head != nullptr);
             assert(indexed->observer_slot == static_cast<uint32_t>(head - target_observers_.get()));
+            if (indexed->observer_previous) {
+                const auto* previous = runtime_order(
+                    static_cast<const sim::simulation_state::Order*>(indexed->observer_previous)
+                );
+                assert(
+                    previous && previous->attack.target == target &&
+                    previous->observer_next == &entry
+                );
+            } else {
+                assert(*head == &entry);
+            }
             check_observer_chain(*head, entry, true);
             return;
         }

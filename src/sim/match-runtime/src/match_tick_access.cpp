@@ -7,6 +7,8 @@
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
 
+#include <algorithm>
+
 namespace oa::sim::match_runtime {
 
 static_assert(MatchTickAccess::building_flag == order_building_flag);
@@ -88,11 +90,20 @@ bool MatchTickAccess::observer_lists_valid(Match& match) {
     ));
     for (size_t unit = 0; unit < match.units_.size(); ++unit) {
         auto* cursor = match.target_observers_[unit];
+        const sim::simulation_state::Order* previous = nullptr;
         size_t remaining = active;
         while (cursor && remaining-- > 0) {
             if (cursor->attack.target != &match.units_[unit] ||
                 match.runtime_order(&cursor->order) != cursor)
                 return false;
+            if (match.enhanced_ && match.enhanced_->order_ownership) {
+                const auto* indexed = match.enhanced_->order_ownership->find(&cursor->order);
+                if (indexed &&
+                    indexed->observer_slot != OrderOwnershipIndex::uncertified_observer &&
+                    (indexed->observer_slot != unit || indexed->observer_previous != previous))
+                    return false;
+            }
+            previous = &cursor->order;
             cursor = cursor->observer_next;
         }
         if (cursor)
@@ -104,6 +115,14 @@ bool MatchTickAccess::observer_lists_valid(Match& match) {
         if (!entry->attack.target) {
             if (entry->observer_next)
                 return false;
+            if (match.enhanced_ && match.enhanced_->order_ownership) {
+                const auto* indexed = match.enhanced_->order_ownership->find(&entry->order);
+                if (indexed &&
+                    indexed->observer_slot != OrderOwnershipIndex::uncertified_observer &&
+                    (indexed->observer_slot != OrderOwnershipIndex::no_observer ||
+                     indexed->observer_previous != nullptr))
+                    return false;
+            }
             continue;
         }
         auto** head = match.observer_head(*entry->attack.target);
@@ -156,6 +175,20 @@ bool MatchTickAccess::replace_observer_certificate(
     if (!indexed || !head)
         return false;
     indexed->observer_slot = static_cast<uint32_t>(head - match.target_observers_.get());
+    return true;
+}
+
+bool MatchTickAccess::replace_observer_previous(
+    Match& match,
+    const sim::simulation_state::Order& order,
+    const sim::simulation_state::Order* previous
+) {
+    if (!match.enhanced_ || !match.enhanced_->order_ownership)
+        return false;
+    auto* indexed = match.enhanced_->order_ownership->find(&order);
+    if (!indexed)
+        return false;
+    indexed->observer_previous = previous;
     return true;
 }
 

@@ -15,7 +15,9 @@
 #include "oa/sim/unit_movement/movement.hpp"
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
+#include <span>
 
 namespace oa::sim::match_runtime {
 
@@ -129,7 +131,7 @@ class MatchTickAccess {
     [[nodiscard]] static bool
     list_holds(Match& match, sim::simulation_state::Unit& unit, ObserverPlace place);
 
-    /// Audits every actual observer chain independently of its derived index.
+    /// Audits every actual observer chain and any derived membership certificates.
     ///
     /// @param match match whose complete owned graph is checked
     /// @return whether every owned order is on exactly its target's chain
@@ -162,6 +164,17 @@ class MatchTickAccess {
         Match& match,
         const sim::simulation_state::Order& order,
         const sim::simulation_state::Unit& unit
+    );
+
+    /// Corrupts one derived preceding-node key for an assertion negative control.
+    /// @param match match whose derived entry is changed
+    /// @param order owned order with a certificate
+    /// @param previous wrong preceding order, or null to claim a head
+    /// @return whether a certificate was present
+    static bool replace_observer_previous(
+        Match& match,
+        const sim::simulation_state::Order& order,
+        const sim::simulation_state::Order* previous
     );
 
     /// Shrinks the bounded index before test orders are created, exercising overflow fallback.
