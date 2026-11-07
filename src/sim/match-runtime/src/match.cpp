@@ -1172,6 +1172,8 @@ sim::unit_spawn::AssetHandle Match::create_movement(sim::unit_spawn::Slot& slot)
     driver = {};
     mirrored_air_goals_.at(slot.unit_index) = {};
     if (slot.unit->type && (slot.unit->type->flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0) {
+        if (enhanced_ && enhanced_->shared_routes)
+            enhanced_->air_goal_cleanup_required = true;
         if (runtime->mirrored_driver)
             sim::air::air_driver_init_mirrored(&driver, &slot.record);
         else
