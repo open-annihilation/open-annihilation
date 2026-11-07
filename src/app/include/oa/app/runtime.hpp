@@ -160,6 +160,10 @@ struct Bank;
 struct SaveContext;
 } // namespace oa::data::persist
 
+namespace oa::data::replays {
+struct ImportResult;
+} // namespace oa::data::replays
+
 namespace oa::ui::frontend {
 struct Panel;
 struct OptionsContext;
@@ -226,6 +230,7 @@ struct PresenceMutators;
 namespace oa::data::saves {
 struct ContentBrain;
 struct ContentMutator;
+struct ContentRecord;
 } // namespace oa::data::saves
 
 namespace oa::app::mutators_memory {
@@ -1421,6 +1426,126 @@ class Runtime final : public menu::Host,
     /// @param path the save or the recording
     void note_content_beside(const fs::path& path) const;
 
+    /// Returns the text note_content_beside writes for the game being played.
+    ///
+    /// @return the note's text; empty when the content choice names no base game
+    [[nodiscard]] std::string content_note_text() const;
+
+    /// Returns what the game being played is played with, as its content note
+    /// names it: the base game, the rule-changing expansions, the mod's name,
+    /// the mutators and the brains.
+    ///
+    /// @return the record; not present when the content choice names no base game
+    [[nodiscard]] oa::data::saves::ContentRecord played_content_record() const;
+
+    /// Tells whether a person plays this run: it is not a check, a headless
+    /// check or another unattended run.
+    ///
+    /// @return true for a run that is not scripted
+    [[nodiscard]] bool person_plays() const noexcept;
+
+    /// Tells whether the player's setting keeps this run's games as replays
+    /// (open-annihilation.replays.record, which is on unless it says `off`).
+    ///
+    /// A network game and a skirmish are both kept. A run nobody plays, a
+    /// check or a headless run, never is: it records a game only when
+    /// --net-record or --record-game names the file.
+    ///
+    /// @return true for a run a person plays while the setting is on
+    [[nodiscard]] bool records_games_by_setting() const;
+
+    /// The match that is running.
+    ///
+    /// @return the match, or null when none is running
+    [[nodiscard]] oa::sim::match_runtime::Match* running_match() noexcept;
+
+    /// The match that is running.
+    ///
+    /// @return the match, or null when none is running
+    [[nodiscard]] const oa::sim::match_runtime::Match* running_match() const noexcept;
+
+    /// The kind of match that is running.
+    ///
+    /// A campaign while a mission is open, a multiplayer game while a network
+    /// match or a replay is open, and a skirmish otherwise.
+    ///
+    /// @return campaign, multiplayer or skirmish
+    [[nodiscard]] oa::data::campaign::SessionKind running_session_kind() const;
+
+    /// The map the running game was started on.
+    ///
+    /// @return the map's name, as it was chosen; empty when none is chosen
+    [[nodiscard]] const std::string& played_map_name() const;
+
+    /// Facts of the mission that is running. Read from the campaign and the
+    /// selected map. Nothing is started, stepped or written.
+    struct RunningMissionFacts {
+        std::string campaign_name{};    ///< the loaded campaign's name; empty when none is
+        int32_t mission_number{};       ///< the mission's number in the campaign's list
+        std::string mission_name{};     ///< the mission's name
+        std::string map_title{};        ///< the selected map's title, as its OTA names it
+        std::string source_expansion{}; ///< the campaign file's expansion; empty otherwise
+    };
+
+    /// Reads the running mission's campaign name, number, name, map title and source expansion.
+    ///
+    /// The words are the campaign's and the selected map's as they stand.
+    /// Nothing is started, stepped or written.
+    ///
+    /// @return those facts
+    [[nodiscard]] RunningMissionFacts running_mission_facts();
+
+    /// Loads a campaign mission's map: its TNT terrain and OTA metadata.
+    ///
+    /// This selects the map the mission plays on. It does not start a match,
+    /// step one, or present a recording. Throws std::runtime_error when either
+    /// file does not parse.
+    ///
+    /// @param mission_file mission file name; the extension is replaced
+    /// @return false when the name is empty or either file is missing
+    bool load_campaign_map(std::string_view mission_file);
+
+    /// What the installed-package records hold of one package.
+    struct InstalledPackageFacts {
+        bool found{};          ///< a package of that kind and id is installed
+        std::string version{}; ///< its version, as written
+        std::string sha256{};  ///< its file's SHA-256 in hex; empty when unknown
+        fs::path folder{};     ///< the folder it is installed in
+    };
+
+    /// Reads what the installed-package records hold of a package in the player's own folder.
+    ///
+    /// The digest is the one the package's origin record keeps; a package with
+    /// no record, or a record without one, has none.
+    ///
+    /// @param kind the catalogue's kind: `oamod`, `oamap`, `oamut` and the others
+    /// @param id the package's id
+    /// @param version the version it must have; empty takes any
+    /// @return what is known; not found when no installed package matches
+    [[nodiscard]] InstalledPackageFacts
+    installed_package(std::string_view kind, std::string_view id, std::string_view version) const;
+
+    /// Returns the digest of a folder's files, as a package folder is digested
+    /// (oa::data::mutators::folder_digest).
+    ///
+    /// A folder is read again only when something in it changed since it was
+    /// last digested. A folder that cannot be digested, because it holds a
+    /// link or a file that cannot be read, is named on the log.
+    ///
+    /// @param folder the folder
+    /// @return 64 lower-case hexadecimal digits; empty when the folder cannot be digested
+    [[nodiscard]] std::string folder_digest_text(const fs::path& folder) const;
+
+    /// Returns the SHA-256 a replay's manifest names the mod being played by.
+    ///
+    /// The digest of the installed package's file when the installed-package
+    /// records keep one for this mod; otherwise the digest of the mod's
+    /// folder (folder_digest_text); otherwise, for a profile with no folder,
+    /// the profile's own hash.
+    ///
+    /// @return 64 lower-case hexadecimal digits; empty when no mod is played
+    [[nodiscard]] std::string played_mod_digest() const;
+
   private:
 
     /// Runs one pass of the idle loop.
@@ -1758,9 +1883,14 @@ class Runtime final : public menu::Host,
     /// ongoing. Returns none when the pause is on, a menu holds the clock, or
     /// no match is running. The wall clock is not consulted.
     ///
+    /// A photo-mode grant passes photo mode's own hold. It still returns none
+    /// for a menu, the pause bit, a finished match, or a match that is not on
+    /// this machine. It does not retire a message line.
+    ///
     /// @param count how many ticks to run
+    /// @param photo_grant true when photo mode grants a tick past its own hold
     /// @return how many ran, and whether the match ended
-    GrantedTicks run_granted_ticks(uint32_t count);
+    GrantedTicks run_granted_ticks(uint32_t count, bool photo_grant = false);
 
     /// Starts the match on screen on the stepped clock when mode is 1, once
     /// (PlayHost::offer_startup_clock). A shared match, a replay and a watcher
@@ -1782,7 +1912,8 @@ class Runtime final : public menu::Host,
     /// match_clock_runs allows it for the kind of match (shared with other
     /// players' machines or not), an open menu (match_paused_ before the
     /// outcome; the team menu and its panels, team_panel_open, hold no
-    /// match) and the outcome.
+    /// match) and the outcome. Photo mode's freeze and slow hold a match
+    /// on this machine the same way, beside the menu.
     ///
     /// @return true when idle_tick advances the match clock
     [[nodiscard]] bool match_clock_steps() const;
@@ -2298,6 +2429,194 @@ class Runtime final : public menu::Host,
     /// @return true between enter_director_mode and leave_director_mode
     [[nodiscard]] bool director_mode() const noexcept;
 
+    /// Photo mode's state: the view it replaced, and the player's view the
+    /// notices keep testing while the photo camera moves (photo_state.hpp).
+    struct PhotoState;
+
+    /// Frees photo mode's state.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_photo_state(PhotoState* state) noexcept;
+
+    /// Puts the running match into photo mode: the battlefield alone, from
+    /// the camera the player had, with the interface put away. A match on
+    /// this machine freezes. A shared match, a watcher and a replay keep
+    /// the clock they had. The match keeps its own presenter and sound.
+    ///
+    /// Refused, changing nothing, when no match is running, the match shows
+    /// victory or defeat, director mode is on, the game menu or a team panel
+    /// is open, a modal Open Annihilation screen shows, or the chat line is
+    /// open. Entering again changes nothing.
+    ///
+    /// @return true when photo mode is on afterwards
+    [[nodiscard]] bool enter_photo_mode();
+
+    /// Takes the running match out of photo mode, if it is in it, and puts
+    /// back the layout, camera, zoom, follow, live camera and keys overlay
+    /// it replaced. A keys overlay that was open is opened only when it is
+    /// not already open, and not when the match is ending.
+    ///
+    /// @param match_ending true when victory or defeat is about to cover
+    ///        the battlefield, so the keys overlay stays closed
+    void leave_photo_mode(bool match_ending = false) noexcept;
+
+    /// Tells whether the running match is in photo mode.
+    ///
+    /// @return true between enter_photo_mode and leave_photo_mode
+    [[nodiscard]] bool photo_mode() const noexcept;
+
+    /// Tells whether the match's interface is put away: director mode without
+    /// its interface, or photo mode.
+    ///
+    /// @return true when the HUD and the overlays stay off the battlefield
+    [[nodiscard]] bool match_interface_hidden() const noexcept;
+
+    /// Tells whether photo mode draws selection boxes over the battlefield.
+    ///
+    /// @return true in photo mode with Show selection on
+    [[nodiscard]] bool photo_show_selection() const noexcept;
+
+    /// Tells whether photo mode draws health bars over the battlefield.
+    ///
+    /// @return true in photo mode with Show health bars on
+    [[nodiscard]] bool photo_show_health_bars() const noexcept;
+
+    /// Turns photo mode's selection boxes on or off. Does nothing outside
+    /// photo mode.
+    ///
+    /// @param show whether the boxes are drawn
+    void set_photo_show_selection(bool show) noexcept;
+
+    /// Turns photo mode's health bars on or off. Does nothing outside photo
+    /// mode.
+    ///
+    /// @param show whether the bars are drawn
+    void set_photo_show_health_bars(bool show) noexcept;
+
+    /// Collects the units in the view photo mode kept and points the
+    /// on-screen test at that list.
+    void refresh_photo_kept_view();
+
+    /// The line the photo screen draws: "Photo mode" and "Esc leaves".
+    /// Frozen, Slow and its ticks a second, or Held, are added with the
+    /// game clock. In a shared match or for a watcher the clock is always
+    /// there, with the latest under-attack line and how many chat lines
+    /// have arrived. Freeze does not stop that clock.
+    ///
+    /// @return the line
+    [[nodiscard]] std::string photo_status_line();
+
+    /// The latest under-attack line posted since photo mode opened.
+    ///
+    /// @return the line, or empty when none was posted
+    [[nodiscard]] std::string photo_latest_under_attack();
+
+    /// How many chat lines have arrived since photo mode opened.
+    ///
+    /// @return the count
+    [[nodiscard]] uint32_t photo_chat_lines_since_enter();
+
+    /// Stops a match on this machine. A replay pauses with its own pause.
+    /// A shared match or a watcher is refused, and the time state stays.
+    ///
+    /// @return true when this call froze the battle
+    [[nodiscard]] bool photo_freeze();
+
+    /// Runs a frozen or slow match on. The time it spent held is not caught
+    /// up. A replay resumes its own pause, and a speed this mode set is put
+    /// back to the speed the replay had on entering. A shared match is refused.
+    ///
+    /// @return true when this call changed the time state
+    [[nodiscard]] bool photo_run();
+
+    /// Plays a match on this machine slowly: each step from 1 to 9 is three
+    /// ticks a second, within the speeds the battle allows. The game's own
+    /// speed is not written. A replay uses its own speed. A shared match
+    /// is refused.
+    ///
+    /// @param speed 1 to 9; a speed outside that is refused
+    /// @return true when this call set the slow pace
+    [[nodiscard]] bool photo_slow(int32_t speed);
+
+    /// Plays one tick of a match on this machine, then leaves it frozen.
+    /// A replay, a shared match and a watcher are refused.
+    ///
+    /// @return true when a tick was played
+    [[nodiscard]] bool photo_step();
+
+    /// Draws a frozen match on this machine part of the way from the tick
+    /// before to the frozen tick, in eighths. It is drawn whatever Smooth
+    /// motion says. A replay and a shared match are refused.
+    ///
+    /// @param eighths 0 is the tick before, 8 the frozen tick
+    /// @return true when that eighth is what the next draw shows
+    [[nodiscard]] bool photo_between(int32_t eighths);
+
+    /// Holds, or lets go of, a copy of the battlefield in a shared match.
+    /// The camera stays put while the copy shows, and letting go puts that
+    /// camera back. A match on this machine and a replay are refused.
+    ///
+    /// @return true when the picture was held or let go
+    [[nodiscard]] bool photo_hold_picture();
+
+    /// Tells whether photo mode has frozen a match on this machine.
+    ///
+    /// @return true while the photo clock is frozen
+    [[nodiscard]] bool photo_frozen() const noexcept;
+
+    /// The slow speed photo mode is playing, from 1 to 9.
+    ///
+    /// @return that speed, or 0 when photo mode is not playing slowly
+    [[nodiscard]] int32_t photo_slow_speed() const noexcept;
+
+    /// Tells whether a shared match is showing the held picture.
+    ///
+    /// @return true while the copy stands in for the battlefield
+    [[nodiscard]] bool photo_picture_held() const noexcept;
+
+    /// Tells whether the held picture keeps the camera where it is.
+    ///
+    /// @return true while the picture is held
+    [[nodiscard]] bool photo_camera_locked() const noexcept;
+
+    /// Tells whether the running match is on this machine alone: not shared,
+    /// not watched and not a replay.
+    ///
+    /// @return true for a skirmish or a campaign mission
+    [[nodiscard]] bool photo_time_is_local() const;
+
+    /// Tells whether the running match replays a recording and is not shared
+    /// and not watched.
+    ///
+    /// @return true for a replay on this machine
+    [[nodiscard]] bool photo_time_is_replay() const;
+
+    /// Tells whether photo mode is holding the clock of a match on this machine.
+    ///
+    /// @return true while that match is frozen or playing slowly
+    [[nodiscard]] bool photo_clock_held() const;
+
+    /// Grants the ticks the slow pace owes, at most one batch of ticks a call.
+    /// The pace is read from the frame clock, not the wall clock.
+    void grant_photo_slow_ticks();
+
+    /// Replaces a draw's fraction while a match on this machine is frozen
+    /// between ticks, or playing slowly with Smooth motion on.
+    ///
+    /// @param[in,out] fraction the fraction the draw is about to use
+    void apply_photo_fraction(uint32_t& fraction) const;
+
+    /// Copies the battlefield a shared match will hold. A turned view reads
+    /// the card's picture of the battlefield (turned_card_picture), Full
+    /// classic reads the frame it presented, and Off and Basic copy the
+    /// processor's picture.
+    ///
+    /// @return true when a picture was copied
+    [[nodiscard]] bool capture_photo_picture();
+
+    /// Writes the held picture over the battlefield the frame just drew.
+    void show_held_photo_picture();
+
     /// Sets the director's camera: the view the next bind and the next
     /// draws use. Nothing is bound or drawn.
     ///
@@ -2369,6 +2688,21 @@ class Runtime final : public menu::Host,
     /// with nothing drawn. Throws std::runtime_error when a check fails.
     void check_director_view();
 
+    /// Runs --check-photo: the group named on the command line.
+    ///
+    /// Throws std::runtime_error when a check fails.
+    void check_photo();
+
+    /// Runs --check-photo mode: photo mode in a window over the skirmish's
+    /// fight. Throws std::runtime_error when a check fails.
+    void check_photo_mode();
+
+    /// Runs --check-photo time: freeze, step, the eighths between ticks and
+    /// slow play over the skirmish's fight, then the same fight with a
+    /// shared match and a watcher holding the picture. Throws
+    /// std::runtime_error when a check fails.
+    void check_photo_time();
+
     /// Runs --generate-script: opens the recording through the extension
     /// that replays it, replays it to its end in director mode without
     /// drawing, records its timeline, plans the shots and writes the script,
@@ -2376,6 +2710,14 @@ class Runtime final : public menu::Host,
     ///
     /// @return the process exit status: 0 when the script was written
     [[nodiscard]] int run_generate_script();
+
+    /// Runs --replay-index: opens the recording through the extension that
+    /// replays it, replays it to its end without drawing, records its
+    /// timeline and writes the replay's index (docs/replays.md) to --output.
+    ///
+    /// @return the process exit status: 0 when the index was written, also for
+    ///         a recording that did not replay cleanly or did not finish
+    [[nodiscard]] int run_replay_index();
 
     /// Runs --render-script: reads the script or bundle, opens its recording
     /// through the extension that replays it, or starts the headless
@@ -2513,6 +2855,12 @@ class Runtime final : public menu::Host,
     ///     the session allows
     void bootstrap_match(const MatchBootstrap& bootstrap);
 
+    /// Marks a replay's content switch as playing, once its match is starting.
+    void begin_replay_content_playback();
+
+    /// Puts a replay's content switch back when this start will not play it.
+    void settle_replay_content();
+
     /// Returns whose sight, radar and economy the match view shows: the player a watcher
     /// switched to (ui.resource-panel), else the match's viewed player (Game.viewpoint_player),
     /// which is the local slot, a replay's watcher included, unless "+View" chose another.
@@ -2605,6 +2953,9 @@ class Runtime final : public menu::Host,
     friend struct BuiltinScreens;
     // The check host's entries (check_host.hpp, runtime_check_host.cpp).
     friend struct CheckHostAccess;
+    /// The Replays section compares installed content and turns expansions
+    /// back (runtime_library_replays.cpp).
+    friend struct ReplayContentAccess;
     // The automation host's entries (automation_host.hpp,
     // runtime_automation_host.cpp).
     friend struct AutomationHostAccess;
@@ -5427,6 +5778,47 @@ class Runtime final : public menu::Host,
     /// @param state state to free; null is allowed
     static void destroy_user_folder_state(UserFolderState* state) noexcept;
 
+    /// A read of old replays running off the main thread (runtime_library_replays.cpp).
+    struct ReplayRetentionScan;
+
+    /// Joins that read and frees it.
+    ///
+    /// @param scan the read; null is allowed
+    static void destroy_replay_retention_scan(ReplayRetentionScan* scan) noexcept;
+
+    /// Reads Recordings on a worker. It does not touch the runtime.
+    ///
+    /// @param argument the scan
+    static void retention_worker(void* argument);
+
+    /// A move of old replays off the main thread (runtime_library_replays.cpp).
+    struct ReplayTrashSweep;
+
+    /// Joins that move and frees it. The move stops before its next file.
+    ///
+    /// @param sweep the move; null is allowed
+    static void destroy_replay_trash_sweep(ReplayTrashSweep* sweep) noexcept;
+
+    /// Moves the replays. It does not touch the runtime.
+    ///
+    /// @param argument the move
+    static void trash_worker(void* argument);
+
+    /// The replays a move will take, held until the worker starts.
+    struct ReplayTrashRequest;
+
+    /// Frees a move that has not started.
+    ///
+    /// @param request the replays; null is allowed
+    static void destroy_replay_trash_request(ReplayTrashRequest* request) noexcept;
+
+    /// Starts the move held in replay_trash_due_, when a worker can start.
+    void begin_replay_trash_sweep();
+
+    /// When a move has finished, takes those replays out of the index once
+    /// and refreshes the Library.
+    void collect_replay_trash_sweep();
+
     /// Returns the user folder's state, made on first use.
     ///
     /// @return the state
@@ -7707,6 +8099,24 @@ class Runtime final : public menu::Host,
     /// tell_mod_installs.
     void take_registry_files();
 
+    /// Takes the next .oademo or .tad the game was opened with and copies it
+    /// into Recordings/Imported, then opens the Library on Replays with that
+    /// replay selected. One at a time, once no OA modal shows, so each file's
+    /// notice is seen. The copy runs on the Replays worker. The platform brings
+    /// the file in first and is given its copy back when the import ends. A
+    /// file that does not parse is told, and not copied. Called once a frame
+    /// beside take_registry_files.
+    void take_opened_replays();
+
+    /// Shows what an import became and hands the platform's copy back. The
+    /// caller does not hold the shelf's mutex: opening the Library takes it.
+    ///
+    /// @param result what the import said
+    /// @param release the platform's copy; empty when there is none
+    void apply_opened_replay(
+        const oa::data::replays::ImportResult& result, const std::filesystem::path& release
+    );
+
     /// Turns a registry on or off at once, through the content service, and
     /// refreshes an open Library. A refusal is logged, and the Registries tab
     /// says why.
@@ -8044,6 +8454,54 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_library_update_question();
 
+    /// Runs --check-library-replays (runtime_library_replays_check.cpp): made-up
+    /// replays, written from the recording beside the run, in a scratch
+    /// player's folder, walked through the Library's Replays section.
+    ///
+    /// Replays is second in the section list with an empty Recordings folder
+    /// and with replays; WATCH plays ticks of a replay and leaving its match
+    /// opens the Library again on the same row; KEEP is in kept.json the next
+    /// Library reads; each filter, the kind menu, the search and the sort give
+    /// the rows they should; and TURN ON RECORDING writes the setting. With
+    /// --snapshot it writes the section at 640x480, 960x540, 1280x720 and
+    /// 1920x1080. It then shows the retention question, Keep them all, a second
+    /// consideration that asks nothing, Let them go, Delete, a kept file whose
+    /// bytes changed, two copies of one recording, a damaged kept.json and a
+    /// Delete the trash refuses.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_library_replays();
+
+    /// Runs --check-replay-import (runtime_library_replays_check.cpp): a
+    /// made-up .oademo and a made-up .tad, opened into Recordings/Imported
+    /// and selected in the Library. Opening either again copies nothing. The
+    /// imported .tad holds no sector 6. A damaged file and a version this
+    /// game does not play are refused with their sentences.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_replay_import();
+
+    /// Runs --check-replays-content (runtime_replays_content_check.cpp).
+    ///
+    /// The working folder holds replays-content.facts. prepare writes the
+    /// packages. play adds the loopback registry those facts name, fetches the
+    /// map pack and the mutator one replay names, and plays it. offline reads
+    /// the same replay with that registry stopped.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_replays_content();
+
+    /// Considers old replays once the main menu is free. The first time any
+    /// would go, one question asks. Nothing is removed before it is answered.
+    /// A run nobody watches, with the question unanswered, removes nothing.
+    /// Forever reads nothing. Any other span is read off the main thread, and
+    /// the question shows once that read has ended. A call the replays check
+    /// forces reads on the calling thread, so the question is up on the next frames.
+    ///
+    /// @param forced true when --check-library-replays calls it itself, after
+    ///     its walk; the automatic call does nothing during that check
+    void consider_replay_retention(bool forced = false);
+
     // The map browser on the OA layer (runtime_map_browser.cpp): MORE MAPS…
     // over the skirmish map list and over the host's map list in the battle
     // room opens it.
@@ -8060,6 +8518,10 @@ class Runtime final : public menu::Host,
 
     /// The keys overlay, a screen of the OA layer named keys-overlay.
     struct KeysOverlayScreen;
+
+    /// The photo screen, a screen of the OA layer named photo-mode: one line
+    /// at the top left. It is not modal.
+    struct PhotoScreen;
 
     /// The mutator picker, a screen of the OA layer named mutator-picker.
     struct MutatorPickerScreen;
@@ -8481,6 +8943,15 @@ class Runtime final : public menu::Host,
     /// +switchalt (part of --check-engine-settings).
     void check_engine_settings_controls();
 
+    /// Checks Settings' Replays section through the pointer: Record my games
+    /// turned Off and back On and Keep replays for chosen as 90 days and
+    /// then 30 days, each written to the preferences by OK, Cancel and
+    /// Restore defaults, and the setting the recorder reads. A key written
+    /// into the preferences with Settings closed shows when Replays opens,
+    /// and OK after it writes the choice, for each of the two keys (part of
+    /// --check-engine-settings).
+    void check_engine_settings_replays();
+
     /// The state of the renderer the runtime borrows (render_run.hpp).
     struct RenderRun;
 
@@ -8556,6 +9027,13 @@ class Runtime final : public menu::Host,
     /// @param pitch_degrees elevation change from the classic view
     /// @return true when the camera is turned from the classic view
     bool turn_live_camera(float yaw_degrees, float pitch_degrees);
+    /// Puts the live camera's turn and unlocked state back. Does nothing
+    /// when the live renderer was never made.
+    ///
+    /// @param yaw_degrees turn about the vertical from the classic view
+    /// @param pitch_degrees elevation change from the classic view
+    /// @param unlocked whether angles outside the art-friendly range were allowed
+    void restore_live_camera(float yaw_degrees, float pitch_degrees, bool unlocked) noexcept;
     /// Picks the drawn terrain beneath a frame point in the rotated view:
     /// where the pointer's ray meets the terrain's mesh, between map pixels
     /// and at the mesh's height, as the camera anchors on it.
@@ -8594,11 +9072,16 @@ class Runtime final : public menu::Host,
     /// Builds picking geometry and visible unit bounds from the rendered frame.
     void rebuild_live_picking();
     /// Draws selection and build feedback on the live battlefield.
-    void draw_live_selection();
+    ///
+    /// @param selection_only draw the selected units' boxes and nothing else
+    void draw_live_selection(bool selection_only = false);
     /// Draws projected order queues and terrain debug overlays on the live battlefield.
     void draw_live_overlays();
     /// Draws health, squad and countdown overlays at interpolated live unit positions.
     void draw_live_unit_overlays();
+    /// Draws health bars at interpolated live unit positions, and no squad
+    /// digit or countdown.
+    void draw_live_health_bars();
     /// Handles camera gestures while ordinary input follows gameplay paths.
     /// @param event the SDL event in window coordinates
     /// @return whether the 3D view consumed the event
@@ -8665,6 +9148,12 @@ class Runtime final : public menu::Host,
     /// processor's: for a painter that reads the picture under it in ways
     /// the card does not make. Nothing where the frame is not on the card.
     void take_turned_picture();
+    /// Reads the picture the turned frame left on the card, without the
+    /// overlay the painters added: the battlefield a held picture keeps,
+    /// with photo mode's line drawn over it as the window presents it.
+    /// @param[out] world the battlefield's pixels, before the display gamma
+    /// @return false where the last frame was not on the card or cannot be read
+    [[nodiscard]] bool turned_card_picture(renderer::Surface& world);
     /// Gives the battlefield the turned frame on the card shows, the
     /// picture read back with the overlay added on the processor, for what
     /// needs the frame in memory, as a screenshot does.
@@ -9297,14 +9786,6 @@ class Runtime final : public menu::Host,
     /// the replacement's.
     void place_mission_feature_draws();
 
-    /// Loads a campaign mission's map: its TNT terrain and OTA metadata.
-    ///
-    /// Throws std::runtime_error when either does not parse.
-    ///
-    /// @param mission_file mission file name; the extension is replaced
-    /// @return false when the name is empty or either file is missing
-    bool load_campaign_map(std::string_view mission_file);
-
     /// Seats a campaign's two players: the local player on the chosen side in slot 0 and the
     /// computer on the other in slot 1, with the mission's resources.
     void configure_campaign_players();
@@ -9587,6 +10068,16 @@ class Runtime final : public menu::Host,
     ///
     /// @return mission index in the campaign's list
     [[nodiscard]] int32_t bound_mission_index();
+
+    /// Returns the expansion the loaded campaign's file comes from.
+    ///
+    /// The file is the one the campaign loaded. When that file comes from an
+    /// archive that is a known expansion, other than music, the expansion's id
+    /// is returned. A campaign that is not loaded, a loose file and an archive
+    /// that is not a known expansion give an empty string.
+    ///
+    /// @return the expansion's id, or empty
+    [[nodiscard]] std::string campaign_source_expansion();
 
     /// Reloads the campaign file under the name it was loaded with; one that was never loaded
     /// reloads as none.
@@ -10712,12 +11203,21 @@ class Runtime final : public menu::Host,
         const oa::Palette& palette
     );
 
-    /// Loads PALETTE.PAL and builds the guipal -> PALETTE.PAL UI colour table, once.
+    /// Loads PALETTE.PAL and builds the guipal -> PALETTE.PAL UI colour table.
     ///
     /// The load screen keeps PALETTE.PAL active while loading, so Loadgame2bg,
-    /// LIGHTBAR and the font draw raw indices through it. A failure is reported
-    /// on stderr and retried on the next call.
+    /// LIGHTBAR and the font draw raw indices through it. Built again when the
+    /// colour-vision mode changes. Off keeps the remap as it is built today. A
+    /// mode writes its good, mid and bad indices into slots 10, 14, 12 and 4,
+    /// and, when a match is open, copies the table into that match. A failure
+    /// is reported on stderr and retried on the next call.
     void ensure_ui_colors();
+
+    /// Rebuilds the UI colour table when the colour-vision mode has changed.
+    ///
+    /// With the mode off and the table not yet built, this does nothing, so
+    /// the palettes stay unloaded until something draws with them.
+    void refresh_mark_colours();
 
     /// Drops the match: tells the extension, unbinds the effects and services, and frees its
     /// models, radar, selection and HUD.
@@ -11888,7 +12388,8 @@ class Runtime final : public menu::Host,
     ///
     /// Empty when the bindings are not ready, the action is absent or does
     /// not fire now, or it has no key chord. A pointer or wheel action is
-    /// empty. [runtime_key_bindings.cpp]
+    /// empty. A menu action the files make, which has no catalogue entry,
+    /// still answers with its chord. [runtime_key_bindings.cpp]
     ///
     /// @param id the action id
     /// @return the chord, as display_text spells it
@@ -12212,6 +12713,12 @@ class Runtime final : public menu::Host,
     /// dropped (drop_acceleration) and the frame presented as the standard
     /// tier presents it.
     void present_match_layers();
+
+    /// Presents photo mode's battlefield with no HUD layer, then the Open
+    /// Annihilation layer, the software cursor and the capture.
+    ///
+    /// Does nothing without a renderer or a world layer.
+    void present_photo_world();
 
     /// Draws the layers over the HUD and world layers and presents the frame:
     /// a placed dialog's part over the side column, the OA settings layer, the
@@ -17794,6 +18301,16 @@ class Runtime final : public menu::Host,
 
   public:
 
+    /// One photo step of the loopback check, on the host.
+    ///
+    /// At tick 100 photo mode opens, the camera moves, and the time commands
+    /// are refused. At tick 170 the picture is held and a pan does not move
+    /// the camera. At tick 200 photo mode closes. Any other tick does nothing.
+    /// A failure throws std::runtime_error.
+    ///
+    /// @param tick the host's tick
+    void exercise_shared_photo(uint32_t tick);
+
     /// Checks the shared commands and the takeover cheats of a network game.
     ///
     /// "+shootall" runs on both machines and is turned back off. "+ai" takes
@@ -17841,7 +18358,85 @@ class Runtime final : public menu::Host,
         return pending_demo_path_;
     }
 
+    /// Gives the storm's state as bytes, which a keyframe of a replay copies out and back
+    /// (docs/replays.md): the next tick of the match reads it.
+    ///
+    /// @return The state's bytes, which stay valid for the runtime's life.
+    [[nodiscard]] std::span<uint8_t> meteor_state_bytes() noexcept;
+
   private:
+
+    /// The host a replay frame calls. The pointers are the functions below, and
+    /// the context is this runtime. They are not extension hooks.
+    ///
+    /// @return the host for this frame
+    [[nodiscard]] ReplayFrameHost replay_frame_host() noexcept;
+
+    /// The match being watched.
+    ///
+    /// @param context the runtime
+    /// @return the match, or null when none is running
+    static oa::sim::match_runtime::Match* replay_host_match(void* context);
+
+    /// The tick the match clock last presented.
+    ///
+    /// @param context the runtime
+    /// @return that tick
+    static uint32_t replay_host_clock_tick(void* context);
+
+    /// Sets the presented tick after a restore.
+    ///
+    /// @param context the runtime
+    /// @param tick the tick to present from
+    static void replay_host_set_clock_tick(void* context, uint32_t tick);
+
+    /// Runs one tick of the match.
+    ///
+    /// @param context the runtime
+    /// @param draw false leaves the tick's unit sounds and effects out
+    /// @return false when the tick did not run
+    static bool replay_host_run_tick(void* context, bool draw);
+
+    /// Expires the frame's messages and snaps the held clock.
+    ///
+    /// @param context the runtime
+    /// @param ticks_before the presented tick at the start of the frame
+    static void replay_host_present(void* context, uint32_t ticks_before);
+
+    /// Milliseconds the unit-sound gate counts.
+    ///
+    /// @param context the runtime
+    /// @return that many milliseconds
+    static uint32_t replay_host_sound_millis(void* context);
+
+    /// Turns unit speech on or off.
+    ///
+    /// @param context the runtime
+    /// @param on true speaks, false stays quiet
+    static void replay_host_set_unit_speech(void* context, bool on);
+
+    /// Whether unit speech is on.
+    ///
+    /// @param context the runtime
+    /// @return true when speech is on
+    static bool replay_host_unit_speech(void* context);
+
+    /// Reports a tick the frame could not finish.
+    ///
+    /// @param context the runtime
+    /// @param what the failure; empty when none was given
+    static void replay_host_note_error(void* context, const char* what);
+
+    /// Asks the engine to leave the match once this frame's hook returns.
+    ///
+    /// @param context the runtime
+    static void replay_host_stop(void* context);
+
+    /// Posts a line to the match's message log.
+    ///
+    /// @param context the runtime
+    /// @param line the line; empty posts nothing
+    static void replay_host_tell(void* context, const char* line);
 
     /// Posts and sends the computer seats' queued chat after the frame's ticks.
     void flush_seat_chat();
@@ -19334,7 +19929,8 @@ class Runtime final : public menu::Host,
     [[nodiscard]] oa::ui::campaign::BriefingRegion briefing_region();
 
     /// Returns the width a briefing's rows are wrapped at: the TextRegion's,
-    /// less the rows' inset for a briefing the modern fonts draw.
+    /// less the rows' inset for a briefing the modern fonts draw and for one
+    /// in a language of shaped letters, which they draw with the setting off.
     ///
     /// @return the width, in pixels; 0 without a TextRegion
     [[nodiscard]] int32_t briefing_wrap_width();
@@ -20252,6 +20848,19 @@ class Runtime final : public menu::Host,
     /// when it starts.
     void ensure_radar_surfaces();
 
+    /// Applies the colour-vision preference to the team colours this machine draws.
+    ///
+    /// Off leaves every loaded frame as it was. A mode remaps the team ramps, the logos and the
+    /// minimap blips, and forgets a tier's cached frames so the next frame draws the recoloured
+    /// ones. Nothing is written into a save, a recording or a byte another machine receives.
+    void apply_colour_vision();
+
+    /// Forgets the Full tier's cached model frames after the team colours change.
+    void drop_full_team_frames();
+
+    /// Forgets the turned view's cached model texels after the team colours change.
+    void drop_live_team_frames();
+
     /// Loads the radlogo, radlogohigh and nuclogo sequences of FX.GAF, which the HUD resources look
     /// up by name when a game loads; the file is read once.
     void load_radar_sprites();
@@ -20978,6 +21587,12 @@ class Runtime final : public menu::Host,
     uint32_t last_stream_sweep_ms_ = 0;
     oa::platform::MemoryStatusReport memory_report_{};
     bool match_paused_ = false;
+    /// A replay tick this frame does not show: its unit sounds and effects are left out.
+    /// Set only while ReplayFrameHost::run_tick runs a tick that is not drawn.
+    bool replay_skip_presentation_ = false;
+    /// A replay asked to leave the match. advance_match_clock calls leave_match
+    /// after the frame's hook returns, so the hook is not inside the step it ends.
+    bool replay_end_requested_ = false;
     /// The commander placement's Done button is held down (commander_placement_pointer).
     bool commander_done_held_ = false;
     /// A left press moved the commander while it was placed; the press's
@@ -21824,6 +22439,10 @@ class Runtime final : public menu::Host,
     std::unique_ptr<DirectorState, void (*)(DirectorState*) noexcept> director_{
         nullptr, destroy_director_state
     };
+    // Photo mode's state; null outside photo mode.
+    std::unique_ptr<PhotoState, void (*)(PhotoState*) noexcept> photo_{
+        nullptr, destroy_photo_state
+    };
     // The --stage file's state while its match runs; null without one.
     std::unique_ptr<StageState, void (*)(StageState*) noexcept> stage_{
         nullptr, destroy_stage_state
@@ -21972,6 +22591,33 @@ class Runtime final : public menu::Host,
     bool content_notice_closed_{};
     /// Frames in a row the main menu has shown as itself while the notice waits.
     uint32_t content_notice_frames_{};
+    /// Old replays were considered for this start, or none are due.
+    bool replay_retention_settled_{};
+    /// The retention question is showing. Nothing is removed while it is.
+    bool replay_retention_asking_{};
+    /// Settled main-menu frames while that question waits.
+    uint32_t replay_retention_frames_{};
+    /// Trash copies this start made, when the system said where they went.
+    /// The replays check removes them.
+    std::vector<fs::path> replay_trash_left_{};
+    /// The old-replays read, when one is running or waiting to be applied.
+    /// Null when none is.
+    std::unique_ptr<ReplayRetentionScan, void (*)(ReplayRetentionScan*) noexcept>
+        replay_retention_scan_{nullptr, destroy_replay_retention_scan};
+    /// The replays waiting to be moved off the main thread. Null when none are.
+    std::unique_ptr<ReplayTrashRequest, void (*)(ReplayTrashRequest*) noexcept> replay_trash_due_{
+        nullptr, destroy_replay_trash_request
+    };
+    /// The move, when one is running. Null when none is.
+    std::unique_ptr<ReplayTrashSweep, void (*)(ReplayTrashSweep*) noexcept> replay_trash_sweep_{
+        nullptr, destroy_replay_trash_sweep
+    };
+    /// A damaged kept.json was set aside this start. The consideration that
+    /// sees it removes nothing; a later one uses the marks that were salvaged.
+    bool replay_kept_damage_settled_{};
+    /// When set, Delete reports this and does not move the file. The replays
+    /// check uses it when the system cannot refuse a move. Empty in the game.
+    std::string replay_trash_refusal_{};
     // The mod packages opened in the game and their prompt; null until first used.
     std::unique_ptr<ModInstallState, void (*)(ModInstallState*) noexcept> mod_install_state_{
         nullptr, destroy_mod_install_state
@@ -22369,6 +23015,9 @@ class Runtime final : public menu::Host,
     // guipal -> PALETTE.PAL nearest-colour remap (Game UI colour table).
     oa::PaletteMap ui_colors_{};
     bool ui_colors_ready_ = false;
+    // The colour-vision mode the table was built for, as that mode's number.
+    // Read only while ui_colors_ready_ is set. Off keeps today's remap.
+    uint8_t ui_colors_mode_ = 0;
     std::array<uint8_t, 6> load_progress_{};
     std::array<uint8_t, 6> loading_flash_{};
     MatchCommand match_command_ = MatchCommand::none;

@@ -588,6 +588,28 @@ void on_launch(void* user, const LaunchReport* launch) {
     ConsoleSystem& system = widget->system;
     copy_game_id(system.launched_game_id, launch->game_id);
     system.launched_area_id = launch->area_id;
+    // The galactic map as it stands names the planet and its sector; they are
+    // kept with the game id so that the Main Frame selecting another planet
+    // later does not change them.
+    system.launched_planet[0] = '\0';
+    system.launched_sector[0] = '\0';
+    if (widget->navigation != nullptr) {
+        const screens::GalaxyView& galaxy = widget->navigation->galaxy;
+        std::snprintf(
+            system.launched_sector, sizeof system.launched_sector, "%s", galaxy.sector_name
+        );
+        for (std::size_t index = 0; index < galaxy.planet_count; ++index) {
+            if (static_cast<uint32_t>(galaxy.planets[index].id) != launch->area_id)
+                continue;
+            std::snprintf(
+                system.launched_planet,
+                sizeof system.launched_planet,
+                "%s",
+                galaxy.planets[index].name
+            );
+            break;
+        }
+    }
     if (host.battle_launched != nullptr)
         host.battle_launched(host.user, launch, system.user_name);
     stop_main_frame_light(widget);
@@ -1562,6 +1584,16 @@ bool boneyards_status_widget_battle_ids(
         return false;
     *area_id = widget->system.launched_area_id;
     *game_id = widget->system.launched_game_id;
+    return true;
+}
+
+bool boneyards_status_widget_battle_place(
+    const StatusWidget* widget, const char** planet, const char** sector
+) {
+    if (widget == nullptr)
+        return false;
+    *planet = widget->system.launched_planet;
+    *sector = widget->system.launched_sector;
     return true;
 }
 

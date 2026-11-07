@@ -281,19 +281,21 @@ void section_list_puts_downloads_before_developer() {
                 const auto downloads = std::find(pages.begin(), pages.end(), Page::downloads);
                 const auto updates = std::find(pages.begin(), pages.end(), Page::updates);
                 const auto content = std::find(pages.begin(), pages.end(), Page::game_content);
+                const auto replays = std::find(pages.begin(), pages.end(), Page::replays);
                 const auto system = std::find(pages.begin(), pages.end(), Page::system);
                 const auto developer = std::find(pages.begin(), pages.end(), Page::developer);
                 OA_CHECK(
                     downloads != pages.end() && updates != pages.end() && content != pages.end() &&
-                    system != pages.end() && developer != pages.end()
+                    replays != pages.end() && system != pages.end() && developer != pages.end()
                 );
-                // Content's group ends Downloads, Updates, Game Content;
-                // System's follows: Engine Limits, System, Developer.
+                // Content's group ends Downloads, Updates, Game Content,
+                // Replays; System's follows: Engine Limits, System, Developer.
                 const auto limits = std::find(pages.begin(), pages.end(), Page::common_tweaks);
                 OA_CHECK(limits != pages.end());
                 OA_CHECK(downloads + 1 == updates);
                 OA_CHECK(updates + 1 == content);
-                OA_CHECK(content + 1 == limits);
+                OA_CHECK(content + 1 == replays);
+                OA_CHECK(replays + 1 == limits);
                 OA_CHECK(limits + 1 == system);
                 OA_CHECK(system + 1 == developer);
                 const auto user_interface =
@@ -315,15 +317,17 @@ void section_list_puts_downloads_before_developer() {
                 OA_CHECK(top_of(Page::controls) == geometry::body_top + nav.margin);
                 OA_CHECK(top_of(Page::updates) == top_of(Page::downloads) + stride);
                 OA_CHECK(top_of(Page::game_content) == top_of(Page::updates) + stride);
+                OA_CHECK(top_of(Page::replays) == top_of(Page::game_content) + stride);
                 OA_CHECK(
-                    top_of(Page::common_tweaks) ==
-                    top_of(Page::game_content) + nav.entry_height + rule
+                    top_of(Page::common_tweaks) == top_of(Page::replays) + nav.entry_height + rule
                 );
                 OA_CHECK(top_of(Page::system) == top_of(Page::common_tweaks) + stride);
                 OA_CHECK(top_of(Page::developer) == top_of(Page::system) + stride);
                 OA_CHECK(settings::page_control(Page::downloads) == 9);
                 OA_CHECK(settings::page_control(Page::updates) == 12);
                 OA_CHECK(settings::page_control(Page::game_content) == 11);
+                OA_CHECK(settings::page_control(Page::accessibility) == 13);
+                OA_CHECK(settings::page_control(Page::replays) == 14);
                 OA_CHECK(settings::page_control(Page::system) == 10);
                 const settings::Dialog dialog = opened({}, touch, controller, game_files);
                 OA_CHECK(dialog.page == Page::downloads);

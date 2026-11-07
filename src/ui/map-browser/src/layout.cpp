@@ -882,6 +882,7 @@ void add_bar(Building& building) {
         unique_name(building, std::string(name_search))
     );
     move_controls(building.list, before, building.top);
+    building.top.back().label = ids::word(word_search);
     tab_stop(building, building.top.back());
 }
 

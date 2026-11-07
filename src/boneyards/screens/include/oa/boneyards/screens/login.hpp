@@ -18,6 +18,10 @@ inline constexpr std::size_t kLoginFieldCapacity =
 inline constexpr std::size_t kLoginServerCapacity = 0x18;
 inline constexpr int32_t kLoginLogoFrames = 3;
 
+/// Guest Login is not offered. The radio is drawn disabled and cannot be
+/// chosen. Set this to offer Guest Login again; the guest login itself stays.
+inline constexpr bool kGuestsOffered = false;
+
 // The login result for a password that does not match the name, as the
 // session reports it. The dialog adds the reset address before showing it.
 inline constexpr const char* kWrongPasswordStatus =
@@ -73,6 +77,10 @@ struct LoginDialog {
 
 /// Opens the login dialog in the member (password) mode.
 ///
+/// Guest Login is disabled while `kGuestsOffered` is false, and unchosen
+/// but enabled when guests are offered again. A saved guest choice is not
+/// restored here.
+///
 /// @param[out] dialog dialog to reset
 /// @param service service the login goes to
 /// @param ui_user context handed to `message_box`
@@ -100,7 +108,9 @@ void login_set_status(LoginDialog* dialog, const char* text);
 /// fields and asks the service to log in; CANCEL aborts the attempt;
 /// REGISTER opens the registration console when one is attached, and otherwise
 /// names that console. The in-game route is offered when `registration_form`
-/// is set. The radio buttons switch between member and guest mode.
+/// is set. The radio buttons switch between member and guest mode. While
+/// guests are not offered the console draws Guest Login disabled, and a
+/// check still reaches guest mode through this call.
 ///
 /// @param[in,out] dialog login dialog
 /// @param control control clicked

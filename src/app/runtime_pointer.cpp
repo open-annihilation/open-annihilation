@@ -454,6 +454,10 @@ void Runtime::rebuild_on_screen_units() {
         world.game.hot_unit_count = count;
     } else
         oa::sim::selection::collect_visible_units(world, on_screen_lists(), selection_hooks());
+    // The collect above lists the view just bound, which in photo mode is the
+    // photo camera. The notices keep testing the player's own view.
+    if (photo_mode())
+        refresh_photo_kept_view();
 }
 
 void Runtime::refresh_on_screen_view() {

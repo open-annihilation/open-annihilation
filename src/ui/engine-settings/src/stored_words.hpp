@@ -79,6 +79,13 @@ inline constexpr std::array<ChoiceWord<FocusLost>, 2> focus_lost_words{{
     {FocusLost::pause_single_player, "pause"},
     {FocusLost::keep_playing, "keep-playing"},
 }};
+/// Keep replays for's words, in replay_keep_choices' order.
+inline constexpr std::array<ChoiceWord<ReplayKeep>, 4> replay_keep_words{{
+    {ReplayKeep::thirty_days, "30-days"},
+    {ReplayKeep::ninety_days, "90-days"},
+    {ReplayKeep::one_year, "1-year"},
+    {ReplayKeep::forever, "forever"},
+}};
 /// Window frame's words, in window_frame_choices' order.
 inline constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
     {WindowFrame::hidden_in_play, "hidden-in-play"},

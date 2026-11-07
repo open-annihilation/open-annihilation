@@ -33,6 +33,7 @@ constexpr EventKindName kEventKinds[] = {
     {event_kind::alliance, "alliance"},
     {event_kind::transfer, "transfer"},
     {event_kind::game_over, "game_over"},
+    {event_kind::focus, "focus"},
 };
 
 // The name the endpoint gives the screen a match is played on.
@@ -385,7 +386,48 @@ uint32_t event_kind_named(std::string_view name) noexcept {
     return 0;
 }
 
+/// Sends one focus event when the focused control's name changes.
+///
+/// The first sight stores the name and sends nothing. A later sight with the
+/// same name sends nothing. The stored name moves on even when the event is
+/// not wanted. An empty name is a real change and is written null. A moment
+/// that did not read the focus clears the first sight, and the next one that
+/// does stores the name and sends nothing. The name is already the first
+/// focused control that is shown: a hidden one is left out before it arrives.
+///
+/// @param[in,out] watch what the watch saw last
+/// @param now what the game holds now
+/// @param hooks where events go
+void watch_focus(EventWatch& watch, const Observed& now, const EventHooks& hooks) {
+    if (!now.focus_read) {
+        watch.focus_seen = false;
+        return;
+    }
+    if (!watch.focus_seen) {
+        watch.focus_seen = true;
+        watch.focus_name = now.focus_name;
+        return;
+    }
+    if (now.focus_name == watch.focus_name)
+        return;
+    watch.focus_name = now.focus_name;
+    auto event = begin_event(hooks, event_kind::focus);
+    if (!event)
+        return;
+    event->key("name");
+    if (now.focus_name.empty())
+        event->null();
+    else
+        event->string(now.focus_name);
+    event->key("label");
+    event->string(now.focus_label);
+    event->key("role");
+    event->string(now.focus_role);
+    send_event(hooks, *event);
+}
+
 void watch_events(EventWatch& watch, const Observed& now, const EventHooks& hooks) {
+    watch_focus(watch, now, hooks);
     if (!watch.seen) {
         watch.seen = true;
         watch.screen = now.screen;

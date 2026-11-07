@@ -40,8 +40,10 @@
 #include "oa/boneyards/rover_session.hpp"
 #include "oa/boneyards/service.hpp"
 #include "oa/boneyards/screens/galaxy.hpp"
+#include "oa/boneyards/screens/lobby_widgets.hpp"
 #include "oa/boneyards/screens/profile.hpp"
 #include "oa/boneyards/screens/registration.hpp"
+#include "oa/boneyards/shown_text.hpp"
 
 #include "oa/platform/files.hpp"
 #include "oa/platform/fonts.hpp"
@@ -83,15 +85,24 @@
 // simulation_hash, the hash the run plays under. Version 15 adds the OA UI
 // kit to the contract. Version 16 adds run_mutators. Version 17 adds
 // hear_remote_seat_chat. Version 18 adds the kit's key pictures. Version 19
-// is Kit 2's look in the kit's headers. None of 15 to 19 is a hook this
-// module fills.
-constexpr uint32_t kExtensionApiVersionFollowed = 20;
+// is Kit 2's look in the kit's headers. Version 20 adds ExtensionControl's
+// masked, text_length, scroll_up and scroll_down members, and the calls
+// answer_multiplayer_entry, defer_inactive_loop_release,
+// post_extension_note and take_extension_notes. Version 21 adds
+// accessibility fields on controls, the replay viewer's eight hooks, and
+// the rectangle where an extension window's art takes the press. The strip
+// states that rectangle while its art is drawn. None of 15 to 21 is a hook
+// this module fills.
+constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
     "kExtensionApiVersionFollowed"
 );
-constexpr uint32_t kNetworkPlayApiVersionFollowed = 3;
+// Version 4 of network play's API adds recorded_game, which the Boneyards
+// fills (boneyards_recorded_game): a battle's replay carries its game id,
+// planet and sector.
+constexpr uint32_t kNetworkPlayApiVersionFollowed = 4;
 static_assert(
     oa::app::netgame::extension_api::api_version == kNetworkPlayApiVersionFollowed,
     "network play's API changed: follow its change, then raise kNetworkPlayApiVersionFollowed"
@@ -775,11 +786,445 @@ void forward_driver_note(const char* kind, const char* text) {
     post_extension_note(*g_player_folder_runtime, kind, text);
 }
 
+/// The words a player hears for one English line.
+///
+/// The pointer from the catalogue is copied before the next line is asked for.
+///
+/// @param english the line as the source writes it
+/// @return the line in the player's language
+std::string spoken(const char* english) {
+    const char* line = oa::boneyards::shown_text(english);
+    return std::string(line != nullptr ? line : "");
+}
+
+/// A printf template in the player's language, or the English when a
+/// translation asks for different arguments.
+///
+/// @param english the template as the source writes it
+/// @return the template to fill
+std::string spoken_pattern(const char* english) {
+    char line[192];
+    oa::boneyards::copy_shown_pattern(line, sizeof line, english);
+    return std::string(line);
+}
+
+/// One picture button, named as its window is, and the words it speaks.
+struct SpokenButton {
+    const char* name{};
+    const char* label{};
+    const char* shortcut{};
+    bool tab{};
+};
+
+/// Picture buttons and the words a player hears for them. The window names
+/// stay as they are. A shortcut is a single letter, empty when it has none.
+constexpr SpokenButton k_spoken_buttons[] = {
+    {"MF_Release_Button", "Release", "", false},
+    {"MF_Recon_Button", "Recon", "", false},
+    {"MF_Chat_Button", "Chat", "", false},
+    {"MF_Battle_Button", "Battle", "", false},
+    {"MF_News_Button", "News", "", false},
+    {"MF_Ladders_Button", "Ladders", "", false},
+    {"MF_Locator_Button", "Locator", "", false},
+    {"MF_Profile_Button", "Profile", "", false},
+    {"MF_Help_Button", "Help", "", false},
+    {"MF_Quickplay_Button", "QuickPlay", "", false},
+    {"ExitBYBtn", "Exit", "", false},
+    {"Map up", "Scroll the map up", "", false},
+    {"Map up right", "Scroll the map up and right", "", false},
+    {"Map right", "Scroll the map right", "", false},
+    {"Map down right", "Scroll the map down and right", "", false},
+    {"Map down", "Scroll the map down", "", false},
+    {"Map down left", "Scroll the map down and left", "", false},
+    {"Map left", "Scroll the map left", "", false},
+    {"Map up left", "Scroll the map up and left", "", false},
+    {"SingleBtn", "SINGLE", "S", false},
+    {"SingleFormer", "SINGLE", "S", false},
+    {"MultiBtn", "MULTI", "M", false},
+    {"MultiFormer", "MULTI", "M", false},
+    {"IntroBtn", "INTRO", "I", false},
+    {"IntroFormer", "INTRO", "I", false},
+    {"ExitBtn", "EXIT", "E", false},
+    {"ExitFormer", "EXIT", "E", false},
+    {"CreditsBtn", "Credits", "", false},
+    {"EnterBYBtn", "Enter the Boneyards", "B", false},
+    {"GeneralTabBtn", "General", "", true},
+    {"LadderTabBtn", "Ladder", "", true},
+    {"AwardsTabBtn", "Awards", "", true},
+};
+
+/// Tells whether a name is only decimal digits.
+///
+/// @param name the control's name
+/// @return true when every character is a digit and there is at least one
+bool digits_only(const std::string& name) {
+    if (name.empty())
+        return false;
+    for (const char character : name) {
+        if (character < '0' || character > '9')
+            return false;
+    }
+    return true;
+}
+
+/// Reads a trailing index from a name such as "Pick0" or "row_3".
+///
+/// @param name the control's name
+/// @param prefix the part before the index
+/// @param[out] index the index
+/// @return true when the name is that prefix and a decimal index
+bool indexed_name(const std::string& name, const char* prefix, int* index) {
+    if (prefix == nullptr || index == nullptr)
+        return false;
+    const std::size_t length = std::strlen(prefix);
+    if (name.size() <= length || name.compare(0, length, prefix) != 0)
+        return false;
+    int value = 0;
+    bool any = false;
+    for (std::size_t at = length; at < name.size(); ++at) {
+        const char character = name[at];
+        if (character < '0' || character > '9')
+            return false;
+        any = true;
+        value = value * 10 + (character - '0');
+    }
+    if (!any)
+        return false;
+    *index = value;
+    return true;
+}
+
+/// The planet name a control speaks. A control named only by its id takes
+/// the name of the control that shows the same facts.
+///
+/// @param window the console the control sits on
+/// @param control the planet control
+/// @return the name; empty when the control has none
+std::string planet_label_of(const ExtensionWindow& window, const ExtensionControl& control) {
+    if (!digits_only(control.name))
+        return control.name;
+    for (const ExtensionControl& other : window.controls) {
+        if (other.text == control.text && !digits_only(other.name))
+            return other.name;
+    }
+    return control.name;
+}
+
+/// Finds a control by its name.
+///
+/// @param window the console
+/// @param name the name
+/// @return the control, or null
+const ExtensionControl* find_named(const ExtensionWindow& window, const std::string& name) {
+    for (const ExtensionControl& control : window.controls) {
+        if (control.name == name)
+            return &control;
+    }
+    return nullptr;
+}
+
+/// The window a rank or latency icon is listed under: the list that holds the row.
+///
+/// @param icon the icon
+/// @return the window's name, or null when it has none
+const char* icon_window_name(const oa::boneyards::Window* icon) {
+    for (const oa::boneyards::Window* at = icon != nullptr ? icon->parent : nullptr; at != nullptr;
+         at = at->parent) {
+        if (at->ops != nullptr && at->ops->class_name != nullptr &&
+            std::strcmp(at->ops->class_name, oa::boneyards::screens::kByPlayerRowClass) == 0)
+            continue;
+        if (at->name != nullptr && at->name[0] != '\0')
+            return at->name;
+    }
+    return nullptr;
+}
+
+/// The words a rank or latency icon speaks.
+///
+/// @param words what the icon is showing
+/// @return the words, in the player's language; empty when it is neither
+std::string icon_label(const oa::boneyards::screens::PlayerIconWords& words) {
+    namespace screens = oa::boneyards::screens;
+    if (words.kind == screens::PlayerIconKind::rank) {
+        if (words.rank == nullptr || words.rank[0] == '\0')
+            return spoken("Rank");
+        const std::string title = spoken(words.rank);
+        const std::string pattern = spoken_pattern("Rank: %s");
+        char line[192];
+        std::snprintf(line, sizeof line, pattern.c_str(), title.c_str());
+        return std::string(line);
+    }
+    if (words.kind == screens::PlayerIconKind::latency) {
+        const char* phrase = "Latency unknown";
+        if (words.latency_grade == 1)
+            phrase = "Latency good";
+        else if (words.latency_grade == 2)
+            phrase = "Latency fair";
+        else if (words.latency_grade == 3)
+            phrase = "Latency poor";
+        return spoken(phrase);
+    }
+    return {};
+}
+
+/// Appends one picture that speaks, under the window that holds it.
+///
+/// @param[in,out] windows the windows being filled
+/// @param window_name the list or console
+/// @param icon the picture
+/// @param label the words
+void append_spoken_image(
+    std::vector<ExtensionWindow>& windows,
+    const char* window_name,
+    const oa::boneyards::Window* icon,
+    const std::string& label
+) {
+    if (window_name == nullptr || window_name[0] == '\0' || icon == nullptr ||
+        icon->name == nullptr)
+        return;
+    oa::boneyards::DriverControlView shown{};
+    shown.name = icon->name;
+    shown.kind = oa::boneyards::DriverControlKind::image;
+    shown.x = icon->x;
+    shown.y = icon->y;
+    shown.width = icon->width;
+    shown.height = icon->height;
+    shown.visible = true;
+    shown.enabled = false;
+    shown.text = "";
+    shown.selected = -1;
+    append_driver_control(&windows, window_name, shown);
+    for (ExtensionWindow& window : windows) {
+        if (window.name != window_name || window.controls.empty())
+            continue;
+        ExtensionControl& added = window.controls.back();
+        if (added.name == icon->name) {
+            added.kind = ExtensionControlKind::image;
+            added.enabled = false;
+            added.role_set = true;
+            added.role = ExtensionControlRole::image;
+            added.label = label;
+        }
+        break;
+    }
+}
+
+/// Lists each shown rank and latency icon with the words for what it shows.
+///
+/// The pictures are not given captions, so they paint as they do today.
+///
+/// @param[in,out] windows the windows being filled
+/// @param window a window to search; null searches nothing
+void append_player_icons(std::vector<ExtensionWindow>& windows, oa::boneyards::Window* window) {
+    if (window == nullptr || !oa::boneyards::window_is_shown(window))
+        return;
+    oa::boneyards::screens::PlayerIconWords words;
+    if (oa::boneyards::screens::player_icon_words(window, &words)) {
+        const std::string label = icon_label(words);
+        if (!label.empty())
+            append_spoken_image(windows, icon_window_name(window), window, label);
+    }
+    for (int32_t index = 0; index < window->children.count; ++index) {
+        oa::boneyards::Window* child = window->children.items[index];
+        if (child != nullptr)
+            append_player_icons(windows, child);
+    }
+}
+
+/// The old-column hotspot under a strip button. It stays enabled: the pointer
+/// still lands there. A screen reader hears the strip button, so this one is
+/// hidden.
+///
+/// @param name the control's name
+/// @return true for SingleFormer, MultiFormer, IntroFormer and ExitFormer
+bool menu_former(const std::string& name) {
+    return name == "SingleFormer" || name == "MultiFormer" || name == "IntroFormer" ||
+           name == "ExitFormer";
+}
+
+/// Fills the words, roles and shortcuts of the controls just listed.
+///
+/// Window names and the text a control shows stay as they are. A planet's
+/// facts line stays in `text`. Its label is its name and its value says who
+/// holds it, how many battles it has, how many are forming and whether it
+/// is the chosen planet. One battle uses the singular line. An id alias and
+/// a former stay enabled and are marked hidden.
+///
+/// @param[in,out] windows the consoles and their controls
+/// @param probe the open main frame; null leaves no planet chosen
+void fill_access(
+    std::vector<ExtensionWindow>& windows, const oa::boneyards::console::MainFrameProbe* probe
+) {
+    namespace console = oa::boneyards::console;
+    const uint32_t chosen_area = probe != nullptr ? probe->selected_area_id : 0;
+    const std::string battles_line = spoken_pattern(console::k_planet_value);
+    const std::string battle_line = spoken_pattern(console::k_planet_battle);
+    const std::string battles_chosen_line = spoken_pattern(console::k_planet_value_chosen);
+    const std::string battle_chosen_line = spoken_pattern(console::k_planet_battle_chosen);
+    const console::PlanetValuePatterns patterns{
+        battles_line.c_str(),
+        battle_line.c_str(),
+        battles_chosen_line.c_str(),
+        battle_chosen_line.c_str(),
+    };
+    for (ExtensionWindow& window : windows) {
+        for (ExtensionControl& control : window.controls) {
+            for (const SpokenButton& button : k_spoken_buttons) {
+                if (control.name != button.name)
+                    continue;
+                control.label = spoken(button.label);
+                if (button.shortcut[0] != '\0')
+                    control.shortcut = button.shortcut;
+                if (button.tab) {
+                    control.role_set = true;
+                    control.role = ExtensionControlRole::tab;
+                }
+                if (menu_former(control.name))
+                    control.hidden = true;
+                break;
+            }
+            if ((control.kind == ExtensionControlKind::check_box ||
+                 control.kind == ExtensionControlKind::button) &&
+                (control.name == "Arm" || control.name == "Core"))
+                control.label = spoken(control.name.c_str());
+            int planet_id = 0;
+            char owner = '\0';
+            if (console::planet_parse_facts(
+                    control.text.c_str(), &planet_id, &owner, nullptr, nullptr
+                )) {
+                const bool chosen =
+                    chosen_area != 0 && static_cast<uint32_t>(planet_id) == chosen_area;
+                const std::string planet_name = planet_label_of(window, control);
+                const std::string owner_word = spoken(console::planet_owner_word(owner));
+                char label[64];
+                char value[192];
+                if (console::planet_access_words(
+                        label,
+                        sizeof label,
+                        value,
+                        sizeof value,
+                        control.text.c_str(),
+                        planet_name.c_str(),
+                        chosen,
+                        patterns,
+                        owner_word.c_str()
+                    )) {
+                    control.label = label;
+                    control.value_text = value;
+                    control.chosen = chosen;
+                    // The driver's id alias (1801, and the off-viewer id label)
+                    // stays enabled, at its rectangle. The planet's own name is
+                    // the one a player hears.
+                    if (digits_only(control.name))
+                        control.hidden = true;
+                }
+            }
+            int pick = 0;
+            if (indexed_name(control.name, "Pick", &pick)) {
+                const ExtensionControl* type_label =
+                    find_named(window, std::string("Label") + std::to_string(pick));
+                if (type_label != nullptr && !type_label->text.empty())
+                    control.label = type_label->text;
+            }
+            int row = 0;
+            if (indexed_name(control.name, "row_", &row)) {
+                const ExtensionControl* kind =
+                    find_named(window, std::string("kind_") + std::to_string(row));
+                if (kind != nullptr && !kind->text.empty())
+                    control.label = kind->text;
+            }
+            int hit = 0;
+            if (indexed_name(control.name, "rhit", &hit)) {
+                std::string result;
+                const char* parts[] = {"rname", "rwhere", "rstatus"};
+                for (const char* part : parts) {
+                    const ExtensionControl* piece =
+                        find_named(window, std::string(part) + std::to_string(hit));
+                    if (piece == nullptr || piece->text.empty())
+                        continue;
+                    if (!result.empty())
+                        result += ", ";
+                    result += piece->text;
+                }
+                if (!result.empty())
+                    control.label = std::move(result);
+            }
+        }
+        constexpr int k_max_win_icons = 8;
+        ExtensionControl* icons[k_max_win_icons]{};
+        int32_t tops[k_max_win_icons]{};
+        int icon_count = 0;
+        for (ExtensionControl& control : window.controls) {
+            if (control.name != "SmallArmIcon" || icon_count == k_max_win_icons)
+                continue;
+            icons[icon_count] = &control;
+            tops[icon_count] = control.y;
+            ++icon_count;
+        }
+        const char* words[k_max_win_icons]{};
+        console::summary_win_icon_labels(tops, static_cast<std::size_t>(icon_count), words);
+        for (int icon = 0; icon < icon_count; ++icon) {
+            icons[icon]->label = spoken(words[icon]);
+            icons[icon]->role_set = true;
+            icons[icon]->role = ExtensionControlRole::image;
+        }
+        for (std::size_t index = 0; index < window.controls.size(); ++index) {
+            if (window.controls[index].name != "RadioGroup")
+                continue;
+            std::string selected;
+            std::size_t next = index + 1;
+            while (next < window.controls.size() &&
+                   window.controls[next].kind == ExtensionControlKind::check_box) {
+                ExtensionControl& radio = window.controls[next];
+                radio.role_set = true;
+                radio.role = ExtensionControlRole::radio;
+                radio.chosen = radio.checked;
+                if (radio.checked)
+                    selected = radio.text.empty() ? radio.name : radio.text;
+                ++next;
+            }
+            std::string title;
+            if (next < window.controls.size() &&
+                window.controls[next].kind == ExtensionControlKind::label) {
+                const ExtensionControl& caption = window.controls[next];
+                title = caption.text.empty() ? caption.name : caption.text;
+            }
+            ExtensionControl& group = window.controls[index];
+            group.role_set = true;
+            group.role = ExtensionControlRole::radio_group;
+            if (!title.empty())
+                group.label = spoken(title.c_str());
+            if (!selected.empty())
+                group.value_text = spoken(selected.c_str());
+        }
+    }
+}
+
+/// States the rectangle where the strip's art takes the press.
+///
+/// The panel is drawn across the bottom of the main menu. A screen button
+/// that lies wholly inside it is not seen and takes no click, so the
+/// listing hides it. Button mode and none mode draw no such panel.
+///
+/// @param[in,out] windows the consoles being listed
+void state_strip_press(std::vector<ExtensionWindow>& windows) {
+    namespace console = oa::boneyards::console;
+    for (ExtensionWindow& window : windows) {
+        if (window.name != "MainMenuOverlay")
+            continue;
+        window.press_x = console::overlay_layout::x;
+        window.press_y = console::overlay_layout::y;
+        window.press_width = console::overlay_layout::width;
+        window.press_height = console::overlay_layout::height;
+    }
+}
+
 /// Keeps the main menu's strip in the listing to what the menu shows.
 ///
 /// With the strip's rows not shown (button and none modes) its buttons take
 /// no click, so they are left out. In button mode ENTER is listed where it
-/// stands on the plate.
+/// stands on the plate. While the strip is drawn, its window states the
+/// rectangle where that art takes the press.
 ///
 /// @param[in,out] windows the consoles being listed
 void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
@@ -787,9 +1232,12 @@ void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
     console::MenuEntryMode mode = console::MenuEntryMode::strip;
     oa::ui::frontend_renderer::SourceRect place{};
     if (boneyards_console_up() ||
-        !boneyards_console_menu_entry(&mode, &place.x, &place.y, &place.width, &place.height) ||
-        mode == console::MenuEntryMode::strip)
+        !boneyards_console_menu_entry(&mode, &place.x, &place.y, &place.width, &place.height))
         return;
+    if (mode == console::MenuEntryMode::strip) {
+        state_strip_press(windows);
+        return;
+    }
     for (ExtensionWindow& window : windows) {
         if (window.name != "MainMenuOverlay")
             continue;
@@ -810,7 +1258,10 @@ void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
 /// The ticker reads its whole line. While the map is locked (the green layer
 /// slides or covers it, or a console is open), a press on a planet selects
 /// nothing, so each planet on the viewer is listed as not taking a click.
+/// Picture buttons, icons and planets carry the words a player hears. Their
+/// window names, and the facts line a planet shows, stay as they are.
 /// On a main menu without the strip only the plate's ENTER is listed.
+/// While the strip is drawn, its window states where its art takes the press.
 ///
 /// @param context unused
 /// @param runtime the running app (unused)
@@ -824,16 +1275,24 @@ void list_driver_windows(
             widget, &windows, append_driver_control
         );
         append_lobby_facts(windows, widget);
+        if (widget != nullptr) {
+            for (int32_t index = 0; index < widget->desktop.windows.count; ++index)
+                append_player_icons(windows, widget->desktop.windows.items[index]);
+        }
         list_menu_entry_as_shown(windows);
         oa::boneyards::console::MainFrameProbe probe{};
-        if (oa::boneyards::console::boneyards_status_widget_probe(widget, &probe)) {
+        const bool probed = oa::boneyards::console::boneyards_status_widget_probe(widget, &probe);
+        fill_access(windows, probed ? &probe : nullptr);
+        if (probed) {
             for (ExtensionWindow& window : windows) {
                 const bool planets = window.name == "MapPanel";
                 for (ExtensionControl& control : window.controls) {
                     if (control.name == "Ticker")
                         control.text = probe.ticker_text;
-                    if (planets && probe.map_locked)
+                    if (planets && probe.map_locked) {
                         control.enabled = false;
+                        control.hidden = true;
+                    }
                 }
             }
         }
@@ -1019,7 +1478,8 @@ DataFacts played_data_facts(void*) {
 
 /// The strip's MULTI. With no multiplayer map the press shows that notice and
 /// stays on the main menu, as the main menu's own MULTI does. A mod that
-/// cannot start a game says so instead. Otherwise the strip opens multiplayer.
+/// cannot start a game says so instead. An extension that has taken the game
+/// over keeps the main menu too. Otherwise the strip opens multiplayer.
 ///
 /// @param user unused
 /// @return true when the press was answered here
@@ -1408,6 +1868,8 @@ void oa_extension_init_boneyards(oa::app::Extension* table) {
     app::fill_boneyards_report_hooks(hooks);
     hooks.page = app::boneyards_page;
     hooks.join_failed = app::boneyards_join_failed;
+    hooks.recorded_game = app::boneyards_recorded_game;
     oa::app::netgame::extension_api::set_hooks(hooks);
     oa::app::register_expansion_overlay();
+    oa::app::register_boneyards_replay_kind();
 }

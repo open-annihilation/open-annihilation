@@ -11,10 +11,13 @@
 # the questions about the mod the game plays: SWITCH OFF's, PLAY NOW's
 # refusal and ROLL BACK's (mod_questions.hpp), UNINSTALL's rules, its
 # question and its notices (uninstall.hpp), and the order of a mutator's
-# prerequisites, the download plan and GET WITH's question (prerequisites.cpp).
+# prerequisites, the download plan and GET WITH's question (prerequisites.cpp),
+# and the Replays section: which replays show, their days and their card
+# (replays.hpp).
 add_library(oa-ui-library src/library.cpp src/search.cpp src/text.cpp
   src/content.cpp src/game_icon.cpp src/update_question.cpp src/use_question.cpp
-  src/mod_questions.cpp src/uninstall.cpp src/prerequisites.cpp)
+  src/mod_questions.cpp src/uninstall.cpp src/prerequisites.cpp src/replays.cpp
+  src/export.cpp)
 # The Library's screens, made of the UI kit's components: their layout at
 # the three size classes, their drawing and their input (screen.hpp).
 target_sources(oa-ui-library PRIVATE src/layout.cpp src/draw.cpp src/input.cpp)
@@ -22,7 +25,7 @@ add_library(oa::ui::library ALIAS oa-ui-library)
 target_include_directories(oa-ui-library PUBLIC include)
 target_compile_features(oa-ui-library PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-library PUBLIC oa-formats-oamod oa-base-sha256 oa-ui-kit
-  oa-data-mutators PRIVATE
+  oa-data-mutators oa-data-replays PRIVATE
   oa-base-text oa-data-mod-profile oa-data-content-bundles oa-data-languages
   oa-data-input-actions oa-formats-oamut oa-formats-oabrain oa-options)
 
@@ -44,7 +47,7 @@ if(BUILD_TESTING)
   # the questions about the mod the game plays, their words and buttons.
   add_executable(oa-ui-library-update-question-test tests/update_question_test.cpp)
   target_link_libraries(oa-ui-library-update-question-test PRIVATE oa-ui-library oa-ui-kit
-    oa-test-support oa-options)
+    oa-data-languages oa-test-support oa-options)
   add_test(NAME ui-library-update-question COMMAND oa-ui-library-update-question-test)
   set_tests_properties(ui-library-update-question PROPERTIES TIMEOUT 30)
 

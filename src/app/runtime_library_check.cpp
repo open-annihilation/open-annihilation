@@ -1717,10 +1717,18 @@ void Runtime::check_library() {
             "the Updates tab did not open on its four updates" + on
         );
         run_frame(running);
+        // With Replays second the filters may lie below the section list's
+        // fold at 640x480: they are listed, scrolled out of view.
+        const auto listed = [this](std::string_view name) {
+            std::vector<AutomationControl> controls;
+            oa_layer().automation_controls(controls);
+            return std::any_of(controls.begin(), controls.end(), [&](const AutomationControl& c) {
+                return c.name == name;
+            });
+        };
         require(
             named("oa.library.action.update-all").has_value() &&
-                (named("oa.library.filter").has_value() ||
-                 named("oa.library.filter.updates").has_value()),
+                (named("oa.library.filter").has_value() || listed("oa.library.filter.updates")),
             "the Updates tab shows no UPDATE ALL or no filters" + on
         );
         snapshot("updates-" + size);

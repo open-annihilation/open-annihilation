@@ -17,6 +17,8 @@
 #include "oa/sim/brains/seat.hpp"
 #include "oa/data/campaign/campaign_assets.hpp"
 #include "oa/data/campaign/campaign_file.hpp"
+#include "oa/data/content_bundles.hpp"
+#include "oa/formats/hpi.hpp"
 #include "oa/core/player_setup.h"
 #include "oa/core/unit_def.h"
 #include "oa/core/world.h"
@@ -43,8 +45,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <iostream>
+#include <system_error>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -818,6 +822,8 @@ bool Runtime::load_campaign_map(std::string_view mission_file) {
     selected_ota_document_ = std::move(scenario_document);
     selected_tnt_ = std::move(*terrain.map);
     selected_map_name_runtime_ = stem;
+    if (unloadable_map_name_ == stem)
+        unloadable_map_name_.clear();
     selected_start_markers_.clear();
     for (const auto& schema : selected_map_metadata_->schemas)
         for (const auto& position : schema.start_positions)
@@ -1392,7 +1398,8 @@ campaign::BriefingRegion Runtime::briefing_region() {
     // in every language the page holds the rows whose line, standing on the
     // font's baseline, ends inside the region.
     const char* text = missions::campaign_briefing_text(&campaign_runtime().file);
-    if (briefing_in_modern_fonts()) {
+    const bool in_modern_fonts = briefing_in_modern_fonts();
+    if (in_modern_fonts) {
         const bool wide = oa::base::text::has_wide_script(text);
         if (const auto layers = oa::present::modern_text(
                 wide ? "\xE4\xB8\xAD" : "H",
@@ -1410,12 +1417,24 @@ campaign::BriefingRegion Runtime::briefing_region() {
                         layers->height;
         }
     }
+    // A row the modern fonts draw keeps a hyphen it breaks at. They draw a
+    // text whole, with the setting off too, when it holds a letter the game
+    // font lacks (Bengali's), though its rows are laid out as the game
+    // font's; those rows keep the hyphen as well.
+    const bool keep_hyphen =
+        in_modern_fonts ||
+        (text != nullptr && oa::present::game_text_hooks().draw != nullptr &&
+         oa::present::drawn_whole_in_modern_fonts(
+             oa::present::decode_game_text(text, oa::present::game_text_settings().utf8),
+             oa::ui::frontend_renderer::fnt_font_characters(font)
+         ));
     return {
         text_region != nullptr ? text_region->common.x : 0,
         text_region != nullptr ? text_region->common.y : 0,
         text_region != nullptr ? text_region->common.height : 0,
         line_height,
-        row_reach
+        row_reach,
+        keep_hyphen
     };
 }
 
@@ -1426,9 +1445,15 @@ int32_t Runtime::briefing_wrap_width() {
     // 3.1c wraps a briefing at its TextRegion's width though the rows start
     // campaign::kRowInset in, and the font's letters, broken at spaces, keep
     // inside. A row the modern fonts draw wraps at the width it has, so that
-    // its last letter and that letter's shadow stay inside the region.
-    return briefing_in_modern_fonts() ? text_region->common.width - campaign::kRowInset
-                                      : text_region->common.width;
+    // its last letter and that letter's shadow stay inside the region. The
+    // modern fonts draw shaped letters (Bengali's) with the setting off too,
+    // and those letters fill the width they measure, so their rows wrap at
+    // the width they have as well.
+    const bool shaped_letters =
+        shown_language().needs == oa::data::languages::TextNeeds::text_shaping;
+    return briefing_in_modern_fonts() || shaped_letters
+               ? text_region->common.width - campaign::kRowInset
+               : text_region->common.width;
 }
 
 void Runtime::show_mission_briefing() {
@@ -2120,6 +2145,46 @@ std::string Runtime::bound_mission_title() {
 
 int32_t Runtime::bound_mission_index() {
     return missions::campaign_mission_index(&campaign_runtime().file);
+}
+
+Runtime::RunningMissionFacts Runtime::running_mission_facts() {
+    RunningMissionFacts facts;
+    if (const char* loaded = missions::campaign_name_if_loaded(&campaign_object()))
+        facts.campaign_name = loaded;
+    facts.mission_number = bound_mission_index();
+    facts.mission_name = bound_mission_name();
+    facts.map_title = map_display_name();
+    facts.source_expansion = campaign_source_expansion();
+    return facts;
+}
+
+std::string Runtime::campaign_source_expansion() {
+    const char* path =
+        missions::campaign_path(&campaign_runtime().file, missions::CampaignPath::campaign);
+    if (path == nullptr || path[0] == '\0')
+        return {};
+    oa::AssetData loaded;
+    try {
+        loaded = assets_.read(path);
+    } catch (const std::exception&) {
+        return {};
+    }
+    if (!loaded.archived)
+        return {};
+    std::error_code failure;
+    const auto bytes = std::filesystem::file_size(loaded.source, failure);
+    if (failure)
+        return {};
+    const auto found = oa::data::content_bundles::match_file(
+        oa::platform::path_to_utf8(loaded.source.filename()), static_cast<uint64_t>(bytes)
+    );
+    if (!found || found.bundle == nullptr)
+        return {};
+    if (found.bundle->kind != oa::data::content_bundles::Kind::expansion)
+        return {};
+    if (found.bundle->id == "music")
+        return {};
+    return std::string(found.bundle->id);
 }
 
 void Runtime::reload_campaign_file() {

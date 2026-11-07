@@ -3,6 +3,7 @@
 
 #include "oa/boneyards/screens/lobby_widgets.hpp"
 
+#include "oa/boneyards/screens/profile.hpp"
 #include "oa/boneyards/screens/widgets.hpp"
 #include "oa/boneyards/shown_text.hpp"
 #include "oa/present/raster.hpp"
@@ -1453,6 +1454,38 @@ void player_row_set_latency(PlayerRowIcons* row, int32_t frame) {
 void player_row_set_user_icon(PlayerRowIcons* row, int32_t frame) {
     row->user_frame = frame;
     bind_images(row->user_icon, "Widgets.Gaf", "User_Icons", frame);
+}
+
+bool player_icon_words(const Window* icon, PlayerIconWords* out) {
+    if (out != nullptr)
+        *out = {};
+    if (icon == nullptr || out == nullptr || icon->name == nullptr || icon->parent == nullptr)
+        return false;
+    const bool rank = std::strcmp(icon->name, "RankIcon") == 0;
+    const bool latency = std::strcmp(icon->name, "LatencyIcon") == 0;
+    if (!rank && !latency)
+        return false;
+    const Window* row_window = icon->parent;
+    if (row_window->ops == nullptr || row_window->ops->class_name == nullptr ||
+        std::strcmp(row_window->ops->class_name, kByPlayerRowClass) != 0)
+        return false;
+    const auto* player = reinterpret_cast<const ByPlayerRow*>(row_window);
+    if (rank && icon != player->icons.user_icon)
+        return false;
+    if (latency && icon != player->icons.latency_icon)
+        return false;
+    if (rank) {
+        out->kind = PlayerIconKind::rank;
+        const char* title = rank_title(player->icons.user_frame, true);
+        out->rank = title != nullptr ? title : "";
+        return true;
+    }
+    out->kind = PlayerIconKind::latency;
+    const int32_t grade = player->icons.latency_frame;
+    // The lobby's grades run from 1 (best) to 3 (worst). Anything else has
+    // no name, and the picture is left as the row drew it.
+    out->latency_grade = grade >= 1 && grade <= 3 ? grade : 0;
+    return true;
 }
 
 } // namespace oa::boneyards::screens

@@ -142,9 +142,9 @@ void push_login_click(float frame_x, float frame_y) {
 
 /// Writes the guest name and selects Guest Login.
 ///
-/// The dialog copies the field on its next pulse. A saved name selects a
-/// member login, which leaves LOGIN off until a password is typed, so Guest
-/// Login is selected on every run.
+/// The dialog copies the field on its next pulse. The console opens on
+/// Registered User, which leaves LOGIN off until a password is typed, so
+/// the check selects Guest Login on the dialog. The radio stays grey.
 ///
 /// @param widget the overlay
 void arm_guest(by_console::StatusWidget* widget) {

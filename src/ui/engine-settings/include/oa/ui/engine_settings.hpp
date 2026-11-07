@@ -311,6 +311,18 @@ inline constexpr std::string_view file_type_oakeys = "open-annihilation.file-typ
 /// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
 /// other than off, the game opens launch files.
 inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
+/// "on" or "off" (EngineSettings::replays_record). Only the word off stops
+/// the game keeping the games it plays as replays; absent, or any other
+/// text, every game is recorded.
+inline constexpr std::string_view replays_record = "open-annihilation.replays.record";
+/// "30-days", "90-days", "1-year" or "forever" (EngineSettings::replays_keep).
+/// How long the replays the game recorded are kept; absent, or any other
+/// text, reads as "30-days".
+inline constexpr std::string_view replays_keep = "open-annihilation.replays.keep";
+/// "on" or "off" (EngineSettings::replays_open_files). Only the word off
+/// stops this copy opening .oademo and .tad files; absent, or any other
+/// text, it opens them.
+inline constexpr std::string_view replays_open_files = "open-annihilation.replays.open-files";
 /// The last mutator set a skirmish setup started a game with: the canonical
 /// loadout text, mutators in order with versions, package SHA-256s and
 /// options. Absent, or text that cannot be read as that loadout, means no
@@ -362,6 +374,12 @@ static_assert(update_channel.find('|') == std::string_view::npos);
 static_assert(update_channel.find('\\') == std::string_view::npos);
 static_assert(update_pinged.find('|') == std::string_view::npos);
 static_assert(update_pinged.find('\\') == std::string_view::npos);
+static_assert(replays_record.find('|') == std::string_view::npos);
+static_assert(replays_record.find('\\') == std::string_view::npos);
+static_assert(replays_keep.find('|') == std::string_view::npos);
+static_assert(replays_keep.find('\\') == std::string_view::npos);
+static_assert(replays_open_files.find('|') == std::string_view::npos);
+static_assert(replays_open_files.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
@@ -1277,6 +1295,24 @@ inline constexpr std::array<UpdateChannel, 2> update_channel_choices{
     UpdateChannel::testing,
 };
 
+/// How long the replays the game recorded are kept. The stored words are
+/// the durations' own: 30-days, 90-days, 1-year, forever. A replay the player
+/// marked Keep stays until the player deletes it, whatever this says.
+enum class ReplayKeep : uint8_t {
+    thirty_days, ///< 30 days, the default
+    ninety_days, ///< 90 days
+    one_year,    ///< a year
+    forever,     ///< until the player deletes them
+};
+
+/// The choices of Keep replays for, in the order the dialog offers them.
+inline constexpr std::array<ReplayKeep, 4> replay_keep_choices{
+    ReplayKeep::thirty_days,
+    ReplayKeep::ninety_days,
+    ReplayKeep::one_year,
+    ReplayKeep::forever,
+};
+
 /// Coloured weapon lighting's percent with Hardware acceleration Full where
 /// the preferences store none (default_effect_intensity).
 inline constexpr uint32_t default_weapon_lighting = 20;
@@ -1564,6 +1600,19 @@ struct EngineSettings {
     /// The game opens launch files (.oalaunch), which start it in their
     /// battle room, as -c does.
     bool file_type_oalaunch{true};
+    /// The game keeps every game it plays as a replay: campaign missions,
+    /// skirmish, multiplayer and Boneyards battles. On unless the preference
+    /// is the word off. A change applies from the next game.
+    bool replays_record{true};
+    /// How long the recorded replays are kept. This only holds the choice;
+    /// what removes older replays reads it.
+    ReplayKeep replays_keep{ReplayKeep::thirty_days};
+    /// This copy opens .oademo files, and is offered for .tad files. On
+    /// unless the preference is the word off. Windows and Linux register
+    /// both when OK is pressed. On macOS the switch shows whether this copy
+    /// is the default opener of .oademo, and OK changes that only when the
+    /// switch moved. iOS and Android do not list the row.
+    bool replays_open_files{true};
     /// How many player rows the skirmish setup shows. The dialog's working
     /// copy of NumSkirmishPlayers: read_settings and write_settings leave it
     /// out, and OK stores it as that one count.
@@ -1840,6 +1889,21 @@ void follow_acceleration_with_unset_effects(
 /// @return the settings
 [[nodiscard]] EngineSettings read_settings(
     const oa::platform::preferences::Values& values, const Inputs& inputs, bool switch_alt
+);
+
+/// Reads Record my games, Keep replays for and Open replay files from the
+/// preferences, as read_settings reads them.
+///
+/// Other parts of the game write the record and keep keys straight into the
+/// preferences (the Library's Turn on recording among them), so the dialog
+/// reads them again each time it opens, not once at the game's start. Record
+/// my games and Open replay files are off only for the word off; Keep replays
+/// for reads its four words, and any other text, or none, gives 30 days.
+///
+/// @param values the preferences
+/// @param[in,out] settings the settings; only the three Replays fields change
+void read_replays_settings(
+    const oa::platform::preferences::Values& values, EngineSettings& settings
 );
 
 /// Writes the settings a player chose into the preferences.

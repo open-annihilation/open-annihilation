@@ -120,10 +120,14 @@ struct RateText {
 
 inline constexpr uint8_t kPaletteWhite = 255;
 
-// Game.ui_colors slots of the top bar and the unit panel.
+// Game.ui_colors slots of the top bar and the unit panel. With the
+// colour-vision mode off, production and use take slots 10 and 12. With a
+// mode on, those figures take the mode's own resource colours. Slot 15 and
+// the share-level marker stay on their slots in every mode.
 inline constexpr int32_t kReadoutTextColor = 15;     // stores, "0" and capacities
-inline constexpr int32_t kReadoutProducedColor = 10; // production and make
-inline constexpr int32_t kReadoutConsumedColor = 12; // use and the share level marker
+inline constexpr int32_t kReadoutProducedColor = 10; // production and make, while the mode is off
+inline constexpr int32_t kReadoutConsumedColor =
+    12; // use while the mode is off, and the share marker
 
 /// Looks up the UI colour of a readout slot.
 [[nodiscard]] inline uint8_t readout_color(const Game& game, int32_t slot) noexcept {
@@ -133,31 +137,36 @@ inline constexpr int32_t kReadoutConsumedColor = 12; // use and the share level 
 /// Formats the top-bar energy production or use.
 ///
 /// Whole units, the use as a magnitude; beyond 99999 either way it shows
-/// thousands with a K.
+/// thousands with a K. With the colour-vision mode off the colour is UI slot
+/// 10 for production and slot 12 for use. With a mode on, production and use
+/// take that mode's resource colours, matched in the palette in use.
 ///
 /// @param game Game block holding the UI colours.
 /// @param amount Energy per second.
-/// @param produced true for production (UI colour 10), false for use (UI colour 12).
+/// @param produced true for production, false for use.
 /// @return Text and palette colour.
 [[nodiscard]] RateText format_energy_rate(const Game& game, float amount, bool produced) noexcept;
 
 /// Formats the top-bar metal production or use to one decimal, the use as a magnitude.
 ///
+/// The colour follows the colour-vision mode the way `format_energy_rate` does.
+///
 /// @param game Game block holding the UI colours.
 /// @param amount Metal per second.
-/// @param produced true for production (UI colour 10), false for use (UI colour 12).
+/// @param produced true for production, false for use.
 /// @return Text and palette colour.
 [[nodiscard]] RateText format_metal_rate(const Game& game, float amount, bool produced) noexcept;
 
 /// Formats the unit panel's make or use of one resource.
 ///
 /// Signed ("+" for make, "-" for use), energy whole and metal to one decimal;
-/// negative amounts show as zero.
+/// negative amounts show as zero. The colour follows the colour-vision mode
+/// the way `format_energy_rate` does.
 ///
 /// @param game Game block holding the UI colours.
 /// @param amount Amount per second.
 /// @param metal true for metal, false for energy.
-/// @param produced true for make (UI colour 10), false for use (UI colour 12).
+/// @param produced true for make, false for use.
 /// @return Text and palette colour.
 [[nodiscard]] RateText
 format_unit_rate(const Game& game, float amount, bool metal, bool produced) noexcept;

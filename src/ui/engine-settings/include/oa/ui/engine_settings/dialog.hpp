@@ -109,6 +109,11 @@ enum class Page : uint8_t {
     /// Controller, Developer, Game files, Downloads, System, Game Content
     /// and Updates stay 5, 6, 7, 8, 9, 10, 11 and 12.
     accessibility,
+    /// Replays: whether the player's games are recorded and how long the
+    /// recordings are kept. Listed after Game Content and before Engine
+    /// Limits. Its number follows Accessibility's, so every section before it
+    /// keeps its own, and the mod options' sections count from their own first.
+    replays,
     mod_keys,   ///< the mod's keys
     mod_patrol, ///< what patrolling builders do
     mod_guard,  ///< what guarding builders do
@@ -120,12 +125,13 @@ enum class Page : uint8_t {
 };
 
 /// The number of sections, of every kind of dialog, counting Downloads,
-/// Updates, Accessibility, Game Content, System and the registered page.
-inline constexpr std::size_t page_count = 20;
-/// The most sections a dialog lists: the engine's settings' fourteen with
-/// Touch, Controller and Game files, eleven without them; a mod's options have
+/// Updates, Accessibility, Replays, Game Content, System and the registered
+/// page.
+inline constexpr std::size_t page_count = 21;
+/// The most sections a dialog lists: the engine's settings' fifteen with
+/// Touch, Controller and Game files, twelve without them; a mod's options have
 /// five.
-inline constexpr std::size_t most_listed_pages = 14;
+inline constexpr std::size_t most_listed_pages = 15;
 /// Windows and Linux register the eight file types at run time, and macOS
 /// chooses whether this copy is the default opener of each, so System lists
 /// a switch for each. iOS takes the types from the app and has no way to
@@ -160,10 +166,10 @@ enum class DialogKind : uint8_t {
 /// @param controller a gamepad has sent input in this run
 ///     (Dialog::controller), so that the engine's settings list Controller
 ///     after Touch and before Game files and Developer
-/// @return eleven sections for the engine's settings (Controls, Common
+/// @return twelve sections for the engine's settings (Controls, Common
 ///     Tweaks, Language & Text, Graphics, User Interface, Accessibility,
-///     Downloads, Updates, Game Content, System and Developer), one more
-///     for each of Touch, Controller and Game files listed, fourteen with
+///     Downloads, Updates, Game Content, Replays, System and Developer), one
+///     more for each of Touch, Controller and Game files listed, fifteen with
 ///     all three; five for a mod's options and one for Language & Text
 ///     alone, whatever the others say
 [[nodiscard]] std::span<const Page> dialog_pages(
@@ -410,6 +416,16 @@ enum class Setting : uint8_t {
     /// Update channel: a strip of Stable and Testing, Developer's last row
     /// over its list; it takes changes whatever Developer Mode is
     update_channel,
+    /// Record my games: a switch, Replays' first row. On, every game is kept
+    /// as a replay; a change applies from the next game.
+    record_games,
+    /// Keep replays for: a drop-down of 30 days, 90 days, A year and
+    /// Forever, Replays' second row. 30 days is the default.
+    keep_replays,
+    /// Open replay files with Open Annihilation: a switch, Replays' third
+    /// row where the system can choose an opener (file_types_switchable).
+    /// It covers .oademo and .tad. iOS and Android do not list it.
+    open_replay_files,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -503,9 +519,9 @@ inline constexpr int32_t first_registered_nav_control = -10000;
 /// Returns the control of a section's entry in the list: its place among
 /// its kind of dialog's sections, each section counted whether or not it is
 /// listed, so that Touch is 5, Controller 6, Developer 7, Game files 8,
-/// Downloads 9, System 10, Game Content 11, Updates 12 and Accessibility 13
-/// in every dialog of the engine's settings, and a dialog without Touch has
-/// no control 5, one without Controller no control 6.
+/// Downloads 9, System 10, Game Content 11, Updates 12, Accessibility 13 and
+/// Replays 14 in every dialog of the engine's settings, and a dialog without
+/// Touch has no control 5, one without Controller no control 6.
 /// The registered page has no entry of this form; its entries are
 /// registered_nav_control.
 ///
@@ -1375,7 +1391,7 @@ struct Dialog {
     /// The host keeps them while the dialog shows.
     const oa::ui::kit::Fonts* drawn_fonts{};
     /// Registered pages listed after the engine's sections. Empty leaves the
-    /// list as the engine's own, Developer pinned at its foot.
+    /// list as the engine's own, Developer last.
     std::vector<RegisteredPage> registered_pages;
     /// Which registered page is open while page is Page::registered.
     std::size_t registered_page{};
@@ -1385,8 +1401,13 @@ struct Dialog {
     /// writes a key whose text differs.
     oa::ui::kit::PreferenceModel registered_opened{};
     /// The section list's scroll, in source pixels, while the list is taller
-    /// than its room: registered pages, or the engine's own fourteen sections
-    /// at Compact. Developer stays pinned under the divider and does not scroll.
+    /// than its room: registered pages, or the engine's own sections at
+    /// Compact. The whole list scrolls as one, rules and owner names with the
+    /// entries. At Compact the twelve sections without the optional three are
+    /// taller than the room, so Developer, the last entry, is the one that is
+    /// cut until the list scrolls. At Regular and Large the fullest dialog,
+    /// with Touch, Controller and Game files all listed, scrolls a little
+    /// too.
     int32_t nav_scroll{};
     /// The part of a source pixel the wheel has turned over the section list
     /// and not yet scrolled.

@@ -4,6 +4,7 @@
 // The update question, written from the patterns in text.hpp.
 #include "oa/ui/library/update_question.hpp"
 
+#include "oa/data/languages/turkish_case.hpp"
 #include "oa/ui/library/text.hpp"
 
 #include <algorithm>
@@ -21,11 +22,41 @@ namespace oa::ui::library {
 
 namespace {
 
+/// Returns a text whose first letter is a capital, in Turkish letters.
+///
+/// A small i becomes İ and a small ı becomes I. ç ğ ö ş ü become their
+/// capitals. A first character that is not a small letter stays, and so
+/// does every character after the first.
+///
+/// @param text the text
+/// @return the text, its first letter a capital
+std::string capitalised_turkish(std::string text) {
+    namespace letters = oa::data::languages;
+    if (text.empty())
+        return text;
+    const letters::Utf8Character first = letters::leading_character(text);
+    if (first.bytes == 0 || !letters::small_turkish_letter(first.character))
+        return text;
+    const char32_t capital = letters::turkish_capital(first.character);
+    if (capital == first.character)
+        return text;
+    std::string written;
+    written.reserve(text.size() + 1);
+    letters::append_character(written, capital);
+    written.append(text, static_cast<std::size_t>(first.bytes), std::string::npos);
+    return written;
+}
+
 /// Returns a text with its first letter, when it is one of a to z, in capitals.
+///
+/// While the interface is Turkish or Azerbaijani, i, ı and ç ğ ö ş ü are
+/// capitalised too. Every other language changes only a to z.
 ///
 /// @param text the text
 /// @return the text, its first letter a capital
 std::string capitalised(std::string text) {
+    if (oa::data::languages::interface_uses_turkish_case())
+        return capitalised_turkish(std::move(text));
     if (!text.empty() && text[0] >= 'a' && text[0] <= 'z')
         text[0] = static_cast<char>(text[0] - 'a' + 'A');
     return text;

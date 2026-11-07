@@ -207,7 +207,11 @@ Every refusal is `{"error", "message"}` plus the extra member named here.
 
 OA treats `404` and `409` on the key request alike, as no longer offered,
 and refreshes its catalogue. It does not treat `unknown_package` and
-`release_mismatch` differently. Any other 4xx is a refusal and does not try
+`release_mismatch` differently. A replay's **Get … and watch** asks for the
+release and the digest the recording names, including a release that is only
+in the catalogue's [releases list](catalogue.md#releases-list). A `409`
+`release_mismatch` is shown as that release not being in Core Prime's
+catalogue. Any other 4xx is a refusal and does not try
 a mirror. `429` waits. A 5xx, a 201 that does not read, and a 428 that does
 not read are retried, and then a mirror may be tried.
 

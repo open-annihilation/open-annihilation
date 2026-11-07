@@ -6,10 +6,14 @@ explains them and shows how to follow them.
 
 ## Running the tests
 
-Build the pinned SDL, FreeType and fonts once
-(`python3 tools/bootstrap_sdl.py`, `python3 tools/bootstrap_text_fonts.py`
-and `python3 tools/bootstrap_page_fonts.py --deps local/deps`,
-see [CONTRIBUTING.md](../../CONTRIBUTING.md#build-and-test)), then:
+Build the pinned SDL, FreeType, fonts and AccessKit once
+(`python3 tools/bootstrap_sdl.py`, `python3 tools/bootstrap_text_fonts.py`,
+`python3 tools/bootstrap_page_fonts.py --deps local/deps` and
+`python3 tools/bootstrap_accesskit.py`,
+see [CONTRIBUTING.md](../../CONTRIBUTING.md#build-and-test)). A Linux arm64
+or armhf machine then builds its library from source. What that build
+needs is in [platform.md](platform.md). `-DOA_ACCESSKIT_DIR=` names a
+prepared tree other than `local/deps`. Then:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
@@ -92,6 +96,47 @@ At 640x480 it opens that row's details page, where the tabs are not shown.
 Not now leaves the page. UPDATE, fifty times, leaves the Library on top with
 its tabs on the next frames, including once the update is no longer offered.
 Its preferences, data and player folder stay in the build tree.
+
+`native-library-replays` (`--check-library-replays`) walks the Library's
+Replays section over made-up replays written from one recorded game, which
+`native-library-replays-source`, a headless loopback game with
+`--record-game`, records into its working folder first. Replays is second
+with no replay and with some; the section says it reads while the folder is
+read, and never "No replays yet."; each filter, the kind menu, the search
+(a damaged file by the name its row shows) and the sort give their rows;
+Keep is in `kept.json` at once and is read back with the index whole,
+deleted, truncated or full of noise, a damaged index being set aside; a
+ten-player replay's card scrolls to Kept until; WATCH plays 30 ticks and
+leaving comes back to the same row and scroll; a recording whose map is not
+installed is refused in the card, and one whose unit table differs, refused
+only after its match began loading, leaves the game on the main menu with
+the Library on the same row, at the same scroll, with the refusal in its
+card; Turn on recording writes the setting; and Export writes one replay as
+a `.oademo` and three as `.tad` files into `Exported replays`. Exporting a
+replay older than the keep span marks it, and the next consideration leaves
+it while one of the same age goes. A cut `exported.json` is set aside, and
+while that file is there an export writes nothing and old replays stay.
+Deleting a replay while `exported.json` is damaged writes no new file, and
+the next start leaves the exported replays. The check removes what it wrote as it
+ends, and `library-replays-clean` clears its folders before each run.
+
+`native-replays-content` (`--check-replays-content`,
+`tools/check_native_replays_content.py`) records one loopback game, then
+serves Ridge, an older map pack, a newer one and a mutator on 127.0.0.1.
+The older pack is only in the catalogue's releases list. One press fetches
+that pack and the mutator and the replay plays; the mutator is no longer
+selected afterwards. A release neither list holds reads as not in Core
+Prime's catalogue. With the registry stopped, the same replay reads "You're
+offline." `replays-content-clean` clears the working folder before each run.
+The check never calls a live registry.
+
+`native-replays-import` (`--check-replay-import`,
+`tools/check_native_replay_import.py`) copies a made-up `.oademo` and a
+made-up `.tad` into `Recordings/Imported` and selects each, copies nothing
+when either is opened again, leaves sector 6 out of the `.tad`, and refuses
+a damaged file and a version this game does not play, each with its
+sentence. The check clears `Recordings` as it starts and again as it ends,
+and the script gives it a user folder of its own.
 
 `native-library-install` (`--check-library-install`) posts made-up packages
 through the installer while the Library shows over a fixture feed. After
@@ -557,6 +602,11 @@ names, these run the game headless:
   whose type is in the Commander category, stays on both machines;
   `native-side-commanders-give` gives a commander outside that category, which
   goes too;
+  `native-net-loopback-photo` (`--net-loopback-check 300 --net-loopback-photo`)
+  is that check with the host's player in photo mode from tick 100: the
+  photo camera pans and zooms, stopping, slowing, stepping and the moment
+  between ticks are refused, the picture is held for 30 ticks and photo
+  mode ends at tick 200. At tick 300 both worlds agree.
   `native-net-loopback-watcher` has the joiner watch, and
   `native-net-loopback-computer` and `native-net-loopback-computer-watcher`
   have the host seat a computer player that builds, is given a squad and
@@ -582,6 +632,45 @@ names, these run the game headless:
   checks the multiplayer screens;
 - `native-recording-hook` (`--check-recording-hook`) checks that the game
   declines bytes that are no recording and refuses a truncated one;
+- `native-replays-record` (`tools/check_native_replays_record.py`) runs the
+  headless loopback five ways, each in a scratch user folder: `--record-game`
+  with the setting on writes one `.oademo` that `--play-demo` plays to its end
+  with no record or tick error and whose `meta.json` names both players; the
+  setting on and off, with the same `--seed`, give the same `--trace-digest`
+  and the same setup blocks, none presenting a recorder; a game killed part
+  way leaves its recording in `Recordings/.replays/partial`, which the next
+  start finishes with `recorded.after_crash` true, and which plays clean; a
+  profile with the recorder hack writes a `.tad` with no sector 6 and no
+  `.oademo`; a headless game without `--record-game` writes no
+  `Recordings` folder; and a replay of a game with a mod names the mod by a
+  SHA-256 (the folder's, computed by the check, for a mod folder). `netgame-recording-partials` and `demo-playback`
+  check the same rules without the game;
+- `native-replays-skirmish` (`tools/check_native_replays_skirmish.py`) runs
+  two built-in computer players on Ashap Plateau for 9000 ticks with and
+  without `--record-game` and compares the `--trace-digest` streams, plays
+  the `.oademo` to that tick and checks each player's units, kills and
+  losses, then records a plain headless skirmish (`--match-ticks 3000
+  --seed 7 --give-orders`) and plays it back clean. It also records a fight
+  (`--give-orders --combat 60 --seed 9 --match-ticks 9000`) and checks each
+  side's kills, metal and energy and the feature cells against the replay,
+  records a game saved mid-way and the game loaded from that save (the same
+  traces either way; the loaded replay starts from the map's features),
+  plays a `ridge-tough` skirmish under the strict unit table, and runs
+  `--check-away-pause --record-game`;
+- `native-replays-campaign` (`tools/check_native_replays_campaign.py`) records
+  Arm Campaign mission 0 for 2400 ticks with `--give-orders --seed 7`, and
+  mission 8 for 700 ticks. Each writes the same `--trace-digest` with and
+  without `--record-game`. Mission 0's own trace is the `--past-outcome` run
+  to the victory tick that 2400-tick run prints, the same with recording on
+  and off. A further recording to that tick, through the end screen, is
+  mission 0, `game.ended` `finished`, with `game.length_ticks` that tick.
+  Each recording's players (units, kills, losses, metal and energy) and
+  feature cells match the replay, and `--play-demo --match-ticks 1` creates
+  as many units as the live `campaign tick 0` line. A `.tad` from
+  `--record-game` and from `--net-record`, the `.tad` unpacked from the
+  `.oademo`, and that `.tad` packed back, each play strict to the live end.
+  `--check-away-pause --campaign "Arm Campaign" --mission 0 --record-game`
+  pauses the mission when the window loses focus;
 - `native-host-not-found` (`tools/check_native_host_not_found.py`) checks
   a joiner whose host is never listed: "Host not found.  Exiting...", and
   the game leaves 4 s later;
@@ -1022,8 +1111,10 @@ nothing.
 A campaign mission or a skirmish against computer players pauses while the
 window is away, as Settings › Controls › When the window loses focus says,
 and with Keep playing keeps the main loop running every frame there.
-`native-away-pause` runs `--check-away-pause` on a skirmish, in a window of
-the dummy video driver, sending the window's focus, minimise and restore
+`native-away-pause` runs `--check-away-pause` on a skirmish, and
+`native-replays-campaign` runs it on Arm Campaign mission 0 while that
+mission is recorded. Each runs in a window of the dummy video driver, sending
+the window's focus, minimise and restore
 events and the app lifecycle's background and foreground events, on a frame
 clock of its own: Pause single player sets the pause bit and shows the
 paused title while the window is away, holds the skirmish for the moment
@@ -1181,6 +1272,40 @@ overlays' keys, each place measured from the nearest edge or centre of the
 battlefield on the 8-point grid, a drag and the arrows with and without
 Shift, and the overlays' own places at 640x480, 1280x720 and 1920x1080,
 none past the battlefield nor over the 128-point side column.
+`native-photo-mode` (`--check-photo mode`) plays the skirmish's fight twice
+in a window on the dummy drivers, drawing a frame each tick. One pass enters
+photo mode, moves the photo camera a few pixels within play's limits, turns
+the selection boxes and the health bars on and off, and leaves. The other
+never enters. At the last tick the two worlds read back the same. After
+leaving, the layout, the camera, the zoom, the follow and an armed order
+are what they were on entering. Follow is started with T, as a player
+does. It does not carry in. A pan while following, and T with follow off,
+leave follow as it was, after the camera step has run. In photo mode the
+layout is the battlefield alone, the HUD layer is empty, and a frame with
+the selection boxes on differs from one with them off. Orders are read
+before Stop. Stop, a click on open ground, a click on an enemy with Attack
+armed, a click on the commander with nothing selected, a right click and a
+dragged box change neither the selection nor any unit's orders, whether or
+not an order is armed. Home centres on the selected unit, or on the
+commander when none is selected, and selects nothing. Enter leaves the
+chat line closed, the kills board stays unpinned and the keys overlay stays
+closed. Escape leaves and keeps the armed order. A resize lays the
+battlefield out alone and leaving puts back the play layout of the new
+size. The game menu leaves photo mode. Settings (Primary+,) leaves photo
+mode and opens that same menu. In a shared match the line carries
+the clock, the latest under-attack line and the chat count, and with German
+on it carries a translated word. The same steps run for a shared match and
+for a watcher. The preferences file is put back to the bytes the check
+started with.
+`native-photo-time` (`--check-photo time`) plays the same fight twice.
+One pass freezes at tick 30, draws that frame forty times, steps five
+ticks, draws each eighth between two ticks, runs slowly for 15 ticks and
+leaves at tick 70. The other never enters. Both reach tick 120 and read
+back the same, one frame a tick outside photo mode. While frozen, two
+draws of one frame match. The pause and the speed stay as they were. In
+a shared match and for a watcher those commands are refused, the clock
+goes on, and a held picture stays byte for byte the same for 30 ticks
+and is live again after leaving. The preferences file is unchanged.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
 a skirmish, then the overlays' places: Move overlays off by default with
 Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move
@@ -1603,6 +1728,28 @@ network game started with the same list, play the commander health of
 the applied mutator alone, and strict playback of the game's recording
 rebuilds the recorded unit definitions. A list that applied in full is
 not run again.
+`native-replay-index` (`tools/check_native_replay_index.py`) records a
+loopback game and indexes it twice with `--replay-index`: the two files are
+the same bytes, and the length is the last tick `--play-demo` reaches. A
+copy of the recording cut at half its packets is indexed too, and ends
+`cut` on a tick before the end of the whole game. `app-replay-index` reads
+the notes of a made-up recording of every kind of record, also inside a
+`.oademo`, and builds the index of a made-up timeline: its totals, damage,
+markers, result and end. `formats-oademo` writes and reads a
+`timeline.json`.
+`native-replay-keyframes` (`tools/check_native_replay_keyframes.py`) records a
+loopback game and plays it with `--replay-keyframe-check` at its start, its
+middle and near its end: each keyframe restored and played for the same 3,000
+ticks reaches the same digest and the same state, and the replay still ends
+on the digest, tick and frame count of the plain replay. A check asked for
+past the end says where the replay ends. `demo-playback` takes keyframes of a
+made-up replay: a keyframe restored gives the same digest tick for tick,
+whichever keyframe is restored and in whichever order; a section left out of a
+keyframe is reported as a keyframe fault at the tick of the next keyframe; and
+a session that holds an order or a unit of its own is refused. `match-keyframe`
+writes and reads the bytes of a keyframe's sections, and of a match with
+nothing in it, and refuses a match that holds orders or a unit it steers.
+`core-world-cpp` lists the tables of a world a keyframe copies.
 `native-fast-commanders` (`tools/check_native_fast_commanders.py`) gives
 ARMCOM, through `ridge-racing-commander`, the movement seven stacked
 commander mutators leave it: 42 pixels a tick, a turn of 28800 a tick, and

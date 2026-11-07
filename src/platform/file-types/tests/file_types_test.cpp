@@ -188,7 +188,63 @@ void test_texts() {
         file_types::open_command(executable, file_types::Opening::launch) ==
         "\"" + spelled + "\" -c \"%1\""
     );
+    OA_CHECK(
+        file_types::open_command(executable, file_types::Opening::watch) ==
+        "\"" + spelled + "\" \"%1\""
+    );
     OA_CHECK(file_types::default_icon(executable) == spelled + ",0");
+    OA_CHECK(file_types::file_types.size() == 8);
+    OA_CHECK(file_types::replay_file_type.opening == file_types::Opening::watch);
+    OA_CHECK(file_types::replay_file_type.extension == "oademo");
+    OA_CHECK(
+        file_types::replay_desktop_entry(fs::path("/opt/Open Annihilation/open-annihilation")) ==
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Open Annihilation\n"
+        "Comment=Opens a replay in Open Annihilation\n"
+        "Exec=\"/opt/Open Annihilation/open-annihilation\" %f\n"
+        "TryExec=/opt/Open Annihilation/open-annihilation\n"
+        "Icon=net.coreprime.open-annihilation\n"
+        "Terminal=false\n"
+        "Categories=Game;StrategyGame;\n"
+        "MimeType=application/x-oademo;\n"
+        "NoDisplay=true\n"
+    );
+    OA_CHECK(
+        file_types::tad_desktop_entry(fs::path("/opt/Open Annihilation/open-annihilation")) ==
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Open Annihilation\n"
+        "Comment=Opens a TA Demo recording in Open Annihilation\n"
+        "Exec=\"/opt/Open Annihilation/open-annihilation\" %f\n"
+        "TryExec=/opt/Open Annihilation/open-annihilation\n"
+        "Icon=net.coreprime.open-annihilation\n"
+        "Terminal=false\n"
+        "Categories=Game;StrategyGame;\n"
+        "MimeType=application/x-ta-demo;\n"
+        "InitialPreference=-1\n"
+        "NoDisplay=true\n"
+    );
+    OA_CHECK(file_types::tad_initial_preference < 0);
+    OA_CHECK(
+        file_types::replay_mime_package() ==
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n"
+        "  <mime-type type=\"application/x-oademo\">\n"
+        "    <comment>Open Annihilation replay</comment>\n"
+        "    <sub-class-of type=\"application/zip\"/>\n"
+        "    <glob pattern=\"*.oademo\"/>\n"
+        "  </mime-type>\n"
+        "  <mime-type type=\"application/x-ta-demo\">\n"
+        "    <comment>TA Demo recording</comment>\n"
+        "    <glob pattern=\"*.tad\"/>\n"
+        "  </mime-type>\n"
+        "</mime-info>\n"
+    );
+    // The eight types' package never names a replay or a .tad file.
+    OA_CHECK(file_types::mime_package().find("oademo") == std::string::npos);
+    OA_CHECK(file_types::mime_package().find("x-ta-demo") == std::string::npos);
+    OA_CHECK(file_types::replay_desktop_entry(fs::path("/a\tb")).empty());
 }
 
 void test_running_executable() {
@@ -882,6 +938,83 @@ void test_keys_off_registers_the_other_seven() {
     std::error_code error;
     fs::remove_all(scratch.root, error);
 }
+
+/// The ninth type is written beside the eight, .tad is an alternative only, and withdrawing
+/// the replay type leaves the eight in place.
+void test_replay_xdg() {
+    const XdgScratch scratch = make_xdg_scratch();
+    const ScopedVariable path("PATH", scratch.tools.c_str());
+    const ScopedVariable flatpak("FLATPAK_ID", nullptr);
+    const ScopedVariable snap("SNAP", nullptr);
+    file_types::Places places{};
+    places.data_home = scratch.data;
+    places.tool_time_limit_ms = recording_tool_limit_ms;
+    const fs::path executable("/opt/Open Annihilation/open-annihilation");
+    const std::vector<uint8_t> icon = icon_bytes(9);
+    const fs::path package = scratch.data / "mime/packages/net.coreprime.open-annihilation.xml";
+    const fs::path entry = scratch.data / "applications/net.coreprime.open-annihilation.desktop";
+    const fs::path launch_entry =
+        scratch.data / "applications/net.coreprime.open-annihilation.launch.desktop";
+    const fs::path replay_package =
+        scratch.data / "mime/packages/net.coreprime.open-annihilation.replay.xml";
+    const fs::path replay_entry =
+        scratch.data / "applications/net.coreprime.open-annihilation.replay.desktop";
+    const fs::path tad_entry =
+        scratch.data / "applications/net.coreprime.open-annihilation.tad.desktop";
+    const fs::path replay_icon =
+        scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oademo.png";
+    const fs::path mod_icon =
+        scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oamod.png";
+
+    file_types::Registration done = file_types::register_xdg(executable, icon, places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    const std::string eight_package = read_file(package);
+    const std::string eight_entry = read_file(entry);
+    const std::string eight_launch = read_file(launch_entry);
+    OA_CHECK(!fs::exists(replay_package));
+    OA_CHECK(!fs::exists(replay_entry));
+    OA_CHECK(!fs::exists(tad_entry));
+
+    done = file_types::register_replay_xdg(executable, icon, places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(read_file(package) == eight_package);
+    OA_CHECK(read_file(entry) == eight_entry);
+    OA_CHECK(read_file(launch_entry) == eight_launch);
+    OA_CHECK(read_file(replay_package) == file_types::replay_mime_package());
+    OA_CHECK(read_file(replay_entry) == file_types::replay_desktop_entry(executable));
+    OA_CHECK(read_file(tad_entry) == file_types::tad_desktop_entry(executable));
+    OA_CHECK(read_file(tad_entry).find("InitialPreference=-1\n") != std::string::npos);
+    OA_CHECK(read_file(replay_icon) == std::string(icon.begin(), icon.end()));
+    OA_CHECK(fs::exists(mod_icon));
+    // A second start writes nothing.
+    done = file_types::register_replay_xdg(executable, icon, places);
+    OA_CHECK(done.supported && !done.changed && done.error.empty());
+
+    done = file_types::withdraw_replay_xdg(places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(!fs::exists(replay_package));
+    OA_CHECK(!fs::exists(replay_entry));
+    OA_CHECK(!fs::exists(tad_entry));
+    OA_CHECK(!fs::exists(replay_icon));
+    OA_CHECK(read_file(package) == eight_package);
+    OA_CHECK(read_file(entry) == eight_entry);
+    OA_CHECK(read_file(launch_entry) == eight_launch);
+    OA_CHECK(fs::exists(mod_icon));
+
+    // Withdrawing the eight does not take the replay files.
+    done = file_types::register_replay_xdg(executable, icon, places);
+    OA_CHECK(done.changed && done.error.empty());
+    done = file_types::withdraw_xdg(file_types::TypeSet{}, places);
+    OA_CHECK(done.changed && done.error.empty());
+    OA_CHECK(read_file(replay_package) == file_types::replay_mime_package());
+    OA_CHECK(fs::exists(replay_entry));
+    OA_CHECK(fs::exists(tad_entry));
+    OA_CHECK(!fs::exists(package));
+    OA_CHECK(!fs::exists(entry));
+
+    std::error_code error;
+    fs::remove_all(scratch.root, error);
+}
 #else
 /// Reads a string value under HKEY_CURRENT_USER.
 std::optional<std::wstring> read_value(const std::wstring& key_name, const wchar_t* name) {
@@ -1479,6 +1612,72 @@ void test_keys_off_registers_the_other_seven() {
     OA_CHECK(SHDeleteKeyW(HKEY_CURRENT_USER, scratch.c_str()) == ERROR_SUCCESS);
     static_cast<void>(RegDeleteKeyW(HKEY_CURRENT_USER, parent.c_str()));
 }
+
+/// The ninth type is written beside the eight. .tad gains only an OpenWithProgids value.
+/// Withdrawing the replay type leaves the eight, and leaves a .tad default another program
+/// wrote.
+void test_replay_windows() {
+    const std::wstring parent = L"Software\\OpenAnnihilationFileTypesTest";
+    const std::wstring scratch = parent + L"\\" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                                 std::to_wstring(GetTickCount()) + L"-replay";
+    const std::wstring classes = scratch + L"\\Classes";
+    file_types::Places places{};
+    places.classes_key = fs::path(classes).string();
+    places.machine_classes_root = file_types::RegistryRoot::current_user;
+    places.machine_classes_key = fs::path(scratch + L"\\Machine").string();
+    places.notify_shell = false;
+    const fs::path executable(L"C:\\Games\\Open Annihilation\\open-annihilation.exe");
+    const std::wstring program = executable.wstring();
+
+    file_types::Registration done = file_types::register_windows(executable, places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(done.lines.size() == 48);
+    // Another program already owns .tad. The offer must not replace that.
+    write_sz(classes + L"\\.tad", nullptr, L"Some.Other.Demo");
+    write_sz(classes + L"\\.tad", L"Content Type", L"application/x-other-demo");
+
+    done = file_types::register_replay_windows(executable, places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(done.lines.size() == 7);
+    OA_CHECK(read_value(classes + L"\\.oademo", nullptr) == L"OpenAnnihilation.Replay");
+    OA_CHECK(read_value(classes + L"\\.oademo", L"Content Type") == L"application/x-oademo");
+    OA_CHECK(
+        read_value(classes + L"\\.oademo\\OpenWithProgids", L"OpenAnnihilation.Replay") == L""
+    );
+    OA_CHECK(
+        read_value(classes + L"\\OpenAnnihilation.Replay", nullptr) == L"Open Annihilation replay"
+    );
+    OA_CHECK(
+        read_value(classes + L"\\OpenAnnihilation.Replay\\DefaultIcon", nullptr) == program + L",0"
+    );
+    OA_CHECK(
+        read_value(classes + L"\\OpenAnnihilation.Replay\\shell\\open\\command", nullptr) ==
+        L"\"" + program + L"\" \"%1\""
+    );
+    OA_CHECK(read_value(classes + L"\\.tad\\OpenWithProgids", L"OpenAnnihilation.Replay") == L"");
+    OA_CHECK(read_value(classes + L"\\.tad", nullptr) == L"Some.Other.Demo");
+    OA_CHECK(read_value(classes + L"\\.tad", L"Content Type") == L"application/x-other-demo");
+    OA_CHECK(read_value(classes + L"\\.oamod", nullptr) == L"OpenAnnihilation.Mod");
+
+    done = file_types::register_replay_windows(executable, places);
+    OA_CHECK(done.supported && !done.changed && done.error.empty() && done.lines.empty());
+
+    done = file_types::withdraw_replay_windows(places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(!read_value(classes + L"\\.oademo", nullptr));
+    OA_CHECK(!read_value(classes + L"\\.oademo", L"Content Type"));
+    OA_CHECK(!read_value(classes + L"\\.oademo\\OpenWithProgids", L"OpenAnnihilation.Replay"));
+    OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.Replay"));
+    OA_CHECK(!read_value(classes + L"\\.tad\\OpenWithProgids", L"OpenAnnihilation.Replay"));
+    OA_CHECK(read_value(classes + L"\\.tad", nullptr) == L"Some.Other.Demo");
+    OA_CHECK(read_value(classes + L"\\.tad", L"Content Type") == L"application/x-other-demo");
+    OA_CHECK(read_value(classes + L"\\.oamod", nullptr) == L"OpenAnnihilation.Mod");
+    OA_CHECK(read_value(classes + L"\\.oalaunch", nullptr) == L"OpenAnnihilation.Launch");
+    OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Mod"));
+
+    OA_CHECK(SHDeleteKeyW(HKEY_CURRENT_USER, scratch.c_str()) == ERROR_SUCCESS);
+    static_cast<void>(RegDeleteKeyW(HKEY_CURRENT_USER, parent.c_str()));
+}
 #endif
 
 /// The user's override of the installer's association for every user: written where that
@@ -1739,6 +1938,44 @@ void test_opener_changes() {
         OA_CHECK(file_types::system_handler_calls().default_handler != nullptr);
     else
         OA_CHECK(file_types::system_handler_calls().default_handler == nullptr);
+
+    // The replay switch asks about .oademo alone, and hands it back to a zip archive.
+    fake.handlers.clear();
+    fake.reads.clear();
+    fake.writes.clear();
+    fake.handlers["public.zip-archive"] = archive;
+    fake.handlers[std::string(file_types::replay_content_type_id)] = application;
+    const file_types::ReplayOpenerReport replay_open =
+        file_types::reported_replay_opener(fake_calls(fake), application.bundle_id, false);
+    OA_CHECK(replay_open.open && replay_open.error.empty());
+    OA_CHECK(fake.reads.size() == 1);
+    OA_CHECK(fake.reads[0] == file_types::replay_content_type_id);
+    fake.reads.clear();
+    const file_types::Registration replay_handed =
+        file_types::apply_replay_opener(fake_calls(fake), application, false);
+    OA_CHECK(replay_handed.supported && replay_handed.changed && replay_handed.error.empty());
+    OA_CHECK(
+        replay_handed.lines.size() == 1 &&
+        replay_handed.lines[0] == "hand back oademo to com.example.archive"
+    );
+    OA_CHECK(
+        fake.handlers[std::string(file_types::replay_content_type_id)].bundle_id ==
+        "com.example.archive"
+    );
+    // Nothing opens .oademo: the preference stays, and no error is recorded.
+    FakeLaunchServices unanswered;
+    const file_types::ReplayOpenerReport stayed_on =
+        file_types::reported_replay_opener(fake_calls(unanswered), application.bundle_id, true);
+    OA_CHECK(stayed_on.open && stayed_on.error.empty());
+    const file_types::ReplayOpenerReport stayed_off =
+        file_types::reported_replay_opener(fake_calls(unanswered), application.bundle_id, false);
+    OA_CHECK(!stayed_off.open && stayed_off.error.empty());
+    unanswered.handlers[std::string(file_types::replay_content_type_id)] = archive;
+    const file_types::ReplayOpenerReport other_program =
+        file_types::reported_replay_opener(fake_calls(unanswered), application.bundle_id, true);
+    OA_CHECK(!other_program.open && other_program.error.empty());
+    // The eight were not asked.
+    OA_CHECK(fake.handlers.count("net.coreprime.open-annihilation.oamod") == 0);
 }
 
 /// A set with only the brain off, asked of the default-opener stand-in, hands the brain
@@ -1841,12 +2078,14 @@ int main() {
     test_xdg_data_folder();
     test_registration_by_system();
     test_xdg_subset_and_withdrawal();
+    test_replay_xdg();
     test_brain_off_registers_the_other_six();
     test_keys_off_registers_the_other_seven();
 #else
     test_windows_registration();
     test_windows_withdrawal();
     test_windows_shared_association();
+    test_replay_windows();
     test_brain_off_registers_the_other_six();
     test_keys_off_registers_the_other_seven();
 #endif

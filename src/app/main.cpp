@@ -2430,6 +2430,40 @@ oa::platform::file_types::TypeSet enabled_file_types() {
     return enabled;
 }
 
+/// Whether Open replay files is not the word off. A missing file, a missing
+/// key, or a failure to read the preferences leaves it on.
+///
+/// @return true when this copy should open replay files
+bool replay_files_open() {
+    try {
+        const fs::path preferences = preference_file(std::nullopt);
+        std::error_code error;
+        if (!fs::exists(preferences, error) || error)
+            return true;
+        const oa::platform::preferences::Values values =
+            oa::platform::preferences::load(preferences);
+        const auto found =
+            values.find(std::string{oa::ui::engine_settings::key::replays_open_files});
+        return found == values.end() || found->second != "off";
+    } catch (const std::exception&) {
+        return true;
+    }
+}
+
+/// Registers or withdraws replay files for the user who runs the game. The
+/// eight types are not touched. macOS chooses the opener from Settings, not
+/// at a start.
+void apply_replay_files() {
+    namespace file_types = oa::platform::file_types;
+    const auto executable = file_types::running_executable();
+    if (!executable)
+        return;
+    if (replay_files_open())
+        log_file_types(file_types::register_replay_files(*executable, window_icon_png(), {}));
+    else
+        log_file_types(file_types::withdraw_replay_files());
+}
+
 /// Registers the types in `enabled` and, where that took, withdraws the rest.
 ///
 /// @param enabled the types the player left on
@@ -2460,6 +2494,7 @@ void register_file_types_for_player(const Options& options) {
         driver && (*driver == "dummy" || *driver == "offscreen"))
         return;
     apply_file_type_set(enabled_file_types());
+    apply_replay_files();
 }
 
 /// Hands the files a start carries to the copy of the game already running,

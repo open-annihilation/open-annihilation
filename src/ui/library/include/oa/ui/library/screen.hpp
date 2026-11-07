@@ -17,6 +17,7 @@
 #include "oa/ui/kit/looks.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/replays.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -29,10 +30,12 @@ namespace oa::ui::library {
 
 /// One of the Library's drop-downs, which can be open.
 enum class MenuKind : uint8_t {
-    none,   ///< no drop-down is open
-    filter, ///< Compact's filter: the filters, then each tag of the tab (library.filter)
-    tags,   ///< the tags that do not fit as chips or in the filter pane (library.tags)
-    more,   ///< the Compact details page's actions after its first three (library.action)
+    none,        ///< no drop-down is open
+    filter,      ///< Compact's filter: the filters, then each tag of the tab (library.filter)
+    tags,        ///< the tags that do not fit as chips or in the filter pane (library.tags)
+    more,        ///< the Compact details page's actions after its first three (library.action)
+    replay_kind, ///< the Replays section's kind menu (library.replays.kind)
+    replay_sort, ///< the Replays section's sort menu (library.replays.sort)
 };
 
 /// One of the Library's panes that scroll.
@@ -153,6 +156,13 @@ struct ScreenState {
 
     /// The registries whose marks are turning or showing a check.
     std::vector<RegistryMark> registry_marks{};
+    /// The keys held with the next press on a replay's row: Shift marks the
+    /// run from the last row pressed, Ctrl or Command marks or unmarks that
+    /// row alone. The host sets it before it passes the press.
+    ReplayPick row_pick{ReplayPick::only};
+    /// Compact shows the selected replay's details page: the Replays
+    /// section's own, beside the catalogue's details_page.
+    bool replay_page{};
 };
 
 /// One registry's refresh, as the inputs name it for one step of the marks.
@@ -201,6 +211,14 @@ struct ScreenResult {
     std::string expansion{};
     /// The base game USE THIS GAME asked the host to copy.
     std::string base_game{};
+    /// The replay WATCH or OPEN FOLDER is for, by its path below Recordings.
+    std::string replay{};
+    /// The replays KEEP, KEPT or EXPORT… is for, by their paths: every marked replay.
+    std::vector<std::string> replays{};
+    /// A folder the Export dialog's chooser was asked to open, by its name.
+    std::string export_path{};
+    /// True when KEEP keeps them; false when KEPT stops keeping them.
+    bool keep{};
     bool redraw{}; ///< what the screen shows changed: lay it out and draw it again
 };
 
@@ -345,6 +363,15 @@ struct RegistryPictureSource {
 /// @param library the model
 /// @param source where the icons are asked for
 void request_registry_icons(const Library& library, const RegistryPictureSource& source);
+
+/// Returns the places, among the visible replays, of the replay rows a
+/// display list shows, top to bottom.
+///
+/// @param library the model
+/// @param list the display list the screen shows
+/// @return the places, from 0
+[[nodiscard]] std::vector<std::size_t>
+replay_places_shown(const Library& library, const kit::DisplayList& list);
 
 /// Tells whether an entry's row is on the list the screen shows, or is the
 /// selected entry.

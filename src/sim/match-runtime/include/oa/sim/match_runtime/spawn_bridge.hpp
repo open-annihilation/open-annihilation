@@ -130,6 +130,17 @@ class SpawnBridge final : public sim::unit_spawn::Host {
     ///     (disabled type, exhausted limit, no free slot) or a spawn fault,
     ///     which is noted.
     sim::unit_spawn::Slot* create(const sim::unit_spawn::Request& request);
+    /// Gives a unit slot the model instance, and script interpreter, its type calls for, as unit
+    /// creation does but without running Create or touching the world.
+    ///
+    /// A keyframe's restore uses it for a unit that stood in the slot when the keyframe was
+    /// taken: the instance already there is dropped, and the new one has the type's
+    /// pieces and program in the state a new unit starts from.
+    ///
+    /// @param slot A slot of this match's pool whose record holds the unit's type.
+    /// @return False, with the refusal noted, when the type has no loaded model or the
+    ///     instance cannot be built.
+    bool rebuild_instance(sim::unit_spawn::Slot& slot);
     /// Records the player's side, grants its start storage, creates the
     /// side's commander at a start marker and centres the local view on it.
     ///

@@ -17,7 +17,7 @@ if(TARGET oa-boneyards-console-app)
       oa-boneyards-tunnel
       oa-netgame-frontend oa-boneyards-reporter oa-ui-frontend-multiplayer oa-ui-frontend-state
       oa-ui-screen-registry oa-core-types oa-data-mod-profile
-    PRIVATE oa-options)
+    PRIVATE oa-data-replays oa-options)
   add_library(oa-boneyards-extension-options STATIC boneyards_options.cpp)
   add_library(oa::boneyards::extension_options ALIAS oa-boneyards-extension-options)
   target_include_directories(oa-boneyards-extension-options PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -56,8 +56,10 @@ if(BUILD_TESTING)
   # The entry's decisions before the package: the online features, the
   # update question, Try again, the carried request and the quiet runs.
   add_executable(oa-boneyards-extension-entry-test tests/boneyards_entry_test.cpp)
+  # turn_install_id_on lives in oa-app-content. The test checks that Turn
+  # on clears only the picked registry's off key.
   target_link_libraries(oa-boneyards-extension-entry-test
-    PRIVATE oa::app::headers oa-test-support oa-options)
+    PRIVATE oa::app::headers oa-app-content oa-test-support oa-options)
   add_test(NAME boneyards-entry-flow COMMAND oa-boneyards-extension-entry-test)
   set_tests_properties(boneyards-entry-flow PROPERTIES TIMEOUT 60)
   # A made-up map in a fixture archive beside this test, read through the
@@ -81,7 +83,8 @@ if(BUILD_TESTING)
   if(TARGET oa-boneyards-extension-launch)
     add_executable(oa-boneyards-extension-launch-test tests/boneyards_launch_test.cpp)
     target_link_libraries(oa-boneyards-extension-launch-test
-      PRIVATE oa-boneyards-extension-launch oa-netgame-test-launch oa-options oa::app::headers)
+      PRIVATE oa-boneyards-extension-launch oa-netgame-test-launch oa-session-demo oa-formats-oademo oa-options
+      oa::app::headers)
     add_test(NAME boneyards-launch COMMAND oa-boneyards-extension-launch-test)
     add_executable(oa-boneyards-exit-prompt-test tests/boneyards_exit_prompt_test.cpp)
     target_link_libraries(oa-boneyards-exit-prompt-test
@@ -222,6 +225,19 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
     set_tests_properties(native-boneyards-entry-update PROPERTIES
       TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
+    # A registry on this machine that requires an install ID. The quiet half
+    # logs the question and stops. Cancel changes nothing. Turn on faces a
+    # player over the loopback MCP endpoint, with no frame limit, clears the
+    # off key, fetches the package once and opens the Boneyards. Each run
+    # wipes its own work folder.
+    add_test(NAME native-boneyards-entry-install-id COMMAND ${Python3_EXECUTABLE}
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_entry.py"
+      --game "$<TARGET_FILE:oa-game>" --tool "$<TARGET_FILE:oa-tool>"
+      --game-dir "${oa_boneyards_game_dir}" --mode install-id
+      --work "${oa_boneyards_checks}/boneyards-entry-install-id")
+    set_tests_properties(native-boneyards-entry-install-id PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
     # The way in on a mod's main menu, with two made-up mods the check
     # writes and the Boneyards installed as the expansion: on the base
     # game's art the strip, which takes a click on its art over the mod's
@@ -334,8 +350,9 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
       WORKING_DIRECTORY "${oa_boneyards_checks}"
       ENVIRONMENT "OA_BY_USER=;OA_BY_PASSWORD=")
     # The same replay, driven from outside the game: "-y" enters, the login
-    # console's controls are listed, the guest name is typed and LOGIN is
-    # pressed. The console closes once the dossier arrives.
+    # console's controls are listed, a made-up name and password are typed
+    # and LOGIN is pressed down and released across a pulse. The console
+    # closes once the dossier arrives.
     if(Python3_Interpreter_FOUND)
       add_test(NAME native-boneyards-driver-login COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_driver_login.py"
@@ -348,7 +365,8 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
         ENVIRONMENT "OA_BY_USER=;OA_BY_PASSWORD=;SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Every lobby console, driven through MCP against four replays; an
       # ordinary account opens the Locator and QuickPlay, and the Beta
-      # Tester's also opens Matchmaking. The client drops OA_BY_USER and
+      # Tester's also opens Matchmaking. Each launch logs in as a registered
+      # player. The client drops OA_BY_USER and
       # OA_BY_PASSWORD itself.
       add_test(NAME native-mcp-lobby COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_mcp_lobby.py"

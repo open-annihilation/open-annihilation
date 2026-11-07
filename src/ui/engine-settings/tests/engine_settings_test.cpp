@@ -2449,6 +2449,133 @@ void the_focus_lost_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Replays: Record my games on and Keep replays for 30 days everywhere by
+/// default, also for a file an earlier build wrote without the keys; only the
+/// word "off" turns recording off, and each of the four words reads its
+/// length, any other text reading 30 days; writing a changed choice writes
+/// that key alone, as the words the recorder reads, a choice put back is
+/// written as such, and Restore defaults then OK erases a key at its default.
+void the_replays_settings_default_read_and_round_trip() {
+    CHECK(settings::key::replays_record == "open-annihilation.replays.record");
+    CHECK(settings::key::replays_keep == "open-annihilation.replays.keep");
+    CHECK(settings::key::replays_open_files == "open-annihilation.replays.open-files");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.replays_record);
+        CHECK(defaults.replays_open_files);
+        CHECK(defaults.replays_keep == settings::ReplayKeep::thirty_days);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto recording = [](const char* text) {
+        return read_one(settings::key::replays_record, text).replays_record;
+    };
+    CHECK(!recording("off"));
+    for (const char* text : {"on", "", "Off", "0", "1", "no", "false"})
+        CHECK(recording(text));
+    const auto kept = [](const char* text) {
+        return read_one(settings::key::replays_keep, text).replays_keep;
+    };
+    CHECK(kept("30-days") == settings::ReplayKeep::thirty_days);
+    CHECK(kept("90-days") == settings::ReplayKeep::ninety_days);
+    CHECK(kept("1-year") == settings::ReplayKeep::one_year);
+    CHECK(kept("forever") == settings::ReplayKeep::forever);
+    for (const char* text : {"", "30", "90 days", "Forever", "year", "0"})
+        CHECK(kept(text) == settings::ReplayKeep::thirty_days);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto chosen = defaults;
+    chosen.replays_record = false;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::replays_record}) == "off");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    // On chosen again after Off is written as such.
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::replays_record}) == "on");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+
+    values.clear();
+    chosen = defaults;
+    for (const auto& [length, word] :
+         {std::pair{settings::ReplayKeep::ninety_days, "90-days"},
+          std::pair{settings::ReplayKeep::one_year, "1-year"},
+          std::pair{settings::ReplayKeep::forever, "forever"}}) {
+        values.clear();
+        chosen.replays_keep = length;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(values.at(std::string{settings::key::replays_keep}) == word);
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    }
+    // 30 days chosen again after 90 days is written as such.
+    chosen.replays_keep = settings::ReplayKeep::ninety_days;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::replays_keep}) == "30-days");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+    // Open replay files is on unless the word is off, and writes that key alone.
+    values.clear();
+    chosen = defaults;
+    chosen.replays_open_files = false;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::replays_open_files}) == "off");
+    CHECK(!settings::read_settings(values, players_own_on_linux, false).replays_open_files);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+    // Restore defaults, then OK, erases Record my games and Keep replays for.
+    chosen = defaults;
+    chosen.replays_record = false;
+    chosen.replays_keep = settings::ReplayKeep::ninety_days;
+    values.clear();
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 2);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
+/// Settings opens on what the preferences hold for Replays: a key another
+/// part of the game wrote (the Library's Turn on recording writes `on`)
+/// reads again into settings read earlier, as read_settings reads it, with
+/// nothing else in them changed, and a key gone reads its default.
+void the_replays_settings_follow_the_preferences_when_read_again() {
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto shown = defaults;
+    shown.replays_record = false;
+    shown.replays_keep = settings::ReplayKeep::forever;
+    shown.unit_limit = 400;
+
+    Values values;
+    settings::read_replays_settings(values, shown);
+    CHECK(shown.replays_record);
+    CHECK(shown.replays_keep == settings::ReplayKeep::thirty_days);
+    CHECK(shown.unit_limit == 400);
+
+    values[std::string{settings::key::replays_record}] = "off";
+    values[std::string{settings::key::replays_keep}] = "90-days";
+    settings::read_replays_settings(values, shown);
+    CHECK(!shown.replays_record);
+    CHECK(shown.replays_keep == settings::ReplayKeep::ninety_days);
+
+    values[std::string{settings::key::replays_record}] = "on";
+    values[std::string{settings::key::replays_keep}] = "forever";
+    settings::read_replays_settings(values, shown);
+    CHECK(shown.replays_record);
+    CHECK(shown.replays_keep == settings::ReplayKeep::forever);
+    CHECK(shown.unit_limit == 400);
+
+    // The same two fields, and the same reading, as a whole read.
+    auto whole = settings::read_settings(values, players_own_on_linux, false);
+    CHECK(whole.replays_record == shown.replays_record);
+    CHECK(whole.replays_keep == shown.replays_keep);
+    values[std::string{settings::key::replays_keep}] = "a week";
+    settings::read_replays_settings(values, shown);
+    CHECK(shown.replays_keep == settings::ReplayKeep::thirty_days);
+    whole = settings::read_settings(values, players_own_on_linux, false);
+    CHECK(whole.replays_keep == shown.replays_keep);
+}
+
 /// Update channel: Stable everywhere by default, also for a file an earlier
 /// build wrote without the key; "stable" and "testing" read their channels;
 /// any other text reads Stable; writing Testing writes that key alone, Stable
@@ -3470,6 +3597,8 @@ int main() {
     the_group_keys_centre_default_read_and_round_trip();
     the_double_click_selects_default_read_and_round_trip();
     the_focus_lost_default_read_and_round_trip();
+    the_replays_settings_default_read_and_round_trip();
+    the_replays_settings_follow_the_preferences_when_read_again();
     the_update_channel_default_read_and_round_trip();
     the_camera_inversions_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();

@@ -19,6 +19,7 @@
 #include "oa/boneyards/message_box.hpp"
 #include "oa/boneyards/rover_replay.hpp"
 #include "oa/boneyards/screens/locator.hpp"
+#include "oa/boneyards/screens/login.hpp"
 #include "oa/boneyards/screens/quickplay.hpp"
 #include "oa/boneyards/screens/registration.hpp"
 #include "oa/core/game_state.h"
@@ -44,6 +45,7 @@ namespace {
 
 namespace by = oa::boneyards;
 namespace by_console = oa::boneyards::console;
+namespace by_screens = oa::boneyards::screens;
 namespace mp = oa::ui::frontend_multiplayer;
 namespace exit_code = launch_check_exit;
 
@@ -1591,26 +1593,22 @@ by::Window* login_button(const char* caption) {
     return nullptr;
 }
 
-/// Guest Login is the selected account kind. A saved name selects Registered
-/// User instead, and LOGIN stays off until a password is typed.
+/// Guest Login is the selected account kind. The console opens on Registered
+/// User, and LOGIN stays off until a password is typed or the check selects
+/// Guest Login on the dialog.
 bool guest_login_selected() {
     by_console::StatusWidget* widget = boneyards_console_status_widget();
     return widget != nullptr && widget->navigation != nullptr &&
            widget->navigation->login.guest_value == by::button_state::pressed;
 }
 
-/// Puts the keyboard on Guest Login and presses Enter. A click presses the
-/// control without telling the login console, so the empty-password path
-/// stays closed. Space is a typed character and never reaches the control.
-void choose_guest_login(by::Window* guest) {
-    if (guest == nullptr)
-        return;
-    if (guest->states.current == by::button_state::pressed)
-        by::window_set_state(guest, by::button_state::unpressed);
+/// Selects Guest Login on the dialog. The radio is drawn disabled, so a
+/// player cannot choose it. The check reaches the model directly.
+void choose_guest_login() {
     by_console::StatusWidget* widget = boneyards_console_status_widget();
-    if (widget != nullptr)
-        by::desktop_set_focus(&widget->desktop, guest);
-    press_key(SDLK_RETURN);
+    if (widget == nullptr || widget->navigation == nullptr)
+        return;
+    by_screens::login_on_control(&widget->navigation->login, by_screens::LoginControl::guest_radio);
 }
 
 /// Replaces the Username entry. Keystrokes land on whichever control has the
@@ -1654,10 +1652,9 @@ void tick_login() {
     if (field == nullptr)
         return;
     ++g_feat.login_frames;
-    // A previous visit stores the account name and selects Registered User,
-    // which leaves LOGIN off until a password is typed. Guest Login is the
-    // empty-password path, so the name is put back and Guest Login pressed
-    // before LOGIN.
+    // The login opens on Registered User, so LOGIN stays off until a password
+    // is typed. Guest Login is drawn disabled. The check selects it on the
+    // dialog, which a player cannot do, then presses LOGIN.
     if (!single_text_is(field, account_name())) {
         g_feat.acted = false;
         type_account_name(field);
@@ -1666,7 +1663,7 @@ void tick_login() {
     if (!guest_login_selected()) {
         g_feat.acted = false;
         if (due())
-            choose_guest_login(child_named(feat_screen(), "Guest Login"));
+            choose_guest_login();
         return;
     }
     by::Window* login = login_button("LOGIN");

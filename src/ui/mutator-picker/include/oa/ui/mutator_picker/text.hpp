@@ -166,6 +166,8 @@ inline constexpr std::string_view waiting_failed = "{name}: {problem}";
 inline constexpr std::string_view works_with_mods = "it works with {names}";
 /// The read-only footer's button, and the header's close mark.
 inline constexpr std::string_view close_button = "Close";
+/// The grip a player drags to change a row's order.
+inline constexpr std::string_view drag_to_reorder = "Drag to reorder";
 /// The list when the host gave no mutators.
 inline constexpr std::string_view empty_none =
     "No mutators here yet. The Library on the main menu gets them.";

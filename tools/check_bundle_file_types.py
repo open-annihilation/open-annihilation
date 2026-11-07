@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Check that the macOS and iOS bundles declare .oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys, .oareg and .oalaunch as the game's own types.
+"""Check that the macOS and iOS bundles declare .oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys, .oareg, .oalaunch and .oademo as the game's own types, and offer .tad without owning it.
 
 Reads the two Info.plist templates (src/app/Info.plist.in and platforms/ios/Info.plist.in, or
 the two named) as property lists and fails unless each, for every type in TYPES:
@@ -60,7 +60,14 @@ TYPES = (
      "application/x-oareg", "registry", ["public.data"]),
     ("net.coreprime.open-annihilation.oalaunch", "Open Annihilation launch file", "oalaunch",
      "application/x-oalaunch", "launch", ["public.plain-text"]),
+    ("net.coreprime.open-annihilation.oademo", "Open Annihilation replay", "oademo",
+     "application/x-oademo", "replay", ["public.data"]),
 )
+# Offered, never owned: an imported type and an Alternate document type. Not withdrawn as a
+# default, and not one of the types iOS treats as the game's own install types beyond bringing
+# the file in.
+TAD = ("net.coreprime.open-annihilation.tad", "TA Demo recording", "tad", "application/x-ta-demo",
+       ["public.data"])
 BUNDLE_ID = "net.coreprime.open-annihilation"
 PLAIN_TEXT = "public.plain-text"
 ARCHIVE_TYPE_ID = "net.coreprime.open-annihilation.game-archive"
@@ -72,6 +79,16 @@ INSTALLER = Path("packaging/windows/open-annihilation.nsi")
 NSIS_DEFINE_RE = re.compile(r'^!define (\w+) "([^"]*)"', re.MULTILINE)
 NSIS_REFERENCE_RE = re.compile(r"\$\{(\w+)\}")
 WITHDRAW_RE = re.compile(r'^\s*\$\{OA_WithdrawUserType\} "([^"]*)" "([^"]*)" "([^"]*)"', re.MULTILINE)
+# .tad is offered beside .oademo, never withdrawn as a type of its own.
+OFFERED_DELETE_RE = re.compile(
+    r'^(\s*)DeleteRegValue HKCU "\$\{OA_USER_CLASSES_KEY\}\\\$UserOfferedExtension\\OpenWithProgids" '
+    r'"\$UserProgramId"',
+    re.MULTILINE,
+)
+TAD_WITHDRAW_RE = re.compile(r'\$\{OA_WithdrawUserType\} "\.tad"')
+OADEMO_OFFER_RE = re.compile(
+    r'\$\{OA_WithdrawUserType\} "\.oademo" "[^"]*" "[^"]*" "\.tad"'
+)
 # iOS's platform code, which brings in each file opened in the game that it knows by extension.
 IOS_PLATFORM = Path("platforms/ios/src/ios_platform.mm")
 OPENED_RE = re.compile(r"kOpenedExtensions\[\] = \{([^}]*)\}")
@@ -164,6 +181,63 @@ def check_document_type(name, plist, findings, macos, type_id, type_name):
                 findings.append(f"{name}: icon: {key} is given; iOS draws the icon from the app's")
 
 
+def check_imported_type(name, plist, findings, type_id, type_name, extension, mime_type, conforms_to):
+    """Checks that a bundle imports one type and does not export it."""
+    imported = [entry for entry in plist.get("UTImportedTypeDeclarations", [])
+                if isinstance(entry, dict) and entry.get("UTTypeIdentifier") == type_id]
+    exported = [entry for entry in plist.get("UTExportedTypeDeclarations", [])
+                if isinstance(entry, dict) and entry.get("UTTypeIdentifier") == type_id]
+    if exported:
+        findings.append(f"{name}: imports: {type_id} is exported, so the bundle would own it")
+    if len(imported) != 1:
+        findings.append(f"{name}: imports: {type_id} is declared {len(imported)} times, not once")
+        return
+    entry = imported[0]
+    tags = entry.get("UTTypeTagSpecification", {})
+    expected = {
+        "UTTypeDescription": (entry.get("UTTypeDescription"), type_name),
+        "UTTypeConformsTo": (entry.get("UTTypeConformsTo"), conforms_to),
+        "public.filename-extension": (tags.get("public.filename-extension"), [extension]),
+        "public.mime-type": (tags.get("public.mime-type"), [mime_type]),
+    }
+    for key, (found, wanted) in expected.items():
+        if found != wanted:
+            findings.append(f"{name}: imports: {key} is {found!r}, not {wanted!r}")
+
+
+def check_alternate_document(name, plist, findings, macos, type_id, type_name):
+    """Checks that a bundle offers one type without owning it."""
+    documents = [entry for entry in plist.get("CFBundleDocumentTypes", [])
+                 if isinstance(entry, dict) and type_id in entry.get("LSItemContentTypes", [])]
+    if len(documents) != 1:
+        findings.append(f"{name}: offers: {len(documents)} document types name {type_id}, not one")
+        return
+    entry = documents[0]
+    expected = {
+        "CFBundleTypeName": type_name,
+        "CFBundleTypeRole": "Viewer",
+        "LSHandlerRank": "Alternate",
+        "LSItemContentTypes": [type_id],
+    }
+    for key, wanted in expected.items():
+        if entry.get(key) != wanted:
+            findings.append(f"{name}: offers: {key} is {entry.get(key)!r}, not {wanted!r}")
+    if entry.get("LSHandlerRank") == "Owner":
+        findings.append(f"{name}: offers: {type_id} is owned")
+    if macos:
+        generated = entry.get("CFBundleTypeIconSystemGenerated")
+        if generated is not True and not (type(generated) is int and generated == 1):
+            findings.append(f"{name}: icon: CFBundleTypeIconSystemGenerated is {generated!r}, not 1")
+        icon = entry.get("CFBundleTypeIconFile")
+        if icon != ICON_PLACEHOLDER or plist.get("CFBundleIconFile") != ICON_PLACEHOLDER:
+            findings.append(f"{name}: icon: CFBundleTypeIconFile is {icon!r} and CFBundleIconFile "
+                            f"{plist.get('CFBundleIconFile')!r}, not both {ICON_PLACEHOLDER}")
+    else:
+        for key in ("CFBundleTypeIconFile", "CFBundleTypeIconFiles", "CFBundleTypeIconSystemGenerated"):
+            if key in entry:
+                findings.append(f"{name}: icon: {key} is given; iOS draws the icon from the app's")
+
+
 def check_plain_text(name, plist, findings):
     """Checks that the macOS bundle takes plain text it is handed, without opening it by default."""
     documents = [entry for entry in plist.get("CFBundleDocumentTypes", [])
@@ -239,6 +313,16 @@ def check_installer(root, findings):
         if each not in wanted:
             findings.append(f"{script}: installer: the uninstaller withdraws {each[0]} as {each[1]}, "
                             f"{each[2]}, which is none of the types")
+    if TAD_WITHDRAW_RE.search(text):
+        findings.append(f"{script}: installer: the uninstaller calls OA_WithdrawUserType for .tad")
+    if "Software\\Classes\\.tad" in text:
+        findings.append(f"{script}: installer: the uninstaller names Software\\Classes\\.tad literally")
+    offered = OFFERED_DELETE_RE.findall(text)
+    if len(offered) != 1:
+        findings.append(f"{script}: installer: the uninstaller deletes an offered extension's "
+                        f"OpenWithProgids value {len(offered)} times, not once")
+    if len(OADEMO_OFFER_RE.findall(text)) != 1:
+        findings.append(f"{script}: installer: .oademo does not offer .tad to OA_WithdrawUserType once")
 
 
 def check_ios_opened(root, findings):
@@ -251,6 +335,7 @@ def check_ios_opened(root, findings):
     listed = OPENED_ITEM_RE.findall(match.group(1))
     wanted = [extension for _type_id, _type_name, extension, _mime_type, prefix, _conforms_to in TYPES
               if prefix != LAUNCH_PREFIX]
+    wanted.append(TAD[2])
     if sorted(listed) != sorted(wanted):
         findings.append(f"{source}: opened: kOpenedExtensions is {listed}, not {wanted} in any order")
 
@@ -267,6 +352,11 @@ def check(root, macos_path, ios_path):
         check_exported_type(str(ios_path), ios, findings, type_id, type_name, extension, mime_type,
                             conforms_to)
         check_document_type(str(ios_path), ios, findings, False, type_id, type_name)
+    tad_id, tad_name, tad_extension, tad_mime, tad_conforms = TAD
+    for bundle_path, bundle, on_mac in ((macos_path, macos, True), (ios_path, ios, False)):
+        check_imported_type(str(bundle_path), bundle, findings, tad_id, tad_name, tad_extension,
+                            tad_mime, tad_conforms)
+        check_alternate_document(str(bundle_path), bundle, findings, on_mac, tad_id, tad_name)
     check_plain_text(str(macos_path), macos, findings)
     if ios.get("LSSupportsOpeningDocumentsInPlace") is not True:
         findings.append(f"{ios_path}: in place: LSSupportsOpeningDocumentsInPlace is not true")
@@ -302,8 +392,10 @@ def main(argv=None):
         print(f"check_bundle_file_types: {len(findings)} finding(s)", file=sys.stderr)
         return 1
     print("check_bundle_file_types: both bundles declare and open .oamod, .oalang, .oamap, "
-          ".oamut, .oabrain, .oakeys, .oareg and .oalaunch, macOS takes plain text it is handed, the Windows "
-          "uninstaller withdraws all eight and iOS brings in the seven the game installs or adds")
+          ".oamut, .oabrain, .oakeys, .oareg, .oalaunch and .oademo, offer .tad without owning it, "
+          "macOS takes plain text it is handed, the Windows uninstaller withdraws the owned types "
+          "and the .tad offer with its own .oademo, and iOS brings in the types the game installs "
+          "or adds and a replay or a .tad file")
     return 0
 
 

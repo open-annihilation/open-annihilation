@@ -74,6 +74,19 @@ void read_bag_text(RoverPropertyBag* bag, const char* key, char* out, size_t cap
     rover_string_release(&name);
 }
 
+// True when key is a string entry, copying its text (empty when the value is empty).
+bool bag_string_present(RoverPropertyBag* bag, const char* key, char* out, size_t capacity) {
+    RoverString name{};
+    RoverString value{};
+    rover_string_assign_text(&name, key, static_cast<uint32_t>(strlen(key)));
+    RoverBagEntry* entry = g_rover->find_bag_entry(bag, &name);
+    bool present = entry && g_rover->get_entry_string(entry, &value);
+    snprintf(out, capacity, "%s", present ? rover_string_text(&value) : "");
+    rover_string_release(&value);
+    rover_string_release(&name);
+    return present;
+}
+
 // A bag of the given entries, each typed by its letter: I signed, U
 // unsigned (hexadecimal text) or S text; the caller destroys it.
 RoverPropertyBag* make_bag(const char* const (*entries)[3], int32_t count) {
@@ -639,6 +652,30 @@ void ROVER_CALL on_profile_updated(bool ok) {
     g_update_ok = ok;
 }
 
+int g_blank_calls = 0;
+bool g_blank_ok = false;
+int32_t g_blank_count = -1;
+bool g_blank_name_present = false;
+char g_blank_name[8];
+char g_blank_allegiance[16];
+char g_blank_login[16];
+uint32_t g_blank_user = 0;
+bool g_blank_user_present = false;
+
+void ROVER_CALL on_blank_profile(bool ok, RoverPropertyBag* fields) {
+    ++g_blank_calls;
+    g_blank_ok = ok;
+    g_blank_count = bag_entry_count(fields);
+    g_blank_name_present = bag_string_present(fields, "name", g_blank_name, sizeof g_blank_name);
+    bag_string_present(fields, "ALLEGIANCE", g_blank_allegiance, sizeof g_blank_allegiance);
+    bag_string_present(fields, "LOGIN_NAME", g_blank_login, sizeof g_blank_login);
+    RoverString user_key{};
+    rover_string_assign_text(&user_key, "user_id", 7);
+    RoverBagEntry* user = g_rover->find_bag_entry(fields, &user_key);
+    g_blank_user_present = user && g_rover->get_entry_uint(user, &g_blank_user);
+    rover_string_release(&user_key);
+}
+
 void check_profiles() {
     RoverHandlerSet& handlers = g_rover_state->handlers;
     g_rover->request_get_profile(2, on_profile, on_ladder);
@@ -690,6 +727,25 @@ void check_profiles() {
     );
     deliver("{[Rover<S:command=profile_updated><U:user_id=2><I:result=1>]}");
     check(g_updates_done == 1 && !g_update_ok, "profile_updated reports a failure");
+
+    g_rover->request_get_profile(2, on_blank_profile, nullptr);
+    check_sent(
+        "{[UserManager<S:command=get_profile><U:user_id=2>]}", "get_profile for a blank name"
+    );
+    deliver(
+        "{[Rover<S:command=profile_info><U:user_id=2><S:name=><S:ALLEGIANCE=CORE>"
+        "<S:LOGIN_NAME=pilot><I:last=1>]}"
+    );
+    check(
+        g_blank_calls == 1 && g_blank_ok && g_blank_name_present && strcmp(g_blank_name, "") == 0 &&
+            g_blank_count == 4 && strcmp(g_blank_allegiance, "CORE") == 0 &&
+            strcmp(g_blank_login, "pilot") == 0 && g_blank_user_present && g_blank_user == 2,
+        "a profile_info with an empty name reaches the profile with its other fields"
+    );
+    check(
+        !rover_handler_is_armed(handlers, RoverHandlerId::ProfileInfo),
+        "a blank profile answers once"
+    );
 }
 
 // ---- rooms ---------------------------------------------------------------------

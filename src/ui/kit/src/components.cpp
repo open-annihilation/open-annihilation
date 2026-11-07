@@ -8,6 +8,7 @@
 #include "oa/ui/kit/components.hpp"
 
 #include "oa/ui/kit/chrome.hpp"
+#include "oa/ui/kit/state_colours.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
@@ -2208,7 +2209,7 @@ void draw_lock(const Canvas& canvas, const Rect& area, const LockLook& look) {
         canvas,
         kPadlock,
         {left, area.y + (area.height - compact_metrics.padlock_height) / 2},
-        colour::lock
+        state_ink(StateTone::caution)
     );
     const Rect text_area{
         left + compact_metrics.padlock_width + compact_metrics.padlock_gap,
@@ -2216,7 +2217,9 @@ void draw_lock(const Canvas& canvas, const Rect& area, const LockLook& look) {
         width,
         area.height
     };
-    paint_text(canvas, FontRole::small, look.text, text_area, Align::left, colour::lock);
+    paint_text(
+        canvas, FontRole::small, look.text, text_area, Align::left, state_ink(StateTone::caution)
+    );
 }
 
 void draw_scroll_bar(const Canvas& canvas, const Rect& well, const Rect& thumb, bool hot) {
@@ -2282,7 +2285,9 @@ void draw_oa_button_face(const Canvas& canvas, int32_t side, OaButtonState state
 void draw_attention_dot(const Canvas& canvas, int32_t side) {
     const Rect dot = oa_button_dot(side);
     draw_mark(canvas, kDot, {dot.x, dot.y}, colour::control_border);
-    draw_mark(canvas, kDotFace, {dot.x + kDotRing, dot.y + kDotRing}, colour::lock);
+    draw_mark(
+        canvas, kDotFace, {dot.x + kDotRing, dot.y + kDotRing}, state_ink(StateTone::caution)
+    );
 }
 
 /// One spinner place's centre, in 256ths of the badge from its top left.

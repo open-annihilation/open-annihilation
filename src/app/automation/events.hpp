@@ -27,6 +27,9 @@
 //   game_over  outcome ("victory" or "defeat"), winner (a name, or null,
 //              this machine's own), then results and tick, the same on
 //              every machine
+//   focus      name (null when no control is focused), label, role. One
+//              event when the focused control changes. None when it stays,
+//              and none the first time the watch sees the game.
 //   transfer   accepted by subscribe, never sent yet: no part of the game
 //              that the endpoint reads reports units or resources given
 #pragma once
@@ -72,8 +75,9 @@ inline constexpr uint32_t speed = 0x080;
 inline constexpr uint32_t alliance = 0x100;
 inline constexpr uint32_t transfer = 0x200;
 inline constexpr uint32_t game_over = 0x400;
+inline constexpr uint32_t focus = 0x800;
 /// Every kind.
-inline constexpr uint32_t all = 0x7ff;
+inline constexpr uint32_t all = 0xfff;
 } // namespace event_kind
 
 /// A kind of event and the name the protocol gives it.
@@ -126,6 +130,14 @@ struct Observed {
     /// The multiplayer screens' lobby while the battle room shows; null
     /// otherwise. Only read.
     oa::ui::frontend_multiplayer::Lobby* room{};
+    /// The control that holds the keyboard focus, by its name. Empty when none does.
+    std::string focus_name;
+    std::string focus_label; ///< that control's label
+    std::string focus_role;  ///< that control's role, as the protocol names it
+    /// This moment read which control is focused. A moment that did not
+    /// leaves the watch unread, so the next one that does stores the name
+    /// and sends nothing.
+    bool focus_read{true};
 };
 
 /// What the event watch last saw, to which it compares what it sees next.
@@ -164,6 +176,11 @@ struct EventWatch {
 
     /// The progress this machine's loading last reported, 0 to 100; -1 for none.
     int32_t local_load{-1};
+
+    /// The watch has seen which control is focused once. The first sight
+    /// stores it and sends nothing.
+    bool focus_seen{};
+    std::string focus_name; ///< the focused control's name last seen
 };
 
 /// Compares what the game holds now with what the watch saw last, sends

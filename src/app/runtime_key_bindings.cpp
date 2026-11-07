@@ -1732,6 +1732,11 @@ keys::Contexts Runtime::input_contexts() {
     const bool modal_layer = oa_layer().modal_shown(on_match);
     if (modal_layer) {
         contexts.active |= context_bit("oa-screens");
+    } else if (on_match && match_ != nullptr && photo_mode()) {
+        // Photo mode answers the camera, the speed and the pause, and the
+        // photo screen. No order, selection, group or build reaches the match.
+        contexts.active |= context_bit("match");
+        contexts.active |= context_bit("oa-screens");
     } else if (on_match && match_ != nullptr) {
         contexts.active |= context_bit("match");
         const bool watcher = (current_extension_state() & extension_state::local_watcher) != 0;
@@ -3824,9 +3829,12 @@ std::string Runtime::active_key_chord(std::string_view id) {
         return {};
     const KeyBindingsState& state = *key_bindings_state_;
     const keys::Bound* found = bound_by_id(state.dispatcher.bindings(), id);
-    if (found == nullptr || found->entry == nullptr ||
-        found->entry->kind == actions::Kind::pointer ||
-        found->entry->kind == actions::Kind::wheel || !action_live(*found, input_contexts()))
+    // A menu's gui.* action is made from the GUI file and has no catalogue
+    // entry. Its chord still answers while that file is on screen.
+    if (found == nullptr || !action_live(*found, input_contexts()))
+        return {};
+    if (found->entry != nullptr && (found->entry->kind == actions::Kind::pointer ||
+                                    found->entry->kind == actions::Kind::wheel))
         return {};
     const keys::Chord* chord = first_key_chord(*found);
     if (chord == nullptr)

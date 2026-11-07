@@ -40,6 +40,10 @@ static_assert(
     static_cast<uint8_t>(text_font::Face::endonyms)
 );
 static_assert(
+    static_cast<uint8_t>(ModernTextFace::endonyms_bengali) ==
+    static_cast<uint8_t>(text_font::Face::endonyms_bengali)
+);
+static_assert(
     static_cast<uint8_t>(ModernTextFace::emoji) == static_cast<uint8_t>(text_font::Face::noto_emoji)
 );
 
@@ -85,6 +89,8 @@ ModernTextFace modern_face(text_font::Face face) noexcept {
         return ModernTextFace::sans;
     case text_font::Face::endonyms:
         return ModernTextFace::endonyms;
+    case text_font::Face::endonyms_bengali:
+        return ModernTextFace::endonyms_bengali;
     case text_font::Face::noto_emoji:
         return ModernTextFace::emoji;
     }

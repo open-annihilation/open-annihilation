@@ -1026,6 +1026,9 @@ void a_switch_lists_its_two_halves() {
     OA_CHECK(entries[1].text == "OFF" && entries[2].text == "ON");
     OA_CHECK(entries[1].kind == kit::ControlKind::toggle && !entries[1].focusable);
     OA_CHECK(entries[1].enabled && entries[1].shown && !entries[1].focused);
+    OA_CHECK(entries[0].role == kit::AccessRole::switch_control && entries[0].pressed);
+    OA_CHECK(entries[1].role == kit::AccessRole::check_box && !entries[1].chosen);
+    OA_CHECK(entries[2].role == kit::AccessRole::check_box && entries[2].chosen);
     // Each half's centre lies on its own side of the middle column.
     for (std::size_t half = 1; half < 3; ++half) {
         const kit::Rect& rect = entries[half].rect;
@@ -1056,6 +1059,9 @@ void a_strip_lists_its_levels_where_level_at_finds_them() {
     OA_CHECK(entries[2].name == "screen.edge.25");
     // A level the control gives no word is named by its place from 1.
     OA_CHECK(entries[3].name == "screen.edge.3");
+    OA_CHECK(entries[0].role == kit::AccessRole::radio_group);
+    OA_CHECK(entries[0].set_size == 3 && entries[0].place == 2);
+    OA_CHECK(entries[0].value_text == "25%");
     int32_t next = strip.x;
     for (std::size_t level = 0; level < 3; ++level) {
         const kit::AutomationEntry& entry = entries[level + 1];
@@ -1068,10 +1074,84 @@ void a_strip_lists_its_levels_where_level_at_finds_them() {
             OA_CHECK(kit::level_at(strip, 3, 34, column) == level);
         OA_CHECK(kit::level_at(strip, 3, 34, entry.rect.x + entry.rect.width / 2) == level);
         OA_CHECK(entry.checked == (level == 1));
+        OA_CHECK(entry.role == kit::AccessRole::radio);
+        OA_CHECK(entry.chosen == (level == 1));
+        OA_CHECK(entry.place == static_cast<int32_t>(level) + 1);
+        OA_CHECK(entry.set_size == 3);
         OA_CHECK(entry.text == look.captions[level]);
         OA_CHECK(entry.enabled == (level < 2));
     }
     OA_CHECK(next == strip.x + strip.width);
+}
+
+/// A part list names each control within the kit's name rule, and a disabled
+/// one stays listed.
+void a_part_list_names_its_controls_and_keeps_a_disabled_one() {
+    kit::DisplayList list;
+    kit::Item live{};
+    live.role = kit::Role::button;
+    live.control = 2;
+    live.rect = {0, 0, 40, 16};
+    live.lines = {"Saved games"};
+    list.items.push_back(live);
+    kit::Item off{};
+    off.role = kit::Role::button;
+    off.control = 3;
+    off.rect = {0, 20, 40, 16};
+    off.text = "Missing";
+    off.state.disabled = true;
+    list.items.push_back(off);
+    kit::Item again = live;
+    again.control = 4;
+    again.rect = {0, 40, 40, 16};
+    list.items.push_back(again);
+    kit::Item marks{};
+    marks.role = kit::Role::button;
+    marks.control = 5;
+    marks.rect = {0, 60, 40, 16};
+    marks.text = "...";
+    list.items.push_back(marks);
+    kit::list_part_controls(list);
+    OA_CHECK(list.controls.size() == 4);
+    const kit::Control* saved = nullptr;
+    const kit::Control* saved_again = nullptr;
+    const kit::Control* bare = nullptr;
+    const kit::Control* missing = nullptr;
+    for (const kit::Control& control : list.controls) {
+        if (control.name == "saved-games")
+            saved = &control;
+        else if (control.name == "saved-games-2")
+            saved_again = &control;
+        else if (control.id == 5)
+            bare = &control;
+        else if (control.id == 3)
+            missing = &control;
+    }
+    OA_CHECK(saved != nullptr && saved->label == "Saved games" && saved->text == "Saved games");
+    OA_CHECK(saved_again != nullptr && saved_again->label == "Saved games");
+    OA_CHECK(bare != nullptr && bare->name == "part-5" && bare->label == "...");
+    OA_CHECK(missing != nullptr && missing->name == "missing" && missing->label == "Missing");
+    OA_CHECK(missing != nullptr && !missing->enabled);
+    OA_CHECK(kit::name_problem(list).empty());
+    OA_CHECK((list.tab_order == std::vector<kit::ControlId>{2, 4, 5}));
+}
+
+/// An area that takes no press and no focus, and has words, is a label.
+void a_disabled_area_with_words_is_a_label() {
+    kit::DisplayList list;
+    kit::Control area = placed(4, {10, 10, 200, 16});
+    area.name = "library.active.base";
+    area.kind = kit::ControlKind::area;
+    area.enabled = false;
+    area.focusable = false;
+    area.text = "Total Annihilation";
+    list.controls.push_back(area);
+    const auto entries = kit::automation_entries(list, {});
+    OA_CHECK(entries.size() == 1u);
+    if (entries.size() != 1u)
+        return;
+    OA_CHECK(entries[0].role == kit::AccessRole::label);
+    OA_CHECK(entries[0].label == "Total Annihilation");
 }
 
 /// An open drop-down's items lie where its menu shows them, and a control
@@ -1474,6 +1554,8 @@ int main() {
     automation_reads_the_named_controls();
     a_switch_lists_its_two_halves();
     a_strip_lists_its_levels_where_level_at_finds_them();
+    a_part_list_names_its_controls_and_keeps_a_disabled_one();
+    a_disabled_area_with_words_is_a_label();
     an_open_drop_down_lists_its_items_at_choice_item();
     a_menu_with_a_divider_lists_the_other_items();
     buttons_list_each_button_and_a_clip_narrows_a_control();

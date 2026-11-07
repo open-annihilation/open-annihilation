@@ -5,11 +5,13 @@
 #include "launch_binding.hpp"
 
 #include "oa/app/netgame/launch_file.hpp"
+#include "oa/formats/json.hpp"
 #include "oa/netgame/overlay_route.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include <cstddef>
 #include <cstdio>
+#include <string_view>
 
 namespace oa::app {
 
@@ -102,6 +104,81 @@ oa::ui::frontend_multiplayer::LaunchLink launch_link() noexcept {
 
 const oa::app::netgame::extension_api::Hooks& extension_hooks() noexcept {
     return g_extension_hooks;
+}
+
+namespace {
+
+/// Returns a text field's text, up to its null or the field's end.
+///
+/// @param field the field
+/// @param capacity its size
+/// @return the text, which views the field
+std::string_view field_text(const char* field, std::size_t capacity) noexcept {
+    std::size_t length = 0;
+    while (length < capacity && field[length] != '\0')
+        ++length;
+    return {field, length};
+}
+
+/// Tells whether a kind is lower-case letters, digits and hyphens, and not empty.
+///
+/// @param kind the kind
+/// @return true when it is
+bool kind_is_plain(std::string_view kind) noexcept {
+    if (kind.empty())
+        return false;
+    for (const char character : kind)
+        if (!(character >= 'a' && character <= 'z') && !(character >= '0' && character <= '9') &&
+            character != '-')
+            return false;
+    return true;
+}
+
+/// Tells whether a member's name is letters, digits and underscores, and not empty.
+///
+/// @param name the name
+/// @return true when it is
+bool member_name_is_plain(std::string_view name) noexcept {
+    if (name.empty())
+        return false;
+    for (const char character : name)
+        if (!(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') &&
+            !(character >= '0' && character <= '9') && character != '_')
+            return false;
+    return true;
+}
+
+} // namespace
+
+std::optional<RecordedGameFacts> recorded_game_facts() {
+    if (g_extension_hooks.recorded_game == nullptr)
+        return std::nullopt;
+    oa::app::netgame::extension_api::RecordedGame game{};
+    if (!g_extension_hooks.recorded_game(g_extension_hooks.context, &game))
+        return std::nullopt;
+    // The hook's text is bounded by its fields; a field the hook left unended is cut here.
+    const std::string_view kind = field_text(game.kind, sizeof game.kind);
+    if (!kind_is_plain(kind))
+        return std::nullopt;
+    oa::formats::json::JsonWriter object;
+    object.begin_object();
+    const std::size_t members =
+        game.member_count < oa::app::netgame::extension_api::recorded_game_member_limit
+            ? game.member_count
+            : oa::app::netgame::extension_api::recorded_game_member_limit;
+    for (std::size_t index = 0; index < members; ++index) {
+        const auto& member = game.members[index];
+        const std::string_view name = field_text(member.name, sizeof member.name);
+        if (!member_name_is_plain(name))
+            return std::nullopt;
+        object.key(name);
+        object.string(field_text(member.text, sizeof member.text));
+    }
+    object.end_object();
+    RecordedGameFacts facts;
+    facts.kind = std::string(kind);
+    facts.object_json = object.text();
+    return facts;
 }
 
 bool launch_tournament() noexcept {

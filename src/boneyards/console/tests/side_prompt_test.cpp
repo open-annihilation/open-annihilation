@@ -32,6 +32,7 @@
 #include "oa/boneyards/rover_replay.hpp"
 #include "oa/boneyards/rover_session.hpp"
 #include "oa/boneyards/screens/chat.hpp"
+#include "oa/boneyards/screens/login.hpp"
 #include "oa/boneyards/screens/profile.hpp"
 #include "oa/boneyards/shown_text.hpp"
 #include "oa/boneyards_test/installs.hpp"
@@ -279,12 +280,11 @@ void submit_member(StatusWidget* widget, MainFrame* frame) {
 }
 
 void submit_guest(StatusWidget* widget, MainFrame* frame) {
-    if (frame->active_screen == nullptr)
+    if (frame->active_screen == nullptr || widget->navigation == nullptr)
         return;
     type(widget, "commander");
-    Window* guest = window_find_named(frame->active_screen, "Guest Login", nullptr);
-    if (guest != nullptr)
-        click_window(widget, guest);
+    // Guest Login is drawn disabled. The check selects it on the dialog.
+    login_on_control(&widget->navigation->login, LoginControl::guest_radio);
     boneyards_status_widget_tick(widget);
     Window* login = window_find_named(frame->active_screen, "LOGIN", nullptr);
     if (login != nullptr)

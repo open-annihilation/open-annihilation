@@ -5,8 +5,13 @@
 #include "oa/app/runtime.hpp"
 #include "map_packs.hpp"
 #include "map_picture_state.hpp"
+#include "match_models.hpp"
 #include "oa/data/map_pack/map_name.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/present/gaf_sprites.hpp"
+#include "oa/present/surface.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstring>
 #include <cstddef>
@@ -692,6 +697,242 @@ uint16_t Runtime::commander_type_for_side(uint8_t side) {
 
 void Runtime::report_missing_start_position(int32_t index) {
     throw std::runtime_error("selected map lacks start position " + std::to_string(index));
+}
+
+namespace {
+
+bool blip_named(const oa::present::GafSequence& sequence, const char* name) noexcept {
+    std::size_t stored_length = 0;
+    while (stored_length < oa::present::gaf_name_size && sequence.name[stored_length] != '\0')
+        ++stored_length;
+    const std::string_view stored(sequence.name, stored_length);
+    const std::string_view wanted(name);
+    if (stored.size() != wanted.size())
+        return false;
+    for (std::size_t at = 0; at < stored.size(); ++at) {
+        const char left = stored[at] >= 'A' && stored[at] <= 'Z'
+                              ? static_cast<char>(stored[at] - 'A' + 'a')
+                              : stored[at];
+        const char right = wanted[at] >= 'A' && wanted[at] <= 'Z'
+                               ? static_cast<char>(wanted[at] - 'A' + 'a')
+                               : wanted[at];
+        if (left != right)
+            return false;
+    }
+    return true;
+}
+
+/// One radlogo or nuclogo frame whose row-compressed bytes sit in the radar archive.
+struct BlipFrame {
+    uint8_t* data{};
+    std::size_t size{};
+    int width{};
+    int height{};
+    int key{-1};
+    int player{};
+    const char* sequence{};
+    bool ready{};
+};
+
+} // namespace
+
+void Runtime::apply_colour_vision() {
+    // A paint that reaches back into the match must not paint again.
+    struct Reentry {
+        bool& held;
+
+        ~Reentry() { held = false; }
+    };
+
+    static bool held = false;
+    if (held)
+        return;
+    held = true;
+    const Reentry reentry{held};
+
+    namespace vision = oa::present::colour_vision;
+    const auto mode_entry = preference_values_.find(std::string(vision::kColourVisionKey));
+    const auto shape_entry = preference_values_.find(std::string(vision::kShapeCuesKey));
+    const std::string_view mode_text = mode_entry == preference_values_.end()
+                                           ? std::string_view{}
+                                           : std::string_view{mode_entry->second};
+    const std::string_view shape_text = shape_entry == preference_values_.end()
+                                            ? std::string_view{}
+                                            : std::string_view{shape_entry->second};
+    vision::set_active(vision::parse_mode(mode_text), vision::shape_cues_preference(shape_text));
+    // Health, build sites and the other marks follow the mode even when no
+    // team picture is recoloured. Off, before the table exists, this leaves
+    // the load as late as it is today.
+    refresh_mark_colours();
+
+    const bool model_painted =
+        match_models_ != nullptr && match_models_->library.textures.team_colours_applied;
+    // Off, with nothing recoloured: every frame stays as it was loaded.
+    if (vision::active_mode() == vision::Mode::off && !vision::holds_originals() && !model_painted)
+        return;
+
+    oa::PaletteBytes palette{};
+    bool have_palette = false;
+    const auto adopt = [&](std::span<const uint8_t> bytes) {
+        if (bytes.size() < palette.size())
+            return;
+        bool any = false;
+        for (std::size_t at = 0; at < palette.size(); ++at) {
+            palette[at] = bytes[at];
+            any = any || bytes[at] != 0;
+        }
+        have_palette = any;
+    };
+    if (match_ != nullptr) {
+        bool any = false;
+        for (const uint8_t byte : match_palette_)
+            any = any || byte != 0;
+        if (any)
+            adopt(match_palette_);
+    }
+    if (!have_palette && resources_.game_palette.has_value())
+        adopt(*resources_.game_palette);
+    if (!have_palette) {
+        try {
+            const auto loaded = assets_.read("palettes/palette.pal");
+            adopt(loaded.bytes);
+        } catch (const std::exception&) {
+        }
+    }
+    const std::span<const uint8_t> palette_bytes =
+        have_palette ? std::span<const uint8_t>(palette.data(), palette.size())
+                     : std::span<const uint8_t>{};
+    vision::match_player_dots(palette_bytes);
+    const bool paint = vision::active_mode() != vision::Mode::off && have_palette;
+
+    std::vector<BlipFrame> blips;
+    const uint8_t* const radar_bytes = radar_state_.fx.bytes.data();
+    const std::size_t radar_size = radar_state_.fx.bytes.size();
+    if (radar_bytes != nullptr) {
+        for (oa::present::GafSequence& sequence : radar_state_.fx.sequences) {
+            const char* sequence_name = nullptr;
+            if (blip_named(sequence, "radlogo"))
+                sequence_name = "radlogo";
+            else if (blip_named(sequence, "nuclogo"))
+                sequence_name = "nuclogo";
+            if (sequence_name == nullptr || sequence.frame_count != vision::kPlayerCount ||
+                sequence.frames == nullptr)
+                continue;
+            for (int player = 0; player < vision::kPlayerCount; ++player) {
+                Sprite* const sprite = sequence.frames[player].frame;
+                if (sprite == nullptr || sprite->data == nullptr || sprite->child_count != 0 ||
+                    sprite->encoding != OA_SPRITE_ROW_RLE || sprite->width == 0 ||
+                    sprite->height == 0)
+                    continue;
+                auto* const data = static_cast<uint8_t*>(sprite->data);
+                const auto begin = reinterpret_cast<uintptr_t>(radar_bytes);
+                const auto at = reinterpret_cast<uintptr_t>(data);
+                if (at < begin || at - begin >= radar_size)
+                    continue;
+                const auto available = radar_size - (at - begin);
+                const auto size = vision::row_rle_size(
+                    std::span<const uint8_t>(data, available),
+                    static_cast<int>(sprite->width),
+                    static_cast<int>(sprite->height)
+                );
+                if (size == 0)
+                    continue;
+                const vision::FramePaint prepared = vision::prepare_original(
+                    "radar", sequence_name, player, std::span<uint8_t>(data, size), paint
+                );
+                BlipFrame frame;
+                frame.data = data;
+                frame.size = size;
+                frame.width = static_cast<int>(sprite->width);
+                frame.height = static_cast<int>(sprite->height);
+                frame.key = static_cast<int>(sprite->key);
+                frame.player = player;
+                frame.sequence = sequence_name;
+                frame.ready = prepared == vision::FramePaint::ready;
+                blips.push_back(frame);
+            }
+        }
+    }
+    std::array<int, vision::kPlayerCount> unit_bodies{};
+    std::array<int, vision::kPlayerCount> weapon_bodies{};
+    unit_bodies.fill(-1);
+    weapon_bodies.fill(-1);
+    if (paint && !blips.empty()) {
+        std::vector<std::vector<uint8_t>> decoded(blips.size());
+        std::array<vision::RawFrame, vision::kPlayerCount> unit_blips{};
+        std::array<vision::RawFrame, vision::kPlayerCount> weapon_blips{};
+        bool any = false;
+        for (std::size_t frame_at = 0; frame_at < blips.size(); ++frame_at) {
+            const BlipFrame& frame = blips[frame_at];
+            if (!frame.ready)
+                continue;
+            if (!vision::decode_row_rle(
+                    std::span<const uint8_t>(frame.data, frame.size),
+                    frame.width,
+                    frame.height,
+                    frame.key,
+                    decoded[frame_at]
+                ))
+                continue;
+            const vision::RawFrame raw{
+                decoded[frame_at].data(), decoded[frame_at].size(), frame.key
+            };
+            auto& destination =
+                std::string_view(frame.sequence) == "radlogo" ? unit_blips : weapon_blips;
+            destination[static_cast<std::size_t>(frame.player)] = raw;
+            any = true;
+        }
+        if (any) {
+            unit_bodies = vision::blip_bodies(unit_blips, palette_bytes);
+            weapon_bodies = vision::blip_bodies(weapon_blips, palette_bytes);
+            vision::BlipPins pins{};
+            for (int player = 0; player < vision::kPlayerCount; ++player) {
+                pins[static_cast<std::size_t>(player)] = {
+                    unit_bodies[static_cast<std::size_t>(player)],
+                    weapon_bodies[static_cast<std::size_t>(player)]
+                };
+            }
+            vision::remember_blip_pins(pins);
+        }
+    }
+
+    if (match_models_ != nullptr)
+        oa::present::model::recolour_team_textures(match_models_->library.textures, palette_bytes);
+    vision::paint_team_archive(logo_textures_, palette_bytes, "logos");
+    vision::paint_team_archive(resources_.global_sprites, palette_bytes, "menu");
+    if (paint) {
+        // The blip's own map sends its body to the anchor. The outline, which
+        // the frames share and which is one of white's team shades, stays.
+        const vision::TeamMaps unit_maps =
+            vision::blip_maps(vision::active_mode(), palette_bytes, unit_bodies);
+        const vision::TeamMaps weapon_maps =
+            vision::blip_maps(vision::active_mode(), palette_bytes, weapon_bodies);
+        for (const BlipFrame& frame : blips) {
+            if (!frame.ready)
+                continue;
+            const bool unit_blip = std::string_view(frame.sequence) == "radlogo";
+            const vision::TeamMaps& maps = unit_blip ? unit_maps : weapon_maps;
+            const bool remapped = vision::remap_row_rle(
+                std::span<uint8_t>(frame.data, frame.size),
+                frame.width,
+                frame.height,
+                maps[static_cast<std::size_t>(frame.player)],
+                frame.key
+            );
+            // A stream the walk cannot cover stays the original frame.
+            if (!remapped) {
+                vision::prepare_original(
+                    "radar",
+                    frame.sequence,
+                    frame.player,
+                    std::span<uint8_t>(frame.data, frame.size),
+                    false
+                );
+            }
+        }
+    }
+    drop_full_team_frames();
+    drop_live_team_frames();
 }
 
 } // namespace oa::app

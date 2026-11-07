@@ -669,23 +669,7 @@ void release_route(MatchBinding& b, uint16_t index, const MovementRecord& m) {
 /// @param context The MatchBinding.
 /// @param player The local player that ticked.
 void local_player_ticked(void* context, Player& player) {
-    auto& b = self(context);
-    auto* world = b.net->world;
-    uint32_t count = 0;
-    Unit* first = world_player_units(world, &player, &count);
-    for (uint32_t i = 0; i < count; ++i) {
-        auto& unit = first[i];
-        if (unit.type_index == 0 || unit.movement == 0)
-            continue;
-        if (auto* m = movement(&b, world, &unit))
-            capture_route(b, unit.id, *m);
-    }
-    net_match_send_player_state(b.net, &player);
-    for (uint32_t i = 0; i < count; ++i) {
-        auto& unit = first[i];
-        if (unit.type_index != 0 && unit.movement != 0 && unit.id < b.movement.size())
-            release_route(b, unit.id, b.movement[unit.id]);
-    }
+    match_binding_send_local_tick(context, player);
 }
 
 /// Sends the local player's status after it changed.
@@ -1096,15 +1080,39 @@ void share_sight_hook(void* context, World* /*world*/, uint8_t from, uint8_t to)
 
 } // namespace
 
-void match_binding_init(MatchBinding* b, sim::match_runtime::Match* match, NetMatch* net) {
+void match_binding_prepare(MatchBinding* b, sim::match_runtime::Match* match, NetMatch* net) {
     b->match = match;
     b->net = net;
     b->movement.assign(match->state().unit_slot_count, MovementRecord{});
     b->created_remote = 0;
     b->refused_creates = 0;
     b->creates_past_table = 0;
+}
+
+void match_binding_init(MatchBinding* b, sim::match_runtime::Match* match, NetMatch* net) {
+    match_binding_prepare(b, match, net);
     match_assign_unit_ranges(&match->state());
     match->rebind_player_ranges();
+}
+
+void match_binding_send_local_tick(void* context, Player& player) {
+    auto& b = self(context);
+    auto* world = b.net->world;
+    uint32_t count = 0;
+    Unit* first = world_player_units(world, &player, &count);
+    for (uint32_t i = 0; i < count; ++i) {
+        auto& unit = first[i];
+        if (unit.type_index == 0 || unit.movement == 0)
+            continue;
+        if (auto* recorded = movement(&b, world, &unit))
+            capture_route(b, unit.id, *recorded);
+    }
+    net_match_send_player_state(b.net, &player);
+    for (uint32_t i = 0; i < count; ++i) {
+        auto& unit = first[i];
+        if (unit.type_index != 0 && unit.movement != 0 && unit.id < b.movement.size())
+            release_route(b, unit.id, b.movement[unit.id]);
+    }
 }
 
 ReplicationSim match_binding_sim(MatchBinding* b) noexcept {

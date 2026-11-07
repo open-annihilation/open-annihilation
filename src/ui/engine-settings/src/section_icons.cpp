@@ -175,6 +175,18 @@ constexpr std::array kDisc{
     circle(12, 12, 9),
     circle(12, 12, 2.5),
 };
+/// Replays: a strip of film, its frames between two rows of sprocket holes.
+constexpr std::array kFilm{
+    box(2, 5, 20, 14, 2),
+    line(7, 5, 7, 19),
+    line(17, 5, 17, 19),
+    line(4.5, 9, 4.5, 9),
+    line(4.5, 12, 4.5, 12),
+    line(4.5, 15, 4.5, 15),
+    line(19.5, 9, 19.5, 9),
+    line(19.5, 12, 19.5, 12),
+    line(19.5, 15, 19.5, 15),
+};
 /// System: a box of files with its lid.
 constexpr std::array kArchive{
     box(3, 4, 18, 5, 1.5),
@@ -252,6 +264,8 @@ std::span<const Shape> shapes_of(Page page) noexcept {
         return kTurn;
     case Page::game_content:
         return kDisc;
+    case Page::replays:
+        return kFilm;
     case Page::system:
         return kArchive;
     case Page::common_tweaks:

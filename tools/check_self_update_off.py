@@ -74,11 +74,13 @@ PASSTHROUGH = (
 )
 
 # Where the running build found a dependency that CMAKE_PREFIX_PATH does not
-# name. A FreeType in its own folder is freetype_DIR. A value CMake recorded
-# as missing is not a place to look.
+# name. A FreeType in its own folder is freetype_DIR, and a HarfBuzz in its
+# own folder is harfbuzz_DIR. A value CMake recorded as missing is not a
+# place to look.
 DEPENDENCY = (
     "freetype_DIR",
     "Freetype_DIR",
+    "harfbuzz_DIR",
     "SDL3_DIR",
     "ZLIB_INCLUDE_DIR",
     "ZLIB_LIBRARY",

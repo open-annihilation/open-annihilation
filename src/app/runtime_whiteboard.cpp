@@ -82,7 +82,7 @@ bool Runtime::whiteboard_pointer(const SDL_Event& event, float x, float y) {
     if (!busy && event.type != SDL_EVENT_MOUSE_MOTION && !in_area)
         return false;
     const auto point = battlefield_map_point(x, y);
-    const auto color = hud::player_dot_color(match_->state(), match_local_player_);
+    const auto color = hud::stock_dot_color(match_->state(), match_local_player_);
     switch (event.type) {
     case SDL_EVENT_MOUSE_MOTION:
         if (input.drawing && (point[0] != input.last_x || point[1] != input.last_y)) {
@@ -200,7 +200,7 @@ bool Runtime::take_whiteboard_chord(const SDL_KeyboardEvent& key) {
         if (key.key == SDLK_RETURN || key.key == SDLK_ESCAPE) {
             input.editing = false;
             stop_text_input();
-            const auto color = hud::player_dot_color(match_->state(), match_local_player_);
+            const auto color = hud::stock_dot_color(match_->state(), match_local_player_);
             // The typed text is placed, and sent, as game text.
             const std::string text = typed_game_text(input.edit_text);
             if (input.editing_marker)
@@ -285,7 +285,7 @@ void Runtime::draw_whiteboard(const oa::present::world_renderer::BattlefieldView
         const int32_t sx = x0 < to.x ? 1 : -1, sy = y0 < to.y ? 1 : -1;
         int32_t error = dx + dy;
         for (;;) {
-            fill_hud_rect(x0, y0, 1, 1, line.color);
+            fill_hud_rect(x0, y0, 1, 1, hud::drawn_dot_color(line.color));
             if (x0 == to.x && y0 == to.y)
                 break;
             const int32_t twice = 2 * error;
@@ -306,14 +306,20 @@ void Runtime::draw_whiteboard(const oa::present::world_renderer::BattlefieldView
         const auto at = screen(marker.x, marker.y);
         const int32_t half = hud::kWhiteboardDotSide / 2;
         fill_hud_rect(
-            at.x - half, at.y - half, hud::kWhiteboardDotSide, hud::kWhiteboardDotSide, marker.color
+            at.x - half,
+            at.y - half,
+            hud::kWhiteboardDotSide,
+            hud::kWhiteboardDotSide,
+            hud::drawn_dot_color(marker.color)
         );
         const bool edited = input.editing && input.editing_marker && input.edit_x == marker.x &&
                             input.edit_y == marker.y;
         const auto text =
             edited ? typed_game_text(input.edit_text + text_composition_) : marker.text;
         if (!text.empty())
-            draw_match_label(at.x + half + 2, at.y - half, text, marker.color);
+            draw_match_label(
+                at.x + half + 2, at.y - half, text, hud::drawn_dot_color(marker.color)
+            );
     }
     if (input.editing && !input.editing_marker) {
         const auto at = screen(input.edit_x, input.edit_y);
@@ -321,7 +327,7 @@ void Runtime::draw_whiteboard(const oa::present::world_renderer::BattlefieldView
             at.x,
             at.y,
             typed_game_text(input.edit_text + text_composition_) + "_",
-            hud::player_dot_color(match_->state(), match_local_player_)
+            hud::drawn_dot_color(hud::stock_dot_color(match_->state(), match_local_player_))
         );
     }
 }

@@ -14,6 +14,7 @@
 #include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/controls.hpp"
+#include "oa/ui/kit/state_colours.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/paint/painter.hpp"
 
@@ -654,7 +655,7 @@ void draw_text_line(const Canvas& canvas, const PlacedLine& line, std::string_vi
         text,
         line.rect,
         Align::left,
-        line.failure ? colour::lock : (line.path ? colour::hint : colour::text)
+        line.failure ? state_ink(StateTone::caution) : (line.path ? colour::hint : colour::text)
     );
 }
 
@@ -712,7 +713,8 @@ void add_text_line(DisplayList& list, const PlacedLine& line, std::string text) 
     item.text = std::move(text);
     item.font = line.path || line.lead ? FontRole::regular : FontRole::small;
     item.align = Align::left;
-    item.colour = line.failure ? colour::lock : (line.path ? colour::hint : colour::text);
+    item.colour =
+        line.failure ? state_ink(StateTone::caution) : (line.path ? colour::hint : colour::text);
     list.items.push_back(std::move(item));
 }
 
@@ -939,9 +941,9 @@ renderer::Mark line_mark_bits(LineMark mark) noexcept {
 Colour line_mark_colour(LineMark mark) noexcept {
     switch (mark) {
     case LineMark::done:
-        return colour::accent;
+        return state_ink(StateTone::ok);
     case LineMark::failed:
-        return colour::danger;
+        return state_ink(StateTone::danger);
     case LineMark::bullet:
     case LineMark::none:
         break;
@@ -992,15 +994,15 @@ renderer::Mark tone_bits(CalloutTone tone) noexcept {
 Colour tone_colour(CalloutTone tone) noexcept {
     switch (tone) {
     case CalloutTone::ok:
-        return colour::accent;
+        return state_ink(StateTone::ok);
     case CalloutTone::caution:
-        return colour::lock;
+        return state_ink(StateTone::caution);
     case CalloutTone::danger:
-        return colour::danger;
+        return state_ink(StateTone::danger);
     case CalloutTone::information:
         break;
     }
-    return colour::information;
+    return state_ink(StateTone::information);
 }
 
 /// Returns a callout's ground, its tone's tint.
@@ -1010,15 +1012,15 @@ Colour tone_colour(CalloutTone tone) noexcept {
 Colour tone_tint(CalloutTone tone) noexcept {
     switch (tone) {
     case CalloutTone::ok:
-        return colour::ok_tint;
+        return state_tint(StateTone::ok);
     case CalloutTone::caution:
-        return colour::caution_tint;
+        return state_tint(StateTone::caution);
     case CalloutTone::danger:
-        return colour::danger_tint;
+        return state_tint(StateTone::danger);
     case CalloutTone::information:
         break;
     }
-    return colour::information_tint;
+    return state_tint(StateTone::information);
 }
 
 /// Returns the glyph a callout's mark is listed by to automation.
@@ -2148,7 +2150,7 @@ void draw_progress(
             canvas,
             {bar.x, bar.y, filled, bar.height},
             radius,
-            paused ? colour::lock : colour::accent
+            paused ? state_ink(StateTone::caution) : colour::accent
         );
 }
 
@@ -2291,23 +2293,22 @@ DisplayList pill_controls(const UpdatePill& pill, const PlacedUpdatePill& placed
 void draw_pill_icon(const Canvas& canvas, const Rect& rect, UpdatePillIcon icon) {
     switch (icon) {
     case UpdatePillIcon::download:
-        draw_state_icon(canvas, rect, StateIcon::download_arrow, colour::information);
+        draw_state_icon(canvas, rect, StateIcon::download_arrow, state_ink(StateTone::information));
         return;
     case UpdatePillIcon::paused: {
         const int32_t bar = std::max(rect.width / 4, int32_t{2});
         const int32_t top = rect.y + rect.height / 6;
         const int32_t tall = rect.height - 2 * (rect.height / 6);
-        fill_rect(canvas, {rect.x + rect.width / 5, top, bar, tall}, colour::lock);
-        fill_rect(
-            canvas, {rect.x + rect.width - rect.width / 5 - bar, top, bar, tall}, colour::lock
-        );
+        const Colour ink = state_ink(StateTone::caution);
+        fill_rect(canvas, {rect.x + rect.width / 5, top, bar, tall}, ink);
+        fill_rect(canvas, {rect.x + rect.width - rect.width / 5 - bar, top, bar, tall}, ink);
         return;
     }
     case UpdatePillIcon::ready:
         draw_state_icon(canvas, rect, StateIcon::circled_check, colour::text_secondary);
         return;
     case UpdatePillIcon::scheduled:
-        draw_state_icon(canvas, rect, StateIcon::circled_check, colour::accent);
+        draw_state_icon(canvas, rect, StateIcon::circled_check, state_ink(StateTone::ok));
         return;
     case UpdatePillIcon::problem:
         draw_mark(
@@ -2315,7 +2316,7 @@ void draw_pill_icon(const Canvas& canvas, const Rect& rect, UpdatePillIcon icon)
             kWarning,
             {rect.x + (rect.width - kWarning.width) / 2,
              rect.y + (rect.height - kWarning.height) / 2},
-            colour::lock
+            state_ink(StateTone::caution)
         );
         return;
     }

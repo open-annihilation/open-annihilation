@@ -68,8 +68,8 @@ how game text is drawn, with or without the hack:
 - **Use modern fonts for game text** (on by default): the text the match
   writes in the game's fonts, and what players type and send, is drawn in
   the fonts that travel with the game (DejaVu Sans Bold and DejaVu Sans,
-  then the endonym face, then Noto Emoji; a pack's ideograph face comes
-  before the endonym face), hinted to whole pixels, at the
+  then the endonym face and the Bengali endonym face, then Noto Emoji; a
+  pack's faces come before the endonym faces), hinted to whole pixels, at the
   Text size, in the game fonts' colours, each pixel the nearest colour of
   the palette in use. That is the message log and the chat line being
   typed, the bottom bar's and the map's labels, the whiteboard's labels,

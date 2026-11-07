@@ -9,7 +9,10 @@ The host runs --check-boneyards-launch host under its replay and the joiner
 joiner waits on the game list until the host has hosted the battle room. Both play the battle through to the return to the Boneyards
 over TCP/IP on this machine. Each prints its lines with its side in front.
 The check passes when both exit with 0 after printing that they passed; a
-side that runs past --timeout seconds is stopped and fails it. Both copies
+side that runs past --timeout seconds is stopped and fails it. Each side also
+records its battle (--record-game), and the check passes only when that
+replay's meta.json names the battle as the Boneyards' own: the game kind, the
+battle's game id, its planet and its sector. Both copies
 use a DirectPlay port the check picks (--dplay-port), so other checks can run
 beside it.
 
@@ -19,6 +22,7 @@ not changed. The check then also requires each side to report no direct
 packet, and the relay to have forwarded a data frame from each overlay.
 """
 import argparse
+import json
 import os
 import signal
 import socket
@@ -26,10 +30,13 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 
 HOSTED = "boneyards launch check: the battle room is hosted"
 PASSED = "boneyards launch check: passed"
 DIRECT = "boneyards launch check: direct packets "
+# The replay each side records of its battle, in the folder the side works in.
+RECORDED = "battle.oademo"
 # Frames each run may take at most; the check ends the run itself long before.
 FRAME_LIMIT = "400000"
 # Host and joiner identities. The address both dial is the host's overlay.
@@ -64,6 +71,7 @@ def side_command(args, role):
         "--boneyards-replay", os.path.join(args.replays, "bypacific_launch_%s.replay" % role),
         "--check-boneyards-launch", role,
         "--preferences-file", os.path.join(args.work, role, "%s.conf" % role),
+        "--record-game", os.path.join(args.work, role, RECORDED),
     ]
     return command
 
@@ -104,6 +112,16 @@ class Side:
             code = None
         self.reader.join(timeout=5)
         return code
+
+
+def battle_facts(path):
+    """The game kind and the Boneyards' object of a replay's meta.json, or None without them."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            game = json.loads(archive.read("meta.json")).get("game", {})
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return None
+    return game.get("kind"), game.get("boneyards")
 
 
 def rewrite_replay(source, destination, overlay_ip, address, key, key_id, port):
@@ -251,12 +269,29 @@ def main():
     ok = host.hosted.is_set()
     if not ok:
         print("the host never hosted the battle room", flush=True)
+    game_ids = set()
     for side, code in results:
         print("%s: exit %s%s" % (side.role, code, ", passed" if side.passed else ""), flush=True)
         ok = ok and code == 0 and side.passed
+        facts = battle_facts(os.path.join(args.work, side.role, RECORDED))
+        kind, battle = facts if facts is not None else (None, None)
+        named = (
+            kind == "boneyards"
+            and isinstance(battle, dict)
+            and all(
+                isinstance(battle.get(name), str) and battle.get(name)
+                for name in ("game_id", "planet", "sector")
+            )
+        )
+        print("%s: recorded %s" % (side.role, json.dumps({"kind": kind, "boneyards": battle})), flush=True)
+        ok = ok and named
+        if named:
+            game_ids.add(battle["game_id"])
         if args.overlay:
             print("%s: direct packets %s" % (side.role, side.direct), flush=True)
             ok = ok and side.direct == "0"
+    # Both sides played the same battle.
+    ok = ok and len(game_ids) == 1
     if args.overlay:
         counts = forward_counts(relay.forwards) if relay.forwards else None
         print("relay forwards: %s" % (relay.forwards or "none"), flush=True)

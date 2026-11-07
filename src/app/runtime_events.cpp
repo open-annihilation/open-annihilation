@@ -187,10 +187,12 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         return;
     if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::match) {
         // ui.megamap takes the wheel, which acts only with the Mouse wheel
-        // zoom setting off (megamap_on). The open and close actions name the
-        // direction. The wheel is still taken when neither fired, so it does
-        // not zoom the battlefield.
-        if (megamap_on()) {
+        // zoom setting off (megamap_on). Photo mode does not open the
+        // megamap: the wheel zooms when that setting is on, and does
+        // nothing when it is off. The open and close actions name the
+        // direction. The wheel is still taken when neither fired, so it
+        // does not zoom the battlefield.
+        if (megamap_on() && !photo_mode()) {
             if (sdl_.renderer != nullptr && !convert_event_to_frame(sdl_.renderer, event))
                 return;
             // One notch is one press. The wheel event opens or closes once.
@@ -240,6 +242,15 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         }
         const float x = event.type == SDL_EVENT_MOUSE_MOTION ? event.motion.x : event.button.x;
         const float y = event.type == SDL_EVENT_MOUSE_MOTION ? event.motion.y : event.button.y;
+        // Photo mode keeps the pointer off the match. A motion must not
+        // pick a hover, and a press must not select, order, drag a box,
+        // scroll by the minimap or press the panel. The wheel zoomed
+        // above and returned. The place stays unknown, so the edges do
+        // not scroll either.
+        if (photo_mode() && screen_ == Screen::match) {
+            match_pointer_known_ = false;
+            return;
+        }
         // Where the pointer is on the match's screen is known once SDL
         // reports it there (the screen's edges scroll the camera only then);
         // the events the touch controls make for a finger leave it unknown,

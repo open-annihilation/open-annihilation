@@ -12,9 +12,15 @@ is a detached file, one line, over the exact bytes. Nothing here fetches.
 
 - `read_catalogue` reads the structure and the entries. It does not check a
   signature or a sequence. A member this build does not know is ignored. A
+  `releases` member that is present and malformed refuses the catalogue. A
   member named twice in one object refuses the catalogue. One package that
   breaks a rule is left out, and the reason is kept when fewer than 100
   reasons are kept already.
+- `take_releases` (`releases.hpp`) reads the releases list that member
+  names. The size and the SHA-256 are checked against the member first. A
+  difference, or bytes that are not a list, keeps the list already held.
+  `releases` other than 1 is ignored the same way. One entry that breaks a
+  rule is left out.
 - `valid_reference`, `valid_package_key`, `parse_utc_time` and `parse_day`
   are the rules for a path, a package key, a UTC time and a day written
   `YYYY-MM-DD`, as a package's `published` names the day its release came

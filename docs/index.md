@@ -68,6 +68,8 @@ Every document in the repository, by what you want to do.
   an iPhone or a touch screen: the gestures, the tablet and phone layouts,
   QUEUE, ADD and x5, the order wheel, building, the Touch settings, the
   keyboard's Cmd keys and the Pencil.
+- [photo-mode.md](photo-mode.md): the battlefield alone, from the place
+  you were looking, and coming back to that place.
 - [controls.md](controls.md): the keys panel in a match and the keys on
   the buttons, the key editor (Common commands, Find by key, changing a
   key, the clash question, the keyboard and the mouse, Undo), Arrange

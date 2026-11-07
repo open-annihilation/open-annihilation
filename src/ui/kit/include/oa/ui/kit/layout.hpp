@@ -770,6 +770,16 @@ struct Control {
     int32_t group{-1};  ///< its scroll area's number; -1 when it is in none
     bool checked{};     ///< a switch that is on, or a chosen row, for automation
     std::string text{}; ///< its caption or its value, for automation
+    /// The caption a player hears. Empty on a button, a link, a tab, a list
+    /// row or an area means automation uses `text`. On a switch, a strip, a
+    /// drop-down, a slider, a field or a list the caption is this, or none,
+    /// and `text` is the value. Setting it does not change `text`.
+    std::string label{};
+    bool search{}; ///< a text field is a search field
+    /// Its place in a set, from 1. 0 when it has none.
+    int32_t place{};
+    /// How many share the set. 0 when it has none.
+    int32_t set_size{};
     /// The words automation names its parts by, in order, each a word of
     /// a-z, 0-9 and hyphens: a strip's levels, a row of buttons' buttons, a
     /// drop-down's items. A part without one is named by its place from 1;
@@ -1110,9 +1120,14 @@ struct ScrollColumn {
 /// carry their controls. Every part from first_live_part that draws a control
 /// becomes one, the last drawn first, so a point is tested against the top
 /// part first: its rectangle and clip are the part's, it is enabled unless
-/// the part is disabled, a toggle for a switch and a button otherwise. Each
-/// enabled control joins the Tab order once, in drawing order. A part under a
-/// backdrop takes no press and no focus.
+/// the part is disabled, a toggle for a switch and a button otherwise. Its
+/// name is made from the part's words: ASCII letters lower-cased, digits
+/// kept, and each run of anything else one hyphen, trimmed at both ends and
+/// cut to 100 bytes. Nothing left is named `part-<id>`. A name already used in
+/// the list gains -2, -3 and so on. Its label keeps the words as shown, the
+/// first line or else its text. A disabled part stays in the list and stays
+/// out of the Tab order. Each enabled control joins the Tab order once, in
+/// drawing order. A part under a backdrop takes no press and no focus.
 ///
 /// @param[in,out] list the display list; its controls and Tab order are replaced
 void list_part_controls(DisplayList& list);

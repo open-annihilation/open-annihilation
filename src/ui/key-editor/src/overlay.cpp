@@ -805,6 +805,7 @@ OverlayLayout overlay_layout(
     kit::add_button(
         list, close_rect, close_look, id_overlay_close, std::string(name_keys_overlay_close)
     );
+    list.controls.back().label = show(inputs.text, words::close_word);
     kit::add_button(
         list, edit_rect, edit_look, id_overlay_edit, std::string(name_keys_overlay_edit)
     );

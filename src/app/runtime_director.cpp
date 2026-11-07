@@ -11,6 +11,9 @@
 // and seed; a script that names a stage in place of a recording renders the
 // headless skirmish that stage sets up and plays out. --check-director-render
 // renders a small script over the headless skirmish instead of a recording.
+// --replay-index replays a recording to its end the same way, records its
+// timeline, and writes the replay's index (docs/replays.md) in place of a
+// script.
 #include "oa/app/runtime.hpp"
 #include "renderer_effect_events.hpp"
 #include "director_state.hpp"
@@ -21,9 +24,11 @@
 #include "oa/app/director_output.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/hook_call.hpp"
+#include "oa/app/replay_index.hpp"
 #include "oa/audio/mixer.hpp"
 #include "oa/audio/offline_mix.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/formats/oascript.hpp"
 #include "oa/formats/zip.hpp"
 #include "oa/media/director.hpp"
@@ -60,6 +65,7 @@
 namespace oa::app {
 
 namespace director = oa::media::director;
+namespace oademo = oa::formats::oademo;
 namespace oascript = oa::formats::oascript;
 namespace offline_mix = oa::audio::offline_mix;
 namespace sha256 = oa::base::sha256;
@@ -1245,6 +1251,130 @@ int Runtime::run_generate_script() {
     } catch (const std::exception& error) {
         teardown.run_now();
         std::cerr << "open-annihilation: director: " << error.what() << '\n';
+        return 1;
+    }
+}
+
+int Runtime::run_replay_index() {
+    const auto started = std::chrono::steady_clock::now();
+    // The pass hears nothing, and the match starts as a play-back's does.
+    options_.mute = true;
+    ReplayHooks replay{};
+    bool replay_open = false;
+    bool teardown_failed = false;
+    ScopeExit teardown{[&]() noexcept {
+        try {
+            if (match_)
+                match_->event_hooks = {};
+            if (replay_open)
+                call_hook_or_report<&ReplayHooks::close>(replay, hook_error_report());
+            replay_open = false;
+            if (match_)
+                leave_match();
+        } catch (const std::exception& error) {
+            teardown_failed = true;
+            report_teardown_failure(error.what());
+        } catch (...) {
+            teardown_failed = true;
+            report_teardown_failure("an error of unknown type");
+        }
+    }};
+    try {
+        const fs::path recording_path = options_.replay_index;
+        const fs::path out = options_.director_output;
+        const auto recording = read_bounded(recording_path, zip::max_entry_bytes, "recording");
+        const std::string recording_name = path_to_utf8(recording_path.filename());
+
+        RecordingInfo info{};
+        open_recording(extension_, *this, recording_name, recording, replay, info);
+        replay_open = true;
+        std::string stream_error;
+        const auto stream = replay_index::read_stream_notes(recording, stream_error);
+        if (!stream)
+            throw std::runtime_error(recording_name + ": " + stream_error);
+        const auto& world = match_->state();
+        // The index reads the standings, so the recorder keeps no more: a
+        // long game's samples of its units would take more memory than the
+        // replay itself.
+        director::TimelineRecorder recorder;
+        recorder.begin(
+            world, info.viewer_player, selected_map_name_runtime_, director::Detail::standings
+        );
+        match_->event_hooks = recorder.event_hooks();
+        const uint32_t first_tick = world.game.tick;
+        const uint32_t limit =
+            info.expected_end_tick != 0 ? info.expected_end_tick + kEndTickSlack : kMaxReplayTicks;
+        std::printf(
+            "replay index: replaying %s from tick %u\n", recording_name.c_str(), first_tick
+        );
+        std::fflush(stdout);
+        auto status = replay_status(replay, hook_error_report());
+        uint32_t errors_seen = status.errors;
+        uint32_t first_error_tick = errors_seen != 0 ? first_tick : 0;
+        uint32_t stalls = 0;
+        std::string stopped;
+        while (!status.finished && match_->state().game.tick < limit) {
+            const uint32_t before = match_->state().game.tick;
+            if (!call_hook_or_report<&ReplayHooks::step>(replay, hook_error_report()) || !match_)
+                break;
+            const uint32_t after = match_->state().game.tick;
+            if (after != before) {
+                stalls = 0;
+                recorder.after_tick(match_->state(), {});
+            } else if (++stalls > kMaxStalledSteps) {
+                stopped = "the replay stopped moving on tick " + std::to_string(before);
+                break;
+            }
+            status = replay_status(replay, hook_error_report());
+            if (status.errors > errors_seen && first_error_tick == 0)
+                first_error_tick = after;
+            errors_seen = status.errors;
+        }
+        if (!match_)
+            throw std::runtime_error("the replay's match ended before the recording did");
+        const uint32_t last_tick = match_->state().game.tick;
+        director::ReplayVerdict verdict{};
+        verdict.finished = status.finished;
+        verdict.clean = status.clean;
+        verdict.paced = status.paced;
+        verdict.content_differs = info.content_differs;
+        verdict.errors = status.errors;
+        verdict.first_error_tick = first_error_tick;
+        verdict.last_error = status.last_error != nullptr ? status.last_error : stopped;
+        recorder.finish(match_->state(), verdict);
+        replay_index::Source source;
+        source.final_stats = director::read_player_stats(match_->state(), last_tick);
+        source.length_ms = info.duration_ms;
+        teardown.run_now();
+        const director::Timeline timeline = recorder.take();
+        source.timeline = &timeline;
+        source.stream = &*stream;
+        const oademo::TimelineIndex index = replay_index::build_index(source);
+        const std::string text = oademo::timeline_index_text(index);
+        write_whole_file(out, {reinterpret_cast<const uint8_t*>(text.data()), text.size()});
+        std::printf(
+            "replay index: replayed ticks %u to %u (%s, %u errors), ended %s, in %.1f s; %zu "
+            "events, %zu samples\n",
+            first_tick,
+            last_tick,
+            verdict.clean ? "clean" : "not clean",
+            verdict.errors,
+            std::string(oademo::index_end_name(index.ended)).c_str(),
+            seconds_since(started),
+            timeline.events.size(),
+            timeline.samples.size()
+        );
+        std::printf(
+            "replay index: wrote %s: %zu markers, %zu players\n",
+            path_to_utf8(out).c_str(),
+            index.markers.size(),
+            index.players.size()
+        );
+        std::fflush(stdout);
+        return teardown_failed ? 1 : 0;
+    } catch (const std::exception& error) {
+        teardown.run_now();
+        std::cerr << "open-annihilation: replay index: " << error.what() << '\n';
         return 1;
     }
 }

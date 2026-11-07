@@ -198,8 +198,9 @@ std::string switch_text(bool on) {
     return on ? "1" : "0";
 }
 
-/// Tells whether a file-type switch is on. Only the word off turns it off;
-/// a missing key, "on", and any other text leave it on.
+/// Tells whether a switch kept as the words on and off is on: a file type's,
+/// or Record my games. Only the word off turns it off; a missing key, "on",
+/// and any other text leave it on.
 ///
 /// @param values the preferences
 /// @param key the switch's key
@@ -209,7 +210,7 @@ bool file_type_on(const oa::platform::preferences::Values& values, std::string_v
     return found == values.end() || found->second != "off";
 }
 
-/// The stored text of a file-type switch.
+/// The stored text of a switch kept as the words on and off.
 ///
 /// @param on the switch's state
 /// @return "on" or "off"
@@ -678,6 +679,15 @@ void follow_acceleration_with_unset_effects(
     follow(&EngineSettings::heat_distortion, key::heat_distortion_intensity, key::heat_distortion);
 }
 
+void read_replays_settings(
+    const oa::platform::preferences::Values& values, EngineSettings& settings
+) {
+    settings.replays_record = file_type_on(values, key::replays_record);
+    settings.replays_keep = ReplayKeep::thirty_days;
+    read_word(values, key::replays_keep, replay_keep_words, settings.replays_keep);
+    settings.replays_open_files = file_type_on(values, key::replays_open_files);
+}
+
 EngineSettings read_settings(
     const oa::platform::preferences::Values& values, const Inputs& inputs, bool switch_alt
 ) {
@@ -868,6 +878,7 @@ EngineSettings read_settings(
     settings.file_type_oabrain = file_type_on(values, key::file_type_oabrain);
     settings.file_type_oakeys = file_type_on(values, key::file_type_oakeys);
     settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
+    read_replays_settings(values, settings);
     settings.slow_keys_ms = access_number(values, key::access_slow_keys, 0, 0, 1000, false);
     settings.bounce_keys_ms = access_number(values, key::access_bounce_keys, 0, 0, 1000, false);
     settings.double_press_ms = access_number(values, key::access_double_press, 0, 200, 1000, true);
@@ -1613,6 +1624,17 @@ void write_settings(
     store_file_type(key::file_type_oabrain, &EngineSettings::file_type_oabrain);
     store_file_type(key::file_type_oakeys, &EngineSettings::file_type_oakeys);
     store_file_type(key::file_type_oalaunch, &EngineSettings::file_type_oalaunch);
+    store_file_type(key::replays_record, &EngineSettings::replays_record);
+    store_file_type(key::replays_open_files, &EngineSettings::replays_open_files);
+    store_word(
+        values,
+        key::replays_keep,
+        replay_keep_words,
+        opened.replays_keep,
+        chosen.replays_keep,
+        defaults.replays_keep,
+        restored
+    );
     // Restore defaults keeps the overrides: Restore profile values clears them.
     if (!profile_id.empty() && chosen.hack_overrides != opened.hack_overrides) {
         if (chosen.hack_overrides.empty())

@@ -336,6 +336,30 @@ struct WheelCarry {
     WheelCarry& carry, float notches, int32_t step, int32_t offset, int32_t limit
 ) noexcept;
 
+/// What a kit control is to a screen reader, beside ControlKind.
+///
+/// `unset` means the reader has not chosen one. `switch_control` is the role
+/// written "switch".
+enum class AccessRole : uint8_t {
+    unset,          ///< not chosen
+    none,           ///< decoration
+    button,         ///< a push button
+    check_box,      ///< a box that is on or off
+    switch_control, ///< a switch
+    radio_group,    ///< a strip or a row of buttons
+    radio,          ///< one part of a strip or a row
+    tab_list,       ///< a row of tabs
+    tab,            ///< one tab
+    list,           ///< a list of rows
+    list_item,      ///< one row, or one item of an open menu
+    text_field,     ///< a field that takes typed text
+    search,         ///< a search field
+    slider,         ///< a slider or a scroll bar
+    link,           ///< a link
+    label,          ///< words that take no pointer
+    group,          ///< a group of controls
+};
+
 /// One named control, or one part of it, as automation reads it.
 struct AutomationEntry {
     std::string name;   ///< its name
@@ -351,6 +375,19 @@ struct AutomationEntry {
     /// a switch's half, a strip's level, a row of buttons' button or an open
     /// drop-down's item (automation_parts).
     bool part{};
+    AccessRole role{AccessRole::unset}; ///< what a screen reader calls it
+    std::string label;                  ///< the caption; empty when the control has none
+    std::string value_text;             ///< its value as words
+    bool has_value{};                   ///< `value` is set
+    int32_t value{};                    ///< a slider's stop
+    bool has_range{};                   ///< `least`, `most` and `step` are set
+    int32_t least{};                    ///< the least value
+    int32_t most{};                     ///< the greatest value
+    int32_t step{};                     ///< how far one step moves the value
+    int32_t place{};                    ///< its place in a set, from 1; 0 when it has none
+    int32_t set_size{};                 ///< how many share the set; 0 when it has none
+    bool chosen{};                      ///< it is the chosen part
+    bool pressed{};                     ///< a switch is on
 };
 
 /// Returns the named controls, in list order.

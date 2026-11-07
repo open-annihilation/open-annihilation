@@ -302,6 +302,11 @@ struct ConsoleSystem {
     char launched_game_id[k_game_id_capacity]{};
     char debriefing_game_id[k_game_id_capacity]{};
     uint32_t launched_area_id{};
+    // The launched planet's name and its sector's name, as the galactic map
+    // named them when the launch reply came; "" when the map held no such
+    // planet or no sector was loaded.
+    char launched_planet[screens::kPlanetNameCapacity]{};
+    char launched_sector[kSectorNameCapacity]{};
     // When the idle work's once-a-second check last ran.
     uint32_t last_check_ms{};
     // The player's name as the session record last gave it.

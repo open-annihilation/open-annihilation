@@ -52,6 +52,15 @@ a mod's may.
   the language the game shows, the operating system never chooses it, and
   3.1c's word does not find it.
 
+  A language a catalogue offers has its name in itself and, when the engine
+  holds lines for it (`pack_notice`), the start-of-game notice shown before
+  its pack is installed, drawn from the faces that travel with the game:
+  Simplified Chinese's lines are in `tools/text-fonts/endonyms.txt`, and
+  Bengali's, which needs shaping and so is offered only on a build that has
+  it, in `tools/text-fonts/endonyms-bengali.txt`. Bengali has no entry
+  here: its pack's catalogue entry names it, বাংলা, and the lines wait for
+  that entry.
+
 `known_languages()` returns a pointer to each live language: English
 first, then every built-in and installed language in the order of their
 names' UTF-8 bytes, a tie broken by tag, then the available languages in
@@ -73,17 +82,19 @@ the interface.
   language one of whose locales is the tag or its leading subtags (`de`
   for `de-AT`), the longest winning, among the languages the game can
   show. Passed a second argument that is true, it finds an available
-  language too. The locales of languages not offered yet (Traditional
-  Chinese's `zh-Hant`, `zh-TW`, `zh-HK` and `zh-MO`) take part in that
-  match and choose none, so `zh-TW` never falls to `zh` and Simplified
-  Chinese. `preferred_language()` takes the first locale, in order, that
-  chooses a language the game can show, else English.
+  language this build can draw too. The locales of languages not offered
+  yet (Traditional Chinese's `zh-Hant`, `zh-TW`, `zh-HK` and `zh-MO`) take
+  part in that match and choose none, so `zh-TW` never falls to `zh` and
+  Simplified Chinese. `preferred_language()` takes the first locale, in
+  order, that chooses a language the game can show, else English.
 - `chosen_language()` reads the setting: `system_choice` (`"system"`) or a
   tag of a language the game can show; anything else, including a language
   that is not installed, is the system's.
 - `playable()`: the language is not available, and this build draws it.
-- `drawable()`: the needs this build meets, `game_fonts` and
-  `modern_fonts`. A language that needs more is kept but not offered.
+- `meets()`: the needs this build draws, `game_fonts`, `modern_fonts`,
+  and `text_shaping` when the build shapes.
+- `drawable()`: `meets()` for the language's needs. A language that needs
+  more is kept but not offered.
 - `set_pack_languages()` publishes the installed packs and the available
   languages. `registry_generation()` changes when the live list's entries
   do.
@@ -121,6 +132,12 @@ the interface.
   engine ships one catalogue file, `languages/interface.tdf`, with German,
   French, Spanish and Italian; a pack's `interface.tdf` is added to the
   same catalogue.
+- `oa/data/languages/turkish_case.hpp`: while the interface language is
+  Turkish or Azerbaijani, a small i is capitalised as İ and a small ı as
+  I, and a capital I is made ı. ç ğ ö ş ü are letters. The key editor's
+  button names, the update question's {From} and {To}, and a registry's
+  initials use it. Every other language leaves that case to its caller,
+  which keeps today's ASCII letters.
 - `oa/data/languages/language_pack.hpp`: language packs, a folder of texts
   for one language that adds to the game data's own translations entry by
   entry. `read_manifest()` reads `language.yaml` with the mod profiles'
@@ -147,6 +164,15 @@ the interface.
 The installed tables are read only by the thread that draws the interface.
 
 ## Tests
+
+`data-languages-endonyms` draws every language's own name and every line of
+the two endonym lists in both weights, requires that every notice line the
+engine holds is a line of a list, and that every Bengali letter of the
+Bengali list is drawn by the Bengali endonym face with no pack installed.
+`data-languages-endonyms-shaping` shapes each Bengali run of that list with
+the Bengali endonym face and with HarfBuzz on the full Noto Sans Bengali
+Bold, and requires the same glyphs, clusters, advances and offsets; it
+skips when this build does not shape and when the full face is absent.
 
 `data-languages-packs` reads the pseudo-language's pack in
 `tests/pseudo-pack` (the tests' own, never shipped), refuses manifests by

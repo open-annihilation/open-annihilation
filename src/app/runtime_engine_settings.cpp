@@ -838,6 +838,9 @@ void Runtime::EngineSettingsState::take_live_settings(Runtime& runtime) {
     auto& current = runtime.engine_settings_state().current;
     current.switch_alt = live_switch_alt(runtime);
     current.frame_stats = runtime.frame_stats_shown_;
+    // Other parts of the game write these two keys into the preferences
+    // (the Library's Turn on recording), so the dialog shows what they hold.
+    settings::read_replays_settings(runtime.preference_values_, current);
 }
 
 std::optional<std::string> Runtime::EngineSettingsState::flush(Runtime& runtime) {
@@ -1725,6 +1728,8 @@ std::optional<std::string> Runtime::save_engine_settings(
 
 std::optional<oa::platform::file_types::OpenerReport> show_system_openers(settings::Dialog& dialog);
 
+void show_replay_opener(settings::Dialog& dialog);
+
 std::string kept_opener_hint_for(
     oa::platform::file_types::TypeSet asked, oa::platform::file_types::TypeSet open
 );
@@ -2118,6 +2123,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
             state.file_type_kept_hint = kept_opener_hint_for(*state.file_type_asked, report->open);
         dialog.file_type_kept_hint = state.file_type_kept_hint;
     }
+    show_replay_opener(dialog);
     // Weapon types and sides: the profile's limits, and, in a match, how
     // many of each the match loaded. No profile is the base game.
     settings::ModLimitsShown mod_shown;
@@ -2187,6 +2193,52 @@ show_system_openers(settings::Dialog& dialog) {
     settings::set_file_type_switches(dialog.opened, report.open);
     settings::set_file_type_switches(dialog.chosen, report.open);
     return report;
+}
+
+/// Sets Open replay files from whether this copy opens .oademo, where a
+/// switch is the default opener. A question that fails leaves the switch as
+/// the preferences had it. .tad has no default-opener switch.
+///
+/// @param dialog the dialog just opened
+void show_replay_opener(settings::Dialog& dialog) {
+    namespace file_types = oa::platform::file_types;
+    if (!file_types::default_opener_is_a_setting() || !dialog.file_type_switches)
+        return;
+    const file_types::Handler application = file_types::running_application();
+    if (application.bundle_id.empty())
+        return;
+    const file_types::ReplayOpenerReport report = file_types::reported_replay_opener(
+        file_types::system_handler_calls(), application.bundle_id, dialog.chosen.replays_open_files
+    );
+    if (!report.error.empty()) {
+        std::cerr << "open-annihilation: file types: " << report.error << '\n';
+        return;
+    }
+    dialog.opened.replays_open_files = report.open;
+    dialog.chosen.replays_open_files = report.open;
+}
+
+/// Registers or withdraws replay files, or on macOS asks whether this copy
+/// opens .oademo. The eight types are not touched.
+///
+/// @param open this copy should open replay files
+void apply_replay_file_choice(bool open) {
+    namespace file_types = oa::platform::file_types;
+    if (file_types::default_opener_is_a_setting()) {
+        log_file_type_change(
+            file_types::apply_replay_opener(
+                file_types::system_handler_calls(), file_types::running_application(), open
+            )
+        );
+        return;
+    }
+    const auto executable = file_types::running_executable();
+    if (!executable)
+        return;
+    if (open)
+        log_file_type_change(file_types::register_replay_files(*executable, window_icon_png(), {}));
+    else
+        log_file_type_change(file_types::withdraw_replay_files());
 }
 
 /// On macOS, a check, a snapshot and any other run that is not someone
@@ -2418,6 +2470,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         const settings::ContentCheck chosen_check = chosen.content_check;
         const bool file_types_changed =
             !settings::moved_file_type_switches(dialog->opened, chosen).empty();
+        const bool replay_files_changed =
+            chosen.replays_open_files != dialog->opened.replays_open_files;
         const std::vector<settings::InstallIdChoice> switches_opened = dialog->install_id_opened;
         const std::vector<settings::InstallIdChoice> switches_chosen = dialog->install_id_chosen;
         // The switches are stored before the settings, so one save writes both.
@@ -2425,6 +2479,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         apply_engine_settings(chosen);
         // The registration follows the settings OK kept, at once. Cancel
         // never reaches here, and a switch moved before OK does not either.
+        if (replay_files_changed && openers_follow_ok(options_))
+            apply_replay_file_choice(chosen.replays_open_files);
         if (file_types_changed && openers_follow_ok(options_) &&
             apply_chosen_file_types(dialog->opened, chosen)) {
             const oa::platform::file_types::TypeSet asked = settings::file_type_set(chosen);

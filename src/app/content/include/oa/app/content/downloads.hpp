@@ -138,6 +138,9 @@ struct DownloadTarget {
     data::registry::DownloadMode mode = data::registry::DownloadMode::direct;
     std::optional<formats::url::Url> api; ///< the download API, when the registry uses keys
     data::registry::InstallIdUse install_id = data::registry::InstallIdUse::none;
+    /// True for a replay press. When the registry cannot be reached, the
+    /// download fails at once, without the queue's retries.
+    bool prompt = false;
 };
 
 /// Resolves a catalogue entry into a download.

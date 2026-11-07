@@ -54,8 +54,17 @@
 // The version of the engine's extension table these hooks follow. A build
 // against a table of another version stops here until the engine's change
 // has been read and the hooks follow it. Version 19 is Kit 2's look in the
-// kit's headers, which these hooks do not use.
-constexpr uint32_t kExtensionApiVersionFollowed = 20;
+// kit's headers, which these hooks do not use. Version 20 adds
+// ExtensionControl's masked, text_length, scroll_up and scroll_down members,
+// and the calls answer_multiplayer_entry, defer_inactive_loop_release,
+// post_extension_note and take_extension_notes. None is a hook. Version 21
+// adds accessibility fields on controls. It is not a hook, and these hooks
+// do not fill them.
+// Version 21 also adds the replay viewer's eight hooks, which these hooks
+// do not fill. Version 21 also adds the rectangle where an extension
+// window's art takes the press. It is not a hook, and these hooks do not
+// state one.
+constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "

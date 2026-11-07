@@ -399,6 +399,21 @@ int main(int argc, char** argv) {
         ScopedServices field_scope(widget);
         single_edit_set_text(reinterpret_cast<SingleEdit*>(name), "Pilot");
     }
+    // Registered User is the default, so LOGIN waits for a password too.
+    Window* password = nullptr;
+    for (int32_t i = 0; login_screen != nullptr && i < login_screen->children.count; ++i) {
+        Window* child = login_screen->children.items[i];
+        if (child->x == login_screen->x + 0x6f && child->y == login_screen->y + 0x44)
+            password = child;
+    }
+    check(
+        password != nullptr && is_stop_class(password, class_name::single_edit),
+        "the password field is shown"
+    );
+    if (password != nullptr && is_stop_class(password, class_name::single_edit)) {
+        ScopedServices password_scope(widget);
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(password), "secret");
+    }
     boneyards_status_widget_tick(widget);
     Window* login_button = login_screen != nullptr ? find_caption(login_screen, "LOGIN") : nullptr;
     if (login_button != nullptr) {

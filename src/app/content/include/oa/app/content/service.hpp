@@ -6,6 +6,7 @@
 #pragma once
 
 #include "oa/data/catalogue/catalogue.hpp"
+#include "oa/data/catalogue/releases.hpp"
 #include "oa/data/registry/trust.hpp"
 #include "oa/formats/url.hpp"
 #include "oa/netgame/http/client.hpp"
@@ -141,6 +142,10 @@ struct RegistryView {
     bool refreshing = false;                  ///< a fetch is queued or running
     std::string last_error{}; ///< why the last refresh found nothing; empty after a good one
     std::vector<std::string> fingerprints{}; ///< the trusted keys, as a player compares them
+    /// Older releases named by the catalogue's `releases` member. Null when
+    /// the catalogue names none, or the list has not been fetched yet. A
+    /// failed fetch keeps the list that was already here.
+    std::shared_ptr<const data::catalogue::ReleasesList> releases{};
 };
 
 /// One package in the merged snapshot.

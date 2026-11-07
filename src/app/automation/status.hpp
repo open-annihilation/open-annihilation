@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Status lines for a launcher: the same events the automation endpoint
-// sends, one JSON object a line, with a hello line first and an exit line
-// last. The lines go to the standard output the process was started with,
+// Status lines for a launcher: the events the automation endpoint sends,
+// other than focus, one JSON object a line, with a hello line first and an
+// exit line last. The lines go to the standard output the process was started
+// with,
 // or to a file, or both. They are not a second vocabulary: hello and exit
 // frame the stream, and every other line is an event the producers in
 // events.cpp already build.

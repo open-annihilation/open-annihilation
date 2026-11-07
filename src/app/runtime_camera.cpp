@@ -363,6 +363,9 @@ std::array<double, 2> Runtime::match_view_place() const {
 }
 
 void Runtime::place_match_view(double x, double z) {
+    // A held picture keeps the camera where it was copied.
+    if (photo_camera_locked())
+        return;
     x = std::clamp(x, -kFarthestViewPlace, kFarthestViewPlace);
     z = std::clamp(z, -kFarthestViewPlace, kFarthestViewPlace);
     // A view drawn between map pixels is drawn at the screen pixel nearest
@@ -474,6 +477,9 @@ void Runtime::remember_placed_view(double x, double z) {
 }
 
 void Runtime::set_camera_position(int32_t x, int32_t z, uint32_t flags) {
+    // Home and follow land here. A held picture keeps the camera.
+    if (photo_camera_locked())
+        return;
     // A jump is held by the limits alone. The camera the frames take is the
     // whole map pixel held_camera keeps inside them, the same one a frame
     // draws (view_camera) when no earlier view widens the span.
@@ -681,6 +687,9 @@ void Runtime::step_match_zoom() {
     // The director sets the zoom of every frame itself, off the wall clock.
     if (director_mode())
         return;
+    // A held picture stays in the frame it was copied from.
+    if (photo_camera_locked())
+        return;
     // The limits move with the tier, the window, the map and the zoom's
     // settings: the target keeps within them, and a view zoomed past them
     // eases back within them about the battlefield's centre.
@@ -739,6 +748,8 @@ void Runtime::step_match_zoom() {
 }
 
 void Runtime::zoom_view_about(float zoom, double focus_x, double focus_y) {
+    if (photo_camera_locked())
+        return;
     if (!selected_tnt_ || !(zoom > 0.0F))
         return;
     const auto before = static_cast<double>(match_zoom_ > 0.0F ? match_zoom_ : 1.0F);
@@ -774,6 +785,8 @@ void Runtime::zoom_view_about(float zoom, double focus_x, double focus_y) {
 void Runtime::handle_match_zoom(
     float wheel_y, float pointer_x, float pointer_y, bool follow_pointer
 ) {
+    if (photo_camera_locked())
+        return;
     if (wheel_y == 0.0F || !selected_tnt_)
         return;
     if (pointer_x < static_cast<float>(match_layout_.left) ||
@@ -805,6 +818,8 @@ bool Runtime::zoom_match_from_key(std::string_view id) {
     const bool reset = id == "camera.zoom-reset";
     if (!zoom_in && !zoom_out && !reset)
         return false;
+    if (photo_camera_locked())
+        return true;
     // Mouse wheel zoom off is the game's own scale: the key is taken and the
     // view stays where it is, including at either end of the zoom's range.
     if (!engine_settings().wheel_zoom)
@@ -948,6 +963,8 @@ void Runtime::pan_match_camera() {
 }
 
 void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {
+    if (photo_camera_locked())
+        return;
     if (!selected_tnt_ || (screen_dx == 0.0 && screen_dy == 0.0))
         return;
     if (live_renderer_active()) {
@@ -983,6 +1000,8 @@ void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {
 }
 
 void Runtime::scroll_match_view(int32_t way_x, int32_t way_z, double step) {
+    if (photo_camera_locked())
+        return;
     way_x = std::clamp(way_x, -1, 1);
     way_z = std::clamp(way_z, -1, 1);
     if (!selected_tnt_ || !(step > 0.0) || (way_x == 0 && way_z == 0))

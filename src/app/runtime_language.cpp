@@ -505,8 +505,12 @@ void Runtime::refresh_available_languages() {
             else
                 pack.entry.locales = package.locales;
             pack.entry.fallbacks = package.fallbacks;
-            pack.entry.needs = package.needs == "game-fonts" ? languages::TextNeeds::game_fonts
-                                                             : languages::TextNeeds::modern_fonts;
+            if (package.needs == "game-fonts")
+                pack.entry.needs = languages::TextNeeds::game_fonts;
+            else if (package.needs == "shaping")
+                pack.entry.needs = languages::TextNeeds::text_shaping;
+            else
+                pack.entry.needs = languages::TextNeeds::modern_fonts;
             pack.publisher = package.publisher;
             pack.coverage = package.coverage;
             pack.bytes = package.size;
@@ -597,7 +601,8 @@ bool Runtime::refresh_settings_languages(settings::Dialog& dialog) {
     std::vector<settings::AvailableLanguage> rows;
     rows.reserve(state.available.size());
     for (const CatalogueLanguage& pack : state.available) {
-        if (already_playable(pack.entry.tag))
+        // Already shown, or text this build cannot draw: the list offers neither.
+        if (already_playable(pack.entry.tag) || !languages::meets(pack.entry.needs))
             continue;
         settings::AvailableLanguage row;
         row.tag = pack.entry.tag;

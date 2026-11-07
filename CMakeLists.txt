@@ -45,6 +45,8 @@ endif()
 # FreeType and the fonts text outside the game's own fonts is drawn with,
 # from tools/bootstrap_text_fonts.py (cmake/OaTextFonts.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaTextFonts.cmake")
+# AccessKit, the screen-reader bridge (cmake/OaAccessKit.cmake).
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaAccessKit.cmake")
 # The registries the game ships with, copied beside it (cmake/OaRegistries.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaRegistries.cmake")
 # Classic, packed beside the game. A cross build uses OA_HOST_OA_TOOL
@@ -166,6 +168,7 @@ add_subdirectory(src/sim/unit-activation)
 add_subdirectory(src/base/game-math)
 add_subdirectory(src/base/geometry)
 add_subdirectory(src/base/sha256)
+add_subdirectory(src/base/zstd)
 add_subdirectory(src/base/signing)
 add_subdirectory(src/base/text)
 add_subdirectory(src/base/float-precision)
@@ -182,6 +185,7 @@ add_subdirectory(src/platform/render-probe)
 add_subdirectory(src/platform/graphics-preference)
 add_subdirectory(src/platform/sound-device)
 add_subdirectory(src/platform/locale)
+add_subdirectory(src/platform/screen-reader)
 add_subdirectory(src/platform/display-modes)
 add_subdirectory(src/platform/file-types)
 # Total Annihilation folders found where Steam, Heroic, Lutris or Bottles put
@@ -438,6 +442,10 @@ if(BUILD_TESTING)
   add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
   target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
   add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
+  add_executable(oa-app-control-names-test src/app/control_names_test.cpp src/app/control_names.cpp)
+  target_link_libraries(oa-app-control-names-test PRIVATE oa-app-headers oa-ui-gui-layout
+    oa-test-support oa-test-game-data oa-formats-hpi)
+  oa_add_game_data_test(app-control-names oa-app-control-names-test)
   add_executable(oa-app-tag-actions-test src/app/tag_actions_test.cpp src/app/tag_actions.cpp)
   target_link_libraries(oa-app-tag-actions-test PRIVATE oa-data-defs oa-ui-key-bindings
     oa-test-support oa-options)
@@ -882,6 +890,22 @@ if(OA_BUILD_PLATFORM)
       oa-audio-offline-mix oa-formats-png oa-formats-zip oa-base-sha256 oa-options)
     add_test(NAME app-director-output COMMAND oa-app-director-output-test)
   endif()
+endif()
+# The index pass (--replay-index, docs/replays.md): the notes a recording's
+# own stream holds, and the index built from them and the replayed timeline.
+add_library(oa-app-replay-index src/app/replay_index.cpp)
+add_library(oa::app::replay_index ALIAS oa-app-replay-index)
+target_link_libraries(oa-app-replay-index PUBLIC oa-app-headers oa-formats-oademo oa-media-director
+  PRIVATE oa-formats-tad oa-session-demo oa-netgame oa-present oa-core-types oa-options)
+if(BUILD_TESTING)
+  # Notes read from a made-up recording of every kind of record, the index
+  # built from a made-up timeline, and the refusals.
+  add_executable(oa-app-replay-index-test src/app/replay_index_test.cpp)
+  target_link_libraries(oa-app-replay-index-test PRIVATE oa-app-replay-index oa-formats-oademo
+    oa-formats-tad oa-media-director oa-netgame oa-session-demo oa-core-types oa-test-support
+    oa-options)
+  add_test(NAME app-replay-index COMMAND oa-app-replay-index-test)
+  set_tests_properties(app-replay-index PROPERTIES TIMEOUT 60)
 endif()
 # Installed map packs: each pack's maps from its manifest, cached by the
 # pack's SHA-256, and whether one map fits the base game.
@@ -1334,6 +1358,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_platform.cpp
   src/app/runtime_endgame.cpp src/app/runtime_radar.cpp
   src/app/runtime_kill_board.cpp
+  src/app/control_names.cpp
   src/app/runtime_check_host.cpp src/app/check_host_input.cpp src/app/runtime_automation_host.cpp
   src/app/runtime_match_view.cpp
   src/app/runtime_play_host.cpp
@@ -1379,6 +1404,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_team_panels.cpp
   src/app/runtime_scroll_bars.cpp
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
+  src/app/runtime_photo_mode.cpp src/app/runtime_photo_check.cpp
   src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
   src/app/runtime_engine_settings.cpp
@@ -1389,6 +1415,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/oa_layer_overlays.cpp
   src/app/window_placement.cpp
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
+  src/app/runtime_library_replays.cpp
   src/app/runtime_map_browser.cpp
   src/app/runtime_key_editor.cpp
   src/app/runtime_keys_overlay.cpp
@@ -1511,6 +1538,8 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_library_check.cpp src/app/runtime_library_actions_check.cpp
   src/app/runtime_library_map_preview_check.cpp
   src/app/runtime_library_content_check.cpp
+  src/app/runtime_library_replays_check.cpp
+  src/app/runtime_replays_content_check.cpp
   src/app/runtime_team_panel_check.cpp src/app/runtime_scroll_bar_check.cpp
   src/app/runtime_interpolation_check.cpp src/app/runtime_unit_playout_check.cpp
   src/app/runtime_engine_settings_wiring_check.cpp src/app/runtime_engine_settings_check.cpp
@@ -1524,11 +1553,11 @@ if(OA_SELF_CHECKS)
 endif()
 # The run manifest of a director render, the settings dialog's header and the
 # Game files screen's header name the engine's version, and the renderer
-# records are written under it.
+# records are written under it. An exported .oademo names it too.
 set_property(SOURCE src/app/runtime_director.cpp src/app/runtime_engine_settings.cpp
   src/app/main.cpp src/app/game_files_screen.cpp src/app/runtime_game_files.cpp
   src/app/runtime_mutators.cpp src/app/runtime_mutators_check.cpp
-  src/app/runtime_brain_facts.cpp APPEND
+  src/app/runtime_brain_facts.cpp src/app/runtime_library_replays.cpp APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-game-directory oa-app-mod-profile
   oa-app-user-folder
@@ -1543,6 +1572,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-ui-engine-settings oa-platform-app-menu oa-platform-text-font oa-platform-job-pool
   oa-platform-render-probe oa-app-render-policy oa-ui-decoded oa-base-bytes oa-base-float-precision oa-base-text
   oa-app-acceleration-status oa-formats-png oa-data-languages oa-formats-oamod oa-platform-locale
+  oa-platform-screen-reader
   oa-platform-display-modes oa-platform-display-modes-sdl
   oa-app-full-terrain oa-app-full-supersampling oa-app-full-fog oa-app-card-executor
   oa-present-gpu-world oa-app-full-models oa-app-platform-hooks oa-ui-paint oa-ui-kit
@@ -1550,6 +1580,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-map-packs
   oa-data-mutator-library
   oa-data-key-library
+  oa-data-replays
   oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
@@ -1673,9 +1704,11 @@ if(OA_BUILD_PLATFORM)
   # The recorded mutators compare a loadout with the text one recording holds.
   target_link_libraries(oa-game PRIVATE oa-session-demo)
   target_link_libraries(oa-game PRIVATE oa-media-director oa-media-director-planner oa-audio-offline-mix
-    oa-formats-oascript oa-formats-zip oa-app-director-output)
+    oa-formats-oascript oa-formats-zip oa-app-director-output oa-app-replay-index)
   target_link_libraries(oa-game PRIVATE ${oa_game_intro_player} SDL3::SDL3 ${oa_game_libraries}
     oa-ui-frontend-dialogs)
+  # accesskit.dll beside the game. The program loads it; the link does not.
+  oa_copy_accesskit_dll(oa-game)
   if(OA_SELF_CHECKS)
     # --check-map-pack-lists serves its catalogue from the test fixture.
     target_link_libraries(oa-game PRIVATE oa-netgame-http-fixture)
@@ -3132,6 +3165,78 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_library_update_question_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED library-update-question-clean)
+      # The Library's Replays section, over made-up replays written from one
+      # recorded game: a headless loopback game recorded with --record-game
+      # first, then Replays second in the section list with no replay and with
+      # some, WATCH and the way back to the same row, KEEP read back from the
+      # index, each filter, the kind menu, the search and the sort, and TURN ON
+      # RECORDING. The player's folder and the recording stay in the build
+      # tree and are cleared before each run.
+      set(oa_library_replays_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/library-replays")
+      file(MAKE_DIRECTORY "${oa_library_replays_dir}")
+      add_test(NAME library-replays-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_library_replays_dir}/Open Annihilation" "${oa_library_replays_dir}/source"
+        "${oa_library_replays_dir}/data" "${oa_library_replays_dir}/library-replays-source.oademo"
+        "${oa_library_replays_dir}/library-replays-source.oademo.oa-content"
+        "${oa_library_replays_dir}/library-replays.conf" "${oa_library_replays_dir}/source.conf")
+      set_tests_properties(library-replays-clean PROPERTIES FIXTURES_SETUP library-replays-clean)
+      add_test(NAME native-library-replays-source COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --headless-check --net-loopback-check 300
+        --record-game "${oa_library_replays_dir}/library-replays-source.oademo"
+        --user-folder "${oa_library_replays_dir}/source"
+        --preferences-file "${oa_library_replays_dir}/source.conf")
+      set_tests_properties(native-library-replays-source PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_library_replays_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED library-replays-clean
+        FIXTURES_SETUP library-replays-source)
+      add_test(NAME native-library-replays COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-library-replays
+        --preferences-file "${oa_library_replays_dir}/library-replays.conf"
+        --user-folder "${oa_library_replays_dir}/Open Annihilation"
+        --data-dir "${oa_library_replays_dir}/data")
+      set_tests_properties(native-library-replays PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_library_replays_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED "library-replays-clean;library-replays-source")
+      # A replay that needs an older map pack and a mutator. The pack is only
+      # in the catalogue's releases list. One press fetches both from a
+      # loopback registry and the replay plays; the mutator's selection is
+      # gone afterwards. A release neither list holds reads as not in the
+      # catalogue, and with the registry stopped the same replay reads as
+      # offline. The working folder stays in the build tree and is cleared
+      # before each run.
+      set(oa_replays_content_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/replays-content")
+      file(MAKE_DIRECTORY "${oa_replays_content_dir}")
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME replays-content-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+          "${oa_replays_content_dir}/record" "${oa_replays_content_dir}/prepare"
+          "${oa_replays_content_dir}/play" "${oa_replays_content_dir}/offline"
+          "${oa_replays_content_dir}/serve" "${oa_replays_content_dir}/pictures"
+          "${oa_replays_content_dir}/replays-content.facts"
+          "${oa_replays_content_dir}/replays-content-source.oademo"
+          "${oa_replays_content_dir}/ridge-reach.oamap"
+          "${oa_replays_content_dir}/ridge-reach-new.oamap"
+          "${oa_replays_content_dir}/ridge-wind.oamut"
+          "${oa_replays_content_dir}/ridge-28.oamod" "${oa_replays_content_dir}/ridge-29.oamod"
+          "${oa_replays_content_dir}/ridge-gone.oamap" "${oa_replays_content_dir}/ridge-mod"
+          "${oa_replays_content_dir}/replays-content-ridge.oademo"
+          "${oa_replays_content_dir}/ridge-record" "${oa_replays_content_dir}/expansion"
+          "${oa_replays_content_dir}/ridge.key" "${oa_replays_content_dir}/pass.txt")
+        set_tests_properties(replays-content-clean PROPERTIES
+          FIXTURES_SETUP replays-content-clean)
+        add_test(NAME native-replays-content COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_replays_content.py"
+          --native $<TARGET_FILE:oa-game> --tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}" --work-dir "${oa_replays_content_dir}")
+        set_tests_properties(native-replays-content PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_replays_content_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+          FIXTURES_REQUIRED replays-content-clean)
+      endif()
       # Made-up mod packages posted as the download queue posts them, from a
       # built-in registry and two added ones, installed while the Library
       # shows: the built-in one's with no question, the added ones' asking
@@ -3339,6 +3444,26 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-director-view PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_director_view_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
+      # Photo mode in a window on the dummy drivers: the battlefield alone,
+      # the view put back on leaving, and no order or click changing the match.
+      set(oa_photo_mode_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-mode")
+      file(MAKE_DIRECTORY "${oa_photo_mode_dir}")
+      add_test(NAME native-photo-mode COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo mode
+        --preferences-file "${oa_photo_mode_dir}/photo-mode.conf")
+      set_tests_properties(native-photo-mode PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_mode_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Photo mode's time: freeze, step, the eighths between ticks and slow
+      # play, then a shared match and a watcher holding the picture.
+      set(oa_photo_time_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-time")
+      file(MAKE_DIRECTORY "${oa_photo_time_dir}")
+      add_test(NAME native-photo-time COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo time
+        --preferences-file "${oa_photo_time_dir}/photo-time.conf")
+      set_tests_properties(native-photo-time PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_time_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # A small director script rendered over the headless skirmish with
       # encoding off, whole and its second chunk alone: every chunk's frames,
       # sound and manifests are written, neither a chunk's sound nor the
@@ -4665,6 +4790,42 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-bench PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --replay-index writes a recorded loopback game's index: twice the
+        # same bytes, a length equal to the last tick --play-demo reaches, and
+        # for a copy cut at half its packets, a replay that ended cut on a
+        # tick before the end.
+        add_test(NAME native-replay-index COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_replay_index.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-replay-index PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --check-replay-import copies a .oademo and a .tad into
+        # Recordings/Imported and selects each, copies nothing the second
+        # time, leaves sector 6 out of the .tad, and refuses a damaged file
+        # with its sentence. The check clears that folder as it starts.
+        add_test(NAME native-replays-import COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_replay_import.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-replays-import PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --replay-keyframe-check takes a keyframe of a recorded loopback
+        # game's replay at the start, in the middle and near the end, plays
+        # 3,000 ticks, restores it and plays them again: both runs end on the
+        # same digest and the same state, and the replay still ends on the
+        # digest the plain replay ends on.
+        add_test(NAME native-replay-keyframes COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_replay_keyframes.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-replay-keyframes PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --replay-seek jumps back and forward in a recorded loopback game,
+        # and --replay-speed 16 plays one through: each ends on the digest
+        # the plain replay ends on, and the check passes a second time.
+        add_test(NAME native-replay-seek COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_replay_seek.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-replay-seek PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # Buildings created by name on the chat line stand on their build
         # grid at their yard's height: a shipyard floats its waterline below
         # the sea, a solar collector on a hill stands on its lowest corner.
@@ -4725,6 +4886,13 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage-render PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A staged ten-player battle in each colour-vision mode: each player's
+        # anchor colour is on that player's units and on the minimap dot.
+        add_test(NAME native-colour-vision COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_colour_vision.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-colour-vision PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The water effects on the graphics card's Full tier, in the classic
         # and the turned view: a lava world's shore, with a kbot walking its
         # edge and shells landing in the lava, draws the same with them at
@@ -5120,6 +5288,12 @@ endif()
 if(OA_REQUIRE_GAME AND NOT TARGET oa-game)
   message(FATAL_ERROR "OA_REQUIRE_GAME is ON, but oa-game is not built: it needs OA_BUILD_PLATFORM=ON")
 endif()
+# The .tad format and the .oademo container. oa-tool's replay command links
+# both, so they are added before tools/oa-tool. Their own dependencies are
+# already added above.
+add_subdirectory(src/formats/tad)
+add_subdirectory(src/formats/oademo)
+add_subdirectory(src/data/replays)
 # The command library and its test live in tools/oa-tool. The executable stays
 # here so the Windows DLL copy and the packaged notices still attach to it.
 add_subdirectory(tools/oa-tool)
@@ -5397,6 +5571,10 @@ if(BUILD_TESTING)
     # match. It downloads nothing.
     add_test(NAME text-fonts-bootstrap-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/bootstrap_text_fonts.py --self-test)
+    # tools/bootstrap_accesskit.py reads its pin, refuses a bad archive and
+    # reuses a tree that matches the pin. It downloads nothing.
+    add_test(NAME accesskit-bootstrap-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/bootstrap_accesskit.py --self-test)
     # tools/language_pack_check.py on the tests' pseudo-language pack: the
     # pack reads, and its coverage is told.
     add_test(NAME language-pack-check-pseudo COMMAND ${Python3_EXECUTABLE}
@@ -5404,7 +5582,7 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/src/data/languages/tests/pseudo-pack)
     set_tests_properties(fixed-width-rewrite-selftest format-check-selftest licensing-check-selftest
       sdl-bootstrap-selftest macos-deps-bootstrap-selftest ios-deps-bootstrap-selftest
-      text-fonts-bootstrap-selftest language-pack-check-pseudo
+      text-fonts-bootstrap-selftest accesskit-bootstrap-selftest language-pack-check-pseudo
       PROPERTIES TIMEOUT 60)
   endif()
 endif()
@@ -5435,14 +5613,13 @@ if(TARGET oa-game AND OA_SELF_CHECKS)
   target_sources(oa-game PRIVATE src/app/runtime_dialog_checks.cpp)
 endif()
 
-# Network play: the multiplayer screens, the network session and match, the
-# .tad recording format and its playback, and oa-game's extension
-# oa-app-netgame, which takes the 3.1c network switches -c -e -h -n -p -t the
-# game otherwise refuses. Its state for each runtime
+# Network play: the multiplayer screens, the network session and match, and
+# oa-game's extension oa-app-netgame, which takes the 3.1c network switches
+# -c -e -h -n -p -t the game otherwise refuses. Its state for each runtime
 # (src/app/netgame/network_play.hpp) is its extension's own, and Runtime's
 # friend. Registered before any other extension, so that the others come
-# after it in the extension list.
-add_subdirectory(src/formats/tad)
+# after it in the extension list. The .tad format is added above, before
+# oa-tool, which links it.
 add_subdirectory(src/ui/frontend-multiplayer)
 add_subdirectory(src/ui/map-previews)
 # The map browser: MORE MAPS… over the map lists opens it on the OA layer.

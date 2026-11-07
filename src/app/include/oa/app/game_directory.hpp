@@ -29,6 +29,8 @@
 #include <string_view>
 #include <vector>
 
+struct SDL_Window;
+
 namespace oa::platform {
 struct FileResidence;
 using FileResidenceProbe = bool (*)(const std::filesystem::path&, FileResidence&, void*);
@@ -696,6 +698,26 @@ take_picked_folder(const GameDirectoryHost& host, const fs::path& folder, std::s
 /// @return what the dialog gave; unavailable where the build offers none
 [[nodiscard]] FolderPick
 pick_game_folder_with_dialog(const fs::path& start, fs::path* chosen, std::string* error);
+
+/// Opens the system's folder dialog with a title of the caller's choosing.
+///
+/// The same dialog as `pick_game_folder_with_dialog`, opened on `start`. A
+/// build without the system dialog returns `FolderPick::unavailable` and
+/// leaves `chosen` alone. Cancelling leaves it alone too.
+///
+/// @param start the folder it opens at; empty: the system's choice
+/// @param title the dialog's title
+/// @param[out] chosen the folder picked
+/// @param[out] error why no folder came back, for FolderPick::unavailable
+/// @param window the game's window, when one exists; none before the window does
+/// @return what the dialog gave; unavailable where the build offers none
+[[nodiscard]] FolderPick pick_folder_with_dialog(
+    const fs::path& start,
+    std::string_view title,
+    fs::path* chosen,
+    std::string* error,
+    SDL_Window* window = nullptr
+);
 
 /// Inspects a folder the chooser picked and returns it as chosen (it is remembered) when it
 /// can be played (game_directory_dialog.cpp), with the mod folder and the data folder

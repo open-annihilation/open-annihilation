@@ -46,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::update_channel) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::open_replay_files) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -267,6 +267,23 @@ constexpr std::array<Setting, 3> kModChatRows{
     Setting::chat_backdrop,
     Setting::panel_background,
 };
+/// Replays where the system can choose an opener: recording, how long a
+/// replay is kept, and whether this copy opens replay files.
+constexpr std::array<Setting, 3> kReplaysSwitchRows{
+    Setting::record_games,
+    Setting::keep_replays,
+    Setting::open_replay_files,
+};
+/// Replays where the app takes the types and cannot choose an opener: the
+/// two rows, and no switch.
+constexpr std::array<Setting, 2> kReplaysPlainRows{
+    Setting::record_games,
+    Setting::keep_replays,
+};
+/// Replays' rows for this system.
+constexpr std::span<const Setting> kReplaysRows = file_types_switchable
+                                                      ? std::span<const Setting>{kReplaysSwitchRows}
+                                                      : std::span<const Setting>{kReplaysPlainRows};
 /// Downloads builds its rows from the host's offer, not from settings.
 constexpr std::array<Setting, 0> kDownloadsRows{};
 /// Updates builds its rows from the host's offer, not from settings.
@@ -301,34 +318,37 @@ constexpr std::span<const Setting> kSystemRows = file_types_switchable
 
 /// What each section shows, in Page's order.
 constexpr std::array<std::span<const Setting>, page_count> kPageRows{
-    kControlsRows,      kEngineLimitsRows,  kLanguageRows,   kGraphicsRows,
-    kUserInterfaceRows, kTouchRows,         kControllerRows, kDeveloperRows,
-    kGameFilesRows,     kDownloadsRows,     kSystemRows,     {},
-    kUpdatesRows,       kAccessibilityRows, kModKeysRows,    kModPatrolRows,
-    kModGuardRows,      kModToolsRows,      kModChatRows,    {},
+    kControlsRows,   kEngineLimitsRows,  kLanguageRows,
+    kGraphicsRows,   kUserInterfaceRows, kTouchRows,
+    kControllerRows, kDeveloperRows,     kGameFilesRows,
+    kDownloadsRows,  kSystemRows,        {},
+    kUpdatesRows,    kAccessibilityRows, kReplaysRows,
+    kModKeysRows,    kModPatrolRows,     kModGuardRows,
+    kModToolsRows,   kModChatRows,       {},
 };
 /// Each section's name, as its list entry shows it, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageNames{
-    "Controls",   "Engine Limits", "Language & Text", "Graphics",      "User Interface",
-    "Touch",      "Controller",    "Developer",       "Game files",    "Downloads",
-    "System",     "Game Content",  "Updates",         "Accessibility", "Keys",
-    "Patrolling", "Guarding",      "Build tools",     "Snap & chat",   "",
+    "Controls", "Engine Limits", "Language & Text", "Graphics",      "User Interface",
+    "Touch",    "Controller",    "Developer",       "Game files",    "Downloads",
+    "System",   "Game Content",  "Updates",         "Accessibility", "Replays",
+    "Keys",     "Patrolling",    "Guarding",        "Build tools",   "Snap & chat",
+    "",
 };
 /// Each section's heading, in capitals, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageHeadings{
-    "CONTROLS",          "ENGINE LIMITS", "LANGUAGE & TEXT", "GRAPHICS",
-    "USER INTERFACE",    "TOUCH",         "CONTROLLER",      "DEVELOPER",
-    "GAME FILES",        "DOWNLOADS",     "SYSTEM",          "GAME CONTENT",
-    "UPDATES",           "ACCESSIBILITY", "MOD KEYS",        "PATROLLING BUILDERS",
-    "GUARDING BUILDERS", "BUILD TOOLS",   "SNAP & CHAT",     "",
+    "CONTROLS", "ENGINE LIMITS",       "LANGUAGE & TEXT",   "GRAPHICS",      "USER INTERFACE",
+    "TOUCH",    "CONTROLLER",          "DEVELOPER",         "GAME FILES",    "DOWNLOADS",
+    "SYSTEM",   "GAME CONTENT",        "UPDATES",           "ACCESSIBILITY", "REPLAYS",
+    "MOD KEYS", "PATROLLING BUILDERS", "GUARDING BUILDERS", "BUILD TOOLS",   "SNAP & CHAT",
+    "",
 };
 /// Each section's automation word, in kebab case, in Page's order.
 /// Engine Limits' word is engine-limits; its enumerator stays common_tweaks.
 constexpr std::array<std::string_view, page_count> kPageWords{
-    "controls",   "engine-limits", "language",  "graphics",      "user-interface",
-    "touch",      "controller",    "developer", "game-files",    "downloads",
-    "system",     "game-content",  "updates",   "accessibility", "mod-keys",
-    "mod-patrol", "mod-guard",     "mod-tools", "mod-chat",      "registered",
+    "controls",   "engine-limits", "language",   "graphics",  "user-interface", "touch",
+    "controller", "developer",     "game-files", "downloads", "system",         "game-content",
+    "updates",    "accessibility", "replays",    "mod-keys",  "mod-patrol",     "mod-guard",
+    "mod-tools",  "mod-chat",      "registered",
 };
 static_assert(
     static_cast<std::size_t>(Page::registered) + 1 == page_count,
@@ -421,6 +441,14 @@ constexpr std::array<std::string_view, 2> kUpdateChannelCaptions{"Stable", "Test
 static_assert(
     kUpdateChannelCaptions.size() == update_channel_choices.size(),
     "every channel of Update channel has its caption"
+);
+/// Keep replays for's captions, in replay_keep_choices' order.
+constexpr std::array<std::string_view, 4> kReplayKeepCaptions{
+    "30 days", "90 days", "A year", "Forever"
+};
+static_assert(
+    kReplayKeepCaptions.size() == replay_keep_choices.size(),
+    "every length of Keep replays for has its caption"
 );
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
@@ -3128,6 +3156,23 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                          LevelStrip<UpdateChannel, 2, update_channel_choices, &E::update_channel, kUpdateChannelCaptions, &table_word<update_channel_words, UpdateChannel>>::stepper(),
                          update_channel_level_width,
                          {"Testing builds come first and may be unfinished.", {}})},
+    {.setting = S::record_games,
+     .spec = engine_switch<&E::replays_record>(
+         "record-games",
+         "Record my games",
+         {"Campaign missions, skirmish, multiplayer and Boneyards battles. Applies from the next "
+          "game.",
+          {}})},
+    {.setting = S::keep_replays,
+     .spec = wide(kit::choice("keep-replays", "Keep replays for",
+                              DropDown<ReplayKeep, 4, replay_keep_choices, &E::replays_keep, kReplayKeepCaptions, &table_word<replay_keep_words, ReplayKeep>>::stepper(),
+                              {"Replays you keep in the Library stay until you delete them."}),
+                  choice_width)},
+    {.setting = S::open_replay_files,
+     .spec = engine_switch<&E::replays_open_files>(
+         "open-replay-files",
+         "Open replay files with Open Annihilation",
+         {"A .oademo or a .tad file opens in this copy.", {}})},
 }};
 // clang-format on
 
@@ -3263,6 +3308,9 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "invert-mouse-zoom",
     "look",
     "update-channel",
+    "record-games",
+    "keep-replays",
+    "open-replay-files",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

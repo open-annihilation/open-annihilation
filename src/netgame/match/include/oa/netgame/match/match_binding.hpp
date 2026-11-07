@@ -37,15 +37,36 @@ struct MatchBinding {
         features{}; // where the match's feature hooks send; filled by match_binding_install
 };
 
+/// Prepares a binding for a match without moving its unit ranges.
+///
+/// Sizes the per-unit movement records and clears the counters. The match's
+/// unit ids and per-player views stay as they are, so a skirmish can send
+/// through the binding without being rebound as a network game.
+///
+/// @param[out] binding Binding to prepare.
+/// @param match Offline match runtime the binding reads; its ranges are not changed.
+/// @param net Multiplayer match state the binding sends through.
+void match_binding_prepare(MatchBinding* binding, sim::match_runtime::Match* match, NetMatch* net);
+
 /// Prepares a binding for a match after match_launch_apply.
 ///
-/// Sizes the per-unit movement records, clears the counters, assigns the
-/// multiplayer unit ranges and rebinds the match's per-player views.
+/// Calls match_binding_prepare, then assigns the multiplayer unit ranges and
+/// rebinds the match's per-player views.
 ///
 /// @param[out] binding Binding to initialise.
 /// @param match Offline match runtime to drive; its per-player ranges are rebound.
 /// @param net Multiplayer match state the binding sends through.
 void match_binding_init(MatchBinding* binding, sim::match_runtime::Match* match, NetMatch* net);
+
+/// Sends one local player's unit state (0x2c) and copies the sent route bits back.
+///
+/// The body of the binding's local_player_ticked hook. A recording that must
+/// not move the match calls it and then puts the route bits and the player's
+/// last tick back.
+///
+/// @param context The MatchBinding.
+/// @param player The local player that ticked.
+void match_binding_send_local_tick(void* context, Player& player);
 
 /// Returns the replication callbacks over the bound match.
 ///

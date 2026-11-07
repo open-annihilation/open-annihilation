@@ -332,10 +332,12 @@ FunctionEnd
 # This install's program, as the uninstaller names it and in its short form.
 Var ThisProgram
 Var ThisProgramShort
-# The file type un.OA_WithdrawUserType withdraws.
+# The file type un.OA_WithdrawUserType withdraws, and an extension it only
+# offers (its OpenWithProgids value), empty when it offers none.
 Var UserExtension
 Var UserProgramId
 Var UserMimeType
+Var UserOfferedExtension
 
 # Takes a path from the stack and leaves 1 there when it is this install's
 # program, else 0. Letter case never matters, and an absolute path is also
@@ -458,6 +460,11 @@ Function un.OA_WithdrawUserType
       DeleteRegKey /ifempty HKCU "$5\DefaultIcon"
       DeleteRegKey /ifempty HKCU "$5"
       DeleteRegValue HKCU "$6\OpenWithProgids" "$UserProgramId"
+      # An offered extension, such as .tad beside .oademo, loses the same
+      # program identifier only when that identifier's key went.
+      ${If} $UserOfferedExtension != ""
+        DeleteRegValue HKCU "${OA_USER_CLASSES_KEY}\$UserOfferedExtension\OpenWithProgids" "$UserProgramId"
+      ${EndIf}
       ClearErrors
       ReadRegStr $0 HKCU "$6" ""
       ${IfNot} ${Errors}
@@ -475,19 +482,22 @@ Function un.OA_WithdrawUserType
   ClearErrors
 FunctionEnd
 
-!macro OA_WithdrawUserType _EXTENSION _PROGRAM_ID _MIME_TYPE
+!macro OA_WithdrawUserType _EXTENSION _PROGRAM_ID _MIME_TYPE _OFFERED_EXTENSION
   StrCpy $UserExtension "${_EXTENSION}"
   StrCpy $UserProgramId "${_PROGRAM_ID}"
   StrCpy $UserMimeType "${_MIME_TYPE}"
+  StrCpy $UserOfferedExtension "${_OFFERED_EXTENSION}"
   Call un.OA_WithdrawUserType
 !macroend
 !define OA_WithdrawUserType "!insertmacro OA_WithdrawUserType"
 
 Section "Uninstall"
-  # The game's own registration of the seven file types, for the account that
+  # The game's own registration of the file types, for the account that
   # uninstalls, while it names this install's program: first, while the
   # program is still there to be named in its short form too. The extensions
-  # and program identifiers are those of src/platform/file-types.
+  # and program identifiers are those of src/platform/file-types. .tad is
+  # offered, never owned: its OpenWithProgids value goes with .oademo's, and
+  # only when that program identifier's key went.
   StrCpy $ThisProgram "$INSTDIR\open-annihilation.exe"
   ClearErrors
   GetFullPathName /SHORT $ThisProgramShort $ThisProgram
@@ -496,14 +506,15 @@ Section "Uninstall"
     StrCpy $ThisProgramShort $ThisProgram
   ${EndIf}
   ClearErrors
-  ${OA_WithdrawUserType} ".oamod" "OpenAnnihilation.Mod" "application/x-oamod"
-  ${OA_WithdrawUserType} ".oalang" "OpenAnnihilation.Language" "application/x-oalang"
-  ${OA_WithdrawUserType} ".oamap" "OpenAnnihilation.MapPack" "application/x-oamap"
-  ${OA_WithdrawUserType} ".oamut" "OpenAnnihilation.Mutator" "application/x-oamut"
-  ${OA_WithdrawUserType} ".oabrain" "OpenAnnihilation.Brain" "application/x-oabrain"
-  ${OA_WithdrawUserType} ".oakeys" "OpenAnnihilation.KeyLayout" "application/x-oakeys"
-  ${OA_WithdrawUserType} ".oareg" "OpenAnnihilation.Registry" "application/x-oareg"
-  ${OA_WithdrawUserType} ".oalaunch" "${OA_LAUNCH_PROGRAM_ID}" "${OA_LAUNCH_MIME_TYPE}"
+  ${OA_WithdrawUserType} ".oamod" "OpenAnnihilation.Mod" "application/x-oamod" ""
+  ${OA_WithdrawUserType} ".oalang" "OpenAnnihilation.Language" "application/x-oalang" ""
+  ${OA_WithdrawUserType} ".oamap" "OpenAnnihilation.MapPack" "application/x-oamap" ""
+  ${OA_WithdrawUserType} ".oamut" "OpenAnnihilation.Mutator" "application/x-oamut" ""
+  ${OA_WithdrawUserType} ".oabrain" "OpenAnnihilation.Brain" "application/x-oabrain" ""
+  ${OA_WithdrawUserType} ".oakeys" "OpenAnnihilation.KeyLayout" "application/x-oakeys" ""
+  ${OA_WithdrawUserType} ".oareg" "OpenAnnihilation.Registry" "application/x-oareg" ""
+  ${OA_WithdrawUserType} ".oalaunch" "${OA_LAUNCH_PROGRAM_ID}" "${OA_LAUNCH_MIME_TYPE}" ""
+  ${OA_WithdrawUserType} ".oademo" "OpenAnnihilation.Replay" "application/x-oademo" ".tad"
 
   # Removes the install folder's own files, the Start Menu folder and the
   # desktop shortcut this installer added. Never Documents, and never a game

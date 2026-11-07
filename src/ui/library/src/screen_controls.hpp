@@ -20,8 +20,9 @@ namespace oa::ui::library::controls {
 /// The first tab's control; the others follow in Tab's order.
 inline constexpr kit::ControlId first_tab = 1;
 /// The tab strip's arrow toward the earlier tabs. It is not a tab.
-/// The tabs occupy 1 through tab_total. These sit after MORE ▾ (14) and
-/// before the filters (20), so the ninth tab never shares a number with them.
+/// The tabs occupy 1 through tab_total, below the search (11). These sit
+/// after MORE ▾ (14) and before the filters (20), so no tab shares a number
+/// with them.
 inline constexpr kit::ControlId tab_scroll_left = 15;
 /// The tab strip's arrow toward the later tabs. It is not a tab.
 inline constexpr kit::ControlId tab_scroll_right = 16;
@@ -33,8 +34,15 @@ inline constexpr kit::ControlId filter_menu = 12;
 inline constexpr kit::ControlId tags_menu = 13;
 /// The Compact details page's MORE ▾ (library.action).
 inline constexpr kit::ControlId more_menu = 14;
+/// The Replays section's kind menu (library.replays.kind).
+inline constexpr kit::ControlId replay_kind_menu = 17;
+/// The Replays section's sort menu (library.replays.sort).
+inline constexpr kit::ControlId replay_sort_menu = 18;
 /// The All chip or nav entry; New, Installed and Updates follow in Filter's order.
 inline constexpr kit::ControlId first_filter = 20;
+/// The Replays section's This month entry; Older, Kept and Imported follow
+/// in ReplayFilter's order, after the catalogue's four and before UPDATE ALL.
+inline constexpr kit::ControlId first_replay_filter = 24;
 /// UPDATE ALL.
 inline constexpr kit::ControlId update_all = 30;
 /// The list pane.
@@ -56,7 +64,8 @@ inline constexpr kit::ControlId close_x = 55;
 inline constexpr kit::ControlId status = 60;
 /// The first queue line's label.
 inline constexpr kit::ControlId queue = 61;
-/// The playing note's label.
+/// The playing note's label, and on the Replays card why the replay cannot
+/// be watched.
 inline constexpr kit::ControlId note = 62;
 /// The From fact's label.
 inline constexpr kit::ControlId from = 63;
@@ -69,6 +78,9 @@ inline constexpr kit::ControlId active_language = 66;
 /// UNLOAD MOD, at the bottom right of the Active tab's mod tile while a mod
 /// is played. It asks for SWITCH OFF.
 inline constexpr kit::ControlId active_unload = 67;
+/// The Replays section's line in the footer: what the list shows, or how
+/// far the folder has been read.
+inline constexpr kit::ControlId replays_status = 68;
 /// ADD REGISTRY… on the Registries tab. 70–73 sit between UNLOAD MOD (67)
 /// and the action buttons (100); 73 is the Active tab's maps search.
 inline constexpr kit::ControlId add_registry = 70;
@@ -173,6 +185,107 @@ inline constexpr kit::ControlId use_helpers_note = 16000010;
 inline constexpr kit::ControlId first_use_helper = 16000100;
 /// The most helper switches one question names.
 inline constexpr std::size_t most_use_helpers = 16;
+/// A replay's row: this and the replay's place among the visible ones.
+inline constexpr kit::ControlId first_replay_row = 17000000;
+/// The most replay rows that are named; the rows after them are drawn and not named.
+inline constexpr std::size_t most_replay_rows = 1000000;
+
+/// A fact on a replay's card: this and the fact's place on the card, from 0.
+inline constexpr kit::ControlId first_replay_fact = 18000000;
+
+/// The shade behind Export. It takes a press so the Library under it does not.
+inline constexpr kit::ControlId export_blocker = 19000001;
+/// The Open Annihilation replay choice.
+inline constexpr kit::ControlId export_format_oademo = 19000002;
+/// The TA Demo Recorder choice.
+inline constexpr kit::ControlId export_format_tad = 19000003;
+/// What only Open Annihilation reads.
+inline constexpr kit::ControlId export_oa_sectors = 19000004;
+/// CHOOSE… on the form.
+inline constexpr kit::ControlId export_choose = 19000005;
+/// CANCEL. Escape answers it. While the chooser is open it returns to the form.
+inline constexpr kit::ControlId export_cancel = 19000006;
+/// EXPORT. Enter answers it while a file can be written.
+inline constexpr kit::ControlId export_confirm = 19000007;
+/// SHOW IN FOLDER after the files are written. Enter answers it then.
+inline constexpr kit::ControlId export_show = 19000008;
+/// CLOSE after the files are written, or when nothing can be written.
+inline constexpr kit::ControlId export_close = 19000009;
+/// UP in the chooser.
+inline constexpr kit::ControlId export_browse_up = 19000010;
+/// USE THIS FOLDER. Enter answers it while the chooser is open.
+inline constexpr kit::ControlId export_browse_use = 19000011;
+/// The next page of folders.
+inline constexpr kit::ControlId export_browse_more = 19000012;
+/// The previous page of folders.
+inline constexpr kit::ControlId export_browse_previous = 19000013;
+/// Where the files are written, as a line a journey reads.
+inline constexpr kit::ControlId export_where = 19000014;
+/// The sentence the dialog is showing: a problem, progress, or where the files went.
+inline constexpr kit::ControlId export_note = 19000015;
+/// The previous page of compatibility warnings.
+inline constexpr kit::ControlId export_warnings_previous = 19000016;
+/// The next page of compatibility warnings.
+inline constexpr kit::ControlId export_warnings_more = 19000017;
+/// One compatibility warning: this and the warning's place in the list.
+inline constexpr kit::ControlId first_export_warning = 19000020;
+/// The most warnings the dialog names.
+inline constexpr std::size_t most_export_warnings = 32;
+/// A folder row: this and the folder's place in the list the chooser holds.
+inline constexpr kit::ControlId first_export_row = 19000100;
+/// The most folders the chooser names. The page shows fewer; the rest stay reachable.
+inline constexpr std::size_t most_export_rows = 100000;
+/// How many folder rows one page of the chooser shows.
+inline constexpr int32_t export_browse_page = 6;
+
+/// Tells whether a control is a replay's row.
+///
+/// @param id the control
+/// @return true for a row of the Replays section
+[[nodiscard]] constexpr bool replay_row_control(kit::ControlId id) noexcept {
+    return id >= first_replay_row &&
+           id < first_replay_row + static_cast<kit::ControlId>(most_replay_rows);
+}
+
+/// Returns a replay filter's nav entry's control.
+///
+/// @param filter the filter
+/// @return its number
+[[nodiscard]] constexpr kit::ControlId replay_filter_control(ReplayFilter filter) noexcept {
+    return first_replay_filter + static_cast<kit::ControlId>(filter);
+}
+
+/// Tells whether a control is one of the Replays section's filters.
+///
+/// @param id the control
+/// @return true for This month, Older, Kept or Imported
+[[nodiscard]] constexpr bool replay_filter_entry(kit::ControlId id) noexcept {
+    return id >= first_replay_filter &&
+           id < first_replay_filter + static_cast<kit::ControlId>(replay_filter_total);
+}
+
+/// Tells whether a control is one of Export's.
+///
+/// @param id the control
+/// @return true for the dialog, its chooser or the shade behind it
+[[nodiscard]] inline bool export_control(kit::ControlId id) noexcept {
+    if (id >= export_blocker && id <= export_warnings_more)
+        return true;
+    if (id >= first_export_warning &&
+        id < first_export_warning + static_cast<kit::ControlId>(most_export_warnings))
+        return true;
+    return id >= first_export_row &&
+           id < first_export_row + static_cast<kit::ControlId>(most_export_rows);
+}
+
+/// Tells whether a control is a folder row of Export's chooser.
+///
+/// @param id the control
+/// @return true for a row the chooser names
+[[nodiscard]] inline bool export_row_control(kit::ControlId id) noexcept {
+    return id >= first_export_row &&
+           id < first_export_row + static_cast<kit::ControlId>(most_export_rows);
+}
 
 /// Tells whether a control is a fact that opens a key layout.
 ///
@@ -370,11 +483,13 @@ inline constexpr int32_t filters_group = 3;
 /// One item of a drop-down: its caption, its automation word and what
 /// choosing it does, one of a filter, a tag or an action.
 struct MenuItem {
-    std::string caption{};            ///< the words shown, looked up
-    std::string word{};               ///< the word automation names it by
-    std::optional<Filter> filter{};   ///< the filter it shows, with every tag
-    std::optional<std::size_t> tag{}; ///< the tag it shows, its place in tags_in_tab
-    std::optional<Action> action{};   ///< the selected entry's action it asks for
+    std::string caption{};                    ///< the words shown, looked up
+    std::string word{};                       ///< the word automation names it by
+    std::optional<Filter> filter{};           ///< the filter it shows, with every tag
+    std::optional<std::size_t> tag{};         ///< the tag it shows, its place in tags_in_tab
+    std::optional<Action> action{};           ///< the selected entry's action it asks for
+    std::optional<std::string> replay_kind{}; ///< the kind of replay it shows; empty for all
+    std::optional<ReplaySort> replay_sort{};  ///< the order of the replays it chooses
     /// A heading over the items after it, such as WORLD: not a choice, never
     /// marked, pressed or named.
     bool heading{};

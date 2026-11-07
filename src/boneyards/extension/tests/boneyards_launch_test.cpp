@@ -17,6 +17,7 @@
 #include "boneyards_launch.hpp"
 #include "boneyards_mod_gate.hpp"
 #include "boneyards_report.hpp"
+#include "launch_binding.hpp"
 
 #include "oa/boneyards/overlay_launch.hpp"
 #include "oa/boneyards/rover_calls.hpp"
@@ -25,6 +26,9 @@
 #include "oa/app/netgame/extension_api.hpp"
 #include "oa/netgame/frontend/multiplayer_states.hpp"
 #include "oa/boneyards/reporter.hpp"
+#include "oa/formats/oademo/oademo.hpp"
+#include "oa/session/demo/recording.hpp"
+#include "oa/session/demo/replay_record.hpp"
 #include "oa/test/netgame_launch_record.hpp"
 #include "oa/rover/interface.h"
 #include "oa/ui/frontend_multiplayer/launch_block.hpp"
@@ -1013,6 +1017,97 @@ void test_battle_lines() {
 
 } // namespace
 
+bool test_battle_place(const char** planet, const char** sector) {
+    *planet = "Rosewood";
+    *sector = "Cygnus Reach";
+    return true;
+}
+
+bool unknown_battle_place(const char** planet, const char** sector) {
+    *planet = "";
+    *sector = "";
+    return true;
+}
+
+// A battle the Boneyards launched says what it knows of the game its replay is made of: its
+// kind, its game id, its planet and its sector. Network play carries that to the replay's
+// description, under `game`. A game no one launched, and a launch that is over, say nothing.
+void test_recorded_game() {
+    nl::LaunchBlock& block = api::launch_block();
+    block = nl::LaunchBlock{};
+    api::end_launch();
+    api::Hooks hooks{};
+    hooks.recorded_game = boneyards_recorded_game;
+    api::set_hooks(hooks);
+    BoneyardsLaunch boneyards{};
+    boneyards.battle_ids = test_battle_ids;
+    boneyards.battle_place = test_battle_place;
+    boneyards.exit_prompt = &g_prompt;
+    bind_boneyards_launch(boneyards);
+
+    check(!recorded_game_facts().has_value(), "no launch: no account of the game");
+    api::apply_launch();
+    const auto facts = recorded_game_facts();
+    check(
+        facts.has_value() && facts->kind == "boneyards" &&
+            facts->object_json ==
+                R"({"game_id":"9bfaa0d0f7b93f12","planet":"Rosewood","sector":"Cygnus Reach"})",
+        "the hook gives the game id, the planet and the sector"
+    );
+
+    // The account reaches the replay's description, under `game`.
+    oa::session::demo::RecordingSetup setup{};
+    setup.max_units = 20;
+    setup.map_name = "Acid Pools";
+    oa::session::demo::RecordingPlayer player{};
+    player.player_id = 0x100;
+    player.name = "Ghost_Commander";
+    setup.players.push_back(player);
+    oa::session::demo::ReplayFacts replay_facts{};
+    if (facts.has_value()) {
+        replay_facts.game_kind = facts->kind;
+        replay_facts.game_kind_object = facts->object_json;
+    }
+    const auto replay = oa::session::demo::replay_begin(setup, replay_facts);
+    const std::string described = oa::formats::oademo::meta_text(replay.meta);
+    check(
+        described.find(R"("game":{"kind":"boneyards")") != std::string::npos &&
+            described.find(
+                R"("boneyards":{"game_id":"9bfaa0d0f7b93f12","planet":"Rosewood","sector":"Cygnus Reach"})"
+            ) != std::string::npos,
+        "the game id, planet and sector reach meta.json's game member"
+    );
+    const auto written = oa::formats::oademo::write(replay);
+    const auto read = oa::formats::oademo::read(written.bytes);
+    check(
+        written.ok() && read.ok() && read.replay->meta.game.kind == "boneyards" &&
+            read.replay->meta.game.kind_object == facts->object_json,
+        "a replay written with them reads back with them"
+    );
+
+    // A planet or sector the map does not name leaves its member out.
+    boneyards.battle_place = unknown_battle_place;
+    bind_boneyards_launch(boneyards);
+    const auto unplaced = recorded_game_facts();
+    check(
+        unplaced.has_value() && unplaced->object_json == R"({"game_id":"9bfaa0d0f7b93f12"})",
+        "an unnamed planet and sector are left out"
+    );
+
+    // A battle that is over is not recorded as one.
+    api::end_launch();
+    check(!recorded_game_facts().has_value(), "after the launch ends there is no account");
+    api::apply_launch();
+    boneyards.battle_ids = nullptr;
+    bind_boneyards_launch(boneyards);
+    check(
+        !recorded_game_facts().has_value(), "a launch with no battle in the console has no account"
+    );
+    api::end_launch();
+    api::set_hooks(api::Hooks{});
+    block = nl::LaunchBlock{};
+}
+
 int main() {
     bind_test_launch();
     test_fill();
@@ -1025,6 +1120,7 @@ int main() {
     test_report_uploads();
     test_battle_lines();
     test_tunnel_exits();
+    test_recorded_game();
     bind_boneyards_launch({});
     if (g_failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

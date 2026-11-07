@@ -1735,6 +1735,89 @@ void preference_rows_round_trip_and_refuse_bad_keys() {
     OA_CHECK(model.values["check.note"].size() == kit::preference_text_most - 1);
 }
 
+/// A row's label is its caption. The value is value_text, never the label.
+void a_row_names_its_caption_and_puts_the_value_beside_it() {
+    kit::RowView motion;
+    motion.kind = kit::RowKind::toggle;
+    motion.id = "smooth-motion";
+    motion.label = "Smooth motion";
+    motion.on = true;
+    motion.captions = {"Off", "On"};
+
+    kit::RowView rate;
+    rate.kind = kit::RowKind::slider;
+    rate.id = "max-frame-rate";
+    rate.label = "Max frame rate";
+    rate.value = "120 fps";
+    rate.index = 18;
+    rate.count = 19;
+
+    kit::RowView look;
+    look.kind = kit::RowKind::levels;
+    look.id = "look";
+    look.label = "Look";
+    look.index = 1;
+    look.count = 2;
+    look.offered = 2;
+    look.control_width = 34;
+    look.captions = {"Off", "Classic"};
+    look.choice_ids = {"off", "classic"};
+
+    kit::RowView named;
+    named.kind = kit::RowKind::text_field;
+    named.id = "player-name";
+    named.label = "Player name";
+    named.text = "ridge";
+
+    const std::vector<kit::RowView> views{motion, rate, look, named};
+    kit::DisplayList list;
+    kit::RowsState state;
+    state.name_prefix = "settings";
+    kit::add_rows(list, kit::place_rows(views, dialog_column(false)), state);
+
+    const kit::Control* smooth =
+        kit::control_of(list, kit::control_named(list, "settings.smooth-motion"));
+    const kit::Control* frame =
+        kit::control_of(list, kit::control_named(list, "settings.max-frame-rate"));
+    const kit::Control* strip = kit::control_of(list, kit::control_named(list, "settings.look"));
+    const kit::Control* field =
+        kit::control_of(list, kit::control_named(list, "settings.player-name"));
+    OA_CHECK(smooth != nullptr && smooth->label == "Smooth motion" && smooth->text == "On");
+    OA_CHECK(frame != nullptr && frame->label == "Max frame rate" && frame->text == "120 fps");
+    OA_CHECK(strip != nullptr && strip->label == "Look" && strip->text == "Classic");
+    OA_CHECK(field != nullptr && field->label == "Player name" && field->text == "ridge");
+
+    const std::vector<kit::AutomationEntry> entries = kit::automation_parts(list, {});
+    const kit::AutomationEntry* motion_entry = nullptr;
+    const kit::AutomationEntry* rate_entry = nullptr;
+    const kit::AutomationEntry* look_entry = nullptr;
+    const kit::AutomationEntry* field_entry = nullptr;
+    for (const kit::AutomationEntry& entry : entries) {
+        if (entry.name == "settings.smooth-motion")
+            motion_entry = &entry;
+        else if (entry.name == "settings.max-frame-rate")
+            rate_entry = &entry;
+        else if (entry.name == "settings.look")
+            look_entry = &entry;
+        else if (entry.name == "settings.player-name")
+            field_entry = &entry;
+    }
+    OA_CHECK(motion_entry != nullptr && motion_entry->label == "Smooth motion");
+    OA_CHECK(motion_entry != nullptr && motion_entry->value_text == "On");
+    OA_CHECK(motion_entry != nullptr && motion_entry->role == kit::AccessRole::switch_control);
+    OA_CHECK(motion_entry != nullptr && motion_entry->pressed);
+    OA_CHECK(rate_entry != nullptr && rate_entry->label == "Max frame rate");
+    OA_CHECK(rate_entry != nullptr && rate_entry->value_text == "120 fps");
+    OA_CHECK(rate_entry != nullptr && rate_entry->has_value && rate_entry->value == 18);
+    OA_CHECK(look_entry != nullptr && look_entry->label == "Look");
+    OA_CHECK(look_entry != nullptr && look_entry->value_text == "Classic");
+    OA_CHECK(look_entry != nullptr && look_entry->role == kit::AccessRole::radio_group);
+    OA_CHECK(field_entry != nullptr && field_entry->label == "Player name");
+    OA_CHECK(field_entry != nullptr && field_entry->text == "ridge");
+    OA_CHECK(field_entry != nullptr && field_entry->label != "ridge");
+    OA_CHECK(field_entry != nullptr && field_entry->value_text.empty());
+}
+
 int main() {
     every_kind_lies_by_the_rows_rules();
     rows_shaped_as_controls_lie_where_the_dialog_places_them();
@@ -1759,5 +1842,6 @@ int main() {
     a_link_acts_and_a_text_row_takes_nothing();
     a_page_painted_draws_its_switch_as_the_model_has_it();
     preference_rows_round_trip_and_refuse_bad_keys();
+    a_row_names_its_caption_and_puts_the_value_beside_it();
     return oa::test::check_exit_status();
 }

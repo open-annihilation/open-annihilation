@@ -166,7 +166,8 @@ std::size_t wrap_text(
     MeasureText measure,
     void* context,
     char* out,
-    std::size_t capacity
+    std::size_t capacity,
+    bool keep_hyphen
 ) {
     if (capacity == 0)
         return 0;
@@ -188,8 +189,17 @@ std::size_t wrap_text(
         out[n++] = *src;
         const char next = src[1];
         ++src;
-        if ((next == ' ' || next == '\n' || next == '-') &&
-            width <= measure(context, out + line_start)) {
+        // A hyphen that comes next joins the row it may end, so a row is held
+        // to the width with it. The buffer is cleared past the row's end, and
+        // the loop leaves room for it.
+        const bool hyphen_joins = keep_hyphen && next == '-';
+        if (hyphen_joins)
+            out[n] = '-';
+        const bool too_wide = (next == ' ' || next == '\n' || next == '-') &&
+                              width <= measure(context, out + line_start);
+        if (hyphen_joins)
+            out[n] = '\0';
+        if (too_wide) {
             // Walk back to the separator that ended the previous word.
             std::size_t back = 0;
             while (back + 1 < n - line_start &&
@@ -202,9 +212,17 @@ std::size_t wrap_text(
                     out[n - i] = '\0';
                 src -= back;
                 n -= back;
-                out[n - 1] = '\r';
-                out[n] = '\n';
-                ++n;
+                // The break replaces its separator, so a space and, as in
+                // 3.1c, a hyphen are lost; a kept hyphen ends its row.
+                if (separator == '-' && keep_hyphen) {
+                    out[n] = '\r';
+                    out[n + 1] = '\n';
+                    n += 2;
+                } else {
+                    out[n - 1] = '\r';
+                    out[n] = '\n';
+                    ++n;
+                }
                 line_start = n;
             }
         }
@@ -340,6 +358,17 @@ void briefing_next_page(
                     }
                 }
                 if (at_end(*p))
+                    break;
+                // The character after a marker is copied as part of the row,
+                // which is the CR of a briefing with CR LF line ends. A line
+                // feed there with no CR before it still ends the row; else
+                // the next line would join it, a row far wider than the
+                // region. A line feed with a CR before it is the second half
+                // of a CR LF whose CR an opening marker took as its colour
+                // code, as a highlight left open across a blank line does
+                // (3.1c's German ArmCampaign22 holds one); 3.1c draws that
+                // row as it always did, so it does not end here.
+                if (*p == '\n' && p[-1] != '\r')
                     break;
             }
             put_whole(p, out.text, fill);

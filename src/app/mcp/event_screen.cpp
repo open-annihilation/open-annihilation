@@ -45,7 +45,8 @@ void EventFeed::gather_screen(
     const std::string shown = automation::screen_name(check.screen(check.context));
     const bool dialogs = automation::screen_event_due(screen_watch_, shown);
     automation::Observed now;
-    automation::fill_observed(check, automation, now, dialogs);
+    // events.read keeps every kind, so the feed always reads the focus.
+    automation::fill_observed(check, automation, now, dialogs, true);
     automation::EventHooks hooks;
     hooks.context = this;
     hooks.wanted = [](void*, uint32_t) { return true; };

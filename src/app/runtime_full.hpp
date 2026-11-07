@@ -534,6 +534,12 @@ class ModelStage {
     /// @param gamma channel multiplier; 1 applies the palette unchanged
     void set_palette(const Palette& palette, float gamma);
 
+    /// Forgets the cached model frames so the next frame takes new texels.
+    ///
+    /// The palette stays. The meshes go with the pages, because they keep
+    /// places into the pages that a new packing would not reuse.
+    void drop_frames();
+
     /// Destroys every page and target the stage made on an executor and
     /// forgets the meshes, as at a match's end or a device reset; the pages'
     /// memory limits go back to what they started with.

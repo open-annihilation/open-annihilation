@@ -119,6 +119,9 @@ the locks a running game puts on them (`settings_locks`).
 | | Check for updates | Automatically, Only when I ask, Never | Automatically | `open-annihilation.update-check` (`automatically`, `when-asked` or `never`); takes effect at OK, and Cancel and Restore defaults apply. Check now makes no request while the choice is Never |
 | | Install updates: how a ready release is installed | Ask each time, When I quit | Ask each time | `open-annihilation.update-install` (`ask` or `when-i-quit`; any other text reads as `ask`); takes effect at OK, and Cancel and Restore defaults apply |
 | | Previous version · {version}, while a version is kept: Roll back… asks the roll back's question (`updates::roll_back_question`) | | | none. Locked during a game |
+| Replays, listed in every dialog of the engine's settings, after Game Content and before Engine Limits | Record my games: every game the player plays is kept as a replay (campaign missions, skirmish, multiplayer and Boneyards battles). A change made during a game applies from the next game. The dialog reads the Replays keys again from the preferences each time it opens (`read_replays_settings`), so a change another screen wrote shows | Off, On | On | `open-annihilation.replays.record` (`on` or `off`; only `off` turns it off); takes effect at OK, and Cancel and Restore defaults apply |
+| | Keep replays for, a drop-down: how long the replays the game recorded are kept. A replay the player marked Keep stays until the player deletes it. The setting holds the choice; what removes older replays reads it | 30 days, 90 days, A year, Forever | 30 days | `open-annihilation.replays.keep` (`30-days`, `90-days`, `1-year` or `forever`; absent or any other text is `30-days`); takes effect at OK, and Cancel and Restore defaults apply |
+| | Open replay files with Open Annihilation, on Windows, Linux and macOS, where `file_types_switchable` is true. It is not one of System's eight. On Windows and Linux OK registers or withdraws `.oademo` and the offer of `.tad`. On macOS it chooses whether this copy is the default opener of `.oademo` only | Off, On | On | `open-annihilation.replays.open-files` (`on` or `off`; only `off` turns it off); takes effect at OK, and Cancel and Restore defaults apply |
 | System, listed in every dialog of the engine's settings, after Game Content and before Developer | Your files: the player's own folder and buttons that open its Saves, Screenshots and Mods folders | changes no setting | | `open-annihilation.user-folder`, read at start (`src/app/include/oa/app/user_folder.hpp`) |
 | | File Type Registration, then one switch for each of the eight types, the launch file's last, on Windows, Linux and macOS | Off, On | On | `open-annihilation.file-types.oamod`, `.oamap`, `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oakeys`, `.oalaunch` (`on` or `off`; only `off` turns one off). On Windows and Linux OK registers a type turned on and withdraws one turned off, at once; on macOS it changes the default opener of a switch that moved. Each switch acts on its own type alone (`engine_settings/file_types.hpp`) |
 | | File types, the text row on iOS in place of the switches | changes no setting | | none |
@@ -467,7 +470,7 @@ whose stored text changed and the host calls the page's `applied` once the
 preferences are saved. Cancel drops the changes. Restore defaults puts the
 open registered page's rows back to their defaults. A mod's options dialog
 lists none of them. With no registered page the section list is the engine's
-own, Developer pinned at the foot.
+own, Developer last.
 
 The host hands both drawing functions an RGBA picture. Settings passes the
 settings icon, the plates over two gears. Notices, prompts and the other
@@ -507,7 +510,7 @@ selected, laid out on Kit 2 ([Sizes](#sizes)):
   touch controls, Controller once a gamepad has sent input), how the game
   looks (Graphics, User Interface, Language & Text), what it holds and
   fetches (Game files where the host lists it, Downloads, Updates, Game
-  Content), and the machine and the engine (Engine Limits, System,
+  Content, Replays), and the machine and the engine (Engine Limits, System,
   Developer); each entry a line icon (`src/section_icons.cpp`) and its
   name, the open one on the selected ground with the lime marker, Updates
   with the update's progress at its right while the host gives one
@@ -564,22 +567,22 @@ focus, and a press on it leaves the focus where it is. While a press is held
 the wheel and the scroll keys do nothing, so only a drag of the scroll bar
 scrolls then. No scroll changes a setting or moves the focus.
 
-Controls are numbered: the sections' entries 0 to 13, each its place among
+Controls are numbered: the sections' entries 0 to 14, each its place among
 the sections with Touch, Controller, Game files, Downloads, System, Game
-Content, Updates and Accessibility whether or not the first three are
-listed (Touch 5, Controller 6, Developer 7, Game files 8, Downloads 9,
-System 10, Game Content 11, Updates 12, Accessibility 13, so a dialog
-without Touch has no control 5, one without Controller no control 6, and
-one without Game files no control 8). Touch, Controller and Developer keep
-their numbers in every dialog (a mod's options' 0 to 4). Restore defaults
-is 14, Cancel 15, OK 16, the scroll bar 17, and the open section's rows
-from 18, with no upper end. The list draws its entries by their place in
-the list it shows, and the focus walks that list. Downloads, Updates, Game
-Content, System and Accessibility are always in that list. The list
-stands in four groups, a hairline between each: Controls, Accessibility,
-Touch and Controller; Graphics, User Interface and Language & Text; Game
-files, Downloads, Updates and Game Content; Engine Limits, System and
-Developer (`geometry::nav_group`, `nav_layout`). Each entry draws its icon
+Content, Updates, Accessibility and Replays whether or not the first three
+are listed (Touch 5, Controller 6, Developer 7, Game files 8, Downloads 9,
+System 10, Game Content 11, Updates 12, Accessibility 13, Replays 14, so a
+dialog without Touch has no control 5, one without Controller no control 6,
+and one without Game files no control 8). Touch, Controller and Developer
+keep their numbers in every dialog (a mod's options' 0 to 4). Restore
+defaults is 15, Cancel 16, OK 17, the scroll bar 18, and the open section's
+rows from 19, with no upper end. The list draws its entries by their place
+in the list it shows, and the focus walks that list. Downloads, Updates,
+Game Content, Replays, System and Accessibility are always in that list. The
+list stands in four groups, a hairline between each: Controls,
+Accessibility, Touch and Controller; Graphics, User Interface and Language &
+Text; Game files, Downloads, Updates, Game Content and Replays; Engine
+Limits, System and Developer (`geometry::nav_group`, `nav_layout`). Each entry draws its icon
 (`section_icons.cpp`) left of its name, lit while the entry is open or
 under the pointer; where a section's name in the language needs the
 icons' room, the list draws its names without icons, from the icons'

@@ -25,6 +25,24 @@ holes, each a `constexpr std::string_view` there and nowhere else, so a
 translator finds them together. Every word passes through `Library::text`
 (`TextHooks`) before it is shown.
 
+## Export
+
+`export.hpp` is the Export dialog over the Replays section. It draws
+nothing and reads no file: the app fills one offer and the screen shows it.
+`open_export` opens it and `close_export` closes it. `set_export_format`
+and `set_export_oa_sectors` choose the file. `set_export_folder` chooses
+the folder and clears a write that failed. `set_export_progress` and
+`set_export_byte_progress` say how far a write, or a measurement, has come.
+`finish_export` and `fail_export` end one. `open_export_browse`,
+`close_export_browse` and `scroll_export_browse` are the in-dialog folder
+list, and `scroll_export_warnings` moves the warning page by the whole set
+that page showed. A warning taller than the room is shown as the lines that
+fit, ending with …, and its control keeps the whole sentence.
+`export_can_run` says whether Export takes a press. `export_oademo_bytes`
+and `export_tad_bytes` are the sizes, and 0 while a replay is not ready.
+`ui-library` (`tests/library_test.cpp`) tests that model. `ui-library-layout`
+(`tests/layout_test.cpp`) lays the dialog out at every size.
+
 ## Entry points
 
 - `refresh(library, inputs)` rebuilds the entries from new inputs:
@@ -84,8 +102,9 @@ translator finds them together. Every word passes through `Library::text`
 - `set_tab`, `set_filter`, `set_tag`, `set_query`, `select`,
   `move_selection`, `open_details` and `close_details` browse; each
   recomputes `visible`, the entries shown in their order:
-  - the tabs are Active, Mods, Maps, Mutators, Brains, Keys, Languages, Updates
-    and Registries, in that order. A Library opens on Active (`Library::tab`),
+  - the tabs are Active, Replays, Mods, Maps, Mutators, Brains, Keys,
+    Languages, Updates and Registries, in that order. Replays lists the
+    replays on this computer and no package ([below](#the-replays-section)). A Library opens on Active (`Library::tab`),
     which lists no entry and selects none: it shows the player's setup
     (`active_setup`, below). Registries lists the registries
     (`Inputs::registries`) and has no search, no filter and no package
@@ -409,11 +428,104 @@ app removes the folder (`Runtime::library_uninstall`,
   that removed nothing (busy, changed, a link, outside the player's
   folders, or not moved), each with one OK (`ok`).
 
+### The Replays section
+
+`oa/ui/library/replays.hpp` is the Replays section's model, over
+`Inputs::replays` (`ReplayInputs`: each replay as `oa/data/replays` reads it,
+with the local day and minute it was recorded and its map's picture, the
+kinds extensions register, today, how far the folder has been read, and the
+recording setting). Its state is `Library::replays` (`ReplayView`).
+
+- `Tab::replays` is second, after Active. It lists no package: `visible` is
+  empty there and no entry is selected. `tab_count` counts this month's
+  replays.
+- `update_replays` (called by every recompute) keeps `replays.visible`: the
+  filter (`ReplayFilter`: This month, the last `month_days` days with today
+  and any later day; Older; Kept; Imported, the paths under `Imported/`),
+  the kind (`set_replay_kind`; empty for All kinds), the search
+  (`replay_matches`: every word of `Library::query` in the map, a player,
+  the mod or the planet, ASCII case folded) and the sort (`ReplaySort`:
+  newest by day and minute, longest, by the map's name, or the most players
+  first, each then newest). A selection that still shows stays, else the
+  first row is selected; marks that no longer show are dropped, and the
+  selected replay is always marked.
+- `select_replay(path, pick)`: `only` marks that row alone, `toggle` adds or
+  takes away its mark (never the last), `extend` marks the run from the
+  anchor. `move_replay_selection` moves and marks one.
+- `replay_filter_count` counts a filter before the kind and the search.
+- `replay_days` groups the visible rows by day under Today, Yesterday or the
+  date (`replay_day_heading`, "Tue 3 Nov", the year outside today's), while
+  the sort is newest; another sort is one group with no heading.
+- A row's words: `replay_kind_line` (the kind, by its title, and the planet),
+  `replay_players_text` ("Varn vs Kestrel", "4 players" past three;
+  watchers are left out), `replay_length_text`, `replay_time_text`, and
+  `replay_reading`, its whole line for automation. `replay_title` is the name
+  a row and the card show: the map's, or a file with no map's file name.
+  `replay_line_pieces` lays a row's second line out as dots and text: each of
+  two or three players has a dot of their colour before their name, joined as
+  the language joins them; past three the dots stand together and "N players"
+  follows them.
+- The card: `replay_card_kind`, `replay_when_line` (the day, the time and the
+  length, which is left out when it is not known), `replay_facts` (Length,
+  Recorded, Mod, Expansions, Mutators, File, and Kept until the keep
+  setting's span after it was recorded (30 days unless the inputs say 90, a
+  year or forever), or Kept for a replay the player keeps, forever, or a
+  downloaded or exported one (exported is a mark, `Replay::exported`, not a
+  folder); Recorded names a `.oademo`'s program as "Open
+  Annihilation 0.8.14" and a `.tad`'s recorder as it was recorded; each fact
+  has a key for automation and a label that begins with a capital),
+  `replay_note` (a delete the trash refused, then a damaged file's two
+  sentences, or the game's refusal),
+  `replay_buttons` (Watch, off for a damaged file and in a game; Export…;
+  Keep, Kept while every marked replay is kept, and no Keep at all while
+  every marked replay is imported; Delete replay, and Delete it or Delete
+  them once it is armed; Open folder), `refuse_replay` (the game's refusal,
+  shown while that replay is selected).
+- `replay_empty` says what the section shows with no row: no replays yet and
+  that games are kept 30 days, 90 days, a year, or until deleted, or that
+  recording is off with Turn on
+  recording; or why the filter, the kind or the search shows none. While the
+  folder is read and no row has come it says "Reading the replays…" and never
+  "No replays yet.". Where the platform has a file dialog (`ReplayInputs::open_file`,
+  the same places as Settings' file-type switches), the empty section and the
+  Imported filter's empty view offer Open a replay file
+  (`Action::open_replay_file`). A search that matches nothing does not.
+  `replay_status` is the footer's line: "Reading the
+  replays…" until the files are counted, then "Reading 12 of 64 replays", or
+  how many the list shows and their size.
+
 ### The screens
 
 - `library_layout(library, state, frame, fonts)` returns the display list of
   the Library in a frame's window (`window_size`: 480 by 324, 720 by 486 or
   960 by 600 points, never larger than the frame), from its top left corner:
+  - **The Replays section** (`library.tab.replays`, second in the section
+    list, its film frame drawn as a picture of its own at the canvas's
+    pixels): its four filters under the divider (`library.filter.this-month`,
+    `.older`, `.kept`, `.imported`), the heading and the search, a bar with
+    the kind menu (`library.replays.kind`) and the sort menu
+    (`library.replays.sort`), then the list and, at Regular and Large, the
+    selected replay's card. The list groups its rows under each day's
+    heading and scrolls with its bar; `reveal_row` brings a row into view.
+    Each row (`library.row.replay.<n>`, a list item checked while marked,
+    read as `replay_reading`) shows the map's picture or a plain tile, the
+    map, the kind, the players' colour dots and names, the length, the time,
+    a kept replay's star, the size, and an After a crash or Damaged chip.
+    The card shows the map's picture, the title, the kind and time, how many
+    are marked, why the replay cannot be watched (`library.note`), the
+    players and the facts (each a label, `library.fact.<fact>`; a value
+    wraps to up to three lines), scrolling as the catalogue's details do when
+    they are taller than the card, with Watch, Export…, Keep, Delete replay
+    and Open folder at its foot (`library.action.watch`, `.export`, `.keep`,
+    `.delete`, `.open-folder`). At Compact, a row's press and Details open
+    the replay's own page (`ScreenState::replay_page`) with those buttons and
+    Back. With no row the empty section is centred under the bar, its words
+    the label `library.status`, with Turn on recording
+    (`library.action.turn-on-recording`) while recording is off.
+    The footer's line is `library.replays.status`, with a bar while the
+    folder is read. A press takes `ScreenState::row_pick`, which the host
+    sets from Shift, Ctrl and Command; `replay_places_shown` lists the rows a
+    display list shows, for the host's pictures.
   - **The Active tab**, at every class, shows under the tabs, with no
     search and no filters. At every size the first row is BASE GAME and
     LANGUAGE and the second is EXPANSIONS and MOD, then KEYS, then the MAPS
@@ -945,6 +1057,32 @@ that button. Automation reads `library.action.get-with`, `oa.prompt.cancel`,
 
 ## Tests
 
+`ui-library` walks the Replays section's model over a fixture of seven
+replays (`screen_fixture::replay_library`): Replays second and its count,
+the order and the days, each filter and its count, the kind menu with an
+extension's kind, the search by planet, mod and players, each sort, marks
+with Ctrl and Shift, the buttons for a damaged and a kept replay, the rows'
+words and readings, the card's facts, a refusal, the status line while the
+folder is read, the empty section with recording on and off, and a refresh
+keeping the section's state. `ui-library-layout` lays the section out at
+every frame (`replays_section_lays_out`): inside the window, no controls
+meeting, Tab's order, the names and the texts fitting, the list, the card
+and Compact's page; Watch, Export…, Keep and Open folder asking for their
+replays, Ctrl marking a second row, the kind and sort menus, the filters, the
+arrows, a damaged replay's note, and the empty section's Turn on recording.
+`replays_card_shows_every_fact` lays a ten-player replay's card out at every
+frame, scrolls it to its end and requires Kept until in view with the buttons
+fixed at the foot, a long value wrapped, and no card text cut;
+`replays_rows_and_cards_say_what_they_hold` requires a dot with its edge
+before each of two players' names, a damaged replay titled by its file name
+with its two sentences, no Keep on an imported replay's card, and the
+section's reading words. The native text-fit check lists replays and reads the
+words the layout shortens (`replay_texts_cut`): each filter, menu item,
+button and fact label whole, in every language at every size, with both menus
+open and Compact's page.
+`ui-library-search` finds a replay by its map, a player, its mod and its
+planet, and not by its kind or its file.
+
 `ui-library-prerequisites` closes made-up mutators: one id, a chain of
 three, a diamond, two roots that share a prerequisite, a cycle of two and
 of three, an id the graph does not hold, a repeated id, and an id that
@@ -1214,3 +1352,5 @@ and "Not compatible with this mod" are on the list.
 - Only rows that show have controls: a journey scrolls or searches before
   it presses a row that does not show.
 - Regular's pills show as many tags as fit, and Tags holds the rest.
+- Replays: the players' colours are plain swatches of the game's ten, each
+  with a light edge.

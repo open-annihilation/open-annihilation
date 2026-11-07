@@ -362,6 +362,32 @@ void player_row_set_latency(PlayerRowIcons* row, int32_t frame);
 /// @param frame User_Icons frame
 void player_row_set_user_icon(PlayerRowIcons* row, int32_t frame);
 
+/// What a rank or latency icon is, for the words a screen reader speaks.
+enum class PlayerIconKind : uint8_t {
+    none,    ///< not one of those icons
+    rank,    ///< the rank picture
+    latency, ///< the latency picture
+};
+
+/// The rank or latency a player-row icon is showing.
+struct PlayerIconWords {
+    PlayerIconKind kind = PlayerIconKind::none;
+    /// Short rank title. Empty when the frame has none. Static storage.
+    const char* rank = "";
+    /// 1, 2 or 3 for a latency grade. 0 when the frame is not one of those.
+    int32_t latency_grade = 0;
+};
+
+/// Reads the rank or latency a player-row icon is showing.
+///
+/// The picture itself is unchanged. A window that is not that row's rank or
+/// latency icon leaves `out` empty and returns false.
+///
+/// @param icon the icon window; may be null
+/// @param[out] out the rank or the latency grade; null is ignored
+/// @return true when `icon` is one of those icons
+bool player_icon_words(const Window* icon, PlayerIconWords* out);
+
 inline constexpr int32_t kByRowHeight = 0x11;
 inline constexpr int32_t kByRowIconSize = 0xb;
 inline constexpr int32_t kByRowNameX = 0x11; // name label, past the row's icon

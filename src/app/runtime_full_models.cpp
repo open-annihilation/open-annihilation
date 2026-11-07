@@ -4150,6 +4150,13 @@ void ModelStage::set_palette(const Palette& palette, float gamma) {
     impl_->forget_contents();
 }
 
+void ModelStage::drop_frames() {
+    pages_.clear();
+    bright_pages_.clear();
+    if (impl_ != nullptr)
+        impl_->forget_contents();
+}
+
 void ModelStage::close(card::Executor& executor) noexcept {
     free_pages(executor, impl_->slots);
     free_pages(executor, impl_->bright_slots);

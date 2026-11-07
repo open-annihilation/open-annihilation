@@ -55,8 +55,8 @@ struct EnginePageList {
 /// Returns the engine's sections a dialog lists, in the list's order, by
 /// group: Controls, Accessibility, then Touch and Controller where each is
 /// listed; Graphics, User Interface, Language & Text; Game files where it is
-/// listed, then Downloads, Updates and Game Content; Engine Limits, System
-/// and Developer.
+/// listed, then Downloads, Updates, Game Content and Replays; Engine Limits,
+/// System and Developer.
 ///
 /// @param touch the dialog lists Touch
 /// @param controller the dialog lists Controller
@@ -79,6 +79,7 @@ constexpr EnginePageList engine_page_list(bool touch, bool controller, bool game
          {Page::downloads,
           Page::updates,
           Page::game_content,
+          Page::replays,
           Page::common_tweaks,
           Page::system,
           Page::developer})
@@ -108,7 +109,7 @@ constexpr std::array<EnginePageList, 8> kEnginePageLists{
     engine_page_list(false, true, true),
     engine_page_list(true, true, true),
 };
-static_assert(kEnginePageLists.front().count == 11, "eleven sections without the optional three");
+static_assert(kEnginePageLists.front().count == 12, "twelve sections without the optional three");
 static_assert(
     kEnginePageLists.back().count == most_listed_pages,
     "the longest list holds the most sections a dialog lists"
@@ -120,7 +121,7 @@ constexpr std::array<Page, 1> kLanguageTextPages{Page::language};
 /// ends with Engine Limits, System and Developer, and holds the sections'
 /// entry numbers as they were before the groups: Touch 5, Controller 6,
 /// Developer 7, Game files 8, Downloads 9, System 10, Game Content 11,
-/// Updates 12 and Accessibility 13.
+/// Updates 12, Accessibility 13 and Replays 14.
 ///
 /// @return true when those hold
 constexpr bool entries_follow_the_list() noexcept {
@@ -128,10 +129,10 @@ constexpr bool entries_follow_the_list() noexcept {
         page_control(Page::developer) != 7 || page_control(Page::game_files) != 8 ||
         page_control(Page::downloads) != 9 || page_control(Page::system) != 10 ||
         page_control(Page::game_content) != 11 || page_control(Page::updates) != 12 ||
-        page_control(Page::accessibility) != 13)
+        page_control(Page::accessibility) != 13 || page_control(Page::replays) != 14)
         return false;
     for (const EnginePageList& listed : kEnginePageLists) {
-        if (listed.count < 11 || listed.pages[0] != Page::controls ||
+        if (listed.count < 12 || listed.pages[0] != Page::controls ||
             listed.pages[1] != Page::accessibility ||
             listed.pages[listed.count - 3] != Page::common_tweaks ||
             listed.pages[listed.count - 2] != Page::system ||
@@ -322,14 +323,51 @@ void fit_control(kit::RowView& shown, int32_t available_width, const TextWidth& 
         std::min(std::max(shown.control_width, widest + 16), std::max(available_width, int32_t{1}));
 }
 
+/// Breaks an unlocked switch caption that is wider than the whole line into
+/// lines that fit beside the switch. A caption that fits that line keeps the
+/// switch under it, as it did before a caption wrapped at all, even when the
+/// caption does not fit beside the switch. A locked row is left to drop, and
+/// so is a caption of one word wider than the room beside the switch.
+///
+/// @param[in,out] shown the row
+/// @param available_width the section's width
+/// @param measure a text's width in the regular font
+static void
+wrap_switch_caption(kit::RowView& shown, int32_t available_width, const TextWidth& measure) {
+    if (shown.kind != kit::RowKind::toggle || !shown.lock.empty() || shown.control_below)
+        return;
+    if (!shown.label_lines.empty() || shown.label.empty() || available_width <= 0)
+        return;
+    const int32_t on_line =
+        std::max(oa::ui::kit::compact_metrics.switch_width, shown.control_width);
+    const int32_t room = available_width - label_gap - on_line;
+    const int32_t caption = measure(shown.label);
+    if (room <= 0 || caption <= room)
+        return;
+    // Wider than the room beside the switch, but not than the whole line:
+    // the switch drops and the caption keeps that line. Wrapping it would
+    // change every such row. Only a caption the whole line would cut wraps.
+    if (caption <= available_width) {
+        shown.control_below = true;
+        return;
+    }
+    std::vector<std::string> lines = kit::wrap(shown.label, room, measure);
+    if (lines.size() > 1)
+        shown.label_lines = std::move(lines);
+    else
+        shown.control_below = true;
+}
+
 /// Widens a switch, a row of buttons or SHOW AGAIN to the caption in the
 /// small font. A label that does not fit beside its control takes the whole
-/// line and the control drops under it. When the label and the lock do not
-/// fit on the label line, on any row, the lock drops under the label and the
-/// label keeps its width: the whole line, or the room beside a control that
-/// stays. Key layout keeps its count of changes and shortens only the name.
-/// An estimated measure leaves the class's boxes, which the layout tests pin;
-/// place_rows makes the same drop from the estimate.
+/// line and the control drops under it, except an unlocked switch whose
+/// caption is wider than that whole line, which wraps onto lines beside the
+/// switch. When the label and the lock do not fit on the label line, on any
+/// row, the lock drops under the label and the label keeps its width: the
+/// whole line, or the room
+/// beside a control that stays. Key layout keeps its count of changes and
+/// shortens only the name. An estimated measure leaves the class's boxes,
+/// which the layout tests pin; place_rows makes the same drop from the estimate.
 ///
 /// @param[in,out] shown the row
 /// @param available_width the section's width
@@ -440,12 +478,16 @@ void fit_measured(
             shown.control_width = segment;
         }
     }
+    // An unlocked switch caption wider than the whole line wraps beside the
+    // switch, or the line would cut it. One that fits the whole line keeps
+    // the drop. A locked row still drops.
+    wrap_switch_caption(shown, available_width, *regular);
     // A label that does not fit beside its control takes the whole line and
     // the control drops. When the three do not fit but the label and the
     // control do, the lock drops and the control stays. A slider, a drop-down,
     // a text field and a text row keep their control off this line, so the
     // lock drops when the label and the lock alone do not fit, and the label
-    // keeps the line.
+    // keeps the line. A caption that wrapped stays beside its switch.
     const int32_t on_line = [&]() {
         if (shown.kind == kit::RowKind::toggle)
             return std::max(oa::ui::kit::compact_metrics.switch_width, shown.control_width);
@@ -468,7 +510,7 @@ void fit_measured(
         if (shown.control_below) {
             if (!shown.lock.empty() && label_width + lock_span() > available_width)
                 shown.lock_below = true;
-        } else if (with_control > available_width) {
+        } else if (shown.label_lines.empty() && with_control > available_width) {
             shown.control_below = true;
             if (!shown.lock.empty() && label_width + lock_span() > available_width)
                 shown.lock_below = true;
@@ -518,6 +560,17 @@ kit::RowView row_view(
     wrap_hints(shown, hint_room, small_width, hint_is_path(setting));
     fit_control(shown, available_width, small_width);
     fit_measured(shown, available_width, small_width, regular_width);
+    // Without a real font, the class's boxes stay. A switch caption wider than
+    // the whole line still wraps, so each line fits its box, and one that
+    // fits the whole line still drops the switch under it.
+    if (estimated_measure(small_width) || regular_width == nullptr ||
+        estimated_measure(*regular_width)) {
+        const TextWidth estimated{&estimated_width};
+        const TextWidth& caption_measure =
+            regular_width != nullptr && !estimated_measure(*regular_width) ? *regular_width
+                                                                           : estimated;
+        wrap_switch_caption(shown, available_width, caption_measure);
+    }
     return shown;
 }
 
@@ -1127,6 +1180,7 @@ NavGroup nav_group(Page page) noexcept {
     case Page::downloads:
     case Page::updates:
     case Page::game_content:
+    case Page::replays:
         return NavGroup::content;
     case Page::common_tweaks:
     case Page::system:
@@ -3435,7 +3489,22 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
                 label_box.width =
                     std::max(value_box.x - layout::label_gap - label_box.x, int32_t{1});
         }
-        row_part(LayoutPart{label_box, view.label, DialogFont::regular, 0, no_control});
+        if (view.label_lines.size() > 1) {
+            const int32_t line_height = oa::ui::kit::compact_metrics.regular_line;
+            for (std::size_t line = 0; line < view.label_lines.size(); ++line) {
+                const layout::SourceRect band{
+                    label_box.x,
+                    label_box.y + static_cast<int32_t>(line) * line_height,
+                    label_box.width,
+                    line_height,
+                };
+                row_part(
+                    LayoutPart{band, view.label_lines[line], DialogFont::regular, 0, no_control}
+                );
+            }
+        } else {
+            row_part(LayoutPart{label_box, view.label, DialogFont::regular, 0, no_control});
+        }
         if (row.lock != Lock::none) {
             const layout::SourceRect text_area{
                 row.lock_area.x + layout::padlock_width + layout::padlock_gap,

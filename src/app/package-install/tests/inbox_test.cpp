@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// post_opened_file sends each of the seven extensions, in any case, to its
-// queue: a .oareg file to the add-registry queue, which keeps order and
-// drops a repeat, and every other file to the package queue, which a
-// .oareg file leaves untouched.
+// post_opened_file sends each extension, in any case, to its queue: a .oareg
+// file to the add-registry queue, which keeps order and drops a repeat; a
+// .oademo or a .tad file to the replay queue, which does the same; and every
+// other file of the seven to the package queue. A replay leaves the package
+// queue and the add-registry queue untouched.
 
 #include "oa/app/package_install/inbox.hpp"
 #include "oa/test/check.hpp"
@@ -39,6 +40,12 @@ int main() {
     OA_CHECK(!install::opens_file("a.zip"));
     OA_CHECK(!install::opens_file("oamod"));
     OA_CHECK(!install::opens_file("notes.oamod.txt"));
+    OA_CHECK(!install::opens_file("a.oademo"));
+    OA_CHECK(!install::opens_file("a.tad"));
+    OA_CHECK(install::opens_replay("a.oademo"));
+    OA_CHECK(install::opens_replay("B.TAD"));
+    OA_CHECK(!install::opens_replay("a.oamod"));
+    OA_CHECK(!install::opens_replay("a.zip"));
 
     for (const char* name :
          {"a.oamod",
@@ -87,6 +94,7 @@ int main() {
         OA_CHECK(registries[0] == "g.oareg");
         OA_CHECK(registries[1] == "H.OAREG");
     }
+    OA_CHECK(!install::replay_files_waiting());
 
     // The registry queue keeps order and drops a repeat of the same path.
     install::post_registry_file("one.oareg");
@@ -124,6 +132,22 @@ int main() {
     OA_CHECK(file_name(install::take_registry_file()) == "one.oareg");
     OA_CHECK(!install::take_registry_file());
     OA_CHECK(!install::registry_files_waiting());
+
+    // A replay goes to its own queue, and a repeat of the same path is dropped.
+    install::post_opened_file("show.oademo");
+    install::post_opened_file("anteer.TAD");
+    install::post_opened_file("keep.oamod");
+    install::post_replay_file("show.oademo");
+    install::post_replay_file("./show.oademo");
+    OA_CHECK(install::package_files_waiting());
+    OA_CHECK(file_name(install::take_package_file()) == "keep.oamod");
+    install::finish_package_file();
+    OA_CHECK(!install::package_files_waiting());
+    OA_CHECK(!install::registry_files_waiting());
+    OA_CHECK(file_name(install::take_replay_file()) == "show.oademo");
+    OA_CHECK(file_name(install::take_replay_file()) == "anteer.TAD");
+    OA_CHECK(!install::take_replay_file());
+    OA_CHECK(!install::replay_files_waiting());
 
     return oa::test::check_exit_status();
 }

@@ -9,7 +9,10 @@
 // high byte and 1/2/4-bit samples widened to one unscaled byte each. The
 // writer turns packed rows back into a file, which the tools use for image
 // output; its stored form, which the automation endpoint uses for the frames
-// it hands out, trades the file's size for the time it takes to write.
+// it hands out, trades the file's size for the time it takes to write. A
+// picture may also carry tEXt and uncompressed iTXt chunks. read_texts reads
+// those back; read_info and read_image do not, and their checks and messages
+// stay as they are.
 //
 // Reading is split in two so that a caller can act between the steps:
 // read_info takes the chunks before the image data, read_image decodes the
@@ -25,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace oa::formats::png {
@@ -144,27 +148,66 @@ Progress read_image(
     std::span<uint8_t> rows
 );
 
+/// A tEXt chunk, whose text is Latin-1, or an uncompressed iTXt chunk, whose
+/// text is UTF-8.
+enum class TextKind : uint8_t {
+    /// Latin-1 text, written as a tEXt chunk.
+    latin1,
+    /// UTF-8 text, written as an uncompressed iTXt chunk with an empty
+    /// language tag and an empty translated keyword.
+    utf8,
+};
+
+/// One text chunk stored in a PNG file.
+struct TextChunk {
+    TextKind kind{};
+    /// 1 to 79 bytes of printable Latin-1, with no leading space, no trailing
+    /// space and no two spaces together.
+    std::string_view keyword{};
+    /// The chunk's text: Latin-1 with no NUL for tEXt, UTF-8 with no NUL for iTXt.
+    std::string_view text{};
+};
+
+/// Reads the file's tEXt chunks and its uncompressed iTXt chunks.
+///
+/// A zTXt chunk is skipped, and so is an iTXt chunk whose compression flag
+/// is not 0. Keyword and text point into file.
+///
+/// @param file the whole file
+/// @param[out] texts the chunks in file order; left unchanged when reading fails
+/// @return false when file is not a whole PNG, a chunk's checksum does not
+///         match, or a tEXt or uncompressed iTXt chunk has no keyword separator
+[[nodiscard]] bool read_texts(std::span<const uint8_t> file, std::vector<TextChunk>* texts);
+
 struct Image {
     Header header{};                 // interlace selects Adam7 output
     std::span<const Rgb> palette{};  // required for ColorType::palette
     std::span<const uint8_t> rows{}; // height rows of row_bytes(header, {}) bytes
+    /// Text chunks written after the palette and before the image data.
+    /// Empty leaves the file byte for byte as a picture with no text.
+    std::span<const TextChunk> texts{};
 };
 
 /// Encodes an image as a PNG file.
 ///
-/// @param image header, palette and packed rows
-/// @param[out] out receives the file bytes
-/// @return false when the header, palette or row data is invalid
+/// Text chunks are written after the header and the palette, before the
+/// image data, in the order given. A text chunk that breaks the keyword or
+/// text rules refuses the file.
+///
+/// @param image header, palette, packed rows and text chunks
+/// @param[out] out receives the file bytes; left unchanged when writing is refused
+/// @return false when the header, palette, row data or a text chunk is invalid
 bool write(const Image& image, std::vector<uint8_t>* out);
 
 /// Encodes an image as a PNG file without filtering its rows or compressing
 /// them: the image data is stored as deflate's uncompressed blocks, so the
 /// file takes little more than one pass over the pixels to write and is a
-/// little larger than they are.
+/// little larger than they are. Text chunks follow the same rules, and sit
+/// in the same place in the file, as for write.
 ///
-/// @param image header, palette and packed rows
-/// @param[out] out receives the file bytes
-/// @return false when the header, palette or row data is invalid
+/// @param image header, palette, packed rows and text chunks
+/// @param[out] out receives the file bytes; left unchanged when writing is refused
+/// @return false when the header, palette, row data or a text chunk is invalid
 bool write_stored(const Image& image, std::vector<uint8_t>* out);
 
 } // namespace oa::formats::png

@@ -837,6 +837,9 @@ struct RowView {
     RowKind kind{};      ///< what the row is
     std::string id{};    ///< the row's word
     std::string label{}; ///< the label, as shown; a link's is empty
+    /// A switch caption broken into lines that fit beside the switch, top to
+    /// bottom. Empty draws `label` on one line.
+    std::vector<std::string> label_lines{};
     /// The hint's lines, as shown, top to bottom.
     std::vector<std::string> hints{};
     /// For each hint line, true when it is a notice, drawn in the lock colour.
@@ -1032,7 +1035,9 @@ struct PlacedRows {
 /// Places a column of rows as the settings dialog places a section's rows.
 ///
 /// From first_top, each row's rule at its top and its label line row_padding
-/// under it, regular_line high. A switch (switch_width), a strip (its levels'
+/// under it, regular_line high. A switch caption that names several lines is
+/// that many regular lines high, and the switch stays at the top of that
+/// block. A switch (switch_width), a strip (its levels'
 /// widths and its border), a button (button_row_width) or a row of buttons
 /// (folder_button_widths and folder_button_gap) stands at the label line's
 /// right, the label ending label_gap short of it. A locked row's lock,

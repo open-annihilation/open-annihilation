@@ -155,6 +155,8 @@ std::string_view page_slug(Page page) {
         return "updates";
     case Page::accessibility:
         return "accessibility";
+    case Page::replays:
+        return "replays";
     case Page::mod_keys:
         return "mod-keys";
     case Page::mod_patrol:

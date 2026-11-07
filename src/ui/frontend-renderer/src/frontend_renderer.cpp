@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/base/text/line_break.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 #include "oa/ui/decoded.hpp"
@@ -1135,6 +1136,12 @@ ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& name
         result.game_palette.emplace();
         std::copy(game.begin(), game.end(), result.game_palette->begin());
     }
+    // Menus draw this copy of the logos. Off, and never recoloured, leaves it as parsed.
+    const std::span<const uint8_t> logo_palette =
+        result.game_palette.has_value()
+            ? std::span<const uint8_t>(result.game_palette->data(), result.game_palette->size())
+            : std::span<const uint8_t>{};
+    oa::present::colour_vision::paint_team_archive(result.global_sprites, logo_palette, "menu");
     return result;
 }
 

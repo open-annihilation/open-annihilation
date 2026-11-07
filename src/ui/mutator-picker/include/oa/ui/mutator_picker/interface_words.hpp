@@ -105,6 +105,7 @@ inline constexpr std::string_view interface_words[] = {
     words::get_fetches,
     words::works_with_mods,
     words::close_button,
+    words::drag_to_reorder,
     words::empty_none,
     words::empty_filtered,
 };

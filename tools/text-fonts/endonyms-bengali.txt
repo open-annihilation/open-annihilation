@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# The characters of NotoSansBengali-Bold-Endonyms.ttf. One string a line:
+# the Bengali names the catalogue may list, and the lines of the notice
+# shown before the Bengali pack is installed. A line starting with # and a
+# blank line are ignored. The sans faces already draw Latin and U+00B7, so
+# the cut keeps only the other characters. Unlike the CJK list beside it,
+# these letters join, stack and change order: the cut keeps its shaping
+# tables, and a build with HarfBuzz shapes every line before it is drawn.
+#
+# To add a name, add its line here, run tools/bootstrap_text_fonts.py and
+# put the SHA-256 and the character count it prints into that script. Only
+# the Bengali script and the danda are in this face; another script that
+# needs shaping takes a list and a face of its own (docs/languages.md).
+
+# The language's own name
+বাংলা
+
+# Bengali: the missing-language notice
+বাংলা এখন আলাদাভাবে নামাতে হবে (4.0 MB)। ইনস্টল শেষ না হওয়া পর্যন্ত গেমে ইংরেজি দেখানো হবে।
+বাংলা এখন আলাদাভাবে নামাতে হবে। ইনস্টল শেষ না হওয়া পর্যন্ত গেমে ইংরেজি দেখানো হবে।
+নামাও · Download
+নামানো হয়নি।
+আবার চেষ্টা · Try again
+এখন নামানো যাচ্ছে না।

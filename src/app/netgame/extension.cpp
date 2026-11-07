@@ -23,6 +23,7 @@
 #include "net_options.hpp"
 #include "net_state.hpp"
 #include "network_play.hpp"
+#include "recording_partials.hpp"
 #include "traffic_overlay.hpp"
 
 #include "oa/app/check_host.hpp"
@@ -67,8 +68,15 @@
 // call. Version 17 adds hear_remote_seat_chat, which the match's seat-chat
 // hook calls. Version 18 adds the kit's key pictures, which these hooks
 // do not use. Version 19 is Kit 2's look in the kit's headers, which these
-// hooks do not use.
-constexpr uint32_t kExtensionApiVersionFollowed = 20;
+// hooks do not use. Version 20 adds ExtensionControl's masked, text_length,
+// scroll_up and scroll_down members, and the calls answer_multiplayer_entry,
+// defer_inactive_loop_release, post_extension_note and take_extension_notes.
+// None is a hook. Version 21 adds accessibility fields on controls. It is
+// not a hook, and these hooks do not fill them.
+// Version 21 also adds the replay viewer's eight hooks, which these hooks
+// fill. Version 21 also adds the rectangle where an extension window's art
+// takes the press. It is not a hook, and these hooks do not state one.
+constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
@@ -435,6 +443,26 @@ void tell_launch_not_opened(NetworkPlay& play, std::string_view why, bool in_mat
     request.title = title.c_str();
     request.paragraphs = paragraphs;
     request.paragraph_count = 1;
+    static_cast<void>(g_services.services->show_notice(g_services.host, &request));
+}
+
+/// Shows the sentence a failed jump left, on the pump after the match closes.
+///
+/// The line is taken and cleared here, so the notice is not asked for from
+/// inside the frame that ends the match. The strings are copied at once.
+///
+/// @param runtime the running app
+void show_replay_stop_notice(Runtime& runtime) {
+    NetworkPlay* play = NetworkPlay::find(runtime);
+    if (play == nullptr)
+        return;
+    const std::string sentence = play->take_replay_stop_notice();
+    if (sentence.empty() || g_services.services == nullptr ||
+        g_services.services->show_notice == nullptr)
+        return;
+    NoticeRequest request{};
+    request.title = sentence.c_str();
+    request.paragraph_count = 0;
     static_cast<void>(g_services.services->show_notice(g_services.host, &request));
 }
 
@@ -832,8 +860,6 @@ std::vector<std::unique_ptr<NetworkPlay>>& network_plays() {
 NetworkPlay::NetworkPlay(Runtime& runtime) noexcept : runtime_(runtime) {
 }
 
-NetworkPlay::~NetworkPlay() = default;
-
 NetworkPlay& NetworkPlay::of(Runtime& runtime) {
     if (auto* play = find(runtime))
         return *play;
@@ -1037,6 +1063,9 @@ struct RuntimeExtension {
 
     /// Runs network play's own modes (Extension::run_mode).
     ///
+    /// At the start of every run, whatever else it does, a recording that a
+    /// crash left in the player's own folder is finished and put in its place
+    /// (finish_partial_recordings); a folder that holds none is not touched.
     /// First of the headless runs --net-loopback-check; then
     /// --check-recording-hook, or else a headless --play-demo (--match-ticks
     /// ticks, kDefaultDemoTicks without it), followed by a preferences flush.
@@ -1049,8 +1078,12 @@ struct RuntimeExtension {
     static bool run_mode(void* /*context*/, Runtime& runtime, RunPhase phase, int& exit_code) {
         const auto& options = net_options();
         switch (phase) {
-        case RunPhase::start:
+        case RunPhase::start: {
+            const PartialsFinished finished = finish_partial_recordings(runtime.user_folder());
+            for (const std::string& line : finished.lines)
+                std::cerr << "open-annihilation: " << line << '\n';
             return false;
+        }
         case RunPhase::headless_first:
             if (!options.net_loopback_ticks)
                 return false;
@@ -1302,11 +1335,26 @@ struct RuntimeExtension {
     /// @param runtime The running app.
     /// @return False without --play-demo, leaving the start to the menu music.
     static bool start_scene(void* /*context*/, Runtime& runtime) {
-        if (net_options().play_demo.empty() && !runtime.pending_demo_path().empty())
+        // A pending replay is borrowed for this start only. The options live
+        // in a function-static that a soft restart does not clear, so a path
+        // copied here would play again when the player's mod is put back.
+        const bool borrowed =
+            net_options().play_demo.empty() && !runtime.pending_demo_path().empty();
+        if (borrowed)
             netgame_context().options.play_demo = path_from_utf8(runtime.pending_demo_path());
         if (net_options().play_demo.empty())
             return false;
-        const auto& demo = net_options().play_demo;
+        const fs::path demo = net_options().play_demo;
+
+        struct ReleaseBorrowed {
+            bool borrowed = false;
+
+            ~ReleaseBorrowed() {
+                if (borrowed)
+                    netgame_context().options.play_demo.clear();
+            }
+        } borrow{borrowed};
+
         if (runtime.offer_content_switch(demo, path_to_utf8(demo.filename()), true))
             return false;
         NetworkPlay::of(runtime).start_demo_playback();
@@ -1367,9 +1415,16 @@ struct RuntimeExtension {
     ///              profile's rules again once Developer Mode changes them
     ///              and Unicode chat as it is now, then runs the network
     ///              match's frame; after_pump applies
-    ///              the demo's recorded speed; presented does nothing.
+    ///              the demo's recorded speed; presented, and the start of
+    ///              pump, clear a skirmish recording's live-game bit so the
+    ///              rest of the frame reads the game as a skirmish.
     static void frame(void* /*context*/, Runtime& runtime, FrameStage stage) {
         if (stage == FrameStage::pump) {
+            // A step outside a frame, the one that arms the recording, leaves
+            // the bit up. The pad has already run; clearing it here keeps the
+            // pause and the rest of this frame on a skirmish.
+            NetworkPlay::of(runtime).hide_skirmish_live_bit();
+            show_replay_stop_notice(runtime);
             observe_close_handlers(runtime);
             if (net_options().check_host_not_found)
                 host_not_found_frame();
@@ -1384,22 +1439,32 @@ struct RuntimeExtension {
             NetworkPlay::of(runtime).net_frame();
         } else if (stage == FrameStage::after_pump) {
             NetworkPlay::of(runtime).demo_frame();
+        } else if (stage == FrameStage::presented) {
+            NetworkPlay::of(runtime).hide_skirmish_live_bit();
         }
     }
 
     /// Runs a pending simulation step through the network binding, or as the demo's next tick (Extension::simulation_step).
     ///
+    /// A skirmish that is due a recording arms it here. A recording already
+    /// open raises its send bit for this step and records the economy and
+    /// any unit a command made while the bit was down. The function then
+    /// returns false so the engine's own step runs, and that step is recorded.
+    ///
     /// @param context Extension context (unused).
     /// @param runtime The running app.
-    /// @return False when neither runs, leaving the step to the engine.
+    /// @return False when neither a network match nor a demo runs, leaving the step to the engine.
     static bool simulation_step(void* /*context*/, Runtime& runtime) {
         auto& play = NetworkPlay::of(runtime);
         if (play.net_simulation_step())
             return true;
-        if (!play.demo_)
-            return false;
-        play.step_demo_frame();
-        return true;
+        if (play.demo_) {
+            play.step_demo_frame();
+            return true;
+        }
+        play.consider_skirmish_recording();
+        play.advance_skirmish_recording();
+        return false;
     }
 
     /// Holds a finished network game on its outcome until the final economy is settled (Extension::outcome_ready).
@@ -1433,12 +1498,28 @@ struct RuntimeExtension {
         auto& play = NetworkPlay::of(runtime);
         switch (event) {
         case MatchEvent::finished:
-            // The transport closes now; the match report stays up for the
-            // end-of-game event the screen sends.
+            // The match is still the running match. Finish a recording now, so
+            // a won or lost game keeps its tick and its outcome. A game that
+            // is not being recorded is left for the torn-down event, which
+            // clears the decision. The transport then closes; the match report
+            // stays up for the end-of-game event the screen sends.
+            if (play.skirmish_ != nullptr)
+                play.finish_skirmish_recording();
+            if (play.net_)
+                play.net_->game_finished = true;
             play.net_leave();
             close_handlers_match_ended(g_close);
             break;
         case MatchEvent::torn_down:
+            // The match still exists, unless the finished event already moved
+            // it. Finish a recording the finished event did not start, and
+            // clear the decision, before the world goes, so a restart records
+            // again. A won or lost game has already started packing on its own
+            // thread: leave that thread, so the end screen does not wait for
+            // the pack. The next recording or the play's destructor reaps it,
+            // as a game that is left does, and the file is still written.
+            if (!play.skirmish_packing())
+                play.finish_skirmish_recording();
             play.net_leave();
             play.demo_.reset();
             close_handlers_match_ended(g_close);
@@ -1732,6 +1813,88 @@ struct RuntimeExtension {
             oa::netgame::match::net_connection_time(&state->connection)
         );
     }
+
+    /// Runs one frame of a replay (Extension::replay_frame).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    /// @param now_ms the frame's clock, in milliseconds.
+    /// @param host how the frame steps, draws and stops the match.
+    static void replay_frame(
+        void* /*context*/, Runtime& runtime, uint32_t now_ms, const ReplayFrameHost& host
+    ) {
+        if (NetworkPlay* play = NetworkPlay::find(runtime))
+            play->run_replay_frame(now_ms, host);
+    }
+
+    /// Forgets the time an open menu held (Extension::replay_hold).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    /// @param now_ms the frame's clock, in milliseconds.
+    static void replay_hold(void* /*context*/, Runtime& runtime, uint32_t now_ms) {
+        if (NetworkPlay* play = NetworkPlay::find(runtime))
+            play->replay_hold(now_ms);
+    }
+
+    /// Plays a paused replay (Extension::replay_play).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    static void replay_play(void* /*context*/, Runtime& runtime) {
+        if (NetworkPlay* play = NetworkPlay::find(runtime))
+            play->replay_play();
+    }
+
+    /// Pauses the replay (Extension::replay_pause).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    static void replay_pause(void* /*context*/, Runtime& runtime) {
+        if (NetworkPlay* play = NetworkPlay::find(runtime))
+            play->replay_pause();
+    }
+
+    /// Sets the speed a replay is watched at (Extension::replay_set_speed).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    /// @param milli the speed, 1000 at 1x.
+    static void replay_set_speed(void* /*context*/, Runtime& runtime, int32_t milli) {
+        if (NetworkPlay* play = NetworkPlay::find(runtime))
+            play->replay_set_speed_milli(milli);
+    }
+
+    /// Steps that speed one place (Extension::replay_step_speed).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    /// @param delta positive to go faster, negative to go slower.
+    static void replay_step_speed(void* /*context*/, Runtime& runtime, int32_t delta) {
+        if (NetworkPlay* play = NetworkPlay::find(runtime))
+            play->replay_step_speed(delta);
+    }
+
+    /// Asks to jump to a tick (Extension::replay_seek).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    /// @param tick the tick to land on.
+    static void replay_seek(void* /*context*/, Runtime& runtime, uint32_t tick) {
+        if (NetworkPlay* play = NetworkPlay::find(runtime))
+            play->replay_seek_to(tick);
+    }
+
+    /// Fills what a caller reads about the replay (Extension::replay_state).
+    ///
+    /// @param context Extension context (unused).
+    /// @param runtime The running app.
+    /// @param[out] out the view, unchanged when this returns false.
+    /// @return true when a replay is being watched and `out` was filled.
+    static bool replay_state(void* /*context*/, Runtime& runtime, ReplayPlaybackView* out) {
+        NetworkPlay* play = NetworkPlay::find(runtime);
+        return play != nullptr && play->replay_fill_state(out);
+    }
 };
 
 } // namespace oa::app
@@ -1775,4 +1938,12 @@ void oa_extension_init_netgame(oa::app::Extension* table) {
     table->app_mode_set = RuntimeExtension::app_mode_set;
     table->open_recording = RuntimeExtension::open_recording;
     table->release_runtime = RuntimeExtension::release_runtime;
+    table->replay_frame = RuntimeExtension::replay_frame;
+    table->replay_hold = RuntimeExtension::replay_hold;
+    table->replay_play = RuntimeExtension::replay_play;
+    table->replay_pause = RuntimeExtension::replay_pause;
+    table->replay_set_speed = RuntimeExtension::replay_set_speed;
+    table->replay_step_speed = RuntimeExtension::replay_step_speed;
+    table->replay_seek = RuntimeExtension::replay_seek;
+    table->replay_state = RuntimeExtension::replay_state;
 }

@@ -129,14 +129,36 @@ this order, and only then shows the update screen and opens the
 Boneyards. A player never lands in a half-installed or out-of-date
 Boneyards.
 
-1. **The online features.** The Boneyards needs the check for updates and
-   the check for content updates. When either is Never (the welcome's Off
-   sets both), the game asks "The Boneyards needs Open Annihilation's
-   online features: update checks and the content catalogue. Turn them on
-   and continue?" **Turn on** sets each that is off to Automatically,
-   saves the settings and goes on; **Cancel** stays on the main menu and
-   changes nothing. [What entering the Boneyards turns on](../settings.md#what-entering-the-boneyards-turns-on)
-   names the two settings.
+1. **The online features.** The Boneyards needs the check for updates, the
+   check for content updates, and, when the registry the package will come
+   from requires one, that registry's install ID. When any of those is
+   off, the game asks. Either check being off names both checks, as 0.9.0
+   did: "The Boneyards needs Open Annihilation's online features: update
+   checks and the content catalogue. Turn them on and continue?" When the
+   game already has that registry's list, from this start or an earlier
+   one, one question names the checks and the install ID together: "The
+   Boneyards needs Open Annihilation's online features: update checks, the
+   content catalogue and {registry}'s install ID. Turn them on and
+   continue?" The install ID on its own is "The Boneyards needs
+   {registry}'s install ID turned on. Turn it on and continue?"
+   `{registry}` is the registry's name, Core Prime for the one the game
+   ships. A player with a check off and no list kept sees the checks
+   question first, then the install-ID question. **Turn on** sets each
+   check that is off to Automatically, and, when the question named an
+   install ID, clears that registry's off choice. When the question comes
+   as you press ENTER, Turn on goes on to the update check first. A
+   question asked once the catalogue has answered, such as the install-ID
+   question after the checks question, goes straight to the fetch, which
+   makes the install ID. **Cancel** stays on the main menu and changes
+   nothing. A registry that does not require an install ID is never asked
+   about one, even when its key is off. A player who went offline at first
+   run has both checks off and Core Prime's install ID off. When the game
+   already has Core Prime's list, from this start or an earlier one, that
+   player sees the one question that names the checks and Core Prime's
+   install ID. With no list kept, that player sees the checks question
+   first, then the install-ID question.
+   [What entering the Boneyards turns on](../settings.md#what-entering-the-boneyards-turns-on)
+   names these settings.
 2. **The latest Open Annihilation.** The game asks the update feed for the
    player's channel and waits for its answer; it does not go on without
    one.
@@ -201,11 +223,16 @@ an update and changes no setting. Its log says what a player would have
 been asked, as `open-annihilation: entry: a player would be asked: ...`,
 and it goes on as such a run always has: `-y` stops when both checks are
 off and does not wait for an update check that has not answered, and a
-newer release is not taken. It still brings the Boneyards package up to
-date, and no question ever holds it: like a player's entry it asks every
-registry, the built-in one included, for its current list, and replaces a
-missing, unrecorded or changed copy from it. A machine nobody watches, such
-as a test machine playing on a live server, so takes a newly published
+newer release is not taken. When a needed install ID is off, the same log
+line names that question, the off choice is left as it was, and the
+download then stops with "Downloads are off for {registry}.", for example
+"Downloads are off for Core Prime." Every stop is also logged as
+`open-annihilation: entry: stopped: ...`. The run still brings the
+Boneyards package up to date when the install ID is not off, and no
+question ever holds it: like a player's entry it asks every registry, the
+built-in one included, for its current list, and replaces a missing,
+unrecorded or changed copy from it. A machine nobody watches, such as a
+test machine playing on a live server, so takes a newly published
 Boneyards package on its own.
 
 The game's own checks are the exception. A `--headless-check` run, or a
@@ -302,3 +329,9 @@ package: the online features, Update and Cancel, the carried request, the
 page-only release, Try again and the quiet runs; and which registries a
 check that faces a player, a headless check, `-y`, a player's entry and a
 run that plays unwatched reach, with the package each then takes.
+
+The login console opens with Registered User chosen and the password field
+shown. Guest Login is drawn grey and cannot be chosen. LOGIN stays grey
+until a name and a password are filled. Clicking LOGIN, once it is lit, or
+pressing Enter in the password field, starts the login. A click while
+LOGIN is grey does nothing.

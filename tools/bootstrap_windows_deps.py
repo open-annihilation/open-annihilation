@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Cross-build the pinned zlib, SDL3 and FreeType for Windows into local/deps/windows.
+"""Cross-build the pinned zlib, SDL3, FreeType and HarfBuzz for Windows into local/deps/windows.
 
 The toolchain file names the target: cmake/toolchains/x86_64-w64-mingw32.cmake
 (the default) or another toolchain file there. --xp builds them for
@@ -81,6 +81,10 @@ def main():
     if not (freetype_install / bootstrap_text_fonts.FREETYPE_INSTALLED).exists():
         cross_build(bootstrap_text_fonts.freetype_source(deps), builds / "freetype", freetype_install, toolchain,
                     args.jobs, [*target_options, *bootstrap_text_fonts.FREETYPE_OPTIONS])
+    harfbuzz_install = prefixes / "harfbuzz"
+    if not (harfbuzz_install / bootstrap_text_fonts.HARFBUZZ_INSTALLED).exists():
+        cross_build(bootstrap_text_fonts.harfbuzz_source(deps), builds / "harfbuzz", harfbuzz_install, toolchain,
+                    args.jobs, [*target_options, *bootstrap_text_fonts.harfbuzz_cmake_options(freetype_install)])
     print(f"Windows dependencies ready under {prefixes}")
 
 

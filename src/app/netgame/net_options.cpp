@@ -17,11 +17,13 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -159,6 +161,52 @@ NetgameContext& context_of(void* context) {
     return *static_cast<NetgameContext*>(context);
 }
 
+/// The viewer's speed named by --replay-speed.
+///
+/// Accepts 0.5, .5, 1/2 and the whole speeds 1, 2, 4, 8 and 16.
+///
+/// @param text the option's value
+/// @return the speed, or nothing when the text is not one of those
+std::optional<oa::session::demo::PlaybackSpeed> playback_speed_of(std::string_view text) {
+    using oa::session::demo::PlaybackSpeed;
+    if (text == "0.5" || text == ".5" || text == "1/2")
+        return PlaybackSpeed::half;
+    if (text == "1")
+        return PlaybackSpeed::normal;
+    if (text == "2")
+        return PlaybackSpeed::twice;
+    if (text == "4")
+        return PlaybackSpeed::quadruple;
+    if (text == "8")
+        return PlaybackSpeed::octuple;
+    if (text == "16")
+        return PlaybackSpeed::sixteen;
+    return std::nullopt;
+}
+
+/// One --replay-seek FROM:TO. Both sides are ticks and must fit in 32 bits.
+///
+/// @param text the option's value
+/// @return the jump, armed when playback reaches FROM
+oa::session::demo::ReplayJump parse_replay_seek(std::string_view text) {
+    const auto colon = text.find(':');
+    if (colon == std::string_view::npos || text.find(':', colon + 1) != std::string_view::npos)
+        throw std::runtime_error("--replay-seek expects FROM:TO");
+    const auto side = [](std::string_view token) {
+        uint32_t value = 0;
+        const char* const first = token.data();
+        const char* const last = token.data() + token.size();
+        const auto parsed = std::from_chars(first, last, value);
+        if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != last)
+            throw std::runtime_error("--replay-seek expects FROM:TO");
+        return value;
+    };
+    oa::session::demo::ReplayJump jump;
+    jump.from = side(text.substr(0, colon));
+    jump.to = side(text.substr(colon + 1));
+    return jump;
+}
+
 /// Takes one of network play's long options (Extension::take_option).
 ///
 /// --net-loopback-check makes the run an unattended headless one (the check
@@ -187,6 +235,8 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         effects |= option_effect::headless_check | option_effect::unattended;
     } else if (argument == "--net-loopback-watcher")
         result.net_loopback_watcher = true;
+    else if (argument == "--net-loopback-photo")
+        result.net_loopback_photo = true;
     else if (argument == "--net-loopback-computer")
         result.net_loopback_computer = true;
     else if (argument == "--net-loopback-each-ai")
@@ -227,7 +277,21 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         result.json_requested = true;
     else if (argument == "--play-demo")
         result.play_demo = path_from_utf8(value());
-    else if (argument == "--check-recording-hook") {
+    else if (argument == "--replay-keyframe-check") {
+        const std::size_t tick = parse_count(value());
+        if (tick > UINT32_MAX)
+            throw std::runtime_error("--replay-keyframe-check takes a tick that fits 32 bits");
+        result.replay_keyframe_check = static_cast<uint32_t>(tick);
+        effects |=
+            option_effect::headless_check | option_effect::unattended | option_effect::skip_intro;
+    } else if (argument == "--replay-speed") {
+        const auto speed = playback_speed_of(value());
+        if (!speed)
+            throw std::runtime_error("--replay-speed expects 1/2, 1, 2, 4, 8 or 16");
+        result.replay_speed = speed;
+    } else if (argument == "--replay-seek") {
+        result.replay_seeks.push_back(parse_replay_seek(value()));
+    } else if (argument == "--check-recording-hook") {
         result.check_recording_hook = true;
         effects |=
             option_effect::headless_check | option_effect::unattended | option_effect::skip_intro;
@@ -252,6 +316,8 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         result.cli_password = true;
     } else if (argument == "--net-record")
         result.net_record = path_from_utf8(value());
+    else if (argument == "--record-game")
+        result.record_game = path_from_utf8(value());
     else if (argument == "--replay-viewer")
         result.replay_viewer = true;
     else if (argument == "--demo-unit-table") {
@@ -582,6 +648,12 @@ void check_options(void* context) {
             throw std::runtime_error("--list-content needs --json");
         if (options.json_requested && !options.list_content)
             throw std::runtime_error("--json needs --list-content");
+        if (options.replay_keyframe_check && options.play_demo.empty())
+            throw std::runtime_error("--replay-keyframe-check needs --play-demo");
+        if (options.replay_speed && options.play_demo.empty())
+            throw std::runtime_error("--replay-speed needs --play-demo");
+        if (!options.replay_seeks.empty() && options.play_demo.empty())
+            throw std::runtime_error("--replay-seek needs --play-demo");
         if (std::optional<LaunchPlan> plan = read_named_launch(netgame))
             (void)apply_launch_plan(netgame, std::move(*plan));
         const auto& game = options.direct_game;
@@ -640,8 +712,10 @@ const std::string& usage_runs() {
                   "[--net-loopback-fixed-starts] [--net-loopback-shooter TYPE] "
                   "[--check-host-not-found] "
                   "[--check-opened-launch start|menu FILE] "
-                  "[--play-demo FILE.tad] "
-                  "[--demo-unit-table strict|ignore] [--net-record FILE] [--replay-viewer] ";
+                  "[--play-demo FILE.tad [--replay-keyframe-check TICK] "
+                  "[--replay-speed SPEED] [--replay-seek FROM:TO]] "
+                  "[--demo-unit-table strict|ignore] [--net-record FILE] [--record-game FILE] "
+                  "[--replay-viewer] ";
         return listed;
     }();
     return runs;

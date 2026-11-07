@@ -21,7 +21,9 @@
 #include "xrgb_conversion.hpp"
 #include "oa/platform/job_pool.hpp"
 #include "oa/platform/render_probe.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
+#include "oa/ui/hud/health_bar.hpp"
 
 #include <algorithm>
 #include <array>
@@ -173,6 +175,14 @@ struct Runtime::LiveRenderer {
     Overlay overlay{};
 };
 
+void Runtime::drop_live_team_frames() {
+    if (live_renderer_ == nullptr)
+        return;
+    // The ground stays. The units' texels are packed again from the recoloured frames.
+    live_renderer_->scene.materials.clear();
+    ++live_renderer_->scene.texture_revision;
+}
+
 void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
     delete renderer;
 }
@@ -278,7 +288,7 @@ void Runtime::note_turned_text_run(const oa::present::TextWorldRun& run) {
     );
 }
 
-bool Runtime::turned_picture(renderer::Surface& world) {
+bool Runtime::turned_card_picture(renderer::Surface& world) {
     if (!turned_overlay_painted())
         return false;
     auto& live = *live_renderer_;
@@ -290,19 +300,27 @@ bool Runtime::turned_picture(renderer::Surface& world) {
     }
     const uint32_t width = match_world_cpu_.width;
     const uint32_t height = match_world_cpu_.height;
-    if (live.rgba.size() != std::size_t{width} * height * 4 ||
-        match_world_cpu_.rgb.size() != std::size_t{width} * height * 3)
+    if (live.rgba.size() != std::size_t{width} * height * 4)
         return false;
     world.width = width;
     world.height = height;
     world.rgb.resize(std::size_t{width} * height * 3);
     for (std::size_t pixel = 0; pixel < world.rgb.size() / 3; ++pixel)
         std::copy_n(live.rgba.data() + pixel * 4, 3, world.rgb.data() + pixel * 3);
+    return true;
+}
+
+bool Runtime::turned_picture(renderer::Surface& world) {
+    if (!turned_card_picture(world))
+        return false;
+    if (match_world_cpu_.rgb.size() != world.rgb.size())
+        return false;
+    auto& live = *live_renderer_;
     const bool palette = match_palette_ != oa::PaletteBytes{};
     renderer_live_overlay::compose(
         world.rgb,
-        width,
-        height,
+        world.width,
+        world.height,
         match_world_cpu_.rgb,
         live.overlay.key,
         live.overlay.operations,
@@ -490,6 +508,9 @@ bool Runtime::live_renderer_active() const noexcept {
 }
 
 bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
+    // A held picture is not turned.
+    if (photo_camera_locked())
+        return false;
     ensure_live_renderer();
     auto& live = *live_renderer_;
     live.camera.yaw_degrees = yaw_degrees;
@@ -503,6 +524,15 @@ bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
     live.failed = false;
     live.unavailable = false;
     return live.camera.yaw_degrees != 0 || live.camera.pitch_degrees != 0;
+}
+
+void Runtime::restore_live_camera(float yaw_degrees, float pitch_degrees, bool unlocked) noexcept {
+    if (live_renderer_ == nullptr)
+        return;
+    auto& live = *live_renderer_;
+    live.camera.yaw_degrees = yaw_degrees;
+    live.camera.pitch_degrees = pitch_degrees;
+    renderer_live_camera::set_unlocked(live.camera, unlocked);
 }
 
 bool Runtime::live_renderer_unlocked() const noexcept {
@@ -596,6 +626,9 @@ bool Runtime::answer_live_view_key(std::string_view action) {
     // keys.
     if (match_question_open() || chat_composing_ || whiteboard_input_.editing || match_paused_)
         return false;
+    // A held picture keeps the view it was copied from. The key is taken.
+    if (photo_camera_locked())
+        return true;
     ensure_live_renderer();
     if (action == "camera.classic-view") {
         reset_live_renderer();
@@ -687,6 +720,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         const PointerCameraDrag drag = pointer_camera_drag(button, pointer_modifier_bits());
         const bool blocked = order_armed && button == match_select_button();
         if (drag != PointerCameraDrag::none && !blocked) {
+            // A held picture is not panned or turned by the pointer.
+            if (photo_camera_locked())
+                return true;
             // An explicit camera gesture retries after a failed frame.
             live.failed = false;
             live.unavailable = false;
@@ -700,6 +736,12 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         }
     }
     if (event.type == SDL_EVENT_MOUSE_MOTION && live.dragging) {
+        if (photo_camera_locked()) {
+            live.dragging = false;
+            live.drag_button = 0;
+            update_pointer(x, y);
+            return true;
+        }
         // Camera gestures consume the event before normal pointer handling.
         // Keep the custom cursor at the physical pointer throughout the drag.
         update_pointer(x, y);
@@ -736,6 +778,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         return false;
     // Build rotation and spacing keep their modified-wheel gestures.
     if (handle_build_tool_key(event))
+        return true;
+    // A held picture keeps its zoom. The wheel is taken.
+    if (photo_camera_locked())
         return true;
     if (!engine_settings().wheel_zoom || live.failed)
         return true;
@@ -1093,8 +1138,9 @@ bool Runtime::render_live_match_surface() {
     }
     if (!live_renderer_active())
         return true;
-    // A director's frame without the interface is the world alone.
-    const bool bare = director_ != nullptr && !director_->presentation.show_interface;
+    // A director's frame without the interface, or photo mode, is the world
+    // alone. Photo mode can put the selection boxes and the health bars back.
+    const bool bare = match_interface_hidden();
     if (!live.failed) {
         if (!bare) {
             Span overlays(Stage::overlays);
@@ -1105,6 +1151,16 @@ bool Runtime::render_live_match_surface() {
             selection.stop();
             const Span unit_overlays(Stage::unit_overlays);
             draw_live_unit_overlays();
+        } else if (photo_show_selection() || photo_show_health_bars()) {
+            if (photo_show_selection()) {
+                Span selection(Stage::selection);
+                draw_live_selection(true);
+                selection.stop();
+            }
+            if (photo_show_health_bars()) {
+                const Span unit_overlays(Stage::unit_overlays);
+                draw_live_health_bars();
+            }
         }
         const Span on_screen(Stage::on_screen_units);
         rebuild_on_screen_units();
@@ -1113,6 +1169,8 @@ bool Runtime::render_live_match_surface() {
 }
 
 bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {
+    if (photo_camera_locked())
+        return false;
     if (!live_renderer_active() || !live_renderer_ || live_renderer_->failed)
         return false;
     auto& live = *live_renderer_;
@@ -1813,7 +1871,7 @@ void Runtime::live_scene_visibility(
     });
 }
 
-void Runtime::draw_live_selection() {
+void Runtime::draw_live_selection(bool selection_only) {
     // Draw directly into the GPU readback so feedback follows the shown geometry.
     const auto line = [&](int x0, int y0, int x1, int y1, const std::array<uint8_t, 3>& color) {
         const int steps = std::max(std::abs(x1 - x0), std::abs(y1 - y0));
@@ -1841,11 +1899,28 @@ void Runtime::draw_live_selection() {
         line(bounds.x2, bounds.y2, bounds.x1, bounds.y2, color);
         line(bounds.x1, bounds.y2, bounds.x1, bounds.y1, color);
     };
-    constexpr std::array<uint8_t, 3> selection_color{0, 255, 0};
+    // Off draws the turned view's own green, red and white. A mode reads the
+    // same slots as the classic view: good for a selection and a legal site,
+    // mid for a site over the player's own units, bad for a refused site.
+    // The unit under the pointer stays white in every mode.
+    constexpr std::array<uint8_t, 3> plain_selection{0, 255, 0};
+    constexpr std::array<uint8_t, 3> plain_refused{255, 0, 0};
     constexpr std::array<uint8_t, 3> hover_color{255, 255, 255};
+    const auto mark_colour = [&](uint8_t slot, const std::array<uint8_t, 3>& today) {
+        if (oa::present::colour_vision::active_mode() == oa::present::colour_vision::Mode::off)
+            return today;
+        ensure_ui_colors();
+        if (!ui_colors_ready_)
+            return today;
+        return palette_rgb(ui_colors_[slot]);
+    };
+    const std::array<uint8_t, 3> selection_color =
+        mark_colour(kBuildSiteClearColor, plain_selection);
     for (const auto id : selected_local_ids())
         if (const auto bounds = live_unit_bounds(id))
             box(*bounds, selection_color);
+    if (selection_only)
+        return;
     if (const auto bounds = live_unit_bounds(hovered_match_unit_))
         box(*bounds, hover_color);
     const bool queue_drag = build_queue_drag_ && build_queue_drag_->moved;
@@ -1869,16 +1944,66 @@ void Runtime::draw_live_selection() {
                 live_project_world(x1, height, z1),
                 live_project_world(x0, height, z1)
             };
-            const auto color = site->legal ? selection_color : std::array<uint8_t, 3>{255, 0, 0};
+            uint8_t site_slot = kBuildSiteClearColor;
+            const std::array<uint8_t, 3>* today = &plain_selection;
+            if (!site->legal) {
+                site_slot = kBuildSiteRefusedColor;
+                today = &plain_refused;
+            } else if (site->over_own_units && ui_rules().build_tools.enabled) {
+                site_slot = kBuildSiteOverOwnUnitsColor;
+            }
+            const std::array<uint8_t, 3> site_colour = mark_colour(site_slot, *today);
             for (std::size_t edge = 0; edge < corners.size(); ++edge) {
                 const auto next = (edge + 1) % corners.size();
-                line(corners[edge].x, corners[edge].y, corners[next].x, corners[next].y, color);
+                line(
+                    corners[edge].x, corners[edge].y, corners[next].x, corners[next].y, site_colour
+                );
             }
         }
     }
     if (match_drag_) {
         const auto corners = match_drag_corners(live_viewport(match_camera_x_, match_camera_z_));
         box({corners[0].x, corners[0].y, corners[1].x, corners[1].y}, selection_color);
+    }
+}
+
+void Runtime::draw_live_health_bars() {
+    if (!live_renderer_active() || !match_ || match_world_cpu_.rgb.empty())
+        return;
+    drawn_health_bars_.clear();
+    paint_on(PaintLayer::battlefield);
+    const auto& world = match_->state();
+    const auto& slots = match_->world().slots;
+    const auto size = oa::ui::hud::health_bar_size(match_zoom());
+    constexpr float fixed_scale = 65536.0F;
+    std::vector<bool> painted(slots.size());
+    for (const auto& draw : match_models().draws.models) {
+        if (draw.on_map || draw.stand_in >= 0 || draw.model.unit == nullptr)
+            continue;
+        const auto id = draw.model.unit->id;
+        if (id == 0 || id >= slots.size() || painted[id] || !live_unit_bounds(id))
+            continue;
+        const auto& unit = slots[id].record;
+        const auto position = draw.shown_position.value_or(unit.position);
+        const auto frame = live_project_world(
+            position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+        );
+        const int x = frame.x - match_layout_.left;
+        const int y = frame.y - match_layout_.top + size.below_unit;
+        painted[id] = true;
+        if (!oa::ui::hud::draws_health_bar(world, unit))
+            continue;
+        const auto* definition = oa::world_unit_def_of(&world, &unit);
+        oa::ui::hud::HealthBar bar{};
+        if (definition == nullptr ||
+            !oa::ui::hud::unit_health_bar(world.game, unit, *definition, x, y, bar, size))
+            continue;
+        const auto fill = [this](const oa::Rect32& rect, uint8_t color) {
+            fill_hud_rect(rect.x1, rect.y1, rect.x2 - rect.x1 + 1, rect.y2 - rect.y1 + 1, color);
+        };
+        fill(bar.trough, bar.trough_color);
+        fill(bar.fill, bar.fill_color);
+        drawn_health_bars_.push_back(bar);
     }
 }
 

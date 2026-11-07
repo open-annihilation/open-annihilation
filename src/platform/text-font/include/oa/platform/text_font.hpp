@@ -5,10 +5,15 @@
 // same on every platform: one line of UTF-8 at a pixel size and weight,
 // drawn as coverage, hinted to whole pixels in one bit per pixel, or
 // anti-aliased. Each character comes from the first open font of the stack
-// that has it. The base faces are DejaVu Sans Bold, DejaVu Sans, the endonym
-// face and Noto Emoji. The endonym face is a cut of Noto Sans CJK that holds
-// the languages' own names and the notice shown before a language pack is
-// installed. A language pack may add faces while the stack is open. The full
+// that has it. Bengali and Devanagari, whose letters join, stack and change
+// order, are shaped with HarfBuzz and then drawn with that same FreeType.
+// Every other script is drawn one character at a time, as before. The base
+// faces are DejaVu Sans Bold, DejaVu Sans, the endonym face, Noto Emoji and
+// the Bengali endonym face. The endonym face is a cut of Noto Sans CJK
+// that holds the Chinese, Japanese and Korean languages' own names and the
+// notice shown before a language pack is installed; the Bengali endonym
+// face is a cut of Noto Sans Bengali, with its shaping tables, that holds
+// Bengali's. A language pack may add faces while the stack is open. The full
 // Simplified Chinese face travels with that pack. The interface faces,
 // Barlow and Barlow Condensed, draw OA's own screens in the modern look and
 // leave what they lack to the base faces.
@@ -35,10 +40,14 @@ enum class Face : uint8_t {
     dejavu_sans,      ///< the same scripts with more characters, regular
     endonyms,         ///< languages' own names and the notice before a pack is installed
     noto_emoji,       ///< emoji, drawn in one colour like any character
+    /// Bengali's own name and the notice before its pack is installed. Last of
+    /// the base faces, so no other face's value moves; the chain still looks in
+    /// it before Noto Emoji.
+    endonyms_bengali,
 };
 
 /// How many base fonts the stack holds. Pack faces are counted apart.
-inline constexpr std::size_t face_count = 4;
+inline constexpr std::size_t face_count = 5;
 
 /// The most font faces a language pack may add to an open stack.
 inline constexpr std::size_t most_pack_faces = 4;
@@ -102,6 +111,7 @@ inline constexpr std::array<std::string_view, face_count> face_files{
     "DejaVuSans.ttf",
     "NotoSansCJKsc-Bold-Endonyms.otf",
     "NotoEmoji.ttf",
+    "NotoSansBengali-Bold-Endonyms.ttf",
 };
 
 /// The file of each interface face in the fonts folder, in the order of
@@ -170,8 +180,9 @@ enum class Rendering : uint8_t {
 
 /// How a line is drawn.
 struct Style {
-    /// pixels per em of the DejaVu faces, 1..max_pixel_size; the endonym
-    /// face and Noto Emoji are drawn at related_pixel_size of it
+    /// pixels per em of the DejaVu faces, 1..max_pixel_size; the Bengali
+    /// endonym face is drawn at it too; the endonym face and Noto Emoji are
+    /// drawn at related_pixel_size of it
     int32_t pixel_size{14};
     Weight weight{Weight::bold};
     Rendering rendering{Rendering::mono};
@@ -236,21 +247,37 @@ struct Placement {
     int32_t advance{}; ///< pixels the pen moves past it, letter spacing included
 };
 
+/// One glyph of a shaped run, in the order it is drawn.
+///
+/// Positions are HarfBuzz's own, in 26.6 pixels, before letter spacing.
+/// `cluster` is the byte offset of the cluster in the text that was shaped.
+/// A line with no Bengali or Devanagari letter has none.
+struct ShapedGlyph {
+    uint32_t glyph{};    ///< the face's glyph index
+    uint32_t cluster{};  ///< byte offset of the cluster in the shaped text
+    int32_t x_advance{}; ///< 26.6 pixels the pen moves
+    int32_t y_advance{}; ///< 26.6 pixels the pen moves vertically
+    int32_t x_offset{};  ///< 26.6 pixels added to the pen before the glyph is drawn
+    int32_t y_offset{};  ///< 26.6 pixels added to the baseline, positive upward
+    Face face{};         ///< the face the run was shaped with
+};
+
 /// Gives the base faces a weight looks a character up in, in that order.
 ///
 /// This is the base chain, without a pack's faces. Bold and semibold look
 /// in DejaVu Sans Bold first, then DejaVu Sans for what it lacks. Regular
-/// and medium look in DejaVu Sans first. Both then look in the endonym face
-/// and Noto Emoji. FontStack::chain gives the faces one open stack looks
-/// in, pack faces and interface faces included. The span lives as long as
-/// the program.
+/// and medium look in DejaVu Sans first. Both then look in the endonym face,
+/// the Bengali endonym face and Noto Emoji. FontStack::chain gives the faces
+/// one open stack looks in, pack faces and interface faces included. The span
+/// lives as long as the program.
 ///
 /// @param weight the weight of the line
 /// @return the base faces, the first that has a character drawing it
 [[nodiscard]] std::span<const Face> fallback_chain(Weight weight) noexcept;
 
 /// Gives the pixel size the endonym face and Noto Emoji are drawn at next
-/// to the DejaVu faces at a size.
+/// to the DejaVu faces at a size. The Bengali endonym face is drawn at the
+/// DejaVu faces' own size, as a letters pack face is.
 ///
 /// Ideographs stand about as tall as DejaVu's capitals with one or two
 /// rows more, as they do at 12 px beside the 14-px log font: six sevenths
@@ -355,10 +382,13 @@ class FontStack {
     ///
     /// Bold: DejaVu Sans Bold, DejaVu Sans, the letters pack faces in the
     /// order they were added, the ideographs pack faces in that order, the
-    /// endonym face, then Noto Emoji. Semibold is the same. Regular and
-    /// medium are the same without DejaVu Sans Bold. An interface family
-    /// puts its face for the weight first (Family). A face that is not open
-    /// is left out of the chain, and lookup skips one that is closed.
+    /// endonym face, the Bengali endonym face, then Noto Emoji. A Bengali
+    /// letter is therefore drawn by a pack's letters face when one holds it,
+    /// and by the Bengali endonym face when none does. Semibold is the same.
+    /// Regular and medium are the same without DejaVu Sans Bold. An
+    /// interface family puts its face for the weight first (Family). A face
+    /// that is not open is left out of the chain, and lookup skips one that
+    /// is closed.
     ///
     /// @param weight the weight of the line
     /// @param family the faces looked in first
@@ -418,7 +448,10 @@ class FontStack {
     ///
     /// The rows are the greatest ascent and descent of the open base faces
     /// at the size the style draws them, and of an interface family's face
-    /// for the weight. A pack's faces never change them.
+    /// for the weight. A pack's faces never change them, and nor does the
+    /// Bengali endonym face, which stands taller below the baseline than the
+    /// others: a line that holds no Bengali has the rows it always had, and
+    /// a shaped line grows to hold the glyphs it draws.
     /// The endonym face is cut from Noto Sans CJK and keeps those rows, so
     /// a line beside the 14 px bold face has 14 above the baseline and 4
     /// below.
@@ -429,11 +462,11 @@ class FontStack {
 
     /// Gives the rows of one face at the pixel size a style draws it at.
     ///
-    /// The sans faces, the interface faces and letters pack faces take the
-    /// style's pixel size. The endonym face and ideographs pack faces take
-    /// related_pixel_size
-    /// of it, and no less than the style's least size. Noto Emoji takes
-    /// related_pixel_size and is set to the style's weight.
+    /// The sans faces, the interface faces, the Bengali endonym face and
+    /// letters pack faces take the style's pixel size. The endonym face and
+    /// ideographs pack faces take related_pixel_size of it, and no less than
+    /// the style's least size. Noto Emoji takes related_pixel_size and is set
+    /// to the style's weight.
     ///
     /// @param face the face
     /// @param style the style; its pixel size must be 1..max_pixel_size
@@ -443,6 +476,12 @@ class FontStack {
 
     /// Lays a line out without drawing it.
     ///
+    /// A line of Bengali or Devanagari is shaped first. Each cluster's width
+    /// is kept on the cluster's first character, and its other characters
+    /// advance nothing, so measuring and line breaking see the shaped width
+    /// and break before the cluster. Every other line is one character at a
+    /// time, not shaped, kerned or reordered.
+    ///
     /// @param text UTF-8 text, at most max_text_bytes
     /// @param style the style
     /// @return each visible character with its font and pen position; empty
@@ -450,13 +489,35 @@ class FontStack {
     [[nodiscard]] std::optional<std::vector<Placement>>
     layout(std::string_view text, const Style& style);
 
+    /// Shapes the Bengali and Devanagari runs of a line.
+    ///
+    /// A run is one of those scripts, including the joiners between its
+    /// letters. The face is the one the run's first letter would be drawn
+    /// with. Direction is left to right, the script is the run's, the
+    /// language is HarfBuzz's default and the cluster level is its monotone
+    /// graphemes. The load flags are the ones draw uses for the style: mono
+    /// is FT_LOAD_NO_BITMAP and FT_LOAD_TARGET_MONO, and antialiased is
+    /// FT_LOAD_NO_BITMAP and FT_LOAD_TARGET_NORMAL. A line with no such
+    /// letter returns an empty list. Other letters are not shaped. A build
+    /// that does not shape returns no list.
+    ///
+    /// @param text UTF-8 text, at most max_text_bytes
+    /// @param style the style
+    /// @return the glyphs of those runs, in the order they are drawn, one
+    ///         run after another; an empty list when the line has no such
+    ///         letter; no list when the text is not UTF-8 or too long, the
+    ///         style is out of range, or a run could not be shaped
+    [[nodiscard]] std::optional<std::vector<ShapedGlyph>>
+    shape(std::string_view text, const Style& style);
+
     /// Draws a line.
     ///
     /// Each character is drawn at the pen, which starts at origin and moves
     /// by the character's advance, rounded to a whole pixel, and the
-    /// style's letter spacing. Characters are not shaped, kerned or
-    /// reordered. Where two glyphs cover one pixel, the greater coverage is
-    /// kept.
+    /// style's letter spacing. Bengali and Devanagari are shaped first and
+    /// their glyphs are drawn at the positions shaping gave, with FreeType.
+    /// Every other line is not shaped, kerned or reordered. Where two glyphs
+    /// cover one pixel, the greater coverage is kept.
     ///
     /// @param text UTF-8 text, at most max_text_bytes
     /// @param style the style

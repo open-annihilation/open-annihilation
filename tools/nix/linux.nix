@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # The engine as it is built on this system: the game, the tool beside it, the
-# ten fonts cmake/OaTextFonts.cmake copies next to them, and a desktop entry.
+# eleven fonts cmake/OaTextFonts.cmake copies next to them, and a desktop entry.
 #
 # This is the flake's "default" output. It builds the tree it is in, rather
 # than a release fetched from elsewhere, which is the one thing about it a
@@ -10,6 +10,34 @@
 #
 { pkgs, src, version }:
 let
+  # AccessKit 0.23.2. The release holds every library the engine's release
+  # builds link. aarch64-linux is not among them: the release has no aarch64
+  # static library, and this flake does not run cargo against the pinned
+  # source (aarch64-unknown-linux-gnu). That output leaves the bridge out.
+  accesskit = pkgs.stdenvNoCC.mkDerivation {
+    pname = "accesskit-c";
+    version = "0.23.2";
+
+    src = pkgs.fetchurl {
+      url = "https://github.com/AccessKit/accesskit-c/releases/download/0.23.2/accesskit-c-0.23.2.zip";
+      hash = "sha256-x/qE+PNPypCfZiN1c3pU+YsXz56uUf/9lKs9n2YuNoE=";
+    };
+
+    nativeBuildInputs = [ pkgs.unzip ];
+    sourceRoot = "accesskit-c-0.23.2";
+    dontConfigure = true;
+    dontBuild = true;
+    dontStrip = true;
+    dontFixup = true;
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p $out
+      cp -a . $out/
+      runHook postInstall
+    '';
+  };
+
   # Barlow and Barlow Condensed 1.422, the modern look's interface faces: the
   # static faces as the project's release tag holds them, each pinned by the
   # SHA-256 tools/bootstrap_text_fonts.py pins it by.
@@ -30,18 +58,32 @@ let
     };
   }) barlowFaces;
 
-  # The ten fonts. Nine come from projects that publish them.
+  # Noto Sans Bengali 3.011, from the project's release, pinned by the
+  # SHA-256 tools/bootstrap_text_fonts.py pins it by. Its Bold face is cut
+  # below to Bengali's own name and the language notice.
+  bengaliRelease = pkgs.fetchurl {
+    url = "https://github.com/notofonts/bengali/releases/download/NotoSansBengali-v3.011/NotoSansBengali-v3.011.zip";
+    sha256 = "2aca24bf71665e66c32e14862ee58857dd8b8b07b6321ec7c96f3121ad6683b1";
+  };
+
+  # The eleven fonts. Nine come from projects that publish them.
   # NotoSansCJKsc-Bold-Endonyms.otf is the Simplified Chinese face of Noto
   # Sans CJK's Bold collection, cut to the languages' own names and the
   # language notice (tools/text-fonts/endonyms.txt). The full face travels
-  # with the Simplified Chinese language pack, not with the game. Nix's
-  # fontTools need not match the pinned one, so this cut's bytes may differ
-  # from the pin, which this build does not check.
+  # with the Simplified Chinese language pack, not with the game.
+  # NotoSansBengali-Bold-Endonyms.ttf is Noto Sans Bengali Bold cut to
+  # Bengali's own name and its notice (tools/text-fonts/endonyms-bengali.txt),
+  # with its shaping tables kept. Nix's fontTools need not match the pinned
+  # one, so these cuts' bytes may differ from the pins, which this build does
+  # not check.
   textFonts = pkgs.stdenvNoCC.mkDerivation {
     pname = "open-annihilation-text-fonts";
     version = "2.004";
 
-    nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.fonttools ])) ];
+    nativeBuildInputs = [
+      (pkgs.python3.withPackages (ps: [ ps.fonttools ]))
+      pkgs.unzip
+    ];
 
     dontUnpack = true;
     dontConfigure = true;
@@ -59,6 +101,13 @@ let
         ${pkgs.dejavu_fonts}/share/fonts/truetype/DejaVuSans-Bold.ttf \
         ${pkgs.dejavu_fonts}/share/fonts/truetype/DejaVuSans.ttf \
         $out/NotoSansCJKsc-Bold-Endonyms.otf
+      unzip -p ${bengaliRelease} NotoSansBengali/hinted/ttf/NotoSansBengali-Bold.ttf \
+        > NotoSansBengali-Bold.ttf
+      python3 ${src}/tools/bootstrap_text_fonts.py --cut-bengali-endonym-face \
+        NotoSansBengali-Bold.ttf \
+        ${pkgs.dejavu_fonts}/share/fonts/truetype/DejaVuSans-Bold.ttf \
+        ${pkgs.dejavu_fonts}/share/fonts/truetype/DejaVuSans.ttf \
+        $out/NotoSansBengali-Bold-Endonyms.ttf
       ${pkgs.lib.concatMapStrings (face: ''
         install -m644 ${face.file} $out/${face.name}
       '') barlowFiles}
@@ -121,7 +170,7 @@ let
   };
 in
 {
-  inherit textFonts pageFonts;
+  inherit textFonts pageFonts accesskit;
 
   game = pkgs.stdenv.mkDerivation {
     pname = "open-annihilation";
@@ -140,15 +189,22 @@ in
       pkgs.sdl3
       pkgs.ffmpeg-headless
       pkgs.freetype
+      pkgs.harfbuzz
     ];
 
     # The fonts cmake/OaTextFonts.cmake and cmake/OaBoneyards.cmake copy
-    # beside the game.
+    # beside the game. x86_64 links the release's static library. aarch64-linux
+    # leaves the bridge out: the release has no aarch64 library, and this
+    # flake does not build one.
     cmakeFlags = [
       "-DOA_TEXT_FONTS_DIR=${textFonts}"
       "-DOA_FONTS_DIR=${pageFonts}/fonts"
       "-DOA_SELF_UPDATE=OFF"
       "-DOA_PACKAGER_NAME=Nix"
+    ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
+      "-DOA_ACCESSKIT_DIR=${accesskit}"
+    ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isAarch64 [
+      "-DOA_SCREEN_READER=OFF"
     ];
 
     buildFlags = [

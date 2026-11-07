@@ -1235,7 +1235,23 @@ void Downloads::State::restore_queue() {
                     }
                 }
             }
-            if (package == nullptr) {
+            const data::catalogue::ReleaseEntry* older = nullptr;
+            if (package == nullptr && snap) {
+                for (const RegistryView& view : snap->registries) {
+                    if (view.registry.descriptor.id != row.registry || !view.releases)
+                        continue;
+                    for (const data::catalogue::ReleaseEntry& entry : view.releases->packages) {
+                        if (entry.id == row.key && entry.release == row.release &&
+                            entry.sha256 == row.sha256 && entry.kind == row.kind) {
+                            older = &entry;
+                            break;
+                        }
+                    }
+                    if (older != nullptr)
+                        break;
+                }
+            }
+            if (package == nullptr && older == nullptr) {
                 dropped = true;
                 continue;
             }
@@ -1255,8 +1271,9 @@ void Downloads::State::restore_queue() {
             item.target.kind = row.kind;
             item.target.release = row.release;
             item.target.sha256 = row.sha256;
-            item.target.size = package->size;
-            item.target.name = package->name;
+            item.target.size = package != nullptr ? package->size : older->size;
+            item.target.name = package != nullptr ? package->name : older->name;
+            const std::string& file = package != nullptr ? package->file : older->file;
             for (const RegistryView& view : snap->registries) {
                 if (view.registry.descriptor.id != row.registry)
                     continue;
@@ -1264,7 +1281,7 @@ void Downloads::State::restore_queue() {
                 item.target.mode = view.registry.descriptor.mode;
                 item.target.api = view.registry.descriptor.api;
                 item.target.install_id = view.registry.descriptor.install_id;
-                item.target.files = reference_urls(view, package->file);
+                item.target.files = reference_urls(view, file);
                 break;
             }
             restored.push_back(std::move(item));
@@ -1582,6 +1599,17 @@ KeyGate Downloads::State::ensure_key(http::Client& client, uint64_t id) {
             return KeyGate::cancelled;
         if (quit_flag.load())
             return KeyGate::quit;
+        // A replay press says the registry is offline at once. A closed
+        // port answers with no HTTP status; a 5xx still waits and tries again.
+        {
+            threads::LockGuard guard(mutex);
+            Item* item = find(id);
+            if (item != nullptr && still_open(item->state) && item->target.prompt &&
+                answer.answered.status == 0) {
+                fail(*item, DownloadFailure::unreachable, answer.detail);
+                return KeyGate::failed;
+            }
+        }
         uint32_t factor = 1;
         bool give_up = false;
         {
@@ -2407,6 +2435,28 @@ void Downloads::State::process(http::Client& client, uint64_t id) {
                 continue;
             }
             if (end == FetchEnd::resume) {
+                bool prompt = false;
+                {
+                    threads::LockGuard guard(mutex);
+                    Item* item = find(id);
+                    prompt = item != nullptr && item->target.prompt;
+                }
+                if (prompt) {
+                    {
+                        threads::LockGuard guard(mutex);
+                        Item* item = find(id);
+                        if (item != nullptr && still_open(item->state)) {
+                            fail_locked(
+                                *this,
+                                *item,
+                                DownloadFailure::unreachable,
+                                failure_text(DownloadFailure::unreachable)
+                            );
+                        }
+                    }
+                    send_result(client, id, KeyResult::failed);
+                    return;
+                }
                 uintmax_t after = 0;
                 if (fs::is_regular_file(part, error))
                     after = fs::file_size(part, error);

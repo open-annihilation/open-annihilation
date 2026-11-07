@@ -190,7 +190,11 @@ void load_planetary_map(StatusWidget* owner) {
 /// map and the Main Frame closes the login console, sliding the green off
 /// the map. EXIT leaves for the main menu instead. LOGIN is disabled while
 /// the name, or a member's password, is empty and enabled again once they
-/// are filled.
+/// are filled. A press on LOGIN stays pressed until the pointer is released.
+/// That release is what tells this console the button was clicked. Clearing
+/// Pressed on the pulse between the two would drop the click. A disabled
+/// LOGIN is cleared anyway, and a release while it is disabled still does
+/// nothing.
 ///
 /// @param self the login console
 void login_view_pulse(Window* self) {
@@ -209,9 +213,10 @@ void login_view_pulse(Window* self) {
         main_frame_close_screen(owner->system.main_frame);
     }
     screens::login_update_button(&dialog);
-    window_set_state(
-        view->login, dialog.login_value == 0 ? button_state::disabled : button_state::unpressed
-    );
+    const int32_t wanted =
+        dialog.login_value == 0 ? button_state::disabled : button_state::unpressed;
+    if (view->login->states.current != button_state::pressed || wanted == button_state::disabled)
+        window_set_state(view->login, wanted);
 }
 
 WindowOps make_field_ops(const WindowOps& base, bool (*key_down)(Window*, const Message*)) {
@@ -308,8 +313,10 @@ void login_show_registration(void* user) {
 /// and Guest Login radios, REGISTER, LOGIN and CANCEL, the server and status
 /// lists and the animated logo. REGISTER opens the registration console. The
 /// server list selects the current server
-/// (else its first row); a saved user name selects member mode and puts the
-/// focus on the password. The controls start zeroed from
+/// (else its first row). Registered User is chosen and the password is
+/// shown. Guest Login is drawn from the dialog, disabled while guests are
+/// not offered. A saved user name puts the focus on the password. A saved
+/// guest choice is not restored. The controls start zeroed from
 /// console_window_alloc.
 ///
 /// @param[in,out] view the login console
@@ -367,10 +374,7 @@ void login_view_build(LoginView* view) {
     if (settings.read_string != nullptr &&
         settings.read_string(settings.user, "Username", saved, sizeof saved))
         view->name->base.ops->set_caption(&view->name->base, saved, 0);
-    screens::login_on_control(
-        &dialog,
-        saved[0] != '\0' ? screens::LoginControl::member_radio : screens::LoginControl::guest_radio
-    );
+    screens::login_on_control(&dialog, screens::LoginControl::member_radio);
     window_set_state(&view->member->base, dialog.member_value);
     window_set_state(&view->guest->base, dialog.guest_value);
     window_set_state(&view->password->base, dialog.password_field_value);

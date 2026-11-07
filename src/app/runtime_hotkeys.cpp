@@ -51,6 +51,20 @@ namespace keys = oa::ui::key_bindings;
 
 namespace {
 
+/// The match commands that still answer while photo mode is open.
+///
+/// The camera's pan is a held key, and the wheel zooms on its own. Home
+/// centres and is listed here; it selects nothing while photo mode is open.
+///
+/// @param id the action id
+/// @return true when photo mode runs the command
+bool photo_match_command(std::string_view id) {
+    return id == "game.menu" || id == "game.pause" || id == "game.speed-up" ||
+           id == "game.speed-down" || id == "camera.follow" || id == "camera.follow-previous" ||
+           id == "camera.centre" || id == "camera.classic-view" || id == "camera.unlocked" ||
+           id == "camera.zoom-in-key" || id == "camera.zoom-out-key" || id == "camera.zoom-reset";
+}
+
 /// The squad or page number at the end of an action id, or 0.
 ///
 /// `build.page-next` is not a numbered page: the id must be the prefix and
@@ -229,6 +243,10 @@ bool Runtime::press_shown_panel_action(std::string_view id, keys::Phase phase) {
 bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // Action ids are strings, so this is a chain of comparisons.
     const std::string_view id = action.action;
+    // Anything photo mode does not name is taken and does nothing. The
+    // game menu is named, and leaves before it opens.
+    if (photo_mode() && !photo_match_command(id))
+        return true;
     if (id == "game.kill-board" || id == "game.resource-panel") {
         if (resource_panel_f4_key())
             return true;
@@ -250,6 +268,10 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         return true;
     }
     if (id == "game.menu") {
+        // The game menu is the match's own. Photo mode ends first, so the
+        // menu opens on the interface the player left.
+        if (photo_mode())
+            leave_photo_mode();
         if (match_paused_)
             resume_match_pause();
         else
@@ -479,6 +501,9 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         return true;
     }
     if (id == "camera.follow" || id == "camera.follow-previous") {
+        // A held picture is not followed. The key is taken.
+        if (photo_camera_locked())
+            return true;
         cycle_match_tracking(id == "camera.follow-previous");
         return true;
     }
@@ -488,11 +513,23 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id == "game.status-strip")
         return true;
     // Home centres the view on the selected unit, or with none selects the
-    // local commander and centres on it.
+    // local commander and centres on it. In photo mode it centres on the
+    // commander and selects nothing.
     if (id == "camera.centre") {
-        if (selected_match_unit_ != 0)
+        // A held picture is not centred. The key is taken.
+        if (photo_camera_locked())
+            return true;
+        if (selected_match_unit_ != 0) {
             center_camera_on_unit(selected_match_unit_);
-        else {
+        } else if (photo_mode()) {
+            for (const auto& slot : match_->world().slots) {
+                if (slot.unit_index == 0 || slot.unit == nullptr ||
+                    slot.owner_index != match_local_player_ || slot.unit->type_index == 0)
+                    continue;
+                center_camera_on_unit(slot.unit_index);
+                break;
+            }
+        } else {
             select_local_commander();
             apply_match_hud_for_selection();
             if (selected_match_unit_ != 0)
@@ -520,7 +557,13 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id == "game.speed-up" || id == "game.speed-down") {
         if (action.phase != keys::Phase::pressed && action.phase != keys::Phase::repeated)
             return false;
-        if ((current_extension_state() & extension_state::local_watcher) == 0)
+        // A replay's + and - step the speed it is watched at. A recording's own speed change
+        // still paces it, and does not put the viewer's speed back.
+        if ((current_extension_state() & extension_state::replay) != 0)
+            call_hook_or_report<&Extension::replay_step_speed>(
+                extension_, hook_error_report(), *this, id == "game.speed-up" ? 1 : -1
+            );
+        else if ((current_extension_state() & extension_state::local_watcher) == 0)
             adjust_game_speed(id == "game.speed-up" ? 1 : -1);
         return true;
     }
@@ -607,6 +650,18 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // modifier's own key does not: Alt may go down again between the two.
     if (!key.repeat && !modifier_key(key.scancode) && !group_key_pressed(events))
         group_key_last_ = 0;
+    // Photo mode answers only the commands photo_match_command names. The
+    // rest, including the chat line, the kills board and the console, are
+    // taken here so they do not reach the match. Pan stays a held key.
+    if (photo_mode()) {
+        for (const keys::ActionEvent& fed : events) {
+            const bool answers = fed.phase == keys::Phase::pressed ||
+                                 (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
+            if (answers && handle_match_action(fed))
+                return true;
+        }
+        return true;
+    }
     if (key.repeat && !deletes_typed_text && !repeats_speed_or_page(events))
         return false;
     if ((!question && take_whiteboard_chord(key)) || take_megamap_toggle(key))

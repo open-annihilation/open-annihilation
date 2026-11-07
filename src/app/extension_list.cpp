@@ -629,6 +629,42 @@ void combine_hooks(ExtensionListState& state) {
     combine(state, &Extension::release_runtime, [](void* context, Runtime& runtime) {
         call_every_reversed(context, &Extension::release_runtime, runtime);
     });
+    combine(
+        state,
+        &Extension::replay_frame,
+        [](void* context, Runtime& runtime, uint32_t now_ms, const ReplayFrameHost& host) {
+            call_every(context, &Extension::replay_frame, runtime, now_ms, host);
+        }
+    );
+    combine(state, &Extension::replay_hold, [](void* context, Runtime& runtime, uint32_t now_ms) {
+        call_every(context, &Extension::replay_hold, runtime, now_ms);
+    });
+    combine(state, &Extension::replay_play, [](void* context, Runtime& runtime) {
+        call_every(context, &Extension::replay_play, runtime);
+    });
+    combine(state, &Extension::replay_pause, [](void* context, Runtime& runtime) {
+        call_every(context, &Extension::replay_pause, runtime);
+    });
+    combine(
+        state, &Extension::replay_set_speed, [](void* context, Runtime& runtime, int32_t milli) {
+            call_every(context, &Extension::replay_set_speed, runtime, milli);
+        }
+    );
+    combine(
+        state, &Extension::replay_step_speed, [](void* context, Runtime& runtime, int32_t delta) {
+            call_every(context, &Extension::replay_step_speed, runtime, delta);
+        }
+    );
+    combine(state, &Extension::replay_seek, [](void* context, Runtime& runtime, uint32_t tick) {
+        call_every(context, &Extension::replay_seek, runtime, tick);
+    });
+    combine(
+        state,
+        &Extension::replay_state,
+        [](void* context, Runtime& runtime, ReplayPlaybackView* out) {
+            return first_to_take(context, &Extension::replay_state, runtime, out);
+        }
+    );
 }
 
 } // namespace

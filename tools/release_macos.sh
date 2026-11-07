@@ -48,8 +48,8 @@ Builds the macOS release of Open Annihilation and writes, in DIR:
 
 The game is a Release build for arm64 and x86_64 and macOS 11.0 or later,
 without tests or the game's self-checks (OA_SELF_CHECKS=OFF), with its
-executable stripped of its symbols, with zlib, SDL3 and FreeType linked in from
-tools/bootstrap_macos_deps.py, and the text fonts of
+executable stripped of its symbols, with zlib, SDL3, FreeType and HarfBuzz
+linked in from tools/bootstrap_macos_deps.py, and the text fonts of
 tools/bootstrap_text_fonts.py in its Resources/fonts. When the module is
 built, that folder also holds the page fonts, and Resources holds
 coreprime.ccx and the module's language file. The application is signed inside-out with the
@@ -262,10 +262,11 @@ if [[ -z "$app" ]]; then
     python3 "$repo_dir/tools/bootstrap_macos_deps.py" --deps "$deps_dir" \
         --deployment-target "$macos_minimum" --jobs "$jobs"
     prefix="$deps_dir/macos-$macos_minimum"
-    # The text fonts, the same for every architecture; FreeType is the
-    # prefix's.
+    # The text fonts, the same for every architecture. FreeType and HarfBuzz
+    # are the prefix's, so the package links those universal libraries.
     python3 "$repo_dir/tools/bootstrap_text_fonts.py" --deps "$deps_dir" --fonts-only
     python3 "$repo_dir/tools/bootstrap_page_fonts.py" --deps "$deps_dir"
+    python3 "$repo_dir/tools/bootstrap_accesskit.py" --deps "$deps_dir"
     text_fonts="$deps_dir/text-fonts"
 
     # A Release build without tests, for both architectures and the oldest
@@ -296,7 +297,10 @@ if [[ -z "$app" ]]; then
         -DOA_BUILD_PLATFORM=ON -DOA_BUILD_INTRO_PLAYER=ON -DOA_REQUIRE_GAME=ON \
         -DOA_GAME_DIR= -DOA_DEMO_INSTALLER= \
         "-DSDL3_DIR=$prefix/sdl/lib/cmake/SDL3" \
-        "-Dfreetype_DIR=$prefix/freetype/lib/cmake/freetype" "-DOA_TEXT_FONTS_DIR=$text_fonts" \
+        "-Dfreetype_DIR=$prefix/freetype/lib/cmake/freetype" \
+        "-Dharfbuzz_DIR=$prefix/harfbuzz/lib/cmake/harfbuzz" \
+        -DOA_REQUIRE_TEXT_SHAPING=ON "-DOA_TEXT_FONTS_DIR=$text_fonts" \
+        "-DOA_ACCESSKIT_DIR=$deps_dir/accesskit-c-0.23.2" \
         "-DOA_FONTS_DIR=$deps_dir/fonts" \
         "-DZLIB_INCLUDE_DIR=$prefix/zlib/include" "-DZLIB_LIBRARY=$prefix/zlib/lib/libz.a"
 

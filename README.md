@@ -266,7 +266,8 @@ format. (The free 1997 demo of the game is something else: see
 
 ### Playing a recording
 
-Start the game with `--play-demo` and the recording's file:
+Start the game with `--play-demo` and the recording's file, a `.tad` or a
+`.oademo` ([Replays](docs/replays.md)):
 
 - **macOS:** `open` passes the options only while the game is not already
   running, and needs the recording's full path:
@@ -297,11 +298,12 @@ Start the game with `--play-demo` and the recording's file:
 - **From source:** `./run.sh --play-demo game.tad`.
 
 After the opening movies (`--skip-intro` skips them), the recorded game
-plays from its start, at the speeds its players set. You watch it as a
-watcher of the game would: you move the camera anywhere on the map, but
-give no orders and type no chat. **+** and **-** change the speed until
-the recording changes it again, **Pause** holds the playback, and you
-leave it from the in-game menu (**F2**). A recording that cannot play stops
+plays from its start. You watch it as a watcher of the game would: you
+move the camera anywhere on the map, but give no orders and type no chat.
+**+** and **-** step the speed you watch at, from ½× to 16×. A speed the
+recording sets still paces the replay, multiplied by that speed.
+**Pause** holds the playback, and you leave it from the in-game menu
+(**F2**). A recording that cannot play stops
 the game and says why, in the terminal or in an error box. A recording
 plays when:
 
@@ -334,12 +336,26 @@ shots over it and render them with the game's sound;
 
 ### Recording a game
 
-3.1c records nothing. A network game is recorded when the mod's profile
-turns on the game recorder
+3.1c records nothing. Open Annihilation keeps every game you play as
+a replay, a network game and a skirmish, a `.oademo` file
+([Replays](docs/replays.md)), unless you turn
+`open-annihilation.replays.record` off in the preferences file. Nothing is
+sent to the other players on its account: they see no recorder, and no
+other player's address is kept. A network game is recorded in the layout
+of the game recorder, a `.tad`, when the mod's profile turns it on
 ([recorder.ta-demo-recorder](docs/mods/standard-hacks/recorder.ta-demo-recorder.md)),
 or when the game was started with `--net-record FILE`, which records the
-next network game to `FILE`, replacing it, whatever the profile says. The
-file is written when the game ends or you leave it, and the log names it.
+next game, a network game or a skirmish, to `FILE`, replacing it, whatever
+the profile says. A
+game is never kept in both layouts. `--record-game FILE` records the next
+game, a network game or a skirmish, to `FILE` whatever the setting says, as a `.oademo`, or as a
+`.tad` when the name ends in `.tad`; it is also how a game in a headless
+run or a check is recorded, which nothing else records. The recording is
+written as the game goes, under `Recordings/.replays/partial`, and put in
+its place when the game ends or you leave it: the log names the file. A
+game that stopped before then, a crash among the causes, is finished the
+next time the game starts, and its replay says it was cut and finished after
+a crash.
 
 The recorder saves each game in the `Recordings` folder of your Open
 Annihilation folder, the one that holds your saved games, screenshots and
@@ -365,8 +381,9 @@ move into `Recordings` once, as the installation guides describe
 [Linux](docs/installation/linux.md#where-it-keeps-its-files)).
 
 A file is named after the date, time and map, such as
-`2026-10-05 1432 Coast To Coast.tad`; `.record NAME`, typed in the battle
-room's chat, names it `NAME.tad` instead (a profile may set other
+`2026-10-05 1432 Coast To Coast.oademo`, or `.tad` for the game recorder's
+layout; `.record NAME`, typed in the battle room's chat while the game
+recorder records, names it `NAME.tad` instead (a profile may set other
 extensions). A name already taken gets ` (2)`, and so on. The recorder's
 other chat commands work as the demo recorder's did:
 [network.recorder-session-commands](docs/mods/standard-hacks/network.recorder-session-commands.md)

@@ -10,7 +10,9 @@
 #include "oa/app/package_install/interface_words.hpp"
 #include "oa/app/update/interface_words.hpp"
 #include "oa/data/input_actions/interface_words.hpp"
+#include "oa/data/replays/interface_words.hpp"
 #include "oa/formats/json.hpp"
+#include "oa/formats/oademo/interface_words.hpp"
 #include "oa/netgame/match/interface_words.hpp"
 #include "oa/ui/engine_settings/interface_words.hpp"
 #include "oa/ui/first_run/interface_words.hpp"
@@ -61,6 +63,8 @@ std::vector<std::string_view> join_interface_words() {
     append(words, oa::netgame::match::interface_words);
     append(words, oa::app::interface_words);
     append(words, oa::app::update::interface_words);
+    append(words, oa::formats::oademo::interface_words);
+    append(words, oa::data::replays::interface_words);
     std::erase(words, std::string_view{});
     std::sort(words.begin(), words.end());
     words.erase(std::unique(words.begin(), words.end()), words.end());

@@ -100,8 +100,9 @@ struct NavMetrics {
 };
 
 /// The section list's sizes at Compact, Regular and Large, in the order of
-/// kit::SizeClass. Compact's list of eleven sections fits its room; Regular's
-/// and Large's fit every section the engine lists.
+/// kit::SizeClass. Compact's room holds eleven sections, so its list of the
+/// engine's twelve scrolls; Regular's and Large's hold fourteen, one fewer
+/// than the fullest dialog lists.
 inline constexpr std::array<NavMetrics, 3> nav_metrics{{
     {19, 0, 3, 6, 7, 9, 19, 0},
     {25, 1, 3, 6, 12, 14, 33, 0},
@@ -1557,7 +1558,7 @@ scroll_thumb(int32_t scroll, int32_t limit, int32_t content_height) noexcept;
 enum class NavGroup : uint8_t {
     play,    ///< Controls, Accessibility, Touch and Controller
     look,    ///< Graphics, User Interface and Language & Text
-    content, ///< Game files, Downloads, Updates and Game Content
+    content, ///< Game files, Downloads, Updates, Game Content and Replays
     system,  ///< Engine Limits, System and Developer
 };
 

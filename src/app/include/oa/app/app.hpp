@@ -187,6 +187,14 @@ enum class NavigationGroup : uint8_t {
     campaign
 };
 
+/// The part of the photo check --check-photo runs.
+enum class PhotoGroup : uint8_t {
+    /// entering, leaving and hiding the interface
+    mode,
+    /// freeze, step, the eighths between ticks, slow play and a held picture
+    time,
+};
+
 /// A renderer failure --render-fault forces in --check-renderer-ladder.
 enum class RenderFaultPoint : uint8_t {
     /// every render driver but software refuses at start-up
@@ -762,6 +770,12 @@ struct Options {
     // that the match's sounds reach the director's sound hooks. Implies
     // --headless-check and --skip-intro.
     bool check_director_view = false;
+    /// --check-photo [mode]: photo mode in a window over the skirmish's
+    /// fight. A fixed-clock, unattended run that skips the intro. It opens
+    /// a window, as the key table does.
+    bool check_photo = false;
+    /// The part of --check-photo that runs.
+    PhotoGroup photo_group = PhotoGroup::mode;
     // Renders a small director script over the headless skirmish's first
     // ticks, with encoding off, twice (all of it, then its second chunk
     // alone), and checks the files it writes, that neither the sound of a
@@ -937,6 +951,23 @@ struct Options {
     // rules-changing update, and for 50 rounds answers UPDATE and requires
     // the Library still on top with its tabs. NOT NOW leaves the details page.
     bool check_library_update_question = false;
+    // Made-up replays, written from the recording the working folder holds
+    // (library-replays-source.oademo), walked through the Library's Replays
+    // section: its place with none and with some, Watch and Leave, Keep over
+    // a restart, the filters, the kind menu, the search and the sort, and
+    // Turn on recording. With --snapshot, the section at three sizes.
+    bool check_library_replays = false;
+    // Opens a made-up .oademo and a made-up .tad into Recordings/Imported,
+    // selects each in the Library, opens each again without copying, and
+    // refuses a damaged file and a version this game does not play. The
+    // imported .tad holds no sector 6. Prints `replay import:` lines.
+    bool check_replay_import = false;
+    // A replay that needs a map pack and a mutator, against the loopback
+    // registry replays-content.facts names: both fetched with one press, then
+    // a release that is not listed, and the same replay while that registry
+    // is stopped. prepare writes the packages. With --snapshot, the card at
+    // 1280x720.
+    bool check_replays_content = false;
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;
@@ -962,13 +993,17 @@ struct Options {
     // generated from; empty for none. Implies --headless-check and
     // --skip-intro.
     fs::path generate_script;
+    // --replay-index RECORDING: the recording whose index --output names;
+    // empty for none. Implies --headless-check and --skip-intro.
+    fs::path replay_index;
     // --render-script FILE: the director script (.oascript) or bundle
     // (.oamovie) to render; empty for none. Implies --headless-check and
     // --skip-intro.
     fs::path render_script;
     // --output PATH: where --generate-script writes (a .oascript or
-    // .oamovie) or --render-script renders (a directory); empty for the
-    // default beside the input.
+    // .oamovie), --render-script renders (a directory) or --replay-index
+    // writes the index (a .json); empty for the default beside the input
+    // (--replay-index has none).
     fs::path director_output;
     // --chunks A-B (or A): the chunks --render-script draws and encodes,
     // counted from 0, both included; unset for all.

@@ -40,6 +40,16 @@ void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& 
 /// @return button, check box, list, text field, slider, label, area or image
 [[nodiscard]] std::string_view control_kind_name(AutomationControlKind kind) noexcept;
 
+/// Writes the fields a screen reader reads, after the control's existing fields.
+///
+/// `role` and `label` are always written. A list keeps its integer `selected`
+/// and does not gain the boolean of the same name. A masked field's label is
+/// never the text it holds.
+///
+/// @param[in,out] json the control's object, open
+/// @param control the control
+void write_control_access(JsonWriter& json, const AutomationControl& control);
+
 /// Returns the dialogs the controls belong to, by their GUI file's name, in
 /// the controls' order, each once.
 ///

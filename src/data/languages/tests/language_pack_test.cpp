@@ -162,7 +162,7 @@ void manifests_are_refused_by_rule() {
     OA_CHECK(refused("oalang: 1\ntag: zh-Hans\n"));
     OA_CHECK(refused("oalang: 1\nword: Chinese\n"));
     OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nspelling: wrong\n"));
-    OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\ntext: {needs: shaping}\n"));
+    OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\ntext: {needs: kerning}\n"));
     OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nunicode: yes\n"));
     OA_CHECK(refused("oalang: 1\ntag: zh Hans\nword: Chinese\n"));
     OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nlocales: zh\n"));
@@ -173,6 +173,14 @@ void manifests_are_refused_by_rule() {
     );
     OA_CHECK(manifest.needs == languages::TextNeeds::game_fonts && !manifest.unicode);
     OA_CHECK(manifest.fonts.empty() && manifest.warmup.empty() && !manifest.packaging);
+    languages::PackManifest shaped;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of("oalang: 1\ntag: bn\nword: Bengali\ntext: {needs: shaping}\n"), shaped
+        )
+    );
+    OA_CHECK(shaped.needs == languages::TextNeeds::text_shaping);
+    OA_CHECK(shaped.tag == "bn" && shaped.word == "Bengali");
 
     // fonts, warmup and packaging are read beside homepage, tags and requires.
     languages::PackManifest held;

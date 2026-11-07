@@ -967,6 +967,12 @@ void Runtime::FullPresentation::destroy_world_target() noexcept {
     world_target_bytes = 0;
 }
 
+void Runtime::drop_full_team_frames() {
+    if (full_ == nullptr)
+        return;
+    full_->models.drop_frames();
+}
+
 void Runtime::free_full_match_state() noexcept {
     if (!full_)
         return;

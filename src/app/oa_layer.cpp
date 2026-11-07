@@ -4627,6 +4627,49 @@ AutomationControlKind automation_kind(const kit::AutomationEntry& entry) noexcep
     return AutomationControlKind::area;
 }
 
+/// Returns the automation role for a kit role the kit chose.
+///
+/// @param role the kit's role
+/// @return the same role on an automation control
+AutomationControlRole automation_role(kit::AccessRole role) noexcept {
+    switch (role) {
+    case kit::AccessRole::unset:
+    case kit::AccessRole::none:
+        return AutomationControlRole::none;
+    case kit::AccessRole::button:
+        return AutomationControlRole::button;
+    case kit::AccessRole::check_box:
+        return AutomationControlRole::check_box;
+    case kit::AccessRole::switch_control:
+        return AutomationControlRole::switch_control;
+    case kit::AccessRole::radio_group:
+        return AutomationControlRole::radio_group;
+    case kit::AccessRole::radio:
+        return AutomationControlRole::radio;
+    case kit::AccessRole::tab_list:
+        return AutomationControlRole::tab_list;
+    case kit::AccessRole::tab:
+        return AutomationControlRole::tab;
+    case kit::AccessRole::list:
+        return AutomationControlRole::list;
+    case kit::AccessRole::list_item:
+        return AutomationControlRole::list_item;
+    case kit::AccessRole::text_field:
+        return AutomationControlRole::text_field;
+    case kit::AccessRole::search:
+        return AutomationControlRole::search;
+    case kit::AccessRole::slider:
+        return AutomationControlRole::slider;
+    case kit::AccessRole::link:
+        return AutomationControlRole::link;
+    case kit::AccessRole::label:
+        return AutomationControlRole::label;
+    case kit::AccessRole::group:
+        return AutomationControlRole::group;
+    }
+    return AutomationControlRole::none;
+}
+
 OaLayer::MenuButtonWindows OaLayer::menu_button_windows() const {
     const LayerView seen = view();
     const WindowPlace place = window_place(
@@ -4729,6 +4772,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
                                                                   : std::string(kAutomationPrefix) +
                                                                         std::string(screen.name());
         const kit::DisplayList list = screen.display_list();
+        const bool covering = screen.modal();
         for (const kit::AutomationEntry& entry :
              kit::automation_parts(list, screen.interaction())) {
             AutomationControl control;
@@ -4740,6 +4784,23 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
             control.focused = entry.focused;
             control.checked = entry.checked;
             control.text = entry.text;
+            if (entry.role != kit::AccessRole::unset) {
+                control.role = automation_role(entry.role);
+                control.role_set = true;
+            }
+            control.label = entry.label;
+            control.value_text = entry.value_text;
+            control.has_value = entry.has_value;
+            control.value = entry.value;
+            control.has_range = entry.has_range;
+            control.range_least = entry.least;
+            control.range_most = entry.most;
+            control.step = entry.step;
+            control.place = entry.place;
+            control.set_size = entry.set_size;
+            control.chosen = entry.chosen;
+            control.pressed = entry.pressed;
+            control.modal = covering;
             // A front-end screen is drawn in the window's own pixels at its
             // place; a match's on its canvas, the in-match Settings at its
             // own scale.
@@ -4755,7 +4816,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
             );
             controls.push_back(std::move(control));
         }
-        if (screen.modal())
+        if (covering)
             break;
     }
 }

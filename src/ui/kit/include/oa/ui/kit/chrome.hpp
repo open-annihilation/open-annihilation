@@ -94,6 +94,9 @@ struct RowFrame {
     std::vector<std::string> hint_texts{}; ///< each hint line, already looked up
     std::vector<bool> hint_notices{};      ///< true draws that line in the lock colour
     std::vector<Rect> hint_clips{};        ///< a further clip for that line; empty means none
+    /// A switch caption's lines, when it wraps beside the switch. Empty draws
+    /// label_text in the label's box.
+    std::vector<std::string> label_lines{};
 };
 
 /// The footer's rule and the band under it.

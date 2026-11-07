@@ -2,12 +2,12 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Build the pinned zlib, SDL3 and FreeType as universal static libraries for macOS.
+"""Build the pinned zlib, SDL3, FreeType and HarfBuzz as universal static libraries for macOS.
 
 The macOS release (tools/release_macos.sh) links them into the application,
 which then needs no library beyond the system's. Each library runs on arm64
 and x86_64 Macs from the oldest macOS release --deployment-target names, and
-gets its own install prefix (zlib/, sdl/, freetype/) under the prefix root,
+gets its own install prefix (zlib/, sdl/, freetype/, harfbuzz/) under the prefix root,
 <deps>/macos-<deployment target> unless --prefix-root names another. Each
 library is built for both architectures at once. Build trees live beside
 the root (<root>-build). Each
@@ -226,8 +226,16 @@ def main():
         build_universal(bootstrap_text_fonts.freetype_source(deps), builds / "freetype", freetype_install,
                         args.deployment_target, args.jobs, bootstrap_text_fonts.FREETYPE_OPTIONS)
         record(freetype_install, freetype_settings)
+    harfbuzz_install = prefixes / "harfbuzz"
+    harfbuzz_options = bootstrap_text_fonts.harfbuzz_cmake_options(freetype_install)
+    harfbuzz_settings = settings(bootstrap_text_fonts.HARFBUZZ_VERSION, bootstrap_text_fonts.HARFBUZZ_SHA256,
+                                 args.deployment_target, harfbuzz_options)
+    if not is_current(harfbuzz_install, [bootstrap_text_fonts.HARFBUZZ_INSTALLED], harfbuzz_settings):
+        build_universal(bootstrap_text_fonts.harfbuzz_source(deps), builds / "harfbuzz", harfbuzz_install,
+                        args.deployment_target, args.jobs, harfbuzz_options)
+        record(harfbuzz_install, harfbuzz_settings)
     for install, wanted in ((zlib_install, zlib_settings), (sdl_install, sdl_wanted),
-                            (freetype_install, freetype_settings)):
+                            (freetype_install, freetype_settings), (harfbuzz_install, harfbuzz_settings)):
         print(f"{install.name} {wanted['version']} for macOS {args.deployment_target}, {' '.join(ARCHITECTURES)}")
     print(f"macOS dependencies ready under {prefixes}")
     return 0

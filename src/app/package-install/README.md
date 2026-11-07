@@ -48,8 +48,11 @@ and answers (`src/app/runtime_mod_install.cpp`,
 `oa/app/package_install/inbox.hpp` keeps what outlives each run of the game in
 one process: the packages waiting for the main menu (`post_package_file`,
 `take_package_file`, `next_package_file`), the `.oareg` files waiting on the add-registry queue
-(`post_registry_file`, `take_registry_file`), `post_opened_file`, which sends
-a `.oareg` file there and every other opened file to the package queue, the
+(`post_registry_file`, `take_registry_file`), the `.oademo` and `.tad` files
+waiting to be copied into Replays (`opens_replay`, `post_replay_file`,
+`take_replay_file`), `post_opened_file`, which sends a `.oareg` file to the
+add-registry queue, a replay to the replay queue and every other opened file
+to the package queue, the
 change that waits for the run playing its target to end
 (`set_pending_change`, `pending_change_waiting`, `finish_pending_change`,
 `discard_pending_change`)

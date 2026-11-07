@@ -591,6 +591,21 @@ bool boneyards_status_widget_battle_ids(
     const StatusWidget* widget, uint32_t* area_id, const char** game_id
 );
 
+/// Returns the planet's name and the sector's name of the battle the Boneyards launched.
+///
+/// They are the galactic map's names for the planet the launch reply named
+/// and for the sector it showed, read when the reply came, so selecting
+/// another planet later does not change them. Each is "" when the map held
+/// no such planet, or had no sector loaded.
+///
+/// @param widget status widget; may be null
+/// @param[out] planet the planet's name; "" before a launch is accepted
+/// @param[out] sector the sector's name; "" before a launch is accepted
+/// @return false without the widget
+bool boneyards_status_widget_battle_place(
+    const StatusWidget* widget, const char** planet, const char** sector
+);
+
 /// Tells whether the network the Boneyards needs is there (the main menu's entry check).
 ///
 /// @param widget status widget; may be null
@@ -1100,6 +1115,94 @@ struct DriverPlanetFact {
 std::size_t boneyards_status_widget_planet_facts(
     const StatusWidget* widget, DriverPlanetFact* out, std::size_t capacity
 );
+
+// English a planet's spoken value is built from. One battle uses the singular
+// line. The catalogue uses the same lines, so a translation has to keep these
+// conversions.
+inline constexpr const char* k_planet_value = "%s, %d battles, %d forming";
+inline constexpr const char* k_planet_battle = "%s, %d battle, %d forming";
+inline constexpr const char* k_planet_value_chosen = "%s, %d battles, %d forming, chosen";
+inline constexpr const char* k_planet_battle_chosen = "%s, %d battle, %d forming, chosen";
+inline constexpr const char* k_arm_wins_label = "Arm wins";
+inline constexpr const char* k_core_wins_label = "Core wins";
+
+/// The owner word of a planet's spoken value.
+///
+/// A and C are Arm and Core. I, the contested letter, is contested.
+/// Any other letter, including none, is unknown.
+///
+/// @param owner the allegiance letter
+/// @return Arm, Core, contested or unknown
+const char* planet_owner_word(char owner);
+
+/// Reads a planet's facts line. The line itself is not changed.
+///
+/// @param text `id=… owner=… battles=… forming=…`; null is not a facts line
+/// @param[out] id the planet's id; null is not written
+/// @param[out] owner the allegiance letter; null is not written
+/// @param[out] battles the battles; null is not written
+/// @param[out] forming the forming count; null is not written
+/// @return true when the line has all four
+bool planet_parse_facts(const char* text, int* id, char* owner, int* battles, int* forming);
+
+/// The value lines already in the player's language.
+///
+/// One battle uses `battle` or `battle_chosen`. Any other count uses
+/// `battles` or `battles_chosen`.
+struct PlanetValuePatterns {
+    const char* battles{};
+    const char* battle{};
+    const char* battles_chosen{};
+    const char* battle_chosen{};
+};
+
+/// Writes the label and value a planet speaks.
+///
+/// The label is `name`. The value is the translated template for this battle
+/// count and for whether the planet is chosen, filled with `owner_word`.
+/// A facts line that does not parse leaves both empty.
+///
+/// @param[out] label the name; null is ignored
+/// @param label_capacity size of `label`, including the terminator
+/// @param[out] value the value; null is ignored
+/// @param value_capacity size of `value`, including the terminator
+/// @param facts the facts line the planet shows
+/// @param name the planet's name; null writes an empty label
+/// @param chosen the planet is the one the player has chosen
+/// @param patterns the four value lines, already translated
+/// @param owner_word the owner in the player's language; null is empty
+/// @return false when `facts` is not a planet facts line
+bool planet_access_words(
+    char* label,
+    std::size_t label_capacity,
+    char* value,
+    std::size_t value_capacity,
+    const char* facts,
+    const char* name,
+    bool chosen,
+    const PlanetValuePatterns& patterns,
+    const char* owner_word
+);
+
+/// The words for one of the two win icons beside a contested planet.
+///
+/// The icon higher on the summary is Arm's. Both icons keep the name
+/// SmallArmIcon.
+///
+/// @param arm true for the higher icon
+/// @return "Arm wins" or "Core wins"
+const char* summary_win_icon_label(bool arm);
+
+/// Names each win icon from its top.
+///
+/// One icon is Arm's. Of two or more, the higher is Arm's and the lower is
+/// Core's. Tops that match are all Arm's. `labels` is written in the same
+/// order as `tops`.
+///
+/// @param tops each icon's top; null writes nothing
+/// @param count how many tops
+/// @param[out] labels one English line per top; null writes nothing
+void summary_win_icon_labels(const int32_t* tops, std::size_t count, const char** labels);
 
 // The sector name and the map's magnification.
 struct DriverMapCaption {

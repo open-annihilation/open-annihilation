@@ -82,9 +82,11 @@ On Linux, in a terminal in the game's folder:
   Any other word names the language, as in 3.1c: `german`.
 - A `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys` or `.oareg` file named on
   its own is opened
-  as `--open FILE` opens it. A launch file is named with `-c` or `--launch`:
-  on its own, its name is just a word of 3.1c's command line, and no launch
-  starts.
+  as `--open FILE` opens it. A `.oademo` or `.tad` named on its own is copied
+  into `Recordings/Imported` and selected in the Library, and is not played
+  at once ([Opening one](replays.md#opening-one)). A launch file is named with
+  `-c` or `--launch`: on its own, its name is just a word of 3.1c's command
+  line, and no launch starts.
 - The options are read first, wherever they stand. They win over the
   switches and over a launch file, whatever their order.
 - Each argument the system passes is one word, spaces and all, so a path in
@@ -250,9 +252,13 @@ for limitations and a weapon-effect test recipe.
 | `--game-password PASSWORD` | With `--host`, the game's password; with `--join`, the password sent. |
 | `--dplay-guid GUID` | The application GUID this game hosts under and looks for. [Below](#--dplay-guid). |
 | `--dplay-port PORT` | The DirectPlay port this game hosts on and looks for games at, from 1 through 65535, in place of the standard 47624. 0 is any port the system has free, for a game that hosts alone, as the battle room checks do. |
-| `--play-demo FILE.tad` | Plays back a recorded network game ([recordings](../README.md#demo-recorder)). |
+| `--play-demo FILE` | Plays back a recording, a network game, a skirmish or a campaign mission, a `.tad` or a `.oademo` ([recordings](../README.md#demo-recorder), [replays](replays.md)). |
 | `--demo-unit-table strict\|ignore` | `ignore` plays a recording back even when its units differ from the game's, for diagnosis only; `strict`, the default, refuses it. |
-| `--net-record FILE` | Records the next network game to `FILE`, replacing it, whatever the mod's profile says. |
+| `--replay-keyframe-check TICK` | With `--play-demo`, a headless check of keyframes: it takes a keyframe at the start and another at `TICK`, plays 3,000 ticks and notes the digest, restores the second keyframe and plays the same 3,000 ticks again, and prints `keyframe check at TICK: digest A, restored B, same` (or `differs`) with what the keyframe took; the replay then goes on to `--match-ticks`. [Keyframes](replays.md#keyframes-of-a-playback-session). |
+| `--replay-speed SPEED` | With `--play-demo`, watches at `SPEED` times the pace the recording sets. `SPEED` is `1/2` (also `0.5` or `.5`), `1`, `2`, `4`, `8` or `16`. **+** and **-** step the same speeds. It does not by itself run headless. In a `--headless-check` run it does not change how the ticks are run: that loop still steps one tick at a time. [Playback](replays.md#playback). |
+| `--replay-seek FROM:TO` | With `--play-demo`, when playback reaches or passes tick `FROM` it jumps to tick `TO` and prints `demo seek FROM -> TO: digest HEX in N ms`. Repeat it for another jump. Only one jump is armed at a time, in the order given; a `FROM` already passed when that jump is armed fires at once. A jump back restores the nearest keyframe and plays the rest as fast as the machine can; a jump past what has been watched catches up the same way. It does not by itself run headless. [Playback](replays.md#playback). |
+| `--net-record FILE` | Records the next game to `FILE`, a network game, a skirmish or a campaign mission, replacing it, in the recorder hack's layout (a `.tad`), whatever the mod's profile says. |
+| `--record-game FILE` | Records the next game to `FILE`, a network game, a skirmish or a campaign mission, replacing it, whatever `open-annihilation.replays.record` says, in a headless run or a check as well: a `.oademo`, or the recorder hack's layout when the name ends in `.tad`. A headless run or a check records a game only when this option or `--net-record` names a file. [Replays](replays.md#recording-a-game) says what is written. |
 | `--replay-viewer` | For joining a game in which another player's replayer plays a recording to those who join: the game presents itself as a viewer of that replay ([recordings](../README.md#demo-recorder)). |
 
 `--host`, `--join` and the names, the password and the DirectPlay options
@@ -368,7 +374,8 @@ input, or `--list-content`.
 | `--showcase arm-first-mission\|skirmish-battle\|base-construction` | Plays a scripted run for a showcase video, in place of a player ([capturing video](capture.md)). |
 | `--generate-script RECORDING` | Plans a director script's camera shots from a recorded game ([director scripts](director.md)). |
 | `--render-script PATH.oascript\|PATH.oamovie` | Renders a director script, or a bundle of one and its recording, to video with its sound ([director scripts](director.md)). With `--hardware-acceleration=full` its frames are drawn by the graphics card's Full tier, with no window ([drawing on the graphics card](director.md#drawing-on-the-graphics-card)). |
-| `--output PATH` | Where `--generate-script` writes its script or bundle, or the folder `--render-script` renders into. |
+| `--replay-index RECORDING` | Replays a `.tad` or `.oademo` without drawing and writes its index to the file `--output` names: its length, how it ended, the markers a timeline shows, each player's totals, the battle's intensity and the result ([the replay index](replays.md#the-replay-index)). It needs `--output`. |
+| `--output PATH` | Where `--generate-script` writes its script or bundle, the folder `--render-script` renders into, or the file `--replay-index` writes its index to. |
 | `--chunks A-B` | The chunks `--render-script` draws, counted from 0. |
 | `--stills F,F...` | The frames `--render-script` also writes as pictures, counted from 0. |
 | `--effect NAME=PERCENT` | The percent `--render-script` draws an effect at, such as `heat-distortion=0`, in place of the run's settings; once for each effect ([the effects](director.md#drawing-on-the-graphics-card)). |
@@ -461,7 +468,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
 | `--check-key-latches` | Checks a latched Shift and Space, then sticky Ctrl and Alt, on a skirmish. |
 | `--check-hold-confirm` | Checks Hold to confirm: self-destruct, the order button and the surrender question, on a skirmish. |
-| `--check-away-pause` | Checks When the window loses focus on a skirmish: Pause single player pauses while the window is away and goes on a moment after it is back, the player's own pause stays, Keep playing plays on, and a multiplayer game never pauses. |
+| `--check-away-pause` | Checks When the window loses focus: Pause single player pauses while the window is away and goes on a moment after it is back, the player's own pause stays, Keep playing plays on, and a multiplayer game never pauses. With `--campaign` and `--mission` it starts that mission; otherwise it starts a skirmish. |
 | `--check-order-wheel` | Checks the order wheel on a skirmish: a held right or middle button opens it, a short click and a drag do not, the cursor follows the mouse while it is open, letting go or clicking on a wedge gives that order, and one click elsewhere closes it; in full screen too, and in the turned view when the graphics card's Full tier draws it. |
 | `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
 | `--check-key-timing` | Checks slow keys, bounce keys, the double-press time, the player's key repeat and the drag threshold. |
@@ -515,18 +522,23 @@ Network play's own checks, the last rows, are in every build.
 | `--check-library-map-previews` | Checks the Library's map pictures. |
 | `--check-library-content` | Turns Core Contingency off in the Library, and chooses the demo when its installer is there. |
 | `--check-library-update-question` | At 640x480, confirms a rules-changing update fifty times and requires the Library to stay open with its tabs. |
+| `--check-library-replays` | Writes made-up replays, from the recorded game `library-replays-source.oademo` in the working folder, into the player's folder and walks the Library's Replays section: second in the section list with no replay and with some, Watch and the way back to the same row, Keep read back from `kept.json`, the filters, the kind menu, the search and the sort, Turn on recording, and Export of one replay as a `.oademo` and of three as `.tad` files into `Exported replays`. Then the old-replays question, Keep them all, a second consideration that asks nothing, and Let them go, which moves the replays that are due and leaves a kept replay, one whose bytes changed after Keep, an imported one, a downloaded one, one marked exported and both copies of one kept recording. Exporting a replay older than the span marks it, and the next consideration leaves that replay while one of the same age goes. A cut `exported.json` is set aside, and while that file is there an export writes nothing and old replays stay. Deleting a replay while `exported.json` is damaged writes no new file, and the next start leaves the exported replays. Delete, confirmed beside the button, moves marked replays to the trash; deleting one copy leaves the other kept; a delete the trash refuses leaves the file and says so; a damaged `kept.json` is set aside and its whole marks are kept, a kept file whose bytes changed still reads Kept, and pressing Keep on another replay and considering again leaves the earlier kept replays. With `--snapshot`, the section and the Export dialog at 640x480, 960x540, 1280x720 and 1920x1080. Removes what it wrote as it ends. |
+| `--check-replay-import` | Copies a made-up `.oademo` and a made-up `.tad` into `Recordings/Imported`, selects each in the Library, copies nothing when either is opened again, leaves sector 6 out of the `.tad`, and refuses a damaged file and a version this game does not play, each with its sentence. Clears `Recordings` as it starts and again as it ends. |
+| `--check-replays-content` | Reads `replays-content.facts` in the working folder. `prepare` writes the packages. `play` adds the loopback registry the facts name, shows a replay that needs that registry's older map pack and its mutator, fetches both with one press and plays, and shows a release the catalogue does not list. `offline` reads the same replay with the registry stopped. With `--snapshot`, the card at 1280x720. |
 | `--check-renderer-proof` | Draws a fixed terrain scene offscreen from the installed game and compares its classic projection with the experimental renderer. `--snapshot` names the output location. |
 | `--check-live-renderer` | Starts a Skirmish headlessly and checks the experimental live renderer with an offscreen GPU; opens no window. |
 | `--check-renderer-ladder` | Forces each renderer failure the game handles and checks it goes on. |
 | `--render-fault POINT[@FRAME]` | Forces only that failure, for `--check-renderer-ladder`. |
 | `--check-briefing-narration` | Checks a briefing's narration plays and stops when it should. |
 | `--check-director-view` | Checks the director's view of a headless skirmish. |
+| `--check-photo [mode\|time]` | Checks photo mode in a window. `mode` enters, hides the interface and leaves. `time` freezes, steps, draws between ticks and runs slowly, then holds a picture in a shared match. |
 | `--check-director-render` | Renders a small director script and checks the files it writes; with `--hardware-acceleration=full`, on the graphics card's Full tier. |
 | `--check-interpolation` | Checks the frames drawn between ticks, and the frames at whole ticks with Smooth motion Off. |
 | `--check-unit-playout` | Checks another machine's units move evenly. |
 | `--reclaim-check` | Has the commander reclaim the nearest feature in a headless skirmish. |
 | `--weapon-fire-check TYPE` | In a headless skirmish of `--match-ticks` ticks, places `TYPE` and checks its first weapon fires at a unit and a feature. |
 | `--net-loopback-check TICKS` | Hosts and joins a match in one process over 127.0.0.1 and compares both worlds after `TICKS` ticks. |
+| `--net-loopback-photo` | The loopback check's host enters photo mode, holds the picture and leaves. |
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
 | `--net-loopback-shooter TYPE` | The loopback check's host makes one finished `TYPE` beside its commander, and that unit fires at the ground beside the commander's aim point. |

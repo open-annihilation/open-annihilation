@@ -286,6 +286,8 @@ void push_frame(
     frame.width = placed.right - placed.left;
     frame.label = row.label;
     frame.label_text = row.view.label;
+    if (row.view.label_lines.size() > 1)
+        frame.label_lines = row.view.label_lines;
     const bool own_columns = host_text(row.view.kind);
     for (std::size_t line = 0; line < row.hints.size(); ++line) {
         const Rect& box = row.hints[line];
@@ -936,6 +938,13 @@ PlacedRows place_rows(std::span<const RowView> views, const RowPlacement& placem
         } else {
             row.label = {placement.left, label_top, label_right - placement.left, label_line};
         }
+        // A wrapped switch caption takes a line for each of its lines. The
+        // switch stays at the top of that block, at its own height.
+        if (row.label.height > 0 && view.label_lines.size() > 1) {
+            const int32_t wrapped = static_cast<int32_t>(view.label_lines.size()) * line_height;
+            if (wrapped > row.label.height)
+                row.label.height = wrapped;
+        }
         // Hints follow whichever of the label, a lock and a control on these
         // lines extends lowest. With every part regular_line high this is the
         // old followed + line_height.
@@ -1162,6 +1171,8 @@ void add_rows(DisplayList& list, const PlacedRows& placed, const RowsState& stat
         entry.group = state.group;
         entry.checked = view.kind == RowKind::toggle && view.on;
         entry.text = control_text(view);
+        // The caption, as shown. The value stays in text.
+        entry.label = view.label;
         if (view.kind == RowKind::buttons)
             entry.parts = view.button_ids;
         else if (view.kind == RowKind::levels || view.kind == RowKind::choice)

@@ -184,6 +184,16 @@ void check_subscribe() {
             OA_CHECK(text->find("no such event nope") != std::string::npos);
     }
 
+    if (const std::optional<json::Json> answer = only(
+            session,
+            request(
+                "8",
+                "tools/call",
+                "{\"name\":\"events.subscribe\",\"arguments\":{\"events\":[\"focus\"]}}"
+            )
+        ))
+        OA_CHECK(!tool_failed(*answer));
+
     hand(feed, "unit_idle", 7, 4);
     OA_CHECK(session.pump().empty());
 

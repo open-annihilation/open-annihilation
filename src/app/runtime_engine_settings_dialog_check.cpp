@@ -272,6 +272,8 @@ std::string_view page_slug(settings::Page page) {
         return "updates";
     case settings::Page::accessibility:
         return "accessibility";
+    case settings::Page::replays:
+        return "replays";
     case settings::Page::mod_keys:
     case settings::Page::mod_patrol:
     case settings::Page::mod_guard:
@@ -529,6 +531,12 @@ std::string_view label_of(settings::Setting setting) {
         return "Look";
     case settings::Setting::update_channel:
         return "Update channel";
+    case settings::Setting::record_games:
+        return "Record my games";
+    case settings::Setting::keep_replays:
+        return "Keep replays for";
+    case settings::Setting::open_replay_files:
+        return "Open replay files with Open Annihilation";
     default:
         return {};
     }
@@ -776,12 +784,36 @@ void Runtime::check_engine_settings_dialog() {
             require(running, "a click in the dialog ended the run");
         }
     };
-    // Clicks the middle of the part a control with a caption draws.
+    // Clicks the middle of the part a control with a caption draws. A
+    // section's entry the list's room cuts (Compact's holds eleven of the
+    // twelve) is brought in first with the wheel over the list.
     const auto click = [&](int32_t control, std::string_view text, std::string_view what) {
         auto* dialog = engine_settings_dialog();
         require(dialog != nullptr, "the dialog closed before " + std::string(what));
-        const auto parts = settings::dialog_layout(*dialog);
+        auto parts = settings::dialog_layout(*dialog);
+        const bool entry =
+            control >= settings::first_page_control && control < settings::restore_control;
         const auto* part = find_part(parts, control, text);
+        if (part == nullptr && entry) {
+            // Over the list, which scrolls under the pointer: up to its top,
+            // then down to its foot, until the entry shows.
+            const layout::Point over_list{
+                placement().x + settings::dialog_width / 8,
+                placement().y + settings::dialog_height / 3
+            };
+            for (const float notches : {1.0F, -1.0F}) {
+                for (int32_t turns = 0; turns < 6 && part == nullptr; ++turns) {
+                    SDL_Event wheel = check_host_input::wheel_event(
+                        sdl_.renderer, sdl_.window, over_list.x, over_list.y, notches
+                    );
+                    bool turning = true;
+                    dispatch_event(wheel, turning);
+                    require(turning, "the wheel over the section list ended the run");
+                    parts = settings::dialog_layout(*engine_settings_dialog());
+                    part = find_part(parts, control, text);
+                }
+            }
+        }
         require(part != nullptr, "the dialog shows no " + std::string(what));
         click_at(part->rect.x + part->rect.width / 2, part->rect.y + part->rect.height / 2);
     };
@@ -2513,8 +2545,40 @@ void Runtime::check_engine_settings_window_sizes() {
         const auto shows_dialog = [&](std::string_view what) {
             shows_dialog_at(what, expected_layout.scale * 100);
         };
+        // The wheel over the section list, up to its top and then down to its
+        // foot, until a section's entry shows: Compact's list holds eleven
+        // of its twelve entries.
+        const auto bring_entry_in = [&](settings::Page page) {
+            for (const float notches : {1.0F, -1.0F}) {
+                for (int32_t turns = 0; turns < 6; ++turns) {
+                    const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                    if (find_part(parts_now, settings::page_control(page), {}) != nullptr)
+                        return;
+                    const SDL_Event motion = window_pointer_event(
+                        sdl_.window,
+                        sdl_.renderer,
+                        SDL_EVENT_MOUSE_MOTION,
+                        layer_window_pixel(
+                            placed(), {settings::dialog_width / 8, settings::dialog_height / 3}
+                        ),
+                        0
+                    );
+                    SDL_Event wheel{};
+                    wheel.type = SDL_EVENT_MOUSE_WHEEL;
+                    wheel.wheel.windowID = motion.motion.windowID;
+                    wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+                    wheel.wheel.y = notches;
+                    wheel.wheel.mouse_x = motion.motion.x;
+                    wheel.wheel.mouse_y = motion.motion.y;
+                    bool turning = true;
+                    dispatch_event(wheel, turning);
+                    require(turning, "the wheel over the section list ended the run" + on);
+                }
+            }
+        };
         // Each section, through its entry where the window shows it.
         for (const auto page : kPages) {
+            bring_entry_in(page);
             const auto parts = settings::dialog_layout(*dialog);
             click_part(
                 find_part(parts, settings::page_control(page), {}),

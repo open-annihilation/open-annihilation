@@ -4,8 +4,9 @@ Open Annihilation adds settings of its own to the game: a few controls, the
 unit limit, the language and fonts of the game's text, graphics and the
 size of Open Annihilation's own screens, the input helpers, touch and
 gamepad controls, downloads, whether Open Annihilation looks for a new
-release, where the game keeps your files and which of its file types it
-opens, and Developer Mode. The registries packages come from are a tab
+release, whether it keeps a recording of your games and for how long, where
+the game keeps your files and which of its file types it opens, and
+Developer Mode. The registries packages come from are a tab
 of the Library. They live in one dialog, apart from the game's own
 options, which stay in 3.1c's Options menu. This page shows each section
 of the dialog and says what every setting does, its default, when it takes
@@ -40,6 +41,7 @@ Accessibility have a second picture of their end.
 - [Downloads](#downloads)
 - [Updates](#updates)
 - [Game Content](#game-content)
+- [Replays](#replays)
 - [System](#system)
 - [Developer](#developer)
 - [For one run: the command line](#for-one-run-the-command-line)
@@ -72,13 +74,15 @@ between two, each section with a small picture beside its name:
   game has touch controls, and Controller once a gamepad has been used;
 - how the game looks: Graphics, User Interface, and Language & Text;
 - what the game holds and fetches: Game files in the main menu on an
-  iPhone or an iPad, then Downloads, Updates and Game Content;
+  iPhone or an iPad, then Downloads, Updates, Game Content and Replays;
 - the computer and the engine: Engine Limits, System and Developer.
 
-At Regular and Large every section fits. At Compact, the smallest layout
-([Interface size](#user-interface)), the list scrolls once Touch,
-Controller or Game files is listed, a thin bar at its right shows where it
-is, and the open section's entry stays in view. Where a section's name in
+At Regular and Large every section fits, except in a dialog that lists
+Touch, Controller and Game files all together, where the list scrolls a
+little. At Compact, the smallest layout ([Interface size](#user-interface)),
+the list scrolls, a thin bar at its right shows where it is, and the open
+section's entry stays in view; Developer, at the foot, shows as the list
+scrolls to it. Where a section's name in
 the language you play in needs the room, the Compact list leaves the
 pictures out. While an update downloads, Updates shows its share at its
 right, as "41%", and "ready" once it is ready
@@ -1073,7 +1077,17 @@ download sends and records.
   an install ID has its own,
   labelled "Install ID · *registry*" when there is more than one. The
   switch takes effect at OK; RESET acts at once, and Cancel does not undo
-  it.
+  it. Entering an expansion whose registry needs an install ID, while that
+  ID is off, asks to turn it back on. When the game already has that
+  registry's list, from this start or an earlier one, the question names
+  the registry, and names both checks when either of them is off. A player
+  with a check off and no list kept sees the checks question first, then
+  the install-ID question. When the question comes as you press ENTER,
+  Turn on goes on to the update check first. A question asked once the
+  catalogue has answered goes straight to the fetch. Cancel stays on the
+  main menu and leaves the ID off. A quiet start, or a start with -y,
+  writes the question to the log and changes no setting. The download then
+  stops with "Downloads are off for Core Prime." when that is the registry.
 - **Downloaded files**: how much the download folder keeps for resuming and
   repairs, or "Nothing kept". **Empty** removes those files at once; it is
   greyed while nothing is kept, or while a download is using them.
@@ -1161,20 +1175,37 @@ it keeps.
 
 ### What entering the Boneyards turns on
 
-The Boneyards needs both online features: the check for updates, so the
-game it plays is the latest Open Annihilation, and the check for content
-updates, so its expansion is the latest package. When either is Never,
-entering the Boneyards asks "The Boneyards needs Open Annihilation's online
-features: update checks and the content catalogue. Turn them on and
-continue?" **Turn on** sets each one that is Never to Automatically,
-stores it and goes on; one already on keeps the choice you made, so Only
-when I ask, or Only when I open the Library, stays as it was. **Cancel**
-changes nothing and stays on the main menu. The two settings are
-`open-annihilation.update-check` (Check for updates: `automatically`,
-`when-asked` or `never`) and `open-annihilation.content-updates` (Check for
-content updates: `automatically`, `library` or `never`). A run with nobody
-to answer, such as `-y`, a headless run or a check, is not asked and
-changes neither setting; its log says what a player would have been asked
+The Boneyards needs the online features: the check for updates, so the
+game it plays is the latest Open Annihilation, the check for content
+updates, so its expansion is the latest package, and the install ID of a
+registry that requires one. When either check is Never, entering the
+Boneyards asks "The Boneyards needs Open Annihilation's online features:
+update checks and the content catalogue. Turn them on and continue?" That
+sentence names both checks, as 0.9.0 did. When the game already has that
+registry's list, from this start or an earlier one, and that registry's
+install ID is also off, the one question names the checks and the install
+ID: "The Boneyards needs Open Annihilation's online features: update
+checks, the content catalogue and {registry}'s install ID. Turn them on
+and continue?" When only the install ID is off, it asks "The Boneyards
+needs {registry}'s install ID turned on. Turn it on and continue?" A
+player with a check off and no list kept sees the checks question first,
+then the install-ID question. `{registry}` is the registry's name. **Turn
+on** sets each check that is Never to Automatically, and clears an install
+ID the question named. When the question comes as you press ENTER, Turn
+on goes on to the update check first. A question asked once the catalogue
+has answered goes straight to the fetch. One check already on keeps the
+choice you made, so Only when I ask, or Only when I open the Library,
+stays as it was. **Cancel** changes nothing and stays on the main menu.
+The two check settings are `open-annihilation.update-check` (Check for
+updates:
+`automatically`, `when-asked` or `never`) and
+`open-annihilation.content-updates` (Check for content updates:
+`automatically`, `library` or `never`). The install ID is
+`open-annihilation.install-id.<registry>`, `off` while it is off. A run
+with nobody to answer, such as `-y`, a headless run or a check, is not
+asked and changes no setting; its log says what a player would have been
+asked, and a needed install ID that stays off stops the download with
+"Downloads are off for Core Prime." when that is the registry
 ([Entering the Boneyards](boneyards/entry.md#what-enter-does)).
 
 ## Game Content
@@ -1195,6 +1226,49 @@ installation is not used or changed.
   got, its bar, and Cancel. Cancel leaves the copy that was already there.
   The dialog stays open and keeps drawing.
 - **Open folder** opens the Games folder in the system's file manager.
+
+## Replays
+
+![The Replays section: Record my games On, with its line, Keep replays for 30 days, with its line, and Open replay files with Open Annihilation On, with its line.](images/settings/replays.png)
+
+Replays is where you choose whether the game keeps a recording of the
+games you play, and for how long. [Replays](replays.md) says what a
+recording is and where it goes.
+
+- **Record my games**, On by default. On, the game records your games as
+  replays, and [Recording a game](replays.md#recording-a-game) says which
+  games it records. Off, the game starts no new recording; the replays you
+  already have stay. It takes effect when you press OK, and applies from
+  the next game: a game that is already running goes on as it started.
+  Cancel puts back the choice the dialog opened with. The setting is
+  `open-annihilation.replays.record`, `on` or `off`; only `off` turns it
+  off.
+- **Keep replays for**, 30 days, 90 days, A year or Forever, 30 days by
+  default. It is how long the game keeps the replays it recorded. A replay
+  you keep in the Library stays until you delete it, whatever this says.
+  It takes effect when you press OK, and Cancel puts back the choice the
+  dialog opened with. The setting is `open-annihilation.replays.keep`,
+  `30-days`, `90-days`, `1-year` or `forever`; any other text reads as 30
+  days.
+- **Open replay files with Open Annihilation**, On by default, on Windows,
+  Linux and macOS. On, a `.oademo` or a `.tad` file opens in this copy.
+  On Windows and Linux the game registers both when you play, and again
+  when you press OK after turning the switch on: `.oademo` as this game's
+  own type, and `.tad` offered beside it, never as the default. Turning it
+  off withdraws that registration. On macOS the switch chooses whether this
+  copy is the default opener of `.oademo` only, and a start never replaces
+  a choice made in Finder. iOS and Android have no row. It takes effect
+  when you press OK, and Cancel puts back the choice the dialog opened
+  with. The setting is `open-annihilation.replays.open-files`, `on` or
+  `off`; only `off` turns it off.
+
+Settings reads the Replays settings from the preferences each time it opens,
+so a change made elsewhere in the game shows here, and pressing OK with a
+choice you left alone writes nothing.
+
+**Restore defaults** turns Record my games On, sets Keep replays for to
+30 days and turns Open replay files On, and OK then removes those keys from
+the preferences file, so they follow their defaults.
 
 ## System
 

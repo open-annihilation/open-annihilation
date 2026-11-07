@@ -278,6 +278,13 @@ package the installer refuses says the installer's own reason, such as "The
 folder cavedog-evad-river-delta does not hold this map pack. It is left as
 it is."
 
+A replay that needs a mod, a map pack, a mutator or an expansion fetches
+that exact release through the same queue. The key request names the kind,
+the package, the release and the SHA-256 the recording names, including one
+that is only in the catalogue's releases list. A release the server no
+longer lists is shown as not in Core Prime's catalogue. The replay can be
+kept and exported.
+
 Every failure also writes one line to the game's log (the `logs` folder of
 the game's data folder, [below](#where-it-is-all-kept)). It names the
 package, the reason, and what the registry's server last answered for the

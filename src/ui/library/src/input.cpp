@@ -143,6 +143,29 @@ std::optional<int32_t> row_height_of(const kit::DisplayList& list) {
 std::optional<PaneScroll>
 list_scroll_of(const Library& library, const ScreenState& state, const kit::DisplayList& list) {
     const kit::Control* pane = kit::control_of(list, controls::list);
+    if (library.tab == Tab::replays) {
+        // Replays' list holds days' headings between its rows, so its height
+        // reads from what it drew, as the Active tab's maps do.
+        if (pane == nullptr)
+            return std::nullopt;
+        std::optional<int32_t> row;
+        for (const kit::Control& control : list.controls)
+            if (controls::replay_row_control(control.id) && control.rect.height > 0) {
+                row = control.rect.height;
+                break;
+            }
+        const std::optional<controls::Extent> extent =
+            controls::clipped_extent(list, pane->rect, 0);
+        if (!row || !extent)
+            return std::nullopt;
+        PaneScroll scroll;
+        scroll.view = pane->rect;
+        scroll.step = *row + 1;
+        scroll.offset = std::max(pane->rect.y - extent->top, int32_t{0});
+        scroll.limit = kit::ScrollArea::limit_for(extent->bottom - extent->top, pane->rect.height);
+        scroll.offset = std::min(scroll.offset, scroll.limit);
+        return scroll;
+    }
     const std::optional<int32_t> height = row_height_of(list);
     if (pane == nullptr || !height)
         return std::nullopt;
@@ -286,6 +309,15 @@ std::optional<std::size_t> selected_place(const Library& library) {
 /// @param[in,out] state the screen's state; its list scroll changes
 /// @param list the display list, which says the rows' height and the view
 void show_selection(const Library& library, ScreenState& state, const kit::DisplayList& list) {
+    if (library.tab == Tab::replays) {
+        // The next layout brings the selected replay's row into view.
+        const std::optional<std::size_t> shown_place =
+            library.replays.selected ? replay_place(library, *library.replays.selected)
+                                     : std::nullopt;
+        if (shown_place)
+            state.reveal_row = static_cast<int32_t>(*shown_place);
+        return;
+    }
     const std::optional<PaneScroll> scroll = list_scroll_of(library, state, list);
     const std::optional<std::size_t> place = selected_place(library);
     if (!scroll || !place)
@@ -482,6 +514,10 @@ kit::ControlId field_of(MenuKind menu) {
         return controls::tags_menu;
     case MenuKind::more:
         return controls::more_menu;
+    case MenuKind::replay_kind:
+        return controls::replay_kind_menu;
+    case MenuKind::replay_sort:
+        return controls::replay_sort_menu;
     case MenuKind::none:
         break;
     }
@@ -621,6 +657,12 @@ void cap_maps_search(kit::TextField& field) {
 /// @param library the model
 /// @return its button's control; none without one
 std::optional<kit::ControlId> first_enabled_action(const Library& library) {
+    if (library.tab == Tab::replays) {
+        for (const ReplayButton& button : replay_buttons(library))
+            if (button.enabled)
+                return controls::action_control(button.action);
+        return std::nullopt;
+    }
     const Entry* entry = selected_entry(library);
     if (entry == nullptr)
         return std::nullopt;
@@ -636,6 +678,16 @@ std::optional<kit::ControlId> first_enabled_action(const Library& library) {
 /// @param[in,out] state the screen's state
 /// @return what the host is to do
 ScreenResult open_page(Library& library, ScreenState& state) {
+    if (library.tab == Tab::replays) {
+        if (selected_replay(library) == nullptr)
+            return {};
+        state.replay_page = true;
+        state.details_scroll = 0;
+        state.menu = MenuKind::none;
+        if (state.interaction.focus_shown)
+            state.interaction.focused = first_enabled_action(library).value_or(controls::back);
+        return redrawn();
+    }
     if (selected_entry(library) == nullptr)
         return {};
     open_details(library);
@@ -655,6 +707,10 @@ ScreenResult open_page(Library& library, ScreenState& state) {
 ScreenResult close_page(Library& library, ScreenState& state) {
     close_details(library);
     state.details_page = false;
+    if (state.replay_page) {
+        state.replay_page = false;
+        show_selection(library, state, {});
+    }
     state.menu = MenuKind::none;
     if (state.interaction.focus_shown)
         state.interaction.focused = controls::list;
@@ -689,6 +745,19 @@ ScreenResult enter_list(Library& library, ScreenState& state, const kit::Display
 /// @param delta how many rows; negative moves up
 /// @return true when the selection moved
 bool move_in_list(Library& library, ScreenState& state, const kit::DisplayList& list, int delta) {
+    if (library.tab == Tab::replays) {
+        const auto place_of = [&library] {
+            return library.replays.selected ? replay_place(library, *library.replays.selected)
+                                            : std::nullopt;
+        };
+        const std::optional<std::size_t> was = place_of();
+        move_replay_selection(library, delta);
+        show_selection(library, state, list);
+        if (place_of() == was)
+            return false;
+        state.details_scroll = 0;
+        return true;
+    }
     const std::optional<std::size_t> before = selected_place(library);
     move_selection(library, delta);
     show_selection(library, state, list);
@@ -731,6 +800,14 @@ choose_item(Library& library, ScreenState& state, const kit::DisplayList& list, 
     if (place < 0 || static_cast<std::size_t>(place) >= items.size())
         return redrawn();
     const controls::MenuItem& item = items[static_cast<std::size_t>(place)];
+    if (item.replay_kind || item.replay_sort) {
+        if (item.replay_kind)
+            set_replay_kind(library, *item.replay_kind);
+        else
+            set_replay_sort(library, *item.replay_sort);
+        after_browsing(library, state, list);
+        return redrawn();
+    }
     if (item.action) {
         ScreenResult result = redrawn();
         result.action = *item.action;
@@ -791,6 +868,7 @@ show_tab(Library& library, ScreenState& state, const kit::DisplayList& list, Tab
         close_details(library);
         state.details_page = false;
     }
+    state.replay_page = false;
     set_tab(library, tab);
     after_browsing(library, state, list);
     // The keys walking the tab strip stay on it. Otherwise the text focus
@@ -1072,6 +1150,97 @@ ScreenResult open_map_pack(Library& library, ScreenState& state, kit::ControlId 
     return redrawn();
 }
 
+/// Does what one of Export's controls does. The choices, the sectors box and
+/// the chooser's pages stay in the dialog. CHOOSE, EXPORT, SHOW IN FOLDER
+/// and the chooser's folder rows are the host's.
+///
+/// @param[in,out] library the model
+/// @param id the control
+/// @return what the host is to do, or a redraw
+ScreenResult export_press(Library& library, kit::ControlId id) {
+    ExportDialog& dialog = library.export_dialog;
+    if (id == controls::export_format_oademo) {
+        set_export_format(library, ExportFormat::oademo);
+        return redrawn();
+    }
+    if (id == controls::export_format_tad) {
+        set_export_format(library, ExportFormat::tad);
+        return redrawn();
+    }
+    if (id == controls::export_oa_sectors) {
+        set_export_oa_sectors(library, !dialog.keep_oa_sectors);
+        return redrawn();
+    }
+    if (id == controls::export_warnings_more) {
+        scroll_export_warnings(dialog, 1);
+        return redrawn();
+    }
+    if (id == controls::export_warnings_previous) {
+        scroll_export_warnings(dialog, -1);
+        return redrawn();
+    }
+    if (id == controls::export_browse_more) {
+        if (dialog.browsing)
+            scroll_export_browse(dialog, controls::export_browse_page);
+        else
+            scroll_export_warnings(dialog, 1);
+        return redrawn();
+    }
+    if (id == controls::export_browse_previous) {
+        if (dialog.browsing)
+            scroll_export_browse(dialog, -controls::export_browse_page);
+        else
+            scroll_export_warnings(dialog, -1);
+        return redrawn();
+    }
+    if (id == controls::export_cancel) {
+        if (dialog.browsing)
+            close_export_browse(library);
+        else
+            close_export(library);
+        return redrawn();
+    }
+    if (id == controls::export_close) {
+        close_export(library);
+        return redrawn();
+    }
+    if (id == controls::export_blocker)
+        return {};
+    ScreenResult result = redrawn();
+    if (id == controls::export_choose) {
+        result.action = Action::choose_export_folder;
+        return result;
+    }
+    if (id == controls::export_confirm) {
+        if (!export_can_run(dialog))
+            return {};
+        result.action = Action::run_export;
+        return result;
+    }
+    if (id == controls::export_show) {
+        result.action = Action::show_export_folder;
+        return result;
+    }
+    if (id == controls::export_browse_up) {
+        result.action = Action::export_browse_up;
+        return result;
+    }
+    if (id == controls::export_browse_use) {
+        result.action = Action::export_browse_use;
+        return result;
+    }
+    if (controls::export_row_control(id)) {
+        const auto place = static_cast<std::size_t>(id - controls::first_export_row);
+        if (place >= dialog.entries.size())
+            return {};
+        result.action = Action::export_browse_open;
+        const ExportFolder& entry = dialog.entries[place];
+        result.export_path = entry.path.empty() ? entry.name : entry.path;
+        return result;
+    }
+    return {};
+}
+
 /// Does what a control does when it is pressed, or takes Space or Enter.
 ///
 /// No press on a row gets, updates or installs anything: it selects the
@@ -1098,6 +1267,8 @@ ScreenResult activate(
     const kit::Control* control = kit::control_of(list, id);
     if (control == nullptr || !control->enabled)
         return {};
+    if (library.export_dialog.open)
+        return export_press(library, id);
     if (library.key_use.open)
         return key_use_press(library, list, id, key, point);
     if (const std::optional<ScreenResult> registry = registry_press(library, list, id, key, point))
@@ -1120,6 +1291,25 @@ ScreenResult activate(
         after_browsing(library, state, list);
         return redrawn();
     }
+    if (controls::replay_filter_entry(id)) {
+        set_replay_filter(library, static_cast<ReplayFilter>(id - controls::first_replay_filter));
+        after_browsing(library, state, list);
+        return redrawn();
+    }
+    if (controls::replay_row_control(id)) {
+        const auto place = static_cast<std::size_t>(id - controls::first_replay_row);
+        const ReplayPick pick = std::exchange(state.row_pick, ReplayPick::only);
+        if (place >= library.replays.visible.size())
+            return {};
+        const std::string path =
+            library.inputs.replays.rows[library.replays.visible[place]].replay.path;
+        if (library.replays.selected != path)
+            state.details_scroll = 0;
+        select_replay(library, path, pick);
+        if (compact_list_shows(list) && pick == ReplayPick::only)
+            return open_page(library, state);
+        return redrawn();
+    }
     if (id >= controls::first_action && id < controls::first_tag) {
         const Action action = static_cast<Action>(id - controls::first_action);
         if (action == Action::use_layout) {
@@ -1130,6 +1320,43 @@ ScreenResult activate(
         }
         ScreenResult result = redrawn();
         result.action = action;
+        if (action == Action::watch_replay || action == Action::open_replay_folder) {
+            if (!library.replays.selected)
+                return {};
+            result.replay = *library.replays.selected;
+            return result;
+        }
+        if (action == Action::keep_replays) {
+            if (library.replays.marked.empty())
+                return {};
+            result.replays = library.replays.marked;
+            result.keep = !marked_kept(library);
+            return result;
+        }
+        if (action == Action::export_replays) {
+            if (!library.replays.marked.empty())
+                result.replays = library.replays.marked;
+            else if (library.replays.selected)
+                result.replays = {*library.replays.selected};
+            return result;
+        }
+        if (action == Action::turn_on_recording || action == Action::open_replay_file)
+            return result;
+        if (action == Action::delete_replays) {
+            if (library.replays.marked.empty())
+                return {};
+            // The first press only asks. The confirm button beside it deletes.
+            library.replays.delete_armed = true;
+            library.replays.delete_failure.clear();
+            return redrawn();
+        }
+        if (action == Action::confirm_delete_replays) {
+            if (!library.replays.delete_armed || library.replays.marked.empty())
+                return {};
+            result.replays = library.replays.marked;
+            library.replays.delete_armed = false;
+            return result;
+        }
         if (library.selected)
             result.entry = *library.selected;
         return result;
@@ -1216,6 +1443,10 @@ ScreenResult activate(
         return toggle_menu(library, state, list, MenuKind::tags);
     case controls::more_menu:
         return toggle_menu(library, state, list, MenuKind::more);
+    case controls::replay_kind_menu:
+        return toggle_menu(library, state, list, MenuKind::replay_kind);
+    case controls::replay_sort_menu:
+        return toggle_menu(library, state, list, MenuKind::replay_sort);
     case controls::update_all:
         result.action = Action::update_all;
         return result;
@@ -1550,9 +1781,9 @@ ScreenResult library_pointer(
     int32_t finger_reach
 ) {
     kit::Interaction& interaction = state.interaction;
-    // The chooser and USE's question cover the Library. A press reaches
-    // their rows and buttons, or the shade, and never the tabs under them.
-    if (library.chooser.open || library.key_use.open) {
+    // The chooser, USE's question and Export cover the Library. A press
+    // reaches their rows and buttons, or the shade, and never the tabs under them.
+    if (library.chooser.open || library.key_use.open || library.export_dialog.open) {
         switch (kind) {
         case PointerKind::move: {
             const kit::PointerOutcome outcome = kit::pointer_move(interaction, list, at);
@@ -1745,6 +1976,47 @@ ScreenResult library_pointer(
 ScreenResult
 library_key(Library& library, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
     kit::Interaction& interaction = state.interaction;
+    if (library.export_dialog.open) {
+        if (pressed == kit::Key::escape) {
+            if (library.export_dialog.browsing)
+                close_export_browse(library);
+            else
+                close_export(library);
+            return redrawn();
+        }
+        // Enter writes, or uses the folder the chooser lists, or shows the
+        // folder the files went to. The other keys stay with the dialog.
+        if (pressed == kit::Key::enter) {
+            const ExportDialog& dialog = library.export_dialog;
+            if (dialog.browsing)
+                return activate(
+                    library, state, list, controls::export_browse_use, pressed, std::nullopt
+                );
+            if (dialog.done)
+                return activate(library, state, list, controls::export_show, pressed, std::nullopt);
+            if (export_can_run(dialog))
+                return activate(
+                    library, state, list, controls::export_confirm, pressed, std::nullopt
+                );
+            return {};
+        }
+        if (!controls::export_control(interaction.focused) && !list.tab_order.empty())
+            interaction.focused = list.tab_order.front();
+        const kit::KeyOutcome outcome = kit::key(interaction, list, pressed);
+        switch (outcome.result) {
+        case kit::KeyResult::none:
+            return {};
+        case kit::KeyResult::redraw:
+            return redrawn();
+        case kit::KeyResult::to_control:
+            return activate(library, state, list, outcome.control, pressed, std::nullopt);
+        case kit::KeyResult::accept:
+        case kit::KeyResult::scroll:
+        case kit::KeyResult::cancel:
+            return {};
+        }
+        return {};
+    }
     if (library.key_use.open) {
         if (pressed == kit::Key::escape) {
             close_key_use(library);
@@ -1809,7 +2081,8 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
     const bool on_maps_search = focus == controls::active_search;
     const bool on_list = focus == controls::list;
     const bool on_drop_down = focus == controls::filter_menu || focus == controls::tags_menu ||
-                              focus == controls::more_menu;
+                              focus == controls::more_menu || focus == controls::replay_kind_menu ||
+                              focus == controls::replay_sort_menu;
     // On the details page the page keys scroll its body, never the list it
     // hides; on the Registries tab they scroll those cards. The Active tab's
     // page keys scroll its maps, or the whole page when that page scrolls.
@@ -1931,14 +2204,17 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
             state.details_scroll = next;
             return redrawn();
         }
-        if (move_in_list(
-                library,
-                state,
-                list,
-                pressed == kit::Key::home ? -static_cast<int>(library.visible.size())
-                                          : static_cast<int>(library.visible.size())
-            ))
-            return redrawn();
+        {
+            const std::size_t all = library.tab == Tab::replays ? library.replays.visible.size()
+                                                                : library.visible.size();
+            if (move_in_list(
+                    library,
+                    state,
+                    list,
+                    pressed == kit::Key::home ? -static_cast<int>(all) : static_cast<int>(all)
+                ))
+                return redrawn();
+        }
         return {};
     case kit::Key::page_up:
     case kit::Key::page_down: {
@@ -2013,7 +2289,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
 ScreenResult library_text(
     Library& library, ScreenState& state, const kit::DisplayList& list, std::string_view utf8
 ) {
-    if (library.chooser.open || library.key_use.open)
+    if (library.chooser.open || library.key_use.open || library.export_dialog.open)
         return {};
     if (state.interaction.focus_shown && state.interaction.focused == controls::active_search) {
         if (kit::control_of(list, controls::active_search) == nullptr ||
@@ -2032,6 +2308,16 @@ ScreenResult library_text(
 ScreenResult library_wheel(
     Library& library, ScreenState& state, const kit::DisplayList& list, kit::Point at, float notches
 ) {
+    if (library.export_dialog.open) {
+        if (!library.export_dialog.browsing || !std::isfinite(notches) || notches == 0.F)
+            return {};
+        const int delta = notches > 0.F ? -1 : 1;
+        const std::size_t before = library.export_dialog.browse_first;
+        scroll_export_browse(library.export_dialog, delta);
+        if (library.export_dialog.browse_first == before)
+            return {};
+        return redrawn();
+    }
     if (library.chooser.open || library.key_use.open)
         return {};
     if (state.menu != MenuKind::none) {
@@ -2077,6 +2363,16 @@ ScreenResult library_wheel(
 ScreenResult library_command(
     Library& library, ScreenState& state, const kit::DisplayList& list, ScreenCommand command
 ) {
+    if (library.export_dialog.open) {
+        if (command == ScreenCommand::back) {
+            if (library.export_dialog.browsing)
+                close_export_browse(library);
+            else
+                close_export(library);
+            return redrawn();
+        }
+        return {};
+    }
     if (library.key_use.open) {
         if (command == ScreenCommand::back) {
             close_key_use(library);
@@ -2096,6 +2392,7 @@ ScreenResult library_command(
         if (page_shows(list)) {
             close_details(library);
             state.details_page = false;
+            state.replay_page = false;
         }
         if (active_shows(list))
             focus_maps_search(state);
@@ -2151,7 +2448,7 @@ ScreenResult library_command(
 
 ScreenResult
 library_stick(Library& library, ScreenState& state, const kit::DisplayList& list, float notches) {
-    if (library.chooser.open || library.key_use.open)
+    if (library.chooser.open || library.key_use.open || library.export_dialog.open)
         return {};
     return turn_pane(library, state, list, focused_pane(state, list), notches);
 }

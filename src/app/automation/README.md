@@ -5,8 +5,8 @@ through which a program on the same machine drives the game and reads
 what it shows and holds, in the automation protocol. It is `oa-game`'s
 extension `oa-app-automation`, which the engine builds and registers in
 every build, after network play's. Without `--fark` it opens no socket.
-`--status-stdout`, `--status-file` and `--quit-after-game` report the
-same events with no socket
+`--status-stdout`, `--status-file` and `--quit-after-game` report those
+events, other than `focus`, with no socket
 ([docs/multiplayer/status.md](../../../docs/multiplayer/status.md)).
 [docs/automation.md](../../../docs/automation.md) describes the endpoint
 for those who write a program that drives the game.
@@ -19,7 +19,7 @@ for those who write a program that drives the game.
                            (127.0.0.1:0), lets the system choose
 --fark-file PATH           where the address and token are written; by default
                            automation.json in the folder of the preferences file
---status-stdout            the same events, as JSON lines on standard output
+--status-stdout            the events other than focus, as JSON lines on standard output
 --status-file PATH         the same lines, in a file
 --quit-after-game          leave once the game has ended; =after-score waits
                            until the player leaves the score screen
@@ -117,6 +117,10 @@ been served and `tick` is the running match's (0 outside a match), or
 | `match` | `in_match`; `paused`; `speed` (1 to 20, 10 normal); `players`, each seated player with `slot`, `name`, `status` (`local`, `computer`, `remote`), `side`, `side_name`, `colour`, `team` (null for none), `allies` (slots), `computer`, `local`, `alive` (has units), `units`, `kills`, `losses`; `local_player` (a slot); `game_over`, `outcome` (`victory` or `defeat` for the local player) and `winner` (the local player when it won, else the one player with units left, else null). With `"state_hash": true`, also `state_hash`: the digest of the match's state a saved game carries, as the saved-game check prints it, in 16 hexadecimal digits, worked out only when asked |
 | `room` | `in_room`, while the battle room shows; then `session` (the game's name), `host` and `host_slot`, `local_slot`, `hosting`, `players` (each seated one with `slot`, `name`, `status`, `ready`, `watcher`, `side`, `side_name`, `colour`, `team`, `ping`), `map` (the host's), `options` (the host's: `commander` `continues`, `ends` or `deathmatch`; `line_of_sight` `permanent`, `circular` or `true`; `mapped`, `cheats`, `fixed_locations`, `watching_allowed`, `locked`, `password`; `energy`, `metal` and `max_units` to start with) and `chat`, the room's lines; outside it the members are null or empty |
 | `subscribe` | `events`: the kinds of event the client is sent from now on, in place of those it took before, as the request's `events` names them: `"all"`, or a list of kinds; an empty list stops them. Subscribing to `screen` is answered with a `screen` event naming the screen shown |
+
+### What a control adds for a screen reader
+
+Beside the fields above, each control has `role` and `label`. `role` is `button`, `check_box`, `switch`, `radio_group`, `radio`, `tab_list`, `tab`, `list`, `list_item`, `tree`, `tree_item`, `text_field`, `password`, `search`, `slider`, `log`, `dialog`, `alert_dialog`, `group`, `image`, `link`, `label` or `none`. `kind` is unchanged: a switch stays a label and a half stays a check box, and the role says which. A list keeps its integer `selected`. Every other control has a boolean `selected`. The states `hidden`, `expanded`, `pressed` and `modal` are always present. A slider has `value`, `min`, `max` and `step`. A control in a set has `position`, from 1, and `set_size`. `value_text`, `description`, `shortcut` and `live` (`polite` or `assertive`) are present when they are set. A masked field's role is `password`, and its text is never copied into `label`. A switch's, a strip's and a slider's `label` is the row's caption, and `value_text` is the value shown. An extension's windows, a package's windows and a screen's own controls under a modal stay in the list, with `hidden` true and `enabled` false. A screen button that an extension's button covers, or that lies wholly inside the rectangle where an extension window's art takes the press, is listed with `hidden` true. It stays enabled. Open Annihilation's own screens under a modal one are not listed, as before. `visible` is unchanged.
 
 ### A list's scroll arrows
 
@@ -311,6 +315,7 @@ rows (`load_progress`), and a match's end as the match is torn down
 | `speed` | `speed` | the match's speed changes, whoever set it |
 | `alliance` | `from`, `from_slot`, `to`, `to_slot`, `allied` | a seated player allies with another or breaks the alliance |
 | `game_over` | `outcome`, `winner` | the match is decided for the local player, as `match` gives them |
+| `focus` | `name` (null when no control takes the keys, and when only a hidden control is focused), `label`, `role` | the control that takes the keys changes. A hidden control is passed over. Not sent when it stays, and not the first frame that reads the focus |
 | `transfer` | — | never yet: nothing the endpoint reads reports units or resources given; `subscribe` takes the kind |
 
 ## The codec

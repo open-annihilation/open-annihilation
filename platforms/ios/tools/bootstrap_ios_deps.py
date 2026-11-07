@@ -2,15 +2,15 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Build the pinned SDL3 and FreeType as static libraries for iPhone and iPad.
+"""Build the pinned SDL3, FreeType and HarfBuzz as static libraries for iPhone and iPad.
 
 The iOS and iPadOS build (platforms/ios) links them into the game. Each
 system image (SDK) gets its own prefix root, <deps>/ios-<sdk>, with one
-install prefix per library (sdl/, freetype/): iphonesimulator for the
+install prefix per library (sdl/, freetype/, harfbuzz/): iphonesimulator for the
 simulator on this Mac, iphoneos for devices. Both are built for arm64 and
 run from iOS 15.0. The sources are the engine's pins: the SDL release
-tools/bootstrap_sdl.py names and the FreeType release and options
-tools/bootstrap_text_fonts.py names, from the same verified archives in
+tools/bootstrap_sdl.py names and the FreeType and HarfBuzz releases and
+options tools/bootstrap_text_fonts.py names, from the same verified archives in
 <deps>. zlib comes with the system image, and the fonts are the host's
 (local/deps/text-fonts), which are the same on every platform.
 
@@ -168,7 +168,7 @@ def build_for_ios(source, build, install, sdk, jobs, options):
 
 
 def bootstrap(deps, sdk, jobs):
-    """Builds what is not current of SDL and FreeType for sdk; returns the prefix root."""
+    """Builds what is not current of SDL, FreeType and HarfBuzz for sdk; returns the prefix root."""
     root = deps / f"ios-{sdk}"
     builds = deps / f"ios-{sdk}-build"
     image_version = sdk_version(sdk)
@@ -186,7 +186,17 @@ def bootstrap(deps, sdk, jobs):
         build_for_ios(bootstrap_text_fonts.freetype_source(deps), builds / "freetype",
                       freetype_install, sdk, jobs, bootstrap_text_fonts.FREETYPE_OPTIONS)
         record(freetype_install, freetype_settings)
-    print(f"SDL {bootstrap_sdl.VERSION} and FreeType {bootstrap_text_fonts.FREETYPE_VERSION} "
+    harfbuzz_install = root / "harfbuzz"
+    harfbuzz_options = bootstrap_text_fonts.harfbuzz_cmake_options(freetype_install)
+    harfbuzz_settings = settings(bootstrap_text_fonts.HARFBUZZ_VERSION,
+                                 bootstrap_text_fonts.HARFBUZZ_SHA256, sdk, image_version,
+                                 harfbuzz_options)
+    if not is_current(harfbuzz_install, [bootstrap_text_fonts.HARFBUZZ_INSTALLED], harfbuzz_settings):
+        build_for_ios(bootstrap_text_fonts.harfbuzz_source(deps), builds / "harfbuzz",
+                      harfbuzz_install, sdk, jobs, harfbuzz_options)
+        record(harfbuzz_install, harfbuzz_settings)
+    print(f"SDL {bootstrap_sdl.VERSION}, FreeType {bootstrap_text_fonts.FREETYPE_VERSION} "
+          f"and HarfBuzz {bootstrap_text_fonts.HARFBUZZ_VERSION} "
           f"for {sdk} {image_version}, {ARCHITECTURE}, iOS {DEPLOYMENT_TARGET} and later: "
           f"{root}")
     return root

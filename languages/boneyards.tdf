@@ -1460,3 +1460,516 @@
 	zh-Hans=提供的密码与用户名不符。请检查后再试。忘记了？请到 coreprime.net/forgot 重置;
 	}
 
+[Boneyards]
+	{
+	de=Boneyards;
+	fr=Boneyards;
+	it=Boneyards;
+	es=Boneyards;
+	zh-Hans=Boneyards;
+	}
+
+[Enter the Boneyards]
+	{
+	de=Betritt die Boneyards;
+	fr=Entre dans les Boneyards;
+	it=Entra nei Boneyards;
+	es=Entra en los Boneyards;
+	zh-Hans=进入 Boneyards;
+	}
+
+[Scroll the map up]
+	{
+	de=Karte nach oben;
+	fr=Défile la carte vers le haut;
+	it=Scorri la mappa in alto;
+	es=Desplaza el mapa hacia arriba;
+	zh-Hans=向上滚动地图;
+	}
+
+[Scroll the map up and right]
+	{
+	de=Karte nach oben rechts;
+	fr=Défile la carte vers le haut et la droite;
+	it=Scorri la mappa in alto a destra;
+	es=Desplaza el mapa hacia arriba y a la derecha;
+	zh-Hans=向右上滚动地图;
+	}
+
+[Scroll the map right]
+	{
+	de=Karte nach rechts;
+	fr=Défile la carte vers la droite;
+	it=Scorri la mappa a destra;
+	es=Desplaza el mapa hacia la derecha;
+	zh-Hans=向右滚动地图;
+	}
+
+[Scroll the map down and right]
+	{
+	de=Karte nach unten rechts;
+	fr=Défile la carte vers le bas et la droite;
+	it=Scorri la mappa in basso a destra;
+	es=Desplaza el mapa hacia abajo y a la derecha;
+	zh-Hans=向右下滚动地图;
+	}
+
+[Scroll the map down]
+	{
+	de=Karte nach unten;
+	fr=Défile la carte vers le bas;
+	it=Scorri la mappa in basso;
+	es=Desplaza el mapa hacia abajo;
+	zh-Hans=向下滚动地图;
+	}
+
+[Scroll the map down and left]
+	{
+	de=Karte nach unten links;
+	fr=Défile la carte vers le bas et la gauche;
+	it=Scorri la mappa in basso a sinistra;
+	es=Desplaza el mapa hacia abajo y a la izquierda;
+	zh-Hans=向左下滚动地图;
+	}
+
+[Scroll the map left]
+	{
+	de=Karte nach links;
+	fr=Défile la carte vers la gauche;
+	it=Scorri la mappa a sinistra;
+	es=Desplaza el mapa hacia la izquierda;
+	zh-Hans=向左滚动地图;
+	}
+
+[Scroll the map up and left]
+	{
+	de=Karte nach oben links;
+	fr=Défile la carte vers le haut et la gauche;
+	it=Scorri la mappa in alto a sinistra;
+	es=Desplaza el mapa hacia arriba y a la izquierda;
+	zh-Hans=向左上滚动地图;
+	}
+
+[Recon]
+	{
+	de=Aufklärung;
+	fr=Recon;
+	it=Ricognizione;
+	es=Reconocimiento;
+	zh-Hans=侦察;
+	}
+
+[Chat]
+	{
+	de=Chat;
+	fr=Chat;
+	it=Chat;
+	es=Chat;
+	zh-Hans=聊天;
+	}
+
+[Battle]
+	{
+	de=Schlacht;
+	fr=Bataille;
+	it=Battaglia;
+	es=Batalla;
+	zh-Hans=战斗;
+	}
+
+[News]
+	{
+	de=Nachrichten;
+	fr=Actus;
+	it=Notizie;
+	es=Noticias;
+	zh-Hans=新闻;
+	}
+
+[Ladders]
+	{
+	de=Ranglisten;
+	fr=Classements;
+	it=Classifiche;
+	es=Clasificaciones;
+	zh-Hans=天梯;
+	}
+
+[Profile]
+	{
+	de=Profil;
+	fr=Profil;
+	it=Profilo;
+	es=Perfil;
+	zh-Hans=档案;
+	}
+
+[Help]
+	{
+	de=Hilfe;
+	fr=Aide;
+	it=Aiuto;
+	es=Ayuda;
+	zh-Hans=帮助;
+	}
+
+[Release]
+	{
+	de=Freigeben;
+	fr=Relâcher;
+	it=Rilascia;
+	es=Soltar;
+	zh-Hans=放开;
+	}
+
+[Locator]
+	{
+	de=Ortung;
+	fr=Repère;
+	it=Ricerca;
+	es=Buscar;
+	zh-Hans=定位;
+	}
+
+[QuickPlay]
+	{
+	de=Schnellspiel;
+	fr=Partie rapide;
+	it=Partita rapida;
+	es=Partida rápida;
+	zh-Hans=快速对战;
+	}
+
+[Exit]
+	{
+	de=Beenden;
+	fr=Quitter;
+	it=Esci;
+	es=Salir;
+	zh-Hans=退出;
+	}
+
+[Credits]
+	{
+	de=Abspann;
+	fr=Crédits;
+	it=Riconoscimenti;
+	es=Créditos;
+	zh-Hans=制作人员;
+	}
+
+[General]
+	{
+	de=Allgemein;
+	fr=Général;
+	it=Generale;
+	es=General;
+	zh-Hans=综合;
+	}
+
+[Ladder]
+	{
+	de=Rangliste;
+	fr=Classement;
+	it=Classifica;
+	es=Clasificación;
+	zh-Hans=天梯;
+	}
+
+[Awards]
+	{
+	de=Auszeichnungen;
+	fr=Récompenses;
+	it=Premi;
+	es=Premios;
+	zh-Hans=奖项;
+	}
+
+[Arm wins]
+	{
+	de=Siege für Arm;
+	fr=Victoires Arm;
+	it=Vittorie Arm;
+	es=Victorias de Arm;
+	zh-Hans=Arm 胜场;
+	}
+
+[Core wins]
+	{
+	de=Siege für Core;
+	fr=Victoires Core;
+	it=Vittorie Core;
+	es=Victorias de Core;
+	zh-Hans=Core 胜场;
+	}
+
+[contested]
+	{
+	de=umkämpft;
+	fr=contesté;
+	it=conteso;
+	es=disputado;
+	zh-Hans=争夺中;
+	}
+
+[unknown]
+	{
+	de=unbekannt;
+	fr=inconnu;
+	it=sconosciuto;
+	es=desconocido;
+	zh-Hans=未知;
+	}
+
+[%s, %d battles, %d forming]
+	{
+	de=%s, %d Kämpfe, %d im Aufbau;
+	fr=%s, %d batailles, %d en formation;
+	it=%s, %d battaglie, %d in avvio;
+	es=%s, %d batallas, %d formándose;
+	zh-Hans=%s，%d 场战斗，%d 场集结;
+	}
+
+[%s, %d battles, %d forming, chosen]
+	{
+	de=%s, %d Kämpfe, %d im Aufbau, gewählt;
+	fr=%s, %d batailles, %d en formation, choisi;
+	it=%s, %d battaglie, %d in avvio, scelta;
+	es=%s, %d batallas, %d formándose, elegido;
+	zh-Hans=%s，%d 场战斗，%d 场集结，已选;
+	}
+
+[%s, %d battle, %d forming]
+	{
+	de=%s, %d Kampf, %d im Aufbau;
+	fr=%s, %d bataille, %d en formation;
+	it=%s, %d battaglia, %d in avvio;
+	es=%s, %d batalla, %d formándose;
+	zh-Hans=%s，%d 场战斗，%d 场集结;
+	}
+
+[%s, %d battle, %d forming, chosen]
+	{
+	de=%s, %d Kampf, %d im Aufbau, gewählt;
+	fr=%s, %d bataille, %d en formation, choisi;
+	it=%s, %d battaglia, %d in avvio, scelta;
+	es=%s, %d batalla, %d formándose, elegido;
+	zh-Hans=%s，%d 场战斗，%d 场集结，已选;
+	}
+
+[Latency good]
+	{
+	de=Verzögerung gut;
+	fr=Latence bonne;
+	it=Latenza buona;
+	es=Latencia buena;
+	zh-Hans=延迟良好;
+	}
+
+[Latency fair]
+	{
+	de=Verzögerung mittel;
+	fr=Latence moyenne;
+	it=Latenza media;
+	es=Latencia media;
+	zh-Hans=延迟一般;
+	}
+
+[Latency poor]
+	{
+	de=Verzögerung schlecht;
+	fr=Latence mauvaise;
+	it=Latenza scarsa;
+	es=Latencia mala;
+	zh-Hans=延迟较差;
+	}
+
+[Latency unknown]
+	{
+	de=Verzögerung unbekannt;
+	fr=Latence inconnue;
+	it=Latenza sconosciuta;
+	es=Latencia desconocida;
+	zh-Hans=延迟未知;
+	}
+
+[Rank]
+	{
+	de=Rang;
+	fr=Grade;
+	it=Grado;
+	es=Rango;
+	zh-Hans=军衔;
+	}
+
+[Rank: %s]
+	{
+	de=Rang: %s;
+	fr=Grade : %s;
+	it=Grado: %s;
+	es=Rango: %s;
+	zh-Hans=军衔：%s;
+	}
+
+[Private]
+	{
+	de=Gefreiter;
+	fr=Soldat;
+	it=Soldato;
+	es=Soldado;
+	zh-Hans=列兵;
+	}
+
+[Corporal]
+	{
+	de=Obergefreiter;
+	fr=Caporal;
+	it=Caporale;
+	es=Cabo;
+	zh-Hans=下士;
+	}
+
+[Sergeant]
+	{
+	de=Unteroffizier;
+	fr=Sergent;
+	it=Sergente;
+	es=Sargento;
+	zh-Hans=中士;
+	}
+
+[Lieutenant]
+	{
+	de=Leutnant;
+	fr=Lieutenant;
+	it=Tenente;
+	es=Teniente;
+	zh-Hans=中尉;
+	}
+
+[Major]
+	{
+	de=Major;
+	fr=Commandant;
+	it=Maggiore;
+	es=Mayor;
+	zh-Hans=少校;
+	}
+
+[Colonel]
+	{
+	de=Oberst;
+	fr=Colonel;
+	it=Colonnello;
+	es=Coronel;
+	zh-Hans=上校;
+	}
+
+[Commander]
+	{
+	de=Kommandeur;
+	fr=Commandeur;
+	it=Comandante;
+	es=Comandante;
+	zh-Hans=指挥官;
+	}
+
+[High Commander]
+	{
+	de=Hochkommandeur;
+	fr=Haut commandeur;
+	it=Alto comandante;
+	es=Alto comandante;
+	zh-Hans=高级指挥官;
+	}
+
+[Supreme Commander]
+	{
+	de=Oberster Kommandeur;
+	fr=Commandant suprême;
+	it=Comandante supremo;
+	es=Comandante supremo;
+	zh-Hans=最高指挥官;
+	}
+
+[Newsbot]
+	{
+	de=Newsbot;
+	fr=Newsbot;
+	it=Newsbot;
+	es=Newsbot;
+	zh-Hans=Newsbot;
+	}
+
+[System Commander]
+	{
+	de=Systemkommandeur;
+	fr=Commandant système;
+	it=Comandante di sistema;
+	es=Comandante del sistema;
+	zh-Hans=系统指挥官;
+	}
+
+[Yard Dog]
+	{
+	de=Yard Dog;
+	fr=Yard Dog;
+	it=Yard Dog;
+	es=Yard Dog;
+	zh-Hans=Yard Dog;
+	}
+
+[Player Skill]
+	{
+	de=Spielstärke;
+	fr=Niveau du joueur;
+	it=Livello del giocatore;
+	es=Nivel del jugador;
+	zh-Hans=玩家水平;
+	}
+
+[Number of Players]
+	{
+	de=Anzahl der Spieler;
+	fr=Nombre de joueurs;
+	it=Numero di giocatori;
+	es=Número de jugadores;
+	zh-Hans=玩家人数;
+	}
+
+[On Commander Death]
+	{
+	de=Beim Tod des Commanders;
+	fr=À la mort du commandeur;
+	it=Alla morte del comandante;
+	es=Al morir el comandante;
+	zh-Hans=指挥官阵亡时;
+	}
+
+[Player Skill:]
+	{
+	de=Spielstärke:;
+	fr=Niveau du joueur :;
+	it=Livello del giocatore:;
+	es=Nivel del jugador:;
+	zh-Hans=玩家水平：;
+	}
+
+[Number of Players:]
+	{
+	de=Anzahl der Spieler:;
+	fr=Nombre de joueurs :;
+	it=Numero di giocatori:;
+	es=Número de jugadores:;
+	zh-Hans=玩家人数：;
+	}
+
+[On Commander Death:]
+	{
+	de=Beim Tod des Commanders:;
+	fr=À la mort du commandeur :;
+	it=Alla morte del comandante:;
+	es=Al morir el comandante:;
+	zh-Hans=指挥官阵亡时：;
+	}
+

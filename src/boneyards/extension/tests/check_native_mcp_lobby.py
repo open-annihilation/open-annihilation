@@ -11,7 +11,8 @@ side-prompt replay covers a member's login and that prompt. The contents
 replay covers news, ladders and help, and a message box. The beta replay
 covers a Beta Tester's account: battles to join, matchmaking, a locator
 search and quick play's options. Nothing is dialled, and nothing launches a
-battle. The guest password stays empty.
+battle. Each launch logs in as a registered player. The name and password
+are made up; the replay does not check them.
 
 Each step is logged as it starts. A failure names the launch and the step,
 and the last screen: its name, its dialogs and the controls on it. The
@@ -399,32 +400,22 @@ def dismiss_registration(client):
     raise Failure("registration did not open the web page, a form, or a message box")
 
 
-def guest_login(client, user_name):
-    """Enters as the replay's guest and waits until the war map is up."""
-    step("waiting for the login console")
-    wait_control(client, "Guest Login")
-    dismiss_registration(client)
-    step("waiting for the login console after registration")
-    wait_control(client, "Guest Login")
-    step("choosing Guest Login and typing the name")
-    click_named(client, "Guest Login")
-    type_into(client, "Username", user_name)
-    step("pressing LOGIN")
-    click_named(client, "LOGIN")
-    step("waiting for the war map")
-    wait_for_war_map(client)
+def member_login(client, user_name, *, registration=False):
+    """Logs in as a registered player.
 
-
-def member_login(client, user_name):
-    """Logs in as a registered player so the side prompt can open.
-
-    The password only enables LOGIN. The replay does not check it. A guest
-    login never reaches the prompt.
+    Registered User is already chosen, so the check waits for that and does
+    not click it. The password only enables LOGIN. The replay does not check
+    the name or the password, and neither is a real account. When
+    registration is set, REGISTER is opened and closed before the name is
+    typed.
     """
     step("waiting for the login console")
     wait_control(client, "Username")
-    step("choosing Registered User")
-    click_named(client, "Registered User")
+    if registration:
+        dismiss_registration(client)
+        step("waiting for the login console after registration")
+        wait_control(client, "Username")
+    step("Registered User is already chosen")
     wait_checked(client, "Registered User", True)
     step("typing the name and a password")
     type_into(client, "Username", user_name)
@@ -932,7 +923,9 @@ def drive_rest(client):
 
 def drive_chat_replay(client):
     """The chat replay: login, the map, chat, and the other consoles."""
-    guest_login(client, "oa_check")
+    member_login(client, "oa_check", registration=True)
+    step("waiting for the war map")
+    wait_for_war_map(client)
     drive_map(client)
     drive_chat(client)
     drive_rest(client)
@@ -1012,7 +1005,9 @@ BETA_BATTLES = ("Rumble", "Seated", "Locked")
 
 def drive_beta(client):
     """A Beta Tester's gated consoles: battles to join, matchmaking, the locator, quick play."""
-    guest_login(client, "oa_check")
+    member_login(client, "oa_check", registration=True)
+    step("waiting for the war map")
+    wait_for_war_map(client)
     choose_planet(client, SLAG)
     step("opening the battle console and choosing each battle")
     click_named(client, "MF_Battle_Button")
@@ -1134,7 +1129,9 @@ def drive_help(client):
 
 def drive_contents(client):
     """News, a ladders search that opens a message box, and the help tree."""
-    guest_login(client, "oa_check")
+    member_login(client, "oa_check", registration=True)
+    step("waiting for the war map")
+    wait_for_war_map(client)
     step("opening the news console")
     click_named(client, "MF_News_Button")
     wait_control(client, "ContentsList")

@@ -289,11 +289,17 @@ TimelinePlayer& note_player(Timeline& timeline, const oa::World& world, uint8_t 
 /// @param[in,out] timeline the timeline
 /// @param world the world
 /// @param slot the unit's slot
-void record_created(Timeline& timeline, const oa::World& world, uint16_t slot) {
+/// @param detail what the recorder keeps; at `standings` only a commander is
+///        recorded, and its type is not noted
+void record_created(Timeline& timeline, const oa::World& world, uint16_t slot, Detail detail) {
     const oa::Unit* unit{unit_in(world, slot)};
     if (unit == nullptr)
         return;
-    note_unit_type(timeline, world, *unit);
+    const bool commander{oa::sim::match_runtime::side_commander(world, *unit)};
+    if (detail == Detail::standings && !commander)
+        return;
+    if (detail == Detail::full)
+        note_unit_type(timeline, world, *unit);
     TimelineEvent event{};
     event.tick = world.game.tick;
     event.kind = EventKind::created;
@@ -302,7 +308,7 @@ void record_created(Timeline& timeline, const oa::World& world, uint16_t slot) {
     event.unit_type = unit->type_index;
     event.build_left = build_left_of(unit->build_remaining);
     event.at = point_of(unit->position);
-    if (oa::sim::match_runtime::side_commander(world, *unit))
+    if (commander)
         event.flags = static_cast<uint8_t>(event.flags | event_flag::commander);
     if (event.owner != no_player) {
         TimelinePlayer& player{note_player(timeline, world, event.owner)};
@@ -366,10 +372,32 @@ TimelineRecorder& recorder_of(void* context) noexcept {
 
 } // namespace
 
+std::vector<PlayerStats> read_player_stats(const oa::World& world, uint32_t tick) {
+    std::vector<PlayerStats> all;
+    for (uint8_t index{}; index < OA_PLAYER_COUNT; ++index) {
+        const oa::Player& player{world.game.players[index]};
+        if (!oa::sim::simulation_state::player_slot_active(index, player))
+            continue;
+        PlayerStats stats{};
+        stats.tick = tick;
+        stats.player = index;
+        stats.kills = count_of(player.kills);
+        stats.losses = count_of(player.losses);
+        stats.commanders_killed = count_of(player.commanders_killed);
+        stats.commanders_lost = count_of(player.commanders_lost);
+        stats.unit_count = player.unit_count;
+        stats.metal = whole_signed(player.metal);
+        stats.energy = whole_signed(player.energy);
+        all.push_back(stats);
+    }
+    return all;
+}
+
 void TimelineRecorder::begin(
-    const oa::World& world, uint8_t viewer_player, std::string_view map_name
+    const oa::World& world, uint8_t viewer_player, std::string_view map_name, Detail detail
 ) {
     timeline_ = Timeline{};
+    detail_ = detail;
     sampled_tick_ = 0;
     sampled_ = false;
     failure_ = nullptr;
@@ -380,7 +408,8 @@ void TimelineRecorder::begin(
     header.first_tick = world.game.tick;
     header.last_tick = world.game.tick;
     header.viewer_player = player_of(viewer_player);
-    record_water(header, world);
+    if (detail == Detail::full)
+        record_water(header, world);
     for (uint8_t index{}; index < OA_PLAYER_COUNT; ++index)
         if (oa::sim::simulation_state::player_slot_active(index, world.game.players[index]))
             note_player(timeline_, world, index);
@@ -393,7 +422,7 @@ void TimelineRecorder::begin(
                 slot > std::numeric_limits<uint16_t>::max() ||
                 oa::sim::match_runtime::side_commander(world, *unit) != commanders)
                 continue;
-            record_created(timeline_, world, static_cast<uint16_t>(slot));
+            record_created(timeline_, world, static_cast<uint16_t>(slot), detail);
         }
 }
 
@@ -401,11 +430,15 @@ oa::sim::match_runtime::EventHooks TimelineRecorder::event_hooks() noexcept {
     oa::sim::match_runtime::EventHooks hooks{};
     hooks.context = this;
     hooks.unit_created = &TimelineRecorder::unit_created;
-    hooks.unit_finished = &TimelineRecorder::unit_finished;
-    hooks.shot_placed = &TimelineRecorder::shot_placed;
-    hooks.shot_detonated = &TimelineRecorder::shot_detonated;
     hooks.unit_damaged = &TimelineRecorder::unit_damaged;
     hooks.unit_died = &TimelineRecorder::unit_died;
+    // The match reports an event only to a hook that is set, so the events
+    // the standings leave out cost the match nothing.
+    if (detail_ == Detail::full) {
+        hooks.unit_finished = &TimelineRecorder::unit_finished;
+        hooks.shot_placed = &TimelineRecorder::shot_placed;
+        hooks.shot_detonated = &TimelineRecorder::shot_detonated;
+    }
     return hooks;
 }
 
@@ -415,7 +448,7 @@ void TimelineRecorder::after_tick(const oa::World& world, const UnitVisibilityHo
     if (sampled_ && tick <= sampled_tick_)
         return;
     const uint32_t first{timeline_.header.first_tick};
-    if (tick % sample_period_ticks == first % sample_period_ticks) {
+    if (detail_ == Detail::full && tick % sample_period_ticks == first % sample_period_ticks) {
         sampled_ = true;
         sampled_tick_ = tick;
         for (uint32_t slot{1};
@@ -453,23 +486,14 @@ void TimelineRecorder::after_tick(const oa::World& world, const UnitVisibilityHo
             timeline_.samples.push_back(sample);
         }
     }
-    if (tick % stats_period_ticks == first % stats_period_ticks)
-        for (uint8_t index{}; index < OA_PLAYER_COUNT; ++index) {
-            const oa::Player& player{world.game.players[index]};
-            if (!oa::sim::simulation_state::player_slot_active(index, player))
-                continue;
-            PlayerStats stats{};
-            stats.tick = tick;
-            stats.player = index;
-            stats.kills = count_of(player.kills);
-            stats.losses = count_of(player.losses);
-            stats.commanders_killed = count_of(player.commanders_killed);
-            stats.commanders_lost = count_of(player.commanders_lost);
-            stats.unit_count = player.unit_count;
-            stats.metal = whole_signed(player.metal);
-            stats.energy = whole_signed(player.energy);
-            timeline_.stats.push_back(stats);
-        }
+    if (tick % stats_period_ticks == first % stats_period_ticks) {
+        // A stats tick is also a sample tick, so at full detail this marks
+        // what the sampling has marked; at standings it is the only mark.
+        sampled_ = true;
+        sampled_tick_ = tick;
+        std::vector<PlayerStats> stats{read_player_stats(world, tick)};
+        timeline_.stats.insert(timeline_.stats.end(), stats.begin(), stats.end());
+    }
 }
 
 void TimelineRecorder::finish(const oa::World& world, const ReplayVerdict& verdict) {
@@ -504,7 +528,7 @@ Timeline TimelineRecorder::take() {
 void TimelineRecorder::unit_created(void* context, const oa::World& world, uint16_t unit) {
     auto& recorder{recorder_of(context)};
     try {
-        record_created(recorder.timeline_, world, unit);
+        record_created(recorder.timeline_, world, unit, recorder.detail_);
     } catch (...) {
         if (!recorder.failure_)
             recorder.failure_ = std::current_exception();
@@ -601,7 +625,8 @@ void TimelineRecorder::unit_damaged(
         const oa::Unit* record{unit_in(world, target)};
         if (record == nullptr)
             return;
-        note_unit_type(recorder.timeline_, world, *record);
+        if (recorder.detail_ == Detail::full)
+            note_unit_type(recorder.timeline_, world, *record);
         TimelineEvent event{};
         event.tick = world.game.tick;
         event.kind = EventKind::damage;
@@ -633,7 +658,11 @@ void TimelineRecorder::unit_died(
         const oa::Unit* record{unit_in(world, unit)};
         if (record == nullptr)
             return;
-        note_unit_type(recorder.timeline_, world, *record);
+        const bool commander{oa::sim::match_runtime::side_commander(world, *record)};
+        if (recorder.detail_ == Detail::standings && !commander)
+            return;
+        if (recorder.detail_ == Detail::full)
+            note_unit_type(recorder.timeline_, world, *record);
         TimelineEvent event{};
         event.tick = world.game.tick;
         event.kind = EventKind::death;
@@ -647,7 +676,7 @@ void TimelineRecorder::unit_died(
             event.other_unit = static_cast<uint16_t>(attacker);
         event.other_owner = player_of(record->last_attacker_owner);
         event.damage_kind = static_cast<uint8_t>(outcome.kind);
-        if (oa::sim::match_runtime::side_commander(world, *record))
+        if (commander)
             event.flags = static_cast<uint8_t>(event.flags | event_flag::commander);
         if (settled_elsewhere)
             event.flags = static_cast<uint8_t>(event.flags | event_flag::settled_elsewhere);

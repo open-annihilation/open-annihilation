@@ -222,9 +222,9 @@ int32_t decode_value(const char* escaped, int32_t length, char* out) {
 /// Parses one `<T:key=value>` field of a wire entry into the entry.
 ///
 /// The field must close with '>' inside the text left, with a known type letter, a non-empty key
-/// free of reserved bytes, a non-empty value and a key the entry does not hold yet. A received
-/// field is parsed with its entry, so the parse the field accessors would make on first use has
-/// always been made.
+/// free of reserved bytes and a key the entry does not hold yet. A string value may be empty; a
+/// number may not. A received field is parsed with its entry, so the parse the field accessors
+/// would make on first use has always been made.
 ///
 /// @param[in,out] entry entry receiving the field
 /// @param text wire text starting at the field's '<'
@@ -259,7 +259,8 @@ bool parse_field(RoverEntry& entry, const char* text, int32_t length, int32_t* c
         return false;
     const char* close =
         static_cast<const char*>(memchr(value, kFieldClose, static_cast<size_t>(left)));
-    if (!close || close == value)
+    // An empty string is a blank profile field. An empty number has no digits to read.
+    if (!close || (close == value && static_cast<RoverFieldType>(type) != RoverFieldType::String))
         return false;
     int32_t escaped_length = static_cast<int32_t>(close - value);
     char decoded[kRoverRecordTextLimit];

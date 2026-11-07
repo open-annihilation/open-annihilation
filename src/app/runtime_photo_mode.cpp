@@ -1,0 +1,775 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// Photo mode: the running match with its interface put away. The battlefield
+// fills the window from the camera the player had. A match on this machine
+// freezes; a shared match, a watcher and a replay keep the clock they had.
+// The match keeps its own presenter and sound, and leaving puts the view back.
+// --check-photo mode drives entering and leaving.
+#include "oa/app/runtime.hpp"
+
+#include "oa/app/frame_pacing.hpp"
+#include "oa/app/hook_call.hpp"
+
+#include "director_state.hpp"
+#include "oa_layer.hpp"
+#include "photo_state.hpp"
+
+#include "presentation_interpolation.hpp"
+
+#include "oa/data/languages/interface_text.hpp"
+#include "oa/sim/messages.hpp"
+#include "oa/sim/selection.hpp"
+#include "oa/sim/speed.hpp"
+#include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/console/hotkeys.hpp"
+#include "oa/ui/display_layout.hpp"
+#include "oa/ui/hud/resource_panel.hpp"
+#include "oa/ui/key_editor/overlay.hpp"
+#include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/input.hpp"
+#include "oa/ui/kit/layout.hpp"
+#include "oa/ui/kit/text.hpp"
+#include "oa/ui/kit/theme.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+
+namespace oa::app {
+namespace {
+
+namespace editor = oa::ui::key_editor;
+namespace hud = oa::ui::hud;
+namespace kit = oa::ui::kit;
+namespace messages = oa::sim::messages;
+
+/// The photo screen's name on the Open Annihilation layer.
+constexpr std::string_view kPhotoScreen = "photo-mode";
+/// The line's height, in the screen's points.
+constexpr int32_t kLineHeight = 22;
+/// Points of panel kept either side of the measured text.
+constexpr int32_t kLinePad = 8;
+
+/// Restores fields a visible-unit collect writes, if the collect throws.
+struct KeptViewRestore {
+    oa::Game& game;
+    uint32_t camera_x;
+    uint32_t camera_y;
+    oa::Rect32 rect;
+    int32_t hot_count;
+
+    ~KeptViewRestore() {
+        game.camera_x = camera_x;
+        game.camera_y = camera_y;
+        game.battlefield_rect = rect;
+        game.hot_unit_count = hot_count;
+    }
+};
+
+} // namespace
+
+/// The photo screen: one line at the top left. It is not modal, so the
+/// match's own keys and the pointer go on past it. Escape leaves photo mode.
+struct Runtime::PhotoScreen final : LayerScreen {
+    explicit PhotoScreen(Runtime& runtime) : runtime_(runtime) {}
+
+    [[nodiscard]] std::string_view name() const override { return kPhotoScreen; }
+
+    [[nodiscard]] LayerPlacement placement(const LayerView& placed_on) const override {
+        if (!placed_on.match)
+            return {};
+        remember();
+        int32_t across = placed_on.picture.width;
+        if (across <= 0)
+            across = placed_on.picture_size.x;
+        if (across <= 0)
+            across = 640;
+        const int32_t room = std::max(across - 16, int32_t{48});
+        const int32_t width = std::min(line_width_, room);
+        return {{8, 8, width, kLineHeight}, width, kLineHeight, 0};
+    }
+
+    [[nodiscard]] bool modal() const override { return false; }
+
+    [[nodiscard]] bool backdrop() const override { return false; }
+
+    [[nodiscard]] bool opaque() const override { return false; }
+
+    [[nodiscard]] bool revision_covers_drawing() const override { return false; }
+
+    void lay_out(const LayerView& placed_on) override {
+        if (!placed_on.match)
+            return;
+        remember();
+    }
+
+    void draw(const kit::Canvas& canvas) const override {
+        remember();
+        const kit::Rect strip{0, 0, line_width_, kLineHeight};
+        // The kit's in-game backdrop, so the line can be read over sand.
+        kit::blend_rect(canvas, strip, kit::colour::panel, kit::ingame_backdrop_opacity);
+        kit::box_text(
+            canvas, kit::FontRole::small, line_, strip, kit::Align::left, kit::colour::text
+        );
+    }
+
+    LayerAnswer pointer(ScreenInputKind, uint8_t, kit::Point, int32_t) override {
+        return LayerAnswer::pass;
+    }
+
+    LayerAnswer key(kit::Key pressed, uint32_t) override {
+        if (pressed != kit::Key::escape)
+            return LayerAnswer::pass;
+        runtime_.leave_photo_mode();
+        return LayerAnswer::none;
+    }
+
+    LayerAnswer wheel(kit::Point, float) override { return LayerAnswer::pass; }
+
+    [[nodiscard]] kit::DisplayList display_list() const override {
+        remember();
+        kit::DisplayList list;
+        kit::Item item;
+        item.role = kit::Role::text;
+        item.rect = {0, 0, line_width_, kLineHeight};
+        item.text = line_;
+        item.font = kit::FontRole::small;
+        item.align = kit::Align::left;
+        item.colour = kit::colour::text;
+        item.opacity = 256;
+        list.items.push_back(std::move(item));
+        return list;
+    }
+
+    [[nodiscard]] kit::Interaction interaction() const override { return {}; }
+
+    LayerAnswer tick() override {
+        const uint64_t before = revision_;
+        remember();
+        return revision_ == before ? LayerAnswer::none : LayerAnswer::redraw;
+    }
+
+    [[nodiscard]] uint64_t revision() const override { return revision_; }
+
+    void close(bool) override { runtime_.leave_photo_mode(); }
+
+  private:
+
+    void remember() const {
+        const std::string next = runtime_.photo_status_line();
+        if (next == line_)
+            return;
+        line_ = next;
+        int32_t measured = 0;
+        if (const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts())
+            measured = kit::text_width(*fonts, kit::FontRole::small, line_);
+        line_width_ = std::clamp(measured + kLinePad * 2, int32_t{48}, int32_t{1200});
+        ++revision_;
+    }
+
+    Runtime& runtime_;
+    mutable std::string line_{};
+    mutable int32_t line_width_{160};
+    mutable uint64_t revision_{1};
+};
+
+namespace {
+
+/// One line of the message log.
+///
+/// @param game the match's Game block
+/// @param index the ring slot, already wrapped
+/// @return the line
+[[nodiscard]] messages::MessageLine chat_line(const oa::Game& game, uint32_t index) {
+    messages::MessageLine line{};
+    std::memcpy(&line, game.chat_lines[index], sizeof line);
+    return line;
+}
+
+/// Walks the message-log lines posted since photo mode was entered.
+///
+/// @param game the match's Game block
+/// @param saved_head the next write slot remembered on entering
+/// @param saved_line the line that stood in that slot on entering
+/// @param visit called with each new line, oldest first
+template <typename Visit>
+void for_lines_since_entry(
+    const oa::Game& game,
+    uint16_t saved_head,
+    const messages::MessageLine& saved_line,
+    Visit&& visit
+) {
+    const uint32_t saved = static_cast<uint32_t>(saved_head) % OA_CHAT_LINE_COUNT;
+    const uint32_t head = static_cast<uint32_t>(game.chat_head) % OA_CHAT_LINE_COUNT;
+    if (saved == head) {
+        const messages::MessageLine now = chat_line(game, saved);
+        if (std::memcmp(&now, &saved_line, sizeof now) == 0)
+            return;
+        for (uint32_t index = 0; index < OA_CHAT_LINE_COUNT; ++index)
+            visit(chat_line(game, index));
+        return;
+    }
+    for (uint32_t index = saved; index != head; index = (index + 1U) % OA_CHAT_LINE_COUNT)
+        visit(chat_line(game, index));
+}
+
+} // namespace
+
+void Runtime::destroy_photo_state(PhotoState* state) noexcept {
+    delete state;
+}
+
+bool Runtime::photo_mode() const noexcept {
+    return photo_ != nullptr;
+}
+
+bool Runtime::match_interface_hidden() const noexcept {
+    return (director_ != nullptr && !director_->presentation.show_interface) || photo_mode();
+}
+
+bool Runtime::photo_show_selection() const noexcept {
+    return photo_ != nullptr && photo_->show_selection;
+}
+
+bool Runtime::photo_show_health_bars() const noexcept {
+    return photo_ != nullptr && photo_->show_health_bars;
+}
+
+void Runtime::set_photo_show_selection(bool show) noexcept {
+    if (photo_ != nullptr)
+        photo_->show_selection = show;
+}
+
+void Runtime::set_photo_show_health_bars(bool show) noexcept {
+    if (photo_ != nullptr)
+        photo_->show_health_bars = show;
+}
+
+void Runtime::refresh_photo_kept_view() {
+    if (photo_ == nullptr || match_ == nullptr)
+        return;
+    auto& world = match_->state();
+    auto& game = world.game;
+    if (photo_->kept_units.size() != world.unit_slot_count)
+        photo_->kept_units.assign(world.unit_slot_count, 0);
+    const KeptViewRestore restore{
+        game, game.camera_x, game.camera_y, game.battlefield_rect, game.hot_unit_count
+    };
+    game.camera_x = photo_->kept_camera_x;
+    game.camera_y = photo_->kept_camera_y;
+    game.battlefield_rect = photo_->kept_rect;
+    oa::sim::selection::VisibleLists lists{};
+    lists.units = photo_->kept_units.data();
+    lists.unit_capacity = static_cast<uint32_t>(photo_->kept_units.size());
+    oa::sim::selection::collect_visible_units(world, lists, selection_hooks());
+    const int32_t counted = game.hot_unit_count;
+    photo_->kept_count =
+        counted > 0 ? std::min(static_cast<uint32_t>(counted), lists.unit_capacity) : 0U;
+    offline_services_.set_on_screen_test(&PhotoState::unit_kept, photo_.get());
+}
+
+std::string Runtime::photo_status_line() {
+    // The engine's own words, from the interface catalogue. 3.1c's tables
+    // have none of these, so translate_ui would leave them in English.
+    std::string line{oa::data::languages::interface_text("Photo mode")};
+    line += "  ";
+    line += oa::data::languages::interface_text("Esc leaves");
+    if (photo_ == nullptr || match_ == nullptr)
+        return line;
+    const uint32_t bits = current_extension_state();
+    const bool shared =
+        (bits & (extension_state::shared_match | extension_state::local_watcher)) != 0;
+    // A shared match never shows Frozen: its clock is the battle's, and it
+    // keeps running. Freeze is this machine's hold, beside the pause key.
+    // A replay says Frozen only while its own pause is on.
+    const bool replay = !shared && photo_time_is_replay();
+    const bool replay_paused =
+        replay && (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+    const bool frozen =
+        !shared && (replay ? replay_paused : photo_->time == PhotoState::Time::frozen);
+    const bool slow = !shared && !frozen && photo_->time == PhotoState::Time::slow;
+    if (frozen) {
+        line += "  ";
+        line += oa::data::languages::interface_text("Frozen");
+    } else if (slow) {
+        line += "  ";
+        line += oa::data::languages::interface_text("Slow");
+        line += ' ';
+        line += std::to_string(photo_->slow_speed * 3);
+    }
+    if (photo_->picture_held) {
+        line += "  ";
+        line += oa::data::languages::interface_text("Held");
+    }
+    if (!shared && !frozen && !slow && !photo_->picture_held)
+        return line;
+    char clock[64]{};
+    hud::format_game_time(clock, sizeof clock, match_->state().game.tick);
+    line += "  ";
+    line += clock;
+    if (!shared)
+        return line;
+    const std::string under_attack = photo_latest_under_attack();
+    if (!under_attack.empty()) {
+        line += "  ";
+        line += under_attack;
+    }
+    line += "  ";
+    line += std::to_string(photo_chat_lines_since_enter());
+    line += ' ';
+    line += oa::data::languages::interface_text("chat lines");
+    return line;
+}
+
+std::string Runtime::photo_latest_under_attack() {
+    if (photo_ == nullptr || match_ == nullptr)
+        return {};
+    const std::string ending = ": " + translate_ui("Under Attack");
+    std::string latest;
+    for_lines_since_entry(
+        match_->state().game,
+        photo_->chat_head,
+        photo_->chat_at_head,
+        [&](const messages::MessageLine& row) {
+            if ((row.kind & messages::kind_mask) != messages::kind_unit_report)
+                return;
+            const std::string_view text(row.text);
+            if (text.size() >= ending.size() && text.ends_with(ending))
+                latest = std::string(text);
+        }
+    );
+    return latest;
+}
+
+uint32_t Runtime::photo_chat_lines_since_enter() {
+    if (photo_ == nullptr || match_ == nullptr)
+        return 0;
+    uint32_t count = 0;
+    for_lines_since_entry(
+        match_->state().game,
+        photo_->chat_head,
+        photo_->chat_at_head,
+        [&](const messages::MessageLine& row) {
+            if ((row.kind & messages::kind_mask) == messages::kind_player_chat)
+                ++count;
+        }
+    );
+    return count;
+}
+
+bool Runtime::enter_photo_mode() {
+    if (photo_ != nullptr)
+        return true;
+    if (match_ == nullptr || screen_ != Screen::match)
+        return false;
+    if (match_finished_ || director_mode())
+        return false;
+    if (pause_menu_shown() || team_panel_open())
+        return false;
+    if (oa_layer().modal_shown(true))
+        return false;
+    if (chat_composing_)
+        return false;
+
+    std::unique_ptr<PhotoState, void (*)(PhotoState*) noexcept> state{
+        new PhotoState{}, destroy_photo_state
+    };
+    state->layout = match_layout_;
+    state->camera_x = match_camera_x_;
+    state->camera_z = match_camera_z_;
+    state->zoom = match_zoom_;
+    state->zoom_target = match_zoom_target_;
+    state->exact = exact_view_;
+    state->hold = view_hold_;
+    state->tracking = match_tracking_;
+    state->tracked_unit = tracked_match_unit_;
+    state->follow_unit = match_->state().game.follow_unit;
+    if (live_renderer_ != nullptr) {
+        state->live_kept = true;
+        const std::array<float, 2> angles = live_camera_angles();
+        state->live_yaw = angles[0];
+        state->live_pitch = angles[1];
+        state->live_unlocked = live_renderer_unlocked();
+    }
+    state->keys_overlay = oa_layer().find(editor::name_keys_overlay) != nullptr;
+    state->cursor_was_hidden = frame_without_cursor_;
+    auto& game = match_->state().game;
+    state->kept_camera_x = game.camera_x;
+    state->kept_camera_y = game.camera_y;
+    state->kept_rect = game.battlefield_rect;
+    state->chat_head = game.chat_head;
+    const uint32_t slot = static_cast<uint32_t>(game.chat_head) % OA_CHAT_LINE_COUNT;
+    std::memcpy(&state->chat_at_head, game.chat_lines[slot], sizeof state->chat_at_head);
+    photo_ = std::move(state);
+
+    const int width = match_layout_.width > 0 ? match_layout_.width : options_.match_width;
+    const int height = match_layout_.height > 0 ? match_layout_.height : options_.match_height;
+    match_layout_ = oa::ui::display_layout::make_battlefield_layout(width, height);
+    // Follow does not carry in. The camera stays where the player was
+    // looking. Clearing the field as well as the flags keeps the next frame
+    // from reading it and centring the photo camera. T and a pan change
+    // follow for this visit only; leaving writes the saved value back.
+    match_tracking_ = false;
+    tracked_match_unit_ = 0;
+    match_->state().game.follow_unit = 0;
+    terrain_cache_cam_x_ = kUncachedTerrainCamera;
+    frame_without_cursor_ = true;
+    if (photo_->keys_overlay) {
+        if (LayerScreen* open = oa_layer().find(editor::name_keys_overlay))
+            oa_layer().close(open);
+    }
+    try {
+        oa_layer().push(std::make_unique<PhotoScreen>(*this));
+        refresh_photo_kept_view();
+        // Freeze after the screen is up, so a throw still leaves cleanly.
+        // A replay keeps its own pause. A shared match is not held.
+        if (photo_time_is_local()) {
+            photo_->time = PhotoState::Time::frozen;
+            snap_held_clock();
+        } else if (photo_time_is_replay())
+            photo_->entry_speed = match_->state().game.requested_speed;
+    } catch (...) {
+        leave_photo_mode();
+        return false;
+    }
+    return true;
+}
+
+void Runtime::leave_photo_mode(bool match_ending) noexcept {
+    if (photo_ == nullptr)
+        return;
+    // The time field alone: this function must not ask the extension, whose
+    // state hook can throw. A replay's pause bit and speed are left as they are.
+    const bool resume =
+        photo_->time == PhotoState::Time::frozen || photo_->time == PhotoState::Time::slow;
+    const auto state = std::move(photo_);
+    match_layout_ = state->layout;
+    match_camera_x_ = state->camera_x;
+    match_camera_z_ = state->camera_z;
+    match_zoom_ = state->zoom;
+    match_zoom_target_ = state->zoom_target;
+    exact_view_ = state->exact;
+    view_hold_ = state->hold;
+    match_tracking_ = state->tracking;
+    tracked_match_unit_ = state->tracked_unit;
+    if (match_ != nullptr)
+        match_->state().game.follow_unit = state->follow_unit;
+    terrain_cache_cam_x_ = kUncachedTerrainCamera;
+    frame_without_cursor_ = state->cursor_was_hidden;
+    if (state->live_kept)
+        restore_live_camera(state->live_yaw, state->live_pitch, state->live_unlocked);
+    if (LayerScreen* screen = oa_layer().find(kPhotoScreen))
+        oa_layer().close(screen);
+    // Open only when it was open on entering, it is not open now, and the
+    // match is not ending. toggle closes an overlay that is already open,
+    // and victory sets the finished flag after this returns.
+    if (state->keys_overlay && !match_ending && !match_finished_ &&
+        oa_layer().find(editor::name_keys_overlay) == nullptr)
+        toggle_keys_overlay_screen();
+    if (match_ == nullptr) {
+        offline_services_.set_on_screen_test(nullptr, nullptr);
+        if (resume)
+            snap_held_clock();
+        return;
+    }
+    try {
+        refresh_on_screen_view();
+    } catch (...) {
+        offline_services_.set_on_screen_test(nullptr, nullptr);
+    }
+    // The fight continues from this tick. The time the picture was held is
+    // not played.
+    if (resume)
+        snap_held_clock();
+}
+
+bool Runtime::photo_time_is_local() const {
+    const uint32_t bits = current_extension_state();
+    return (bits & (extension_state::shared_match | extension_state::local_watcher |
+                    extension_state::replay)) == 0;
+}
+
+bool Runtime::photo_time_is_replay() const {
+    const uint32_t bits = current_extension_state();
+    if ((bits & (extension_state::shared_match | extension_state::local_watcher)) != 0)
+        return false;
+    return (bits & extension_state::replay) != 0;
+}
+
+bool Runtime::photo_clock_held() const {
+    return photo_ != nullptr && photo_time_is_local() &&
+           (photo_->time == PhotoState::Time::frozen || photo_->time == PhotoState::Time::slow);
+}
+
+bool Runtime::photo_frozen() const noexcept {
+    return photo_ != nullptr && photo_->time == PhotoState::Time::frozen;
+}
+
+int32_t Runtime::photo_slow_speed() const noexcept {
+    if (photo_ == nullptr || photo_->time != PhotoState::Time::slow)
+        return 0;
+    return photo_->slow_speed;
+}
+
+bool Runtime::photo_picture_held() const noexcept {
+    return photo_ != nullptr && photo_->picture_held;
+}
+
+bool Runtime::photo_camera_locked() const noexcept {
+    return photo_picture_held();
+}
+
+bool Runtime::photo_freeze() {
+    if (photo_ == nullptr || match_ == nullptr)
+        return false;
+    if (!photo_time_is_local()) {
+        if (!photo_time_is_replay())
+            return false;
+        auto& game = match_->state().game;
+        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0)
+            return false;
+        run_console_hotkey(oa::ui::console::hotkey::pause);
+        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0)
+            return false;
+        photo_->time = PhotoState::Time::frozen;
+        photo_->shutter = false;
+        return true;
+    }
+    if (photo_->time == PhotoState::Time::frozen)
+        return false;
+    photo_->time = PhotoState::Time::frozen;
+    photo_->slow_speed = 0;
+    photo_->shutter = false;
+    snap_held_clock();
+    return true;
+}
+
+bool Runtime::photo_run() {
+    if (photo_ == nullptr || match_ == nullptr)
+        return false;
+    if (!photo_time_is_local()) {
+        if (!photo_time_is_replay())
+            return false;
+        bool acted = false;
+        auto& game = match_->state().game;
+        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0) {
+            run_console_hotkey(oa::ui::console::hotkey::pause);
+            acted = (game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0;
+        }
+        if (photo_->slow_speed != 0) {
+            auto& world = match_->state();
+            const uint16_t before = world.game.requested_speed;
+            const int32_t restore = static_cast<int32_t>(photo_->entry_speed);
+            std::ignore =
+                oa::sim::speed::set_speed(world, restore, message_hooks(), game_speed_range());
+            match_timing_.requested_rate = world.game.requested_speed;
+            match_timing_.actual_rate = world.game.current_speed;
+            preferences_.current_game_speed = world.game.current_speed;
+            if (world.game.requested_speed != before)
+                call_hook_or_report<&Extension::speed_changed>(
+                    extension_, hook_error_report(), *this, world.game.requested_speed
+                );
+            photo_->slow_speed = 0;
+            acted = true;
+        }
+        if (!acted)
+            return false;
+        photo_->time = PhotoState::Time::running;
+        photo_->shutter = false;
+        return true;
+    }
+    if (photo_->time != PhotoState::Time::frozen && photo_->time != PhotoState::Time::slow)
+        return false;
+    photo_->time = PhotoState::Time::running;
+    photo_->slow_speed = 0;
+    photo_->shutter = false;
+    snap_held_clock();
+    return true;
+}
+
+bool Runtime::photo_slow(int32_t speed) {
+    if (photo_ == nullptr || match_ == nullptr)
+        return false;
+    const bool local = photo_time_is_local();
+    if (!local && !photo_time_is_replay())
+        return false;
+    if (speed < 1 || speed > 9)
+        return false;
+    const auto range = game_speed_range();
+    const int32_t low = std::max(range.slowest, int32_t{1});
+    const int32_t high = std::min(range.fastest, int32_t{9});
+    if (low > high)
+        return false;
+    const int32_t paced = std::clamp(speed, low, high);
+    if (photo_->time == PhotoState::Time::slow && photo_->slow_speed == paced)
+        return false;
+    if (!local) {
+        auto& world = match_->state();
+        auto& game = world.game;
+        // Freeze leaves the replay's pause on. Slow lifts it, as Run does,
+        // so the replay plays at the speed chosen.
+        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0) {
+            run_console_hotkey(oa::ui::console::hotkey::pause);
+            if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0)
+                return false;
+        }
+        const uint16_t before = world.game.requested_speed;
+        std::ignore = oa::sim::speed::set_speed(world, paced, message_hooks(), range);
+        match_timing_.requested_rate = world.game.requested_speed;
+        match_timing_.actual_rate = world.game.current_speed;
+        preferences_.current_game_speed = world.game.current_speed;
+        if (world.game.requested_speed != before)
+            call_hook_or_report<&Extension::speed_changed>(
+                extension_, hook_error_report(), *this, world.game.requested_speed
+            );
+        photo_->time = PhotoState::Time::slow;
+        photo_->slow_speed = paced;
+        photo_->shutter = false;
+        return true;
+    }
+    photo_->time = PhotoState::Time::slow;
+    photo_->slow_speed = paced;
+    photo_->slow_interval_ns =
+        frame_pacing::kNanosecondsPerSecond / (static_cast<uint64_t>(paced) * 3U);
+    photo_->slow_origin_ns = frame_time_ns_;
+    photo_->slow_granted = 0;
+    photo_->shutter = false;
+    snap_held_clock();
+    return true;
+}
+
+bool Runtime::photo_step() {
+    if (photo_ == nullptr || match_ == nullptr || !photo_time_is_local())
+        return false;
+    const GrantedTicks grant = run_granted_ticks(1, true);
+    if (grant.ran == 0)
+        return false;
+    photo_->shutter = false;
+    photo_->time = PhotoState::Time::frozen;
+    photo_->slow_speed = 0;
+    return true;
+}
+
+bool Runtime::photo_between(int32_t eighths) {
+    if (photo_ == nullptr || !photo_time_is_local())
+        return false;
+    if (photo_->time != PhotoState::Time::frozen)
+        return false;
+    if (eighths < 0 || eighths > 8)
+        return false;
+    photo_->shutter = true;
+    photo_->shutter_eighth = eighths;
+    return true;
+}
+
+bool Runtime::photo_hold_picture() {
+    if (photo_ == nullptr || match_ == nullptr)
+        return false;
+    const uint32_t bits = current_extension_state();
+    if ((bits & (extension_state::shared_match | extension_state::local_watcher)) == 0)
+        return false;
+    if (photo_->picture_held) {
+        if (photo_->camera_held) {
+            match_camera_x_ = photo_->held_camera_x;
+            match_camera_z_ = photo_->held_camera_z;
+            match_zoom_ = photo_->held_zoom;
+            match_zoom_target_ = photo_->held_zoom_target;
+            exact_view_ = photo_->held_exact;
+            view_hold_ = photo_->held_view;
+            match_tracking_ = photo_->held_tracking;
+            tracked_match_unit_ = photo_->held_tracked_unit;
+            match_->state().game.follow_unit = photo_->held_follow_unit;
+            if (photo_->held_live)
+                restore_live_camera(
+                    photo_->held_live_yaw, photo_->held_live_pitch, photo_->held_live_unlocked
+                );
+            terrain_cache_cam_x_ = kUncachedTerrainCamera;
+            photo_->camera_held = false;
+        }
+        photo_->picture_held = false;
+        photo_->held_rgb.clear();
+        photo_->held_width = 0;
+        photo_->held_height = 0;
+        return true;
+    }
+    if (!capture_photo_picture())
+        return false;
+    photo_->held_camera_x = match_camera_x_;
+    photo_->held_camera_z = match_camera_z_;
+    photo_->held_zoom = match_zoom_;
+    photo_->held_zoom_target = match_zoom_target_;
+    photo_->held_exact = exact_view_;
+    photo_->held_view = view_hold_;
+    photo_->held_tracking = match_tracking_;
+    photo_->held_tracked_unit = tracked_match_unit_;
+    photo_->held_follow_unit = match_->state().game.follow_unit;
+    photo_->held_live = false;
+    if (live_renderer_ != nullptr) {
+        photo_->held_live = true;
+        const std::array<float, 2> angles = live_camera_angles();
+        photo_->held_live_yaw = angles[0];
+        photo_->held_live_pitch = angles[1];
+        photo_->held_live_unlocked = live_renderer_unlocked();
+    }
+    photo_->camera_held = true;
+    middle_pan_ = {};
+    middle_pan_swallow_button_ = 0;
+    photo_->picture_held = true;
+    return true;
+}
+
+void Runtime::grant_photo_slow_ticks() {
+    if (photo_ == nullptr || photo_->time != PhotoState::Time::slow || !photo_time_is_local())
+        return;
+    const uint64_t interval = photo_->slow_interval_ns;
+    if (interval == 0 || frame_time_ns_ < photo_->slow_origin_ns)
+        return;
+    const uint64_t due = (frame_time_ns_ - photo_->slow_origin_ns) / interval;
+    if (due <= photo_->slow_granted)
+        return;
+    const uint64_t behind = due - photo_->slow_granted;
+    const uint32_t count =
+        static_cast<uint32_t>(behind > most_batch_ticks ? most_batch_ticks : behind);
+    const GrantedTicks grant = run_granted_ticks(count, true);
+    photo_->slow_granted += grant.ran;
+}
+
+void Runtime::apply_photo_fraction(uint32_t& fraction) const {
+    if (photo_ == nullptr || !photo_time_is_local())
+        return;
+    if (photo_->time == PhotoState::Time::frozen && photo_->shutter) {
+        const int32_t eighth = std::clamp(photo_->shutter_eighth, int32_t{0}, int32_t{8});
+        fraction = static_cast<uint32_t>(eighth) * (whole_tick / 8U);
+        return;
+    }
+    if (photo_->time != PhotoState::Time::slow || !smooth_motion() || photo_->slow_interval_ns == 0)
+        return;
+    const uint64_t last = photo_->slow_origin_ns + photo_->slow_granted * photo_->slow_interval_ns;
+    if (frame_time_ns_ < last)
+        return;
+    const double since = static_cast<double>(frame_time_ns_ - last);
+    float alpha = static_cast<float>(since / static_cast<double>(photo_->slow_interval_ns));
+    if (alpha > 1.0F)
+        alpha = 1.0F;
+    fraction = tick_fraction(alpha);
+}
+
+void Runtime::show_held_photo_picture() {
+    if (photo_ == nullptr || !photo_->picture_held || photo_->held_rgb.empty())
+        return;
+    if (photo_->held_width != match_world_cpu_.width ||
+        photo_->held_height != match_world_cpu_.height)
+        return;
+    if (photo_->held_rgb.size() != match_world_cpu_.rgb.size())
+        return;
+    std::memcpy(match_world_cpu_.rgb.data(), photo_->held_rgb.data(), photo_->held_rgb.size());
+}
+
+} // namespace oa::app

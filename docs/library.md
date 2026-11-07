@@ -23,6 +23,7 @@ Choosing a brain is [Playing with brains](playing-with-brains.md).
 
 - [Opening the Library](#opening-the-library)
 - [The Active tab](#the-active-tab)
+- [Replays](#replays)
 - [Tabs and states](#tabs-and-states)
 - [The Mutators tab](#the-mutators-tab)
 - [The Brains tab](#the-brains-tab)
@@ -301,11 +302,212 @@ each other. The other tabs are where packages are got, updated and played.
 
 ![The Active tab at Large: the same tiles, with the maps in two columns of equal height.](images/library/library-active-large.png)
 
+## Replays
+
+**Replays** lists the games kept on this computer: every `.oademo` and
+`.tad` in the `Recordings` folder of your Open Annihilation folder, in a
+folder for each mod, `Imported` and `Core Prime` included ([what a game
+writes there](replays.md#recording-a-game)). Every network game you play is
+kept there unless the setting `open-annihilation.replays.record` says `off`.
+
+**Filters.** Under the section list's divider, in place of a catalogue's
+filters: **This month** (the replays recorded in the last 30 days, today
+included; the section opens on it), **Older**, **Kept** and **Imported**
+(the replays opened from outside, in `Recordings/Imported`), each with its
+count, which no search or kind changes. Over the list, a menu chooses the
+kind: **All kinds**, **Multiplayer**, **Skirmish**, **Campaign**, then each
+kind an extension registers, by its own title, such as the Boneyards'
+battles. A second menu sorts: **Newest first** (the default), **Longest
+first**, **By map** and **Most players first**. The search at the heading's
+right finds a replay by its map, a player, its mod or its planet; every
+word has to be in one of them.
+
+**The list.** Newest first, the replays are grouped by day under **Today**,
+**Yesterday** and the date ("Tue 3 Nov", with the year outside this year).
+The other sorts give one list. Each row shows the map's picture, drawn from
+the installed map (a plain tile when the map is not installed), the map,
+the kind (with the planet of a battle that names one), the players as
+colour dots and names ("Varn vs Kestrel", "4 players" past three), the
+game's length, the time it was recorded and the file's size. Two or three
+players each have a dot of their colour in front of their name, so that a
+colour can be read against a name; each dot has a light edge, so that a
+black or a deep blue player shows on the dark row. A star marks a
+replay you keep, an amber **After a crash** chip one the game finished after
+it stopped, and a red **Damaged** chip a file that does not read, which is
+listed all the same. While the folder is read the section says "Reading the
+replays…" in place of "No replays yet." until its first row comes, and the
+footer says the same until it has counted the files, then "Reading 12 of 64
+replays" over a bar, with the rows read so far listed; then it says how many
+the list shows and their size ("28 replays · 296 KB").
+
+Pressing a row chooses it. **Shift** with a press marks every row from the
+one pressed before, and **Ctrl** (**Command** on a Mac) marks one more or
+takes its mark away; **Keep** acts on every marked replay. The arrows on the
+list move the choice, and Page Up, Page Down, Home and End move by pages and
+to the ends.
+
+**The details.** Beside the list at Regular and Large, and as a page of its
+own at Compact (**Details**, or a press on a row; **Back** returns): the
+map's picture and name, the kind (and the battle's planet and sector), the
+day, time and length (the length is left out when the replay does not say
+it), the players (colour, name and side), then **Length**, **Recorded**
+(when, and the program that recorded it: "Open Annihilation 0.8.14"; a
+`.tad` shows its recorder as it was recorded), **Mod**, **Expansions**,
+**Mutators**, **File** (size and name), and **Kept until** the day the
+keep setting names: 30 days after the replay was recorded, or 90, or a
+year. **Forever**, a replay you keep, and a downloaded or exported replay
+say **Kept** ("Until you delete it", or that downloaded and exported
+replays are kept). Exported is a replay you exported, marked beside the
+kept marks, not a folder. An imported replay says imported replays are kept. A
+fact's value wraps to a second or a
+third line instead of being cut. The card's parts scroll, with the wheel,
+a finger, the scroll bar or the keys, when a ten-player replay's players
+and facts are taller than the card, and the buttons stay at its foot. A
+file with no map is titled by its file name, and a damaged file says "This
+replay cannot be watched." and why, as two sentences. While several replays
+are marked the card says how many. The buttons are:
+
+- **Watch**, which plays the replay in the running game, as `--play-demo`
+  does. Leaving its match brings the Library back on Replays, the same row
+  chosen and the list scrolled as it was. When the game cannot play it (its
+  map is not installed, its unit definitions differ, it needs another mod's
+  limits) the card says why, in the game's words and without the file's
+  name, which the card shows. A refusal that comes after the game began
+  loading the match, as a unit table that differs does, takes down what was
+  begun, shows the main menu again and leaves the Library open on the same
+  row, at the same scroll, with the refusal in its card; the game is never
+  left on its loading screen. Watch is off for a damaged file and during a
+  game.
+- **Export…**, which writes the marked replays, or the one chosen when none
+  is marked, as a file each. The dialog offers an **Open Annihilation replay
+  (.oademo)**, recommended and selected, or a **TA Demo Recorder (.tad)**.
+  Each shows the size it will be. Until a replay is measured, that size reads
+  **Measuring…**. A `.tad` can leave out **What only Open
+  Annihilation reads** (on by default) and says when other replayers cannot
+  apply the mutators, when they stop at a wide weapon record, when a name
+  longer than 63 letters is cut, and when a player's status is cut to 512
+  bytes. When the window is short, those warnings are shown a page at a
+  time. **More warnings** goes on to the ones that were not shown, and
+  **Previous warnings** comes back. A warning taller than the room is shown
+  as the lines that fit, ending with …, and it still reads the whole
+  sentence. The files go to Downloads, or to a folder chosen with
+  **Choose…**, which opens the system's folder dialog where there is one.
+  **Export** writes one file at a time. While a recording is compressed the
+  dialog says so, and while a file is written it names that file. It then
+  says where, with **Show in folder**. A write that fails stays on the form
+  and says why. Cancelling drops the file being written and keeps the ones
+  already finished. Chat is kept, and no export holds a network address.
+- **Keep**, or **Kept** while every marked replay is kept: keeps them, or
+  stops keeping them. A replay you keep is kept until you delete it. An
+  imported replay is kept already, as its card says, and has no Keep.
+- **Delete replay**, drawn as a danger. The first press does not delete: a
+  confirm button appears beside it, **Delete it**, or **Delete them** when
+  several are marked. That press moves each marked file to the system's
+  trash, or deletes it where the system has none, and takes the row out of
+  the list. Choosing another
+  replay takes the confirm away. If the trash refuses, the file stays and
+  the card says so, with the system's reason, or how many stayed when
+  several were marked. A mark shared with another copy of that recording
+  stays, and names the copy that is left.
+- **Open folder**, which shows the folder the replay is in.
+
+A replay that needs a mod, a map pack, a mutator, an expansion or a newer
+engine says so before anything loads. The row carries an amber chip, **Needs
+Ridge 2.8**, **Needs map**, **Needs mutator**, **Needs** and the expansion's
+name, or **Needs 0.9.2**. The card says which, in the game's words: "This
+replay was recorded with Ridge 2.8 (rev 1).", "Needs the map Ridge Reach.",
+"From the map pack Ridge Reach.", "Needs the mutator Ridge Wind.", "Needs"
+and the expansion's name, or "Needs Open Annihilation 0.9.2." **Watch**
+becomes **Get Ridge 2.8 and watch**, **Get it and watch**, **Get them and
+watch** or **Turn on and watch**. One press fetches every missing package,
+or turns the expansions on, and then plays. Several packages go together.
+A newer engine opens **Check for updates** and fetches nothing else. A
+recording names >=0.9.1 as the first release that reads a .oademo. This
+build already reads that format, so that line does not ask for an update. A
+release the catalogue does not list says "Ridge 2.8 is not in Core Prime's
+catalogue." The replay can be kept and exported. While the registry cannot
+be reached the card says "You're offline." and "Get Ridge 2.8 when you're
+back online.", and the chip stays. The mutators that were chosen, and the
+expansions that were on, are put back when the replay ends. Another release
+of a mod that is already installed says "This replay was recorded with Ridge
+2.8 (rev 1). You have 2.9." **Get Ridge 2.8 and watch** is shown. That press
+leaves the installed release where it is.
+
+At start, once the main menu is free, replays older than **Keep replays
+for** go to the trash. **Forever** reads nothing. Any other span is read
+off the main thread, and the question shows once that read has ended, while
+the menu keeps drawing. A replay you keep stays even when its file has
+changed or no longer reads, and so does one you imported, downloaded or
+exported. The first time any would go, one question says how many
+and offers **Keep them all** (which sets the keep setting to forever and
+removes nothing) or **Let them go**. Nothing goes before that question is
+answered, and it is not asked again. Escape does nothing: the question
+stays up. A `kept.json` or `exported.json` that cannot be read is set
+aside. A `kept.json` keeps every whole mark that still parses, and that
+consideration removes nothing; an `exported.json` removes nothing until a
+readable file is there.
+
+**When there are none.** "No replays yet." and, by the keep setting, "Games
+you play are kept here for 30 days.", "for 90 days.", "for a year.", or
+"until you delete them." While the setting does not record games,
+"Recording is off." and **Turn on recording**, which turns it on. On
+Windows, Linux and macOS the empty section also offers **Open a replay
+file…**, and so does the Imported filter while it shows nothing. It asks for
+a `.oademo` or a `.tad` file. iOS and Android have no such button. A filter,
+a kind or a search that shows nothing says so, and a search that matches
+nothing does not offer the button.
+
+**Opened from outside.** A `.oademo` or a `.tad` you double-click, choose
+with Open With, drop on the window, name on its own on the command line, or
+open from Files on iOS, is copied into `Recordings/Imported` and the Library
+opens on Replays with that replay selected. The notice says "Added Show Down
+to Replays", with the map's name, and only when a copy was written. The same
+recording already anywhere under `Recordings` is selected and not copied
+again. A `.tad` is kept with its sector 6 left out and nothing else changed,
+and a `.oademo` whose recording holds one is rewritten without it. A file
+that is not a replay is refused in the same notice, in the game's words:
+"This file is not a TA Demo recording", or "This recording is in version 3
+of the format, which Open Annihilation does not play".
+
+**The index.** What the Library read of each file is kept in
+`Recordings/.replays/index.json`, so a file that has not changed is not
+opened again. The Library reads the folder again each time it opens. The
+index is a cache: deleting it only makes the Library read every file again,
+and forgets nothing. A damaged index is not overwritten: the Library moves it
+to `index.json.damaged` and, when that name is taken, to
+`index.json.damaged-2` and on, and writes a new one.
+
+**Which replays you keep.** Each replay you keep is marked in
+`Recordings/.replays/kept.json`, by the recording's SHA-256, with the path
+as a hint, so that a replay you move or rename stays kept. A file a mark
+names by path stays kept even when another copy still has that recording,
+and the changed file gains a mark of its own. Two copies that still share
+one recording share one mark. The mark is written the moment you press
+**Keep**, even while the folder is still being read, and nothing that
+happens to the index touches it. The card reads Kept for a file the marks
+name, whatever has happened to its bytes. Deleting one copy removes the
+mark only when no other listed file has that recording, and otherwise
+points the path at the copy that stays. Several deletes save the index and
+the marks once. A replay you exported is marked the same way in
+`exported.json`. A `kept.json` that cannot be read is moved to
+`kept.json.damaged` (then `kept.json.damaged-2` and on), not overwritten.
+Every whole mark still in its text is written to a new `kept.json`, so
+those replays still show Kept, and that consideration removes nothing.
+While a `kept.json.damaged` file is there, a replay whose SHA-256 or path
+appears in its bytes stays, and so does every replay recorded before that
+file was set aside, however old: a mark cut off with the damage cannot be
+known, so those replays are no longer removed by age, and nothing asks
+again. Replays recorded later go by age as usual, and once no
+`kept.json.damaged` file is there the older ones do too. Old replays are
+moved off the main thread, and the index and the marks are saved once when
+the move finishes.
+
 ## Tabs and states
 
-The tabs are **Active**, **Mods**, **Maps**, **Mutators**, **Brains**,
-**Keys**, **Languages**, **Updates** and **Registries**. Each tab after Active shows how many it
-lists under All, before a search or a tag, after its title: "Mods (11)", "Maps (2)",
+The tabs are **Active**, **Replays**, **Mods**, **Maps**, **Mutators**, **Brains**,
+**Keys**, **Languages**, **Updates** and **Registries**. Replays is always second, under
+Active, with a film frame for its icon ([Replays](#replays)). Each tab after Active shows how many it
+lists under All, before a search or a tag, after its title: "Replays (28)", "Mods (11)", "Maps (2)",
 "Mutators (4)", "Brains (3)", "Keys (3)", "Languages (2)", "Updates (2)", "Registries (2)". The
 count is drawn in the hint colour. The names are always the full ones. OA default is left out of the Keys count.
 The open tab is a filled row with the lime bar. On a catalogue tab the search sits at the right of the heading row, at the control's height.
@@ -313,6 +515,7 @@ When the tabs, filters and tags are taller than the list, the list scrolls, and 
 Where the widest tab's name does not fit beside its icon, the icons are left off and the names start where the icons were.
 Active
 has no count.
+Replays counts this month's replays.
 Updates counts the updates you can install, as the OA button's dot does.
 Registries counts the registries listed. Registries is last, and it is
 where registries are added, checked and turned off

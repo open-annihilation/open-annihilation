@@ -5,6 +5,7 @@
 // planet's picture painted into the frame's background, its name and owner,
 // the Battles and Forming counts and, for a contested planet, each side's
 // wins beside its logo.
+#include <cstddef>
 #include <cstdlib>
 
 #include "console_state.hpp"
@@ -235,6 +236,32 @@ void stack_labels(BattleSummary* summary) {
 }
 
 } // namespace
+
+const char* summary_win_icon_label(bool arm) {
+    return arm ? k_arm_wins_label : k_core_wins_label;
+}
+
+void summary_win_icon_labels(const int32_t* tops, std::size_t count, const char** labels) {
+    if (tops == nullptr || labels == nullptr)
+        return;
+    int32_t top = 0;
+    int32_t bottom = 0;
+    for (std::size_t index = 0; index < count; ++index) {
+        if (index == 0) {
+            top = tops[index];
+            bottom = tops[index];
+        } else {
+            if (tops[index] < top)
+                top = tops[index];
+            if (tops[index] > bottom)
+                bottom = tops[index];
+        }
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        const bool lower = count > 1 && tops[index] == bottom && bottom != top;
+        labels[index] = summary_win_icon_label(!lower);
+    }
+}
 
 void battle_summary_update(BattleSummary* summary) {
     screens::GalaxyView* galaxy = galaxy_of(summary);

@@ -6,8 +6,11 @@
 
 The game runs on the dummy drivers with --fark, "-y" and a replay of Rover
 replies. "-y" enters the Boneyards. The check waits until the login console
-is listed, reads its fields, the guest choice, LOGIN and the server list,
-types the replay's guest name and presses LOGIN. The console then closes.
+is listed, reads its fields, and requires Registered User chosen, Guest
+Login disabled, and the password field shown. It types a made-up name and
+password. The replay answers the login whatever they are, and neither is a
+real account. LOGIN is pressed down and released in a later request, so
+pulses run while it is held. The console then closes.
 """
 import argparse
 import os
@@ -21,8 +24,10 @@ _TOOLS = Path(__file__).resolve().parents[4] / "tools"
 sys.path.insert(0, str(_TOOLS))
 import check_native_automation as automation  # noqa: E402
 
-# The guest the replay answers. The password field stays empty.
-GUEST = "oa_check"
+# A made-up account. The replay answers the login whatever name and password
+# are sent, and neither is a real account.
+NAME = "fixture_user"
+PASSWORD = "fixture_pw"
 # SDL's backspace, which the login field deletes with.
 BACKSPACE_SCANCODE = 42
 BACKSPACE_KEYCODE = 8
@@ -96,17 +101,49 @@ def click(client, control):
     return answer
 
 
-def type_guest(client):
-    """Clears the focused field and types the replay's guest name."""
+def type_text(client, text):
+    """Clears the focused field and types text."""
     screen = client.request("screen").get("screen")
     events = []
     for _ in range(16):
         events.append({"kind": "key_down", "scancode": BACKSPACE_SCANCODE, "keycode": BACKSPACE_KEYCODE})
         events.append({"kind": "key_up", "scancode": BACKSPACE_SCANCODE, "keycode": BACKSPACE_KEYCODE})
-    events.append({"kind": "text", "text": GUEST})
+    events.append({"kind": "text", "text": text})
     answer = client.request("input", expect_screen=screen, events=events)
     if not answer.get("ok"):
-        raise automation.AutomationFailure(f"typing the guest name was answered {answer}")
+        raise automation.AutomationFailure(f"typing was answered {answer}")
+
+
+def hold_click(client, control):
+    """Presses a control, lets pulses run, then releases it.
+
+    The two halves go in separate input requests, about half a second apart.
+    A press and release in one request would log in on a build that drops a
+    click held across a pulse.
+    """
+    screen = client.request("screen").get("screen")
+    x, y, width, height = control["rect"]
+    cx = x + width // 2
+    cy = y + height // 2
+    down = client.request(
+        "input", expect_screen=screen,
+        events=[
+            {"kind": "pointer_move", "x": cx, "y": cy, "space": "game"},
+            {"kind": "button_down", "x": cx, "y": cy, "space": "game", "button": "left", "clicks": 1},
+        ],
+    )
+    if not down.get("ok"):
+        raise automation.AutomationFailure(f"the press on {control.get('name')} was answered {down}")
+    time.sleep(0.5)
+    screen = client.request("screen").get("screen")
+    up = client.request(
+        "input", expect_screen=screen,
+        events=[
+            {"kind": "button_up", "x": cx, "y": cy, "space": "game", "button": "left", "clicks": 1},
+        ],
+    )
+    if not up.get("ok"):
+        raise automation.AutomationFailure(f"the release on {control.get('name')} was answered {up}")
 
 
 def status_lines(answer):
@@ -119,7 +156,8 @@ def status_lines(answer):
 
 def check(native, game_dir, mod_dir, replay, workdir):
     """Lists the login console and logs in; raises AutomationFailure when it differs."""
-    # The name is typed here. A name or password in the environment is not used.
+    # The name and password are typed here. A name or password in the
+    # environment is not used.
     os.environ.pop("OA_BY_USER", None)
     os.environ.pop("OA_BY_PASSWORD", None)
     game = automation.Game(
@@ -146,18 +184,25 @@ def check(native, game_dir, mod_dir, replay, workdir):
             )
         username = require(shown, "Username", "text field")
         password = require(shown, "Password", "text field")
+        member = require(shown, "Registered User", "check box")
         guest = require(shown, "Guest Login", "check box")
         login = require(shown, "LOGIN", "button")
         require(shown, "CANCEL", "button")
         require(shown, "REGISTER", "button")
         servers = require(shown, "Server List", "list")
-        for control in (username, password, guest, login, servers):
+        for control in (username, password, member, guest, login, servers):
             if not control.get("visible") or not on_canvas(control):
                 raise automation.AutomationFailure(
                     f"{control.get('name')} is not on the canvas: {redact(control)}"
                 )
         if not username.get("enabled"):
             raise automation.AutomationFailure(f"Username does not take text: {redact(username)}")
+        if member.get("checked") is not True:
+            raise automation.AutomationFailure(f"Registered User is not chosen: {redact(member)}")
+        if guest.get("enabled") is not False or guest.get("checked") is not False:
+            raise automation.AutomationFailure(f"Guest Login is not grey: {redact(guest)}")
+        if password.get("enabled") is not True:
+            raise automation.AutomationFailure(f"Password is not shown: {redact(password)}")
         items = servers.get("items") or []
         if not items:
             raise automation.AutomationFailure(f"the server list is empty: {redact(servers)}")
@@ -165,20 +210,6 @@ def check(native, game_dir, mod_dir, replay, workdir):
         if "SINGLE" in names and names.index("LOGIN") > names.index("SINGLE"):
             raise automation.AutomationFailure(f"LOGIN is not listed ahead of SINGLE: {names}")
 
-        if not guest.get("checked"):
-            click(client, guest)
-            chosen = poll(
-                client,
-                lambda answer: (found := find_login(answer, "Guest Login", "check box"))
-                and found.get("checked"),
-            )
-            if not (find_login(chosen, "Guest Login", "check box") or {}).get("checked"):
-                raise automation.AutomationFailure("Guest Login stayed unselected")
-        password = require(client.request("controls"), "Password", "text field")
-        if password.get("enabled"):
-            raise automation.AutomationFailure("the password field stayed enabled for a guest")
-
-        username = require(client.request("controls"), "Username", "text field")
         click(client, username)
         focused = poll(
             client,
@@ -186,18 +217,29 @@ def check(native, game_dir, mod_dir, replay, workdir):
         )
         if not (find_login(focused, "Username", "text field") or {}).get("focused"):
             raise automation.AutomationFailure("Username did not take the keyboard")
-        type_guest(client)
+        type_text(client, NAME)
+        password = require(client.request("controls"), "Password", "text field")
+        click(client, password)
+        focused = poll(
+            client,
+            lambda answer: (found := find_login(answer, "Password", "text field")) and found.get("focused"),
+        )
+        if not (find_login(focused, "Password", "text field") or {}).get("focused"):
+            raise automation.AutomationFailure("Password did not take the keyboard")
+        type_text(client, PASSWORD)
         ready = poll(client, lambda answer: (
-            (field := find_login(answer, "Username", "text field")) and field.get("text") == GUEST and
+            (field := find_login(answer, "Username", "text field")) and field.get("text") == NAME and
             (button := find_login(answer, "LOGIN", "button")) and button.get("enabled")
         ))
         login = find_login(ready, "LOGIN", "button")
         field = find_login(ready, "Username", "text field")
-        if field is None or field.get("text") != GUEST or login is None or not login.get("enabled"):
+        if field is None or field.get("text") != NAME or login is None or not login.get("enabled"):
             raise automation.AutomationFailure(
                 f"LOGIN stayed disabled; status: {status_lines(ready)}"
             )
-        click(client, login)
+        # A fresh listing, so the release uses the button's place after typing.
+        login = require(client.request("controls"), "LOGIN", "button")
+        hold_click(client, login)
         closed = poll(client, lambda answer: find_login(answer, "LOGIN", "button") is None)
         if find_login(closed, "LOGIN", "button") is not None:
             raise automation.AutomationFailure(

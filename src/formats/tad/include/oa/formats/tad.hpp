@@ -334,4 +334,73 @@ split_records(std::span<const uint8_t> payload, RecordForms forms = RecordForms:
 /// @param record Record from split_records.
 /// @return The full record, or empty when the record is not a well-formed elided unit state or has no tick.
 [[nodiscard]] std::vector<uint8_t> expand_unit_state(const Record& record);
+
+/// Letters a TA Demo Recorder export keeps of a map name or a player name.
+inline constexpr std::size_t exported_name_bytes = 63;
+/// Bytes a TA Demo Recorder export keeps of one player's status datagram.
+inline constexpr std::size_t exported_status_bytes = 512;
+
+/// What an export of a recording changes, besides dropping every network address.
+struct ExportOptions {
+    /// Keep the mutators, brains and limits sectors. An export for another
+    /// replayer can leave them out. A `.oademo` always keeps them.
+    bool keep_oa_sectors{true};
+    /// Cut the map name and each player name to `exported_name_bytes`, and
+    /// each status datagram to `exported_status_bytes`. A `.tad` does. A
+    /// recording stored in a `.oademo` does not.
+    bool fit_tadr_sizes{true};
+};
+
+/// Why an export warns. The bytes are still written.
+enum class ExportNoticeKind : uint8_t {
+    /// A map name or a player name was longer than `exported_name_bytes`.
+    names_cut,
+    /// A status datagram was longer than `exported_status_bytes`.
+    status_cut,
+    /// A packet holds a wide weapon record, type 0xE0, 0xE1 or 0xE2.
+    wide_records,
+    /// The recording was played with mutators. `mutators` names their ids
+    /// when the sector's text names them.
+    mutators,
+};
+
+/// One warning an export gives.
+struct ExportNotice {
+    /// Which warning.
+    ExportNoticeKind kind{};
+    /// Mutator ids, when `kind` is `mutators`. Empty when the sector did not name them.
+    std::vector<std::string> mutators{};
+};
+
+/// A recording written for export, or why it was not.
+struct ExportResult {
+    /// The file. Empty when `error` is set.
+    std::vector<uint8_t> bytes{};
+    /// What the export changed or what another replayer cannot follow.
+    std::vector<ExportNotice> notices{};
+    /// Why the file was not written. Empty when it was.
+    std::optional<Error> error{};
+
+    /// Tells whether the file was written.
+    ///
+    /// @return true when `error` is empty
+    [[nodiscard]] bool ok() const noexcept { return !error.has_value(); }
+};
+
+/// Writes a recording for export.
+///
+/// The result is version 5. Every packet is plain (a compressed packet is
+/// expanded; one that does not expand fails the export). A network-address
+/// sector is never written. Open Annihilation's own sectors are kept unless
+/// `options.keep_oa_sectors` is clear. With `options.fit_tadr_sizes`, a long
+/// map name, a long player name and a long status datagram are cut, and the
+/// notices say so. A wide weapon record and a mutators sector are noticed
+/// either way. Two exports of the same bytes and options give the same bytes.
+///
+/// @param bytes a whole recording
+/// @param options which sectors to keep, and whether names and statuses are cut
+/// @return the file and its notices, or the error that stopped it (a recording
+///         that does not parse, or a packet that does not expand)
+[[nodiscard]] ExportResult
+export_recording(std::span<const uint8_t> bytes, ExportOptions options = {});
 } // namespace oa::formats::tad

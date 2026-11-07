@@ -505,7 +505,7 @@ std::optional<NoticeCase> LanguageNoticeHost::notice_case(Runtime& runtime) {
     if (!raw.empty() && !same_tag(raw, languages::system_choice)) {
         const languages::Language* language = languages::find_by_tag(raw);
         if (language != nullptr && language->source == languages::Source::available &&
-            !languages::playable(*language))
+            languages::meets(language->needs) && !languages::playable(*language))
             return NoticeCase{std::string(language->tag), false};
         return std::nullopt;
     }
@@ -513,8 +513,8 @@ std::optional<NoticeCase> LanguageNoticeHost::notice_case(Runtime& runtime) {
         return std::nullopt;
     const languages::Language* wanted =
         languages::wanted_language(oa::platform::locale::preferred_locales());
-    if (wanted == nullptr || wanted->source != languages::Source::available ||
-        languages::playable(*wanted))
+    if (wanted == nullptr || !languages::meets(wanted->needs) ||
+        wanted->source != languages::Source::available || languages::playable(*wanted))
         return std::nullopt;
     const auto dismissed =
         runtime.preference_values_.find(std::string(settings::key::language_notice_dismissed));

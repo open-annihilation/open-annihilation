@@ -3,6 +3,7 @@
 
 #include "oa/session/demo.hpp"
 
+#include "oa/formats/oademo/oademo.hpp"
 #include "oa/netgame/match/launch.hpp"
 #include "oa/netgame/private_channel.hpp"
 #include "oa/netgame/records.hpp"
@@ -201,14 +202,7 @@ bool bind_recorded_players(DemoPlayback* playback, std::string* error) {
                     " cannot address a transport"
             );
         seen[player.number] = true;
-        RecordedPlayer recorded;
-        recorded.info.side = player.side;
-        recorded.info.color = player.color;
-        for (const auto& status : playback->demo.statuses)
-            if (status.number == player.number && status_player_info(status, &recorded.info)) {
-                recorded.from_status = true;
-                break;
-            }
+        const RecordedPlayer recorded = demo_recorded_player(playback->demo, player);
         const uint32_t id = recorded.from_status ? recorded.info.player_id : player.number;
         if (id == 0 || id >= netgame::match::no_player_id - 1)
             return fail(
@@ -368,7 +362,22 @@ void mix_value(uint64_t* hash, T value) {
 
 } // namespace
 
+RecordedPlayer
+demo_recorded_player(const formats::tad::Demo& demo, const formats::tad::Player& player) {
+    RecordedPlayer recorded;
+    recorded.info.side = player.side;
+    recorded.info.color = player.color;
+    for (const auto& status : demo.statuses)
+        if (status.number == player.number && status_player_info(status, &recorded.info)) {
+            recorded.from_status = true;
+            break;
+        }
+    return recorded;
+}
+
 bool demo_recognised(std::span<const uint8_t> bytes) noexcept {
+    if (formats::oademo::recognised(bytes))
+        return true;
     // The header is the first chunk: its length field, then the magic.
     constexpr std::size_t magic_at = formats::tad::layout::chunk_length_bytes;
     if (bytes.size() < magic_at + formats::tad::layout::magic_bytes)
@@ -395,6 +404,15 @@ bool demo_open(DemoPlayback* playback, const std::filesystem::path& path, std::s
 
 bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* error) {
     *playback = DemoPlayback{};
+    if (formats::oademo::recognised(bytes)) {
+        formats::oademo::ReadResult replay = formats::oademo::read(bytes);
+        if (!replay.ok())
+            return fail(error, replay.error);
+        // The mission's unit table is decided when playback loads the map the
+        // stream names, not from this description. A .tad has none, and a
+        // recording packed back from one says it was imported.
+        bytes = std::move(replay.replay->recording);
+    }
     playback->file = std::move(bytes);
     auto parsed = formats::tad::parse(playback->file);
     if (!parsed.ok())
@@ -726,6 +744,10 @@ bool demo_session_begin(
     session->tick_errors = 0;
     session->last_error.clear();
     session->lines.clear();
+    // A new binding is a new game as far as keyframes go.
+    session->keyframe_base.clear();
+    session->keyframe_expected.reset();
+    session->keyframe_faults.clear();
     return true;
 }
 
@@ -747,6 +769,14 @@ void demo_session_frame(DemoSession* session) {
     game.sim_run_flags =
         static_cast<uint16_t>(game.sim_run_flags & ~netgame::match::run_flag_paused);
     forget_empty_slots(session);
+    // A replay that began at a restore meets the digest the keyframe of this tick holds.
+    if (session->keyframe_expected && game.tick >= session->keyframe_expected->tick) {
+        const auto expected = *session->keyframe_expected;
+        session->keyframe_expected.reset();
+        const auto found = demo_world_digest(&session->match->state());
+        if (game.tick == expected.tick && found != expected.digest)
+            session->keyframe_faults.push_back({expected.tick, expected.digest, found});
+    }
 }
 
 void demo_session_end(DemoSession* session) noexcept {

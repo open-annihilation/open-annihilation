@@ -10,6 +10,11 @@
 
 #include "oa/session/demo.hpp"
 #include "oa/session/demo/recording.hpp"
+#include "oa/session/demo/recording_stream.hpp"
+#include "oa/session/demo/replay_record.hpp"
+#include "oa/formats/oademo/interface_words.hpp"
+#include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/zip/writer.hpp"
 #include "oa/netgame/unit_state.hpp"
 
 #include "oa/data/defs/unit_records.hpp"
@@ -17,12 +22,16 @@
 #include "oa/netgame/records.hpp"
 #include "oa/netgame/network.hpp"
 #include "oa/netgame/unicode_chat.hpp"
+#include "oa/test/scratch_directory.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
 #include <exception>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <span>
@@ -864,14 +873,27 @@ void verdict_judges_errors_and_spacing() {
     CHECK(demo_session_verdict(session, false).paced);
 }
 
-void replay_reproduces_a_recorded_unit(bool paused_while_recording) {
-    auto recorder = std::make_unique<Recorder>();
+// The recording of a short game in which one unit walks, as a recorder stores it, with the
+// recorder's own machine to compare the replay with.
+struct RecordedGame {
+    std::unique_ptr<Recorder> recorder;
+    Recording recording;
+    uint16_t index{};
+    uint32_t ticks{};
+};
+
+// paused_while_recording: the recording machine pauses the game for a few ticks while the unit
+// moves; playback runs through the pause.
+RecordedGame record_a_walking_unit(bool paused_while_recording) {
+    RecordedGame game;
+    game.recorder = std::make_unique<Recorder>();
+    auto& recorder = game.recorder;
     recorder->start();
     auto* unit =
         recorder->machine.match->create({0, 1, {48u * kFixedOne, 0, 48u * kFixedOne}, true, 1, 0});
     CHECK(unit != nullptr);
     if (unit == nullptr)
-        return;
+        return game;
     const auto index = unit->unit_index;
     constexpr uint32_t recorded_ticks = 90;
     for (uint32_t t = 0; t < recorded_ticks; ++t) {
@@ -950,6 +972,21 @@ void replay_reproduces_a_recorded_unit(bool paused_while_recording) {
             end_packet();
     }
     end_packet();
+    game.recording = std::move(recording);
+    game.index = index;
+    game.ticks = recorded_ticks;
+    return game;
+}
+
+void replay_reproduces_a_recorded_unit(bool paused_while_recording) {
+    auto game = record_a_walking_unit(paused_while_recording);
+    if (game.recorder == nullptr || game.ticks == 0)
+        return;
+    auto& recorder = game.recorder;
+    auto& recording = game.recording;
+    const auto index = game.index;
+    const uint32_t recorded_ticks = game.ticks;
+    const auto& recorded_unit = recorder->machine.match->state().units[index];
     const auto release = [](DemoSession* session) {
         demo_session_end(session);
         delete session;
@@ -1039,6 +1076,184 @@ void append_record(std::vector<uint8_t>* payload, const R& record) {
     );
 }
 
+// ---- keyframes ----
+
+void release_session(DemoSession* session) {
+    demo_session_end(session);
+    delete session;
+}
+
+// A recording replayed in a match of its own, bound and ready to play.
+struct Replaying {
+    std::unique_ptr<Machine> machine = std::make_unique<Machine>();
+    std::unique_ptr<DemoSession, void (*)(DemoSession*)> session{
+        new DemoSession(), release_session
+    };
+
+    // Loads the recording and binds the match to it; false when either refuses.
+    bool start(std::vector<uint8_t> bytes) {
+        std::string error;
+        if (!demo_load(&session->playback, std::move(bytes), &error))
+            return false;
+        machine->build(1);
+        std::array<uint8_t, OA_PLAYER_COUNT> watcher_allies{};
+        watcher_allies[1] = 1;
+        machine->match->configure_outcomes(1, watcher_allies, false);
+        return demo_session_begin(session.get(), machine->match.get(), &error);
+    }
+
+    // Plays frames and returns the digest of the world after each.
+    std::vector<uint64_t> play(uint32_t frames) {
+        std::vector<uint64_t> digests;
+        for (uint32_t i = 0; i < frames; ++i) {
+            demo_session_frame(session.get());
+            digests.push_back(demo_world_digest(&machine->match->state()));
+        }
+        return digests;
+    }
+
+    uint32_t tick() const { return machine->match->state().game.tick; }
+
+    uint64_t digest() const { return demo_world_digest(&machine->match->state()); }
+};
+
+// A keyframe taken and restored gives the same world and the same state, tick for tick; the keyframes
+// the viewer takes leave what the replay computes as it is, whichever it restores and in whichever order.
+void a_keyframe_restores_the_replay() {
+    auto game = record_a_walking_unit(false);
+    CHECK(game.recorder != nullptr);
+    const auto bytes = game.recording.bytes();
+    const uint32_t total = game.ticks + record_hold_window_ticks + 10;
+
+    // The replay with no keyframe, to its end.
+    Replaying plain;
+    CHECK(plain.start(bytes));
+    const auto plain_digests = plain.play(total);
+    const auto end_digest = plain.digest();
+
+    Replaying r;
+    CHECK(r.start(bytes));
+    std::string refusal;
+    DemoKeyframe start;
+    CHECK(demo_keyframe_take(r.session.get(), &start, &refusal));
+    CHECK(refusal.empty() && start.tick == 0 && start.digest == r.digest());
+    CHECK(demo_keyframe_base_bytes(*r.session) == start.fixed_bytes);
+    r.play(30);
+    DemoKeyframe key;
+    CHECK(demo_keyframe_take(r.session.get(), &key, &refusal));
+    CHECK(key.tick == 30 && key.digest == r.digest() && key.digest == plain_digests[29]);
+    CHECK(key.raw_bytes() > key.frame.size() && !key.frame.empty());
+    const auto first_run = r.play(40);
+    CHECK(first_run[39] == plain_digests[69]);
+    DemoKeyframe later;
+    std::vector<uint8_t> image_fixed;
+    std::vector<uint8_t> image_varying;
+    DemoKeyframeOptions options;
+    options.image_fixed = &image_fixed;
+    options.image_varying = &image_varying;
+    options.hash_image = true;
+    CHECK(demo_keyframe_take(r.session.get(), &later, &refusal, options));
+    CHECK(later.tick == 70);
+
+    // Restored, the replay plays the same 40 ticks to the same digests and holds the same state.
+    std::string error;
+    CHECK(demo_keyframe_restore(r.session.get(), key, &later, &error));
+    CHECK(error.empty() && r.tick() == 30 && r.digest() == key.digest);
+    const auto second_run = r.play(40);
+    CHECK(second_run == first_run);
+    CHECK(r.session->keyframe_faults.empty());
+    std::vector<uint8_t> after_fixed;
+    std::vector<uint8_t> after_varying;
+    DemoKeyframe check;
+    options.image_fixed = &after_fixed;
+    options.image_varying = &after_varying;
+    options.image_only = true;
+    CHECK(demo_keyframe_take(r.session.get(), &check, &refusal, options));
+    CHECK(check.image_digest == later.image_digest);
+    CHECK(demo_keyframe_difference(image_fixed, image_varying, after_fixed, after_varying).empty());
+
+    // Forward to a later keyframe, back to the start, and on to the end: the replay still ends on
+    // the digest the replay with no keyframe ends on.
+    CHECK(demo_keyframe_restore(r.session.get(), later));
+    CHECK(r.tick() == 70 && r.digest() == later.digest);
+    CHECK(demo_keyframe_restore(r.session.get(), start));
+    CHECK(r.tick() == 0);
+    const auto whole = r.play(total);
+    CHECK(whole == plain_digests);
+    CHECK(r.digest() == end_digest);
+    CHECK(demo_session_finished(*r.session));
+    CHECK(r.session->net.records_applied == plain.session->net.records_applied);
+    CHECK(
+        r.session->playback.stats.frames_delivered == plain.session->playback.stats.frames_delivered
+    );
+    CHECK(r.session->tracked.size() == plain.session->tracked.size());
+    CHECK(r.session->keyframe_faults.empty());
+}
+
+// A field the keyframe does not carry shows as a keyframe fault: the restored replay reaches the next
+// keyframe's tick with another digest, and the fault names that tick.
+void a_field_left_out_is_a_keyframe_fault() {
+    auto game = record_a_walking_unit(false);
+    const auto bytes = game.recording.bytes();
+
+    struct Leave {
+        // The playback's cursor and what it counted: a restored replay then does not deliver
+        // again the frames its first run delivered, and misses the records of those ticks.
+        static bool cursor(void*, std::string_view section) { return section == "demo.state"; }
+    };
+
+    for (const bool leave_out : {false, true}) {
+        Replaying r;
+        CHECK(r.start(bytes));
+        std::string refusal;
+        DemoKeyframe base;
+        CHECK(demo_keyframe_take(r.session.get(), &base, &refusal));
+        r.play(20);
+        DemoKeyframe key;
+        DemoKeyframeOptions options;
+        if (leave_out)
+            options.omission = {nullptr, &Leave::cursor};
+        CHECK(demo_keyframe_take(r.session.get(), &key, &refusal, options));
+        r.play(40);
+        DemoKeyframe later;
+        CHECK(demo_keyframe_take(r.session.get(), &later, &refusal));
+        std::string error;
+        CHECK(demo_keyframe_restore(r.session.get(), key, &later, &error));
+        r.play(40);
+        if (leave_out) {
+            // The cursor stayed past the frames of those ticks, and the unit missed their records.
+            CHECK(r.session->keyframe_faults.size() == 1);
+            if (!r.session->keyframe_faults.empty()) {
+                const auto& fault = r.session->keyframe_faults.front();
+                CHECK(fault.tick == later.tick && fault.expected == later.digest);
+                CHECK(fault.found != fault.expected && fault.found == r.digest());
+            }
+        } else {
+            CHECK(r.session->keyframe_faults.empty());
+            CHECK(r.digest() == later.digest);
+        }
+    }
+}
+
+// A session that holds what a keyframe cannot carry is refused, and says so.
+void a_session_with_a_unit_of_its_own_is_refused() {
+    auto game = record_a_walking_unit(false);
+    Replaying r;
+    CHECK(r.start(game.recording.bytes()));
+    r.play(10);
+    const auto census = r.machine->match->keyframe_census();
+    CHECK(census.orders == 0 && census.unit_order_queues == 0);
+    CHECK(census.live_units == 1 && census.mirrored_ground == 1);
+    // A unit of this machine's own, with an order: nothing of a playback.
+    auto* mine =
+        r.machine->match->create({1, 1, {80u * kFixedOne, 0, 80u * kFixedOne}, true, 1, 0});
+    CHECK(mine != nullptr);
+    DemoKeyframe key;
+    std::string refusal;
+    CHECK(!demo_keyframe_take(r.session.get(), &key, &refusal));
+    CHECK(!refusal.empty());
+}
+
 // Records that reach the match's own hooks (an economy record asking for an
 // answer, an alliance, a resource give) reach the binding behind them, and
 // a packet from a player number no player chunk names is dropped rather
@@ -1113,7 +1328,6 @@ RecordingSetup live_setup(std::size_t players, bool compress) {
         if (i == 0)
             player.info.role = 1;
         player.team = 5;
-        player.address = "10.0.0." + std::to_string(i + 1);
         setup.players.push_back(std::move(player));
     }
     for (uint32_t type = 1; type <= 3; ++type) {
@@ -1218,6 +1432,374 @@ void live_recording_round_trips(bool compress) {
         recording_file_name("2026-10-03 0800", "Seven: Islands", ".ted") ==
         "2026-10-03 0800 Seven_ Islands.ted"
     );
+}
+
+// ---- The recording kept as the game goes, and finished into a replay ----
+
+/// The records every streamed recording below is made of, added to a recording the same way
+/// whether it keeps its packets in memory or streams them.
+///
+/// @param recording a started recording of live_setup's two players
+/// @param count how many unit states follow the first few records
+void add_sample_records(DemoRecording* recording, uint32_t count) {
+    ChatRecord chat{};
+    std::snprintf(chat.text, sizeof chat.text, "%s", "<player1> hello there, everyone in the game");
+    uint8_t chat_bytes[65];
+    CHECK(encode_record(chat, chat_bytes, sizeof chat_bytes, nullptr) == WireError::ok);
+    recording_add(recording, 0x100, 1000, chat_bytes);
+    const uint8_t empty[] = {0x2c, 0x0b, 0x00, 43, 0, 0, 0, 0xff, 0xff, 0x01, 0x00};
+    recording_add(recording, 0x200, 1033, empty);
+    const uint8_t camera[] = {0xfc, 0x00, 0x01, 0xd0, 0x00};
+    recording_add(recording, 0x100, 1100, camera);
+    // A sender the recording does not name is dropped, stream or no stream.
+    recording_add(recording, 0x999, 1200, camera);
+    uint64_t now = 1200;
+    for (uint32_t tick = 100; tick < 100 + count; ++tick) {
+        now += 33;
+        recording_add(recording, tick % 2 == 0 ? 0x100 : 0x200, now, moving_state(tick));
+    }
+}
+
+/// Reads a whole file.
+///
+/// @param path the file
+/// @return its bytes; empty when it cannot be read
+std::vector<uint8_t> file_bytes(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+/// Writes a whole file.
+///
+/// @param path the file
+/// @param bytes what it holds
+void write_bytes(const std::filesystem::path& path, std::span<const uint8_t> bytes) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(
+        reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
+    );
+}
+
+/// Tells whether a recording holds a sector of a type.
+///
+/// @param bytes the recording
+/// @param type the sector type
+/// @return true when the recording parses and holds one
+bool has_sector(std::span<const uint8_t> bytes, uint32_t type) {
+    const auto parsed = formats::tad::parse(bytes);
+    if (!parsed.ok())
+        return false;
+    for (const auto& sector : parsed.demo->sectors)
+        if (sector.type == type)
+            return true;
+    return false;
+}
+
+// What the streamed recording writes is what the recording written whole gives, byte for byte,
+// for the same records: with packets stored plain or packed, with a few packets and with enough
+// to wake the writer, and with nothing a network address could be in.
+void streaming_writer_gives_the_bytes_recording_write_gives() {
+    const auto scratch = oa::test::make_scratch_directory("demo-stream");
+    for (const bool compress : {false, true}) {
+        for (const uint32_t count : {0u, 5u, 3000u}) {
+            DemoRecording whole;
+            recording_begin(&whole, live_setup(2, compress));
+            add_sample_records(&whole, count);
+            const auto written = recording_write(whole);
+            CHECK(written.ok());
+            DemoRecording streamed;
+            recording_begin(&streamed, live_setup(2, compress));
+            const auto path = scratch / "streamed.tad";
+            std::string error;
+            CHECK(recording_stream_to(&streamed, path, &error));
+            // The header is on disk before the first packet is added.
+            CHECK(file_bytes(path).size() == recording_header(streamed.setup).bytes.size());
+            add_sample_records(&streamed, count);
+            CHECK(streamed.packets.empty() && streamed.packet_count == whole.packet_count);
+            CHECK(streamed.stream != nullptr && streamed.stream->packets() == whole.packet_count);
+            CHECK(streamed.stream->close(&error));
+            CHECK(file_bytes(path) == written.bytes);
+            // The container the stream wrote is the one playback loads.
+            DemoPlayback playback;
+            CHECK(demo_load(&playback, file_bytes(path), &error));
+        }
+    }
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
+// No recording this module writes holds a sector of network addresses, and a recording of
+// another recorder that does still parses.
+void no_written_recording_holds_a_player_address() {
+    const auto scratch = oa::test::make_scratch_directory("demo-address");
+    constexpr auto address_type = static_cast<uint32_t>(formats::tad::SectorType::player_address);
+    DemoRecording whole;
+    recording_begin(&whole, live_setup(3, false));
+    add_sample_records(&whole, 4);
+    const auto written = recording_write(whole);
+    CHECK(written.ok());
+    CHECK(!has_sector(written.bytes, address_type));
+    const auto parsed = formats::tad::parse(written.bytes);
+    CHECK(parsed.ok());
+    // The recorder's line and the date are all this setup writes: no address, one for each of
+    // three players, is among them.
+    CHECK(parsed.ok() && parsed.demo->sectors.size() == 2);
+    DemoRecording streamed;
+    recording_begin(&streamed, live_setup(3, false));
+    const auto path = scratch / "streamed.tad";
+    std::string error;
+    CHECK(recording_stream_to(&streamed, path, &error));
+    add_sample_records(&streamed, 4);
+    CHECK(streamed.stream->close(&error));
+    CHECK(!has_sector(file_bytes(path), address_type));
+    // A replay finished from that stream holds none either.
+    const ReplayFacts facts{};
+    auto skeleton = replay_begin(streamed.setup, facts);
+    const auto finished = scratch / "streamed.oademo";
+    const auto result =
+        finish_as_replay(path, skeleton, ReplayEnd{"finished", {}, false}, finished);
+    CHECK(result.ok);
+    const auto replay = formats::oademo::read(file_bytes(finished));
+    CHECK(replay.ok());
+    if (replay.ok()) {
+        CHECK(!has_sector(replay.replay->recording, address_type));
+        CHECK(replay.replay->meta.recording.addresses_removed);
+    }
+    // A sector 6 in another recorder's file is still read: only writing stops.
+    formats::tad::Demo other = *parsed.demo;
+    const std::vector<uint8_t> masked{0x1a ^ 0x2a, 0x2a ^ 0x2a};
+    std::vector<formats::tad::Sector> sectors = other.sectors;
+    sectors.push_back({address_type, masked});
+    other.sectors = sectors;
+    const auto rewritten = formats::tad::write(other);
+    CHECK(rewritten.ok());
+    CHECK(has_sector(rewritten.bytes, address_type));
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
+// A recording finished after a crash is cut to its last whole packet, and the replay it
+// becomes loads and says it was cut and finished after a crash.
+void a_partial_recording_is_finished_into_a_file_that_loads() {
+    const auto scratch = oa::test::make_scratch_directory("demo-partial");
+    DemoRecording recording;
+    recording_begin(&recording, live_setup(2, false));
+    const auto stream_file = scratch / "game.oademo.part";
+    std::string error;
+    CHECK(recording_stream_to(&recording, stream_file, &error));
+    add_sample_records(&recording, 60);
+    const uint64_t added = recording.packet_count;
+    CHECK(recording.stream->close(&error));
+    const auto complete = file_bytes(stream_file);
+    const auto header_bytes = recording_header(recording.setup).bytes.size();
+    // The walker counts every packet of a whole stream, and one cut part way through a packet
+    // loses only that packet; a cut in the part before the packets loses the recording.
+    uint64_t packets = 0;
+    CHECK(whole_packets_end(complete, &packets) == complete.size() && packets == added);
+    CHECK(
+        whole_packets_end(std::span(complete).first(complete.size() - 3), &packets) <
+        complete.size()
+    );
+    CHECK(packets == added - 1);
+    CHECK(whole_packets_end(std::span(complete).first(header_bytes), &packets) == header_bytes);
+    CHECK(packets == 0);
+    CHECK(whole_packets_end(std::span(complete).first(header_bytes - 1), &packets) == 0);
+    // The crash cut the last packet in two.
+    write_bytes(stream_file, std::span(complete).first(complete.size() - 3));
+    ReplayFacts facts;
+    facts.recorded_at = "2026-11-06T01:02:03Z";
+    facts.recorded_by = "open-annihilation 0.9.1";
+    facts.platform = "macos-arm64";
+    facts.map_name = "Test Map";
+    facts.players = {{"Ada", "human", true}, {"Bo", "computer", false}};
+    auto skeleton = replay_begin(recording.setup, facts);
+    const auto destination = scratch / "Recordings" / "default" / "game.oademo";
+    ReplayEnd end;
+    end.ended = "cut";
+    end.after_crash = true;
+    const auto result = finish_as_replay(stream_file, skeleton, end, destination);
+    CHECK(result.ok && result.packets == added - 1 && !result.empty);
+    CHECK(!std::filesystem::exists(stream_file));
+    CHECK(std::filesystem::exists(destination));
+    CHECK(!std::filesystem::exists(scratch / "game.oademo.part.writing"));
+    const auto replay = formats::oademo::read(file_bytes(destination));
+    CHECK(replay.ok());
+    if (replay.ok()) {
+        const auto& meta = replay.replay->meta;
+        CHECK(meta.recorded.after_crash && meta.game.ended == "cut");
+        CHECK(
+            meta.recorded.at == "2026-11-06T01:02:03Z" && meta.recorded.local == "2026-10-03 08:00"
+        );
+        CHECK(meta.recorded.how == "multiplayer" && meta.game.kind == "multiplayer");
+        CHECK(meta.recording.packets == added - 1 && meta.recording.addresses_removed);
+        CHECK(
+            meta.players.size() == 2 && meta.players[0].name == "Ada" &&
+            meta.players[1].name == "Bo"
+        );
+        CHECK(meta.players[0].recorded_here == std::optional<bool>(true));
+        CHECK(meta.players[1].kind == "computer" && meta.players[1].side == "core");
+        CHECK(meta.units.count == 3 && meta.units.index_bits == 3);
+        CHECK(replay.replay->manifest.engine.needs == ">=0.9.1");
+        CHECK(
+            replay.replay->manifest.needs.size() == 1 &&
+            replay.replay->manifest.needs[0].kind == "base"
+        );
+        // The recording inside is the whole packets and plays.
+        const auto inside = formats::tad::parse(replay.replay->recording);
+        CHECK(inside.ok() && inside.demo->packets.size() == added - 1);
+    }
+    DemoPlayback playback;
+    CHECK(demo_open(&playback, destination, &error));
+    CHECK(playback.players.size() == 2);
+    CHECK(!playback.frames.empty());
+
+    // A recording that holds no packet is not made into a replay.
+    DemoRecording nothing;
+    recording_begin(&nothing, live_setup(2, false));
+    const auto empty_stream = scratch / "nothing.oademo.part";
+    CHECK(recording_stream_to(&nothing, empty_stream, &error));
+    CHECK(nothing.stream->close(&error));
+    const auto none = finish_as_replay(
+        empty_stream, replay_begin(nothing.setup, facts), end, scratch / "nothing.oademo"
+    );
+    CHECK(!none.ok && none.empty && !std::filesystem::exists(scratch / "nothing.oademo"));
+    CHECK(std::filesystem::exists(empty_stream));
+
+    // A packet stored packed cannot be in a replay, whose packets are plain.
+    DemoRecording packed;
+    recording_begin(&packed, live_setup(2, true));
+    const auto packed_stream = scratch / "packed.oademo.part";
+    CHECK(recording_stream_to(&packed, packed_stream, &error));
+    add_sample_records(&packed, 10);
+    CHECK(packed.stream->close(&error));
+    const auto refused = finish_as_replay(
+        packed_stream, replay_begin(packed.setup, facts), end, scratch / "packed.oademo"
+    );
+    CHECK(!refused.ok && !refused.empty && !std::filesystem::exists(scratch / "packed.oademo"));
+
+    // The recorder hack's layout is moved as it is, or cut to a whole packet.
+    const auto tad_stream = scratch / "hack.tad.part";
+    write_bytes(tad_stream, complete);
+    const auto tad_destination = scratch / "Recordings" / "default" / "hack.tad";
+    const auto moved = finish_as_tad(tad_stream, tad_destination, true);
+    CHECK(moved.ok && moved.packets == added && file_bytes(tad_destination) == complete);
+    CHECK(!std::filesystem::exists(tad_stream));
+    write_bytes(tad_stream, std::span(complete).first(complete.size() - 3));
+    const auto cut = finish_as_tad(tad_stream, tad_destination, false);
+    CHECK(cut.ok && cut.packets == added - 1);
+    const auto cut_bytes = file_bytes(tad_destination);
+    const auto cut_parsed = formats::tad::parse(cut_bytes);
+    CHECK(cut_parsed.ok() && cut_parsed.demo->packets.size() == added - 1);
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
+// A finished file never replaces another unless it is asked to: it takes the next free name, and says
+// which, for a recording and for a replay alike.
+void a_finished_file_replaces_another_only_when_asked() {
+    const auto scratch = oa::test::make_scratch_directory("demo-place");
+    std::string error;
+    ReplayFacts facts;
+    const auto make_stream = [&](const std::filesystem::path& path, uint32_t count) {
+        DemoRecording recording;
+        recording_begin(&recording, live_setup(2, false));
+        CHECK(recording_stream_to(&recording, path, &error));
+        add_sample_records(&recording, count);
+        CHECK(recording.stream->close(&error));
+        return recording.setup;
+    };
+    const auto taken = scratch / "Recordings" / "game.tad";
+    std::filesystem::create_directories(scratch / "Recordings");
+    write_bytes(taken, std::vector<uint8_t>{1, 2, 3});
+    const auto first = scratch / "first.tad.part";
+    make_stream(first, 4);
+    const auto kept = finish_as_tad(first, taken, true, false);
+    CHECK(kept.ok && kept.placed == scratch / "Recordings" / "game (2).tad");
+    CHECK(file_bytes(taken) == std::vector<uint8_t>({1, 2, 3}));
+    CHECK(std::filesystem::exists(kept.placed) && !std::filesystem::exists(first));
+    // The next takes the next name, and nothing is replaced.
+    const auto second = scratch / "second.tad.part";
+    make_stream(second, 5);
+    const auto next = finish_as_tad(second, taken, true, false);
+    CHECK(next.ok && next.placed == scratch / "Recordings" / "game (3).tad");
+    // Asked to replace, it takes the name.
+    const auto third = scratch / "third.tad.part";
+    make_stream(third, 6);
+    const auto replaced = finish_as_tad(third, taken, true, true);
+    CHECK(replaced.ok && replaced.placed == taken && file_bytes(taken).size() > 3);
+    // A replay is placed the same way.
+    const auto replay_stream = scratch / "replay.oademo.part";
+    const auto setup = make_stream(replay_stream, 4);
+    const auto replay_taken = scratch / "Recordings" / "game.oademo";
+    write_bytes(replay_taken, std::vector<uint8_t>{9});
+    const auto replay = finish_as_replay(
+        replay_stream,
+        replay_begin(setup, facts),
+        ReplayEnd{"finished", {}, false},
+        replay_taken,
+        false
+    );
+    CHECK(replay.ok && replay.placed == scratch / "Recordings" / "game (2).oademo");
+    CHECK(file_bytes(replay_taken) == std::vector<uint8_t>({9}));
+    CHECK(formats::oademo::read(file_bytes(replay.placed)).ok());
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
+// What the game knows when a recording starts reaches the replay's description and manifest:
+// the map, the mod and its digests, the mutators, the kind of game and the object an
+// extension names for it, and what the recording itself holds.
+void a_replay_describes_the_game_it_was_made_from() {
+    DemoRecording recording;
+    recording_begin(&recording, live_setup(2, false));
+    ReplayFacts facts;
+    facts.recorded_at = "2026-11-06T01:02:03Z";
+    facts.recorded_by = "open-annihilation 0.9.1";
+    facts.platform = "linux-x86_64";
+    facts.engine_version = "0.9.1";
+    facts.map_name = "Show Down";
+    facts.game_kind = "battle";
+    facts.game_kind_object = R"({"game_id":"5f2e9a0c41b7d3","planet":"Empyrrean"})";
+    facts.expansions = {"core-contingency"};
+    formats::oademo::ModRef mod;
+    mod.id = "ridge";
+    mod.name = "Ridge";
+    mod.version = "2.8";
+    mod.revision = 1;
+    mod.sim_hash = std::string(64, 'a');
+    facts.mod = mod;
+    formats::oademo::Need need;
+    need.kind = "oamod";
+    need.id = "ridge";
+    need.version = "2.8";
+    need.revision = 1;
+    need.sha256 = std::string(64, 'b');
+    need.sim_hash = mod.sim_hash;
+    facts.packages.push_back(need);
+    const auto replay = replay_begin(recording.setup, facts);
+    CHECK(replay.meta.recorded.by == std::optional<std::string>("open-annihilation 0.9.1"));
+    CHECK(replay.meta.recorded.platform == std::optional<std::string>("linux-x86_64"));
+    CHECK(replay.meta.game.kind == "battle" && replay.meta.game.kind_object.has_value());
+    CHECK(replay.meta.map.name == "Show Down" && replay.meta.content.mod.has_value());
+    const auto text = formats::oademo::meta_text(replay.meta);
+    CHECK(text.find(R"("game":{"kind":"battle")") != std::string::npos);
+    CHECK(
+        text.find(R"("battle":{"game_id":"5f2e9a0c41b7d3","planet":"Empyrrean"})") !=
+        std::string::npos
+    );
+    // The manifest asks for the base game, the expansion and the mod, in that order, and the mod
+    // takes the unit table's digest from the recording.
+    const auto& needs = replay.manifest.needs;
+    CHECK(needs.size() == 3 && needs[0].kind == "base" && needs[1].kind == "expansion");
+    CHECK(needs.size() == 3 && needs[2].kind == "oamod" && needs[2].sha256 == need.sha256);
+    CHECK(
+        needs.size() == 3 &&
+        needs[2].units_table_sha256 == std::optional<std::string>(replay.meta.units.table_sha256)
+    );
+    CHECK(replay.manifest.engine.recorded_with == "0.9.1");
+    // Its recording is the header alone, which a replay can hold.
+    CHECK(replay.meta.recording.packets == 0 && !replay.recording.empty());
+    CHECK(formats::oademo::write(replay).ok());
 }
 
 // Ten recorded players leave no slot for the viewer: refused by 3.1c's
@@ -1829,6 +2411,226 @@ void limits_verdicts() {
     CHECK(demo_limits_verdict(broken, 1024, 10) == DemoLimitsVerdict::unreadable);
 }
 
+// The same recording, as a .tad and as a .oademo, loads to the same playback.
+void oademo_loads_the_same_playback() {
+    auto recording = make_recording(kUnitsPerPlayer, 2);
+    recording.add(1, 0, probe_payload());
+    recording.add(1, 40, elided_state_payload(5, true));
+    recording.add(2, 10, probe_payload());
+    const std::vector<uint8_t> tad_bytes = recording.bytes();
+
+    formats::oademo::Replay replay;
+    replay.recording = tad_bytes;
+    formats::oademo::set_recording_identity(replay);
+    replay.meta.recording.tad_version = formats::tad::supported_version;
+    replay.meta.recording.packets = 3;
+    replay.meta.recording.addresses_removed = true;
+    replay.meta.recorded.how = "multiplayer";
+    replay.meta.game.kind = "ridge";
+    replay.meta.map.name = "test";
+    replay.meta.content.base.id = "totala";
+    replay.meta.content.base.version = "3.1c";
+    replay.meta.units.count = 1;
+    replay.meta.units.table_sha256 = std::string(64, '0');
+    replay.meta.units.index_bits = 2;
+    formats::oademo::PlayerInfo player;
+    player.number = 1;
+    player.name = "player1";
+    player.side = "arm";
+    player.colour = 1;
+    player.kind = "human";
+    replay.meta.players.push_back(player);
+    player.number = 2;
+    player.name = "player2";
+    player.side = "core";
+    player.colour = 2;
+    replay.meta.players.push_back(std::move(player));
+    replay.manifest.engine.recorded_with = "0.8.14";
+    replay.manifest.engine.needs = ">=0.8.14";
+    formats::oademo::Need need;
+    need.kind = "base";
+    need.id = "totala";
+    need.version = "3.1c";
+    replay.manifest.needs.push_back(std::move(need));
+
+    const formats::oademo::WriteResult written = formats::oademo::write(replay);
+    if (!written.ok())
+        std::fprintf(stderr, "oademo write: %s\n", written.error.c_str());
+    CHECK(written.ok());
+    CHECK(formats::oademo::recognised(written.bytes));
+    CHECK(demo_recognised(written.bytes));
+
+    DemoPlayback from_tad;
+    DemoPlayback from_oademo;
+    std::string error;
+    CHECK(demo_load(&from_tad, tad_bytes, &error));
+    CHECK(error.empty());
+    error.clear();
+    CHECK(demo_load(&from_oademo, written.bytes, &error));
+    if (!error.empty())
+        std::fprintf(stderr, "oademo load: %s\n", error.c_str());
+    CHECK(error.empty());
+    CHECK(from_oademo.file == tad_bytes);
+    CHECK(from_tad.players.size() == from_oademo.players.size());
+    for (std::size_t index = 0; index < from_tad.players.size(); ++index) {
+        CHECK(from_tad.players[index].from_status == from_oademo.players[index].from_status);
+        CHECK(from_tad.players[index].info.player_id == from_oademo.players[index].info.player_id);
+        CHECK(from_tad.players[index].info.side == from_oademo.players[index].info.side);
+        CHECK(from_tad.players[index].info.color == from_oademo.players[index].info.color);
+        // The lobby block a tool reads is the one playback bound.
+        const RecordedPlayer rebound =
+            demo_recorded_player(from_tad.demo, from_tad.demo.players[index]);
+        CHECK(rebound.from_status == from_tad.players[index].from_status);
+        CHECK(rebound.info.side == from_tad.players[index].info.side);
+        CHECK(rebound.info.color == from_tad.players[index].info.color);
+        CHECK(rebound.info.player_id == from_tad.players[index].info.player_id);
+        CHECK(from_tad.demo.players[index].name == from_oademo.demo.players[index].name);
+        CHECK(from_tad.demo.players[index].number == from_oademo.demo.players[index].number);
+    }
+    CHECK(from_tad.frames.size() == from_oademo.frames.size());
+    for (std::size_t index = 0; index < from_tad.frames.size(); ++index) {
+        CHECK(from_tad.frames[index].datagram == from_oademo.frames[index].datagram);
+        CHECK(from_tad.frames[index].time_ms == from_oademo.frames[index].time_ms);
+        CHECK(from_tad.frames[index].sender == from_oademo.frames[index].sender);
+        CHECK(from_tad.frames[index].due_tick == from_oademo.frames[index].due_tick);
+    }
+    CHECK(from_tad.recorded_definitions == from_oademo.recorded_definitions);
+    CHECK(from_tad.recorded_verdicts == from_oademo.recorded_verdicts);
+    CHECK(from_tad.unit_def_bits == from_oademo.unit_def_bits);
+    const std::array<uint32_t, 1> keys{1};
+    const UnitTableCheck tad_check = demo_check_unit_table(from_tad, keys, nullptr);
+    const UnitTableCheck oademo_check = demo_check_unit_table(from_oademo, keys, nullptr);
+    CHECK(tad_check.recorded == oademo_check.recorded);
+    CHECK(tad_check.matched == oademo_check.matched);
+    CHECK(tad_check.missing == oademo_check.missing);
+    CHECK(tad_check.extra == oademo_check.extra);
+    CHECK(tad_check.identical == oademo_check.identical);
+}
+
+bool write_into_memory(void* context, uint64_t offset, std::span<const uint8_t> bytes) {
+    auto& out = *static_cast<std::vector<uint8_t>*>(context);
+    if (offset > out.size())
+        return false;
+    const std::size_t at = static_cast<std::size_t>(offset);
+    if (out.size() < at + bytes.size())
+        out.resize(at + bytes.size());
+    std::copy(bytes.begin(), bytes.end(), out.begin() + static_cast<std::ptrdiff_t>(at));
+    return true;
+}
+
+// A zip whose first entry is the stored `oademo` line of version 2 is a
+// replay this game does not read, and loading it says so.
+void a_replay_of_another_version_says_so() {
+    std::vector<uint8_t> file;
+    formats::zip::StreamWriter writer({&file, write_into_memory}, {});
+    formats::zip::ZipError problem;
+    const auto put = [&](std::string_view name, std::string_view text, formats::zip::Method how) {
+        const std::span<const uint8_t> bytes{
+            reinterpret_cast<const uint8_t*>(text.data()), text.size()
+        };
+        return writer.begin_entry(name, bytes.size(), how, problem) &&
+               writer.write(bytes, problem) && writer.end_entry(problem);
+    };
+    CHECK(
+        put("oademo", "oademo 2\n", formats::zip::Method::stored) &&
+        put("meta.json", "{}", formats::zip::Method::deflated) &&
+        put("manifest.json", "{}", formats::zip::Method::deflated) &&
+        put("recording.tad.zst", "x", formats::zip::Method::stored) && writer.finish(problem)
+    );
+    CHECK(formats::oademo::recognised(file));
+    CHECK(demo_recognised(file));
+    DemoPlayback playback;
+    std::string error;
+    CHECK(!demo_load(&playback, file, &error));
+    CHECK(error == formats::oademo::not_this_version);
+}
+
+// A jump gives the viewer its pause, camera, selection and the other fields it set, and the chat
+// ring is emptied so the recording does not post the same lines again.
+void a_jump_gives_the_viewer_its_picture_back() {
+    World* world = world_create();
+    CHECK(world != nullptr);
+    if (world == nullptr)
+        return;
+    Unit units[4]{};
+    world->units = units;
+    world->unit_slot_count = 4;
+    units[0].type_index = 0;
+    units[0].flags = OA_UNIT_FLAG_SELECTED;
+    units[1].type_index = 1;
+    units[1].flags = OA_UNIT_FLAG_SELECTED | OA_UNIT_FLAG_SELECTABLE;
+    units[2].type_index = 2;
+    units[3].type_index = 3;
+    units[3].flags = OA_UNIT_FLAG_LIVE;
+    Game& game = world->game;
+    game.sim_run_flags = 0x0011;
+    game.viewpoint_player = 3;
+    game.local_player_index = 2;
+    game.follow_unit = 11;
+    game.follow_target = 12;
+    game.follow_point = FixedVec3{1, 2, 3};
+    game.follow_point_ticks = 7;
+    game.camera_slot_x[2] = 40;
+    game.camera_slot_y[2] = 50;
+    game.camera_slot_valid[2] = 1;
+    game.debug_overlay = 4;
+    game.chat_lines[0][0] = 'x';
+    game.chat_head = 4;
+    game.chat_tail = 2;
+
+    ViewerPicture picture;
+    take_viewer_picture(*world, &picture);
+
+    game.sim_run_flags = 0x0010;
+    game.viewpoint_player = 0;
+    game.local_player_index = 0;
+    game.follow_unit = 0;
+    game.follow_target = 0;
+    game.follow_point = {};
+    game.follow_point_ticks = 0;
+    game.camera_slot_x[2] = 0;
+    game.camera_slot_y[2] = 0;
+    game.camera_slot_valid[2] = 0;
+    game.debug_overlay = 0;
+    units[0].flags = OA_UNIT_FLAG_SELECTED;
+    units[1].flags = OA_UNIT_FLAG_SELECTABLE;
+    units[2].flags = OA_UNIT_FLAG_SELECTED;
+    game.chat_lines[1][0] = 'y';
+    game.chat_head = 9;
+    game.chat_tail = 3;
+
+    give_viewer_picture(world, picture);
+    CHECK(game.sim_run_flags == 0x0011);
+    CHECK(game.viewpoint_player == 3);
+    CHECK(game.local_player_index == 2);
+    CHECK(game.follow_unit == 11);
+    CHECK(game.follow_target == 12);
+    CHECK(game.follow_point.x == 1 && game.follow_point.y == 2 && game.follow_point.z == 3);
+    CHECK(game.follow_point_ticks == 7);
+    CHECK(game.camera_slot_x[2] == 40);
+    CHECK(game.camera_slot_y[2] == 50);
+    CHECK(game.camera_slot_valid[2] == 1);
+    CHECK(game.debug_overlay == 4);
+    CHECK((units[0].flags & OA_UNIT_FLAG_SELECTED) == 0);
+    CHECK((units[1].flags & OA_UNIT_FLAG_SELECTED) != 0);
+    CHECK((units[1].flags & OA_UNIT_FLAG_SELECTABLE) != 0);
+    CHECK((units[2].flags & OA_UNIT_FLAG_SELECTED) == 0);
+    CHECK((units[3].flags & OA_UNIT_FLAG_LIVE) != 0);
+    CHECK(game.chat_head == 0);
+    CHECK(game.chat_tail == 0);
+    CHECK(game.chat_lines[0][0] == 0);
+    CHECK(game.chat_lines[1][0] == 0);
+
+    picture.paused = false;
+    game.sim_run_flags = 0x0011;
+    give_viewer_picture(world, picture);
+    CHECK(game.sim_run_flags == 0x0010);
+
+    world->units = nullptr;
+    world->unit_slot_count = 0;
+    world_destroy(world);
+}
+
 } // namespace
 
 int main() {
@@ -1836,6 +2638,8 @@ int main() {
     compressed_packets_rebuild_without_spurious_records();
     stored_unit_states_time_their_frame();
     recordings_are_recognised_by_their_magic();
+    oademo_loads_the_same_playback();
+    a_replay_of_another_version_says_so();
     transport_follows_the_ticks();
     unit_table_check_compares_checksum_keys();
     unit_table_follows_the_recorded_verdicts();
@@ -1844,9 +2648,18 @@ int main() {
     verdict_judges_errors_and_spacing();
     replay_reproduces_a_recorded_unit(false);
     replay_reproduces_a_recorded_unit(true);
+    a_keyframe_restores_the_replay();
+    a_field_left_out_is_a_keyframe_fault();
+    a_session_with_a_unit_of_its_own_is_refused();
+    a_jump_gives_the_viewer_its_picture_back();
     recorded_records_reach_the_binding();
     live_recording_round_trips(false);
     live_recording_round_trips(true);
+    streaming_writer_gives_the_bytes_recording_write_gives();
+    no_written_recording_holds_a_player_address();
+    a_partial_recording_is_finished_into_a_file_that_loads();
+    a_finished_file_replaces_another_only_when_asked();
+    a_replay_describes_the_game_it_was_made_from();
     ten_players_watch_without_a_slot();
     recording_carries_loadout_text();
     recording_carries_brains_text();

@@ -489,6 +489,9 @@ Runtime::Runtime(
     );
     // The Open Annihilation settings, after the frontend's preferences hold SwitchAlt.
     load_engine_settings();
+    // The colour-vision preference, after the settings, so the logos loaded above are recoloured
+    // only once the preference is known. Off writes nothing.
+    apply_colour_vision();
     // The settings the profile's display rules let the player change.
     load_view_settings();
     // The layout in use, after those settings, so a stored key is the one
@@ -596,6 +599,7 @@ int Runtime::run() {
     // menu on, as one Alt+Enter switched to full screen does.
     keep_pointer_on_screen(sdl_.window);
     take_pending_content();
+    settle_replay_content();
     log_first_run_gate(false);
     int exit_code = 0;
     const auto extension_run = [&](RunPhase phase) {
@@ -603,7 +607,10 @@ int Runtime::run() {
     };
     if (extension_run(RunPhase::start))
         return exit_code;
-    if (options_.headless_check) {
+    // The away-pause check needs the window, including when --campaign and
+    // --mission name the match it starts. The headless campaign return would
+    // run that mission and never reach the check.
+    if (options_.headless_check && !options_.check_away_pause) {
         // The director's runs come before the extension's headless runs,
         // which never see them; an extension takes part only through
         // open_recording.
@@ -614,6 +621,11 @@ int Runtime::run() {
         }
         if (!options_.render_script.empty()) {
             const int status = run_render_script();
+            flush_preferences();
+            return status;
+        }
+        if (!options_.replay_index.empty()) {
+            const int status = run_replay_index();
             flush_preferences();
             return status;
         }
@@ -892,6 +904,21 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_library_replays) {
+            check_library_replays();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_replay_import) {
+            check_replay_import();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_replays_content) {
+            check_replays_content();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_renderer_ladder) {
             const int status = check_renderer_ladder();
             flush_preferences();
@@ -1149,6 +1176,14 @@ int Runtime::run() {
         }
         if (!options_.check_key_table.empty()) {
             check_key_table();
+            flush_preferences();
+            return 0;
+        }
+        // Photo mode needs the window: its key, pointer and resize steps
+        // go through the same path a player uses. The dummy drivers give
+        // that window no screen.
+        if (options_.check_photo) {
+            check_photo();
             flush_preferences();
             return 0;
         }
@@ -1428,6 +1463,16 @@ void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
     // The settings action opens Settings on every screen, as Alt+Enter
     // switches full screen, and before a screen sees the key. The Library
     // open over Settings is the exception: that screen goes back to Settings.
+    // Photo mode ends first, as the game menu does, so Settings opens on
+    // the interface the player left. The macOS application menu's
+    // Settings… item asks with an event of its own.
+    if (photo_mode()) {
+        const auto* settings_action = fired_action("ui.settings");
+        if ((settings_action != nullptr &&
+             settings_action->phase == oa::ui::key_bindings::Phase::pressed) ||
+            is_engine_settings_menu_event(event))
+            leave_photo_mode();
+    }
     if (take_settings_action()) {
         apply_screen_request();
         return;
@@ -1456,6 +1501,10 @@ bool Runtime::take_keys_overlay_action() {
     const auto* action = fired_action("ui.keys-overlay");
     if (action == nullptr || action->phase != oa::ui::key_bindings::Phase::pressed)
         return false;
+    // Photo mode leaves the keys overlay out. The key is taken, so it
+    // does not reach the photo screen either.
+    if (photo_mode())
+        return true;
     if (keys_overlay_hook_ != nullptr)
         keys_overlay_hook_(*this);
     toggle_keys_overlay_screen();
@@ -1543,10 +1592,14 @@ void Runtime::idle_tick() {
     // Content that differs is told with the language notice, and queues first.
     tell_content_difference();
     tell_missing_language();
+    consider_replay_retention();
     tell_mod_installs();
     // An .oareg file the game was opened with opens the Add registry window
     // once the main menu is free.
     take_registry_files();
+    // A .oademo or a .tad the game was opened with is copied into Replays
+    // once the main menu is free, the next file once its notice has closed.
+    take_opened_replays();
     tell_challenges();
     render();
     presentation_alpha_ = 1.0F;
@@ -1568,7 +1621,8 @@ void Runtime::move_match_camera() {
     if (screen_ != Screen::match || match_paused_)
         return;
     pan_match_camera();
-    if (live_renderer_active())
+    // A held picture keeps the camera, including a follow that was already on.
+    if (photo_camera_locked() || live_renderer_active())
         return;
     if (match_)
         follow_match_camera_unit();
@@ -1598,8 +1652,10 @@ bool Runtime::match_clock_steps() const {
         return false;
     const bool shared = (current_extension_state() & extension_state::shared_match) != 0;
     // The team menu and its panels hold no match, as 3.1c holds a game on
-    // this machine alone only for its in-game menu.
-    const bool menu_holds = match_paused_ && !match_finished_ && !team_panel_open();
+    // this machine alone only for its in-game menu. Photo mode's freeze and
+    // slow hold a match on this machine the same way, beside that rule.
+    const bool menu_holds =
+        (match_paused_ && !match_finished_ && !team_panel_open()) || photo_clock_held();
     return match_clock_runs(shared, menu_holds, match_finished_);
 }
 
@@ -1763,6 +1819,23 @@ void Runtime::finish_match_steps() {
 void Runtime::advance_match_clock(uint32_t now_ms) {
     // Every tick rounds with the settings the game started with.
     oa::base::float_precision::restore_program_float_control();
+    // A replay is paced by the viewer's clock. The game clock would neither batch a fast
+    // replay nor hold its time while the viewer pauses, and a recorded speed would replace
+    // the one the viewer chose.
+    if (match_ && (current_extension_state() & extension_state::replay) != 0) {
+        match_timing_.flags =
+            clock_flags_with_pause(match_timing_.flags, match_->state().game.sim_run_flags);
+        const ReplayFrameHost host = replay_frame_host();
+        call_hook_or_report<&Extension::replay_frame>(
+            extension_, hook_error_report(), *this, now_ms, host
+        );
+        replay_skip_presentation_ = false;
+        if (replay_end_requested_) {
+            replay_end_requested_ = false;
+            leave_match();
+        }
+        return;
+    }
     match_timing_.flags =
         clock_flags_with_pause(match_timing_.flags, match_->state().game.sim_run_flags);
     // A clock state the loop refuses runs no step this frame.
@@ -1784,10 +1857,98 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
     finish_match_steps();
 }
 
-Runtime::GrantedTicks Runtime::run_granted_ticks(uint32_t count) {
+ReplayFrameHost Runtime::replay_frame_host() noexcept {
+    ReplayFrameHost host;
+    host.context = this;
+    host.match = replay_host_match;
+    host.clock_tick = replay_host_clock_tick;
+    host.set_clock_tick = replay_host_set_clock_tick;
+    host.run_tick = replay_host_run_tick;
+    host.present = replay_host_present;
+    host.sound_millis = replay_host_sound_millis;
+    host.set_unit_speech = replay_host_set_unit_speech;
+    host.unit_speech = replay_host_unit_speech;
+    host.note_error = replay_host_note_error;
+    host.stop = replay_host_stop;
+    host.tell = replay_host_tell;
+    return host;
+}
+
+oa::sim::match_runtime::Match* Runtime::replay_host_match(void* context) {
+    return static_cast<Runtime*>(context)->match_.get();
+}
+
+uint32_t Runtime::replay_host_clock_tick(void* context) {
+    return static_cast<Runtime*>(context)->match_timing_.tick;
+}
+
+void Runtime::replay_host_set_clock_tick(void* context, uint32_t tick) {
+    static_cast<Runtime*>(context)->match_timing_.tick = tick;
+}
+
+bool Runtime::replay_host_run_tick(void* context, bool draw) {
+    auto& runtime = *static_cast<Runtime*>(context);
+    runtime.replay_skip_presentation_ = !draw;
+    const bool ran = runtime.run_one_match_step();
+    runtime.replay_skip_presentation_ = false;
+    return ran;
+}
+
+void Runtime::replay_host_present(void* context, uint32_t ticks_before) {
+    auto& runtime = *static_cast<Runtime*>(context);
+    if (runtime.match_ == nullptr)
+        return;
+    const uint32_t tick_after = runtime.match_->state().game.tick;
+    const uint32_t advanced = tick_after >= ticks_before ? tick_after - ticks_before : 0;
+    runtime.match_timing_.pending_steps = static_cast<int32_t>(advanced);
+    runtime.finish_match_steps();
+    runtime.snap_held_clock();
+    runtime.match_timing_.pending_steps = static_cast<int32_t>(advanced);
+}
+
+uint32_t Runtime::replay_host_sound_millis(void* context) {
+    return static_cast<Runtime*>(context)->clock_milliseconds();
+}
+
+void Runtime::replay_host_set_unit_speech(void* context, bool on) {
+    static_cast<Runtime*>(context)->offline_services_.announcement_gates().unit_speech_mode = on;
+}
+
+bool Runtime::replay_host_unit_speech(void* context) {
+    return static_cast<Runtime*>(context)->offline_services_.announcement_gates().unit_speech_mode;
+}
+
+void Runtime::replay_host_note_error(void* context, const char* what) {
+    static_cast<Runtime*>(context)->report_match_tick_error(what != nullptr ? what : "");
+}
+
+void Runtime::replay_host_stop(void* context) {
+    static_cast<Runtime*>(context)->replay_end_requested_ = true;
+}
+
+void Runtime::replay_host_tell(void* context, const char* line) {
+    if (line == nullptr || line[0] == '\0')
+        return;
+    static_cast<Runtime*>(context)->console_post_message(line);
+}
+
+Runtime::GrantedTicks Runtime::run_granted_ticks(uint32_t count, bool photo_grant) {
     GrantedTicks grant;
-    if (!match_ || count == 0 || !match_clock_steps())
+    if (!match_ || count == 0)
         return grant;
+    if (photo_grant) {
+        // Photo mode's own hold is the reason the grant exists. A menu, a
+        // match that is not running, and a match that is not on this machine
+        // still refuse it.
+        if (!photo_mode() || !photo_time_is_local())
+            return grant;
+        if (!match_running() || match_tick_blocked_ || match_finished_)
+            return grant;
+        if (match_paused_ && !team_panel_open())
+            return grant;
+    } else if (!match_clock_steps()) {
+        return grant;
+    }
     if ((match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0)
         return grant;
     if (match_->outcome() != oa::sim::scenario::Outcome::ongoing) {
@@ -1815,6 +1976,10 @@ Runtime::GrantedTicks Runtime::run_granted_ticks(uint32_t count) {
     }
     if (match_->outcome() != oa::sim::scenario::Outcome::ongoing)
         grant.game_over = true;
+    // A photo grant must not retire a message the headless step leaves. The
+    // line is retired when a frame's clock owed steps, which this grant is not.
+    if (photo_grant)
+        match_timing_.pending_steps = 0;
     finish_match_steps();
     snap_held_clock();
     return grant;

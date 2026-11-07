@@ -15,7 +15,10 @@
 #include "oa/app/presence_facts.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/netgame/presence.hpp"
+#include "oa/session/demo/clock.hpp"
+#include "oa/sim/match_runtime.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -27,8 +30,9 @@
 
 namespace oa::app {
 
-struct NetState;  // net_state.hpp
-struct DemoState; // demo_state.hpp
+struct NetState;       // net_state.hpp
+struct DemoState;      // demo_state.hpp
+struct SkirmishRecord; // runtime_net.cpp
 
 /// Network play's state for one runtime, and the work network play does on that runtime.
 class NetworkPlay {
@@ -72,6 +76,11 @@ class NetworkPlay {
     ///
     /// @param state Session to destroy; null is allowed.
     static void destroy_net_state(NetState* state) noexcept;
+
+    /// Destroys a skirmish recording; null is allowed.
+    ///
+    /// @param record Recording to destroy.
+    static void destroy_skirmish_record(SkirmishRecord* record) noexcept;
 
     /// Binds the multiplayer screens to the network session, creating the session on first use.
     ///
@@ -161,6 +170,61 @@ class NetworkPlay {
     /// @return True when the networked binding ran or held the tick; false
     ///         without a running (loaded) network match.
     bool net_simulation_step();
+
+    /// Starts a skirmish or campaign recording on the first tick, when one is due.
+    ///
+    /// The local player and every computer player send the records a network
+    /// game would send, through a transport that only records. The match's
+    /// unit ranges stay as the match dealt them. A later tick does nothing.
+    /// A network match and a replay are left alone.
+    void consider_skirmish_recording();
+
+    /// Raises the recording's send bit for this tick and records what the last
+    /// tick left: a unit a command made while the bit was down, and each
+    /// sender's economy on the beat a network game sends it.
+    ///
+    /// Nothing without a recording. The engine's own step then runs, and the
+    /// bit stays up through that step so its creates, deaths, shots and
+    /// feature changes are recorded.
+    void advance_skirmish_recording();
+
+    /// Clears the live-game bit when the recording set it.
+    ///
+    /// A bit something else set, a multiplayer game or a check, is left set.
+    /// Nothing without a recording.
+    void hide_skirmish_live_bit();
+
+    /// Tells whether a skirmish or campaign recording is packing on its own thread.
+    ///
+    /// A won or lost game starts that thread before the end screen opens. The
+    /// torn-down event leaves the thread running, so the end screen does not
+    /// wait for the pack. The next recording, or the destructor, waits for it,
+    /// and the file is written either way.
+    ///
+    /// @return true while that thread has been started and not yet reaped
+    [[nodiscard]] bool skirmish_packing() const noexcept;
+
+    /// Finishes the skirmish or campaign recording, if one is open, and takes the hooks down.
+    ///
+    /// Each sender's economy is recorded once more, as a network game sends it
+    /// when the match ends. The tick and the outcome are the running match's,
+    /// so a won or lost game is recorded as finished with that length. A later
+    /// call, once this one has closed the recording, waits for a pack that is
+    /// still running and says where the file went. It does not write the end
+    /// again. A run nobody watches finishes before this returns. A game a
+    /// person plays packs on a thread of its own, and this returns without
+    /// waiting for that thread.
+    void finish_skirmish_recording();
+
+    /// Prints how many map cells hold a feature, and a digest of those cells.
+    ///
+    /// The line is `LABEL: cells N digest DIGEST`. A cell counts when its
+    /// feature is one of the map's own, and the digest folds each such cell's
+    /// column, row and feature in order.
+    ///
+    /// @param label the line's name
+    /// @param world the world whose map is read
+    static void print_feature_cells(const char* label, const oa::World& world);
 
     /// Returns the wall clock the lag guard measures with.
     ///
@@ -301,7 +365,8 @@ class NetworkPlay {
     /// The two machines publish and join a session, sync their unit tables,
     /// launch through the load barrier and run the match, which the check
     /// compares between them; with --net-loopback-watcher the joiner only
-    /// watches. Progress goes to stdout.
+    /// watches. With --net-loopback-photo the host's player enters photo
+    /// mode, holds the picture and leaves. Progress goes to stdout.
     ///
     /// @param ticks Networked ticks to run once the match has started.
     /// @return 0 when every check passes; a failed check throws std::runtime_error.
@@ -358,8 +423,81 @@ class NetworkPlay {
     /// session ends when its match is no longer the running one.
     void step_demo_frame();
 
-    /// Applies a recorded game speed change to the playback pacing, as it paced the recorded game.
+    /// Runs --replay-keyframe-check on the playback that was just started: a keyframe at the
+    /// start, the replay to `at`, a keyframe there, 3,000 ticks, the same 3,000 ticks again from
+    /// the restored keyframe, and a line that says whether both runs ended on the same digest.
+    /// Leaves the replay at the end of the second run, to go on from.
+    ///
+    /// @param at The tick to take the keyframe at.
+    /// @param[out] finished Set when the replay has played everything it holds.
+    /// @return False when a keyframe could not be taken or restored, or the restored replay
+    ///         differed from the first.
+    [[nodiscard]] bool run_keyframe_check(uint32_t at, bool* finished);
+
+    /// Notes a recorded game speed and the viewer's sound, without writing the viewer's speed.
+    ///
+    /// A recorded speed change still paces playback, multiplied by the viewer's
+    /// speed. It no longer copies itself over the speed the viewer chose.
     void demo_frame();
+
+    /// Runs the ticks one frame of a replay owes, and seeks that are due.
+    ///
+    /// The game clock does not pace a replay. Only the last tick of a frame is
+    /// drawn; a seek's ticks are not drawn until it lands. Pause and an open
+    /// menu hold the clock.
+    ///
+    /// @param now_ms the frame's clock, in milliseconds
+    /// @param host how the frame steps, draws and stops the match
+    void run_replay_frame(uint32_t now_ms, const ReplayFrameHost& host);
+
+    /// Forgets the time an open menu held, so the next frame is one frame.
+    ///
+    /// @param now_ms the frame's clock, in milliseconds
+    void replay_hold(uint32_t now_ms);
+
+    /// Plays a paused replay. The next frame runs at the viewer's speed.
+    void replay_play();
+
+    /// Holds the replay's clock. A recorded pause does not.
+    void replay_pause();
+
+    /// Sets the viewer's speed. A recorded speed change does not call this.
+    ///
+    /// @param speed one of the ladder speeds
+    void replay_set_speed(oa::session::demo::PlaybackSpeed speed);
+
+    /// Sets the viewer's speed from thousandths of 1x. Another value changes nothing.
+    ///
+    /// @param milli 500, 1000, 2000, 4000, 8000 or 16000
+    void replay_set_speed_milli(int32_t milli);
+
+    /// Steps the viewer's speed one place, as + and - do while a replay plays.
+    ///
+    /// @param delta positive to go faster, negative to go slower
+    void replay_step_speed(int delta);
+
+    /// Asks to jump to a tick. The jump runs on the next frame.
+    ///
+    /// @param play_tick the tick to land on
+    void replay_seek_to(uint32_t play_tick);
+
+    /// The tick, the length known so far, the furthest point watched, the spans
+    /// ready to jump to, a catch-up's progress and the speed reached.
+    ///
+    /// @return that state; an empty one when no replay is playing
+    [[nodiscard]] oa::session::demo::PlaybackState replay_playback_state() const;
+
+    /// Fills the view the replay_state hook returns. The spans and the sentence
+    /// stay valid until the next call.
+    ///
+    /// @param[out] out the view
+    /// @return false when no replay is playing
+    bool replay_fill_state(ReplayPlaybackView* out);
+
+    /// Takes the sentence a failed jump left for the player, and clears it.
+    ///
+    /// @return the sentence, or empty when there is none
+    std::string take_replay_stop_notice();
 
     /// Places the headless snapshot camera: at --camera when given, else on the followed unit.
     void place_demo_camera();
@@ -516,10 +654,134 @@ class NetworkPlay {
     // Network play's hooks (extension.cpp), which reach this state.
     friend struct RuntimeExtension;
 
+    /// Sets the keyframe budget, the viewer's speed and the seeks the command line named.
+    void arm_replay_controls();
+
+    /// Wraps the match's point-sound hook so a fast replay can thin what plays.
+    void wrap_replay_sound();
+
+    /// Keeps a recorded speed that is inside the game's range. Zero leaves the last one.
+    void note_recorded_speed();
+
+    /// Mutes speech above 4× and while skipping, and brings it back at 4× and below.
+    ///
+    /// @param host the frame's host, which owns the speech bit
+    void apply_replay_speech(const ReplayFrameHost& host);
+
+    /// Notes the play head, takes a keyframe when one is due, then thins and evicts.
+    ///
+    /// @param play_tick the tick just reached
+    void follow_play_head(uint32_t play_tick);
+
+    /// Takes a keyframe at one tick. A refusal is logged once and playback goes on.
+    ///
+    /// @param play_tick the tick
+    void take_replay_keyframe(uint32_t play_tick);
+
+    /// Forgets keyframes the reel dropped.
+    ///
+    /// @param ticks the ticks to drop
+    void drop_replay_keyframes(const std::vector<uint32_t>& ticks);
+
+    /// Raises the length known so far from the play head and the recording's last frame.
+    ///
+    /// @param play_tick the tick just reached
+    void note_replay_length(uint32_t play_tick);
+
+    /// Runs the one seek that is armed, when the play head has reached its FROM.
+    ///
+    /// Only the first waiting jump is armed. It fires when the play head is at
+    /// or past its FROM, and the next is armed when it lands. A FROM already
+    /// passed fires at once. A jump asked while one is running is not this
+    /// list: replay_seek_to replaces it.
+    ///
+    /// @param windowed true when the ticks go through the drawn match step
+    /// @param[in,out] finished set when the replay has played everything it holds
+    /// @param deadline the frame's time budget; ignored when bound is false
+    /// @param bound true to stop at the deadline and carry the seek into the next frame
+    /// @param host the frame's host; null on the headless path, which does not stop the match
+    /// @return true when a seek ran
+    bool perform_due_seeks(
+        bool windowed,
+        bool* finished,
+        std::chrono::steady_clock::time_point deadline,
+        bool bound,
+        const ReplayFrameHost* host
+    );
+
+    /// Starts a jump. A restore that fails ends the playback. A jump back with no keyframe stays.
+    ///
+    /// @param jump the jump
+    /// @param host the frame's host; null on the headless path
+    void begin_seek(const oa::session::demo::ReplayJump& jump, const ReplayFrameHost* host);
+
+    /// Runs a jump until it lands, the replay ends, or the frame's time is spent.
+    ///
+    /// @param windowed true when the ticks go through the drawn match step
+    /// @param[in,out] finished set when the replay has played everything it holds
+    /// @param deadline the frame's time budget; ignored when bound is false
+    /// @param bound true to stop at the deadline and carry the jump into the next frame
+    /// @param host the frame's host; null on the headless path
+    void continue_seek(
+        bool windowed,
+        bool* finished,
+        std::chrono::steady_clock::time_point deadline,
+        bool bound,
+        const ReplayFrameHost* host
+    );
+
+    /// The match's point-sound hook before a replay wrapped it, kept after the replay ends.
+    oa::sim::match_runtime::Match::PointSoundHook replay_saved_sound_{};
+
+    /// Milliseconds of the previous replay frame, so the next plans from the gap.
+    uint32_t replay_last_ms_ = 0;
+    /// False until the first frame, which plans nothing and starts the gap.
+    bool replay_have_ms_ = false;
+    /// The tick being run is not drawn, so its unit sounds stay quiet.
+    bool replay_hide_tick_ = false;
+    /// Milliseconds the unit-sound gate counts for the tick being run.
+    uint32_t replay_sound_ms_ = 0;
+    /// A sentence for the player after a jump stopped the replay. Shown once the match is gone.
+    std::string replay_stop_sentence_{};
+
+    /// The milliseconds since the previous frame, and that frame becomes the previous.
+    ///
+    /// The first frame is 0. The subtraction wraps with the 32-bit clock.
+    ///
+    /// @param now_ms the frame's clock
+    /// @return the gap, in milliseconds
+    uint32_t replay_elapsed(uint32_t now_ms);
+
+    /// Runs one tick through the host, hiding its sounds when it is not drawn.
+    ///
+    /// @param host the frame's host
+    /// @param draw true to draw the tick
+    /// @return false when the tick did not run
+    bool run_replay_tick(const ReplayFrameHost& host, bool draw);
+
+    /// The sentence the player reads for an English line, with {time} filled in.
+    ///
+    /// @param english the catalogue line
+    /// @param tick the tick {time} names; ignored when the line has no {time}
+    /// @return the sentence
+    std::string replay_player_line(const char* english, uint32_t tick) const;
+
     Runtime& runtime_;
     std::unique_ptr<NetState, void (*)(NetState*) noexcept> net_{nullptr, destroy_net_state};
+    /// A skirmish kept as a recording. Null when this run is not recording one.
+    std::unique_ptr<SkirmishRecord, void (*)(SkirmishRecord*) noexcept> skirmish_{
+        nullptr, destroy_skirmish_record
+    };
+    /// The running skirmish has already decided whether it records.
+    bool skirmish_decided_ = false;
+    /// select_map_named took the map through the campaign loader, because
+    /// select_map does not accept it. Playback then keeps the definitions the
+    /// recording's unit checks name. A map select_map accepts leaves this false.
+    /// It records which loader took the map and starts nothing.
+    bool mission_map_taken_ = false;
     bool demo_unit_table_differs_ = false;
-    uint16_t demo_speed_ = 0; // last recorded game speed applied to the pacing
+    // How many of the playback's keyframe faults the log has told of.
+    std::size_t keyframe_faults_logged_ = 0;
     // Declared after net_: the playback ends before the session.
     std::unique_ptr<DemoState, void (*)(DemoState*) noexcept> demo_{nullptr, destroy_demo_session};
     // The last chat line handed to the match report.

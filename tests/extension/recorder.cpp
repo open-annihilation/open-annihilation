@@ -77,9 +77,17 @@ namespace kit = oa::ui::kit;
 // Version 17 adds hear_remote_seat_chat, also a function an extension calls,
 // so the hook count is unchanged. Version 18 adds the kit's key pictures,
 // not a hook, so the hook count is unchanged. Version 19 is Kit 2's look in
-// the kit's headers, not a hook, so the hook count is unchanged.
-constexpr uint32_t kExtensionApiVersionRecorded = 20;
-constexpr std::size_t kHookCount = 41;
+// the kit's headers, not a hook, so the hook count is unchanged. Version 20
+// adds ExtensionControl's masked, text_length, scroll_up and scroll_down
+// members and the calls answer_multiplayer_entry, defer_inactive_loop_release,
+// post_extension_note and take_extension_notes, none of them a hook, so the
+// hook count is unchanged. Version 21 adds accessibility fields on controls,
+// not a hook, so the hook count is unchanged. Version 21 also adds the
+// rectangle where an extension window's art takes the press, not a hook, so
+// the hook count is unchanged. Version 21 also adds the replay viewer's
+// eight hooks, so the count is 49.
+constexpr uint32_t kExtensionApiVersionRecorded = 21;
+constexpr std::size_t kHookCount = 49;
 static_assert(
     extension_api_version == kExtensionApiVersionRecorded,
     "the extension table's contract changed: record every hook here, "
@@ -698,6 +706,80 @@ struct RecorderExtension {
         record("release_runtime");
     }
 
+    /// Counts one frame of a replay (Extension::replay_frame).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    /// @param now_ms the frame's clock (unused)
+    /// @param host how the frame steps the match (unused)
+    static void replay_frame(
+        void* /*context*/,
+        Runtime& /*runtime*/,
+        uint32_t /*now_ms*/,
+        const ReplayFrameHost& /*host*/
+    ) {
+        record("replay_frame");
+    }
+
+    /// Counts a menu holding a replay (Extension::replay_hold).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    /// @param now_ms the frame's clock (unused)
+    static void replay_hold(void* /*context*/, Runtime& /*runtime*/, uint32_t /*now_ms*/) {
+        record("replay_hold");
+    }
+
+    /// Counts a replay being played (Extension::replay_play).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    static void replay_play(void* /*context*/, Runtime& /*runtime*/) { record("replay_play"); }
+
+    /// Counts a replay being paused (Extension::replay_pause).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    static void replay_pause(void* /*context*/, Runtime& /*runtime*/) { record("replay_pause"); }
+
+    /// Counts a replay speed being set (Extension::replay_set_speed).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    /// @param milli the speed, 1000 at 1x (unused)
+    static void replay_set_speed(void* /*context*/, Runtime& /*runtime*/, int32_t /*milli*/) {
+        record("replay_set_speed");
+    }
+
+    /// Counts a replay speed being stepped (Extension::replay_step_speed).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    /// @param delta the step (unused)
+    static void replay_step_speed(void* /*context*/, Runtime& /*runtime*/, int32_t /*delta*/) {
+        record("replay_step_speed");
+    }
+
+    /// Counts a jump being asked (Extension::replay_seek).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    /// @param tick the tick to land on (unused)
+    static void replay_seek(void* /*context*/, Runtime& /*runtime*/, uint32_t /*tick*/) {
+        record("replay_seek");
+    }
+
+    /// Fills nothing: the recorder is not watching a replay (Extension::replay_state).
+    ///
+    /// @param context Extension::context (unused)
+    /// @param runtime the running app; left as it is
+    /// @param out the view; left as it is
+    /// @return false
+    static bool replay_state(void* /*context*/, Runtime& /*runtime*/, ReplayPlaybackView* /*out*/) {
+        record("replay_state");
+        return false;
+    }
+
     /// Says that --check-multiplayer-menu ran, after network play's check of
     /// the multiplayer screens, then runs a round of the main menu through the
     /// check host, whose clicks on MULTI reach select_multiplayer
@@ -991,6 +1073,14 @@ void oa_extension_init_recorder(oa::app::Extension* table) {
     table->app_mode_set = RecorderExtension::app_mode_set;
     table->open_recording = RecorderExtension::open_recording;
     table->release_runtime = RecorderExtension::release_runtime;
+    table->replay_frame = RecorderExtension::replay_frame;
+    table->replay_hold = RecorderExtension::replay_hold;
+    table->replay_play = RecorderExtension::replay_play;
+    table->replay_pause = RecorderExtension::replay_pause;
+    table->replay_set_speed = RecorderExtension::replay_set_speed;
+    table->replay_step_speed = RecorderExtension::replay_step_speed;
+    table->replay_seek = RecorderExtension::replay_seek;
+    table->replay_state = RecorderExtension::replay_state;
     // A hook left unset here would fall back to the engine's behaviour
     // unrecorded: stop before anything runs. Network play's own two are
     // left unset.

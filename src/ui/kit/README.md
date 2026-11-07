@@ -79,6 +79,11 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     screens' own layouts (Settings, the Library, the key editor, the
     pickers) are built on those sizes and do not hold Kit 2's yet: each
     moves to Kit 2's sizes as its shell is rebuilt.
+- `state_colours.hpp`: ok, caution, danger and information, and their
+  tinted fills. With colour vision off they are the tokens above. A mode
+  substitutes that mode's kit colours. Chips, pills, callouts, line marks,
+  the lock and the OA button's warning dot read them. The accent as a
+  selection, a switch, the OK button and the focus ring stay the tokens.
 - `text.hpp`: the game's two text faces, their width, drawing a line and a
   boxed line, and the one wrap; `fitting_start`, where the wrap breaks a word
   wider than a line; `path_break`, a `WordBreak` that breaks a folder's path
@@ -853,7 +858,10 @@ shares (Kit 2's focus ring, window bands, switch and badge, and the
 screens' sizes, 0.7.3's), each class's steps on Kit 2's type, spacing and
 shape scales and what follows from them, the design's table of dialog
 sizes, that Regular and Large differ from Compact in nothing else, and
-that each class's dialog and notices fit the least window of their class. `ui-kit-text` checks the UTF-8
+that each class's dialog and notices fit the least window of their class.
+`ui-kit-state-colours` checks each mode's good, mid and bad palette indices
+and each state colour, and that the focus ring stays the accent's light.
+`ui-kit-text` checks the UTF-8
 helpers, the estimated width, the stand-ins, the wrap against copies of
 the six wraps it replaces, `fit` and `fitting_start` against the Game files
 screen's copies, `path_break` at its separators and against the folder

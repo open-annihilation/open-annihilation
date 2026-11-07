@@ -23,8 +23,9 @@ the setting changes:
    English, Deutsch, Español, Français and Italiano, in that
    order. An installed pack adds its language among them, by its own name.
    Under them, headed AVAILABLE TO DOWNLOAD, the list offers each language
-   a registry offers whose pack is not installed, with the pack's size;
-   choosing one downloads the pack and then switches to it
+   a registry offers whose pack is not installed and whose text this build
+   can draw, with the pack's size; choosing one downloads the pack and
+   then switches to it
    ([Settings](settings.md#language)). It is kept as
    `open-annihilation.language`: `system`, or the language's BCP-47 tag
    (`de`).
@@ -54,7 +55,7 @@ setting names a language whose pack is not installed, as for a player of
 menu has settled. The same notice shows when the setting is System default
 and the computer's language is one of those, until the player answers Use
 English for it. It never shows in a game, nor when 3.1c's command line
-names the language.
+names the language. A language this build cannot draw does not raise it.
 
 The notice is titled Language, with the language's own name large under
 it, then its text in that language, where the game has the words, and in
@@ -84,17 +85,62 @@ a comma-separated list of tags.
 ## Language names before their pack
 
 A language's own name, and the notice that its pack is not installed yet,
-are drawn before that pack is installed. The endonym face,
-`NotoSansCJKsc-Bold-Endonyms.otf`, is a cut of Noto Sans CJK SC Bold that
-holds those names and the notice's lines. It travels with the game, so the
-list can show 简体中文, and the names the catalogue may grow into, while
-the language's own pack is absent. The sans faces draw the Latin and
-Cyrillic names. The face is sized as an ideograph face is, and it keeps
-those rows, so a line does not move.
+are drawn before that pack is installed, from faces that travel with the
+game. The sans faces draw the Latin, Greek and Cyrillic names. Two cuts
+draw the rest:
 
-To add a name, add its line to `tools/text-fonts/endonyms.txt`, run
+- The endonym face, `NotoSansCJKsc-Bold-Endonyms.otf`, is a cut of Noto
+  Sans CJK SC Bold that holds the Chinese, Japanese and Korean names and
+  Simplified Chinese's notice. The list can show 简体中文, and the names
+  the catalogue may grow into, while the language's own pack is absent.
+  The face is sized as an ideograph face is, and it keeps those rows, so a
+  line does not move.
+- The Bengali endonym face, `NotoSansBengali-Bold-Endonyms.ttf`, is a cut
+  of Noto Sans Bengali Bold that holds বাংলা and the Bengali notice, so
+  the list can show বাংলা under AVAILABLE TO DOWNLOAD and the notice can
+  tell a Bengali player in Bengali. Bengali's letters join, stack and
+  reorder, so the cut keeps the font's GSUB, GPOS and GDEF, and each glyph
+  keeps the id the full face gives it: on a build that shapes, the name and
+  the notice are shaped before they are drawn, and come out the glyphs the
+  full face gives. A build without shaping does not offer Bengali, but the
+  face is still there: a letter of it that text brings another way, such as
+  chat or a player's name, is drawn by it one letter at a time, unjoined.
+  The face is sized as the sans faces are, as a pack's
+  own Bengali face is, and it never changes the rows of a line, so every
+  other name and notice is drawn as it was. Once the Bengali pack is
+  installed, the pack's face draws Bengali and this one stands behind it.
+
+To add a name, add its line to the list of the face that holds its script,
+`tools/text-fonts/endonyms.txt` for Chinese, Japanese and Korean or
+`tools/text-fonts/endonyms-bengali.txt` for Bengali, run
 `python3 tools/bootstrap_text_fonts.py --fonts-only`, and put the SHA-256
-and the character count it prints into that script.
+and the character count it prints into that script. A character a sans face
+holds needs no place in the cut.
+
+A script whose letters need shaping takes a list and a cut of its own, as
+Bengali does; Devanagari, for Hindi, would be the next. The steps:
+
+1. Write the list beside the others (`tools/text-fonts/`), one string a
+   line: the language's own name, and the lines of its notice in the order
+   of `PackNotice`, with `%s` written as the size `4.0 MB`.
+2. Cut the script's Noto Sans Bold face to that list in
+   `tools/bootstrap_text_fonts.py` with `cut_face(..., shaped=True)`, which
+   keeps GSUB, GPOS and GDEF and every glyph id, and pin the cut's SHA-256
+   and character count there, with the face it is cut from. The cut is made
+   by the pinned fontTools from the pinned release, never fetched ready-made.
+3. Add the cut to the text font module's base faces at the end of `Face`
+   and `face_files`, so no other face's value moves, and before Noto Emoji
+   in the chain (`oa/platform/text_font.hpp`, `text_font.cpp`), to
+   `OA_TEXT_FONT_FILES` in `cmake/OaTextFonts.cmake`, to `FONT_FILES` and to
+   the Nix build (`tools/nix/linux.nix`), in the same order. Draw it at the
+   sans faces' size and leave it out of the line's rows
+   (`FontStack::metrics`), unless the script's own rows are meant to move
+   every line.
+4. Add the notice's lines to `src/data/languages/src/pack_notices.inc` as
+   escaped bytes, and the list to `data-languages-endonyms`. Its shaping
+   case (`data-languages-endonyms-shaping`) shapes each run of the list
+   with HarfBuzz on the full face and requires the same glyphs.
+5. Give the face its licence in `ATTRIBUTIONS.md`.
 
 ## What is shown in it
 
@@ -197,12 +243,13 @@ the game does not already show adds that language to Settings › Language,
 named in itself, beside the languages the game ships. A pack for a
 language the game already shows adds its text and leaves that language's
 name, word and drawing needs as they are. A language a registry offers,
-whose pack is not installed, is offered under AVAILABLE TO DOWNLOAD, by
-the name, tag and locales the catalogue gives, until its pack arrives.
+whose pack is not installed and whose text this build can draw, is offered
+under AVAILABLE TO DOWNLOAD, by the name, tag and locales the catalogue
+gives, until its pack arrives.
 `unicode: true` turns Enable Unicode Multiplayer Chat on while the
 language is shown ([Settings](settings.md#language)). A language whose
-text needs the modern fonts turns it on too, with or without its pack,
-since its text is UTF-8. The installer checks `requires.engine` when a pack is
+text needs the modern fonts, or shaping, turns it on too, with or without
+its pack, since its text is UTF-8. The installer checks `requires.engine` when a pack is
 installed, and reading a pack that is already installed does not, so an
 installed pack stays available when this Open Annihilation is older than
 the pack asks for. Quote the requirement: a value that starts with `>`
@@ -522,9 +569,9 @@ A language whose letters are all in the game's 8-bit code page
 own fonts, with two things to know:
 
 - A pack's tables are UTF-8, and the game reads them so only while the
-  pack sets `unicode: true` or its text needs the modern fonts. A pack in
-  the game's fonts without `unicode: true` shows each accented letter as
-  two wrong characters.
+  pack sets `unicode: true` or its text needs the modern fonts or shaping.
+  A pack in the game's fonts without `unicode: true` shows each accented
+  letter as two wrong characters.
 - 3.1c's menu fonts (`anims/hattfont11.GAF`, `anims/hattfont12.GAF`) hold
   their box, not a letter, for ã, õ, Ã, Õ, Â, Ê, Ô and À, so a caption
   holding one of them is drawn whole in the modern fonts.
@@ -539,9 +586,19 @@ Others need drawing the game has in part or not yet:
   words, so its lines break at those spaces and keep each word whole, as
   Latin text does; a word breaks inside only when it is wider than the
   line.
-- **Hindi** needs a Devanagari face and complex text shaping (HarfBuzz),
-  since its letters join and change order; the FreeType-only drawing lays
-  characters side by side.
+- **Hindi** needs a Devanagari face and complex text shaping, since its
+  letters join and change order. A build that shapes draws a Devanagari
+  run with HarfBuzz and measures, breaks and clips the line by those
+  widths. A build without shaping does not offer the language.
+- **Bengali** needs a Bengali face and the same shaping. Its letters join,
+  stack and reorder, which drawing characters side by side cannot do. It
+  is offered only on a build that shapes. Its own name and its notice are
+  drawn before its pack is installed, by a face that travels with the game
+  ([Language names before their pack](#language-names-before-their-pack)).
+  Its mission briefings are drawn in the modern fonts whatever Use modern
+  fonts for game text says, and a briefing row that breaks at a hyphen
+  keeps the hyphen at its end, as in every briefing the modern fonts draw;
+  the game's own fonts lose it there, as 3.1c does.
 
 The registry records these needs (`TextNeeds`), and the setting offers only
 the installed languages this build draws.

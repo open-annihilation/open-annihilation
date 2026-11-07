@@ -173,10 +173,11 @@ bool enter_boneyards_requested(MainMenuOverlay* overlay) {
 }
 
 // Answers the strip's MULTI before this overlay opens multiplayer. A true
-// result means the press was answered (the demo's notice, or a mod that
-// cannot start) and the overlay does nothing else. Null leaves MULTI
-// opening multiplayer. Read when the button is pressed, so an answer
-// installed before the strip exists is the one that runs.
+// result means the press was answered (the demo's notice, a mod that cannot
+// start, or an extension that took the game over) and the overlay does
+// nothing else. Null leaves MULTI opening multiplayer. Read when the button
+// is pressed, so an answer installed before the strip exists is the one that
+// runs.
 bool (*g_multiplayer_answer)(void* user) = nullptr;
 void* g_multiplayer_answer_user = nullptr;
 

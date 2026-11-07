@@ -10,6 +10,7 @@
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/components.hpp"
+#include "oa/ui/kit/state_colours.hpp"
 
 #include "oa/ui/frontend_renderer/artless.hpp"
 
@@ -232,19 +233,31 @@ ChipColours chip_colours(const ChipLook& look) noexcept {
         colours = {std::nullopt, colour::control_hover, colour::text_secondary};
         break;
     case ChipState::installed:
-        colours = {colour::ok_tint, colour::ok_tint, colour::accent_light};
+        colours = {state_tint(StateTone::ok), state_tint(StateTone::ok), state_ok_words()};
         break;
     case ChipState::update:
-        colours = {colour::caution_tint, colour::caution_tint, colour::lock};
+        colours = {
+            state_tint(StateTone::caution),
+            state_tint(StateTone::caution),
+            state_ink(StateTone::caution),
+        };
         break;
     case ChipState::playing:
         colours = {colour::accent, colour::accent, colour::on_accent};
         break;
     case ChipState::online:
-        colours = {colour::information_tint, colour::information_tint, colour::information};
+        colours = {
+            state_tint(StateTone::information),
+            state_tint(StateTone::information),
+            state_ink(StateTone::information),
+        };
         break;
     case ChipState::problem:
-        colours = {colour::danger_tint, colour::danger_tint, colour::danger};
+        colours = {
+            state_tint(StateTone::danger),
+            state_tint(StateTone::danger),
+            state_ink(StateTone::danger)
+        };
         break;
     case ChipState::filter:
         if (look.selected)
@@ -279,14 +292,15 @@ Colour icon_ink(const ChipLook& look) noexcept {
     case ChipState::get:
         return colour::hint;
     case ChipState::installed:
+        return state_ink(StateTone::ok);
     case ChipState::playing:
         return colour::accent;
     case ChipState::update:
-        return colour::lock;
+        return state_ink(StateTone::caution);
     case ChipState::online:
-        return colour::online;
+        return state_ink(StateTone::information);
     case ChipState::problem:
-        return colour::danger;
+        return state_ink(StateTone::danger);
     case ChipState::filter:
         return look.selected ? colour::accent : colour::hint;
     case ChipState::tag:
@@ -1152,13 +1166,15 @@ PillColours colours_for(PillState state) noexcept {
     case PillState::inactive:
         return {colour::list_selected, colour::text_secondary, std::nullopt};
     case PillState::installed:
-        return {colour::ok_tint, colour::accent_light, std::nullopt};
+        return {state_tint(StateTone::ok), state_ok_words(), std::nullopt};
     case PillState::update:
-        return {colour::caution_tint, colour::lock, std::nullopt};
+        return {state_tint(StateTone::caution), state_ink(StateTone::caution), std::nullopt};
     case PillState::problem:
-        return {colour::danger_tint, colour::danger, std::nullopt};
+        return {state_tint(StateTone::danger), state_ink(StateTone::danger), std::nullopt};
     case PillState::information:
-        return {colour::information_tint, colour::information, std::nullopt};
+        return {
+            state_tint(StateTone::information), state_ink(StateTone::information), std::nullopt
+        };
     case PillState::brand:
         return {colour::brand_tint, colour::brand_light, std::nullopt};
     case PillState::tag:
@@ -1448,6 +1464,9 @@ void add_search(
     add_control(
         list, rect, id, std::move(name), ControlKind::text_field, true, false, look.field.text, true
     );
+    list.controls.back().search = true;
+    if (!look.placeholder.empty())
+        list.controls.back().label = look.placeholder;
 }
 
 // ---- Tabs ----
@@ -1752,7 +1771,7 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
                     index < look.count_amber.size() && look.count_amber[index] != 0 && count > 0;
                 Colour ink = selected || hovered ? colour::text : colour::text_secondary;
                 if (amber)
-                    ink = colour::lock;
+                    ink = state_ink(StateTone::caution);
                 line(room, FontRole::small, digits, digits_box, Align::left, ink);
             }
         } else if (count > 0) {
@@ -1762,7 +1781,9 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
                 count_width(canvas.fonts, count),
                 kMetrics.tab_count_height,
             };
-            fill_round_rect(room, pill, std::min(pill.width, pill.height) / 2, colour::lock);
+            fill_round_rect(
+                room, pill, std::min(pill.width, pill.height) / 2, state_ink(StateTone::caution)
+            );
             line(
                 room, FontRole::small, std::to_string(count), pill, Align::centre, colour::on_accent
             );
@@ -1824,6 +1845,8 @@ void add_tabs(
             std::move(text),
             true
         );
+        list.controls.back().place = static_cast<int32_t>(index) + 1;
+        list.controls.back().set_size = static_cast<int32_t>(placed.tabs.size());
         if (!wholly_in(placed.tabs[index], placed.view))
             list.controls.back().clip = placed.view;
     }

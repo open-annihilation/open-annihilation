@@ -43,6 +43,9 @@
 
       # The engine as this system builds it. Its source is this tree, so what is
       # built is what is checked out rather than a release fetched from GitHub.
+      # AccessKit comes from the pinned release. aarch64-linux leaves the
+      # screen-reader bridge out: that release has no aarch64 static library,
+      # and this flake does not build the pinned source with cargo.
       linux = pkgs: pkgs.callPackage ./tools/nix/linux.nix { src = self; inherit version; };
 
       # A Windows build of the tree, cross-compiled from a cross set.
@@ -78,6 +81,25 @@
               "--without-brotli"
             ];
           });
+          # Static, so the link does not fall back to a DLL import library.
+          # FreeType stays without HarfBuzz; this HarfBuzz is a separate library.
+          harfbuzz = cross.harfbuzz.overrideAttrs (old: {
+            buildInputs = [ freetype ];
+            propagatedBuildInputs = [ freetype ];
+            mesonFlags = (old.mesonFlags or [ ]) ++ [
+              "-Ddefault_library=static"
+              "-Dglib=disabled"
+              "-Dgobject=disabled"
+              "-Dcairo=disabled"
+              "-Dicu=disabled"
+              "-Dgraphite=disabled"
+              "-Dfreetype=enabled"
+              "-Dtests=disabled"
+              "-Ddocs=disabled"
+              "-Dintrospection=disabled"
+              "-Dutilities=disabled"
+            ];
+          });
           sdl3 = cross.callPackage ./tools/nix/windows-sdl.nix {
             pname = "SDL3-${pname}";
             description = "The SDL3 library, built for ${windowsName}";
@@ -86,11 +108,12 @@
         in
         cross.callPackage ./tools/nix/windows.nix {
           src = self;
-          inherit version freetype zlib sdl3 toolchain definitions fullPackage;
+          inherit version freetype harfbuzz zlib sdl3 toolchain definitions fullPackage;
           inherit pname;
           description = "Open Source port of the Total Annihilation & TA: Kingdoms engines, for ${windowsName}";
           textFonts = (linux pkgs).textFonts;
           pageFonts = (linux pkgs).pageFonts;
+          accesskit = (linux pkgs).accesskit;
         };
 
     in

@@ -37,8 +37,18 @@ and hands the client over, and two boneyards. `src/connect.h` lists the
 login stages the game's progress callback sees. A link carries message
 records, each one or more bracketed entries of typed fields
 (`{[Service<T:key=value>...]...}`, at most 0x400 bytes; `src/record.h`
-gives the escaping rules). Every byte on a link passes through the link
-cipher (`include/oa/rover/cipher.h`): it is XORed with the low byte of a
+gives the escaping rules). A string field may arrive with nothing in it
+(`<S:key=>`): the field is present and its text is empty, so a profile
+whose name arrived blank still completes the login instead of the link
+closing. An empty number (`<I:key=>` or `<U:key=>`) is still refused, and
+so are an empty key, an unknown type letter, a key repeated in one entry
+and a field that does not close. The same rule is used for a record read
+from a file. This differs from the 1998 client, which refused an empty
+value of every type on arrival, so a blank field closed its link too. The
+status numbers in `src/record.h` are the ones that client reports, and
+writing an empty value is still refused (`EmptyValue`). Every byte on a
+link passes through the link cipher (`include/oa/rover/cipher.h`): it is
+XORed with the low byte of a
 32-bit counter that starts at 1 when the link connects and advances by one
 per byte, one counter per direction, so a stream deciphers the same however
 it was split into sends. The cipher hides the text from casual view and

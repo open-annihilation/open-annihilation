@@ -1024,6 +1024,102 @@ runtime goes).
   tabs on the next frames, and it is still there once the update is no
   longer offered. A FIXTURES_SETUP test (`library-update-question-clean`)
   clears its folders before each run.
+- **Replays.** `runtime_library_replays.cpp` hosts the Replays section
+  (`ReplayShelf`, the host's `replays`, made on first use). Each opening of
+  the Library asks its worker, a thread of its own, to read `Recordings`
+  again (`oa::data::replays::scan`, from the index it last read; the first
+  read loads `Recordings/.replays/index.json`); `pump_replays`, each tick off
+  a match, takes the rows read so far while the folder is read for the first
+  time, then the whole index, which it saves, and how far a read has come. A
+  `index.json` that does not read is moved to `index.json.damaged` (then
+  `index.json.damaged-2` and on) before the
+  new one is written (`oa::data::replays::set_aside`), and the log says so.
+  `scan_replays` marks the section as reading at once, so that it never says
+  "No replays yet." while the folder is read. `fill_replay_inputs` gives the model each replay with the local day and
+  minute it was recorded (`localtime`), its map's picture, the kinds
+  extensions registered (`oa::data::replays::registered_kinds`), today and
+  the recording setting. `pump_replay_pictures` decodes one map picture a
+  layout for the rows shown, from `maps/<map>.tnt` in the game's files.
+  WATCH reads the replay's file and hands its bytes to the extension that
+  replays recordings (`Extension::open_recording`, strict, as `--play-demo`
+  is), which starts its match in the running game; the Library keeps what it
+  showed as `library_return_`, so leaving the match opens it again on
+  Replays with the same row selected and scrolled as it was
+  (`reopen_kept_library`). The replay's hooks are closed once its match has
+  gone (`end_watched_replay`). A refusal is the hook's sentence, without the
+  file's name the hook puts before it, shown in the card. The hook can refuse
+  after its match began loading (the recording's unit table is not the
+  installed one): the screen is then the loading screen with a half-made
+  match, so the host tears that down (`leave_match`), shows the main menu
+  (`load`), and leaves the Library open on the same row, at the same scroll,
+  with the refusal in its card. KEEP marks the replays in
+  `Recordings/.replays/kept.json` (`oa::data::replays::KeptMarks`), by
+  recording, and saves it at once, whatever the folder's read is doing, so a
+  Keep is never lost and no change to the index forgets one; a `kept.json`
+  that does not read is set aside as `kept.json.damaged` (then
+  `kept.json.damaged-2` and on) and is not overwritten; a start whose file
+  cannot be read removes nothing. A replay the player exported is marked in
+  `exported.json` the same way. At the main menu, old replays are considered
+  once: Forever reads nothing, and any other span is read on a worker, which
+  saves the index, and the question shows after that read. OPEN FOLDER shows
+  the replay's folder (`open_player_folder`); TURN ON RECORDING writes
+  `open-annihilation.replays.record` `on`. OPEN A REPLAY FILE asks for a
+  `.oademo` or a `.tad` where the platform has a file dialog. A replay opened
+  from outside (`take_opened_replays`, one a frame once the main menu can
+  open the Library) is copied into `Recordings/Imported` by
+  `oa::data::replays::import_replay`, or selected when that recording is
+  already under `Recordings`, and the Library opens on it. A copy is told in
+  a notice, "Added {title} to Replays". A file that does not parse is refused
+  in the same notice. EXPORT… opens the dialog on the
+  marked replays, or the one chosen, and `open_replay_export` opens it on
+  one replay for the viewer's end card. The files are made when the dialog
+  opens and written one each pump, after two frames, into Downloads
+  (`SDL_GetUserFolder`) or a folder the dialog's chooser lists. The
+  game-install locator is not used: it refuses a folder that is not an
+  install, and Downloads is not one. Cancelling closes the dialog and the
+  next pump writes nothing more. The pointer's press carries Shift,
+  Ctrl or Command as `ScreenState::row_pick`.
+- **The import check.** `native-replays-import` (`--check-replay-import`,
+  `runtime_library_replays_check.cpp`) copies a made-up `.oademo` and a
+  made-up `.tad` into `Recordings/Imported`, selects each, copies nothing the
+  second time, leaves sector 6 out of the `.tad`, and refuses a damaged file
+  and a version this game does not play. It clears `Recordings` as it starts
+  and again as it ends.
+- **The Replays check.** `native-library-replays`
+  (`--check-library-replays`, `runtime_library_replays_check.cpp`) writes
+  made-up replays from the game `native-library-replays-source` records
+  first (a headless loopback game with `--record-game`, into
+  `library-replays-source.oademo` beside the run): copies under other days,
+  kinds, maps and players, a `.tad`, an imported one, a damaged file and one
+  whose map is not installed. It finds Replays second with an empty folder
+  and with replays, the filters, the kind menu, the search and the sort
+  giving their rows, Keep read back from `kept.json` by a section made afresh
+  with the index whole, deleted, truncated and full of noise, a ten-player
+  replay's card scrolled to Kept until, a refusal in the card before loading
+  and one after it began (a recording whose unit table differs: the game on
+  the main menu again, the Library on the same row and scroll), WATCH
+  playing 30 ticks and leaving it coming back to the same row and scroll,
+  Turn on recording writing the setting, and Export writing one replay as a
+  `.oademo` and three as `.tad` files into `Exported replays`. It then shows
+  the old-replays question, Keep them all, a second consideration that asks
+  nothing, and Let them go, and checks a kept file whose bytes changed, two
+  copies of one recording, a delete the trash refuses and a damaged
+  `kept.json` set aside. With `--snapshot` it pictures the section and the
+  Export dialog at 640x480, 960x540, 1280x720 and 1920x1080, while the folder
+  is first read, the damaged replay, the ten-player card at its foot and the
+  refusals. It removes `Recordings` and `Exported replays` and puts the
+  setting back as it ends;
+  a FIXTURES_SETUP test (`library-replays-clean`) clears its folders first.
+- **Missing replay content.** `native-replays-content`
+  (`--check-replays-content`, `runtime_replays_content_check.cpp`, driven by
+  `tools/check_native_replays_content.py`) serves Ridge on 127.0.0.1. A
+  replay that needs an older map pack and a mutator fetches both with one
+  press and plays; the pack is only in the releases list, and the key
+  request names that release and its digest. The mutator is no longer
+  selected when the match ends. A digest neither list holds reads as not in
+  the catalogue, and with the registry stopped the card reads "You're
+  offline." With `--snapshot` it pictures the card at 1280x720.
+  `replays-content-clean` clears the working folder first.
 - **Limitations.** A held update is replaced by a Roll back of the mod
   being played, which waits for the run to end in its place; the download
   queue has counted the update installed by then. CANCEL on the held line
@@ -3819,6 +3915,19 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`world_scaling`), the native-density rule, which needs 2 GiB as the
   accelerated tier does, and the probe's report join the policy with the
   code that uses them.
+- Photo mode ([docs/photo-mode.md](../../docs/photo-mode.md)):
+  `runtime_photo_mode.cpp` and `photo_state.hpp` put the running match's
+  interface away and show the battlefield alone from the camera the player
+  had (`enter_photo_mode`, `leave_photo_mode`). The match keeps its own
+  presenter and sound. Leaving, the match ending, or the match being torn
+  down puts the layout, camera, zoom, follow and keys overlay back.
+  Selection boxes and health bars can be drawn over that battlefield and
+  start off. The on-screen test keeps the player's own view, so unit
+  announcements stay the ones that view would have posted.
+  `runtime_photo_check.cpp` runs `--check-photo mode` (`native-photo-mode`):
+  two drawn passes of the fight in a window, one of them through photo mode,
+  read back as one world, including a shared match and a watcher. Clicks,
+  follow, Settings, Escape and a resize go through that window.
 - Director scripts ([docs/director.md](../../docs/director.md)):
   `runtime_director.cpp` runs `--generate-script` (the recording replayed
   undrawn through the extension that replays it, its timeline recorded and
@@ -3843,6 +3952,27 @@ prompts, Settings › Updates and the headers name one state with one size.
   PNG pictures), run `ffmpeg` on
   the chunks and join them, and read and write the `.oamovie` bundle;
   `app-director-output` tests them without an encoder.
+- The replay index ([docs/replays.md](../../docs/replays.md#the-replay-index)):
+  `runtime_director.cpp` also runs `--replay-index`, which replays a recording
+  as `--generate-script` does, with no director view, through a timeline
+  recorder that keeps only the players' standings, every hit and the
+  commanders created and killed (`Detail::standings`), and writes the
+  replay's `timeline.json` to `--output`. `replay_index.hpp` and
+  `replay_index.cpp` (`oa-app-replay-index`) are its two parts that need no
+  match: `read_stream_notes` walks a `.tad` or `.oademo` once and notes the
+  chat lines, pauses, departures, alliances and end-of-game records it holds,
+  each on the tick of its packet as playback numbers the packets, and
+  `build_index` combines those notes with the timeline into the index
+  (`oa/formats/oademo/timeline_index.hpp` writes it). `app-replay-index`
+  tests them on a made-up recording and timeline;
+  `native-replay-index` indexes a recorded loopback game twice and a copy cut
+  at half its packets.
+- Keyframes of a playback ([docs/replays.md](../../docs/replays.md#keyframes-of-a-playback-session)):
+  `runtime_demo.cpp` runs `--replay-keyframe-check TICK` as a part of the
+  headless `--play-demo` run (`NetworkPlay::run_keyframe_check`). The session's
+  keyframes carry the meteor storm's state too, which the runtime keeps
+  (`Runtime::meteor_state_bytes`) and the match's next tick reads.
+  `native-replay-keyframes` runs it on a recorded loopback game.
 - Frames between ticks: `presentation_interpolation.hpp` and `.cpp` keep
   each unit's pose (place, heading and the pieces its script moved and
   turned), the projectile pool and the debris table at the last two ticks
@@ -4373,8 +4503,10 @@ effect:
   A relative path whose `..` parts would leave its folder, such as a saved
   game's name taken from a downloaded save's description, has no place,
   and nothing is written for it. A network game's recording goes in the
-  mod's folder in `Recordings`, unless `--net-record` names the file,
-  which is written as it is given (`recording_file`). A stored Image Output Directory that is
+  mod's folder in `Recordings`, unless `--net-record` or `--record-game`
+  names the file, which is written as it is given (`recording_file`); while
+  the game is played it is streamed to `Recordings/.replays/partial/<mod>`
+  (`recordings_partial_folder`). A stored Image Output Directory that is
   the game's default, the game folder's folder named after the user, gives
   way to it; any other one the player chose wins, used as it is.
 - **The moves:** the first start with the player's own preferences file
@@ -4633,7 +4765,8 @@ runtime then:
   (`Runtime::saves_folder`), screenshots and films in
   `Screenshots/<id>` and `Films/<id>` (`Runtime::game_file_path`), and
   the recordings of network games in `Recordings/<id>`
-  (`recording_file`);
+  (`recording_file`), and the recordings being made in
+  `Recordings/.replays/partial/<id>` (`recordings_partial_folder`);
 - reads the movies, the music folder and the disc archives through the
   folders, the mod folder first; a profile whose `cd-check` is false always
   finds its disc.
@@ -4734,7 +4867,9 @@ in place, and how what a stop leaves is settled). The runtime's part:
   where the system registers at run
   time (`oa/platform/file_types.hpp`); none does with `--preferences-file`,
   `--user-folder`, `--data-dir`, unattended, headless or on SDL's dummy or
-  offscreen video driver.
+  offscreen video driver. The same start registers `.oademo` and offers
+  `.tad`, or withdraws that registration, as Open replay files says
+  (`open-annihilation.replays.open-files`). System's eight are unchanged.
 
 `native-mod-install` (`--check-mod-install`, `runtime_mod_install_check.cpp`)
 drives every prompt over five runs, pressing each where the OA layer shows
@@ -5352,7 +5487,18 @@ that throw. `OA_EXTENSION_API_VERSION` in `extension.hpp` numbers
 the table's contract; an extension checks its typed copy,
 `oa::app::extension_api_version`, with `static_assert`, and any change to
 the contract raises it (its comment says what counts). The recorder test
-extension checks it too, beside its count of the table's hooks.
+extension checks it too, beside its count of the table's hooks. Version 21
+adds the replay viewer's eight hooks, after `release_runtime`:
+`replay_frame` runs one frame in place of the match clock while a replay
+plays, `replay_hold` forgets the time an open menu held, and
+`replay_play`, `replay_pause`, `replay_set_speed`, `replay_step_speed`,
+`replay_seek` and `replay_state` are the viewer's controls and the state a
+caller reads. `ReplayFrameHost` and `ReplayPlaybackView` are the records
+those hooks use. They are not on `ReplayHooks`, which the director fills.
+Version 21 also adds the rectangle where an extension window's art takes
+the press (`ExtensionWindow`'s `press_x`, `press_y`, `press_width` and
+`press_height`). A screen button that lies wholly inside it is listed
+hidden, and stays enabled as the screen reported it. It is not a hook.
 
 Version 9 adds `open_recording`, through which `--generate-script` and
 `--render-script` replay the recording a director script names. The
@@ -5656,7 +5802,12 @@ Network play adds no members to `Runtime`. Its state for one runtime, the
 network session, the replay of a recording and the match report, is its
 own: `NetworkPlay` (`netgame/network_play.hpp`), which network play's
 extension creates the first time a hook is called for a runtime, finds
-again for each later hook and frees through `release_runtime`.
+again for each later hook and frees through `release_runtime`. A replay
+the viewer watches is reached through the replay hooks above, not through
+a member network play adds. Two private flags, `replay_skip_presentation_`
+and `replay_end_requested_`, are the engine's own: `runtime.cpp` sets them
+while a replay frame runs a tick that is not drawn, and when that frame
+asks to leave the match after the hook has returned.
 `NetworkPlay` is still a friend of `Runtime` and reaches some of its
 private names until hooks and declared headers cover everything:
 `tools/check_runtime_surface.py` (`netgame-runtime-surface`) holds the
@@ -5698,7 +5849,8 @@ binds the network session (`src/netgame`) to the
 multiplayer screens (`src/ui/frontend-multiplayer`), launches the
 match from the battle room and runs it over the network, and replays
 recorded games (`.tad`, `src/formats/tad` and `src/session/demo`) through
-`open_recording` and `--play-demo FILE.tad`. Its long options include
+`open_recording` and `--play-demo FILE.tad`. It records the games played
+(see below). Its long options include
 `--net-loopback-check N`, which hosts and joins a match in one process
 over 127.0.0.1 and compares both worlds after N ticks (when the run
 chooses mutators, the unit sync is read over the shared mutator layer,
@@ -5717,6 +5869,43 @@ A transport named with no game to host or join (`-n`, or the `-c` file's
 3.1c: each frame asks for a frontend pass until a multiplayer screen shows
 (`transport_frame`), and the screens take the transport, so `-n1:ADDRESS`
 alone lists the games at that address for the player to choose.
+A network game is recorded (`NetHost::start_recording`, `plan_recording`) in
+one of two layouts, never both: the recorder hack's `.tad`, when the
+profile's `recorder.ta-demo-recorder` is on or `--net-record` names the file
+(or `--record-game` names a `.tad`), and a `.oademo` (`src/formats/oademo`,
+zstd level 3), when the player's setting keeps every game
+(`open-annihilation.replays.record`, on by default) or `--record-game` names
+the file. A run nobody plays, a check or a headless run, is recorded only when
+`--net-record` or `--record-game` names a file
+(`Runtime::records_games_by_setting`). A skirmish is recorded for the same
+reasons (`NetworkPlay::consider_skirmish_recording`), and its log says
+`skirmish: recorded the game to FILE`. Recording because of the setting never
+presents a recorder to the other players: `WireRules::recorder_protocol` and
+every byte of the lobby and the game stay as the profile makes them, which
+the loopback check shows (`setup blocks presenting a recorder`). The
+recording is streamed from the start (`oa::session::demo::RecordingStream`,
+whose own thread writes what the game queues, so no frame waits for the
+disk) to `Recordings/.replays/partial/<mod>/<name>.oademo.part` (a replay) or
+`<name>.tad.part` (the hack's layout; the layout is told by that name, never
+by what other files are there), with its `.start` (a replay's description and
+manifest as they stood when the game began, written before the stream is
+made: a game whose description cannot be kept is not recorded), its `.note`
+(the content note's text) and its `.lock` (held while the game is played). When the game ends the stream is finished into place
+(`finish_partial`): the recording is cut to its last whole packet, and a
+replay is compressed and written off the thread that draws, the content note
+becoming `<file>.oa-content`. A recording a crash left is finished at the start of the
+next run (`finish_partial_recordings`, from `run_mode`'s `start` phase), as
+a replay with `recorded.after_crash` true and `game.ended` `cut`, or a `.tad`
+cut to its last whole packet; a recording whose lock another game holds is
+left alone, one that holds no packet is dropped, a replay's stream with no
+readable description is kept as `<name>.part.failed` and never put in
+`Recordings`, and a stream the disk would not read or write is left for a later
+start. A finished file takes the next free name rather than replace one
+(`place_file`). No recording holds a player's
+network address: the `.tad` is written with no sector 6. An extension built
+on network play says what it knows of a game it launched through
+`extension_api::Hooks::recorded_game`, which fills the replay's `game.kind` and
+the object under `game` named for it.
 A launch's player and game names keep 16 characters and its password 10,
 the battle room's and the session's own limits (`kPlayerNameLimit`,
 `kGameNameLimit`, `kPasswordLimit` in `launch_file.hpp`, which

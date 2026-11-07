@@ -168,15 +168,27 @@ std::string sentence_of(std::string_view title, const saves::ContentGap& gap) {
     return question.paragraphs.empty() ? std::string{} : question.paragraphs[0].text;
 }
 
+/// An `.oademo` replay is compared from its manifest, not from the note beside it.
+///
+/// @param path the recording
+/// @return true when the file is an `.oademo`
+bool manifest_replay(const fs::path& path) {
+    return path_to_utf8(path.extension()) == ".oademo";
+}
+
 } // namespace
 
 std::string Runtime::content_switch_sentence(const fs::path& path) const {
+    if (manifest_replay(path))
+        return {};
     return sentence_of(
         path_to_utf8(path.filename()), gap_for(path, false, content_choice(), options_.game_dir)
     );
 }
 
 bool Runtime::offer_content_switch(const fs::path& path, std::string_view title, bool recording) {
+    if (manifest_replay(path))
+        return false;
     const auto choice = content_choice();
     const saves::ContentGap gap = gap_for(path, false, choice, options_.game_dir);
     if (!gap.needed)

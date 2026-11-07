@@ -18,6 +18,7 @@ system. Headers compile as C11 and C++20 (namespace `oa` in C++); target
 | `cob.h` | `CobScriptHeader`, `CobThread` (0xa4), `CobMachine` (0x544) |
 | `game_state.h` | `Game` (0x3924d): players, weapon defs, sides, score table inline; tables by reference |
 | `world.h` | `World`: the live `Game` plus its tables, including weapon slots past the game state's table and sides past it that the match binds; lifetime (`world_create`, `world_alloc_tables`, ...) and reference helpers |
+| `world_image.hpp` | `world_image_tables`: every block of records a `World` owns or points at, as bytes (C++ only), which a replay's keyframe copies out and back |
 
 Conventions:
 

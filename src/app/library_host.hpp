@@ -49,11 +49,60 @@ namespace oa::app {
 /// The name the Library has on the OA layer.
 inline constexpr std::string_view library_screen_name = "library";
 
+/// The expansions that were on before a replay turned others on.
+inline constexpr std::string_view replay_expansion_preference =
+    "open-annihilation.replay-expansions";
+
+/// `wait` until that replay starts, then `play` until its match ends.
+/// A mod switched for the same replay uses this state too.
+inline constexpr std::string_view replay_expansion_state_preference =
+    "open-annihilation.replay-expansions-state";
+
+/// Set while a replay is using another mod. The key's presence, not its
+/// value, says `replay_mod_preference` holds the player's own folder.
+inline constexpr std::string_view replay_mod_marker_preference = "open-annihilation.replay-mod-set";
+
+/// The mod folder that was chosen before that replay. Empty means no mod.
+inline constexpr std::string_view replay_mod_preference = "open-annihilation.replay-mod";
+
 /// Minimaps the Library has decoded. Defined in runtime_library.cpp: this
 /// header stays free of the preview cache, which the rest of the app does
 /// not include. The host holds them because the Library's inputs are built
 /// here and the screen asks for the rows it shows.
 struct MapPreviewState;
+
+/// The Replays section's own state: the index of the Recordings folder, the
+/// worker that reads the folder, the pictures of the rows' maps and the
+/// replay being watched. Defined in runtime_library_replays.cpp.
+struct ReplayShelf;
+
+/// Finds what the Replays section draws cut short, for the checks that read
+/// text a layout shortens before the kit can see it: a filter, a menu item or
+/// field, a button or a fact's label that is not drawn whole, and any text of
+/// the replay's card that ends in an ellipsis.
+///
+/// @param list what the Library draws
+/// @param model the Library's model, which says what each word should be
+/// @param card the selected replay's card, or Compact's page, is on screen
+/// @param menu the drop-down that is open
+/// @param window_width the window's width; 960 is Regular, where a row keeps a readable map name
+/// @param lone_warning_cut the Export dialog's warning, when it is alone on
+///     its page, may end its last line with the kit's ellipsis: the dialog
+///     cuts a warning taller than the page that way
+/// @return a line for each word that is cut or missing; none when every word is whole
+std::vector<std::string> replay_texts_cut(
+    const oa::ui::kit::DisplayList& list,
+    const oa::ui::library::Library& model,
+    bool card,
+    oa::ui::library::MenuKind menu,
+    int32_t window_width,
+    bool lone_warning_cut = false
+);
+
+/// Stops a replay shelf's worker, joining it, and frees the shelf.
+///
+/// @param shelf the shelf; null frees nothing
+void destroy_replay_shelf(ReplayShelf* shelf) noexcept;
 
 /// Where the Library's inputs come from, and where its downloads go. The
 /// runtime fills it from the content service, the Library's worker and the
@@ -315,6 +364,13 @@ struct Runtime::LibraryReturn {
     int32_t list_scroll{};    ///< how far the list was scrolled, in points
     bool details_open{};      ///< the selected entry's details were open
     bool details_page{};      ///< they showed as their own page
+    /// The Replays section's filter, kind and sort.
+    oa::ui::library::ReplayFilter replay_filter{oa::ui::library::ReplayFilter::this_month};
+    std::string replay_kind{}; ///< the kind shown; empty for every kind
+    oa::ui::library::ReplaySort replay_sort{oa::ui::library::ReplaySort::newest}; ///< the order
+    /// The replay selected, by its path below Recordings; none for none.
+    std::optional<std::string> replay{};
+    bool replay_page{}; ///< Compact showed the replay's own page
 };
 
 /// The Library's host: its model and screen state, its feed, the pictures
@@ -334,11 +390,14 @@ struct Runtime::LibraryHost {
     LibraryFeed feed{};                   ///< where its inputs come from
     bool own_feed{true};                  ///< the feed is the runtime's own
     bool refreshed{};                     ///< the model was built from the feed once
-    uint64_t feed_generation{};           ///< the feed's generation the model was built at
-    uint64_t service_generation{};        ///< the content service's generation last searched at
-    uint64_t queue_generation{};          ///< the download queue's generation last read
-    uint64_t model_revision{};            ///< counts the model's rebuilds
-    std::size_t update_count{};           ///< the updates that can be installed (update_count)
+    /// The Replays rows were put in by a check. Every path that fills the
+    /// Replays inputs keeps them, including a rebuild of the Library.
+    bool replays_held{};
+    uint64_t feed_generation{};    ///< the feed's generation the model was built at
+    uint64_t service_generation{}; ///< the content service's generation last searched at
+    uint64_t queue_generation{};   ///< the download queue's generation last read
+    uint64_t model_revision{};     ///< counts the model's rebuilds
+    std::size_t update_count{};    ///< the updates that can be installed (update_count)
     /// The pictures taken from the worker, by address: badges and registry
     /// icons. They stay while the host lives.
     std::map<std::string, oa::ui::library::Badge> badges{};
@@ -349,6 +408,11 @@ struct Runtime::LibraryHost {
     /// Minimaps decoded for the rows on screen. Null until the host is made.
     /// The type lives in runtime_library.cpp.
     std::unique_ptr<MapPreviewState> previews{};
+    /// The Replays section's own state; made at its first use
+    /// (replay_shelf). The type lives in runtime_library_replays.cpp.
+    std::unique_ptr<ReplayShelf, void (*)(ReplayShelf*) noexcept> replays{
+        nullptr, destroy_replay_shelf
+    };
     /// Each listing's picture's address, by registry and key, as the last
     /// inputs resolved it.
     std::map<std::pair<std::string, std::string>, std::string> picture_urls{};
@@ -457,6 +521,112 @@ struct Runtime::LibraryHost {
     ///
     /// @return false when the worker could not start
     bool ensure_worker();
+
+    /// Returns the Replays section's state, made at its first use.
+    ///
+    /// @return the shelf
+    ReplayShelf& replay_shelf();
+
+    /// Asks the Replays section's worker to read the Recordings folder
+    /// again. Files the index already holds unchanged are not opened. The
+    /// first read loads the index file first.
+    ///
+    /// @param runtime the runtime, whose player's folder is read
+    void scan_replays(Runtime& runtime);
+
+    /// Takes what the Replays section's worker has read since the last call
+    /// into the model: the rows read so far while the folder is read for the
+    /// first time, the whole index once a read ends (saving it), and how far
+    /// a read has come. Called on the main thread.
+    ///
+    /// @param runtime the runtime
+    /// @return true when the model's replays changed
+    bool pump_replays(Runtime& runtime);
+
+    /// Selects a replay opened from outside once the folder's read shows it,
+    /// on Replays, under the filter that lists it. The request is dropped
+    /// when the row is not in the list, so a finished read does not keep
+    /// asking.
+    void land_opened_replay();
+
+    /// Fills the Replays section's inputs: the rows with their local day and
+    /// time and their maps' pictures, the kinds extensions register, today,
+    /// how far the folder has been read, and the recording setting.
+    ///
+    /// @param runtime the runtime
+    /// @param[out] inputs the inputs whose `replays` it fills
+    void fill_replay_inputs(Runtime& runtime, oa::ui::library::Inputs& inputs);
+
+    /// Carries out one of the Replays section's actions: WATCH hands the
+    /// replay to the game and keeps what the Library shows for its return;
+    /// KEEP and KEPT mark the replays in the index and save it; OPEN FOLDER
+    /// shows the replay's folder; TURN ON RECORDING turns the setting on;
+    /// EXPORT… opens the dialog, and EXPORT, CHOOSE… and the chooser's rows
+    /// write the files or list a folder.
+    ///
+    /// @param runtime the runtime
+    /// @param result what the screen asked for
+    /// @return true when the Library closes: WATCH started the replay
+    bool replay_action(Runtime& runtime, const oa::ui::library::ScreenResult& result);
+
+    /// Opens Export on one replay, for the viewer's end card as well as the
+    /// Library. An empty path opens the dialog with nothing selected.
+    ///
+    /// @param runtime the runtime
+    /// @param path the replay, below Recordings; empty when none is named
+    void open_replay_export(Runtime& runtime, std::string path);
+
+    /// Asks for the pictures of the maps of the replays the list shows, and
+    /// of the selected one, decoding one each call from the installed map.
+    ///
+    /// @param runtime the runtime, whose game files are read
+    /// @param list the display list the screen shows
+    void pump_replay_pictures(Runtime& runtime, const oa::ui::kit::DisplayList& list);
+
+    /// Closes the replay WATCH opened once its match has ended, so that the
+    /// replay's hooks are closed once. When that replay turned expansions on,
+    /// the player's own set is put back.
+    ///
+    /// @param runtime the runtime
+    void end_watched_replay(Runtime& runtime);
+
+    /// Fetches the packages a pressed Get is waiting on, then watches the
+    /// replay once they are installed. A press that cannot fetch leaves the
+    /// card's sentence and does not watch.
+    ///
+    /// @param runtime the runtime
+    void pump_replay_fetch(Runtime& runtime);
+
+    /// Hands one replay to the extension that plays it, and keeps what the
+    /// Library shows for the return. The Library closes when this starts it.
+    ///
+    /// @param runtime the runtime
+    /// @param path the replay's path below Recordings
+    /// @return true when the replay started
+    bool start_replay_watch(Runtime& runtime, const std::string& path);
+
+    /// Reads a range of one of the game's files, for the pictures of the
+    /// replays' maps.
+    ///
+    /// @param runtime the runtime, whose game files are read
+    /// @param path the file inside the game's data
+    /// @param offset where the range starts, in bytes
+    /// @param out where it is copied; its size is the range's
+    /// @return false when fewer bytes are there, or the file cannot be read
+    static bool
+    read_game_chunk(Runtime& runtime, const char* path, uint32_t offset, std::span<uint8_t> out);
+
+    /// Tells whether the Replays section's worker is reading the folder, or
+    /// has read something the model has not taken yet.
+    ///
+    /// @return true until a read has ended and pump_replays took it
+    [[nodiscard]] bool replays_reading();
+
+    /// Tells whether a replay WATCH opened is still open: its match has not
+    /// ended and its hooks are not closed yet. A refused WATCH never leaves one.
+    ///
+    /// @return true while one is open
+    [[nodiscard]] bool replays_watching() const;
 
     /// Asks the worker to search for updates again over the content
     /// service's snapshot now: after a catalogue refresh, an install or a
@@ -823,6 +993,34 @@ struct Runtime::LibraryHost {
     /// @param prepared the id, the work and the key
     /// @return false when the worker could not start, and the check is then dropped
     bool hand_to_worker(MutatorCheck prepared);
+
+    /// Opens Export on the replays named, or on an empty offer. The dialog
+    /// opens before anything is read. A replay that cannot be read is marked
+    /// on the dialog, and is not offered as a write that failed.
+    ///
+    /// @param runtime the runtime
+    /// @param paths the replays, below Recordings
+    void begin_export(Runtime& runtime, std::vector<std::string> paths);
+
+    /// Services an export: takes a measurement, then writes the next chunk
+    /// after the hold. Closing the dialog drops the partial file and keeps
+    /// what was already renamed into place.
+    ///
+    /// @param runtime the runtime
+    /// @return true when the dialog changed
+    bool step_replay_export(Runtime& runtime);
+
+    /// Lists a folder in Export's chooser. A path that is not a directory
+    /// lists Downloads, or the player's own folder when the system names none.
+    ///
+    /// @param runtime the runtime
+    /// @param folder the folder to list; empty lists Downloads
+    void open_export_listing(Runtime& runtime, const std::filesystem::path& folder);
+
+    /// Starts writing the dialog's files from the bytes already measured.
+    /// The first chunk waits two pumps. A format that is not held yet is
+    /// measured again, and files already written are left where they are.
+    void start_export_job();
 };
 
 /// Returns where a queued download stands, as the Library's queue line says it.

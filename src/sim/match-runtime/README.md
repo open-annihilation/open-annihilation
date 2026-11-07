@@ -694,3 +694,28 @@ queries, the move-rate bits) does so through `MatchTickAccess`
 tick host as the tick does; no test includes the match's private headers.
 The attachment links of a unit as slot indices are public
 (`oa/sim/match_runtime/attachment_links.hpp`).
+
+## Keyframes
+
+`Match::write_keyframe` and `read_keyframe` copy everything the next tick of a
+playback session reads out of the match and back: the world's tables
+(`oa/core/world_image.hpp`), each live unit's model and script, its mirrored
+movement object and air driver, the weapon slots, the spatial projection and
+the plots' occupants, the sight grids and sightings, the effect world, the
+wind, both random streams, the squads, wrecks, rule-state tables and the
+campaign conditions. The sections and the writer and reader that make them
+are in `oa/sim/match_runtime/keyframe.hpp`; `docs/replays.md` lists every
+member of the match and says whether a keyframe keeps it, and why not.
+
+A match that holds an order, a computer player, a radar picture kept for a
+player, or a unit or aircraft steered on this machine is refused with a
+sentence, not written wrongly: a playback holds none, and the path search, the
+movement maps and the computer players' knowledge, which a keyframe leaves
+out, serve only those. `keyframe_census` counts what a match holds.
+
+The game record comes back whole but for the video capture's settings, the
+profiler's times and the chat ring, which are the player's and the
+clock's, not the game's. The camera and interface fields in the record (the
+followed unit, the bookmarks, the overlay, the pointer) and each unit's
+selection flag come back as they were at the keyframe, and the program that
+plays the replay puts back its own (docs/replays.md).

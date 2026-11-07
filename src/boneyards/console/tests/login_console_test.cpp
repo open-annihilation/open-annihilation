@@ -6,6 +6,7 @@
 #include "oa/formats/hpi.hpp"
 #include "oa/boneyards_test/installs.hpp"
 #include "oa/boneyards/screens/lobby_widgets.hpp"
+#include "oa/boneyards/screens/login.hpp"
 #include "oa/boneyards/screens/update_pass.hpp"
 #include "oa/platform/system.hpp"
 
@@ -87,17 +88,33 @@ void cancel(void* context) {
     ++static_cast<Fixture*>(context)->cancels;
 }
 
-void click(StatusWidget* widget, Window* window) {
+void pointer_button(StatusWidget* widget, Window* window, MessageCode code, uint32_t buttons) {
     if (window == nullptr)
         return;
     Message message{};
     message.x = window->x + window->width / 2;
     message.y = window->y + window->height / 2;
-    message.code = MessageCode::left_down;
-    message.buttons = button_left;
+    message.code = code;
+    message.buttons = buttons;
     boneyards_status_widget_event(widget, message);
-    message.code = MessageCode::left_up;
-    message.buttons = 0;
+}
+
+void click(StatusWidget* widget, Window* window) {
+    pointer_button(widget, window, MessageCode::left_down, button_left);
+    pointer_button(widget, window, MessageCode::left_up, 0);
+}
+
+// A player's click is a press, a later pulse, then the release.
+void click_across_pulse(StatusWidget* widget, Window* window) {
+    pointer_button(widget, window, MessageCode::left_down, button_left);
+    boneyards_status_widget_tick(widget);
+    pointer_button(widget, window, MessageCode::left_up, 0);
+}
+
+void key_down(StatusWidget* widget, int32_t key_code) {
+    Message message{};
+    message.code = MessageCode::key_down;
+    message.key = key_code;
     boneyards_status_widget_event(widget, message);
 }
 
@@ -439,17 +456,25 @@ void test_login(Fixture* f) {
         "Big84 login title"
     );
     Window* password = at(view, 0x6f, 0x44);
+    Window* guest = caption(widget, view, "Guest Login");
+    Window* member = caption(widget, view, "Registered User");
+    // Registered User is chosen on open either way. Guest Login is grey while
+    // guests are not offered, and unchosen but enabled when they are.
+    const int32_t guest_on_open =
+        screens::kGuestsOffered ? button_state::unpressed : button_state::disabled;
     check(
-        caption(widget, view, "Guest Login")->states.current == 1 && password->states.current == 0,
-        "no saved name selects guest and disables password"
+        member->states.current == button_state::pressed && password->states.current == 1 &&
+            guest->states.current == guest_on_open,
+        screens::kGuestsOffered
+            ? "the login opens on Registered User, with the password shown and Guest Login unchosen"
+            : "the login opens on Registered User, with the password shown and Guest Login grey"
     );
     {
-        auto* member =
-            reinterpret_cast<screens::LobbyRadio*>(caption(widget, view, "Registered User"));
-        auto* guest = reinterpret_cast<screens::LobbyRadio*>(caption(widget, view, "Guest Login"));
+        auto* member_radio = reinterpret_cast<screens::LobbyRadio*>(member);
+        auto* guest_radio = reinterpret_cast<screens::LobbyRadio*>(guest);
         check(
-            member->member_count == 1 && member->members[0] == &guest->base &&
-                guest->member_count == 1 && guest->members[0] == &member->base,
+            member_radio->member_count == 1 && member_radio->members[0] == &guest_radio->base &&
+                guest_radio->member_count == 1 && guest_radio->members[0] == &member_radio->base,
             "login_view_build lists each login radio as the other's member"
         );
     }
@@ -487,15 +512,48 @@ void test_login(Fixture* f) {
     check_fonts(widget);
     snapshot(widget, *f);
     check_button_and_wrap(widget, view);
+    Window* login = at(view, 0x6f, 0xf2);
     {
         ScopedServices scope(widget);
         single_edit_set_text(reinterpret_cast<SingleEdit*>(at(view, 0x6f, 0x2c)), "test");
     }
     boneyards_status_widget_tick(widget);
-    click(widget, at(view, 0x6f, 0xf2));
     check(
-        f->logins == 1 && std::strcmp(f->server, "CorePrime Alpha Test") == 0,
-        "LOGIN passes the selected location"
+        login->states.current == button_state::disabled && f->logins == 0,
+        "a name without a password leaves LOGIN disabled"
+    );
+    click(widget, login);
+    click_across_pulse(widget, login);
+    check(f->logins == 0, "a click on a disabled LOGIN does nothing");
+    {
+        ScopedServices scope(widget);
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(password), "secret");
+    }
+    boneyards_status_widget_tick(widget);
+    check(
+        login->states.current == button_state::unpressed &&
+            widget->navigation->login.login_value == 2,
+        "a name and a password enable LOGIN"
+    );
+    pointer_button(widget, login, MessageCode::left_down, button_left);
+    check(login->states.current == button_state::pressed, "LOGIN shows pressed while held");
+    boneyards_status_widget_tick(widget);
+    check(login->states.current == button_state::pressed, "a pulse leaves a held LOGIN pressed");
+    pointer_button(widget, login, MessageCode::left_up, 0);
+    check(
+        f->logins == 1 && std::strcmp(widget->navigation->login.session_name, "test") == 0 &&
+            std::strcmp(widget->navigation->login.session_password, "secret") == 0 &&
+            std::strcmp(f->server, "CorePrime Alpha Test") == 0,
+        "a click on an enabled LOGIN starts the login"
+    );
+    {
+        ScopedServices scope(widget);
+        desktop_set_focus(&widget->desktop, password);
+    }
+    key_down(widget, key::enter);
+    check(
+        f->logins == 2 && std::strcmp(f->server, "CorePrime Alpha Test") == 0,
+        "Enter in the password field starts the same login"
     );
     click(widget, at(view, 0x6f, 0x10a));
     check(
@@ -504,15 +562,15 @@ void test_login(Fixture* f) {
         "failed login CANCEL resets without closing"
     );
     boneyards_status_widget_tick(widget);
-    click(widget, at(view, 0x6f, 0xf2));
-    check(f->logins == 2, "LOGIN retries after CANCEL");
+    click(widget, login);
+    check(f->logins == 3, "LOGIN retries after CANCEL");
     click(widget, list_box_item(&list->list, 0));
     check(
         list->selected_item == list_box_item(&list->list, 0),
         "text_row_notify row click selects the clicked item"
     );
     boneyards_status_widget_tick(widget);
-    click(widget, at(view, 0x6f, 0xf2));
+    click(widget, login);
     check(std::strcmp(f->server, "USA, West Coast") == 0, "LOGIN reads the newly selected row");
     auto* status = reinterpret_cast<screens::ByListBox*>(at(view, 0xd5, 0x96));
     {
@@ -560,18 +618,47 @@ void test_login(Fixture* f) {
         );
         single_edit_set_text(secret, "hunter2");
     }
-    click(widget, caption(widget, view, "Guest Login"));
-    {
-        ScopedServices scope(widget);
-        auto* secret = reinterpret_cast<SingleEdit*>(at(view, 0x6f, 0x44));
-        check(
-            single_edit_text(secret)[0] == '\0' && secret->base.states.current == 0,
-            "login_on_control guest radio blanks the password through its caption slot"
-        );
-        check(
-            caption(widget, view, "Registered User")->states.current == 2,
-            "lobby_radio_on_notify member radio lets go when its guest member is selected"
-        );
+    Window* saved_guest = caption(widget, view, "Guest Login");
+    Window* saved_member = caption(widget, view, "Registered User");
+    if (screens::kGuestsOffered) {
+        click(widget, saved_guest);
+        {
+            ScopedServices scope(widget);
+            auto* secret = reinterpret_cast<SingleEdit*>(at(view, 0x6f, 0x44));
+            check(
+                saved_guest->states.current == button_state::pressed,
+                "a click on Guest Login selects it"
+            );
+            check(
+                single_edit_text(secret)[0] == '\0' && secret->base.states.current == 0,
+                "login_on_control guest radio blanks the password through its caption slot"
+            );
+            check(
+                saved_member->states.current == button_state::unpressed,
+                "lobby_radio_on_notify member radio lets go when its guest member is selected"
+            );
+        }
+    } else {
+        click(widget, saved_guest);
+        click_across_pulse(widget, saved_guest);
+        {
+            ScopedServices scope(widget);
+            desktop_set_focus(&widget->desktop, saved_guest);
+        }
+        key_down(widget, key::enter);
+        key_down(widget, ' ');
+        {
+            ScopedServices scope(widget);
+            auto* secret = reinterpret_cast<SingleEdit*>(at(view, 0x6f, 0x44));
+            check(
+                saved_guest->states.current == button_state::disabled &&
+                    saved_member->states.current == button_state::pressed &&
+                    std::strcmp(single_edit_text(secret), "hunter2") == 0 &&
+                    widget->navigation->login.guest_value == 0 &&
+                    widget->navigation->login.member_value == 1,
+                "Guest Login is drawn disabled and ignores a click and a key"
+            );
+        }
     }
     boneyards_status_widget_destroy(widget);
     f->rows = 0;
@@ -581,6 +668,7 @@ void test_login(Fixture* f) {
     {
         ScopedServices scope(widget);
         single_edit_set_text(reinterpret_cast<SingleEdit*>(at(view, 0x6f, 0x2c)), "test");
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(at(view, 0x6f, 0x44)), "secret");
     }
     boneyards_status_widget_tick(widget);
     click(widget, at(view, 0x6f, 0xf2));

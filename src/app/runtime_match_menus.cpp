@@ -2159,6 +2159,11 @@ void Runtime::present_match_outcome() {
     const auto result = match_->outcome();
     if (result == sim::scenario::Outcome::ongoing)
         return;
+    // Victory and defeat put the interface back before the outcome covers
+    // the battlefield. Entering is refused once the match is finished.
+    // The keys overlay stays closed: the match is ending, and the finished
+    // flag is set on the next line.
+    leave_photo_mode(true);
     match_finished_ = true;
     outcome_over_menu_ = match_paused_;
     match_paused_ = true;

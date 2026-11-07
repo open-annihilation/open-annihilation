@@ -413,6 +413,7 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
             part.word = part_word(control, buttons.size());
             part.rect = item.rect;
             part.text = item.text;
+            part.checked = item.state.selected;
             buttons.push_back(std::move(part));
         }
         return buttons;
@@ -446,6 +447,152 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
     entry.text = control.text;
     entry.focusable = control.focusable;
     return entry;
+}
+
+/// Fills a slider's value from the look that draws it.
+///
+/// @param list the display list
+/// @param control the slider
+/// @param[in,out] entry its entry
+void fill_slider(const DisplayList& list, const Control& control, AutomationEntry& entry) {
+    for (const Item& item : list.items) {
+        if (item.control != control.id)
+            continue;
+        const auto* look = std::get_if<SliderLook>(&item.look);
+        if (look == nullptr)
+            continue;
+        entry.has_value = true;
+        entry.has_range = true;
+        entry.value = look->stop;
+        entry.least = 0;
+        entry.most = look->stops > 0 ? look->stops - 1 : 0;
+        entry.step = 1;
+        // The words the slider shows, such as "120 fps". The stop stays in value.
+        entry.value_text = control.text;
+        return;
+    }
+}
+
+/// Fills the role, the label and the value a named control did not set itself.
+///
+/// @param list the display list, for a slider's look
+/// @param control the control
+/// @param[in,out] entry the entry entry_of returned
+void describe_entry(const DisplayList& list, const Control& control, AutomationEntry& entry) {
+    // A button, a link, a tab, a list row and an area say their text. A
+    // switch, a strip, a drop-down, a slider, a field and a list are named
+    // by the caption set on them, and the text is the value.
+    const bool caption = control.kind == ControlKind::button || control.kind == ControlKind::link ||
+                         control.kind == ControlKind::tab ||
+                         control.kind == ControlKind::list_item ||
+                         control.kind == ControlKind::area;
+    if (!control.label.empty())
+        entry.label = control.label;
+    else if (caption)
+        entry.label = control.text;
+    entry.place = control.place;
+    entry.set_size = control.set_size;
+    if (control.search && control.kind == ControlKind::text_field) {
+        entry.role = AccessRole::search;
+        return;
+    }
+    switch (control.kind) {
+    case ControlKind::button:
+        entry.role = AccessRole::button;
+        break;
+    case ControlKind::choice:
+        entry.role = AccessRole::button;
+        entry.value_text = control.text;
+        break;
+    case ControlKind::toggle:
+        entry.role = AccessRole::switch_control;
+        entry.pressed = control.checked;
+        entry.value_text = control.text;
+        break;
+    case ControlKind::levels:
+        entry.role = AccessRole::radio_group;
+        entry.value_text = control.text;
+        break;
+    case ControlKind::buttons:
+        entry.role = AccessRole::radio_group;
+        break;
+    case ControlKind::tab:
+        entry.role = AccessRole::tab;
+        entry.chosen = control.checked;
+        break;
+    case ControlKind::list:
+        entry.role = AccessRole::list;
+        break;
+    case ControlKind::list_item:
+        entry.role = AccessRole::list_item;
+        entry.chosen = control.checked;
+        break;
+    case ControlKind::text_field:
+        entry.role = AccessRole::text_field;
+        break;
+    case ControlKind::slider:
+    case ControlKind::scroll_bar:
+        entry.role = AccessRole::slider;
+        if (control.kind == ControlKind::slider)
+            fill_slider(list, control, entry);
+        break;
+    case ControlKind::link:
+        entry.role = AccessRole::link;
+        break;
+    case ControlKind::area:
+        // An area that takes no press and no focus is words, such as a
+        // library card's line. One a player can press is a button.
+        entry.role = control.enabled || control.focusable ? AccessRole::button : AccessRole::label;
+        break;
+    }
+}
+
+/// Fills the roles of a control's parts, and the group's place and value.
+///
+/// A switch's halves are check boxes. A strip's and a row's parts are radios.
+/// An open menu's items are list items, and the menu's control stays a button.
+///
+/// @param[in,out] entry the control
+/// @param[in,out] parts its parts, already built
+void finish_group(AutomationEntry& entry, std::vector<AutomationEntry>& parts) {
+    if (parts.empty())
+        return;
+    const auto count = static_cast<int32_t>(parts.size());
+    if (entry.kind == ControlKind::toggle) {
+        entry.role = AccessRole::switch_control;
+        entry.pressed = entry.checked;
+        for (AutomationEntry& part : parts) {
+            part.role = AccessRole::check_box;
+            part.chosen = part.checked;
+            part.label = part.text;
+        }
+        return;
+    }
+    if (entry.kind == ControlKind::levels || entry.kind == ControlKind::buttons) {
+        entry.role = AccessRole::radio_group;
+        entry.set_size = count;
+        int32_t place = 1;
+        for (AutomationEntry& part : parts) {
+            part.role = AccessRole::radio;
+            part.chosen = part.checked;
+            part.place = place;
+            part.set_size = count;
+            part.label = part.text;
+            if (part.checked) {
+                entry.place = place;
+                entry.value_text = part.text;
+            }
+            ++place;
+        }
+        return;
+    }
+    if (entry.kind == ControlKind::choice) {
+        for (AutomationEntry& part : parts) {
+            part.role = AccessRole::list_item;
+            part.chosen = part.checked;
+            part.label = part.text;
+        }
+    }
 }
 
 /// Returns the nearest enabled control a finger on none reaches.
@@ -972,8 +1119,11 @@ std::vector<AutomationEntry>
 automation_entries(const DisplayList& list, const Interaction& interaction) {
     std::vector<AutomationEntry> entries;
     for (const Control& control : list.controls)
-        if (!control.name.empty())
-            entries.push_back(entry_of(control, interaction));
+        if (!control.name.empty()) {
+            AutomationEntry entry = entry_of(control, interaction);
+            describe_entry(list, control, entry);
+            entries.push_back(std::move(entry));
+        }
     return entries;
 }
 
@@ -987,6 +1137,7 @@ automation_parts(const DisplayList& list, const Interaction& interaction) {
         if (control.name.empty())
             continue;
         AutomationEntry entry = entry_of(control, interaction);
+        describe_entry(list, control, entry);
         const Rect area = press_area(control);
         if (has_room(area))
             entry.rect = area;
@@ -1011,6 +1162,7 @@ automation_parts(const DisplayList& list, const Interaction& interaction) {
             part_names.push_back(added.name);
             parts.push_back(std::move(added));
         }
+        finish_group(entry, parts);
         listed.emplace_back(std::move(entry), std::move(parts));
     }
     std::vector<AutomationEntry> entries;

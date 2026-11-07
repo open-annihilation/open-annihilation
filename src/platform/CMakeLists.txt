@@ -14,6 +14,21 @@ target_link_libraries(oa-platform-shims PUBLIC oa-base-threads oa-options)
 if(WIN32)
   target_link_libraries(oa-platform-shims PRIVATE psapi)
 endif()
+# The system's trash (trash.hpp). macOS uses the file manager. Windows asks
+# the shell only to recycle, with no question, back to XP (and a failure on
+# Windows 9x). Linux uses the freedesktop.org trash, and iOS and Android
+# delete the file because they have no trash.
+if(WIN32)
+  target_sources(oa-platform-shims PRIVATE src/trash_windows.cpp)
+  target_link_libraries(oa-platform-shims PRIVATE shell32 ole32 uuid)
+elseif(APPLE AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  enable_language(OBJCXX)
+  target_sources(oa-platform-shims PRIVATE src/trash_mac.mm)
+elseif(ANDROID OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+  target_sources(oa-platform-shims PRIVATE src/trash_remove.cpp)
+else()
+  target_sources(oa-platform-shims PRIVATE src/trash_xdg.cpp)
+endif()
 # Files iCloud has moved off the Mac (dataless.hpp): macOS only. iOS and
 # every other system build the part that reports none and fetches nothing.
 if(APPLE AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -54,6 +69,12 @@ if(BUILD_TESTING)
   target_link_libraries(oa-platform-system-memory-test PRIVATE oa-platform-shims oa-test-support)
   add_test(NAME platform-system-memory COMMAND oa-platform-system-memory-test)
   set_tests_properties(platform-system-memory PROPERTIES SKIP_RETURN_CODE 77)
+  # A file in a scratch folder moved to the trash, and gone from the folder.
+  # Skips where the system cannot hold the case.
+  add_executable(oa-platform-trash-test tests/trash_test.cpp)
+  target_link_libraries(oa-platform-trash-test PRIVATE oa-platform-shims oa-test-support)
+  add_test(NAME platform-trash COMMAND oa-platform-trash-test)
+  set_tests_properties(platform-trash PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
   set_tests_properties(platform-shims PROPERTIES TIMEOUT 60)
   if(OA_SANITIZERS)
     # The crash tests end a child with SIGFPE on purpose; the sanitizer must

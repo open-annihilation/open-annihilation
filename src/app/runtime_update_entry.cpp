@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One entry into an expansion, in this order. The online features: when the
-// update check or the catalogue check is off, a player is asked to turn
-// them on. The latest Open Annihilation: the entry waits for the update
+// update check, the catalogue check, or a needed install ID of the registry
+// the entry picked is off, a player is asked to turn them on. The latest
+// Open Annihilation: the entry waits for the update
 // check's answer, a newer release is taken (downloaded, installed and
 // started again, with the one-shot entry carried) or the player stays, and
 // a failed check asks Try again. The mod: switched off as the mod question
@@ -72,6 +73,12 @@ constexpr std::string_view k_not_installed = "The package could not be installed
 
 /// What a quiet run's log line starts with, before the sentence a player would read.
 constexpr std::string_view k_would_ask = "open-annihilation: entry: a player would be asked: ";
+
+/// The stop a download shows when the picked registry's install ID is off.
+///
+/// "{registry}" is the descriptor's name. The Library's own reason stays
+/// "downloads are off for this registry" and is not shown for this stop.
+constexpr std::string_view k_downloads_off = "Downloads are off for {registry}.";
 
 // The two keys the online features are made of, as expansion_entry.hpp names them.
 static_assert(oa::app::kUpdateCheckKey == oa::ui::engine_settings::key::update_check);
@@ -284,8 +291,16 @@ struct Runtime::EntryState {
     std::string notice{};              ///< the question, the progress line or the failure
     bool services_known{false};        ///< the update and catalogue settings were read
     bool services_on{false};           ///< update and catalogue checks are not both off
-    bool files_known{false};           ///< the start's game-files check was read
-    std::string mismatched_file{};     ///< the first differing file of another bundle
+    /// The services question was asked after the registry was learnt, so Turn
+    /// on continues into the fetch rather than the opening.
+    bool services_at_download{false};
+    /// The services question named the picked registry's install ID.
+    bool services_names_install_id{false};
+    /// The picked registry's install ID was already read, so it is not asked again.
+    bool install_id_considered{false};
+    std::string registry_name{};   ///< the picked registry's name, copied from its descriptor
+    bool files_known{false};       ///< the start's game-files check was read
+    std::string mismatched_file{}; ///< the first differing file of another bundle
     std::vector<std::string> matched_files{}; ///< files named as matching
     bool feed_known{false};                   ///< a feed check produced a result
     bool feed_failed{false};                  ///< that check failed
@@ -448,6 +463,27 @@ struct EntryDriver {
         );
     }
 
+    /// Shows the online-features question with the sentence this ask chose.
+    ///
+    /// The buttons stay Turn on and Cancel. The caller's sentences are left
+    /// as they were, so a later question can use another of them.
+    ///
+    /// @param wording which sentence
+    /// @param registry_name the registry's name, for a sentence that names it
+    void ask_services(ServicesWording wording, std::string_view registry_name) const {
+        ExpansionEntryAsk shown = state().ask;
+        shown.services_question = services_sentence(state().ask, wording, registry_name);
+        const EntryQuestionLook look = entry_question(EntryQuestion::services, shown, {});
+        show_pair(
+            look.word,
+            look.paragraph,
+            look.primary_label,
+            look.cancel_label,
+            look.primary_id,
+            look.cancel_id
+        );
+    }
+
     /// Writes what a player would have been asked to the log.
     ///
     /// @param sentence the question
@@ -463,6 +499,10 @@ struct EntryDriver {
         current.phase = Runtime::EntryState::Phase::failed;
         current.handling_check = false;
         current.notice = std::move(notice);
+        if (!current.notice.empty()) {
+            std::cerr << "open-annihilation: entry: stopped: " << current.notice << '\n';
+            std::cerr.flush();
+        }
         if (current.ask.report_on_screen)
             return;
         show("expansion-notice", current.notice, -1, true, false);
@@ -756,7 +796,12 @@ struct EntryDriver {
         if (!id) {
             if (why.empty())
                 why = std::string(k_no_package);
-            fail(capitalise(why));
+            // Only this reason is replaced. Every other failure keeps the
+            // Library's own sentence, with its first letter raised.
+            if (why == content::failure_text(content::DownloadFailure::install_id_off))
+                fail(downloads_off_notice());
+            else
+                fail(capitalise(why));
             return;
         }
         current.download_id = *id;
@@ -949,29 +994,136 @@ struct EntryDriver {
         }
     }
 
+    /// The picked registry's install ID, copied out of the snapshot that lists it.
+    ///
+    /// An empty registry is filled from a catalogue that already lists the
+    /// package. Nothing is asked when no catalogue lists it yet: the fetch
+    /// asks once the catalogue has answered. The descriptor's name is copied
+    /// while the snapshot is held.
+    struct RegistryInstallId {
+        bool known{false};  ///< a descriptor for the picked registry was read
+        bool needed{false}; ///< that descriptor requires an install ID
+        bool off{false};    ///< the preference key is off
+        std::string name{}; ///< the descriptor's name
+    };
+
+    /// Reads the picked registry's install ID.
+    ///
+    /// @return what the question may name; known is false when the registry is not listed
+    RegistryInstallId registry_install_id() const {
+        RegistryInstallId facts;
+        Runtime::EntryState& entry = state();
+        if (entry.registry_id.empty() && !package_listed())
+            return facts;
+        if (entry.registry_id.empty())
+            return facts;
+        const std::shared_ptr<const content::Snapshot> snapshot =
+            runtime.content_service().snapshot();
+        if (!snapshot)
+            return facts;
+        const oa::data::registry::Descriptor* descriptor = nullptr;
+        for (const content::RegistryView& row : snapshot->registries) {
+            if (row.registry.descriptor.id != entry.registry_id)
+                continue;
+            descriptor = &row.registry.descriptor;
+            break;
+        }
+        if (descriptor == nullptr)
+            return facts;
+        facts.known = true;
+        facts.needed = descriptor->install_id == oa::data::registry::InstallIdUse::required;
+        facts.name = descriptor->name.empty() ? entry.registry_id : descriptor->name;
+        const content::InstallId stored =
+            content::read_install_id(runtime.preference_values_, entry.registry_id);
+        facts.off = stored.state == content::InstallIdState::off;
+        entry.registry_name = facts.name;
+        return facts;
+    }
+
+    /// The stop that names the picked registry.
+    ///
+    /// @return the sentence, already translated, with the registry's name filled in
+    std::string downloads_off_notice() const {
+        const Runtime::EntryState& entry = state();
+        const std::string name =
+            entry.registry_name.empty() ? entry.registry_id : entry.registry_name;
+        return fill_entry_token(
+            oa::data::languages::interface_text(k_downloads_off), "{registry}", name
+        );
+    }
+
+    /// Asks about a needed install ID that the opening did not already consider.
+    ///
+    /// The opening asks together with the checks when the catalogue already
+    /// lists the package. This asks only when the registry is learnt later,
+    /// and then the sentence names the install ID alone. A quiet run logs
+    /// that sentence and goes on, so the download stops with the registry's
+    /// name. Nothing is asked of a registry that does not require an install
+    /// ID.
+    ///
+    /// @return true when the fetch may be queued
+    bool install_id_ready() const {
+        Runtime::EntryState& entry = state();
+        if (entry.phase == Runtime::EntryState::Phase::failed ||
+            entry.phase == Runtime::EntryState::Phase::stayed)
+            return false;
+        if (entry.install_id_considered)
+            return entry.phase != Runtime::EntryState::Phase::services_ask;
+        const RegistryInstallId facts = registry_install_id();
+        entry.install_id_considered = true;
+        if (!facts.known || !facts.needed || !facts.off)
+            return true;
+        // The checks were already decided. This question names only the install ID.
+        const InstallIdFeature feature{true, true};
+        const NamedServices named = named_services(OnlineChecks{true, true}, feature, way());
+        if (named.decision == ServicesDecision::note) {
+            note_question(services_sentence(entry.ask, named.wording, facts.name));
+            return true;
+        }
+        entry.services_at_download = true;
+        entry.services_names_install_id = true;
+        entry.phase = Runtime::EntryState::Phase::services_ask;
+        ask_services(named.wording, facts.name);
+        return false;
+    }
+
     /// Reads the online features' settings and the start's game-files check.
     ///
     /// A player asked about the online features waits for the answer. A
     /// quiet run logs the question and goes on as such a run always has: a
     /// headless or unattended run reads neither setting nor the files, and
-    /// "-y" stops when both checks are off. A differing file of any bundle
-    /// but the one being entered stops a player and "-y" here. The package
-    /// being entered is left to the catalogue check.
+    /// "-y" stops when both checks are off. A needed install ID that is off
+    /// is named in that question when the catalogue already lists the
+    /// package, and is left for the fetch when the registry is not known
+    /// yet. A differing file of any bundle but the one being entered stops
+    /// a player and "-y" here. The package being entered is left to the
+    /// catalogue check.
     void run_opening() const {
         Runtime::EntryState& current = state();
         const OnlineChecks checks = read_online_checks(runtime.preference_values_);
-        const ServicesDecision decision = decide_services(checks, way());
-        if (decision == ServicesDecision::note)
-            note_question(current.ask.services_question);
+        InstallIdFeature feature;
+        std::string registry_name;
+        const RegistryInstallId facts = registry_install_id();
+        if (facts.known) {
+            current.install_id_considered = true;
+            feature.needed = facts.needed;
+            feature.off = facts.off;
+            registry_name = facts.name;
+        }
+        const NamedServices named = named_services(checks, feature, way());
+        if (named.decision == ServicesDecision::note)
+            note_question(services_sentence(current.ask, named.wording, registry_name));
         if (!facing_player()) {
             current.phase = Runtime::EntryState::Phase::update_wait;
             return;
         }
         current.services_known = true;
-        if (decision == ServicesDecision::ask) {
+        if (named.decision == ServicesDecision::ask) {
             current.services_on = false;
+            current.services_at_download = false;
+            current.services_names_install_id = named.names_install_id;
             current.phase = Runtime::EntryState::Phase::services_ask;
-            ask_question(EntryQuestion::services, {});
+            ask_services(named.wording, registry_name);
             return;
         }
         if (!checks.updates && !checks.catalogue) {
@@ -1005,8 +1157,11 @@ struct EntryDriver {
 
     /// Applies Turn on or Cancel.
     ///
-    /// Turn on stores both checks on, tells the catalogues, saves, and goes
-    /// on to the game files and the update check.
+    /// Turn on stores both checks on. When the question named the picked
+    /// registry's install ID, and that ID is off, it clears that one key,
+    /// tells the downloads, and saves. It then goes on: from the opening,
+    /// to the game files and the update check; from the fetch, straight to
+    /// the download. Cancel changes nothing and stays on the menu.
     ///
     /// @param turn_on true for Turn on
     void apply_services_answer(bool turn_on) const {
@@ -1018,11 +1173,36 @@ struct EntryDriver {
             turn_on ? ServicesAnswer::turn_on : ServicesAnswer::cancel, checks
         );
         if (effect == ServicesEffect::stay) {
+            current.services_at_download = false;
+            current.services_names_install_id = false;
             stay();
             return;
         }
+        const bool at_download = current.services_at_download;
+        const bool turn_id =
+            current.services_names_install_id && !current.registry_id.empty() &&
+            content::read_install_id(runtime.preference_values_, current.registry_id).state ==
+                content::InstallIdState::off;
+        current.services_at_download = false;
+        current.services_names_install_id = false;
+        // Leave services_ask before going on. advance returns while that
+        // phase is current, and expansion_entry_busy stays true, so the
+        // fetch would never run and a later ENTER would be ignored.
+        current.phase = at_download ? Runtime::EntryState::Phase::fetch_wait
+                                    : Runtime::EntryState::Phase::opening;
+        if (turn_id)
+            content::turn_install_id_on(runtime.preference_values_, current.registry_id);
         runtime.turn_on_online_checks();
+        if (turn_id)
+            runtime.content_install_ids_changed();
         dismiss();
+        if (at_download) {
+            const OnlineChecks now = read_online_checks(runtime.preference_values_);
+            current.services_on = now.updates || now.catalogue;
+            current.services_known = true;
+            queue();
+            return;
+        }
         run_opening();
         if (current.phase == Runtime::EntryState::Phase::update_wait)
             finish_check();
@@ -1577,6 +1757,8 @@ struct EntryDriver {
                 if (state().phase == Runtime::EntryState::Phase::failed)
                     return;
             }
+            if (!install_id_ready())
+                return;
             queue();
         } catch (const std::exception&) {
             fail(std::string(k_not_installed));
@@ -1600,6 +1782,10 @@ struct EntryDriver {
         current.notice.clear();
         current.services_known = false;
         current.services_on = false;
+        current.services_at_download = false;
+        current.services_names_install_id = false;
+        current.install_id_considered = false;
+        current.registry_name.clear();
         current.files_known = false;
         current.mismatched_file.clear();
         current.matched_files.clear();

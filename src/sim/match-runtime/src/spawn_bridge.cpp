@@ -72,6 +72,27 @@ sim::unit_spawn::Slot* SpawnBridge::create(const sim::unit_spawn::Request& reque
     return result ? &slot(*result) : nullptr;
 }
 
+bool SpawnBridge::rebuild_instance(sim::unit_spawn::Slot& slot) {
+    const auto index = slot.record.type_index;
+    if (index == 0 || index >= tables_.types.size()) {
+        fault_.note("keyframe rebuild of a unit whose type is outside the table");
+        return false;
+    }
+    const auto& type = tables_.types[index];
+    auto& assets = tables_.assets[slot.unit_index];
+    auto* previous = active_;
+    active_ = &slot;
+    if (!type.cob) {
+        assets.script_instance = 0;
+        assets.model_instance = create_model_instance(type.model);
+    } else {
+        assets.script_instance = allocate_script();
+        assets.model_instance = create_scripted_model(type.model, type.cob, slot.record);
+    }
+    active_ = previous;
+    return assets.model_instance != 0;
+}
+
 sim::unit_spawn::StartResult SpawnBridge::start_player(
     uint8_t player,
     const sim::unit_spawn::PlayerSetup& setup,

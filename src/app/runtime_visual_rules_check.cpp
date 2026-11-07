@@ -405,8 +405,8 @@ void Runtime::check_visual_rule_overlays(
     // ui.whiteboard: a dot at the unit's map point is drawn where the frame
     // draws that point, and the pointer over the map pixel drawn there finds it.
     if (rules.whiteboard.enabled) {
-        const uint8_t color = oa::ui::hud::player_dot_color(match_->state(), match_local_player_);
-        const auto expected = shown(color);
+        const uint8_t color = oa::ui::hud::stock_dot_color(match_->state(), match_local_player_);
+        const auto expected = shown(oa::ui::hud::drawn_dot_color(color));
         const int32_t half = oa::ui::hud::kWhiteboardDotSide / 2;
         const auto check_dot = [&](const std::string& which) {
             whiteboard_ = {};

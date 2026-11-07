@@ -4,6 +4,12 @@ The keys a match answers, beyond the buttons on the order panel. Every
 key named here can be moved in the [key editor](keys.md#the-key-editor).
 The chapter is [Keys](keys.md).
 
+## Photo mode
+
+[Photo mode](photo-mode.md) shows the battlefield alone, from the place you
+were looking, and puts that place back when you leave. Escape leaves it.
+The game menu leaves it first, then opens.
+
 ## Keys in a match
 
 Ctrl+/ (Cmd+/ on a Mac) opens a translucent panel beside the side column

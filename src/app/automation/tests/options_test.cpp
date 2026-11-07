@@ -136,6 +136,10 @@ void check_conflicts() {
     OA_CHECK(conflict({"--fark", "--benchmark", "10"}) == "--benchmark");
     OA_CHECK(conflict({"--fark", "--match-ticks", "10"}) == "--match-ticks");
     OA_CHECK(conflict({"--fark", "--render-script", "film.oascript"}) == "--render-script");
+    OA_CHECK(
+        conflict({"--fark", "--replay-index", "game.tad", "--output", "game.json"}) ==
+        "--replay-index"
+    );
     OA_CHECK(conflict({"--fark", "--showcase", "skirmish-battle"}) == "--showcase");
     OA_CHECK(conflict({"--fark", "--check-navigation"}) == "a --check-* option");
     OA_CHECK(conflict({"--fark", "--check-multiplayer-menu"}) == "a --check-* option");

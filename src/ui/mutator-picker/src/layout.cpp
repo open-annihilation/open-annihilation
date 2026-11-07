@@ -851,6 +851,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
         keep_name(building, search_name);
         kit::add_search(building.list, search_rect, search, controls::search, search_name);
         move_controls(building.list, search_before, building.top);
+        building.top.back().label = placeholder;
         return;
     }
 
@@ -984,6 +985,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
     keep_name(building, search_name);
     kit::add_search(building.list, search_rect, search, controls::search, search_name);
     move_controls(building.list, search_before, building.top);
+    building.top.back().label = placeholder;
 }
 
 /// One piece of the list's scrolling content.
@@ -1242,6 +1244,8 @@ void add_row(
             building.rows.back().focusable = false;
             building.rows.back().clip = clip;
             building.rows.back().group = controls::list_group;
+            building.rows.back().label =
+                std::string(library::shown(picker.inputs.text, words::drag_to_reorder));
             if (!visuals)
                 building.list.items.resize(grip_items);
             else if (!building.list.items.empty())

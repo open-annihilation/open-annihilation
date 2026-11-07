@@ -290,6 +290,48 @@ Nothing here runs at start: a choice made in Finder stays until a switch
 moves and OK is pressed. A copy that is not an application bundle asks
 nothing. iOS has no such questions, and System keeps the text row.
 
+## Replays
+
+A `.oademo` is a ninth file type, `replay_file_type`, with `Opening::watch`.
+It is not one of `file_types` and not a member of `TypeSet`, so System's
+eight switches and their registration stay as they are.
+`register_replay_files` and `withdraw_replay_files` act on it alone.
+
+- Extension `oademo`, MIME type `application/x-oademo`, a kind of
+  `application/zip`, name "Open Annihilation replay", Windows program
+  identifier `OpenAnnihilation.Replay`. Opening one passes the path alone:
+  `"<exe>" "%1"`, with no `--open`.
+- On Windows the six values of the eight types are written for `.oademo`.
+  Under `.tad` only the `OpenWithProgids` value `OpenAnnihilation.Replay` is
+  written: no (Default) and no Content Type, so `.tad` is never this game's
+  default. Withdrawing the replay type removes `.oademo`'s values the way a
+  withdrawal removes one of the eight, and deletes that one `OpenWithProgids`
+  value. A `.tad` (Default) or Content Type is never removed.
+- On Linux the replay's own MIME package
+  `mime/packages/net.coreprime.open-annihilation.replay.xml` holds
+  `application/x-oademo` (a kind of `application/zip`, glob `*.oademo`) and
+  `application/x-ta-demo` (glob `*.tad`, no parent). Two desktop entries open
+  them: `net.coreprime.open-annihilation.replay.desktop` owns
+  `application/x-oademo` with `Exec="<exe>" %f`, and
+  `net.coreprime.open-annihilation.tad.desktop` offers `application/x-ta-demo`
+  with `InitialPreference=-1`, below a handler that states no preference.
+  The replay's mimetype icon is `application-x-oademo.png`. The eight types'
+  package, entries and icons are not rewritten. Withdrawing removes the
+  replay package, the two entries and that icon, and leaves the program's
+  icon.
+- On macOS and iOS the bundle exports
+  `net.coreprime.open-annihilation.oademo`, conforming to `public.data`, as a
+  document type with `LSHandlerRank` Owner, and imports
+  `net.coreprime.open-annihilation.tad` with `LSHandlerRank` Alternate.
+  `reported_replay_opener` and `apply_replay_opener` choose whether this
+  copy is the default opener of `.oademo` only. A switch that is off hands
+  `.oademo` back to `public.zip-archive`. `.tad` has no default-opener
+  switch. A start never replaces a choice made in Finder.
+
+The Windows uninstaller withdraws `.oademo` with `OA_WithdrawUserType`, and
+deletes the `OpenWithProgids` value under `.tad`. It does not call that
+macro for `.tad`.
+
 ## Tests
 
 `platform-file-types` checks the texts on every system (the launch file's
@@ -346,7 +388,11 @@ with the game installed does not change what they see.
 `test_user_override_step` checks the override's decision on every system.
 `app-bundle-file-types` (`tools/check_bundle_file_types.py`) checks the two
 `Info.plist` templates, the launch file's type and the macOS bundle's plain
-text among them.
+text among them, and the replay: `.oademo` exported and owned, conforming to
+`public.data`, and `.tad` imported with `LSHandlerRank` Alternate.
+`platform-file-types` also writes `.oademo` and the `.tad` offer into the
+test's own Windows key and XDG folder, and a withdrawal of the replay type
+leaves the eight.
 
 ## Limitations
 

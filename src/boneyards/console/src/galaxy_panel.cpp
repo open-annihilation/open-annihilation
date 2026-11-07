@@ -592,4 +592,130 @@ void galaxy_panel_sync_hotspots(MainFrame* frame) {
     }
 }
 
+const char* planet_owner_word(char owner) {
+    switch (owner) {
+    case 'A':
+    case 'a':
+        return "Arm";
+    case 'C':
+    case 'c':
+        return "Core";
+    case 'I':
+    case 'i':
+        return "contested";
+    default:
+        return "unknown";
+    }
+}
+
+namespace {
+
+/// Reads a run of decimal digits into `number`.
+///
+/// @param[in,out] cursor the text; moved past the digits
+/// @param[out] number the value
+/// @return false when the cursor is not on a digit
+bool take_number(const char*& cursor, int* number) {
+    if (cursor == nullptr || *cursor < '0' || *cursor > '9')
+        return false;
+    int parsed = 0;
+    while (*cursor >= '0' && *cursor <= '9') {
+        parsed = parsed * 10 + (*cursor - '0');
+        ++cursor;
+    }
+    if (number != nullptr)
+        *number = parsed;
+    return true;
+}
+
+} // namespace
+
+bool planet_parse_facts(const char* text, int* id, char* owner, int* battles, int* forming) {
+    if (text == nullptr)
+        return false;
+    const char* cursor = text;
+    if (std::strncmp(cursor, "id=", 3) != 0)
+        return false;
+    cursor += 3;
+    int parsed_id = 0;
+    if (!take_number(cursor, &parsed_id))
+        return false;
+    if (std::strncmp(cursor, " owner=", 7) != 0 || cursor[7] == '\0')
+        return false;
+    cursor += 7;
+    const char side = *cursor;
+    ++cursor;
+    if (std::strncmp(cursor, " battles=", 9) != 0)
+        return false;
+    cursor += 9;
+    int parsed_battles = 0;
+    if (!take_number(cursor, &parsed_battles))
+        return false;
+    if (std::strncmp(cursor, " forming=", 9) != 0)
+        return false;
+    cursor += 9;
+    int parsed_forming = 0;
+    if (!take_number(cursor, &parsed_forming))
+        return false;
+    if (*cursor != '\0')
+        return false;
+    if (id != nullptr)
+        *id = parsed_id;
+    if (owner != nullptr)
+        *owner = side;
+    if (battles != nullptr)
+        *battles = parsed_battles;
+    if (forming != nullptr)
+        *forming = parsed_forming;
+    return true;
+}
+
+bool planet_access_words(
+    char* label,
+    std::size_t label_capacity,
+    char* value,
+    std::size_t value_capacity,
+    const char* facts,
+    const char* name,
+    bool chosen,
+    const PlanetValuePatterns& patterns,
+    const char* owner_word
+) {
+    if (label != nullptr && label_capacity > 0)
+        label[0] = '\0';
+    if (value != nullptr && value_capacity > 0)
+        value[0] = '\0';
+    int battles = 0;
+    int forming = 0;
+    if (!planet_parse_facts(facts, nullptr, nullptr, &battles, &forming))
+        return false;
+    if (label != nullptr && label_capacity > 0 && name != nullptr) {
+        std::size_t at = 0;
+        while (at + 1 < label_capacity && name[at] != '\0') {
+            label[at] = name[at];
+            ++at;
+        }
+        label[at] = '\0';
+    }
+    if (value == nullptr || value_capacity == 0)
+        return true;
+    const bool one = battles == 1;
+    const char* pattern = nullptr;
+    if (chosen)
+        pattern = one ? patterns.battle_chosen : patterns.battles_chosen;
+    else
+        pattern = one ? patterns.battle : patterns.battles;
+    if (pattern == nullptr)
+        pattern = "";
+    std::snprintf(
+        value,
+        value_capacity,
+        pattern,
+        owner_word != nullptr ? owner_word : "",
+        static_cast<int>(battles),
+        static_cast<int>(forming)
+    );
+    return true;
+}
+
 } // namespace oa::boneyards::console

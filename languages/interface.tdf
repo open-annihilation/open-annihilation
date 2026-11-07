@@ -42,12 +42,476 @@
 	it=Un rilascio;
 	}
 
+[Alliance]
+	{
+	de=Bündnis;
+	fr=Alliance;
+	es=Alianza;
+	it=Alleanza;
+	}
+
 [Alt]
 	{
 	de=Alt;
 	fr=Alt;
 	es=Alt;
 	it=Alt;
+	}
+
+[Anti-aliasing]
+	{
+	de=Kantenglättung;
+	fr=Anticrénelage;
+	es=Suavizado;
+	it=Antialiasing;
+	}
+
+[Black]
+	{
+	de=Schwarz;
+	fr=Noir;
+	es=Negro;
+	it=Nero;
+	}
+
+[Blue]
+	{
+	de=Blau;
+	fr=Bleu;
+	es=Azul;
+	it=Blu;
+	}
+
+[CD music]
+	{
+	de=CD-Musik;
+	fr=Musique du CD;
+	es=Música del CD;
+	it=Musica del CD;
+	}
+
+[Campaigns]
+	{
+	de=Kampagnen;
+	fr=Campagnes;
+	es=Campañas;
+	it=Campagne;
+	}
+
+[Cheat Codes]
+	{
+	de=Cheats;
+	fr=Codes de triche;
+	es=Trucos;
+	it=Trucchi;
+	}
+
+[Closed]
+	{
+	de=Geschlossen;
+	fr=Fermées;
+	es=Cerradas;
+	it=Chiuse;
+	}
+
+[Opened]
+	{
+	de=Geöffnet;
+	fr=Ouvertes;
+	es=Abiertas;
+	it=Aperte;
+	}
+
+[Colour]
+	{
+	de=Farbe;
+	fr=Couleur;
+	es=Color;
+	it=Colore;
+	}
+
+[Commander]
+	{
+	de=Kommandant;
+	fr=Commandant;
+	es=Comandante;
+	it=Comandante;
+	}
+
+[Credits]
+	{
+	de=Abspann;
+	fr=Générique;
+	es=Créditos;
+	it=Riconoscimenti;
+	}
+
+[Dead Commander]
+	{
+	de=Toter Kommandant;
+	fr=Commandant mort;
+	es=Comandante muerto;
+	it=Comandante caduto;
+	}
+
+[Difficulty]
+	{
+	de=Schwierigkeit;
+	fr=Difficulté;
+	es=Dificultad;
+	it=Difficoltà;
+	}
+
+[Energy]
+	{
+	de=Energie;
+	fr=Énergie;
+	es=Energía;
+	it=Energia;
+	}
+
+[Game Status]
+	{
+	de=Spielstatus;
+	fr=État de la partie;
+	es=Estado de la partida;
+	it=Stato della partita;
+	}
+
+[Game speed]
+	{
+	de=Spieltempo;
+	fr=Vitesse du jeu;
+	es=Velocidad de juego;
+	it=Velocità di gioco;
+	}
+
+[Gamma]
+	{
+	de=Gamma;
+	fr=Gamma;
+	es=Gamma;
+	it=Gamma;
+	}
+
+[Green]
+	{
+	de=Grün;
+	fr=Vert;
+	es=Verde;
+	it=Verde;
+	}
+
+[Light blue]
+	{
+	de=Hellblau;
+	fr=Bleu clair;
+	es=Azul claro;
+	it=Azzurro;
+	}
+
+[Line of Sight]
+	{
+	de=Sichtlinie;
+	fr=Ligne de vue;
+	es=Línea de visión;
+	it=Linea di vista;
+	}
+
+[Line of sight]
+	{
+	de=Sichtlinie;
+	fr=Ligne de vue;
+	es=Línea de visión;
+	it=Linea di vista;
+	}
+
+[Location]
+	{
+	de=Standort;
+	fr=Emplacement;
+	es=Ubicación;
+	it=Posizione;
+	}
+
+[Map]
+	{
+	de=Karte;
+	fr=Carte;
+	es=Mapa;
+	it=Mappa;
+	}
+
+[Mapping]
+	{
+	de=Kartierung;
+	fr=Cartographie;
+	es=Mapeo;
+	it=Mappatura;
+	}
+
+[Mapping Mode]
+	{
+	de=Kartierungsmodus;
+	fr=Mode de cartographie;
+	es=Modo de mapeo;
+	it=Modalità mappa;
+	}
+
+[Max units]
+	{
+	de=Einheitenlimit;
+	fr=Limite d'unités;
+	es=Límite de unidades;
+	it=Limite di unità;
+	}
+
+[Metal]
+	{
+	de=Metall;
+	fr=Métal;
+	es=Metal;
+	it=Metallo;
+	}
+
+[Missions]
+	{
+	de=Missionen;
+	fr=Missions;
+	es=Misiones;
+	it=Missioni;
+	}
+
+[Music volume]
+	{
+	de=Musiklautstärke;
+	fr=Volume de la musique;
+	es=Volumen de la música;
+	it=Volume della musica;
+	}
+
+[Navy]
+	{
+	de=Marineblau;
+	fr=Bleu marine;
+	es=Azul marino;
+	it=Blu marino;
+	}
+
+[Next track]
+	{
+	de=Nächster Titel;
+	fr=Piste suivante;
+	es=Pista siguiente;
+	it=Brano successivo;
+	}
+
+[Play mode]
+	{
+	de=Wiedergabe;
+	fr=Lecture;
+	es=Reproducción;
+	it=Riproduzione;
+	}
+
+[Play track]
+	{
+	de=Titel abspielen;
+	fr=Lire la piste;
+	es=Reproducir pista;
+	it=Riproduci brano;
+	}
+
+[Preview]
+	{
+	de=Vorschau;
+	fr=Aperçu;
+	es=Vista previa;
+	it=Anteprima;
+	}
+
+[Previous track]
+	{
+	de=Vorheriger Titel;
+	fr=Piste précédente;
+	es=Pista anterior;
+	it=Brano precedente;
+	}
+
+[Purple]
+	{
+	de=Lila;
+	fr=Violet;
+	es=Morado;
+	it=Viola;
+	}
+
+[Ready]
+	{
+	de=Bereit;
+	fr=Prêt;
+	es=Listo;
+	it=Pronto;
+	}
+
+[Red]
+	{
+	de=Rot;
+	fr=Rouge;
+	es=Rojo;
+	it=Rosso;
+	}
+
+[Saved games]
+	{
+	de=Spielstände;
+	fr=Parties sauvegardées;
+	es=Partidas guardadas;
+	it=Partite salvate;
+	}
+
+[Screen scroll]
+	{
+	de=Bildlauf;
+	fr=Défilement;
+	es=Desplazamiento;
+	it=Scorrimento;
+	}
+
+[Shading]
+	{
+	de=Schattierung;
+	fr=Ombrage;
+	es=Sombreado;
+	it=Ombreggiatura;
+	}
+
+[Shadows]
+	{
+	de=Schatten;
+	fr=Ombres;
+	es=Sombras;
+	it=Ombre;
+	}
+
+[Side]
+	{
+	de=Seite;
+	fr=Camp;
+	es=Bando;
+	it=Schieramento;
+	}
+
+[Sound mode]
+	{
+	de=Tonmodus;
+	fr=Mode sonore;
+	es=Modo de sonido;
+	it=Modalità audio;
+	}
+
+[Sound volume]
+	{
+	de=Lautstärke;
+	fr=Volume sonore;
+	es=Volumen de sonido;
+	it=Volume degli effetti;
+	}
+
+[Start doors]
+	{
+	de=Starttüren;
+	fr=Portes de départ;
+	es=Puertas de inicio;
+	it=Porte di avvio;
+	}
+
+[Starting energy]
+	{
+	de=Startenergie;
+	fr=Énergie de départ;
+	es=Energía inicial;
+	it=Energia iniziale;
+	}
+
+[Starting metal]
+	{
+	de=Startmetall;
+	fr=Métal de départ;
+	es=Metal inicial;
+	it=Metallo iniziale;
+	}
+
+[Tan]
+	{
+	de=Beige;
+	fr=Beige;
+	es=Beige;
+	it=Beige;
+	}
+
+[Team]
+	{
+	de=Team;
+	fr=Équipe;
+	es=Equipo;
+	it=Squadra;
+	}
+
+[Text delay]
+	{
+	de=Textverzögerung;
+	fr=Délai du texte;
+	es=Retardo del texto;
+	it=Ritardo del testo;
+	}
+
+[Text lines]
+	{
+	de=Textzeilen;
+	fr=Lignes de texte;
+	es=Líneas de texto;
+	it=Righe di testo;
+	}
+
+[Track type]
+	{
+	de=Titelart;
+	fr=Type de piste;
+	es=Tipo de pista;
+	it=Tipo di brano;
+	}
+
+[Unit sounds]
+	{
+	de=Einheitenstimmen;
+	fr=Voix des unités;
+	es=Voces de las unidades;
+	it=Voci delle unità;
+	}
+
+[Unit text acks]
+	{
+	de=Einheitenmeldungen;
+	fr=Réponses des unités;
+	es=Avisos de unidades;
+	it=Risposte delle unità;
+	}
+
+[White]
+	{
+	de=Weiß;
+	fr=Blanc;
+	es=Blanco;
+	it=Bianco;
+	}
+
+[Yellow]
+	{
+	de=Gelb;
+	fr=Jaune;
+	es=Amarillo;
+	it=Giallo;
 	}
 
 [always]
@@ -594,6 +1058,14 @@
 	it=Scatto;
 	}
 
+[Slow]
+	{
+	de=Langsam;
+	fr=Lent;
+	es=Lento;
+	it=Lento;
+	}
+
 [Slower]
 	{
 	de=Langsamer;
@@ -704,6 +1176,14 @@
 	fr={chord} est libre {context}.;
 	es={chord} está libre {context}.;
 	it={chord} è libero {context}.;
+	}
+
+[{colour}, player {number}]
+	{
+	de={colour}, Spieler {number};
+	fr={colour}, joueur {number};
+	es={colour}, jugador {number};
+	it={colour}, giocatore {number};
 	}
 
 [{name}: {description} {context}. OK asks what to do.]
@@ -3666,6 +4146,14 @@
 	it=Download;
 	}
 
+[Downloads are off for {registry}.]
+	{
+	de=Downloads sind für {registry} aus.;
+	fr=Les téléchargements sont arrêtés pour {registry}.;
+	es=Las descargas están apagadas para {registry}.;
+	it=I download sono spenti per {registry}.;
+	}
+
 [Downloads are off, so language packs stay offline.]
 	{
 	de=Downloads sind aus, daher bleiben Sprachpakete ohne Verbindung.;
@@ -3840,6 +4328,14 @@
 	fr=Anticrénelage renforcé;
 	es=Suavizado mejorado;
 	it=Antialias migliorato;
+	}
+
+[Esc leaves]
+	{
+	de=Esc beendet;
+	fr=Échap quitte;
+	es=Esc sale;
+	it=Esc esce;
 	}
 
 [Escape opens the game menu]
@@ -4304,6 +4800,14 @@
 	fr=Depuis {pack};
 	es=De {pack};
 	it=Da {pack};
+	}
+
+[Frozen]
+	{
+	de=Eingefroren;
+	fr=Figé;
+	es=Congelado;
+	it=Fermo;
 	}
 
 [Full awareness]
@@ -4824,6 +5328,14 @@
 	fr=Distorsion thermique;
 	es=Distorsión térmica;
 	it=Distorsione termica;
+	}
+
+[Held]
+	{
+	de=Gehalten;
+	fr=Tenue;
+	es=Fija;
+	it=Ferma;
 	}
 
 [Held, a build click lays a line or a ring.]
@@ -6160,6 +6672,22 @@
 	fr=Garder les couleurs des joueurs distants;
 	es=Conservar los colores de los jugadores remotos;
 	it=Tieni i colori dei giocatori remoti;
+	}
+
+[Jumping back isn't available in this replay.]
+	{
+	de=Zurückspringen geht in dieser Aufnahme nicht.;
+	fr=On ne peut pas revenir en arrière dans cette rediffusion.;
+	es=No se puede saltar atrás en esta repetición.;
+	it=Non si può saltare indietro in questo replay.;
+	}
+
+[Jumping back needs more memory than this device has.]
+	{
+	de=Zurückspringen braucht mehr Speicher, als dieses Gerät hat.;
+	fr=Revenir en arrière demande plus de mémoire que cet appareil n'en a.;
+	es=Saltar atrás necesita más memoria de la que tiene este aparato.;
+	it=Saltare indietro chiede più memoria di quanta ne ha questo dispositivo.;
 	}
 
 [Keep holding {chord}: the ring fills in {seconds} s. Let go to cancel.]
@@ -10994,12 +11522,28 @@
 	it=The Boneyards ha bisogno delle funzioni in linea di Open Annihilation: il controllo degli aggiornamenti e il catalogo dei contenuti. Le attivi e continui?;
 	}
 
+[The Boneyards needs Open Annihilation's online features: update checks, the content catalogue and {registry}'s install ID. Turn them on and continue?]
+	{
+	de=The Boneyards braucht die Online-Funktionen von Open Annihilation: die Suche nach Updates, den Inhaltskatalog und die Installationskennung von {registry}. Schaltest du sie ein und machst weiter?;
+	fr=The Boneyards a besoin des fonctions en ligne d'Open Annihilation : la recherche de mises à jour, le catalogue de contenu et l'identifiant d'installation de {registry}. Tu les actives et tu continues ?;
+	es=The Boneyards necesita las funciones en línea de Open Annihilation: la búsqueda de actualizaciones, el catálogo de contenido y el ID de instalación de {registry}. ¿Los activas y continúas?;
+	it=The Boneyards ha bisogno delle funzioni in linea di Open Annihilation: il controllo degli aggiornamenti, il catalogo dei contenuti e l'ID di installazione di {registry}. Li attivi e continui?;
+	}
+
 [The Boneyards needs by.ccx and the Boneyards folder.]
 	{
 	de=The Boneyards braucht by.ccx und den Ordner Boneyards.;
 	fr=The Boneyards a besoin de by.ccx et du dossier Boneyards.;
 	es=The Boneyards necesita by.ccx y la carpeta Boneyards.;
 	it=The Boneyards ha bisogno di by.ccx e della cartella Boneyards.;
+	}
+
+[The Boneyards needs {registry}'s install ID turned on. Turn it on and continue?]
+	{
+	de=The Boneyards braucht die Installationskennung von {registry}. Schaltest du sie ein und machst weiter?;
+	fr=The Boneyards a besoin de l'identifiant d'installation de {registry}. Tu l'actives et tu continues ?;
+	es=The Boneyards necesita el ID de instalación de {registry}. ¿Lo activas y continúas?;
+	it=The Boneyards ha bisogno dell'ID di installazione di {registry}. Lo attivi e continui?;
 	}
 
 [The Boneyards plays Total Annihilation without mods. Switch {mod} off and enter the Boneyards?]
@@ -11978,6 +12522,14 @@
 	it=Questo file;
 	}
 
+[This file is not a replay.]
+	{
+	de=Das ist keine Aufnahme.;
+	fr=Ce fichier n'est pas une rediffusion.;
+	es=Este archivo no es una repetición.;
+	it=Questo file non è un replay.;
+	}
+
 [This folder does not hold a Total Annihilation installation]
 	{
 	de=Dieser Ordner enthält keine Installation von Total Annihilation;
@@ -12128,6 +12680,62 @@
 	fr=Ceci remplace les fichiers du jeu sur ce {device} ({size}) par le dossier que tu as choisi. Le dossier actuel est gardé comme Total Annihilation (ancien) jusqu'à ce que tu le retires. Les parties sauvegardées et les réglages restent.;
 	es=Esto reemplaza los archivos del juego en este {device} ({size}) por la carpeta que elegiste. La carpeta actual se conserva como Total Annihilation (antigua) hasta que la quites. Las partidas guardadas y los ajustes se quedan.;
 	it=Questo sostituisce i file di gioco su questo {device} ({size}) con la cartella che hai scelto. La cartella attuale resta come Total Annihilation (vecchia) finché non la rimuovi. I salvataggi e le impostazioni restano.;
+	}
+
+[This replay could not jump to {time} and has stopped.]
+	{
+	de=Diese Aufnahme konnte nicht zu {time} springen und wurde angehalten.;
+	fr=Cette rediffusion n'a pas pu aller à {time} et s'est arrêtée.;
+	es=Esta repetición no pudo saltar a {time} y se ha detenido.;
+	it=Questo replay non è riuscito ad andare a {time} e si è fermato.;
+	}
+
+[This replay does not hold one recording.]
+	{
+	de=Diese Aufnahme enthält nicht genau eine Aufzeichnung.;
+	fr=Cette rediffusion ne contient pas un seul enregistrement.;
+	es=Esta repetición no tiene una sola grabación.;
+	it=Questo replay non ha una sola registrazione.;
+	}
+
+[This replay is not a version this game reads.]
+	{
+	de=Diese Aufnahme ist keine Version, die dieses Spiel liest.;
+	fr=Cette rediffusion n'est pas une version que ce jeu lit.;
+	es=Esta repetición no es una versión que este juego lee.;
+	it=Questo replay non è una versione che questo gioco legge.;
+	}
+
+[This replay's details cannot be read.]
+	{
+	de=Die Angaben dieser Aufnahme lassen sich nicht lesen.;
+	fr=On ne peut pas lire les détails de cette rediffusion.;
+	es=No se pueden leer los datos de esta repetición.;
+	it=I dettagli di questo replay non si leggono.;
+	}
+
+[This replay's recording cannot be read.]
+	{
+	de=Die Aufzeichnung in dieser Aufnahme lässt sich nicht lesen.;
+	fr=On ne peut pas lire l'enregistrement de cette rediffusion.;
+	es=No se puede leer la grabación de esta repetición.;
+	it=La registrazione di questo replay non si legge.;
+	}
+
+[This replay's recording does not match.]
+	{
+	de=Die Aufzeichnung in dieser Aufnahme stimmt nicht.;
+	fr=L'enregistrement de cette rediffusion ne correspond pas.;
+	es=La grabación de esta repetición no coincide.;
+	it=La registrazione di questo replay non corrisponde.;
+	}
+
+[This replay's recording is too long to play.]
+	{
+	de=Die Aufzeichnung in dieser Aufnahme ist zu lang zum Abspielen.;
+	fr=L'enregistrement de cette rediffusion est trop long à regarder.;
+	es=La grabación de esta repetición es demasiado larga para verla.;
+	it=La registrazione di questo replay è troppo lunga da guardare.;
 	}
 
 [This run names its content, so it cannot switch.]
@@ -17386,6 +17994,14 @@
 	it=Soglia di trascinamento;
 	}
 
+[Drag to reorder]
+	{
+	de=Zum Umsortieren ziehen;
+	fr=Glisser pour réordonner;
+	es=Arrastra para reordenar;
+	it=Trascina per riordinare;
+	}
+
 [Edge scrolling]
 	{
 	de=Randscrollen;
@@ -20168,6 +20784,14 @@
 	fr=Ligne de discussion;
 	es=Línea de chat;
 	it=Riga di chat;
+	}
+
+[chat lines]
+	{
+	de=Chatzeilen;
+	fr=lignes de discussion;
+	es=líneas de chat;
+	it=righe di chat;
 	}
 
 [Keys Overlay]
@@ -25558,6 +26182,14 @@
 	it=Tieni ciò che è stato copiato;
 	}
 
+[Photo mode]
+	{
+	de=Fotomodus;
+	fr=Mode photo;
+	es=Modo foto;
+	it=Modalità foto;
+	}
+
 [Play]
 	{
 	de=Spielen;
@@ -25636,4 +26268,1268 @@
 	fr=Pourquoi;
 	es=Por qué;
 	it=Perché;
+	}
+
+[30 days]
+	{
+	de=30 Tage;
+	fr=30 jours;
+	es=30 días;
+	it=30 giorni;
+	}
+
+[90 days]
+	{
+	de=90 Tage;
+	fr=90 jours;
+	es=90 días;
+	it=90 giorni;
+	}
+
+[A year]
+	{
+	de=Ein Jahr;
+	fr=Un an;
+	es=Un año;
+	it=Un anno;
+	}
+
+[Campaign missions, skirmish, multiplayer and Boneyards battles. Applies from the next game.]
+	{
+	de=Kampagnenmissionen, Gefechte, Mehrspieler- und Boneyards-Schlachten. Gilt ab dem nächsten Spiel.;
+	fr=Campagne, escarmouche, multijoueur et Boneyards. S'applique dès la prochaine partie.;
+	es=Campaña, escaramuza, multijugador y Boneyards. Se aplica desde la próxima partida.;
+	it=Campagna, schermaglia, multigiocatore e Boneyards. Si applica dalla prossima partita.;
+	}
+
+[Forever]
+	{
+	de=Für immer;
+	fr=Pour toujours;
+	es=Para siempre;
+	it=Per sempre;
+	}
+
+[Keep replays for]
+	{
+	de=Replays behalten für;
+	fr=Garder les replays pendant;
+	es=Conservar las repeticiones durante;
+	it=Tieni i replay per;
+	}
+
+[Record my games]
+	{
+	de=Meine Spiele aufnehmen;
+	fr=Enregistrer mes parties;
+	es=Grabar mis partidas;
+	it=Registra le mie partite;
+	}
+
+[Replays]
+	{
+	de=Replays;
+	fr=Replays;
+	es=Repeticiones;
+	it=Replay;
+	}
+
+[REPLAYS]
+	{
+	de=REPLAYS;
+	fr=REPLAYS;
+	es=REPETICIONES;
+	it=REPLAY;
+	}
+
+[Replays you keep in the Library stay until you delete them.]
+	{
+	de=Replays, die du in der Bibliothek behältst, bleiben, bis du sie löschst.;
+	fr=Les replays que tu gardes dans la Bibliothèque restent jusqu'à ce que tu les supprimes.;
+	es=Las repeticiones que conservas en la Biblioteca se quedan hasta que las borres.;
+	it=I replay che tieni nella Biblioteca restano finché non li elimini.;
+	}
+
+[This month]
+	{
+	de=Dieser Monat;
+	fr=Ce mois-ci;
+	es=Este mes;
+	it=Questo mese;
+	}
+
+[Older]
+	{
+	de=Älter;
+	fr=Plus anciens;
+	es=Más antiguas;
+	it=Più vecchi;
+	}
+
+[Kept]
+	{
+	de=Aufbewahrt;
+	fr=Gardé;
+	es=Conservada;
+	it=Tenuto;
+	}
+
+[Imported]
+	{
+	de=Importiert;
+	fr=Importé;
+	es=Importada;
+	it=Importato;
+	}
+
+[All kinds]
+	{
+	de=Alle Arten;
+	fr=Tous les types;
+	es=Todos los tipos;
+	it=Tutti i tipi;
+	}
+
+[Newest first]
+	{
+	de=Neueste zuerst;
+	fr=Plus récents d'abord;
+	es=Más recientes primero;
+	it=Più recenti prima;
+	}
+
+[Longest first]
+	{
+	de=Längste zuerst;
+	fr=Plus longs d'abord;
+	es=Más largas primero;
+	it=Più lunghi prima;
+	}
+
+[By map]
+	{
+	de=Nach Karte;
+	fr=Par carte;
+	es=Por mapa;
+	it=Per mappa;
+	}
+
+[Most players first]
+	{
+	de=Meiste Spieler zuerst;
+	fr=Plus de joueurs d'abord;
+	es=Más jugadores primero;
+	it=Più giocatori prima;
+	}
+
+[Search replays]
+	{
+	de=Replays durchsuchen;
+	fr=Chercher des replays;
+	es=Buscar repeticiones;
+	it=Cerca replay;
+	}
+
+[Today]
+	{
+	de=Heute;
+	fr=Aujourd'hui;
+	es=Hoy;
+	it=Oggi;
+	}
+
+[Yesterday]
+	{
+	de=Gestern;
+	fr=Hier;
+	es=Ayer;
+	it=Ieri;
+	}
+
+[{weekday} {day} {month}]
+	{
+	de={weekday} {day}. {month};
+	fr={weekday} {day} {month};
+	es={weekday} {day} {month};
+	it={weekday} {day} {month};
+	}
+
+[{weekday} {day} {month} {year}]
+	{
+	de={weekday} {day}. {month} {year};
+	fr={weekday} {day} {month} {year};
+	es={weekday} {day} {month} {year};
+	it={weekday} {day} {month} {year};
+	}
+
+[Mon]
+	{
+	de=Mo;
+	fr=lun.;
+	es=lun;
+	it=lun;
+	}
+
+[Tue]
+	{
+	de=Di;
+	fr=mar.;
+	es=mar;
+	it=mar;
+	}
+
+[Wed]
+	{
+	de=Mi;
+	fr=mer.;
+	es=mié;
+	it=mer;
+	}
+
+[Thu]
+	{
+	de=Do;
+	fr=jeu.;
+	es=jue;
+	it=gio;
+	}
+
+[Fri]
+	{
+	de=Fr;
+	fr=ven.;
+	es=vie;
+	it=ven;
+	}
+
+[Sat]
+	{
+	de=Sa;
+	fr=sam.;
+	es=sáb;
+	it=sab;
+	}
+
+[Sun]
+	{
+	de=So;
+	fr=dim.;
+	es=dom;
+	it=dom;
+	}
+
+[Jan]
+	{
+	de=Jan.;
+	fr=janv.;
+	es=ene;
+	it=gen;
+	}
+
+[Feb]
+	{
+	de=Feb.;
+	fr=févr.;
+	es=feb;
+	it=feb;
+	}
+
+[Mar]
+	{
+	de=März;
+	fr=mars;
+	es=mar;
+	it=mar;
+	}
+
+[Apr]
+	{
+	de=Apr.;
+	fr=avr.;
+	es=abr;
+	it=apr;
+	}
+
+[May]
+	{
+	de=Mai;
+	fr=mai;
+	es=may;
+	it=mag;
+	}
+
+[Jun]
+	{
+	de=Juni;
+	fr=juin;
+	es=jun;
+	it=giu;
+	}
+
+[Jul]
+	{
+	de=Juli;
+	fr=juil.;
+	es=jul;
+	it=lug;
+	}
+
+[Aug]
+	{
+	de=Aug.;
+	fr=août;
+	es=ago;
+	it=ago;
+	}
+
+[Sep]
+	{
+	de=Sep.;
+	fr=sept.;
+	es=sep;
+	it=set;
+	}
+
+[Oct]
+	{
+	de=Okt.;
+	fr=oct.;
+	es=oct;
+	it=ott;
+	}
+
+[Nov]
+	{
+	de=Nov.;
+	fr=nov.;
+	es=nov;
+	it=nov;
+	}
+
+[Dec]
+	{
+	de=Dez.;
+	fr=déc.;
+	es=dic;
+	it=dic;
+	}
+
+[{left} vs {right}]
+	{
+	de={left} gegen {right};
+	fr={left} contre {right};
+	es={left} contra {right};
+	it={left} contro {right};
+	}
+
+[{kind} · {planet}]
+	{
+	de={kind} · {planet};
+	fr={kind} · {planet};
+	es={kind} · {planet};
+	it={kind} · {planet};
+	}
+
+[{kind} · {planet}, {sector}]
+	{
+	de={kind} · {planet}, {sector};
+	fr={kind} · {planet}, {sector};
+	es={kind} · {planet}, {sector};
+	it={kind} · {planet}, {sector};
+	}
+
+[After a crash]
+	{
+	de=Nach einem Absturz;
+	fr=Après un plantage;
+	es=Tras un fallo;
+	it=Dopo un crash;
+	}
+
+[Damaged]
+	{
+	de=Beschädigt;
+	fr=Endommagé;
+	es=Dañada;
+	it=Danneggiato;
+	}
+
+[Length]
+	{
+	de=Länge;
+	fr=Durée;
+	es=Duración;
+	it=Durata;
+	}
+
+[Recorded]
+	{
+	de=Aufgenommen;
+	fr=Enregistré;
+	es=Grabado;
+	it=Registrato;
+	}
+
+[File]
+	{
+	de=Datei;
+	fr=Fichier;
+	es=Archivo;
+	it=File;
+	}
+
+[Kept until]
+	{
+	de=Aufbewahrt bis;
+	fr=Gardé jusqu'au;
+	es=Conservada hasta;
+	it=Tenuto fino al;
+	}
+
+[Until you delete it]
+	{
+	de=Bis du es löschst;
+	fr=Jusqu'à ce que tu le supprimes;
+	es=Hasta que la borres;
+	it=Finché non lo elimini;
+	}
+
+[Imported replays are kept]
+	{
+	de=Importierte Replays werden aufbewahrt;
+	fr=Les replays importés sont gardés;
+	es=Las repeticiones importadas se conservan;
+	it=I replay importati vengono tenuti;
+	}
+
+[Downloaded replays are kept]
+	{
+	de=Heruntergeladene Replays werden aufbewahrt;
+	fr=Les replays téléchargés sont gardés;
+	es=Las repeticiones descargadas se conservan;
+	it=I replay scaricati vengono tenuti;
+	}
+
+[Exported replays are kept]
+	{
+	de=Exportierte Replays werden aufbewahrt;
+	fr=Les replays exportés sont gardés;
+	es=Las repeticiones exportadas se conservan;
+	it=I replay esportati vengono tenuti;
+	}
+
+[{mod} (rev {revision})]
+	{
+	de={mod} (Rev. {revision});
+	fr={mod} (rév. {revision});
+	es={mod} (rev. {revision});
+	it={mod} (rev. {revision});
+	}
+
+[Arm]
+	{
+	de=Arm;
+	fr=Arm;
+	es=Arm;
+	it=Arm;
+	}
+
+[Core]
+	{
+	de=Core;
+	fr=Core;
+	es=Core;
+	it=Core;
+	}
+
+[Watcher]
+	{
+	de=Zuschauer;
+	fr=Spectateur;
+	es=Espectador;
+	it=Spettatore;
+	}
+
+[Watch]
+	{
+	de=Ansehen;
+	fr=Regarder;
+	es=Ver;
+	it=Guarda;
+	}
+
+[Turn on recording]
+	{
+	de=Aufnahme einschalten;
+	fr=Activer l'enregistrement;
+	es=Activar la grabación;
+	it=Attiva la registrazione;
+	}
+
+[Delete replay]
+	{
+	de=Replay löschen;
+	fr=Supprimer le replay;
+	es=Borrar la repetición;
+	it=Elimina il replay;
+	}
+
+[Delete it]
+	{
+	de=Löschen;
+	fr=Le supprimer;
+	es=Borrarla;
+	it=Eliminalo;
+	}
+
+[Delete them]
+	{
+	de=Löschen;
+	fr=Les supprimer;
+	es=Borrarlas;
+	it=Eliminali;
+	}
+
+[{count} replays selected]
+	{
+	de={count} Replays ausgewählt;
+	fr={count} replays sélectionnés;
+	es={count} repeticiones seleccionadas;
+	it={count} replay selezionati;
+	}
+
+[This replay cannot be watched.]
+	{
+	de=Dieses Replay kann nicht angesehen werden.;
+	fr=Ce replay ne peut pas être regardé.;
+	es=Esta repetición no se puede ver.;
+	it=Questo replay non può essere guardato.;
+	}
+
+[Needs {name} {version}]
+	{
+	de=Benötigt {name} {version};
+	fr=Nécessite {name} {version};
+	es=Requiere {name} {version};
+	it=Richiede {name} {version};
+	}
+
+[Needs {name}.]
+	{
+	de=Benötigt {name}.;
+	fr=Nécessite {name}.;
+	es=Requiere {name}.;
+	it=Richiede {name}.;
+	}
+
+[Needs map]
+	{
+	de=Karte nötig;
+	fr=Carte requise;
+	es=Mapa necesario;
+	it=Mappa richiesta;
+	}
+
+[Needs mutator]
+	{
+	de=Mutator nötig;
+	fr=Mutateur requis;
+	es=Mutador necesario;
+	it=Mutatore richiesto;
+	}
+
+[Needs {version}]
+	{
+	de=Benötigt {version};
+	fr=Nécessite {version};
+	es=Requiere {version};
+	it=Richiede {version};
+	}
+
+[This replay was recorded with {name}.]
+	{
+	de=Dieses Replay wurde mit {name} aufgenommen.;
+	fr=Ce replay a été enregistré avec {name}.;
+	es=Esta repetición se grabó con {name}.;
+	it=Questo replay è stato registrato con {name}.;
+	}
+
+[This replay was recorded with {name} {version}.]
+	{
+	de=Dieses Replay wurde mit {name} {version} aufgenommen.;
+	fr=Ce replay a été enregistré avec {name} {version}.;
+	es=Esta repetición se grabó con {name} {version}.;
+	it=Questo replay è stato registrato con {name} {version}.;
+	}
+
+[This replay was recorded with {name} {version} (rev {revision}).]
+	{
+	de=Dieses Replay wurde mit {name} {version} (Rev. {revision}) aufgenommen.;
+	fr=Ce replay a été enregistré avec {name} {version} (rév. {revision}).;
+	es=Esta repetición se grabó con {name} {version} (rev. {revision}).;
+	it=Questo replay è stato registrato con {name} {version} (rev. {revision}).;
+	}
+
+[This replay was recorded with {name}. You have {have}.]
+	{
+	de=Dieses Replay wurde mit {name} aufgenommen. Du hast {have}.;
+	fr=Ce replay a été enregistré avec {name}. Tu as {have}.;
+	es=Esta repetición se grabó con {name}. Tienes {have}.;
+	it=Questo replay è stato registrato con {name}. Hai {have}.;
+	}
+
+[This replay was recorded with {name} {version}. You have {have}.]
+	{
+	de=Dieses Replay wurde mit {name} {version} aufgenommen. Du hast {have}.;
+	fr=Ce replay a été enregistré avec {name} {version}. Tu as {have}.;
+	es=Esta repetición se grabó con {name} {version}. Tienes {have}.;
+	it=Questo replay è stato registrato con {name} {version}. Hai {have}.;
+	}
+
+[This replay was recorded with {name} {version} (rev {revision}). You have {have}.]
+	{
+	de=Dieses Replay wurde mit {name} {version} (Rev. {revision}) aufgenommen. Du hast {have}.;
+	fr=Ce replay a été enregistré avec {name} {version} (rév. {revision}). Tu as {have}.;
+	es=Esta repetición se grabó con {name} {version} (rev. {revision}). Tienes {have}.;
+	it=Questo replay è stato registrato con {name} {version} (rev. {revision}). Hai {have}.;
+	}
+
+[Needs the map {name}.]
+	{
+	de=Braucht die Karte {name}.;
+	fr=Il faut la carte {name}.;
+	es=Hace falta el mapa {name}.;
+	it=Serve la mappa {name}.;
+	}
+
+[From the map pack {pack}.]
+	{
+	de=Aus dem Kartenpaket {pack}.;
+	fr=Du pack de cartes {pack}.;
+	es=Del pack de mapas {pack}.;
+	it=Dal pacchetto di mappe {pack}.;
+	}
+
+[Needs the mutator {name}.]
+	{
+	de=Braucht den Mutator {name}.;
+	fr=Il faut le mutateur {name}.;
+	es=Hace falta el mutador {name}.;
+	it=Serve il mutatore {name}.;
+	}
+
+[Needs Open Annihilation {version}.]
+	{
+	de=Benötigt Open Annihilation {version}.;
+	fr=Nécessite Open Annihilation {version}.;
+	es=Requiere Open Annihilation {version}.;
+	it=Richiede Open Annihilation {version}.;
+	}
+
+[Getting {name}… {percent}%]
+	{
+	de={name} wird geholt… {percent}%;
+	fr=Obtention de {name}… {percent}%;
+	es=Obteniendo {name}… {percent}%;
+	it=Recupero di {name}… {percent}%;
+	}
+
+[Get {name} {version} and watch]
+	{
+	de={name} {version} holen und ansehen;
+	fr=Obtenir {name} {version} et regarder;
+	es=Obtener {name} {version} y ver;
+	it=Ottieni {name} {version} e guarda;
+	}
+
+[Get it and watch]
+	{
+	de=Holen und ansehen;
+	fr=L'obtenir et regarder;
+	es=Obtenerlo y ver;
+	it=Ottienilo e guarda;
+	}
+
+[Get them and watch]
+	{
+	de=Alle holen und ansehen;
+	fr=Les obtenir et regarder;
+	es=Obtenerlos y ver;
+	it=Ottienili e guarda;
+	}
+
+[Turn on and watch]
+	{
+	de=Einschalten und ansehen;
+	fr=Activer et regarder;
+	es=Activar y ver;
+	it=Attiva e guarda;
+	}
+
+[{name} {version} is not in Core Prime's catalogue.]
+	{
+	de={name} {version} ist nicht im Katalog von Core Prime.;
+	fr={name} {version} n'est pas dans le catalogue de Core Prime.;
+	es={name} {version} no está en el catálogo de Core Prime.;
+	it={name} {version} non è nel catalogo di Core Prime.;
+	}
+
+[{name} is not in Core Prime's catalogue.]
+	{
+	de={name} ist nicht im Katalog von Core Prime.;
+	fr={name} n'est pas dans le catalogue de Core Prime.;
+	es={name} no está en el catálogo de Core Prime.;
+	it={name} non è nel catalogo di Core Prime.;
+	}
+
+[You're offline.]
+	{
+	de=Du bist offline.;
+	fr=Tu es hors ligne.;
+	es=Estás sin conexión.;
+	it=Sei offline.;
+	}
+
+[Get {name} {version} when you're back online.]
+	{
+	de=Hol {name} {version}, wenn du wieder online bist.;
+	fr=Récupère {name} {version} quand tu seras de nouveau en ligne.;
+	es=Consigue {name} {version} cuando vuelvas a tener conexión.;
+	it=Prendi {name} {version} quando torni online.;
+	}
+
+[Get {name} when you're back online.]
+	{
+	de=Hol {name}, wenn du wieder online bist.;
+	fr=Récupère {name} quand tu seras de nouveau en ligne.;
+	es=Consigue {name} cuando vuelvas a tener conexión.;
+	it=Prendi {name} quando torni online.;
+	}
+
+[This replay could not be moved to the trash.]
+	{
+	de=Dieses Replay konnte nicht in den Papierkorb verschoben werden.;
+	fr=Ce replay n'a pas pu être mis à la corbeille.;
+	es=Esta repetición no se ha podido mover a la papelera.;
+	it=Non è stato possibile spostare questo replay nel cestino.;
+	}
+
+[{count} replays could not be moved to the trash.]
+	{
+	de={count} Replays konnten nicht in den Papierkorb verschoben werden.;
+	fr={count} replays n'ont pas pu être mis à la corbeille.;
+	es={count} repeticiones no se han podido mover a la papelera.;
+	it=Non è stato possibile spostare {count} replay nel cestino.;
+	}
+
+[No replays yet.]
+	{
+	de=Noch keine Replays.;
+	fr=Pas encore de replays.;
+	es=Aún no hay repeticiones.;
+	it=Ancora nessun replay.;
+	}
+
+[Games you play are kept here for 30 days.]
+	{
+	de=Deine Spiele werden hier 30 Tage lang aufbewahrt.;
+	fr=Tes parties sont gardées ici pendant 30 jours.;
+	es=Tus partidas se conservan aquí durante 30 días.;
+	it=Le tue partite restano qui per 30 giorni.;
+	}
+
+[Games you play are kept here for 90 days.]
+	{
+	de=Deine Spiele werden hier 90 Tage lang aufbewahrt.;
+	fr=Tes parties sont gardées ici pendant 90 jours.;
+	es=Tus partidas se conservan aquí durante 90 días.;
+	it=Le tue partite restano qui per 90 giorni.;
+	}
+
+[Games you play are kept here for a year.]
+	{
+	de=Deine Spiele werden hier ein Jahr lang aufbewahrt.;
+	fr=Tes parties sont gardées ici pendant un an.;
+	es=Tus partidas se conservan aquí durante un año.;
+	it=Le tue partite restano qui per un anno.;
+	}
+
+[Games you play are kept here until you delete them.]
+	{
+	de=Deine Spiele bleiben hier, bis du sie löschst.;
+	fr=Tes parties restent ici jusqu'à ce que tu les supprimes.;
+	es=Tus partidas se quedan aquí hasta que las borres.;
+	it=Le tue partite restano qui finché non le elimini.;
+	}
+
+[Old replays]
+	{
+	de=Alte Replays;
+	fr=Anciens replays;
+	es=Repeticiones antiguas;
+	it=Vecchi replay;
+	}
+
+[Keep them all]
+	{
+	de=Alle behalten;
+	fr=Les garder tous;
+	es=Conservarlas todas;
+	it=Tienili tutti;
+	}
+
+[Let them go]
+	{
+	de=Gehen lassen;
+	fr=Les laisser partir;
+	es=Dejarlas ir;
+	it=Lasciali andare;
+	}
+
+[1 replay is older than you asked to keep. It goes to the system's trash.]
+	{
+	de=1 Replay ist älter, als du es aufbewahren wolltest. Es kommt in den Papierkorb des Systems.;
+	fr=1 replay est plus vieux que ce que tu voulais garder. Il va dans la corbeille du système.;
+	es=1 repetición es más antigua de lo que pediste conservar. Va a la papelera del sistema.;
+	it=1 replay è più vecchio di quanto volevi tenere. Va nel cestino del sistema.;
+	}
+
+[{count} replays are older than you asked to keep. They go to the system's trash.]
+	{
+	de={count} Replays sind älter, als du sie aufbewahren wolltest. Sie kommen in den Papierkorb des Systems.;
+	fr={count} replays sont plus vieux que ce que tu voulais garder. Ils vont dans la corbeille du système.;
+	es={count} repeticiones son más antiguas de lo que pediste conservar. Van a la papelera del sistema.;
+	it={count} replay sono più vecchi di quanto volevi tenere. Vanno nel cestino del sistema.;
+	}
+
+[1 replay is older than you asked to keep. It is deleted. This system has no trash.]
+	{
+	de=1 Replay ist älter, als du es aufbewahren wolltest. Es wird gelöscht. Dieses System hat keinen Papierkorb.;
+	fr=1 replay est plus vieux que ce que tu voulais garder. Il est supprimé. Ce système n'a pas de corbeille.;
+	es=1 repetición es más antigua de lo que pediste conservar. Se elimina. Este sistema no tiene papelera.;
+	it=1 replay è più vecchio di quanto volevi tenere. Viene eliminato. Questo sistema non ha un cestino.;
+	}
+
+[{count} replays are older than you asked to keep. They are deleted. This system has no trash.]
+	{
+	de={count} Replays sind älter, als du sie aufbewahren wolltest. Sie werden gelöscht. Dieses System hat keinen Papierkorb.;
+	fr={count} replays sont plus vieux que ce que tu voulais garder. Ils sont supprimés. Ce système n'a pas de corbeille.;
+	es={count} repeticiones son más antiguas de lo que pediste conservar. Se eliminan. Este sistema no tiene papelera.;
+	it={count} replay sono più vecchi di quanto volevi tenere. Vengono eliminati. Questo sistema non ha un cestino.;
+	}
+
+[Recording is off.]
+	{
+	de=Die Aufnahme ist aus.;
+	fr=L'enregistrement est désactivé.;
+	es=La grabación está desactivada.;
+	it=La registrazione è disattivata.;
+	}
+
+[No replays from this month.]
+	{
+	de=Keine Replays aus diesem Monat.;
+	fr=Aucun replay ce mois-ci.;
+	es=No hay repeticiones de este mes.;
+	it=Nessun replay di questo mese.;
+	}
+
+[No older replays.]
+	{
+	de=Keine älteren Replays.;
+	fr=Aucun replay plus ancien.;
+	es=No hay repeticiones más antiguas.;
+	it=Nessun replay più vecchio.;
+	}
+
+[No replays kept.]
+	{
+	de=Keine aufbewahrten Replays.;
+	fr=Aucun replay gardé.;
+	es=No hay repeticiones conservadas.;
+	it=Nessun replay tenuto.;
+	}
+
+[No replays imported.]
+	{
+	de=Keine importierten Replays.;
+	fr=Aucun replay importé.;
+	es=No hay repeticiones importadas.;
+	it=Nessun replay importato.;
+	}
+
+[Open replay files with Open Annihilation]
+	{
+	de=Replay-Dateien mit Open Annihilation öffnen;
+	fr=Ouvrir les fichiers replay avec Open Annihilation;
+	es=Abrir los archivos de repetición con Open Annihilation;
+	it=Apri i file dei replay con Open Annihilation;
+	}
+
+[A .oademo or a .tad file opens in this copy.]
+	{
+	de=Eine .oademo- oder .tad-Datei öffnet sich in dieser Kopie.;
+	fr=Un fichier .oademo ou .tad s'ouvre dans cette copie.;
+	es=Un archivo .oademo o .tad se abre en esta copia.;
+	it=Un file .oademo o .tad si apre in questa copia.;
+	}
+
+[Open a replay file…]
+	{
+	de=Replay-Datei öffnen…;
+	fr=Ouvrir un fichier replay…;
+	es=Abrir un archivo de repetición…;
+	it=Apri un file di replay…;
+	}
+
+[Added {title} to Replays]
+	{
+	de={title} zu den Replays hinzugefügt;
+	fr={title} ajouté aux replays;
+	es={title} añadido a Repeticiones;
+	it={title} aggiunto ai replay;
+	}
+
+[This file is not a TA Demo recording]
+	{
+	de=Diese Datei ist keine TA-Demo-Aufnahme;
+	fr=Ce fichier n'est pas un enregistrement TA Demo;
+	es=Este archivo no es una grabación TA Demo;
+	it=Questo file non è una registrazione TA Demo;
+	}
+
+[This recording is in version {version} of the format, which Open Annihilation does not play]
+	{
+	de=Diese Aufnahme ist in Version {version} des Formats, die Open Annihilation nicht abspielt;
+	fr=Cet enregistrement est dans la version {version} du format, qu'Open Annihilation ne lit pas;
+	es=Esta grabación está en la versión {version} del formato, y Open Annihilation no la reproduce;
+	it=Questa registrazione è alla versione {version} del formato, che Open Annihilation non riproduce;
+	}
+
+[This replay could not be copied into Recordings.]
+	{
+	de=Dieses Replay konnte nicht in Recordings kopiert werden.;
+	fr=Ce replay n'a pas pu être copié dans Recordings.;
+	es=Esta repetición no se pudo copiar en Recordings.;
+	it=Questo replay non si è potuto copiare in Recordings.;
+	}
+
+[No replays of this kind.]
+	{
+	de=Keine Replays dieser Art.;
+	fr=Aucun replay de ce type.;
+	es=No hay repeticiones de este tipo.;
+	it=Nessun replay di questo tipo.;
+	}
+
+[Reading {read} of {total} replays]
+	{
+	de=Lese {read} von {total} Replays;
+	fr=Lecture de {read} sur {total} replays;
+	es=Leyendo {read} de {total} repeticiones;
+	it=Lettura di {read} su {total} replay;
+	}
+
+[1 replay · {size}]
+	{
+	de=1 Replay · {size};
+	fr=1 replay · {size};
+	es=1 repetición · {size};
+	it=1 replay · {size};
+	}
+
+[{count} replays · {size}]
+	{
+	de={count} Replays · {size};
+	fr={count} replays · {size};
+	es={count} repeticiones · {size};
+	it={count} replay · {size};
+	}
+
+[This recording cannot be read.]
+	{
+	de=Diese Aufnahme kann nicht gelesen werden.;
+	fr=Cet enregistrement ne peut pas être lu.;
+	es=Esta grabación no se puede leer.;
+	it=Questa registrazione non può essere letta.;
+	}
+
+[This file cannot be read.]
+	{
+	de=Diese Datei kann nicht gelesen werden.;
+	fr=Ce fichier ne peut pas être lu.;
+	es=Este archivo no se puede leer.;
+	it=Questo file non può essere letto.;
+	}
+
+[This file is too large to be a replay.]
+	{
+	de=Diese Datei ist zu groß für ein Replay.;
+	fr=Ce fichier est trop gros pour être un replay.;
+	es=Este archivo es demasiado grande para ser una repetición.;
+	it=Questo file è troppo grande per essere un replay.;
+	}
+
+[Reading the replays…]
+	{
+	de=Lese die Replays…;
+	fr=Lecture des replays…;
+	es=Leyendo las repeticiones…;
+	it=Lettura dei replay…;
+	}
+
+[Export…]
+	{
+	de=Exportieren…;
+	fr=Exporter…;
+	es=Exportar…;
+	it=Esporta…;
+	}
+
+[Export]
+	{
+	de=Exportieren;
+	fr=Exporter;
+	es=Exportar;
+	it=Esporta;
+	}
+
+[Open Annihilation replay (.oademo)]
+	{
+	de=Open Annihilation-Replay (.oademo);
+	fr=Replay Open Annihilation (.oademo);
+	es=Repetición de Open Annihilation (.oademo);
+	it=Replay di Open Annihilation (.oademo);
+	}
+
+[TA Demo Recorder (.tad)]
+	{
+	de=TA Demo Recorder (.tad);
+	fr=TA Demo Recorder (.tad);
+	es=TA Demo Recorder (.tad);
+	it=TA Demo Recorder (.tad);
+	}
+
+[Everything needed to watch it: the recording, and the game, mod and map it needs]
+	{
+	de=Alles, was du brauchst, um es anzusehen: die Aufnahme und das Spiel, die Mod und die Karte, die es braucht;
+	fr=Tout ce qu'il faut pour le regarder : l'enregistrement, et le jeu, le mod et la carte dont il a besoin;
+	es=Todo lo que necesitas para verla: la grabación, y el juego, el mod y el mapa que necesita;
+	it=Tutto quello che ti serve per guardarlo: la registrazione, e il gioco, la mod e la mappa che gli servono;
+	}
+
+[For TA Demo Recorder and other replayers]
+	{
+	de=Für TA Demo Recorder und andere Abspieler;
+	fr=Pour TA Demo Recorder et les autres lecteurs;
+	es=Para TA Demo Recorder y otros reproductores;
+	it=Per TA Demo Recorder e gli altri lettori;
+	}
+
+[What only Open Annihilation reads]
+	{
+	de=Was nur Open Annihilation liest;
+	fr=Ce que seul Open Annihilation lit;
+	es=Lo que solo Open Annihilation lee;
+	it=Quello che legge solo Open Annihilation;
+	}
+
+[What to include]
+	{
+	de=Was enthalten sein soll;
+	fr=Ce qu'il faut inclure;
+	es=Qué incluir;
+	it=Cosa includere;
+	}
+
+[Compatibility]
+	{
+	de=Kompatibilität;
+	fr=Compatibilité;
+	es=Compatibilidad;
+	it=Compatibilità;
+	}
+
+[Show in folder]
+	{
+	de=Im Ordner zeigen;
+	fr=Afficher dans le dossier;
+	es=Mostrar en la carpeta;
+	it=Mostra nella cartella;
+	}
+
+[Exporting {done} of {total}]
+	{
+	de=Exportiere {done} von {total};
+	fr=Export de {done} sur {total};
+	es=Exportando {done} de {total};
+	it=Esportazione di {done} su {total};
+	}
+
+[Saved to {folder}]
+	{
+	de=Gespeichert in {folder};
+	fr=Enregistré dans {folder};
+	es=Guardado en {folder};
+	it=Salvato in {folder};
+	}
+
+[It was played with the mutator {name}. Other replayers cannot apply it, so commanders may not last as they did.]
+	{
+	de=Es wurde mit dem Mutator {name} gespielt. Andere Abspieler können ihn nicht anwenden, also halten die Kommandanten vielleicht nicht so lange durch wie damals.;
+	fr=Elle a été jouée avec le mutateur {name}. Les autres lecteurs ne peuvent pas l'appliquer, alors les commandants peuvent ne pas tenir comme ils l'ont fait.;
+	es=Se jugó con el mutador {name}. Otros reproductores no pueden aplicarlo, así que los comandantes pueden no durar como lo hicieron.;
+	it=È stata giocata con il mutatore {name}. Gli altri lettori non possono applicarlo, quindi i comandanti possono non durare come allora.;
+	}
+
+[It was played with mutators. Other replayers cannot apply them, so commanders may not last as they did.]
+	{
+	de=Es wurde mit Mutatoren gespielt. Andere Abspieler können sie nicht anwenden, also halten die Kommandanten vielleicht nicht so lange durch wie damals.;
+	fr=Elle a été jouée avec des mutateurs. Les autres lecteurs ne peuvent pas les appliquer, alors les commandants peuvent ne pas tenir comme ils l'ont fait.;
+	es=Se jugó con mutadores. Otros reproductores no pueden aplicarlos, así que los comandantes pueden no durar como lo hicieron.;
+	it=È stata giocata con dei mutatori. Gli altri lettori non possono applicarli, quindi i comandanti possono non durare come allora.;
+	}
+
+[Other replayers stop at the first of this mod's wide weapon records.]
+	{
+	de=Andere Abspieler bleiben beim ersten der breiten Waffen-Einträge dieser Mod stehen.;
+	fr=Les autres lecteurs s'arrêtent au premier des longs enregistrements d'arme de ce mod.;
+	es=Otros reproductores se detienen en el primero de los registros de arma anchos de este mod.;
+	it=Gli altri lettori si fermano al primo dei record di arma larghi di questa mod.;
+	}
+
+[Names longer than 63 letters are cut.]
+	{
+	de=Namen, die länger als 63 Buchstaben sind, werden abgeschnitten.;
+	fr=Les noms de plus de 63 lettres sont coupés.;
+	es=Los nombres de más de 63 letras se cortan.;
+	it=I nomi più lunghi di 63 lettere vengono tagliati.;
+	}
+
+[Nothing is selected. Choose a replay, then export it.]
+	{
+	de=Nichts ist ausgewählt. Wähle ein Replay und exportiere es dann.;
+	fr=Aucun replay n'est sélectionné. Choisis un replay, puis exporte-le.;
+	es=No hay nada seleccionado. Elige una repetición y luego expórtala.;
+	it=Non è selezionato nulla. Scegli un replay e poi esportalo.;
+	}
+
+[A player's status is cut to 512 bytes.]
+	{
+	de=Der Status eines Spielers wird auf 512 Bytes gekürzt.;
+	fr=L'état d'un joueur est coupé à 512 octets.;
+	es=El estado de un jugador se corta a 512 bytes.;
+	it=Lo stato di un giocatore viene tagliato a 512 byte.;
+	}
+
+[Export {count} replays]
+	{
+	de={count} Replays exportieren;
+	fr=Exporter {count} replays;
+	es=Exportar {count} repeticiones;
+	it=Esporta {count} replay;
+	}
+
+[The export could not be written.]
+	{
+	de=Der Export konnte nicht geschrieben werden.;
+	fr=L'export n'a pas pu être écrit.;
+	es=No se pudo escribir la exportación.;
+	it=Non è stato possibile salvare l'esportazione.;
+	}
+
+[More folders]
+	{
+	de=Weitere Ordner;
+	fr=Plus de dossiers;
+	es=Más carpetas;
+	it=Altre cartelle;
+	}
+
+[Previous folders]
+	{
+	de=Vorherige Ordner;
+	fr=Dossiers précédents;
+	es=Carpetas anteriores;
+	it=Cartelle precedenti;
+	}
+
+[More warnings]
+	{
+	de=Weitere Warnungen;
+	fr=Plus d'avertissements;
+	es=Más avisos;
+	it=Altri avvisi;
+	}
+
+[Previous warnings]
+	{
+	de=Vorherige Warnungen;
+	fr=Avertissements précédents;
+	es=Avisos anteriores;
+	it=Avvisi precedenti;
+	}
+
+[Export {name}]
+	{
+	de={name} exportieren;
+	fr=Exporter {name};
+	es=Exportar {name};
+	it=Esporta {name};
+	}
+
+[Compressing the recording]
+	{
+	de=Die Aufnahme wird gepackt;
+	fr=Compression de l'enregistrement;
+	es=Comprimiendo la grabación;
+	it=Compressione della registrazione;
+	}
+
+[Writing {name}]
+	{
+	de={name} wird geschrieben;
+	fr=Écriture de {name};
+	es=Escribiendo {name};
+	it=Scrittura di {name};
+	}
+
+[Measuring…]
+	{
+	de=Wird gemessen…;
+	fr=Mesure en cours…;
+	es=Midiendo…;
+	it=Misurazione…;
+	}
+
+[There is no room in {folder}.]
+	{
+	de=In {folder} ist kein Platz.;
+	fr=Il n'y a plus de place dans {folder}.;
+	es=No queda sitio en {folder}.;
+	it=Non c'è spazio in {folder}.;
+	}
+
+[Open Annihilation cannot write to {folder}.]
+	{
+	de=Open Annihilation kann nicht nach {folder} schreiben.;
+	fr=Open Annihilation ne peut pas écrire dans {folder}.;
+	es=Open Annihilation no puede escribir en {folder}.;
+	it=Open Annihilation non può scrivere in {folder}.;
+	}
+
+[Saved {done} of {total}.]
+	{
+	de={done} von {total} gespeichert.;
+	fr={done} sur {total} enregistrés.;
+	es={done} de {total} guardados.;
+	it={done} di {total} salvati.;
+	}
+
+[This replay cannot be read, so it cannot be exported.]
+	{
+	de=Dieses Replay kann nicht gelesen werden, also kann es nicht exportiert werden.;
+	fr=Ce replay ne peut pas être lu, donc il ne peut pas être exporté.;
+	es=Esta repetición no se puede leer, así que no se puede exportar.;
+	it=Questo replay non si può leggere, quindi non si può esportare.;
 	}

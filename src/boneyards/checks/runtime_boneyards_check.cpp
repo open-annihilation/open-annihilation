@@ -9,6 +9,7 @@
 // implemented elsewhere.
 #include "boneyards_check.hpp"
 #include "boneyards_options.hpp"
+#include "console_state.hpp"
 #include "galaxy_graphics.hpp"
 
 #include "oa/app/app.hpp"
@@ -1047,11 +1048,11 @@ std::uint64_t boneyards_pass(const CheckHost& host) {
 }
 
 // After Enter Boneyards the passes run until the login console shows, with
-// no user name saved from an earlier login, so it opens on an empty name
-// field in guest mode. The account is typed as a player would: the name, Tab
-// into the password field
-// (a member first selects Registered User: Tab, Space, Shift+Tab), the
-// password, then Enter once the login console's pulse has enabled LOGIN.
+// no user name saved from an earlier login, so it opens on Registered User
+// with the password shown. A member types the name, Tab into the password,
+// Tab, a space, Shift+Tab, the password, then Enter once the pulse has
+// enabled LOGIN. A guest (no password) is selected on the dialog, which a
+// player cannot do while Guest Login is grey, then the name, Tab and Enter.
 // The passes then run until the dossier arrives (connection level 4), and
 // that pass must close the login console, sliding the green out with
 // GREEN_SLIDE. The slide must animate the frame and end with BIGBUTTON,
@@ -1127,6 +1128,11 @@ int check_boneyards_post_login(const CheckHost& host, const Options& options, st
         return kEntryNoLoginConsole;
     }
     std::cout << "boneyards login check: login console shown after " << pass << " passes\n";
+
+    if (!member && widget != nullptr && widget->navigation != nullptr)
+        by_screens::login_on_control(
+            &widget->navigation->login, by_screens::LoginControl::guest_radio
+        );
 
     const auto key = [&](SDL_EventType type, SDL_Keycode code) {
         SDL_Event event{};

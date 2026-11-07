@@ -9,7 +9,14 @@
 #pragma once
 
 #include "oa/base/sha256.hpp"
+#include "oa/data/replays/content.hpp"
+#include "oa/data/replays/replays.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
+#include "oa/ui/library/export.hpp"
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 #include <array>
 #include <compare>
@@ -591,6 +598,126 @@ struct DownloadableExpansion {
     std::vector<std::string> extends{};
 };
 
+/// The Replays section's filters, in the order the section list shows them.
+enum class ReplayFilter : uint8_t {
+    this_month, ///< recorded in the last month_days days; the section opens on it
+    older,      ///< recorded before that
+    kept,       ///< the player keeps them
+    imported,   ///< opened from outside Recordings
+};
+
+/// How many replay filters there are.
+inline constexpr std::size_t replay_filter_total = 4;
+
+/// The days This month reaches back, today included.
+inline constexpr int32_t month_days = 30;
+
+/// The days a recorded replay is kept when the player's setting does not say
+/// otherwise. The card uses ReplayInputs::keep_days, which starts at this.
+inline constexpr int32_t kept_days = 30;
+
+/// How the replays are ordered, as the sort menu offers it.
+enum class ReplaySort : uint8_t {
+    newest,  ///< the latest first, grouped by day
+    longest, ///< the longest game first
+    map,     ///< by the map's name
+    players, ///< the most players first
+};
+
+/// How many sorts there are.
+inline constexpr std::size_t replay_sort_total = 4;
+
+/// The kinds of game the engine itself records, in the kind menu's order,
+/// after All kinds and before the kinds extensions register.
+inline constexpr std::array<std::string_view, 3> engine_replay_kinds{
+    oa::data::replays::kind_multiplayer,
+    oa::data::replays::kind_skirmish,
+    oa::data::replays::kind_campaign,
+};
+
+/// One replay as the Library lists it: what its file says, and when it was
+/// recorded on the player's clock.
+struct ReplayRow {
+    oa::data::replays::Replay replay{}; ///< what the file says
+    int32_t day{};                      ///< the local date it was recorded, as day_number counts
+    int32_t minute{}; ///< the local time it was recorded, in minutes into that day
+    /// The map's picture, when the app has drawn it from the installed map.
+    /// Empty draws a plain tile. Its pixels stay valid until the next refresh.
+    std::optional<MapPicture> picture{};
+    /// What this replay still needs. Empty when it can be watched as it is.
+    /// A map named only by its title, with no package, is left out of the
+    /// chip and the card: Watch still refuses that as it does today.
+    std::vector<oa::data::replays::ContentGap> gaps{};
+};
+
+/// What the Replays section is built from, beside the Library's other inputs.
+struct ReplayInputs {
+    std::vector<ReplayRow> rows{}; ///< every replay below Recordings, damaged ones too
+    /// The kinds extensions register, in the order they did.
+    std::vector<oa::data::replays::Kind> kinds{};
+    int32_t today{}; ///< the local date now, as day_number counts
+    /// The folder is being read: `read` of `total` files are done. The rows
+    /// read so far are listed.
+    bool reading{};
+    std::size_t read{};  ///< files read so far
+    std::size_t total{}; ///< files to read
+    /// The player's setting keeps every game as a replay. Off, the empty
+    /// section says so and offers Turn on recording.
+    bool recording_on{true};
+    /// The empty section, and the Imported filter's empty list, offer Open a
+    /// replay file. Windows, Linux and macOS have a file dialog; iOS and
+    /// Android do not, and leave this off.
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__)) ||                            \
+    (defined(__APPLE__) && !TARGET_OS_IPHONE)
+    bool open_file{true};
+#else
+    bool open_file{false};
+#endif
+    /// How many days a recorded replay is kept, from the day it was recorded.
+    /// 30 unless the player's setting says 90 or a year. Ignored while
+    /// `keep_forever`.
+    int32_t keep_days{kept_days};
+    /// The player's setting keeps replays until the player deletes them. The
+    /// card says Kept, and the empty section says they stay.
+    bool keep_forever{false};
+    /// A Get for `fetch_path` is in the queue. The card says `fetch_sentence`
+    /// and its primary button is Cancel.
+    bool fetching{};
+    std::string fetch_path{};
+    std::string fetch_sentence{};
+};
+
+/// The Replays section's own state, kept as the inputs change.
+struct ReplayView {
+    ReplayFilter filter{ReplayFilter::this_month}; ///< the filter shown
+    std::string kind{};                            ///< the kind shown; empty for All kinds
+    ReplaySort sort{ReplaySort::newest};           ///< the order
+    std::vector<std::size_t> visible{};            ///< indexes into the rows, in the order shown
+    /// The replay the details card shows, by its path. None when no row shows.
+    std::optional<std::string> selected{};
+    /// The replays marked for Keep, by path; the selected one among them.
+    std::vector<std::string> marked{};
+    /// Where Shift's run of marks starts, by path.
+    std::optional<std::string> anchor{};
+    /// Why Watch could not start the replay at `refused_path`, as the game
+    /// said it. The card shows it while that replay is selected.
+    std::string refusal{};
+    std::string refused_path{}; ///< the replay the refusal is about
+    /// Delete was pressed and waits for the confirm button beside it.
+    /// Choosing another replay clears it. Nothing is deleted until that button.
+    bool delete_armed{false};
+    /// Why a Delete just failed, already in the player's language. The card
+    /// shows it until another replay is chosen or Delete is armed again.
+    std::string delete_failure{};
+};
+
+/// How a press on a replay's row changes the marks.
+enum class ReplayPick : uint8_t {
+    only,   ///< a plain press: this row alone
+    toggle, ///< Ctrl or Command: this row in or out, the others kept
+    extend, ///< Shift: every row from the anchor to this one
+};
+
 /// Everything the Library is built from.
 struct Inputs {
     std::vector<Registry> registries{};
@@ -661,11 +788,14 @@ struct Inputs {
     /// The player's interface mode: "right-click" or "left-click". Empty
     /// means right-click. A layout never writes this.
     std::string player_pointer{};
+    /// The Replays section's replays, and what it shows about them.
+    ReplayInputs replays{};
 };
 
 /// One of the Library's tabs, in the order they are shown.
 enum class Tab : uint8_t {
-    active, ///< the mod being played, the language in use and the installed maps; no list
+    active,  ///< the mod being played, the language in use and the installed maps; no list
+    replays, ///< the replays on this computer, with their own filters; no list of packages
     mods,
     maps,
     mutators, ///< every mutator the player has or a registry lists
@@ -677,7 +807,7 @@ enum class Tab : uint8_t {
 };
 
 /// How many tabs there are.
-inline constexpr std::size_t tab_total = 9;
+inline constexpr std::size_t tab_total = 10;
 
 /// Which entries a tab shows, apart from its kind, in the order the filters are shown.
 enum class Filter : uint8_t {
@@ -1164,9 +1294,10 @@ struct Library {
     std::vector<Entry> entries{};
     Tab tab{Tab::active}; ///< the tab shown; Active until another is asked for
     /// Each tab's own filter, by Tab's order: Updates starts on Updates and
-    /// the others on All. Active and Registries have no filters and ignore
-    /// their own.
+    /// the others on All. Active, Replays and Registries have no such
+    /// filters and ignore their own; Replays keeps its own in `replays`.
     std::array<Filter, tab_total> filters{
+        Filter::all,
         Filter::all,
         Filter::all,
         Filter::all,
@@ -1194,12 +1325,16 @@ struct Library {
     /// The USE question, over the Library. Empty `open` draws nothing.
     /// GET, an install and a catalogue update never open it.
     KeyUse key_use{};
+    /// The Export dialog, over the Library. Empty `open` draws nothing.
+    ExportDialog export_dialog{};
     /// How the question learns what USE would move. Empty lists nothing.
     KeyUseHooks key_hooks{};
     /// A stored note said a mod was cleared because an expansion it needs
     /// went off. Set when the inputs say so, and kept across refresh so the
     /// Active tab can still say why after the host clears the preference.
     bool expansion_note{};
+    /// The Replays section's filter, kind, sort, selection and marks.
+    ReplayView replays{};
     /// The base game's badge, scaled for the squares of the last layout.
     /// Those pictures point here until the next layout, which clears this.
     mutable std::deque<std::vector<uint8_t>> scaled_badge_pixels{};
@@ -1509,9 +1644,9 @@ inline constexpr std::string_view world_tag_prefix = "world-";
 
 /// Counts what a tab lists under All, before the tag and the search, whichever tab is open.
 ///
-/// Mods, Maps, Mutators, Brains and Languages count their kind. Updates
-/// counts the updates that can be installed (update_count). Active counts
-/// none. Registries counts the registries listed, not the packages. The
+/// Mods, Maps, Mutators, Brains and Languages count their kind. Replays
+/// counts this month's replays (replay_filter_count). Updates counts the
+/// updates that can be installed (update_count). Active counts none. Registries counts the registries listed, not the packages. The
 /// base game, the built-in languages and the built-in computer player are
 /// left out, as they are from the filters' counts.
 ///
@@ -1941,6 +2076,43 @@ enum class Action : uint8_t {
     /// EDIT KEYS… on the layout in use. The host opens the key editor as
     /// Settings › Controls does.
     edit_keys,
+    /// WATCH on the Replays section's card. `ScreenResult::replay` names the
+    /// replay. The host hands it to the game, which plays it; a refusal comes
+    /// back to the card (refuse_replay).
+    watch_replay,
+    /// KEEP or KEPT on the card. `ScreenResult::replays` names every marked
+    /// replay and `ScreenResult::keep` says which: keep them, or stop keeping them.
+    keep_replays,
+    /// OPEN FOLDER on the card. `ScreenResult::replay` names the replay whose
+    /// folder is shown.
+    open_replay_folder,
+    /// TURN ON RECORDING in the empty Replays section, while the player's
+    /// setting does not record games. The host turns the setting on.
+    turn_on_recording,
+    /// OPEN A REPLAY FILE… in the empty Replays section, and under the
+    /// Imported filter while it shows none. The host opens the file dialog.
+    open_replay_file,
+    /// DELETE on the card. The first press only asks, with a confirm button
+    /// beside it. Nothing is deleted.
+    delete_replays,
+    /// The confirm button beside DELETE. `ScreenResult::replays` names every
+    /// marked replay. The host moves each file to the system's trash.
+    confirm_delete_replays,
+    /// EXPORT… on the card. `ScreenResult::replays` names every marked replay.
+    /// The host opens the Export dialog.
+    export_replays,
+    /// CHOOSE… in the Export dialog. The host lists the folder.
+    choose_export_folder,
+    /// EXPORT in the dialog. The host writes one file each pump.
+    run_export,
+    /// SHOW IN FOLDER after the files are written. The host shows the folder.
+    show_export_folder,
+    /// UP in the dialog's chooser. The host lists the parent folder.
+    export_browse_up,
+    /// A folder row in the chooser. `ScreenResult::export_path` is its name.
+    export_browse_open,
+    /// USE THIS FOLDER in the chooser. The host writes into the folder listed.
+    export_browse_use,
 };
 
 /// Returns the action an expansion's download arrow asks for.
@@ -1966,6 +2138,8 @@ struct ActionButton {
     /// The button's words. A fixed action's are the text.hpp word, looked
     /// up. TURN ON names the expansion, so the words are owned here.
     std::string text{};
+    /// Drawn in the danger look: Delete, and the confirm beside it.
+    bool danger{};
 };
 
 /// Lists an entry's buttons, in the order they are shown.

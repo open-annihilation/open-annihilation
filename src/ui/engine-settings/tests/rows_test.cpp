@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 129> kExpected{{
+constexpr std::array<Expected, 132> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -202,11 +202,14 @@ constexpr std::array<Expected, 129> kExpected{{
     {Setting::invert_mouse_zoom, RowKind::toggle, "Invert mouse zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
     {Setting::update_channel, RowKind::levels, "Update channel", 1, 1, 2, 56, 2, false, Lock::none, nullptr},
+    {Setting::record_games, RowKind::toggle, "Record my games", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::keep_replays, RowKind::choice, "Keep replays for", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
+    {Setting::open_replay_files, RowKind::toggle, "Open replay files with Open Annihilation", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::update_channel) + 1,
+    kExpected.size() == static_cast<std::size_t>(Setting::open_replay_files) + 1,
     "every setting has its row"
 );
 
@@ -527,7 +530,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 32> kStoredChoices{{
+constexpr std::array<StoredChoice, 33> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -560,6 +563,7 @@ constexpr std::array<StoredChoice, 32> kStoredChoices{{
     {Setting::focus_lost, settings::key::focus_lost},
     {Setting::look, settings::key::look},
     {Setting::update_channel, settings::key::update_channel},
+    {Setting::keep_replays, settings::key::replays_keep},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {
@@ -670,6 +674,10 @@ void every_row_and_choice_has_an_id_of_one_word() {
     OA_CHECK(ids_of(Setting::fog_of_war) == (std::vector<std::string>{"classic", "smooth"}));
     OA_CHECK(ids_of(Setting::update_channel) == (std::vector<std::string>{"stable", "testing"}));
     OA_CHECK(
+        ids_of(Setting::keep_replays) ==
+        (std::vector<std::string>{"30-days", "90-days", "1-year", "forever"})
+    );
+    OA_CHECK(
         ids_of(Setting::interface_size) ==
         (std::vector<std::string>{"automatic", "100", "200", "300", "400"})
     );
@@ -692,14 +700,14 @@ std::vector<int32_t> tab_order(const settings::Dialog& dialog) {
 /// Returns a section's rows' controls, then the footer, the sections' entries
 /// in the list's order with every section listed (Controls, Accessibility,
 /// Touch, Controller; Graphics, User Interface, Language & Text; Game files,
-/// Downloads, Updates, Game Content; Engine Limits, System, Developer) and
+/// Downloads, Updates, Game Content, Replays; Engine Limits, System, Developer) and
 /// the title bar's close mark: the Tab order the dialog declares.
 ///
 /// @param rows the section's own controls, in order
 /// @return the whole order
 std::vector<int32_t> with_footer_and_list(std::vector<int32_t> rows) {
     for (const int32_t control :
-         {14, 15, 16, 0, 13, 5, 6, 3, 4, 2, 8, 9, 12, 11, 1, 10, 7, settings::close_x_control})
+         {15, 16, 17, 0, 13, 5, 6, 3, 4, 2, 8, 9, 12, 11, 14, 1, 10, 7, settings::close_x_control})
         rows.push_back(control);
     return rows;
 }
@@ -712,14 +720,13 @@ void tab_follows_the_dialogs_focus_order() {
         engine_dialog_of({}, settings::Page::controls, true, true, true);
     OA_CHECK(
         tab_order(controls) ==
-        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32})
+        with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33})
     );
     settings::Dialog linked = controls;
     linked.library_link = true;
     OA_CHECK(
         tab_order(linked) == with_footer_and_list(
                                  {settings::change_layout_control,
-                                  18,
                                   19,
                                   20,
                                   21,
@@ -731,8 +738,9 @@ void tab_follows_the_dialogs_focus_order() {
                                   27,
                                   28,
                                   29,
-                                  31,
-                                  32}
+                                  30,
+                                  32,
+                                  33}
                              )
     );
     // Accessibility: every row, Bounce keys included, then the footer and the
@@ -744,19 +752,19 @@ void tab_follows_the_dialogs_focus_order() {
     accessibility.page = settings::Page::accessibility;
     OA_CHECK(
         tab_order(accessibility) ==
-        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31})
+        with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
     );
     accessibility.chosen.move_overlays = true;
     OA_CHECK(
         tab_order(accessibility) ==
-        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
+        with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33})
     );
     accessibility.chosen.move_overlays = false;
     accessibility.chosen.sticky_modifiers = true;
     OA_CHECK(
         tab_order(accessibility) ==
         with_footer_and_list(
-            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, settings::helpers_off_control}
+            {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, settings::helpers_off_control}
         )
     );
     // Graphics: After zoom, locked while units are drawn whole, takes none,
@@ -765,7 +773,7 @@ void tab_follows_the_dialogs_focus_order() {
     graphics.page = settings::Page::graphics;
     OA_CHECK(
         tab_order(graphics) ==
-        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 34, 39})
+        with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 40})
     );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // and Update channel last of them, its list's headers, Show Active Only
@@ -774,10 +782,10 @@ void tab_follows_the_dialogs_focus_order() {
     developer.page = settings::Page::developer;
     developer.chosen.developer_mode = true;
     developer.developer.areas_open[0] = 1;
-    OA_CHECK(tab_order(developer) == with_footer_and_list({18, 19, 20, 21, 24, 25, 26, 27, 28,
-                                                           29, 30, 31, 32, 33, 34, 35, 36, 37,
-                                                           38, 39, 40, 41, 42, 43, 44, 45, 46,
-                                                           47, 48, 49, 50, 22, 23}));
+    OA_CHECK(tab_order(developer) == with_footer_and_list({19, 20, 21, 22, 25, 26, 27, 28, 29,
+                                                           30, 31, 32, 33, 34, 35, 36, 37, 38,
+                                                           39, 40, 41, 42, 43, 44, 45, 46, 47,
+                                                           48, 49, 50, 51, 23, 24}));
 }
 
 void updates_names_its_ways() {

@@ -112,8 +112,33 @@ void post_registry_file(const std::filesystem::path& file);
 /// @return true while one does
 [[nodiscard]] bool registry_files_waiting();
 
+/// Tells whether a file is a replay the game opens: a .oademo or a .tad file, by its
+/// extension, without case. It is not one of the seven opens_file names.
+///
+/// @param file the file
+/// @return true when the extension is one of those
+[[nodiscard]] bool opens_replay(const std::filesystem::path& file);
+
+/// Queues a .oademo or a .tad file to be copied into Replays once the main menu shows.
+/// A path already queued is not queued again: it is made absolute, then canonical as
+/// far as it exists, then lexically normal, before it is compared.
+///
+/// @param file the replay
+void post_replay_file(const std::filesystem::path& file);
+
+/// Takes the next replay, oldest first.
+///
+/// @return the file; nothing when none waits
+[[nodiscard]] std::optional<std::filesystem::path> take_replay_file();
+
+/// Tells whether any replay waits.
+///
+/// @return true while one does
+[[nodiscard]] bool replay_files_waiting();
+
 /// Queues a file the game was opened with. A .oareg file, in any case, goes to the
-/// add-registry queue (post_registry_file); anything else goes to the package queue
+/// add-registry queue (post_registry_file); a .oademo or a .tad file goes to the
+/// replay queue (post_replay_file); anything else goes to the package queue
 /// (post_package_file). This is the only place that chooses the queue.
 ///
 /// @param file the file

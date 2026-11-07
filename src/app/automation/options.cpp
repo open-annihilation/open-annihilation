@@ -248,6 +248,8 @@ std::string_view conflicting_option(const oa::app::Options& options) {
         return "--render-script";
     if (!options.generate_script.empty())
         return "--generate-script";
+    if (!options.replay_index.empty())
+        return "--replay-index";
     if (options.showcase != Showcase::none)
         return "--showcase";
     if (options.benchmark_frames)

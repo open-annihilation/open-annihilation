@@ -40,6 +40,9 @@ hacks:
 - A recording the player names with the `.record` chat command is written under that name plus `manual-extension`.
 - Otherwise the file is named after the local date, time and map, plus `auto-extension`.
 - Files go into the mod's folder in `Recordings` in the player's own Open Annihilation folder, `Recordings/<mod id>`, unless `--net-record FILE` names the file. `compress-files` compresses the recorded packets.
+- The file is written as the game goes, to `Recordings/.replays/partial`, and moved into place when the game ends, so a crash leaves a recording that the next start finishes. The file is exactly what it would have been written whole.
+- **The file holds no player's address.** The recorder's file format has a sector for each player's network address (sector 6), and the files this game writes no longer carry it: each of them is smaller by six bytes for every player, and has as many fewer sectors. Playback never read it, and other programs that read the file read the rest as before. The file of another recorder that holds those sectors still plays.
+- With the hack on, the game writes this layout and no other: the player's setting `open-annihilation.replays.record` keeps games as `.oademo` replays only when the hack does not record them, so a game is never kept twice. See [Replays](../../replays.md).
 
 **Recorder traffic.**
 
@@ -60,8 +63,8 @@ A recorder peer may send the records of its first game frame twice. The engine d
 
 - `wire_rules_of` (`src/app/netgame/wire_rules_binding.cpp`) turns `recorder.ta_demo_recorder.enabled` into `WireRules::recorder_protocol` and copies `cheat_notices` into `WireRules::recorder_cheat_notices` (`src/netgame/include/oa/netgame/wire_rules.hpp`).
 - The match reads and sends recorder records in `src/netgame/match/src/net_match.cpp` and the battle room in `src/ui/frontend-multiplayer/src/battleroom.cpp`; the repeated first-frame create is dropped in `src/netgame/match/src/match_binding.cpp`.
-- `start_recording` in `src/app/netgame/runtime_net.cpp` starts the recording and reads `compress_files`, `manual_extension` and `auto_extension`. The container is written by the demo session module, `src/session/demo` (`include/oa/session/demo/recording.hpp`).
-- Tests: `every_rule_maps` in `src/app/netgame/tests/wire_rules_test.cpp` (ctest `netgame-wire-rules`); `recorder_records_reach_the_match` in `src/netgame/match/tests/net_match_test.cpp` (ctest `net-match`); `live_recording_round_trips` in `src/session/demo/tests/demo_playback_test.cpp` (ctest `demo-playback`); the profile tests in `src/data/mod-profile/tests/mod_profile_test.cpp` (ctest `data-mod-profile`).
+- `start_recording` in `src/app/netgame/runtime_net.cpp` starts the recording and reads `compress_files`, `manual_extension` and `auto_extension`. The container is written by the demo session module, `src/session/demo` (`include/oa/session/demo/recording.hpp`), streamed to its file as the game goes (`recording_stream.hpp`) and finished into place by `finish_as_tad`.
+- Tests: `every_rule_maps` in `src/app/netgame/tests/wire_rules_test.cpp` (ctest `netgame-wire-rules`); `recorder_records_reach_the_match` in `src/netgame/match/tests/net_match_test.cpp` (ctest `net-match`); `live_recording_round_trips`, `streaming_writer_gives_the_bytes_recording_write_gives` and `no_written_recording_holds_a_player_address` in `src/session/demo/tests/demo_playback_test.cpp` (ctest `demo-playback`); `native-replays-record` (`tools/check_native_replays_record.py`), which plays a game under a profile with this hack and checks that its `.tad` holds no address sector; the profile tests in `src/data/mod-profile/tests/mod_profile_test.cpp` (ctest `data-mod-profile`).
 
 **Known limits.**
 
