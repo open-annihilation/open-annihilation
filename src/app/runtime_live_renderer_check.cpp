@@ -127,7 +127,7 @@ int Runtime::check_live_renderer() {
             }
         return result;
     };
-    const auto snapshot = [&] {
+    const auto snapshot = [&](bool compare_vertex_storage = true) {
         // Console echoes are transient interface messages, not battlefield
         // changes; keep them out of frozen-frame comparisons.
         oa::sim::messages::clear_messages(match_->state().game);
@@ -135,7 +135,7 @@ int Runtime::check_live_renderer() {
         // borrow exclusive original or presentation instances through the
         // scene join; all existing moving, mirrored and water fixtures
         // compare their pixels, bounds and picks against that reference.
-        const bool compare_vertices = live_renderer_active();
+        const bool compare_vertices = compare_vertex_storage && live_renderer_active();
         const auto tick_before = match_timing_.tick;
         renderer::Surface captured;
         std::vector<int32_t> captured_picks;
@@ -1241,7 +1241,8 @@ int Runtime::check_live_renderer() {
     extension_ = {};
     extension_.context = &hud_draws;
     extension_.draw_match_hud = [](void* context, Runtime&) { ++*static_cast<int*>(context); };
-    const auto fallback = snapshot();
+    // This draw-count fixture deliberately has no reference draw.
+    const auto fallback = snapshot(false);
     extension_ = saved_extension;
     require(
         live_renderer_failed() && !live_renderer_active(),
