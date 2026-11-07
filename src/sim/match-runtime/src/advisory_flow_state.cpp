@@ -173,6 +173,9 @@ std::span<const uint8_t> Match::advisory_state_bytes() noexcept {
     write_integer(header + 72, advisory_lane_record_bytes, 4);
     write_integer(header + 76, identity_bytes, 4);
     write_integer(header + 80, catalog_metadata_bytes, 4);
+    write_integer(header + 84, state.active_cursor, 4);
+    write_integer(header + 88, state.active_begin, 4);
+    header[92] = state.active_stopped ? 1 : 0;
     size_t at = header_bytes;
     for (uint32_t index = 0; index < state.catalog_count; ++index) {
         const auto& slot = state.catalogs[index];
@@ -241,7 +244,9 @@ bool Match::restore_advisory_state(std::span<const uint8_t> bytes) noexcept {
         !valid_budget(header + 64, advisory_active_work, override_limit, tick_valid) ||
         read32(header + 72) != advisory_lane_record_bytes ||
         read32(header + 76) != identity_bytes || read32(header + 80) != catalog_metadata_bytes ||
-        !zeros(bytes.subspan(84, header_bytes - 84)))
+        !valid_unit_cursor(read32(header + 84), state.unit_count) ||
+        !valid_unit_cursor(read32(header + 88), state.unit_count) || header[92] > 1 ||
+        !zeros(bytes.subspan(93, header_bytes - 93)))
         return false;
     size_t at = header_bytes;
     for (uint32_t index = 0; index < state.catalog_count; ++index) {
@@ -386,11 +391,15 @@ bool Match::restore_advisory_state(std::span<const uint8_t> bytes) noexcept {
     state.tick = read32(header + 28);
     state.enrollment_begin = read32(header + 32);
     state.enrollment_next = read32(header + 36);
+    state.active_cursor = read32(header + 84);
+    state.active_begin = read32(header + 88);
+    state.active_stopped = header[92] != 0;
     state.budget_override = override_limit;
     state.tick_valid = tick_valid;
     state.construction = read_budget(header + 48);
     state.query = read_budget(header + 56);
     state.active = read_budget(header + 64);
+    rebuild_advisory_membership(state);
     return true;
 }
 
