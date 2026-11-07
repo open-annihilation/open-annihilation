@@ -197,6 +197,13 @@ void TickHost::movement_tick(oa::Unit& record) {
                     flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks) {
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &match;
+                    if (match.enhanced_->local_flow_progress_snapshot_valid &&
+                        match.enhanced_->local_flow_progress_snapshot_tick ==
+                            match.simulation_.tick)
+                        probe.progress_at_tick_start = {
+                            match.enhanced_->local_flow_progress_at_tick_start.get(),
+                            match.enhanced_->unit_count
+                        };
                     probe.at = [](void* context,
                                   const sim::unit_movement::Unit& moving,
                                   std::array<int16_t, 2> cell,
@@ -231,8 +238,15 @@ void TickHost::movement_tick(oa::Unit& record) {
                                     (other->mirrored_driver ? other->mirrored_navigation.count < 2
                                                             : other->navigation.goal == nullptr))
                                     return LocalFlowBlocker{LocalFlowObstacle::stationary};
-                                const auto waiting =
-                                    m.simulation_.tick - other->movement.last_motion_tick;
+                                const bool have_snapshot =
+                                    m.enhanced_->local_flow_progress_snapshot_valid &&
+                                    m.enhanced_->local_flow_progress_snapshot_tick ==
+                                        m.simulation_.tick;
+                                const auto last_progress =
+                                    have_snapshot
+                                        ? m.enhanced_->local_flow_progress_at_tick_start[occupant]
+                                        : other->movement.last_motion_tick;
+                                const auto waiting = m.simulation_.tick - last_progress;
                                 if (result.obstacle != LocalFlowObstacle::moving ||
                                     waiting > result.waiting_ticks ||
                                     (waiting == result.waiting_ticks && occupant < result.unit_id))

@@ -36,6 +36,9 @@ struct LocalFlowProbe {
     LocalFlowBlocker (*at)(
         void* context, const Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy
     ){};
+    /// Last progress ticks captured before any unit moves this tick, indexed by unit id.
+    /// An empty span uses the caller's current movement clock.
+    std::span<const uint32_t> progress_at_tick_start{};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.
@@ -99,7 +102,8 @@ bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8
 /// Chooses a short traffic-avoidance waypoint, with bounded footprint queries.
 ///
 /// Only moving occupants cause yielding. Older waiting traffic takes priority,
-/// with unit id breaking ties. Candidate segments retain the host's collision
+/// with unit id breaking ties. Both ages use the same tick-start snapshot so
+/// an earlier unit update cannot change another unit's priority. Candidate segments retain the host's collision
 /// veto, and diagonal segments test both adjoining cells. Turn and acceleration
 /// limits remain the steering driver's responsibility.
 ///

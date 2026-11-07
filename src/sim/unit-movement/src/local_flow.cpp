@@ -207,9 +207,13 @@ LocalFlowDecision choose_local_flow(
     const int difference = std::bit_cast<int16_t>(uint16_t(heading - blocker.heading));
     if (std::abs(difference) < eighth_turn && blocker.waiting_ticks <= 1)
         return result;
-    const auto waiting = tick - movement.last_motion_tick;
+    const auto unit_id = static_cast<uint16_t>(unit.id);
+    const auto last_progress = unit_id < probe.progress_at_tick_start.size()
+                                   ? probe.progress_at_tick_start[unit_id]
+                                   : movement.last_motion_tick;
+    const auto waiting = tick - last_progress;
     if (waiting > blocker.waiting_ticks ||
-        (waiting == blocker.waiting_ticks && uint16_t(unit.id) < blocker.unit_id))
+        (waiting == blocker.waiting_ticks && unit_id < blocker.unit_id))
         return result;
     ++counters.yielded_ticks;
     constexpr std::array<int32_t, 4> turns{-eighth_turn, eighth_turn, -quarter_turn, quarter_turn};
