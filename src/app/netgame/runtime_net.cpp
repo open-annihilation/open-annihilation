@@ -3658,7 +3658,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     const auto count_from =
         [](const World& world, decltype(host_commander_ref) source, Shots& shots) {
             const int32_t projectile_count = world.game.projectile_count;
-            const auto live = std::clamp<int32_t>(projectile_count, 0, OA_PROJECTILE_CAPACITY);
+            const auto live = std::clamp<int32_t>(
+                projectile_count, 0, static_cast<int32_t>(oa::world_projectile_capacity(&world))
+            );
             for (int32_t i = 0; i < live; ++i) {
                 const auto& shot = world.projectiles[i];
                 if (shot.source != source || shot.created_tick != world.game.tick)
@@ -3848,9 +3850,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             );
             const auto expected_page =
                 (turned & OA_UNIT_FLAG_BUILD_MENU) != 0 ? oa::ui::hud::build_page(turned) : 0u;
-            // Space selects the commander when nothing is selected, and the
+            // Home selects the commander when nothing is selected, and the
             // commander is all the host's player has.
-            press_host_key(SDLK_SPACE);
+            press_host_key(SDLK_HOME);
             press_host_key(SDLK_PERIOD);
             host_page_turned = commander_page(host_world);
             require(
