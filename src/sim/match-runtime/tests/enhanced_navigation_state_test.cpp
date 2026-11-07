@@ -368,6 +368,77 @@ void shared_poll_progresses_without_legacy_credit() {
     }
 }
 
+/// Leaves an active full search authoritative while its field becomes ready.
+void shared_poll_preserves_an_active_full_search() {
+    constexpr uint16_t player_units = 1024;
+    constexpr uint32_t search_tick = 120;
+    auto options = options_for(2);
+    options.per_player_limit = player_units;
+    Fixture fixture(options);
+    configure_movement_class(fixture, player_units);
+    auto& match = *fixture.match;
+    auto& unit = fixture.spawn(0, 64, 64);
+    CHECK(!match.order_refused(
+        match.issue_ground_move(unit.unit_index, {200 << 16, 0, 64 << 16}, false)
+    ));
+    fixture.run(1);
+    auto* ground = match.ground_runtime(unit.unit_index);
+    CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+    const auto* goal = ground->navigation.goal;
+    auto& steering = table(match, "local-flow");
+    std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
+    CHECK(flow::read_local_flow_heads(heads, bytes_of(steering)));
+    heads[unit.unit_index].blocked_ticks = flow::local_flow_retry_ticks + 1;
+    heads[unit.unit_index].mobile_blocked = true;
+    std::vector<uint8_t> bytes(heads.size() * flow::local_flow_head_bytes);
+    CHECK(flow::write_local_flow_heads(heads, bytes));
+    CHECK(steering.restore(steering.context, bytes));
+    ground->navigation.flags |= routes::search_pending_flag;
+    ground->navigation.last_search_tick = 0;
+    match.simulation().tick = search_tick;
+    auto& jobs = match.path_search_jobs();
+    // Give each active player one node credit. Starting this real job costs
+    // more, leaving its open frontier held for a later simulation tick.
+    jobs.tick_credit = match.participant_count();
+    jobs.credit.fill(0);
+    jobs.round_robin = 0;
+    jobs.unit_cursor[0] = player_units - 1;
+    CHECK(match.path_search_worker().exhausted());
+    const auto before = match.enhanced_counters();
+    match.advance_path_search();
+    CHECK(match.fault() == nullptr);
+    CHECK(match.enhanced_counters().full_route_searches == before.full_route_searches + 1);
+    CHECK(ground->navigation.last_search_tick == search_tick);
+    CHECK(ground->navigation.needs_search());
+    CHECK(!match.path_search_worker().exhausted());
+    const auto held_budget = match.path_search_worker().budget();
+    const auto held_start = match.path_search_worker().start_cell();
+
+    jobs.tick_credit = 0;
+    jobs.credit.fill(0);
+    CHECK(flow::read_local_flow_heads(heads, bytes_of(steering)));
+    heads[unit.unit_index].blocked_ticks = flow::local_flow_retry_ticks - 1;
+    CHECK(flow::write_local_flow_heads(heads, bytes));
+    CHECK(steering.restore(steering.context, bytes));
+    constexpr uint32_t ready_tick = search_tick + routes::search_retry_ticks;
+    install_poll_field(match, unit.unit_index, ready_tick, false);
+    match.simulation().tick = ready_tick;
+    CHECK(ground->navigation.goal == goal);
+    const auto ready = match.enhanced_counters();
+    match.advance_path_search();
+    CHECK(match.fault() == nullptr);
+    const auto after = match.enhanced_counters();
+    CHECK(after.shared_route_requests == ready.shared_route_requests);
+    CHECK(after.shared_route_hits == ready.shared_route_hits);
+    CHECK(after.full_route_searches == ready.full_route_searches);
+    CHECK(ground->navigation.goal == goal);
+    CHECK(ground->navigation.needs_search());
+    CHECK(ground->navigation.last_search_tick == search_tick);
+    CHECK(!match.path_search_worker().exhausted());
+    CHECK(match.path_search_worker().budget() == held_budget);
+    CHECK(match.path_search_worker().start_cell() == held_start);
+}
+
 /// A long mobile blockage must escape a ready field that ignores traffic.
 void sustained_blockage_bypasses_shared_routes() {
     for (const uint8_t blocked_ticks :
@@ -716,6 +787,7 @@ int main() {
         navigation_state_survives_restore();
         malformed_state_is_rejected_atomically();
         shared_poll_progresses_without_legacy_credit();
+        shared_poll_preserves_an_active_full_search();
         sustained_blockage_bypasses_shared_routes();
         static_barrier_keeps_shared_route_access();
         accepted_routes_release_old_traffic_heads();
