@@ -508,6 +508,8 @@ void append_driver_control(
     item.visible = control.visible;
     item.enabled = control.enabled;
     item.focused = control.focused;
+    // The window's own focus, copied before a reported first stop is named.
+    item.holds_focus = control.focused;
     item.checked = control.checked;
     item.masked = control.masked;
     item.text_length = control.text_length > 0 ? control.text_length : 0;
@@ -1253,6 +1255,44 @@ void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
     }
 }
 
+/// Names the region's first stop when the toolkit focuses none.
+///
+/// The report only changes. The toolkit's own focus, and the frame it draws,
+/// stay as they are. A focused control that is hidden still counts as the
+/// toolkit's focus. The first stop is the visible, enabled control with area
+/// that is not a label or a picture, earliest in reading order.
+///
+/// @param[in,out] windows the consoles being listed
+void note_region_first_stop(std::vector<ExtensionWindow>& windows) {
+    if (!boneyards_console_up())
+        return;
+    for (const ExtensionWindow& window : windows)
+        for (const ExtensionControl& control : window.controls)
+            if (control.focused)
+                return;
+    ExtensionControl* stop = nullptr;
+    int64_t best = 0;
+    for (ExtensionWindow& window : windows) {
+        for (ExtensionControl& control : window.controls) {
+            if (!control.visible || !control.enabled || control.hidden)
+                continue;
+            if (control.kind == ExtensionControlKind::label ||
+                control.kind == ExtensionControlKind::image)
+                continue;
+            if (control.width <= 0 || control.height <= 0)
+                continue;
+            const int64_t score =
+                static_cast<int64_t>(control.y) * 5000 + static_cast<int64_t>(control.x);
+            if (stop == nullptr || score < best) {
+                stop = &control;
+                best = score;
+            }
+        }
+    }
+    if (stop != nullptr)
+        stop->focused = true;
+}
+
 /// Lists the consoles the Boneyards is showing (ExtensionWindowSource).
 ///
 /// The ticker reads its whole line. While the map is locked (the green layer
@@ -1296,6 +1336,7 @@ void list_driver_windows(
                 }
             }
         }
+        note_region_first_stop(windows);
     } catch (const std::exception&) {
         windows.clear();
     }

@@ -321,7 +321,16 @@ std::vector<std::string> tab_names(const kit::DisplayList& list) {
     std::vector<std::string> names;
     for (const kit::ControlId id : list.tab_order) {
         const kit::Control* control = kit::control_of(list, id);
-        names.push_back(control != nullptr ? control->name : std::string("?"));
+        if (control != nullptr) {
+            names.push_back(control->name);
+            continue;
+        }
+        std::string group_name = "?";
+        for (const kit::Composite& group : list.composites) {
+            if (group.id == id && !group.name.empty())
+                group_name = group.name;
+        }
+        names.push_back(std::move(group_name));
     }
     return names;
 }
@@ -353,14 +362,25 @@ void check_tabs(
     if (!page && compact) {
         append_tab(expected, list, picker::name_filter);
     } else if (!page) {
-        append_tab(expected, list, picker::name_filter_all);
-        append_tab(expected, list, picker::name_filter_installed);
-        append_tab(expected, list, picker::name_filter_downloads);
+        bool filters = false;
+        for (const std::string_view name :
+             {picker::name_filter_all,
+              picker::name_filter_installed,
+              picker::name_filter_downloads}) {
+            const kit::Control* control = find_named(list, name);
+            if (control != nullptr && tabbable(*control))
+                filters = true;
+        }
+        if (filters)
+            expected.emplace_back(picker::name_filters);
+        bool tag_pills = false;
         for (const kit::Control& control : list.controls) {
             if (control.kind == kit::ControlKind::button &&
                 starts(control.name, std::string(picker::name_tags) + ".") && tabbable(control))
-                expected.push_back(control.name);
+                tag_pills = true;
         }
+        if (tag_pills)
+            expected.emplace_back(picker::name_tag_pills);
         append_tab(expected, list, picker::name_tags);
     }
     if (!page) {

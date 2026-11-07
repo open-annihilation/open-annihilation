@@ -15,9 +15,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string_view>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -30,6 +32,8 @@ std::vector<uint8_t> g_palette_bytes;
 int32_t g_muzzle_font = k_no_handle;
 std::unordered_map<const Window*, uint8_t> g_latency_applied;
 void (*g_player_row_base_destroy)(Window*) = nullptr;
+Handle g_lock_mark = k_no_handle;
+Handle g_mute_mark = k_no_handle;
 
 void paint_latency_icon(PlayerRowIcons* row, bool reload);
 
@@ -703,11 +707,59 @@ void player_row_unselect(Window* self) {
 
 constexpr ListRowLook k_player_row_look{player_row_select, player_row_unselect};
 
+// Moves the name right while a lock or mute mark needs the gap, and puts it back otherwise.
+// The latency icon stays where the row was built, at the name's old right edge.
+void place_name_mark(ByPlayerRow* player) {
+    Window* label = player->name_label;
+    Window* latency = player->icons.latency_icon;
+    if (label == nullptr || latency == nullptr)
+        return;
+    const int32_t home = player->row.base.x + kByRowNameX;
+    const int32_t full = latency->x - home;
+    const bool mark =
+        present::colour_vision::shape_cues_active() && (player->whisper_locked || player->silenced);
+    const int32_t room = mark && full > kNameMarkRoom ? kNameMarkRoom : 0;
+    const int32_t left = home + room;
+    const int32_t width = full > room ? full - room : full;
+    if (label->x != left)
+        label->x = left;
+    if (width > 0 && label->width != width)
+        label->width = width;
+}
+
+void stamp_name_mark(ByPlayerRow* player) {
+    if (!present::colour_vision::shape_cues_active())
+        return;
+    NameMark mark = NameMark::none;
+    if (player->whisper_locked)
+        mark = NameMark::lock;
+    else if (player->silenced)
+        mark = NameMark::mute;
+    if (mark == NameMark::none)
+        return;
+    Handle& slot = mark == NameMark::lock ? g_lock_mark : g_mute_mark;
+    if (slot < 0)
+        slot = image_create_blank(kNameMarkSide, kNameMarkSide, kWidgetKey, kWidgetKey);
+    Surface surface{};
+    if (slot < 0 || !image_surface(slot, &surface))
+        return;
+    paint_name_mark(
+        surface.pixels, surface.width, surface.height, surface.pitch, mark, kCueInk, kWidgetKey
+    );
+    image_draw(
+        player->row.base.x + kByRowNameX, player->row.base.y + 2, kNameMarkSide, kNameMarkSide, slot
+    );
+}
+
 bool player_row_draw(Window* self) {
     ByPlayerRow* player = as_player_row(self);
     paint_latency_icon(&player->icons, false);
+    place_name_mark(player);
     const ByTextRow* row = &player->row;
-    return list_row_draw(self, row->selectable, row->list->selected_item, k_player_row_look);
+    const bool drawn =
+        list_row_draw(self, row->selectable, row->list->selected_item, k_player_row_look);
+    stamp_name_mark(player);
+    return drawn;
 }
 
 void player_row_destroy(Window* self) {
@@ -1714,23 +1766,71 @@ void remap_window(const Window* window, const std::array<uint8_t, 256>& map) {
         remap_image(window->states.images[state], map);
 }
 
+constexpr uint8_t k_cue_stamp = 0x80;
+
+void paint_row_bars(const Window* icon, int grade) {
+    if (icon == nullptr || icon->states.images == nullptr || grade < 1 || grade > 3)
+        return;
+    for (int32_t state = 0; state < icon->states.count; ++state) {
+        Surface surface{};
+        if (!image_surface(icon->states.images[state], &surface) || surface.pixels == nullptr)
+            continue;
+        paint_latency_bars(
+            surface.pixels, surface.width, surface.height, surface.pitch, grade, kCueInk, kCueGround
+        );
+    }
+}
+
 void paint_latency_icon(PlayerRowIcons* row, bool reload) {
     if (row == nullptr || row->latency_icon == nullptr)
         return;
     const auto now = static_cast<uint8_t>(present::colour_vision::active_mode());
+    const bool cues = present::colour_vision::shape_cues_active();
+    const uint8_t stamp = static_cast<uint8_t>(now | (cues ? k_cue_stamp : 0));
     const auto found = g_latency_applied.find(row->latency_icon);
     const uint8_t applied = found == g_latency_applied.end()
                                 ? static_cast<uint8_t>(present::colour_vision::Mode::off)
                                 : found->second;
-    if (!reload && applied == now)
+    if (!reload && applied == stamp)
         return;
     bind_images(row->latency_icon, "Widgets.Gaf", "Latency_Icons", row->latency_frame);
     if (now != static_cast<uint8_t>(present::colour_vision::Mode::off))
         remap_window(row->latency_icon, lobby_latency_map(boneyards_palette()));
-    if (now == static_cast<uint8_t>(present::colour_vision::Mode::off))
+    if (cues)
+        paint_row_bars(row->latency_icon, row->latency_frame);
+    if (stamp == static_cast<uint8_t>(present::colour_vision::Mode::off))
         g_latency_applied.erase(row->latency_icon);
     else
-        g_latency_applied[row->latency_icon] = now;
+        g_latency_applied[row->latency_icon] = stamp;
+}
+
+// Catalogue section for a role. The section name has no closing bracket; its value is the tag
+// the player reads, and the English tag stands in when that language has no line.
+const char* role_catalogue_key(ChatRole role) noexcept {
+    switch (role) {
+    case ChatRole::system:
+        return "SYS";
+    case ChatRole::news:
+        return "NEWS";
+    case ChatRole::arm:
+        return "ARM";
+    case ChatRole::core:
+        return "CORE";
+    case ChatRole::none:
+        break;
+    }
+    return nullptr;
+}
+
+bool mark_pixel(NameMark mark, int32_t x, int32_t y) noexcept {
+    if (mark == NameMark::lock) {
+        const bool shackle = (y >= 0 && y <= 2 && (x == 2 || x == 4)) || (y == 0 && x == 3);
+        const bool body = y >= 3 && y <= 6 && x >= 1 && x <= 5;
+        return shackle || body;
+    }
+    if (mark == NameMark::mute)
+        return (x == y || x + y == 6) && x >= 0 && x <= 6 && y >= 0 && y <= 6;
+    return false;
 }
 
 } // namespace
@@ -1859,6 +1959,120 @@ std::array<uint8_t, 256> lobby_latency_map(std::span<const uint8_t> palette) {
     map_shifted(map, ramp_around(palette, bad), bad, bad_reference, bad_shades);
     map[static_cast<std::size_t>(kWidgetKey)] = static_cast<uint8_t>(kWidgetKey);
     return map;
+}
+
+ChatRole chat_role_for_handles(
+    int32_t font, int32_t system, int32_t news, int32_t arm, int32_t core
+) noexcept {
+    if (font < 0)
+        return ChatRole::none;
+    if (font == system)
+        return ChatRole::system;
+    if (font == news)
+        return ChatRole::news;
+    if (font == arm)
+        return ChatRole::arm;
+    if (font == core)
+        return ChatRole::core;
+    return ChatRole::none;
+}
+
+const char* chat_role_tag(ChatRole role) noexcept {
+    switch (role) {
+    case ChatRole::system:
+        return "[SYS]";
+    case ChatRole::news:
+        return "[NEWS]";
+    case ChatRole::arm:
+        return "[ARM]";
+    case ChatRole::core:
+        return "[CORE]";
+    case ChatRole::none:
+        break;
+    }
+    return nullptr;
+}
+
+void write_role_line(char* out, std::size_t capacity, const char* text, ChatRole role, bool cues) {
+    if (out == nullptr || capacity == 0)
+        return;
+    const char* body = text != nullptr ? text : "";
+    const char* tag = cues ? chat_role_tag(role) : nullptr;
+    if (tag == nullptr) {
+        std::snprintf(out, capacity, "%s", body);
+        return;
+    }
+    // The tag is the Boneyards catalogue's own line. The game's translation of the section name
+    // is a side name, not a tag, so it is not used here.
+    char translated[64];
+    const char* shown = tag;
+    const char* key = role_catalogue_key(role);
+    if (key != nullptr) {
+        const std::string_view own = oa::data::languages::interface_text(key);
+        if (!own.empty() && own != key) {
+            const std::size_t count =
+                own.size() < sizeof translated - 1 ? own.size() : sizeof translated - 1;
+            std::memcpy(translated, own.data(), count);
+            translated[count] = '\0';
+            shown = translated;
+        }
+    }
+    if (body[0] == '\0')
+        std::snprintf(out, capacity, "%s", shown);
+    else
+        std::snprintf(out, capacity, "%s %s", shown, body);
+}
+
+void paint_name_mark(
+    uint8_t* pixels,
+    int32_t width,
+    int32_t height,
+    int32_t pitch,
+    NameMark mark,
+    uint8_t ink,
+    uint8_t ground
+) noexcept {
+    if (pixels == nullptr || width <= 0 || height <= 0 || pitch <= 0 || mark == NameMark::none)
+        return;
+    for (int32_t row = 0; row < height; ++row) {
+        uint8_t* line = pixels + static_cast<std::ptrdiff_t>(row) * pitch;
+        for (int32_t column = 0; column < width; ++column)
+            line[column] = mark_pixel(mark, column, row) ? ink : ground;
+    }
+}
+
+void paint_latency_bars(
+    uint8_t* pixels,
+    int32_t width,
+    int32_t height,
+    int32_t pitch,
+    int grade,
+    uint8_t ink,
+    uint8_t ground
+) noexcept {
+    if (pixels == nullptr || width <= 0 || height <= 0 || pitch <= 0 || grade < 1 || grade > 3)
+        return;
+    for (int32_t row = 0; row < height; ++row) {
+        uint8_t* line = pixels + static_cast<std::ptrdiff_t>(row) * pitch;
+        for (int32_t column = 0; column < width; ++column)
+            line[column] = ground;
+    }
+    constexpr int32_t bar_width = 2;
+    constexpr int32_t gap = 1;
+    constexpr int32_t bar_height = 7;
+    const int32_t total = grade * bar_width + (grade - 1) * gap;
+    const int32_t origin = width > total ? (width - total) / 2 : 0;
+    const int32_t top = height > bar_height ? (height - bar_height) / 2 : 0;
+    const int32_t bottom = top + bar_height < height ? top + bar_height : height;
+    for (int bar = 0; bar < grade; ++bar) {
+        const int32_t left = origin + bar * (bar_width + gap);
+        const int32_t right = left + bar_width < width ? left + bar_width : width;
+        for (int32_t row = top; row < bottom; ++row) {
+            uint8_t* line = pixels + static_cast<std::ptrdiff_t>(row) * pitch;
+            for (int32_t column = left; column < right; ++column)
+                line[column] = ink;
+        }
+    }
 }
 
 } // namespace oa::boneyards::screens

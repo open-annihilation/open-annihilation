@@ -1066,6 +1066,215 @@ void replay_reproduces_a_recorded_unit(bool paused_while_recording) {
     CHECK(stats.frames_oversized == 0 && stats.sends_dropped > 0);
 }
 
+// A second machine that receives the recorder's datagrams the way a joined
+// machine does, through its connection's receive path.
+struct JoinedViewer {
+    struct Feed {
+        const std::vector<Captured>* datagrams = nullptr;
+        std::size_t cursor = 0;
+    };
+
+    Machine machine;
+    NetConnection connection{};
+    std::unique_ptr<NetMatch> net = std::make_unique<NetMatch>();
+    MatchBinding binding{};
+    Feed feed;
+
+    JoinedViewer() = default;
+    JoinedViewer(const JoinedViewer&) = delete;
+    JoinedViewer& operator=(const JoinedViewer&) = delete;
+
+    static uint32_t send(void*, uint32_t, uint32_t, uint32_t, const uint8_t*, uint32_t) {
+        return transport_result::ok;
+    }
+
+    static uint32_t
+    receive(void* context, uint32_t* from_id, uint32_t* to_id, uint8_t* buffer, uint32_t* size) {
+        auto* incoming = static_cast<Feed*>(context);
+        if (incoming->datagrams == nullptr || incoming->cursor >= incoming->datagrams->size())
+            return transport_result::no_messages;
+        const auto& bytes = (*incoming->datagrams)[incoming->cursor].datagram;
+        if (*size < bytes.size()) {
+            *size = static_cast<uint32_t>(bytes.size());
+            return transport_result::buffer_too_small;
+        }
+        std::memcpy(buffer, bytes.data(), bytes.size());
+        *size = static_cast<uint32_t>(bytes.size());
+        *from_id = recorded_id(0);
+        *to_id = broadcast_destination_id;
+        ++incoming->cursor;
+        return transport_result::ok;
+    }
+
+    void start(const std::vector<Captured>& datagrams) {
+        feed.datagrams = &datagrams;
+        machine.build(1);
+        auto& world = machine.match->state();
+        auto& host = world.game.players[0];
+        host.in_use = 1;
+        host.index = 0;
+        host.player_id = recorded_id(0);
+        host.status = OA_PLAYER_STATUS_MIRRORED;
+        host.info = oa_ref_from_index(0);
+        auto& self = world.game.players[1];
+        self.in_use = 1;
+        self.index = 1;
+        self.player_id = recorded_id(0) + 1;
+        self.status = OA_PLAYER_STATUS_LOCAL;
+        self.info = oa_ref_from_index(1);
+        for (uint8_t slot = 2; slot < OA_PLAYER_COUNT; ++slot)
+            world.game.players[slot].player_id = no_player_id;
+        world.game.local_player_index = 1;
+        world.game.unit_def_id_bits = unit_def_id_bits_for_count(world.unit_def_count);
+        world.game.session_flags |= kNetFlagLive | kNetFlagGameStarted;
+        std::array<uint8_t, OA_PLAYER_COUNT> allies{};
+        allies[1] = 1;
+        machine.match->configure_outcomes(1, allies, false);
+        connection.packets = new PacketLayer();
+        packet_layer_create(connection.packets);
+        packet_layer_start(connection.packets, NetTransport{&feed, send, receive});
+        match_binding_init(&binding, machine.match.get(), net.get());
+        net_match_begin(
+            net.get(),
+            &connection,
+            &world,
+            match_binding_sim(&binding),
+            match_binding_hooks(&binding)
+        );
+        match_binding_install(&binding);
+        net_match_enter_game(net.get());
+    }
+
+    void step() {
+        try {
+            match_binding_tick(&binding);
+        } catch (const std::exception& error) {
+            ++failures;
+            std::fprintf(
+                stderr, "viewer tick %u: %s\n", machine.match->state().game.tick, error.what()
+            );
+        }
+    }
+
+    ~JoinedViewer() { net_connection_destroy(&connection); }
+};
+
+// A joined viewer has the match's applied records and none of the file's own
+// counts. For this recording those file counts are 0, so the two lines match.
+void viewer_summary_matches_play_demo() {
+    auto game = record_a_walking_unit(false);
+    CHECK(game.recorder != nullptr && game.ticks > 0);
+    if (game.recorder == nullptr || game.ticks == 0)
+        return;
+    auto& recording = game.recording;
+    const uint32_t recorded_ticks = game.ticks;
+    const auto release = [](DemoSession* session) {
+        demo_session_end(session);
+        delete session;
+    };
+    std::unique_ptr<DemoSession, decltype(release)> session(new DemoSession(), release);
+    std::string error;
+    CHECK(demo_load(&session->playback, recording.bytes(), &error));
+    Machine replay;
+    replay.build(1);
+    std::array<uint8_t, OA_PLAYER_COUNT> watcher_allies{};
+    watcher_allies[1] = 1;
+    replay.match->configure_outcomes(1, watcher_allies, false);
+    CHECK(demo_session_begin(session.get(), replay.match.get(), &error));
+    if (session->match == nullptr)
+        return;
+    for (uint32_t tick = 0; tick < recorded_ticks + record_hold_window_ticks + 10; ++tick)
+        demo_session_frame(session.get());
+    CHECK(demo_session_finished(*session));
+    CHECK(session->tick_errors == 0);
+    CHECK(session->last_error.empty());
+    CHECK(session->net.records_applied > 0);
+    const auto& file_stats = session->playback.stats;
+    CHECK(file_stats.frames_oversized == 0);
+    CHECK(file_stats.bad_packets == 0);
+    CHECK(file_stats.untimed_unit_states == 0);
+
+    JoinedViewer viewer;
+    viewer.start(game.recorder->capture.datagrams);
+    for (uint32_t tick = 0; tick < recorded_ticks + record_hold_window_ticks + 10; ++tick)
+        viewer.step();
+    CHECK(viewer.net->records_applied > 0);
+    const auto played_summary = demo_summary_of(*session);
+    const auto watched_summary =
+        demo_summary_of_match(*viewer.net, viewer.binding, viewer.connection);
+    CHECK(played_summary.records_applied == session->net.records_applied);
+    CHECK(watched_summary.records_applied == viewer.net->records_applied);
+    CHECK(watched_summary.units_created == viewer.binding.created_remote);
+    const std::string played = demo_summary_line(played_summary);
+    const std::string watched = demo_summary_line(watched_summary);
+    CHECK(played == watched);
+    if (played != watched)
+        std::fprintf(stderr, "summary:\n%s\n%s\n", played.c_str(), watched.c_str());
+}
+
+// Each source has its own value, and no value is another's plus one, so one
+// broken assignment fails its own CHECK. The file counts, tick errors and the
+// last error stay empty until the session's own summary adds them.
+void summary_copies_every_field() {
+    NetMatch match;
+    MatchBinding binding;
+    NetConnection connection;
+    auto packets = std::make_unique<PacketLayer>();
+    packets->dropped_frames = 707;
+    connection.packets = packets.get();
+    match.records_applied = 101;
+    match.records_refused = 202;
+    match.record_errors = 303;
+    binding.created_remote = 404;
+    binding.refused_creates = 505;
+    binding.creates_past_table = 606;
+
+    const auto from_match = demo_summary_of_match(match, binding, connection);
+    CHECK(from_match.records_applied == 101);
+    CHECK(from_match.records_refused == 202);
+    CHECK(from_match.units_created == 404);
+    CHECK(from_match.creates_refused == 505);
+    CHECK(from_match.creates_past_table == 606);
+    CHECK(from_match.record_errors == 303);
+    CHECK(from_match.dropped_frames == 707);
+    CHECK(from_match.tick_errors == 0);
+    CHECK(from_match.frames_oversized == 0);
+    CHECK(from_match.bad_packets == 0);
+    CHECK(from_match.untimed_unit_states == 0);
+    CHECK(from_match.last_error.empty());
+
+    connection.packets = nullptr;
+    CHECK(demo_summary_of_match(match, binding, connection).dropped_frames == 0);
+
+    auto session = std::make_unique<DemoSession>();
+    session->net.records_applied = 101;
+    session->net.records_refused = 202;
+    session->net.record_errors = 303;
+    session->binding.created_remote = 404;
+    session->binding.refused_creates = 505;
+    session->binding.creates_past_table = 606;
+    session->connection.packets = packets.get();
+    session->tick_errors = 1001;
+    session->playback.stats.frames_oversized = 2002;
+    session->playback.stats.bad_packets = 3003;
+    session->playback.stats.untimed_unit_states = 4004;
+    session->last_error = "late record";
+
+    const auto from_session = demo_summary_of(*session);
+    CHECK(from_session.records_applied == 101);
+    CHECK(from_session.records_refused == 202);
+    CHECK(from_session.units_created == 404);
+    CHECK(from_session.creates_refused == 505);
+    CHECK(from_session.creates_past_table == 606);
+    CHECK(from_session.record_errors == 303);
+    CHECK(from_session.dropped_frames == 707);
+    CHECK(from_session.tick_errors == 1001);
+    CHECK(from_session.frames_oversized == 2002);
+    CHECK(from_session.bad_packets == 3003);
+    CHECK(from_session.untimed_unit_states == 4004);
+    CHECK(from_session.last_error == "late record");
+}
+
 template <class R>
 void append_record(std::vector<uint8_t>* payload, const R& record) {
     std::array<uint8_t, record_length_table[static_cast<uint8_t>(R::type)]> bytes{};
@@ -2648,6 +2857,8 @@ int main() {
     verdict_judges_errors_and_spacing();
     replay_reproduces_a_recorded_unit(false);
     replay_reproduces_a_recorded_unit(true);
+    summary_copies_every_field();
+    viewer_summary_matches_play_demo();
     a_keyframe_restores_the_replay();
     a_field_left_out_is_a_keyframe_fault();
     a_session_with_a_unit_of_its_own_is_refused();

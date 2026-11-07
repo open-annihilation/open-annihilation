@@ -33,10 +33,18 @@ are posted.
 
 ## While it is open
 
-Clicks, drags and the pointer resting on the battlefield do not give
-orders, change the selection, or pick a hover. The camera still pans, and
-the wheel zooms. The wheel does not open the megamap. The classic view, an
-unlocked view, the speed and pause still answer.
+A click, and the pointer resting on the battlefield, do not give orders,
+change the selection, or pick a hover. A drag on Pan moves the view. By
+default that is the left button, and it does not use the Middle-click pans
+setting. Middle-click pan still pans when that setting is on. The wheel
+zooms when Mouse wheel zoom is on, and does nothing when it is off. Page
+Up and Page Down zoom on the photo range either way. The wheel does not
+open the megamap. The classic view, an unlocked view, the speed and pause
+still answer. On a battle on this machine, + and − are slow motion: −
+goes down from the match's speed through Slow 9 to Slow 1 and then
+freezes, and + goes back up. In a
+replay they are the replay's speeds. In a shared match they are taken and
+do nothing. A display rule, a build tool and the chat macro do not answer.
 
 Follow does not come with you. The battlefield stays where you were
 looking, and the camera does not jump to a unit. Pressing follow follows
@@ -100,9 +108,41 @@ The picture does not roll, and it is not a perspective view.
 
 Leaving puts the zoom and the angles back.
 
+## Keys
+
+Photo mode is its own context in the key editor, titled "Keys in photo
+mode", and its own area, Photo mode, with no legend letter. Every command
+in that area can be moved. F9 opens photo mode while you play or watch.
+F9 leaves it while it is open. They are different commands. Escape leaves
+too, and no photo command takes Escape.
+
+Enter takes a photo and does not open the chat line. A photo taken as photo
+mode opens waits until a photo-mode frame has been presented, one frame, so
+the picture is the battlefield photo mode shows and not the play layout.
+Ctrl+F9 takes a photo here and saves a screenshot outside photo mode. Space
+freezes a battle on this machine, and pressed again lets it run, or holds
+the picture in a shared match and lets go of it. `.` steps one tick.
+Shift+`,` and Shift+`.` move the shutter one eighth. Primary+C (Ctrl+C,
+or Cmd+C on a Mac) copies the last photo. Home still centres and selects
+nothing. Primary+/ (Ctrl+/, or Cmd+/ on a Mac) opens the keys panel, titled
+"Keys in photo mode". It lists the keys that answer here: the photo keys,
+the camera's pan, Centre, Follow and views, the speed, Pause, the game
+menu and Escape, and the window's Settings, Full screen and the panel
+itself. The match's other keys are taken and do nothing, so the panel
+leaves them out, and Open chat, Status strip and Screenshot do not sit
+beside Take photo and Freeze on Enter, Space and Ctrl+F9. The panel is
+not in the photo. EDIT KEYS… leaves photo mode, then opens the editor, as
+Settings does. Leaving puts the panel back as it was on entering, so one
+opened during the visit closes. Stop, a click and Ctrl+C do not reach the
+match. On Windows, Ctrl+C is Primary+C, so it copies the last photo and
+still does not change the match.
+
+The commands and their default keys are listed under Photo mode in
+[Keys](keys.md#photo-mode).
+
 ## Leaving
 
-Escape leaves photo mode. Opening the game menu leaves photo mode first,
+F9 and Escape each leave photo mode. Opening the game menu leaves photo mode first,
 then opens the menu. Opening Settings does the same, and then opens
 Settings as it does in play.
 
@@ -131,3 +171,76 @@ same second is numbered `2`, and a third is numbered `3`, before `.png`.
 
 When the file has been written, the line says "Saved" and the file's name.
 When nothing was written, the line says "Photo not saved" and why.
+
+## What a photo records
+
+A photo says which map and which moment it shows. Its title is the map and
+the game time, such as "Canal Crossing, 3:41". The clock counts thirty
+ticks as one second: minutes and seconds under an hour, and hours, minutes
+and seconds from an hour on.
+
+The description names the players, their sides and their teams, such as
+"Steve (Arm, team 1) vs Ann (Core, team 2)". A player with no team is named
+without one, such as "Player (Arm) vs Core (Core)". Player names are on
+unless you turn them off. With the names off, the description gives the
+sides, and a team only for a player who has one: "Arm, team 1 vs Core,
+team 2", or "Arm vs Core" when nobody has a team. No player's name is
+written anywhere in the file. Colours, sides and teams stay.
+
+The file also names the program and its version, the date and time it was
+saved (an RFC 1123 date in GMT, such as Sun, 06 Nov 1994 08:49:37 GMT), and
+whether the battle was a skirmish, a campaign mission, a replay or a
+multiplayer game.
+
+One record, version 1, holds the engine version, the mod's id and version,
+the map's name, the kind of game, the tick, the game time and the speed,
+each player with side, colour and team, the camera, and the picture's size.
+A team is numbered from 1, so the game's first team is team 1. A player
+with no team has `team` null. A replay is named by its file name alone when
+the photo is of a replay and player names are on. With the names off the
+recording is its digest and its tick: a recording is often named after its
+players, so the file name stays out. A look is written only when the
+picture has one.
+
+A photo never records a folder, an account, or where a machine can be
+reached.
+
+The choice is the preference `open-annihilation.photo.player-names`. It is
+on when that preference is absent. Only the text `0` turns the names off.
+The preference is written when you change it, and not before.
+
+## Clipboard
+
+Copy to clipboard is on until you turn it off. While it is on, the photo
+you just took is also placed on the clipboard, so you can paste it into a
+chat or an editor. The game keeps the choice as
+`open-annihilation.photo.copy`: 1 copies, and 0 leaves the clipboard alone.
+When the key is absent, photos are copied.
+
+On a Mac, and on Linux, the clipboard receives the photo as a PNG. On
+Windows it receives the photo as a BMP, which is what Paint pastes. The
+file in your screenshots folder is a PNG either way. On a Mac and on
+Linux the copy is the saved file itself, so it carries what the photo
+records, the player names too unless you turned them off. The BMP on
+Windows carries the picture alone.
+
+A photo is still saved when a side is above 8192 pixels, or when the
+copied picture would be above 128 MB. It is not copied. When copying is
+on, or when you copy the photo again, the line says so, and why. When
+copying is off, in Steam's Game Mode, or where the clipboard holds text
+only, that photo is skipped in silence and the line stays the saved
+message. When it is copied, the line says Saved and the file's name, then
+Copied.
+
+On iPhone and iPad the clipboard holds text only, so a photo is not placed
+on it. In Steam's Game Mode there is no desktop clipboard, so a photo is
+not placed on it either. Text already on the clipboard is left as it is.
+Copying the last photo again copies it even when Copy to clipboard is off:
+the switch decides only whether each new photo is copied. That automatic
+copy is skipped in silence in Steam's Game Mode, and where the clipboard
+holds text only. Copying the last photo yourself says why, in those two
+cases: not available in Game Mode, or the clipboard holds text only.
+
+After the game quits, the copy stays on the clipboard on a Mac and on
+Windows. On Linux, X11 and Wayland keep it only when a clipboard manager
+takes it.

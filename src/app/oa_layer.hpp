@@ -263,6 +263,15 @@ class LayerScreen {
     /// @return true for a screen that covers its place, the default
     [[nodiscard]] virtual bool opaque() const { return true; }
 
+    /// Tells whether the screen draws the kit's focus ring on its own controls.
+    ///
+    /// One that does is left to that ring. One that does not, and whose
+    /// control joins a screen of the original game's gadgets, takes the
+    /// family's ring instead, with the family's show and hide rule.
+    ///
+    /// @return true when the screen draws kit::draw_focus_ring, the default
+    [[nodiscard]] virtual bool draws_kit_focus_ring() const { return true; }
+
     /// Draws the screen from its own top left corner at the canvas's scale,
     /// through the kit's draw functions on whichever form the canvas has: an
     /// opaque screen every pixel of its points_width × points_height points,
@@ -1138,6 +1147,43 @@ class OaLayer {
     /// puts the renderer's state back either way.
     void present_mcp_badge() noexcept;
 
+    /// Draws the kit's focus ring around the focused control of a screen that
+    /// does not draw that ring itself, in the window's own pixels, above
+    /// everything else already drawn. Draws nothing while the ring is hidden,
+    /// and puts the renderer's state back either way. A newly shown screen,
+    /// dialog or extension window hides the ring unless Always show focus is
+    /// on, whatever opened it.
+    void present_family_ring() noexcept;
+
+    /// Hides the family's focus ring, or shows it when Always show focus is on.
+    ///
+    /// Load and the in-game menu call it as they open. Any other newly shown
+    /// screen hides the ring the same way, when it is drawn. The pointer's
+    /// place then is the one a later move is compared with, so a move that
+    /// does not change the pixel does not hide the ring.
+    void note_family_opened() noexcept;
+
+    /// Shows the family's focus ring. Tab and Shift+Tab call it, and so can
+    /// the key A05 adds.
+    void note_family_tab() noexcept;
+
+    /// Hides the family's focus ring. Return calls it before the press, so a
+    /// screen the press opens starts from its own rule.
+    void note_family_return() noexcept;
+
+    /// Hides the family's focus ring when the pointer has moved to another
+    /// pixel. The first place, and a move that stays on the same pixel, leave
+    /// it as it is.
+    ///
+    /// @param x the pointer's column, in the coordinates the screen is given
+    /// @param y the pointer's row, in the coordinates the screen is given
+    void note_family_pointer(float x, float y) noexcept;
+
+    /// Tells whether the family's focus ring is drawn.
+    ///
+    /// @return true while the ring shows
+    [[nodiscard]] bool family_ring_shown() const noexcept { return family_ring_shown_; }
+
     /// Tells whether this frame's OA badges are drawn here, at the window's
     /// own pixels, rather than into the 640 by 480 frame.
     ///
@@ -1717,6 +1763,33 @@ class OaLayer {
     void present_match();
 
     Runtime& runtime_; ///< the runtime it hosts screens for
+    /// The kit's ring is drawn on the focused control of a screen that does
+    /// not draw that ring itself. Hidden as a screen opens, unless Always
+    /// show focus is on.
+    bool family_ring_shown_{};
+    /// Tab or Shift+Tab asked for the ring since it was last drawn, so a
+    /// screen that opened on that key still shows it.
+    bool family_tabbed_{};
+    /// A pointer place is known, so the next move can be compared with it.
+    bool family_pointer_known_{};
+    int32_t family_pointer_x_{}; ///< the last pointer column, rounded to a pixel
+    int32_t family_pointer_y_{}; ///< the last pointer row, rounded to a pixel
+
+    /// What was showing when the ring was last drawn: the screen, the dialogs,
+    /// the match's panel page and the extension windows. A change hides the
+    /// ring unless Always show focus is on, or a key just asked for it.
+    struct FamilyPlace {
+        std::string screen;               ///< the screen's name
+        std::vector<std::string> dialogs; ///< the dialogs, in the tree's order
+        /// The in-game panel's page in a match, which the tree does not list
+        /// as a dialog (the in-game menu's Options page); empty elsewhere.
+        std::string panel;
+        std::vector<std::string> windows; ///< the extension windows, front first
+        bool operator==(const FamilyPlace&) const = default;
+    };
+
+    FamilyPlace family_place_{}; ///< the place the ring was last drawn on
+    bool family_place_known_{};  ///< family_place_ has been drawn once
     /// The press on a window's title that moves it; none while no title is held.
     std::optional<window_placement::TitleDrag> drag_{};
     /// The screen drag_ moves; null while no title is held.

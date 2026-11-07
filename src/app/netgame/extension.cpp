@@ -85,6 +85,8 @@ static_assert(
 
 namespace oa::app {
 
+void report_direct_game_progress();
+
 namespace {
 
 namespace mp = oa::ui::frontend_multiplayer;
@@ -339,28 +341,7 @@ void direct_game_frame() {
         ++report.frames;
         g_services.services->run_frontend(g_services.host);
     }
-    const auto& progress = mp::multiplayer_direct_game_progress();
-    if (progress.reached != report.reported) {
-        report.reported = progress.reached;
-        if (progress.reached == mp::DirectGameStep::battle_room) {
-            oa::platform::log_files::write_line(
-                "multiplayer: in the battle room of \"" + progress.game_name + "\" as " +
-                progress.player_name
-            );
-            if (net_options().launch_planned)
-                report_launch_battle_room(mp::multiplayer_lobby());
-        } else if (
-            progress.reached == mp::DirectGameStep::failed &&
-            game.kind == mp::DirectGame::Kind::join
-        )
-            oa::platform::log_files::write_line(
-                "multiplayer: could not join " + game.address + ": " + progress.notice
-            );
-        else if (progress.reached == mp::DirectGameStep::failed)
-            oa::platform::log_files::write_line(
-                "multiplayer: could not host the game: " + progress.notice
-            );
-    }
+    report_direct_game_progress();
     // A local player the host refused is on its way out, and lists no one.
     auto& lobby = mp::multiplayer_lobby();
     if (report.reported != mp::DirectGameStep::battle_room || !mp::multiplayer_showing() ||
@@ -1068,7 +1049,9 @@ struct RuntimeExtension {
     /// (finish_partial_recordings); a folder that holds none is not touched.
     /// First of the headless runs --net-loopback-check; then
     /// --check-recording-hook, or else a headless --play-demo (--match-ticks
-    /// ticks, kDefaultDemoTicks without it), followed by a preferences flush.
+    /// ticks, kDefaultDemoTicks without it), or else a headless
+    /// --replay-viewer join, which sets READY once it is seated in the battle
+    /// room and has reported its unit types, followed by a preferences flush.
     ///
     /// @param context Extension context (unused).
     /// @param runtime The running app.
@@ -1091,12 +1074,19 @@ struct RuntimeExtension {
                 NetworkPlay::of(runtime).run_net_loopback_check(*options.net_loopback_ticks);
             return true;
         case RunPhase::headless: {
-            if (!options.check_recording_hook && options.play_demo.empty())
-                return false;
             auto& play = NetworkPlay::of(runtime);
-            const auto ticks = play.match_ticks().value_or(kDefaultDemoTicks);
-            exit_code = options.check_recording_hook ? check_recording_hook(runtime, ticks)
-                                                     : play.run_headless_demo(ticks);
+            const bool demo = options.check_recording_hook || !options.play_demo.empty();
+            const bool viewer =
+                options.replay_viewer && options.direct_game.kind == mp::DirectGame::Kind::join;
+            if (!demo && !viewer)
+                return false;
+            if (demo) {
+                const auto ticks = play.match_ticks().value_or(kDefaultDemoTicks);
+                exit_code = options.check_recording_hook ? check_recording_hook(runtime, ticks)
+                                                         : play.run_headless_demo(ticks);
+            } else {
+                exit_code = play.run_headless_replay_viewer();
+            }
             const auto host = check_host(runtime);
             host.write_preferences(host.context);
             return true;
@@ -1357,7 +1347,18 @@ struct RuntimeExtension {
 
         if (runtime.offer_content_switch(demo, path_to_utf8(demo.filename()), true))
             return false;
-        NetworkPlay::of(runtime).start_demo_playback();
+        try {
+            NetworkPlay::of(runtime).start_demo_playback();
+        } catch (const std::exception& error) {
+            // A pending replay whose map cannot be loaded must not quit. The
+            // player's mod and expansions come back, as they do when a replay
+            // is stopped. A replay this start was asked to play still quits.
+            if (!borrowed)
+                throw;
+            std::cerr << "open-annihilation: " << error.what() << '\n';
+            runtime.abandon_pending_replay();
+            return false;
+        }
         return true;
     }
 
@@ -1441,6 +1442,7 @@ struct RuntimeExtension {
             NetworkPlay::of(runtime).demo_frame();
         } else if (stage == FrameStage::presented) {
             NetworkPlay::of(runtime).hide_skirmish_live_bit();
+            NetworkPlay::of(runtime).note_replay_viewer();
         }
     }
 
@@ -1502,7 +1504,9 @@ struct RuntimeExtension {
             // a won or lost game keeps its tick and its outcome. A game that
             // is not being recorded is left for the torn-down event, which
             // clears the decision. The transport then closes; the match report
-            // stays up for the end-of-game event the screen sends.
+            // stays up for the end-of-game event the screen sends. A replay
+            // viewer prints before that close, while the counts are still there.
+            play.note_replay_viewer();
             if (play.skirmish_ != nullptr)
                 play.finish_skirmish_recording();
             if (play.net_)
@@ -1896,6 +1900,34 @@ struct RuntimeExtension {
         return play != nullptr && play->replay_fill_state(out);
     }
 };
+
+void report_direct_game_progress() {
+    const auto& game = net_options().direct_game;
+    if (game.kind == mp::DirectGame::Kind::none)
+        return;
+    auto& report = g_direct_report;
+    const auto& progress = mp::multiplayer_direct_game_progress();
+    if (progress.reached == report.reported)
+        return;
+    report.reported = progress.reached;
+    if (progress.reached == mp::DirectGameStep::battle_room) {
+        oa::platform::log_files::write_line(
+            "multiplayer: in the battle room of \"" + progress.game_name + "\" as " +
+            progress.player_name
+        );
+        if (net_options().launch_planned)
+            report_launch_battle_room(mp::multiplayer_lobby());
+    } else if (
+        progress.reached == mp::DirectGameStep::failed && game.kind == mp::DirectGame::Kind::join
+    )
+        oa::platform::log_files::write_line(
+            "multiplayer: could not join " + game.address + ": " + progress.notice
+        );
+    else if (progress.reached == mp::DirectGameStep::failed)
+        oa::platform::log_files::write_line(
+            "multiplayer: could not host the game: " + progress.notice
+        );
+}
 
 } // namespace oa::app
 

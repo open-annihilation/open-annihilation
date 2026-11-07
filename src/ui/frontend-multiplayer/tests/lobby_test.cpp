@@ -2789,7 +2789,13 @@ void test_game_list(const oa::AssetStore& assets) {
     expect(
         mp::game_list_handle_event(lobby, state, panel) == mp::ConnectAction::join, "join accepted"
     );
+    std::snprintf(mp::lobby_game_name(*lobby.game), 17, "%s", "Mine");
     expect(mp::connect_join(lobby, state, false), "loopback join succeeds");
+    expect(std::strcmp(lobby.joined_session, "Friday") == 0, "a joiner keeps the session name");
+    expect(
+        std::strcmp(mp::lobby_game_name(*lobby.game), "Mine") == 0,
+        "the game name the player hosts under stays as it was"
+    );
     expect(
         std::strcmp(mp::local_player(lobby).name, "Guest") == 0, "local player seated with nickname"
     );
@@ -3461,6 +3467,329 @@ void test_client_unit_sync() {
         loopback.sent_count == start + 8 && loopback.sent[start + 7][1] == 4 &&
             read_u32(start + 7, 10) == 1,
         "then how many records it has handled"
+    );
+}
+
+// Records a host sent while a test drove it. The viewer is fed the ones sent to its player.
+struct SentHandshake {
+    uint32_t to{};
+    std::array<uint8_t, 14> bytes{};
+};
+
+std::vector<SentHandshake> host_handshakes;
+
+void capture_host_handshake(void*, uint32_t to, const uint8_t* data, std::size_t size) {
+    if (size != 14 || data[0] != 0x1a)
+        return;
+    SentHandshake sent{to, {}};
+    std::memcpy(sent.bytes.data(), data, 14);
+    host_handshakes.push_back(sent);
+}
+
+// A viewer seated against a host. `session` is the battle room's name. An
+// empty session is left as the lobby created it.
+struct SeatedViewer {
+    std::unique_ptr<oa::Game> game = std::make_unique<oa::Game>();
+    mp::Lobby lobby{};
+    mp::LoopbackNet loopback{};
+};
+
+SeatedViewer seat_viewer(const char* session, bool open_annihilation) {
+    SeatedViewer viewer;
+    mp::loopback_reset(viewer.loopback);
+    mp::lobby_reset(viewer.lobby, *viewer.game);
+    viewer.lobby.net = mp::loopback_lobby_net(viewer.loopback);
+    viewer.game->session_flags |= 1;
+    viewer.game->players[0].player_id = 0x200;
+    mp::lobby_seat_local(viewer.lobby, 0, false, "Client");
+    expect(mp::lobby_add_player(viewer.lobby, 0x100, "Host"), "the host is seated");
+    mp::slot_info(viewer.lobby, 1)->role = mp::kRoleHost;
+    if (open_annihilation)
+        oa::netgame::mark_engine_signature(
+            reinterpret_cast<uint8_t*>(mp::slot_info(viewer.lobby, 1))
+        );
+    if (session != nullptr && session[0] != '\0')
+        std::snprintf(
+            viewer.lobby.joined_session, sizeof viewer.lobby.joined_session, "%s", session
+        );
+    static mp::LobbyUnit none[] = {{"", "", 0, 0, 0, 0, nullptr, 0, 0}};
+    viewer.lobby.units = none;
+    viewer.lobby.unit_count = 1;
+    mp::unit_sync_create(viewer.lobby, false);
+    return viewer;
+}
+
+void feed_handshake(mp::Lobby& lobby, uint8_t subtype, uint32_t key, uint32_t value) {
+    uint8_t record[14] = {0x1a, subtype};
+    std::memcpy(record + 6, &key, 4);
+    std::memcpy(record + 10, &value, 4);
+    mp::unit_sync_receive(lobby, record, 1);
+}
+
+// What the viewer acknowledges after the host greets, relays every verdict
+// each time a player reports a unit, and relays them all again when a
+// player leaves. The viewer sees whatever session name and signature the
+// caller sets; the host itself is this engine's host.
+struct HostAck {
+    uint32_t sent{};
+    uint32_t acknowledged{};
+};
+
+HostAck host_ack(bool two_players, bool one_leaves, const char* session, bool open_annihilation) {
+    host_handshakes.clear();
+    auto game = std::make_unique<oa::Game>();
+    mp::Lobby host{};
+    mp::LoopbackNet loopback{};
+    mp::loopback_reset(loopback);
+    mp::lobby_reset(host, *game);
+    host.net = mp::loopback_lobby_net(loopback);
+    host.net.send = capture_host_handshake;
+    game->session_flags |= 1;
+    game->players[0].player_id = 0x100;
+    mp::lobby_seat_local(host, 0, true, "Host");
+    static mp::LobbyUnit units[] = {
+        {"", "", 0, 0, 0, 0, "", 0, 0},
+        {"Commander", "ARM", 25000, 2500, mp::kUnitNoRestrict, 11, "ARMCOM", 0, 0},
+        {"Peewee", "ARM", 1000, 50, 0, 22, "ARMPW", 0, 0},
+        {"AK", "CORE", 900, 45, 0, 33, "CORAK", 0, 0},
+        {"Nuke", "ARM", 90000, 1500, mp::kUnitDisabledDefault, 44, "ARMSILO", 0, 0},
+    };
+    host.units = units;
+    host.unit_count = 5;
+    const auto join = [&](uint32_t id) {
+        mp::LobbyEvent event{};
+        event.kind = mp::LobbyEventKind::player_joined;
+        event.player_id = id;
+        (void)mp::lobby_apply_event(host, event);
+    };
+    join(0x200);
+    if (two_players)
+        join(0x300);
+    mp::unit_sync_create(host, true);
+    mp::unit_sync_tick(host);
+    const auto report = [&](uint32_t id) {
+        const auto slot = static_cast<uint8_t>(mp::slot_for_player_id(host, id));
+        uint8_t record[14] = {0x1a, 1};
+        uint32_t count = 4;
+        std::memcpy(record + 10, &count, 4);
+        mp::unit_sync_receive(host, record, slot);
+        for (uint32_t key : {22u, 33u, 11u, 44u}) {
+            uint8_t checksum[14] = {0x1a, 2};
+            std::memcpy(checksum + 6, &key, 4);
+            mp::unit_sync_receive(host, checksum, slot);
+        }
+    };
+    report(0x200);
+    if (two_players)
+        report(0x300);
+    if (one_leaves && two_players) {
+        mp::LobbyEvent left{};
+        left.kind = mp::LobbyEventKind::player_left;
+        left.player_id = 0x300;
+        (void)mp::lobby_apply_event(host, left);
+        mp::unit_sync_tick(host);
+    }
+    HostAck result;
+    for (int32_t index = 0; index < host.sync.peer_count; ++index)
+        if (host.sync.peers[index].player_id == 0x200)
+            result.sent = host.sync.peers[index].sent;
+    auto viewer = seat_viewer(session, open_annihilation);
+    for (const auto& sent : host_handshakes) {
+        if (sent.to != 0x200)
+            continue;
+        mp::unit_sync_receive(viewer.lobby, std::span<const uint8_t>(sent.bytes), 1);
+    }
+    result.acknowledged = viewer.lobby.sync.records_handled;
+    return result;
+}
+
+// TADR's replayer: a greeting, then every unit with status 0x0001, and on a
+// timeout that pass again from unit 11. Then every unit with status 0x0101,
+// and on a timeout that second pass again from unit 11. The viewer sees the
+// session TADR names.
+struct RecorderCounts {
+    uint32_t after_first{};
+    uint32_t after_second{};
+    uint32_t after_second_again{};
+};
+
+RecorderCounts recorder_counts(int32_t units, bool again_first, bool again_second) {
+    auto viewer = seat_viewer("TADR 3.9.3.x", false);
+    auto& lobby = viewer.lobby;
+    feed_handshake(lobby, 0, 0, 0);
+    for (int32_t unit = 0; unit < units; ++unit)
+        feed_handshake(lobby, 3, 0x1000u + static_cast<uint32_t>(unit), 0xFFFF0001u);
+    if (again_first)
+        for (int32_t unit = 11; unit < units; ++unit)
+            feed_handshake(lobby, 3, 0x1000u + static_cast<uint32_t>(unit), 0xFFFF0001u);
+    RecorderCounts counts;
+    counts.after_first = lobby.sync.records_handled;
+    for (int32_t unit = 0; unit < units; ++unit)
+        feed_handshake(lobby, 3, 0x1000u + static_cast<uint32_t>(unit), 0xFFFF0101u);
+    counts.after_second = lobby.sync.records_handled;
+    if (again_second)
+        for (int32_t unit = 11; unit < units; ++unit)
+            feed_handshake(lobby, 3, 0x1000u + static_cast<uint32_t>(unit), 0xFFFF0101u);
+    counts.after_second_again = lobby.sync.records_handled;
+    return counts;
+}
+
+// TADR's replayer starts its unit check again in the middle of a pass. Every
+// other host keeps the count running, including when it sends the same
+// verdict again because another player joined or left.
+void test_count_starts_again_mid_sync() {
+    uint32_t handled = 0;
+    handled = mp::unit_sync_handled_count(handled, 0, 0);
+    handled = mp::unit_sync_handled_count(handled, 3, 0);
+    handled = mp::unit_sync_handled_count(handled, 3, 0);
+    expect(handled == 3, "a greeting and two verdicts count to three");
+    handled = mp::unit_sync_handled_count(handled, 0, 2);
+    expect(handled == 4, "a greeting keeps the count going");
+    handled = mp::unit_sync_handled_count(handled, 3, 0);
+    expect(handled == 5, "a verdict after that greeting counts on");
+
+    handled = 0;
+    handled = mp::unit_sync_handled_count(handled, 0, 0);
+    for (int32_t unit = 0; unit < 277; ++unit)
+        handled = mp::unit_sync_handled_count(handled, 3, 0);
+    expect(handled == 278, "the first pass counts the greeting and every unit");
+    handled = mp::unit_sync_handled_count(handled, 3, 2);
+    for (int32_t unit = 0; unit < 265; ++unit)
+        handled = mp::unit_sync_handled_count(handled, 3, 0);
+    expect(handled == 267, "a first pass that starts again in the middle ends on 267");
+    handled = mp::unit_sync_handled_count(handled, 3, 2);
+    for (int32_t unit = 0; unit < 265; ++unit)
+        handled = mp::unit_sync_handled_count(handled, 3, 0);
+    expect(handled == 267, "the next first pass ends on 267 too");
+    for (int32_t unit = 0; unit < 277; ++unit)
+        handled = mp::unit_sync_handled_count(handled, 3, 0);
+    expect(handled == 544, "the second pass after that counts each of its units");
+    handled = mp::unit_sync_handled_count(handled, 3, 279);
+    for (int32_t unit = 0; unit < 265; ++unit)
+        handled = mp::unit_sync_handled_count(handled, 3, 0);
+    expect(handled == 544, "a second pass that starts again ends on 544");
+    expect(
+        mp::unit_sync_handled_count(9, 100, 0) == 9 && mp::unit_sync_handled_count(9, 100, 2) == 9,
+        "a subtype of 100 or above is not counted"
+    );
+
+    auto recorder = seat_viewer("TADR 3.9.3.x", false);
+    feed_handshake(recorder.lobby, 0, 0, 0);
+    for (uint32_t key = 1; key <= 4; ++key)
+        feed_handshake(recorder.lobby, 3, key, 0xFFFF0001u);
+    expect(recorder.lobby.sync.records_handled == 5, "a greeting and four verdicts count to five");
+    feed_handshake(recorder.lobby, 3, 2, 0xFFFF0001u);
+    feed_handshake(recorder.lobby, 3, 3, 0xFFFF0001u);
+    feed_handshake(recorder.lobby, 3, 4, 0xFFFF0001u);
+    expect(
+        recorder.lobby.sync.records_handled == 4,
+        "three first-pass verdicts the recorder already gave end at four"
+    );
+    recorder.lobby.sync.next_unit = recorder.lobby.unit_count;
+    const auto sent = recorder.loopback.sent_count;
+    mp::unit_sync_tick(recorder.lobby);
+    uint32_t acked = 0;
+    if (recorder.loopback.sent_count == sent + 1)
+        std::memcpy(&acked, recorder.loopback.sent[sent] + 10, 4);
+    expect(
+        recorder.loopback.sent_count == sent + 1 && recorder.loopback.sent[sent][1] == 4 &&
+            acked == 4,
+        "the acknowledgement is that count"
+    );
+    feed_handshake(recorder.lobby, 3, 2, 0xFFFF0101u);
+    expect(
+        recorder.lobby.sync.records_handled == 5,
+        "a second-pass verdict does not start the count again"
+    );
+    feed_handshake(recorder.lobby, 0, 0, 0);
+    expect(recorder.lobby.sync.records_handled == 6, "a later greeting keeps the count going");
+    expect(recorder.lobby.sync.next_unit == 0, "a greeting still reports units from the first");
+
+    auto engine = seat_viewer("Coast To Coast", true);
+    feed_handshake(engine.lobby, 0, 0, 0);
+    for (uint32_t key = 1; key <= 4; ++key)
+        feed_handshake(engine.lobby, 3, key, 0xFFFF0001u);
+    expect(engine.lobby.sync.records_handled == 5, "an Open Annihilation host counts to five");
+    feed_handshake(engine.lobby, 3, 2, 0xFFFF0001u);
+    expect(
+        engine.lobby.sync.records_handled == 6, "the same verdict again keeps its count running"
+    );
+    feed_handshake(engine.lobby, 0, 0, 0);
+    expect(
+        engine.lobby.sync.records_handled == 7, "a later greeting from it keeps the count running"
+    );
+    engine.lobby.sync.next_unit = engine.lobby.unit_count;
+    const auto engine_sent = engine.loopback.sent_count;
+    mp::unit_sync_tick(engine.lobby);
+    uint32_t engine_acked = 0;
+    if (engine.loopback.sent_count == engine_sent + 1)
+        std::memcpy(&engine_acked, engine.loopback.sent[engine_sent] + 10, 4);
+    expect(
+        engine.loopback.sent_count == engine_sent + 1 &&
+            engine.loopback.sent[engine_sent][1] == 4 && engine_acked == 7,
+        "the acknowledgement is the running count"
+    );
+
+    const auto one = host_ack(false, false, "Coast To Coast", false);
+    expect(
+        one.sent == 9 && one.acknowledged == 9,
+        "one player reporting acknowledges every record the host sent"
+    );
+    const auto two = host_ack(true, false, "Coast To Coast", false);
+    expect(
+        two.sent == 13 && two.acknowledged == 13,
+        "a second player reporting still acknowledges every record the host sent"
+    );
+    const auto left = host_ack(true, true, "Coast To Coast", false);
+    expect(
+        left.sent == 17 && left.acknowledged == 17,
+        "a player leaving still acknowledges every record the host sent"
+    );
+    const auto signed_two = host_ack(true, false, "Coast To Coast", true);
+    const auto signed_left = host_ack(true, true, "Coast To Coast", true);
+    expect(
+        signed_two.sent == 13 && signed_two.acknowledged == 13 && signed_left.sent == 17 &&
+            signed_left.acknowledged == 17,
+        "an Open Annihilation host is acknowledged for every record it sent"
+    );
+    const auto unnamed = host_ack(true, true, "", false);
+    expect(
+        unnamed.sent == 17 && unnamed.acknowledged == 17,
+        "a host with no session name is acknowledged for every record it sent"
+    );
+    const auto named_two = host_ack(true, false, "TADR night", true);
+    const auto named_left = host_ack(true, true, "TADR night", true);
+    expect(
+        named_two.sent == 13 && named_two.acknowledged == 13 && named_left.sent == 17 &&
+            named_left.acknowledged == 17,
+        "an Open Annihilation host whose name begins as TADR's does is acknowledged for every "
+        "record"
+    );
+
+    auto other = seat_viewer("TADRX", false);
+    feed_handshake(other.lobby, 0, 0, 0);
+    feed_handshake(other.lobby, 3, 1, 0xFFFF0001u);
+    feed_handshake(other.lobby, 3, 1, 0xFFFF0001u);
+    expect(
+        other.lobby.sync.records_handled == 3,
+        "a session name that only begins the same way does not start the count again"
+    );
+
+    const auto steady = recorder_counts(277, false, false);
+    expect(
+        steady.after_first == 278 && steady.after_second == 555,
+        "the recorder with no pass started again counts 278, then 555"
+    );
+    const auto first_again = recorder_counts(277, true, false);
+    expect(
+        first_again.after_first == 267 && first_again.after_second == 544,
+        "the recorder's first pass from unit 11 ends at 267, then its second pass at 544"
+    );
+    const auto second_again = recorder_counts(277, false, true);
+    expect(
+        second_again.after_first == 278 && second_again.after_second == 555 &&
+            second_again.after_second_again == 544,
+        "the recorder's second pass from unit 11 ends at 544"
     );
 }
 
@@ -5804,6 +6133,180 @@ void test_closing_slots_republishes(const oa::ui::gui_layout::Layout& lounge) {
     );
 }
 
+/// A player who arrives while every seat is taken is seated, earliest first, when a seat opens.
+void test_waiting_player_seated_when_a_seat_frees() {
+    auto game = std::make_unique<oa::Game>();
+    mp::Lobby lobby{};
+    mp::LoopbackNet loopback{};
+    mp::loopback_reset(loopback);
+    mp::lobby_reset(lobby, *game);
+    lobby.net = mp::loopback_lobby_net(loopback);
+    lobby.services = test_services();
+    lobby.maps = test_maps();
+    game->session_flags |= 1;
+    game->players[0].player_id = 0x100;
+    mp::lobby_seat_local(lobby, 0, true, "Host");
+
+    const auto joined = [](uint32_t id, const char* player_name) {
+        mp::LobbyEvent event{};
+        event.kind = mp::LobbyEventKind::player_joined;
+        event.player_id = id;
+        std::snprintf(event.name, sizeof event.name, "%s", player_name);
+        return event;
+    };
+    const auto left = [](uint32_t id) {
+        mp::LobbyEvent event{};
+        event.kind = mp::LobbyEventKind::player_left;
+        event.player_id = id;
+        return event;
+    };
+
+    expect(mp::lobby_apply_event(lobby, joined(0x200, "Early")), "a free seat is taken at once");
+    expect(
+        mp::slot_for_player_id(lobby, 0x200) >= 0 && lobby.waiting_count == 0,
+        "an arrival with a seat free is seated and not remembered"
+    );
+    oa::netgame::PlayerInfoRecord early{};
+    early.player_id = 0x200;
+    std::memcpy(early.info_head, "EarlyMap", 8);
+    expect(
+        mp::lobby_apply_event(lobby, record_event(0x200, early)),
+        "a seated player's setup block is applied at once"
+    );
+    const auto early_slot = mp::slot_for_player_id(lobby, 0x200);
+    expect(
+        early_slot >= 0 && std::strcmp(game->players[early_slot].name, "Early") == 0 &&
+            mp::slot_info(lobby, early_slot) != nullptr &&
+            std::strcmp(mp::slot_info(lobby, early_slot)->map_name, "EarlyMap") == 0 &&
+            lobby.waiting_count == 0,
+        "a room with a free seat keeps no one waiting"
+    );
+    for (uint32_t id = 0x201; id < 0x209; ++id) {
+        char player_name[16];
+        std::snprintf(player_name, sizeof player_name, "Seat%u", id);
+        expect(mp::lobby_apply_event(lobby, joined(id, player_name)), "the remaining seats fill");
+    }
+    expect(mp::lobby_player_count(*game) == 10, "every seat is taken");
+    expect(
+        !mp::lobby_apply_event(lobby, joined(0x400, "First")), "the earliest waiter is not seated"
+    );
+    expect(!mp::lobby_apply_event(lobby, joined(0x401, "Second")), "the next waiter is not seated");
+    expect(!mp::lobby_apply_event(lobby, joined(0x402, "Leaves")), "a third waiter is remembered");
+    expect(lobby.waiting_count == 3, "three players are waiting, in arrival order");
+    expect(!mp::lobby_apply_event(lobby, left(0x402)), "a waiting player who leaves takes no seat");
+    expect(lobby.waiting_count == 2, "the player who left is no longer waiting");
+
+    mp::LobbyEvent refused = joined(0x403, "Refused");
+    refused.refuse_reason = 4;
+    expect(!mp::lobby_apply_event(lobby, refused), "a refused joiner is not seated");
+    expect(lobby.waiting_count == 2, "a refused joiner is not remembered");
+
+    oa::netgame::PlayerInfoRecord waiting_setup{};
+    waiting_setup.player_id = 0x400;
+    std::memcpy(waiting_setup.info_head, "Coast", 5);
+    waiting_setup
+        .info_tail[offsetof(mp::PlayerSetupInfo, role) - oa::netgame::player_info_tail_offset] =
+        mp::kRoleHost;
+    const auto sent_while_waiting = loopback.sent_count;
+    expect(
+        !mp::lobby_apply_event(lobby, record_event(0x400, waiting_setup)),
+        "a waiting player's setup block does not seat them"
+    );
+    expect(
+        mp::slot_for_player_id(lobby, 0x400) < 0 && lobby.waiting_count == 2 &&
+            loopback.sent_count == sent_while_waiting,
+        "the setup block is kept and nothing is sent for it"
+    );
+
+    const auto sent_before = loopback.sent_count;
+    expect(mp::lobby_apply_event(lobby, left(0x200)), "a seated player leaves");
+    const auto first = mp::slot_for_player_id(lobby, 0x400);
+    expect(
+        first >= 0 && std::strcmp(game->players[first].name, "First") == 0 &&
+            game->players[first].in_use == 1 && game->players[first].status == mp::kSlotRemote &&
+            mp::slot_info(lobby, first) != nullptr &&
+            std::strcmp(mp::slot_info(lobby, first)->map_name, "Coast") == 0 &&
+            (mp::slot_info(lobby, first)->role & mp::kRoleHost) != 0,
+        "the earliest waiting player is seated with the setup block they sent"
+    );
+    expect(mp::slot_for_player_id(lobby, 0x401) < 0, "the later waiting player stays waiting");
+    expect(mp::slot_for_player_id(lobby, 0x402) < 0, "a player who left while waiting stays out");
+    expect(mp::slot_for_player_id(lobby, 0x403) < 0, "a refused joiner stays out");
+    expect(loopback.sent_count > sent_before, "seating the waiting player sends the room's info");
+    expect(lobby.waiting_count == 1, "one player is still waiting");
+
+    expect(mp::lobby_apply_event(lobby, left(0x201)), "another seat opens");
+    const auto second = mp::slot_for_player_id(lobby, 0x401);
+    expect(
+        second >= 0 && std::strcmp(game->players[second].name, "Second") == 0,
+        "the next waiting player is seated in turn"
+    );
+    expect(lobby.waiting_count == 0, "nobody is left waiting");
+}
+
+/// A waiting player a 0x1b names is not seated later, and no one is seated once the game has started.
+void test_waiting_player_not_seated_after_reject_or_start() {
+    auto game = std::make_unique<oa::Game>();
+    mp::Lobby lobby{};
+    mp::LoopbackNet loopback{};
+    mp::loopback_reset(loopback);
+    mp::lobby_reset(lobby, *game);
+    lobby.net = mp::loopback_lobby_net(loopback);
+    lobby.services = test_services();
+    lobby.maps = test_maps();
+    game->session_flags |= 1;
+    game->players[0].player_id = 0x100;
+    mp::lobby_seat_local(lobby, 0, true, "Host");
+
+    const auto joined = [](uint32_t id, const char* player_name) {
+        mp::LobbyEvent event{};
+        event.kind = mp::LobbyEventKind::player_joined;
+        event.player_id = id;
+        std::snprintf(event.name, sizeof event.name, "%s", player_name);
+        return event;
+    };
+    const auto left = [](uint32_t id) {
+        mp::LobbyEvent event{};
+        event.kind = mp::LobbyEventKind::player_left;
+        event.player_id = id;
+        return event;
+    };
+
+    for (uint32_t id = 0x200; id < 0x209; ++id) {
+        char player_name[16];
+        std::snprintf(player_name, sizeof player_name, "Seat%u", id);
+        expect(mp::lobby_apply_event(lobby, joined(id, player_name)), "the seats fill");
+    }
+    expect(mp::lobby_player_count(*game) == 10, "every seat is taken");
+    expect(!mp::lobby_apply_event(lobby, joined(0x400, "Rejected")), "the first waiter waits");
+    expect(!mp::lobby_apply_event(lobby, joined(0x401, "Next")), "the second waiter waits");
+    expect(lobby.waiting_count == 2, "two players are waiting");
+
+    oa::netgame::RejectRecord reject{};
+    reject.player_id = 0x400;
+    reject.reason = 1;
+    expect(
+        !mp::lobby_apply_event(lobby, record_event(0x200, reject)),
+        "a 0x1b naming a waiting player seats no one"
+    );
+    expect(lobby.waiting_count == 1, "the rejected player is no longer waiting");
+    expect(mp::lobby_apply_event(lobby, left(0x201)), "a seat opens");
+    expect(mp::slot_for_player_id(lobby, 0x400) < 0, "the rejected player is not seated");
+    expect(
+        mp::slot_for_player_id(lobby, 0x401) >= 0 && lobby.waiting_count == 0,
+        "the next waiting player takes the seat"
+    );
+
+    expect(!mp::lobby_apply_event(lobby, joined(0x402, "Started")), "the room is full again");
+    expect(lobby.waiting_count == 1, "one player is waiting");
+    game->session_flags |= mp::kNetFlagGameStarted;
+    expect(mp::lobby_apply_event(lobby, left(0x202)), "a seat opens after the start");
+    expect(
+        mp::slot_for_player_id(lobby, 0x402) < 0 && lobby.waiting_count == 1,
+        "once the game has started, a waiting player is not seated"
+    );
+}
+
 void test_add_player_and_description() {
     auto game = std::make_unique<oa::Game>();
     mp::Lobby lobby{};
@@ -7319,8 +7822,11 @@ int main(int argc, char** argv) {
         test_view_map_follows_host();
         test_open_service();
         test_launch_connection();
+        test_waiting_player_seated_when_a_seat_frees();
+        test_waiting_player_not_seated_after_reject_or_start();
         test_add_player_and_description();
         test_client_unit_sync();
+        test_count_starts_again_mid_sync();
         test_unit_sync_reevaluation();
         test_machine_groups();
         test_alliance_relation();

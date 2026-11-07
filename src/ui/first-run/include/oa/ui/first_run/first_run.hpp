@@ -439,6 +439,9 @@ inline constexpr kit::ControlId changed_choose_id = 12;
 inline constexpr kit::ControlId changed_leave_id = 13;
 /// That question's text, which takes no press and which automation reads.
 inline constexpr kit::ControlId changed_text_id = 14;
+/// The language cards, one stop. Tab leaves the group; the arrows move
+/// inside it. Card n is still card_id + n.
+inline constexpr kit::ControlId language_cards_id = 15;
 /// The first language card. Card n is card_id + n.
 inline constexpr kit::ControlId card_id = 20;
 /// The first source row. Source n is source_id + n.

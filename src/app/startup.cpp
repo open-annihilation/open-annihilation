@@ -301,6 +301,7 @@ void check_game_files_options(Options& options) {
         {options.check_map_packs, "--check-map-packs"},
         {options.check_map_browser, "--check-map-browser"},
         {options.check_key_editor, "--check-key-editor"},
+        {options.check_replay_viewer, "--check-replay-viewer"},
         {options.check_key_capture, "--check-key-capture"},
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
@@ -329,6 +330,7 @@ void check_game_files_options(Options& options) {
         {options.check_library_replays, "--check-library-replays"},
         {options.check_replay_import, "--check-replay-import"},
         {options.check_replays_content, "--check-replays-content"},
+        {options.check_replays_core_prime, "--check-replays-core-prime"},
         {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
         {options.check_renderer_proof, "--check-renderer-proof"},
@@ -440,6 +442,8 @@ void check_game_files_options(Options& options) {
         return PhotoGroup::capture;
     if (text == "live")
         return PhotoGroup::live;
+    if (text == "keys")
+        return PhotoGroup::keys;
     return std::nullopt;
 }
 
@@ -595,6 +599,8 @@ void take_effect(
 /// @param[in,out] options the parsed options; a director run gets
 ///        headless_check and skip_intro
 void check_director_options(Options& options) {
+    if (!options.replay_map_pack.empty() && options.replay_index.empty())
+        throw std::runtime_error("--replay-map-pack needs --replay-index");
     const bool generate = !options.generate_script.empty();
     const bool render = !options.render_script.empty();
     const bool index = !options.replay_index.empty();
@@ -753,6 +759,7 @@ void check_director_options(Options& options) {
         {options.check_map_packs, "--check-map-packs"},
         {options.check_map_browser, "--check-map-browser"},
         {options.check_key_editor, "--check-key-editor"},
+        {options.check_replay_viewer, "--check-replay-viewer"},
         {options.check_key_capture, "--check-key-capture"},
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
@@ -781,6 +788,7 @@ void check_director_options(Options& options) {
         {options.check_library_replays, "--check-library-replays"},
         {options.check_replay_import, "--check-replay-import"},
         {options.check_replays_content, "--check-replays-content"},
+        {options.check_replays_core_prime, "--check-replays-core-prime"},
         {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
         {options.check_renderer_proof, "--check-renderer-proof"},
@@ -897,6 +905,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_map_packs, "--check-map-packs"},
             {options.check_map_browser, "--check-map-browser"},
             {options.check_key_editor, "--check-key-editor"},
+            {options.check_replay_viewer, "--check-replay-viewer"},
             {options.check_key_capture, "--check-key-capture"},
             {options.check_key_share, "--check-key-share"},
             {options.check_key_views, "--check-key-views"},
@@ -925,6 +934,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_library_replays, "--check-library-replays"},
             {options.check_replay_import, "--check-replay-import"},
             {options.check_replays_content, "--check-replays-content"},
+            {options.check_replays_core_prime, "--check-replays-core-prime"},
             {options.check_renderer_ladder, "--check-renderer-ladder"},
             {options.check_renderer_proof, "--check-renderer-proof"},
             {options.check_live_renderer, "--check-live-renderer"},
@@ -1071,6 +1081,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-map-packs", &Options::check_map_packs},
     {"--check-map-browser", &Options::check_map_browser},
     {"--check-key-editor", &Options::check_key_editor},
+    {"--check-replay-viewer", &Options::check_replay_viewer},
     {"--check-key-capture", &Options::check_key_capture},
     {"--check-key-share", &Options::check_key_share},
     {"--check-key-views", &Options::check_key_views},
@@ -1099,6 +1110,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-library-replays", &Options::check_library_replays},
     {"--check-replay-import", &Options::check_replay_import},
     {"--check-replays-content", &Options::check_replays_content},
+    {"--check-replays-core-prime", &Options::check_replays_core_prime},
     {"--check-renderer-ladder", &Options::check_renderer_ladder},
     {"--check-renderer-proof", &Options::check_renderer_proof},
     {"--check-live-renderer", &Options::check_live_renderer},
@@ -1636,6 +1648,10 @@ take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options
         options.replay_index = path_from_utf8(option_value(cursor));
         return true;
     }
+    if (argument == "--replay-map-pack") {
+        options.replay_map_pack = path_from_utf8(option_value(cursor));
+        return true;
+    }
     if (argument == "--render-script") {
         options.render_script = path_from_utf8(option_value(cursor));
         return true;
@@ -1690,6 +1706,10 @@ take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options
 /// @return true when the option is one of these
 [[nodiscard]] bool
 take_engine_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--core-prime-api") {
+        options.core_prime_api = std::string(option_value(cursor));
+        return true;
+    }
     if (argument == "--mutator") {
         const std::string value{option_value(cursor)};
         std::string error;
@@ -1858,7 +1878,7 @@ void write_startup_line(std::string_view text) {
                      "[--accept-unimplemented-hacks] "
                      "[--skip-intro] [--first-run] [--frames N] [--headless-check] "
                      "[--snapshot PATH.ppm] [--preferences-file PATH] [--data-dir PATH] "
-                     "[--user-folder PATH] [--log-dir PATH] "
+                     "[--user-folder PATH] [--core-prime-api URL] [--log-dir PATH] "
                      "[--mute] "
                      "[--check-navigation [screens|orders|outcomes|zoom|zoom-1366x768|"
                      "zoom-1920x1080|zoom-2560x1440|campaign]] "
@@ -1910,7 +1930,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-registered-kit] [--check-kit-gallery] "
                      "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
                      "[--check-map-pack-lists] [--check-mod-map-settings] "
-                     "[--check-map-browser] [--check-key-editor] [--check-key-capture] "
+                     "[--check-map-browser] [--check-key-editor] [--check-replay-viewer] "
+                     "[--check-key-capture] "
                      "[--check-key-views] [--check-key-share] [--check-keys-overlay] "
                      "[--check-selection-keys] "
                      "[--check-mutator-button] [--check-mutator-picker] "
@@ -1926,10 +1947,11 @@ void write_startup_line(std::string_view text) {
                      "[--check-library-update-question] "
                      "[--check-library-replays] "
                      "[--check-replay-import] "
-                     "[--check-replays-content] "
+                     "[--check-replays-content] [--check-replays-core-prime] "
                      "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
                      "[--check-renderer-proof] [--check-live-renderer] "
-                     "[--check-briefing-narration] [--check-photo [mode|time|camera|capture|live]] "
+                     "[--check-briefing-narration] "
+                     "[--check-photo [mode|time|camera|capture|live|keys]] "
                      "[--check-director-view] "
                      "[--check-director-render] [--check-interpolation] "
                      "[--check-unit-playout] [--check-running-while-inactive] "
@@ -1969,7 +1991,8 @@ void write_startup_line(std::string_view text) {
                      "[--resolution WxH]] "
                      "[--render-script PATH.oascript|PATH.oamovie [--output DIR] "
                      "[--chunks A-B] [--stills F,F...]] "
-                     "[--replay-index RECORDING --output PATH.json] "
+                     "[--replay-index RECORDING --output PATH.json "
+                     "[--replay-map-pack PATH]] "
                      "[game switches such as "
                   << extension_text(extension, ExtensionText::usage_switches, "")
                   << "-d|-df -f -l -r TEXT -s -w] "
@@ -1980,6 +2003,8 @@ void write_startup_line(std::string_view text) {
                      "its recording, to video (docs/director.md);\n"
                      "--replay-index writes a recording's index: its length, markers, "
                      "totals and result (docs/replays.md).\n"
+                     "--replay-map-pack mounts one kept map pack while --replay-index reads "
+                     "the recording.\n"
                   << extension_text(extension, ExtensionText::usage_note, "");
             write_startup_line(usage.str());
         } else if (argument.starts_with("--")) {
@@ -2251,19 +2276,21 @@ void write_startup_line(std::string_view text) {
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_key_editor || result.check_key_capture || result.check_key_share ||
-        result.check_key_views || result.check_keys_overlay || result.check_mutator_button ||
-        result.check_mutator_room || result.check_brain_room || result.check_mutator_picker ||
-        result.check_brain_picker || result.check_brain_seat_buttons ||
-        result.check_brain_campaign || result.check_mutator_prompts ||
-        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
-        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap ||
-        result.check_build_past_edge || result.check_selection_keys ||
-        result.check_factory_departure;
-    // The Library's Replays section, a replay opened into it and a replay that
-    // fetches what it needs are walked on the fixed clock too.
+        result.check_key_editor || result.check_replay_viewer || result.check_key_capture ||
+        result.check_key_share || result.check_key_views || result.check_keys_overlay ||
+        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
+        result.check_mutator_picker || result.check_brain_picker ||
+        result.check_brain_seat_buttons || result.check_brain_campaign ||
+        result.check_mutator_prompts || result.check_map_pack_lists ||
+        result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
+        result.check_mod_limits || result.check_click_snap || result.check_build_past_edge ||
+        result.check_selection_keys || result.check_factory_departure;
+    // The Library's Replays section, a replay opened into it, a replay that
+    // fetches what it needs and Core Prime's replays are walked on the fixed
+    // clock too.
     result.fixed_clock = result.fixed_clock || result.check_library_replays ||
-                         result.check_replay_import || result.check_replays_content;
+                         result.check_replay_import || result.check_replays_content ||
+                         result.check_replays_core_prime;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

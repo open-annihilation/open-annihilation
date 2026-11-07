@@ -1093,6 +1093,9 @@ inline constexpr std::string_view replay_recorded_have_rev =
 inline constexpr std::string_view replay_needs_the_map = "Needs the map {name}.";
 /// The pack that map comes from.
 inline constexpr std::string_view replay_from_pack = "From the map pack {pack}.";
+/// The card when another release of that map pack is installed.
+inline constexpr std::string_view replay_other_map_release =
+    "This replay was recorded with another release of the map pack {name}.";
 /// The card when a mutator is not installed.
 inline constexpr std::string_view replay_needs_the_mutator = "Needs the mutator {name}.";
 /// The card when this build is older than the replay needs.
@@ -1110,11 +1113,53 @@ inline constexpr std::string_view replay_turn_on = "Turn on and watch";
 /// The same words as Settings. Listed here because the card's button says them.
 inline constexpr std::string_view replay_check_updates = "Check for updates";
 /// The card when the package is not in the catalogue that was read.
+/// `{registry}` is Core Prime, or the registry's own name.
 inline constexpr std::string_view replay_not_in_catalogue =
-    "{name} {version} is not in Core Prime's catalogue.";
+    "{name} {version} is not in {registry}'s catalogue.";
 /// The same sentence when the note names no version.
 inline constexpr std::string_view replay_not_in_catalogue_name =
-    "{name} is not in Core Prime's catalogue.";
+    "{name} is not in {registry}'s catalogue.";
+/// The switch above the Replays list.
+inline constexpr std::string_view core_on_computer = "On this computer";
+inline constexpr std::string_view core_on_prime = "On Core Prime";
+/// Core Prime's filters. Latest is fact_latest.
+inline constexpr std::string_view core_longest = "Longest";
+inline constexpr std::string_view core_most_downloaded = "Popular";
+inline constexpr std::string_view core_by_planet = "By planet";
+/// The empty section, when Recordings has no replay.
+inline constexpr std::string_view core_browse = "Browse Core Prime's replays";
+/// Core Prime's list, while it is read and no row has come.
+inline constexpr std::string_view core_reading = "Reading Core Prime's replays…";
+/// The list when the answer could not be read.
+inline constexpr std::string_view core_list_unreadable = "Core Prime's list cannot be read.";
+/// The list when Core Prime says its replays are not available.
+inline constexpr std::string_view core_replays_unavailable =
+    "Core Prime's replays are not available just now.";
+/// The list when Core Prime could not be reached.
+inline constexpr std::string_view core_offline = "Core Prime cannot be reached.";
+/// The list when the filter matches nothing.
+inline constexpr std::string_view core_none = "Core Prime has no replays to show.";
+inline constexpr std::string_view core_none_planet = "No replays for this planet.";
+/// The footer.
+inline constexpr std::string_view core_count_one = "1 replay";
+inline constexpr std::string_view core_count_many = "{count} replays";
+/// DOWNLOAD while the file is coming.
+inline constexpr std::string_view core_getting_replay = "Getting the replay…";
+/// The card when the file's SHA-256 is not the one the list named.
+inline constexpr std::string_view core_file_differs = "The file does not match the replay.";
+/// DOWNLOAD once the file is in Recordings. The button is disabled.
+inline constexpr std::string_view core_downloaded = "Downloaded";
+/// The card when the list names no `.oademo` to fetch.
+inline constexpr std::string_view core_replay_no_file = "The replay names no file.";
+/// The card when the file could not be written.
+inline constexpr std::string_view core_replay_not_saved = "The replay could not be saved.";
+/// The card while a 429 asks the player to wait. `{seconds}` is the wait.
+inline constexpr std::string_view core_try_again = "Try again in {seconds} s.";
+/// The card when a check expired before it was passed.
+inline constexpr std::string_view core_check_expired =
+    "The check ran out. Try again for a new code.";
+/// The card while a check is waiting. `{address}` is the page, `{code}` the code.
+inline constexpr std::string_view core_enter_code = "Go to {address} and enter {code}.";
 /// The card when the registry could not be reached.
 inline constexpr std::string_view replay_offline = "You're offline.";
 /// The card's second offline sentence.

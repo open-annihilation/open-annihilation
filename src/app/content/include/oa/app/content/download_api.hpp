@@ -26,6 +26,9 @@ struct KeyRequest {
     std::optional<std::string> install; ///< omitted when the registry does not use one
     std::string package;                ///< the package key
     data::catalogue::Kind kind = data::catalogue::Kind::oamod;
+    /// When set, the JSON `kind` is this text. Empty writes `kind`'s catalogue
+    /// name. A replay file uses `oademo`, which is not a catalogue kind.
+    std::string kind_text{};
     int64_t release = 0;           ///< the catalogue release
     base::sha256::Digest sha256{}; ///< the catalogue's SHA-256
     std::string engine;            ///< this build's version

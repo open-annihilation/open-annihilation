@@ -861,20 +861,46 @@ void lay_language(
         has_previous
     );
     order.push_back(previous_id);
+    std::vector<kit::ControlId> cards;
     for (const kit::CarouselSlot& slot : left_to_right) {
         if (slot.index < 0 || static_cast<std::size_t>(slot.index) >= session.model.cards.size())
             continue;
         const Card& card = session.model.cards[static_cast<std::size_t>(slot.index)];
         const bool enabled = !busy;
+        const kit::ControlId id = card_id + slot.index;
         kit::add_carousel_control(
             scene.list,
             slot.face,
-            card_id + slot.index,
+            id,
             control_name(Step::language, "card." + tag_word(card.tag)),
             card.own_name,
             enabled
         );
-        order.push_back(card_id + slot.index);
+        cards.push_back(id);
+    }
+    // The cards are one grid. Tab leaves it, so a press on Tab no longer
+    // lands on the next card and gets pulled back to the centred one.
+    if (!cards.empty()) {
+        kit::Composite group;
+        group.id = language_cards_id;
+        group.axis = kit::CompositeAxis::grid;
+        group.columns = static_cast<int32_t>(cards.size());
+        group.role = kit::CompositeRole::list;
+        group.name = control_name(Step::language, "cards");
+        group.parts = cards;
+        const kit::ControlId focused = session.interaction.focused;
+        const int32_t chosen = chosen_card(session);
+        const kit::ControlId chosen_id = chosen >= 0 ? card_id + chosen : kit::no_control;
+        const bool focused_card = std::find(cards.begin(), cards.end(), focused) != cards.end();
+        const bool chosen_shown = std::find(cards.begin(), cards.end(), chosen_id) != cards.end();
+        if (focused_card)
+            group.current = focused;
+        else if (chosen_shown)
+            group.current = chosen_id;
+        else
+            group.current = cards.front();
+        scene.list.composites.push_back(std::move(group));
+        order.push_back(language_cards_id);
     }
     kit::add_carousel_control(
         scene.list,
@@ -2707,6 +2733,18 @@ Outcome key(Session& session, const Scene& scene, kit::Key pressed) {
         }
     }
     const kit::ControlId focused = session.interaction.focused;
+    // With the ring on a card, Left and Right still turn the carousel and
+    // the focus follows the card that comes to the middle. The grid does
+    // not wrap, and the carousel does.
+    const bool on_card = focused >= card_id && focused < source_id;
+    if (session.interaction.focus_shown && session.model.step == Step::language && on_card &&
+        (pressed == kit::Key::left || pressed == kit::Key::right)) {
+        if (step_carousel(session.carousel, pressed == kit::Key::right)) {
+            follow_chosen(session);
+            outcome.redraw = true;
+        }
+        return outcome;
+    }
     const bool on_choice = focused == on_id || focused == off_id;
     if (session.model.step == Step::online && on_choice &&
         (pressed == kit::Key::up || pressed == kit::Key::down || pressed == kit::Key::left ||

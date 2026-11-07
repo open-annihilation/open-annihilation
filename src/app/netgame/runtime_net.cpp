@@ -3643,11 +3643,18 @@ void NetworkPlay::finish_skirmish_recording() {
         if (record.recording.started) {
             uint32_t length_ticks = 0;
             bool match_finished = false;
+            const char* mission_word = nullptr;
             if (runtime_.running_match() != nullptr) {
                 length_ticks = runtime_.running_match()->state().game.tick;
                 const auto outcome = runtime_.running_match()->outcome();
                 match_finished = outcome == oa::sim::scenario::Outcome::victory ||
                                  outcome == oa::sim::scenario::Outcome::defeat;
+                // meta.json keeps the recording player's result of a campaign
+                // mission. A skirmish and a network game record no such word.
+                if (record.campaign && outcome == oa::sim::scenario::Outcome::victory)
+                    mission_word = "won";
+                else if (record.campaign && outcome == oa::sim::scenario::Outcome::defeat)
+                    mission_word = "lost";
             }
             // One last 0x28 per sender, as a network game sends when it ends,
             // while the world and the send path are still there.
@@ -3672,6 +3679,11 @@ void NetworkPlay::finish_skirmish_recording() {
                 finishing->finish.replay_layout = record.recording_is_replay;
                 finishing->finish.start = std::move(record.recording_start);
                 finishing->finish.end.ended = match_finished ? "finished" : "left";
+                if (mission_word != nullptr)
+                    for (oa::formats::oademo::PlayerInfo& recorded :
+                         finishing->finish.start.meta.players)
+                        if (recorded.recorded_here.value_or(false))
+                            recorded.result = mission_word;
                 if (length_ticks != 0)
                     finishing->finish.end.length_ticks = length_ticks;
                 finishing->finish.destination = record.recording_path;
@@ -5086,7 +5098,7 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         // Photo mode on the host, after the speed key. The time commands are
         // refused, and the camera moves before the picture is held.
         if (net_options().net_loopback_photo && tick == 100)
-            runtime_.exercise_shared_photo(tick);
+            runtime_.exercise_shared_photo(static_cast<uint32_t>(tick));
         // The host's preferences send nothing: its RESTORE puts back the
         // normal speed, then its Cancel or UNDO the speed they opened with,
         // and the joiner keeps the speed the key set.
@@ -5142,9 +5154,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         // The held picture covers the next 30 exchanges. The pause key below
         // still answers, and the camera no longer moves.
         if (net_options().net_loopback_photo && tick == 170)
-            runtime_.exercise_shared_photo(tick);
+            runtime_.exercise_shared_photo(static_cast<uint32_t>(tick));
         if (net_options().net_loopback_photo && tick == 200)
-            runtime_.exercise_shared_photo(tick);
+            runtime_.exercise_shared_photo(static_cast<uint32_t>(tick));
         // The Pause key pauses both machines, whose ticks then hold, and
         // pressed again resumes both.
         if (tick == 172)

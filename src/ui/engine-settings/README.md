@@ -1023,7 +1023,18 @@ kit's `add_rows` with the prefix `settings`, each row's control in the
 section's scroll group; Developer's list and its footer are generic items
 and the kit's components. Tab follows the declared order
 the list holds (`DisplayList::tab_order`), which `dialog_list` builds as it
-adds the controls.
+adds the controls. The section list is one stop of that order, a column
+named `settings.sections` with the tab-list role, at the head. Its entries
+are parts of that stop, not stops of their own. After it come the open
+section's controls, the footer (Restore defaults, Cancel, OK) and the close
+mark. The dialog opens with the open section's entry focused and the ring
+hidden. Tab shows the ring on that section's first control, the same control
+the first Tab reached before the list was one stop. Shift+Tab shows the close
+mark. While the ring is hidden, the other keys do what they did with nothing
+focused: Up shows the close mark, and Down, Left, Right and Space show the
+section's first control. While the ring shows, Return presses the focused
+control and hides the ring. A pointer move hides the ring and leaves the
+focused control. Return accepts while the ring is not drawn.
 
 The dialog's input reads this list through the kit, built in the fonts the
 dialog is drawn in (`Dialog::drawn_fonts`, which the host sets to the fonts

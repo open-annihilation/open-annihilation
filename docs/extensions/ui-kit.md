@@ -721,7 +721,14 @@ A kit screen is driven by the kit's one input model
 with the first control of `tab_order` focused and the ring hidden, unless
 `open-annihilation.access.always-show-focus` is 1. The Library opens on its
 tab's search, with the ring shown, as it did before. Opened with the
-pointer, Settings has nothing focused and draws no ring.
+pointer, Settings opens with the open section's entry focused and the ring
+hidden. That list is one composite stop: Tab shows the ring on the open
+section's first control, and Shift+Tab shows the close mark. While the ring
+is hidden, the other keys do what they did with nothing focused. While it
+shows, Return presses the focused control and hides the ring, and a pointer
+move hides the ring. Return accepts while the ring is not drawn, including
+after a pointer move has hidden it. On a kit screen, Return still presses
+the focused control after a pointer hides the ring.
 
 - **While the opening focus has not been moved by a click or a key,** Tab
   moves to the next control and shows the ring there. Shift+Tab moves to
@@ -732,8 +739,11 @@ pointer, Settings has nothing focused and draws no ring.
   order, Tab shows the first and Shift+Tab the last.
 - **While the ring shows,** Tab follows the declared order,
   `DisplayList::tab_order` (a page's rows in its table's order), and wraps
-  round; Shift+Tab goes back. Only the controls in it take the focus
-  (decision D30). The arrows and a controller's stick move the focus by
+  round; Shift+Tab goes back. A composite is one stop of that order. Tab
+  and Shift+Tab leave it and land on the part it remembers. The arrows
+  along its axis move between its parts and do not wrap, and Home and End
+  go to its ends. Only the controls in the order, and a composite's parts,
+  take the focus (decision D30). The arrows and a controller's stick move the focus by
   where controls lie, not by that order (`kit::focus_toward`): to the
   nearest control that lies wholly that way, one in line first. A control's
   own scroll area is searched first. Left and Right go to a focused control
@@ -758,6 +768,20 @@ pointer, Settings has nothing focused and draws no ring.
 
 So a layout needs no focus or touch code: it places its controls, gives
 each a name and lists the Tab order.
+
+The OA layer draws this same ring, `kit::draw_focus_ring`, around a gadget
+of the original menus and around an extension's window. It is hidden when
+a screen, a dialog, a page of the in-game panel or an extension window
+opens, unless `open-annihilation.access.always-show-focus` is 1.
+`note_family_tab` shows it, for Tab and Shift+Tab. `note_family_return`
+hides it after Return, and `note_family_pointer` hides it when the pointer
+moves. An arrow moves the focus and leaves the ring as it is. On an
+extension's windows the ring is drawn only around the window that itself
+holds the focus. A screen that focuses nothing still reports a first item
+in the tree: SINGLE on the main menu, and the first stop in reading order
+on an extension's windows. The ring follows that report on the original
+menus. On an extension's windows it waits until the window itself is
+focused, by an arrow or a click.
 
 A notice and a prompt open with the first button marked and the ring
 hidden. Tab and Shift+Tab move the mark and show the ring. Up shows the

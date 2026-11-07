@@ -398,6 +398,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-map-packs", &Options::check_map_packs, {}},
         {"--check-map-browser", &Options::check_map_browser, {}},
         {"--check-key-editor", &Options::check_key_editor, {}},
+        {"--check-replay-viewer", &Options::check_replay_viewer, {}},
         {"--check-key-capture", &Options::check_key_capture, {}},
         {"--check-key-share", &Options::check_key_share, {}},
         {"--check-key-views", &Options::check_key_views, {}},
@@ -426,6 +427,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-library-replays", &Options::check_library_replays, {}},
         {"--check-replay-import", &Options::check_replay_import, {}},
         {"--check-replays-content", &Options::check_replays_content, {}},
+        {"--check-replays-core-prime", &Options::check_replays_core_prime, {}},
         {"--check-renderer-ladder", &Options::check_renderer_ladder, {}},
         {"--check-renderer-proof", &Options::check_renderer_proof, {}},
         {"--check-live-renderer", &Options::check_live_renderer, {}},
@@ -531,6 +533,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--preferences-file", "p.conf", {}},
         {"--data-dir", "data", {}},
         {"--user-folder", "own", {}},
+        {"--core-prime-api", "http://127.0.0.1:9", {}},
         {"--log-dir", "logs", {}},
         {"--open", "a.oamod", {}},
         {"--install-mod", "a.oamod", {}},
@@ -592,6 +595,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--check-installer", "setup.bin", {}},
         {"--generate-script", "game.rec", {}},
         {"--replay-index", "game.rec", {"--output", "game.json"}},
+        {"--replay-map-pack", "kept", {"--replay-index", "game.rec", "--output", "game.json"}},
         {"--render-script", "game.oascript", {}},
         {"--output", "out", {"--render-script", "game.oascript"}},
         {"--chunks", "1", {"--render-script", "game.oascript"}},
@@ -2397,6 +2401,12 @@ int main() {
             indexed.render_script.empty(),
         "--replay-index takes its recording and output and runs headless"
     );
+    const auto indexed_pack =
+        parse({"--replay-index", "game.tad", "--output", "game.json", "--replay-map-pack", "kept"});
+    expect(
+        indexed_pack.replay_map_pack == oa::app::path_from_utf8("kept"),
+        "--replay-map-pack names the kept pack the index pass mounts"
+    );
     const auto render = parse({"--render-script", "game.oascript", "--chunks", "2-5"});
     expect(
         render.render_script == oa::app::path_from_utf8("game.oascript") &&
@@ -2501,7 +2511,8 @@ int main() {
         "--output belongs to a director run"
     );
     expect(
-        rejection({"--replay-index", "game.tad"}) == "--replay-index needs --output" &&
+        rejection({"--replay-map-pack", "kept"}) == "--replay-map-pack needs --replay-index" &&
+            rejection({"--replay-index", "game.tad"}) == "--replay-index needs --output" &&
             rejection(
                 {"--replay-index", "game.tad", "--output", "out", "--resolution", "640x360"}
             ) == "--replay-index draws nothing, so it takes no --resolution" &&

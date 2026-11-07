@@ -29,6 +29,7 @@
 #include "oa/ui/console/hotkeys.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa_layer.hpp"
 #include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
 #include "oa/base/text/line_break.hpp"
@@ -2095,6 +2096,8 @@ void Runtime::show_match_pause_menu() {
         render_match_surface();
     } else
         status_ = "Pause menu unavailable";
+    // The menu opens with the ring hidden, unless Always show focus is on.
+    oa_layer().note_family_opened();
 }
 
 void Runtime::resume_match_pause() {
@@ -2127,6 +2130,8 @@ void Runtime::resume_match_pause() {
     else
         show_match_orders_page();
     status_ = "Resumed";
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
 }
 
 void Runtime::blit_gaf_source(
@@ -3376,6 +3381,10 @@ bool Runtime::enter_match_menu() {
     // Hold to confirm is on, as Yes's own key does. Asked from the menu, it
     // answers No.
     const auto accept = ui::ingame_exit_confirm_accept(session.close_confirm);
+    // Return hides the ring before the answer, so a screen it opens starts
+    // from its own rule.
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
     if (accept == ui::kCloseConfirmAccept) {
         const auto yes = ui::panel_find(session.panel, accept);
         if (yes > 0 && start_yes_hold(hold_key_scancode_, false, 0, static_cast<std::size_t>(yes)))
@@ -3400,6 +3409,14 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         match_panels_keyboard_ || match_hud_panel_ == oa::data::defs::gui_path(kPreferencesLayout);
     if (!keyboard && !confirming)
         return false;
+    // Tab and Shift+Tab show the family's ring and are not taken. The
+    // console's options key still sees Tab, as it does today. The menus'
+    // next-button action is not searched while a match panel holds the
+    // keyboard, so the key itself is what asks.
+    const bool tab_key = (key.key == SDLK_TAB || key.scancode == SDL_SCANCODE_TAB) &&
+                         (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) == 0;
+    if (keyboard && tab_key && oa_layer_ != nullptr)
+        oa_layer_->note_family_tab();
     namespace bindings = oa::ui::key_bindings;
     const auto down = [](const bindings::ActionEvent* fired) {
         return fired != nullptr && fired->phase == bindings::Phase::pressed;
@@ -3447,8 +3464,14 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
             // Space on the surrender question's focused Yes holds, as its
             // own key does.
             if (confirming && gadgets[activated].common.name == "CHOICE1" &&
-                start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, activated))
+                start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, activated)) {
+                if (accept && oa_layer_ != nullptr)
+                    oa_layer_->note_family_return();
                 return true;
+            }
+            // Return hides the ring. Space and Escape leave it as it is.
+            if (accept && oa_layer_ != nullptr)
+                oa_layer_->note_family_return();
             activate_match_hud(activated);
             return true;
         }

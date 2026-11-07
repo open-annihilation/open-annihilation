@@ -12,9 +12,21 @@
 #include "oa/sim/messages.hpp"
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace oa::app {
+
+/// The match commands that still answer while photo mode is open.
+///
+/// The camera's pan is a held key, and the wheel zooms on its own. Home
+/// centres and is listed here; it selects nothing while photo mode is open.
+/// The dispatch takes every other match command and does nothing with it,
+/// and the keys panel lists only these beside the photo and global keys.
+///
+/// @param id the action id
+/// @return true when photo mode runs the command
+[[nodiscard]] bool photo_match_command(std::string_view id) noexcept;
 
 struct Runtime::PhotoState {
     /// What photo mode replaced, put back as it leaves.
@@ -59,12 +71,18 @@ struct Runtime::PhotoState {
         slow,    ///< the clock is held and ticks are granted at a slow rate
     };
     Time time{Time::running};
-    int32_t slow_speed{};            ///< 1..9 while slow; 0 otherwise
-    uint64_t slow_interval_ns{};     ///< one granted tick, on frame_time_ns_
-    uint64_t slow_origin_ns{};       ///< frame_time_ns_ when the slow pace started
-    uint64_t slow_granted{};         ///< ticks granted since slow_origin_ns
-    bool shutter{};                  ///< an eighth between ticks replaces the fraction
-    int32_t shutter_eighth{};        ///< 0 the tick before, 8 the frozen tick
+    int32_t slow_speed{};        ///< 1..9 while slow; 0 otherwise
+    uint64_t slow_interval_ns{}; ///< one granted tick, on frame_time_ns_
+    uint64_t slow_origin_ns{};   ///< frame_time_ns_ when the slow pace started
+    uint64_t slow_granted{};     ///< ticks granted since slow_origin_ns
+    bool shutter{};              ///< an eighth between ticks replaces the fraction
+    int32_t shutter_eighth{};    ///< 0 the tick before, 8 the frozen tick
+    bool drawn_since_enter{};    ///< a photo-mode frame has been drawn this visit
+    bool capture_waiting{};      ///< a photo was asked for before that frame
+    bool dragging{};             ///< a photo pan drag is down
+    bool drag_moved{};           ///< that drag has passed the click slop
+    float drag_x{};              ///< where that drag last was
+    float drag_y{};
     bool picture_held{};             ///< a shared match shows the copied battlefield
     uint32_t held_width{};           ///< the copy's width
     uint32_t held_height{};          ///< the copy's height
@@ -73,6 +91,10 @@ struct Runtime::PhotoState {
     /// Leaving photo mode still writes the camera from entering.
     bool camera_held{};
     int32_t held_camera_x{};
+    /// The match's tick and speed when the picture was held. A photo of that
+    /// picture records this moment.
+    uint32_t held_tick{};
+    uint16_t held_speed{};
     int32_t held_camera_z{};
     float held_zoom{};
     float held_zoom_target{};

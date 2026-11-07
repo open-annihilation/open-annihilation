@@ -910,10 +910,13 @@ void the_screen_opens_on_its_first_stop(const kit::Frame& frame) {
     OA_CHECK(!opened.list.tab_order.empty());
     if (opened.list.tab_order.empty())
         return;
-    const kit::ControlId first = opened.list.tab_order.front();
-    const kit::ControlId second =
-        opened.list.tab_order.size() > 1 ? opened.list.tab_order[1] : first;
-    const kit::ControlId last = opened.list.tab_order.back();
+    // A composite stop lands on its part, never on the group's own id.
+    const kit::ControlId first = kit::composite_landing(opened.list, opened.list.tab_order.front());
+    const kit::ControlId second = kit::composite_landing(
+        opened.list,
+        opened.list.tab_order.size() > 1 ? opened.list.tab_order[1] : opened.list.tab_order.front()
+    );
+    const kit::ControlId last = kit::composite_landing(opened.list, opened.list.tab_order.back());
     kit::focus_opened(opened.state.interaction, opened.list, false);
     OA_CHECK(opened.state.interaction.focused == first);
     OA_CHECK(!opened.state.interaction.focus_shown);
@@ -946,6 +949,167 @@ void the_screen_opens_on_its_first_stop(const kit::Frame& frame) {
     const picker::ScreenResult closed = shown.key(kit::Key::enter);
     OA_CHECK(closed.action == picker::PickerAction::cancel);
     OA_CHECK(!shown.state.interaction.focus_shown);
+}
+
+/// The composite of a name, or null.
+///
+/// @param list the display list
+/// @param name the group's name
+/// @return the composite
+const kit::Composite* group_named(const kit::DisplayList& list, std::string_view name) {
+    for (const kit::Composite& group : list.composites) {
+        if (group.name == name)
+            return &group;
+    }
+    return nullptr;
+}
+
+/// How many times Tab's order names one control.
+///
+/// @param list the display list
+/// @param name the name
+/// @return the count
+std::size_t tab_count(const kit::DisplayList& list, std::string_view name) {
+    std::size_t count = 0;
+    for (const kit::ControlId id : list.tab_order) {
+        const kit::Control* control = kit::control_of(list, id);
+        if (control != nullptr && control->name == name)
+            ++count;
+        for (const kit::Composite& group : list.composites) {
+            if (group.id == id && group.name == name)
+                ++count;
+        }
+    }
+    return count;
+}
+
+/// True when Tab's order holds an id.
+///
+/// @param list the display list
+/// @param id the control
+/// @return true when it is a stop of its own
+bool tab_holds(const kit::DisplayList& list, kit::ControlId id) {
+    return std::find(list.tab_order.begin(), list.tab_order.end(), id) != list.tab_order.end();
+}
+
+/// Regular and Large keep the filter pills as one stop, the tag pills as
+/// one stop and the list as one stop. Right moves inside the filters and
+/// does not change the filter. Tab leaves the group. Compact keeps its
+/// drop-down as one control.
+///
+/// @param frame the frame
+void filters_tags_and_the_list_are_one_stop(const kit::Frame& frame) {
+    Session session = open_at(frame, false);
+    OA_CHECK(tab_count(session.list, picker::name_list) == 1);
+    for (const kit::ControlId id : session.list.tab_order) {
+        const kit::Control* control = kit::control_of(session.list, id);
+        OA_CHECK(control == nullptr || control->name.rfind(picker::name_row_prefix, 0) != 0);
+    }
+    for (const kit::Control& control : session.list.controls) {
+        if (control.name.rfind(picker::name_row_prefix, 0) == 0)
+            OA_CHECK(!control.focusable);
+    }
+    if (is_compact(frame)) {
+        OA_CHECK(group_named(session.list, picker::name_filters) == nullptr);
+        OA_CHECK(group_named(session.list, picker::name_tag_pills) == nullptr);
+        OA_CHECK(tab_count(session.list, picker::name_filter) == 1);
+        return;
+    }
+
+    const kit::Composite* filters = group_named(session.list, picker::name_filters);
+    OA_CHECK(filters != nullptr && filters->parts.size() == 3);
+    if (filters == nullptr)
+        return;
+    OA_CHECK(tab_holds(session.list, filters->id));
+    for (const std::string_view name :
+         {picker::name_filter_all, picker::name_filter_installed, picker::name_filter_downloads}) {
+        const kit::Control* pill = find_named(session.list, name);
+        OA_CHECK(pill != nullptr);
+        if (pill == nullptr)
+            continue;
+        OA_CHECK(
+            std::find(filters->parts.begin(), filters->parts.end(), pill->id) !=
+            filters->parts.end()
+        );
+        OA_CHECK(!tab_holds(session.list, pill->id));
+    }
+
+    // A tag pill that can take the focus belongs to the one tag stop. A size
+    // that shows no pill has no such stop; Tags, the overflow menu, stays its own.
+    std::size_t focusable_pills = 0;
+    for (const kit::Control& control : session.list.controls) {
+        if (control.kind != kit::ControlKind::button)
+            continue;
+        if (control.name.rfind(std::string(picker::name_tags) + ".", 0) != 0)
+            continue;
+        if (control.focusable && control.enabled)
+            ++focusable_pills;
+        OA_CHECK(!tab_holds(session.list, control.id));
+    }
+    const kit::Composite* tags = group_named(session.list, picker::name_tag_pills);
+    if (focusable_pills == 0) {
+        OA_CHECK(tags == nullptr);
+    } else {
+        OA_CHECK(tags != nullptr && tags->parts.size() == focusable_pills);
+        if (tags != nullptr) {
+            OA_CHECK(tab_holds(session.list, tags->id));
+            for (const kit::ControlId part : tags->parts)
+                OA_CHECK(!tab_holds(session.list, part));
+        }
+    }
+
+    const kit::Control* all = find_named(session.list, picker::name_filter_all);
+    OA_CHECK(all != nullptr);
+    if (all == nullptr)
+        return;
+    const picker::Filter before = session.model.filter;
+    session.state.interaction.focused = all->id;
+    session.state.interaction.focus_shown = true;
+    session.key(kit::Key::right);
+    const kit::Control* landed = focused_control(session);
+    OA_CHECK(landed != nullptr && landed->name == picker::name_filter_installed);
+    OA_CHECK(session.model.filter == before);
+    OA_CHECK(session.state.interaction.focus_shown);
+    session.key(kit::Key::tab);
+    const kit::Control* left = focused_control(session);
+    OA_CHECK(left != nullptr && left->name.rfind("mutators.filter.", 0) != 0);
+
+    // With the ring on a pill, Home and End go to the group's ends and leave
+    // the list's selection alone. The ring stays on the group.
+    const std::optional<std::string> chosen = session.model.selected;
+    const kit::Control* installed = find_named(session.list, picker::name_filter_installed);
+    OA_CHECK(installed != nullptr);
+    if (installed == nullptr)
+        return;
+    session.state.interaction.focused = installed->id;
+    session.state.interaction.focus_shown = true;
+    session.key(kit::Key::end);
+    const kit::Control* at_end = focused_control(session);
+    OA_CHECK(at_end != nullptr && at_end->name == picker::name_filter_downloads);
+    session.key(kit::Key::home);
+    const kit::Control* at_home = focused_control(session);
+    OA_CHECK(at_home != nullptr && at_home->name == picker::name_filter_all);
+    OA_CHECK(session.state.interaction.focus_shown);
+    OA_CHECK(session.model.selected == chosen);
+    OA_CHECK(session.model.filter == before);
+}
+
+/// With the ring hidden, Home and End still move the list's selection, as
+/// they did before the pills were a group, and the opening focus stays.
+///
+/// @param frame the frame
+void home_with_the_ring_hidden_moves_the_list(const kit::Frame& frame) {
+    Session session = open_at(frame, false);
+    if (is_compact(frame) || group_named(session.list, picker::name_filters) == nullptr)
+        return;
+    kit::focus_opened(session.state.interaction, session.list, false);
+    const kit::ControlId opened = session.state.interaction.focused;
+    session.key(kit::Key::end);
+    OA_CHECK(session.state.interaction.focused == opened);
+    OA_CHECK(!session.state.interaction.focus_shown);
+    const std::vector<picker::Row> rows = picker::rows(session.model);
+    if (!rows.empty())
+        OA_CHECK(session.model.selected == rows.back().id);
 }
 
 /// The keys of the list and the details.
@@ -1549,6 +1713,8 @@ int main() {
         move_with_up_and_down(size.frame);
         tab_walk(size.frame);
         the_screen_opens_on_its_first_stop(size.frame);
+        filters_tags_and_the_list_are_one_stop(size.frame);
+        home_with_the_ring_hidden_moves_the_list(size.frame);
         keys_of_step_3(size.name, size.frame);
         commands(size.frame);
         search_text(size.frame);

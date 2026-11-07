@@ -56,6 +56,8 @@ constexpr uint32_t kPlay = 1U << 4;
 constexpr uint32_t kWatch = 1U << 5;
 /// The placing context's bit.
 constexpr uint32_t kPlacing = 1U << 11;
+/// The photo context's bit. It is last in the registry.
+constexpr uint32_t kPhoto = 1U << 13;
 /// The context that meets every other one.
 constexpr uint32_t kEverywhere = 1U << 0;
 
@@ -391,6 +393,8 @@ std::string card_context(uint32_t contexts, const TextHooks& hooks) {
         return show(hooks, words::card_while_playing);
     if ((contexts & kWatch) != 0)
         return show(hooks, words::card_while_watching);
+    if ((contexts & kPhoto) != 0)
+        return show(hooks, words::card_in_photo_mode);
     if ((contexts & kPlacing) != 0)
         return show(hooks, words::card_placing);
     if ((contexts & kEverywhere) != 0)
@@ -428,6 +432,9 @@ std::string card_context(uint32_t contexts, const TextHooks& hooks) {
             break;
         case 12:
             word = words::context_box;
+            break;
+        case 13:
+            word = words::context_photo;
             break;
         default:
             break;

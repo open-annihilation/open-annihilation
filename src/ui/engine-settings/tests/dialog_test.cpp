@@ -43,7 +43,9 @@
 // shows On, and turning that switch Off taking 150% back to 100%. Graphics
 // drawn on the canvas's smooth form at 1.5x, every pixel painted whole.
 // With --data, its fonts from the installed game and every text fitting its
-// place.
+// place. A wheel-scrolled section list stays where a click leaves it. After
+// Tab, a pointer move and a click, Down moves on from the clicked row.
+// Return on Language's drop-down opens it with the keyboard mark outlined.
 
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -578,7 +580,8 @@ void opening_shows_the_settings_in_effect() {
     CHECK(dialog.chosen == current);
     CHECK(dialog.page == Page::graphics);
     CHECK(!dialog.restored);
-    CHECK(dialog.focused == settings::no_control);
+    CHECK(dialog.focused == settings::page_control(Page::graphics));
+    CHECK(!dialog.focus_shown);
 }
 
 void every_part_lies_inside_the_dialog_and_apart() {
@@ -1126,6 +1129,7 @@ void switches_take_a_click_on_either_half_and_keys() {
     // Escape opens the game menu moved to User Interface, its last row.
     settings::Dialog ui_page = opened(Page::user_interface);
     ui_page.focused = settings::first_row_control + 6;
+    ui_page.focus_shown = true;
     CHECK(settings::dialog_key(ui_page, DialogKey::right) == DialogAction::changed);
     CHECK(ui_page.chosen.escape_opens_menu);
 
@@ -1604,7 +1608,9 @@ void available_languages_at(oa::ui::kit::SizeClass size_class) {
     const auto list = geometry::choice_list(field, 9, size_class);
     CHECK(click(dialog, centre(field)) == DialogAction::redraw);
     CHECK(dialog.download_request.empty());
-    CHECK(dialog.focused == settings::no_control);
+    // A click from the opening focus leaves that entry focused, the ring hidden.
+    CHECK(dialog.focused == settings::page_control(Page::language));
+    CHECK(!dialog.focus_shown);
     auto parts = settings::dialog_layout(dialog);
     const auto menu = listed_in(parts, list);
     const std::array<std::string, 9> window{{
@@ -1685,7 +1691,8 @@ void available_languages_at(oa::ui::kit::SizeClass size_class) {
     CHECK(dialog.list_marked == 7);
     CHECK(settings::dialog_key(dialog, DialogKey::enter) == DialogAction::download_language);
     CHECK(dialog.chosen.language == "zh-Hans" && dialog.download_request == "zh-Hans");
-    CHECK(dialog.open_list == settings::no_control && dialog.focused == settings::no_control);
+    CHECK(dialog.open_list == settings::no_control);
+    CHECK(dialog.focused == settings::page_control(Page::language));
 
     // Left and Right on the closed field stay among the installed languages.
     auto stepped = language_dialog();
@@ -2523,6 +2530,11 @@ void the_footer_buttons_restore_cancel_and_keep() {
 
 void the_focus_moves_round_every_control() {
     settings::Dialog dialog = opened(Page::controls);
+    CHECK(dialog.focused == settings::page_control(Page::controls));
+    CHECK(!dialog.focus_shown);
+    // The section list is one stop at the head. The first Tab from open
+    // reaches the section's first control, then its rows, the footer and
+    // the close mark. One more Tab returns to the remembered entry.
     const std::vector<int32_t> expected{
         settings::first_row_control,
         settings::first_row_control + 1,
@@ -2541,56 +2553,102 @@ void the_focus_moves_round_every_control() {
         settings::restore_control,
         settings::cancel_control,
         settings::ok_control,
-        settings::page_control(Page::controls),
-        settings::page_control(Page::accessibility),
-        settings::page_control(Page::graphics),
-        settings::page_control(Page::user_interface),
-        settings::page_control(Page::language),
-        settings::page_control(Page::downloads),
-        settings::page_control(Page::updates),
-        settings::page_control(Page::game_content),
-        settings::page_control(Page::replays),
-        settings::page_control(Page::common_tweaks),
-        settings::page_control(Page::system),
-        settings::page_control(Page::developer),
+        settings::close_x_control,
     };
     for (const int32_t control : expected) {
         CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
         CHECK(dialog.focused == control);
     }
-    CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::restore_control); // 2D focus (D30)
-    CHECK(settings::dialog_key(dialog, DialogKey::up) == DialogAction::redraw);
-    CHECK(dialog.focused == expected.back());
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::system));
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::common_tweaks));
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::replays));
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::game_content));
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::updates));
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::downloads));
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::language));
-    // The title bar's close mark is last in Tab's order.
-    settings::Dialog again = opened(Page::controls);
-    for (const int32_t control : expected) {
-        CHECK(settings::dialog_key(again, DialogKey::tab) == DialogAction::redraw);
-        CHECK(again.focused == control);
-    }
-    CHECK(settings::dialog_key(again, DialogKey::tab) == DialogAction::redraw);
-    CHECK(again.focused == settings::close_x_control);
-    // Space on an entry shows its section.
-    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
-    CHECK(dialog.page == Page::language);
-    // Up from nothing lands on the last control.
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::page_control(Page::controls));
+
+    // The arrows move inside the list and do not wrap. Home and End go to
+    // its ends. Shift+Tab leaves it for the close mark.
+    settings::Dialog list = opened(Page::controls);
+    list.focus_shown = true;
+    CHECK(settings::dialog_key(list, DialogKey::up) == DialogAction::none);
+    CHECK(list.focused == settings::page_control(Page::controls));
+    CHECK(settings::dialog_key(list, DialogKey::down) == DialogAction::redraw);
+    CHECK(list.focused == settings::page_control(Page::accessibility));
+    CHECK(settings::dialog_key(list, DialogKey::end) == DialogAction::redraw);
+    CHECK(list.focused == settings::page_control(Page::developer));
+    CHECK(settings::dialog_key(list, DialogKey::down) == DialogAction::none);
+    CHECK(list.focused == settings::page_control(Page::developer));
+    CHECK(settings::dialog_key(list, DialogKey::home) == DialogAction::redraw);
+    CHECK(list.focused == settings::page_control(Page::controls));
+    CHECK(settings::dialog_key(list, DialogKey::back_tab) == DialogAction::redraw);
+    CHECK(list.focused == settings::close_x_control);
+
+    // Space on Language's entry shows that section. Down from Controls
+    // reaches it: Accessibility, Graphics, User Interface, Language.
+    settings::Dialog sections = opened(Page::controls);
+    sections.focus_shown = true;
+    for (int32_t step = 0; step < 4; ++step)
+        CHECK(settings::dialog_key(sections, DialogKey::down) == DialogAction::redraw);
+    CHECK(sections.focused == settings::page_control(Page::language));
+    CHECK(sections.page == Page::controls);
+    CHECK(settings::dialog_key(sections, DialogKey::space) == DialogAction::redraw);
+    CHECK(sections.page == Page::language);
+    // Up from the opening focus shows the ring on the close mark.
     settings::Dialog fresh = opened(Page::controls);
     CHECK(settings::dialog_key(fresh, DialogKey::up) == DialogAction::redraw);
     CHECK(fresh.focused == settings::close_x_control);
+    CHECK(fresh.focus_shown);
+}
+
+/// The section list is one stop at the head. The open section's controls, the
+/// footer and the close mark follow. A part of the list is not a stop of its own.
+void check_order(const settings::Dialog& dialog) {
+    const kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
+    CHECK(!list.tab_order.empty());
+    CHECK(list.tab_order.front() == settings::section_list_control);
+    CHECK(list.composites.size() == 1);
+    CHECK(list.composites[0].axis == kit::CompositeAxis::column);
+    CHECK(list.composites[0].role == kit::CompositeRole::tab_list);
+    CHECK(list.composites[0].name == "settings.sections");
+    std::vector<int32_t> nav;
+    for (const kit::Control& control : list.controls)
+        if (control.kind == kit::ControlKind::tab && control.name.rfind("settings.nav.", 0) == 0)
+            nav.push_back(control.id);
+    CHECK(!nav.empty());
+    CHECK(list.composites[0].parts == nav);
+    for (const int32_t part : nav)
+        CHECK(
+            std::find(list.tab_order.begin(), list.tab_order.end(), part) == list.tab_order.end()
+        );
+    const std::size_t count = list.tab_order.size();
+    CHECK(count >= 5);
+    CHECK(list.tab_order[count - 4] == settings::restore_control);
+    CHECK(list.tab_order[count - 3] == settings::cancel_control);
+    CHECK(list.tab_order[count - 2] == settings::ok_control);
+    CHECK(list.tab_order[count - 1] == settings::close_x_control);
+}
+
+/// The first Tab from an open section, taken from the order before the section
+/// list was one stop. A text row is not a stop: Updates' status line and Game
+/// Content's sentence, so those two open on the next row. Every other section
+/// here opens on its first row. Locked Engine Limits and Controller's Steam
+/// Input notice are covered by their own tests.
+int32_t first_tab_target(Page page) {
+    if (page == Page::updates || page == Page::game_content)
+        return settings::first_row_control + 1;
+    return settings::first_row_control;
+}
+
+/// One section: the new order, the opening focus on its entry with no ring,
+/// the first Tab on the control it reached before, and Shift+Tab on the close mark.
+void check_section_focus(settings::Dialog dialog, Page page, int32_t first_tab) {
+    check_order(dialog);
+    CHECK(dialog.focused == settings::page_control(page));
+    CHECK(!dialog.focus_shown);
+    CHECK(dialog.nav_part == settings::page_control(page));
+    settings::Dialog backward = dialog;
+    CHECK(settings::dialog_key(backward, DialogKey::back_tab) == DialogAction::redraw);
+    CHECK(backward.focused == settings::close_x_control);
+    CHECK(backward.focus_shown);
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == first_tab);
+    CHECK(dialog.focus_shown);
 }
 
 void locks_show_their_text_and_hold_their_settings() {
@@ -2839,7 +2897,8 @@ void sections_that_fit_do_not_scroll() {
             for (const DialogKey key :
                  {DialogKey::page_down, DialogKey::end, DialogKey::page_up, DialogKey::home})
                 CHECK(settings::dialog_key(dialog, key) == DialogAction::none);
-            CHECK(dialog.focused == settings::no_control);
+            CHECK(dialog.focused == settings::page_control(page));
+            CHECK(!dialog.focus_shown);
             CHECK(settings::dialog_pointer_down(dialog, 473, 150) == DialogAction::none);
             CHECK(settings::dialog_pointer_up(dialog, 473, 150) == DialogAction::none);
             CHECK(dialog.hovered == settings::no_control);
@@ -2929,7 +2988,8 @@ void the_mod_limits_rows_show_the_counts_and_take_no_input() {
     CHECK(dialog.mod_limits.sides == limits.sides);
     CHECK(dialog.mod_limits.loaded_weapon_types == limits.loaded_weapon_types);
     CHECK(dialog.mod_limits.loaded_sides == limits.loaded_sides);
-    CHECK(dialog.focused == settings::no_control);
+    CHECK(dialog.focused == settings::page_control(Page::common_tweaks));
+    CHECK(!dialog.focus_shown);
 }
 
 void a_long_section_scrolls_by_its_overflow() {
@@ -3050,17 +3110,18 @@ void control_numbers_put_the_rows_after_every_fixed_control() {
     }
     CHECK(rows.size() == 9);
     CHECK(*rows.rbegin() == settings::first_row_control + 8);
-    // The focus moves through the rows, the footer's buttons and the
-    // sections' entries, never the scroll bar.
+    // The focus moves through the rows, the footer and the close mark, then
+    // the section list's remembered entry, never the scroll bar.
     std::vector<int32_t> expected;
     for (int32_t row = 0; row < 9; ++row)
         expected.push_back(settings::first_row_control + row);
     for (const int32_t control :
-         {settings::restore_control, settings::cancel_control, settings::ok_control})
+         {settings::restore_control,
+          settings::cancel_control,
+          settings::ok_control,
+          settings::close_x_control,
+          settings::page_control(Page::graphics)})
         expected.push_back(control);
-    for (const Page page : kPages)
-        expected.push_back(settings::page_control(page));
-    expected.push_back(settings::close_x_control);
     for (const int32_t control : expected) {
         CHECK(settings::dialog_key(all.dialog, DialogKey::tab) == DialogAction::redraw);
         CHECK(all.dialog.focused == control);
@@ -3280,8 +3341,9 @@ void the_scroll_keys_scroll_whatever_has_the_focus() {
     }
     CHECK(settings::dialog_key(all.dialog, DialogKey::home) == DialogAction::none);
     CHECK(settings::dialog_key(all.dialog, DialogKey::page_up) == DialogAction::none);
-    // They never show the focus, nor change a setting.
-    CHECK(all.dialog.focused == settings::no_control);
+    // They leave the opening focus where it is and draw no ring, nor change a setting.
+    CHECK(all.dialog.focused == settings::page_control(Page::graphics));
+    CHECK(!all.dialog.focus_shown);
     CHECK(all.dialog.chosen == settings::EngineSettings{});
 
     // With the focus on the unit limit's slider, Home and End scroll and
@@ -4678,6 +4740,20 @@ settings::Dialog opened_mod_options(Page page, const settings::Locks& locks = {}
     return dialog;
 }
 
+void every_section_keeps_its_first_tab_and_the_new_order() {
+    for (const Page page : kPages)
+        check_section_focus(opened(page), page, first_tab_target(page));
+    for (const Page page : kTouchPages)
+        check_section_focus(opened_with_touch(page), page, first_tab_target(page));
+    for (const Page page : kControllerPages)
+        check_section_focus(opened_with_controller(page), page, first_tab_target(page));
+    for (const Page page : kGameFilesPages)
+        check_section_focus(opened_with_game_files(page), page, first_tab_target(page));
+    for (const Page page : kModPages)
+        check_section_focus(opened_mod_options(page), page, first_tab_target(page));
+    check_section_focus(language_dialog(), Page::language, first_tab_target(Page::language));
+}
+
 constexpr renderer::Rgb kRule{0x2b, 0x30, 0x27};
 constexpr renderer::Rgb kText{0xe7, 0xe8, 0xdf};
 constexpr renderer::Rgb kHint{0x95, 0x9c, 0x8b};
@@ -5268,6 +5344,7 @@ std::string override_value(const profiles::HackOverride* override, std::string_v
 /// @return what it asks of the host
 DialogAction key_on(settings::Dialog& dialog, int32_t control, DialogKey key) {
     dialog.focused = control;
+    dialog.focus_shown = true;
     return settings::dialog_key(dialog, key);
 }
 
@@ -5770,6 +5847,7 @@ void developer_mode_off_shows_the_profile_and_takes_no_change() {
     CHECK(settings::dialog_pointer_down(dialog, restore.x, restore.y) == DialogAction::none);
     CHECK(settings::dialog_pointer_up(dialog, restore.x, restore.y) == DialogAction::none);
     dialog.focused = settings::active_only_control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::restore_control);
     // Show performance statistics takes a change whatever Developer Mode is.
@@ -6095,6 +6173,7 @@ void developer_scrolls_as_one_at_compact() {
     // Down from Enable Developer Mode: the rows, then the list's areas, each
     // shown whole, then Show Active Only and Restore profile values.
     dialog.focused = settings::developer_mode_control;
+    dialog.focus_shown = true;
     const int32_t areas = static_cast<int32_t>(settings::developer_areas().size());
     for (int32_t step = 0; step < 3 + areas + 2; ++step) {
         CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
@@ -6113,6 +6192,7 @@ void developer_scrolls_as_one_at_compact() {
     // Back up to the first area, and on to Update channel, whose row comes
     // back into view.
     dialog.focused = settings::first_hack_list_control;
+    dialog.focus_shown = true;
     static_cast<void>(settings::dialog_key(dialog, DialogKey::home));
     CHECK(settings::dialog_key(dialog, DialogKey::up) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 3);
@@ -6125,6 +6205,7 @@ void developer_scrolls_as_one_at_compact() {
     // Page Down by the section's step, End to the end, Home to the top; the
     // wheel too. At the end the rows have scrolled away and the footer shows.
     dialog.focused = settings::no_control;
+    dialog.focus_shown = true;
     static_cast<void>(settings::dialog_key(dialog, DialogKey::home));
     CHECK(settings::dialog_key(dialog, DialogKey::page_down) == DialogAction::redraw);
     CHECK(dialog.scroll[kDeveloperScroll] == std::min(first.limit, geometry::page_step));
@@ -6190,6 +6271,7 @@ void the_list_scrolls_and_shows_the_focused_row() {
     const int32_t last = settings::first_hack_list_control +
                          static_cast<int32_t>(settings::developer_areas().size()) - 1;
     dialog.focused = settings::developer_mode_control;
+    dialog.focus_shown = true;
     while (dialog.focused != last)
         CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(geometry::open_rows(dialog).scroll == first.limit);
@@ -6200,6 +6282,7 @@ void the_list_scrolls_and_shows_the_focused_row() {
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::none); // 2D focus (D30)
     CHECK(dialog.focused == settings::ok_control);                              // 2D focus (D30)
     dialog.focused = settings::first_hack_list_control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
     CHECK(geometry::open_rows(dialog).scroll == 0);
     // The scroll bar takes a drag in the list's own margin.
@@ -6624,6 +6707,7 @@ void your_files_shows_the_folder_and_opens_its_folders() {
     // and stop at the ends.
     dialog.folder_marked = settings::FolderButton::saves;
     dialog.focused = row.control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::open_folder);
     CHECK(dialog.folder_to_open == settings::FolderButton::saves);
     CHECK(settings::dialog_key(dialog, DialogKey::left) != DialogAction::open_folder);
@@ -6669,6 +6753,7 @@ void your_files_shows_the_folder_and_opens_its_folders() {
     );
     // Restore defaults leaves the folder and the mark alone.
     dialog.focused = settings::no_control;
+    dialog.focus_shown = true;
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
     CHECK(dialog.folder_marked == settings::FolderButton::screenshots);
 }
@@ -7171,6 +7256,7 @@ void fonts_load_and_every_text_fits_its_place() {
                             static_cast<std::size_t>(row.control - settings::first_row_control)
                         );
                     dialog.focused = row.control;
+                    dialog.focus_shown = true;
                 }
             static_cast<void>(settings::dialog_key(dialog, DialogKey::space));
             CHECK(dialog.open_list != settings::no_control);
@@ -7551,6 +7637,7 @@ void the_mod_options_change_only_the_mod_options() {
     settings::Dialog dialog = opened_mod_options(Page::mod_keys);
     // The key sliders step through option_keys.
     dialog.focused = settings::first_row_control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.mod_options.snap_override_key == settings::option_keys[1].code);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
@@ -7604,21 +7691,25 @@ void a_mod_set_snap_radius_is_locked() {
     CHECK(dialog.chosen.mod_options.wreck_snap_radius == 4);
 }
 
-/// Walks the focus with Tab once round every control of a dialog that takes
-/// it, from the first Tab's.
+/// Walks the section list with Home and Down, from the first entry to the last.
+///
+/// The list is one Tab stop, so the arrows move between its entries.
 ///
 /// @param[in,out] dialog the dialog
 /// @return the sections' entries the focus met, in order
 std::vector<int32_t> entries_walked(settings::Dialog& dialog) {
     std::vector<int32_t> walked;
-    static_cast<void>(settings::dialog_key(dialog, DialogKey::tab));
-    const int32_t first = dialog.focused;
+    dialog.focus_shown = true;
+    static_cast<void>(settings::dialog_key(dialog, DialogKey::home));
     for (int32_t press = 0; press < 64; ++press) {
-        if (dialog.focused >= settings::first_page_control &&
-            dialog.focused < settings::restore_control)
+        const bool page_entry = dialog.focused >= settings::first_page_control &&
+                                dialog.focused < settings::restore_control;
+        const bool registered = dialog.focused <= settings::first_registered_nav_control;
+        if (page_entry || registered)
             walked.push_back(dialog.focused);
-        static_cast<void>(settings::dialog_key(dialog, DialogKey::tab));
-        if (dialog.focused == first)
+        const int32_t before = dialog.focused;
+        static_cast<void>(settings::dialog_key(dialog, DialogKey::down));
+        if (dialog.focused == before)
             break;
     }
     return walked;
@@ -7705,6 +7796,7 @@ void touch_is_listed_only_with_touch_controls() {
     CHECK(later.touch && entry_controls(later).size() == kTouchPages.size());
     CHECK(click(later, centre(geometry::list_item(Page::touch, true))) == DialogAction::redraw);
     later.focused = settings::first_row_control;
+    later.focus_shown = true;
     CHECK(settings::set_touch_controls(later, false) == DialogAction::redraw);
     CHECK(later.page == Page::controls && later.focused == settings::no_control);
     CHECK(entry_controls(later).size() == kPages.size());
@@ -8002,18 +8094,18 @@ void manage_asks_the_host_and_the_backups_switch_changes_at_once() {
 
     // The keys: the focus takes MANAGE…, then the switch, then the footer,
     // never where the files are. Space on MANAGE… asks the host; Left and
-    // Right do nothing to it.
+    // Right do nothing to it. Left from MANAGE… reaches the section list,
+    // on this section's entry. Right from that entry reaches the switch
+    // beside it, not MANAGE… at the section's top.
     settings::Dialog keys = opened_with_game_files(Page::game_files);
     CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
     CHECK(keys.focused == settings::first_row_control);
     CHECK(settings::dialog_key(keys, DialogKey::space) == DialogAction::manage_game_files);
     CHECK(settings::dialog_key(keys, DialogKey::right) == DialogAction::none);
-    CHECK(settings::dialog_key(keys, DialogKey::left) == DialogAction::redraw);  // 2D focus (D30)
-    CHECK(keys.focused == settings::page_control(Page::accessibility));          // 2D focus (D30)
-    CHECK(settings::dialog_key(keys, DialogKey::right) == DialogAction::redraw); // 2D focus (D30)
-    CHECK(keys.focused == settings::first_row_control);                          // 2D focus (D30)
+    CHECK(settings::dialog_key(keys, DialogKey::left) == DialogAction::redraw);
+    CHECK(keys.focused == settings::page_control(Page::game_files));
     CHECK(keys.chosen == before);
-    CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
+    CHECK(settings::dialog_key(keys, DialogKey::right) == DialogAction::redraw);
     CHECK(keys.focused == settings::first_row_control + 1);
     CHECK(settings::dialog_key(keys, DialogKey::right) == DialogAction::changed);
     CHECK(keys.chosen.game_files_backed_up);
@@ -8351,10 +8443,12 @@ void touch_shows_its_rows_and_their_values() {
     );
     CHECK(dialog.chosen.touch_control_size == settings::ControlSize::larger);
     dialog.focused = settings::first_row_control + 5;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.touch_control_size == settings::ControlSize::large);
     dialog.chosen.touch_control_size = settings::ControlSize::standard;
     dialog.focused = settings::no_control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::home) == DialogAction::redraw);
 
     // The strips: a click on a caption picks it, and the hint follows.
@@ -8408,6 +8502,7 @@ void touch_shows_its_rows_and_their_values() {
     CHECK(state.touch_hold_ms == settings::highest_touch_hold_ms);
     // The arrows step it by a stop; a press at its track's ends sets the ends.
     dialog.focused = settings::first_row_control + 1;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.touch_hold_ms == 400);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
@@ -8425,6 +8520,7 @@ void touch_shows_its_rows_and_their_values() {
     CHECK(click(dialog, {haptics.x + 2, haptics.y + 4}) == DialogAction::changed);
     CHECK(!dialog.chosen.touch_haptics);
     dialog.focused = settings::first_row_control + 4;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
     CHECK(dialog.chosen.touch_left_handed);
 
@@ -8503,6 +8599,7 @@ void menu_scaling_and_native_density_show_and_change() {
     );
     CHECK(density_page.chosen.native_density);
     density_page.focused = settings::first_row_control + 6;
+    density_page.focus_shown = true;
     CHECK(settings::dialog_key(density_page, DialogKey::space) == DialogAction::changed);
     CHECK(!density_page.chosen.native_density);
     CHECK(settings::dialog_key(density_page, DialogKey::space) == DialogAction::changed);
@@ -8587,6 +8684,7 @@ void new_unit_shadows_shows_and_changes() {
     CHECK(!shows_wrapped(parts, new_unit_shadows_on_hint, dialog));
     // Space turns it on and off again.
     dialog.focused = row.control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
     CHECK(dialog.chosen.new_unit_shadows);
     CHECK(shows_wrapped(settings::dialog_layout(dialog), new_unit_shadows_on_hint, dialog));
@@ -8635,6 +8733,7 @@ void smooth_motion_shows_and_changes() {
     CHECK(!shows_wrapped(parts, smooth_motion_on_hint, dialog));
     // Space turns it on and off again.
     dialog.focused = settings::first_row_control + 5;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
     CHECK(dialog.chosen.smooth_motion);
     CHECK(shows_wrapped(settings::dialog_layout(dialog), smooth_motion_on_hint, dialog));
@@ -8664,6 +8763,7 @@ void hardware_acceleration_moves_the_effects() {
     settings::follow_acceleration_with_effects(dialog.chosen, settings::HardwareAcceleration::off);
     dialog.chosen.wreck_glow = 150;
     dialog.focused = acceleration_row;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::basic);
     for (const auto field : effects)
@@ -8672,10 +8772,12 @@ void hardware_acceleration_moves_the_effects() {
 
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
     dialog.focused = wreck_glow_row;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.wreck_glow == 10);
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 0;
     dialog.focused = acceleration_row;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::off);
     CHECK(dialog.chosen.wreck_glow == 10);
@@ -8720,6 +8822,7 @@ void visual_effects_show_and_change() {
         );
         dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
+        dialog.focus_shown = true;
         CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
         CHECK(dialog.chosen.*effects[index] == full(index) + 10);
         for (std::size_t other = 0; other < effects.size(); ++other)
@@ -8727,6 +8830,7 @@ void visual_effects_show_and_change() {
         CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
         CHECK(dialog.chosen.*effects[index] == full(index));
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
+        dialog.focus_shown = true;
         CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
         CHECK(dialog.chosen.*effects[index] == full(index) - 10);
         CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
@@ -8742,6 +8846,7 @@ void visual_effects_show_and_change() {
     dialog.chosen.allow_full_3d = false;
     CHECK(geometry::shown_locks(dialog).unlocked_camera == settings::Lock::needs_full_3d);
     dialog.focused = settings::first_row_control + 12;
+    dialog.focus_shown = true;
     (void)settings::dialog_key(dialog, DialogKey::space);
     CHECK(!dialog.chosen.unlocked_camera);
 }
@@ -8798,6 +8903,7 @@ void explosion_flash_shows_and_changes() {
     CHECK(find_part(parts, "mod asks for.", settings::no_control) != nullptr);
     // The keys step it a level at a time.
     dialog.focused = settings::first_row_control + 7;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.explosion_flash == settings::ExplosionFlash::reduced);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
@@ -8855,6 +8961,7 @@ void fog_of_war_shows_and_changes() {
     CHECK(!begins(parts, "Soft edges"));
     // The keys step it: Right to Smooth, Left back to Classic.
     dialog.focused = settings::first_row_control + 8;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.fog_of_war == settings::FogOfWar::smooth);
     CHECK(settings::dialog_key(dialog, DialogKey::right) != DialogAction::changed);
@@ -8928,9 +9035,11 @@ void window_edge_and_edge_stickiness_show_and_change() {
     }
     CHECK(dialog.chosen.edge_stickiness == settings::default_edge_stickiness);
     dialog.focused = strip;
+    dialog.focus_shown = true;
     std::ignore = settings::dialog_key(dialog, DialogKey::down);
     CHECK(dialog.focused != slider);
     dialog.focused = strip;
+    dialog.focus_shown = true;
     std::ignore = settings::dialog_key(dialog, DialogKey::tab);
     CHECK(dialog.focused != slider);
 
@@ -8958,6 +9067,7 @@ void window_edge_and_edge_stickiness_show_and_change() {
     );
     CHECK(find_part(parts, "Needs Sticky", settings::no_control) == nullptr);
     dialog.focused = strip;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == slider);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
@@ -9068,6 +9178,7 @@ void zoomed_out_units_show_and_change() {
     CHECK(find_part(parts, "in, units are drawn as models.", settings::no_control) != nullptr);
     // The keys: Right from Dots reaches no Icons; Left gives Rendered back.
     dialog.focused = settings::first_row_control + 9;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) != DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::dots);
     // Down to After zoom: Right steps a choice farther out, Left back.
@@ -9133,6 +9244,7 @@ void window_frame_shows_and_changes() {
     CHECK(find_part(parts, "screen, a game's included.", settings::no_control) != nullptr);
     // The keys step it a way at a time.
     dialog.focused = settings::first_row_control + 1;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.window_frame == settings::WindowFrame::hidden_in_play);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
@@ -9177,6 +9289,7 @@ void update_channel_shows_and_changes() {
         return shown.name == "settings.update-channel";
     }));
     dialog.focused = control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.update_channel == settings::UpdateChannel::stable);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
@@ -9311,6 +9424,7 @@ void updates_card_shows_the_centres_state_and_its_actions() {
         // Space on a button the keys mark asks the same.
         settings::Dialog keyed = dialog;
         keyed.focused = settings::update_second_control;
+        keyed.focus_shown = true;
         CHECK(
             settings::dialog_key(keyed, settings::DialogKey::space) == DialogAction::update_action
         );
@@ -9521,6 +9635,7 @@ void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
     // the way it opened with back, and the button follows.
     settings::Dialog choosing = updates_dialog(ready);
     choosing.focused = settings::first_row_control + 1;
+    choosing.focus_shown = true;
     CHECK(settings::dialog_key(choosing, DialogKey::right) == DialogAction::changed);
     CHECK(choosing.chosen.update_check == settings::UpdateCheck::when_asked);
     CHECK(click(choosing, centre(geometry::ok_button)) == DialogAction::accepted);
@@ -9528,6 +9643,7 @@ void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
 
     settings::Dialog cancelled = updates_dialog(ready);
     cancelled.focused = settings::first_row_control + 1;
+    cancelled.focus_shown = true;
     CHECK(settings::dialog_key(cancelled, DialogKey::right) == DialogAction::changed);
     CHECK(settings::dialog_key(cancelled, DialogKey::right) == DialogAction::changed);
     CHECK(cancelled.chosen.update_check == settings::UpdateCheck::never);
@@ -9876,12 +9992,14 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
     );
     CHECK(later.page == Page::controller);
     later.focused = settings::first_row_control + 2;
+    later.focus_shown = true;
     CHECK(settings::set_controller_section(later, false, false) == DialogAction::redraw);
     CHECK(later.page == Page::controls && later.focused == settings::no_control);
     CHECK(entry_controls(later).size() == kPages.size());
     // Off while another section shows, that section stays and keeps its focus.
     settings::Dialog elsewhere = opened_with_controller(Page::graphics);
     elsewhere.focused = settings::first_row_control;
+    elsewhere.focus_shown = true;
     CHECK(settings::set_controller_section(elsewhere, false, false) == DialogAction::redraw);
     CHECK(elsewhere.page == Page::graphics && elsewhere.focused == settings::first_row_control);
     // A mod's options never list it, whatever the host says.
@@ -10026,6 +10144,7 @@ void controller_shows_its_rows_and_their_values() {
     );
     // The keys step a strip: Left and Right.
     dialog.focused = settings::first_row_control + 3;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.pad_acceleration == pad::Acceleration::high);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::redraw);
@@ -10034,6 +10153,7 @@ void controller_shows_its_rows_and_their_values() {
     CHECK(dialog.chosen.pad_acceleration == pad::Acceleration::off);
     // Right stick and Haptics, by the keys.
     dialog.focused = settings::first_row_control + 5;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.pad_right_stick == pad::RightStick::pointer);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
@@ -10044,6 +10164,7 @@ void controller_shows_its_rows_and_their_values() {
         ) != nullptr
     );
     dialog.focused = settings::first_row_control + 9;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.pad_haptics == pad::Haptics::strong);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
@@ -10052,12 +10173,15 @@ void controller_shows_its_rows_and_their_values() {
 
     // The switches.
     dialog.focused = settings::first_row_control + 4;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
     CHECK(dialog.chosen.pad_glide);
     dialog.focused = settings::first_row_control + 6;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
     CHECK(!dialog.chosen.pad_magnetism);
     dialog.focused = settings::first_row_control + 11;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.pad_left_handed);
 
@@ -10087,6 +10211,7 @@ void controller_shows_its_rows_and_their_values() {
     geometry::set_stop(state, Setting::pad_pointer_speed, 99);
     CHECK(state.pad_pointer_speed == pad::highest_pointer_speed);
     dialog.focused = settings::first_row_control + 2;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.pad_pointer_speed == 110);
     const auto track = geometry::open_rows(dialog).rows.rows[2].control_area;
@@ -10096,6 +10221,7 @@ void controller_shows_its_rows_and_their_values() {
 
     // The drop-downs: Space opens Gyro pointer's list, Down and Enter choose.
     dialog.focused = settings::first_row_control + 7;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
     CHECK(dialog.open_list == settings::first_row_control + 7);
     parts = settings::dialog_layout(dialog);
@@ -10115,6 +10241,7 @@ void controller_shows_its_rows_and_their_values() {
     CHECK(dialog.chosen.pad_gyro == pad::Gyro::right_stick_touched);
     // Button prompts: each choice by its list item.
     dialog.focused = settings::first_row_control + 10;
+    dialog.focus_shown = true;
     for (std::size_t index = 0; index < 6; ++index) {
         CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
         for (std::size_t step = 0; step < 6; ++step)
@@ -10140,13 +10267,16 @@ void controller_shows_its_rows_and_their_values() {
 
     // Control size here is Touch's: a change shows in both sections.
     dialog.focused = settings::first_row_control + 12;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.touch_control_size == settings::ControlSize::large);
     // The hold delay and QUEUE and ADD here are Touch's own settings.
     dialog.focused = settings::first_row_control + 13;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.touch_hold_ms == 400);
     dialog.focused = settings::first_row_control + 14;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.touch_latches == settings::TouchLatches::one_action);
 
@@ -10226,6 +10356,7 @@ void the_steam_input_notice_shows_while_it_applies() {
     CHECK(click(dialog, centre(notice.label)) == DialogAction::none);
     settings::Dialog keys = dialog;
     keys.focused = settings::no_control;
+    keys.focus_shown = true;
     CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
     CHECK(keys.focused == settings::first_row_control + 1);
     // The notice drawn: its lines in the lock's amber.
@@ -10248,11 +10379,13 @@ void the_steam_input_notice_shows_while_it_applies() {
     // While another section shows, the notice coming leaves the focus be.
     settings::Dialog graphics = opened_with_controller(Page::graphics);
     graphics.focused = settings::first_row_control;
+    graphics.focus_shown = true;
     CHECK(settings::set_controller_section(graphics, true, true) == DialogAction::redraw);
     CHECK(graphics.focused == settings::first_row_control);
     // An open list on a row closes as the rows move.
     settings::Dialog listing = opened_with_controller(Page::controller);
     listing.focused = settings::first_row_control + 7;
+    listing.focus_shown = true;
     CHECK(settings::dialog_key(listing, DialogKey::space) == DialogAction::redraw);
     CHECK(listing.open_list != settings::no_control);
     static_cast<void>(settings::set_controller_section(listing, true, true));
@@ -10760,33 +10893,37 @@ void the_arrows_move_by_geometry() {
     CHECK(controls.focused == settings::first_row_control + 14);
     // Down from the footer finds nothing: the focus stays.
     controls.focused = settings::ok_control;
+    controls.focus_shown = true;
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::none);
     CHECK(controls.focused == settings::ok_control);
     // Right from a section's entry reaches the row nearest its height: at
     // the section's top, Controls' entry, the key layout card's Edit keys….
     controls = opened(Page::controls);
-    controls.focused = settings::page_control(Page::controls);
+    controls.focus_shown = true;
     CHECK(settings::dialog_key(controls, DialogKey::right) == DialogAction::redraw);
     CHECK(controls.focused == settings::first_row_control);
-    // Down from Developer's entry, at the foot of the list, reaches Restore
-    // defaults under it.
+    // Down from Developer's entry stays: the list does not wrap.
     controls.focused = settings::page_control(Page::developer);
-    CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
-    CHECK(controls.focused == settings::restore_control);
+    controls.focus_shown = true;
+    CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::none);
+    CHECK(controls.focused == settings::page_control(Page::developer));
     // Left from Restore defaults finds nothing; Right walks the footer.
+    controls.focused = settings::restore_control;
+    controls.focus_shown = true;
     CHECK(settings::dialog_key(controls, DialogKey::left) == DialogAction::none);
     CHECK(settings::dialog_key(controls, DialogKey::right) == DialogAction::redraw);
     CHECK(controls.focused == settings::cancel_control);
 
-    // Game files: MANAGE… takes no steps, so Left goes to the entry at its
-    // height, Accessibility's, and Right comes back.
+    // Game files: MANAGE… takes no steps, so Left goes to the section list,
+    // which lands on the open section's entry. Right from that entry reaches
+    // the switch beside it.
     settings::Dialog files = opened_with_game_files(Page::game_files);
     CHECK(settings::dialog_key(files, DialogKey::tab) == DialogAction::redraw);
     CHECK(files.focused == settings::first_row_control);
     CHECK(settings::dialog_key(files, DialogKey::left) == DialogAction::redraw);
-    CHECK(files.focused == settings::page_control(Page::accessibility));
+    CHECK(files.focused == settings::page_control(Page::game_files));
     CHECK(settings::dialog_key(files, DialogKey::right) == DialogAction::redraw);
-    CHECK(files.focused == settings::first_row_control);
+    CHECK(files.focused == settings::first_row_control + 1);
     CHECK(files.chosen == files.opened);
 
     // Graphics: Screen size is the last row the view shows whole. Down from
@@ -10807,11 +10944,12 @@ void the_arrows_move_by_geometry() {
     CHECK(inside(geometry::open_rows(graphics).rows.rows[4].control_area, geometry::view));
     // A slider takes Left and Right as steps, and keeps the focus.
     graphics.focused = settings::first_row_control;
+    graphics.focus_shown = true;
     CHECK(settings::dialog_key(graphics, DialogKey::left) == DialogAction::changed);
     CHECK(graphics.focused == settings::first_row_control);
 
-    // From no focus, Up shows it on the last control in Tab's order and the
-    // other arrows on the first.
+    // From the opening focus, the ring hidden, Up shows it on the close mark
+    // and the other arrows on the open section's first control.
     for (const auto& [key, expected] :
          {std::pair{DialogKey::up, settings::close_x_control},
           std::pair{DialogKey::down, settings::first_row_control},
@@ -10823,32 +10961,19 @@ void the_arrows_move_by_geometry() {
     }
 
     // Tab keeps the declared order on every section: the rows that take a
-    // change, the footer, then the sections' entries.
+    // change, the footer, the close mark, then the one remembered entry.
     const int32_t row = settings::first_row_control;
-    const std::vector<int32_t> rest{
-        settings::restore_control,
-        settings::cancel_control,
-        settings::ok_control,
-        settings::page_control(Page::controls),
-        settings::page_control(Page::accessibility),
-        settings::page_control(Page::graphics),
-        settings::page_control(Page::user_interface),
-        settings::page_control(Page::language),
-        settings::page_control(Page::downloads),
-        settings::page_control(Page::updates),
-        settings::page_control(Page::game_content),
-        settings::page_control(Page::replays),
-        settings::page_control(Page::common_tweaks),
-        settings::page_control(Page::system),
-        settings::page_control(Page::developer),
-        settings::close_x_control,
-    };
-    const auto then_rest = [&rest](std::vector<int32_t> order) {
-        order.insert(order.end(), rest.begin(), rest.end());
+    const auto then_rest = [](Page page, std::vector<int32_t> order) {
+        order.push_back(settings::restore_control);
+        order.push_back(settings::cancel_control);
+        order.push_back(settings::ok_control);
+        order.push_back(settings::close_x_control);
+        order.push_back(settings::page_control(page));
         return order;
     };
     CHECK(
         tab_round(opened(Page::controls)) == then_rest(
+                                                 Page::controls,
                                                  {row,
                                                   row + 1,
                                                   row + 2,
@@ -10865,15 +10990,19 @@ void the_arrows_move_by_geometry() {
                                                   row + 14}
                                              )
     );
-    CHECK(tab_round(opened(Page::common_tweaks)) == then_rest({row, row + 1, row + 2}));
+    CHECK(
+        tab_round(opened(Page::common_tweaks)) ==
+        then_rest(Page::common_tweaks, {row, row + 1, row + 2})
+    );
     // Language: Text size waits for the modern fonts.
     CHECK(
         tab_round(opened(Page::language)) ==
-        then_rest({row, row + 1, row + 3, row + 4, row + 5, row + 6})
+        then_rest(Page::language, {row, row + 1, row + 3, row + 4, row + 5, row + 6})
     );
     // Graphics: After zoom waits for Dots, and the water's sliders for Full.
     CHECK(
         tab_round(opened(Page::graphics)) == then_rest(
+                                                 Page::graphics,
                                                  {row,
                                                   row + 1,
                                                   row + 2,
@@ -10897,7 +11026,10 @@ void the_arrows_move_by_geometry() {
     // Reset window positions and Look among them.
     CHECK(
         tab_round(opened(Page::user_interface)) ==
-        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7})
+        then_rest(
+            Page::user_interface,
+            {row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7}
+        )
     );
     // Developer, Developer Mode off: its four rows, every area of its list,
     // then Show Active Only.
@@ -10905,7 +11037,7 @@ void the_arrows_move_by_geometry() {
     for (std::size_t area = 0; area < settings::developer_areas().size(); ++area)
         developer.push_back(settings::first_hack_list_control + static_cast<int32_t>(area));
     developer.push_back(settings::active_only_control);
-    CHECK(tab_round(opened(Page::developer)) == then_rest(developer));
+    CHECK(tab_round(opened(Page::developer)) == then_rest(Page::developer, developer));
 }
 
 void the_oa_button_shows_the_icon_or_the_mark() {
@@ -11602,20 +11734,26 @@ void registered_pages_list_under_their_owners_and_write_on_ok() {
     }
     settings::Dialog crowded = opened(Page::controls);
     settings::set_registered_pages(crowded, many, {});
+    crowded.focus_shown = true;
+    static_cast<void>(settings::dialog_key(crowded, DialogKey::home));
     std::set<int32_t> reached;
     for (int32_t press = 0; press < 200; ++press) {
-        if (settings::dialog_key(crowded, DialogKey::tab) != DialogAction::redraw)
-            break;
         if (crowded.focused < settings::restore_control)
             reached.insert(crowded.focused);
+        const int32_t before = crowded.focused;
+        static_cast<void>(settings::dialog_key(crowded, DialogKey::down));
+        if (crowded.focused == before)
+            break;
     }
     for (const Page page : settings::dialog_pages(settings::DialogKind::engine))
         CHECK(reached.count(settings::page_control(page)) == 1);
     for (std::size_t index = 0; index < many.size(); ++index)
         CHECK(reached.count(settings::registered_nav_control(index)) == 1);
     const int32_t last = settings::registered_nav_control(many.size() - 1);
+    crowded.focus_shown = true;
+    static_cast<void>(settings::dialog_key(crowded, DialogKey::home));
     for (int32_t press = 0; press < 200 && crowded.focused != last; ++press)
-        CHECK(settings::dialog_key(crowded, DialogKey::tab) == DialogAction::redraw);
+        CHECK(settings::dialog_key(crowded, DialogKey::down) == DialogAction::redraw);
     CHECK(crowded.focused == last);
     CHECK(crowded.nav_scroll > 0);
     CHECK(find_part(settings::dialog_layout(crowded), {}, crowded.focused) != nullptr);
@@ -11645,6 +11783,7 @@ void registered_pages_list_under_their_owners_and_write_on_ok() {
     settings::set_registered_pages(dialog, std::span(&sample, 1), {});
     dialog.page = Page::registered;
     dialog.focused = settings::no_control;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control);
     CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
@@ -11712,6 +11851,7 @@ void registered_pages_list_under_their_owners_and_write_on_ok() {
     CHECK(restore_off != nullptr);
     CHECK(click(restored, centre(restore_off->rect)) == DialogAction::changed);
     restored.focused = settings::restore_control;
+    restored.focus_shown = true;
     CHECK(settings::dialog_key(restored, DialogKey::space) == DialogAction::changed);
     CHECK(restored.registered_values.values.at("check.toggle") == "1");
     CHECK(restored.registered_values.values.at("check.mode") == "quiet");
@@ -12076,6 +12216,7 @@ void the_key_layout_card_names_the_layout_where_it_applies_and_its_buttons() {
     CHECK(dialog.library_tab == settings::LibraryTab::keys);
     // Space on it does the same; it is named key-layout.change to automation.
     dialog.focused = settings::change_layout_control;
+    dialog.focus_shown = true;
     dialog.library_tab = settings::LibraryTab::mods;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::open_library);
     CHECK(dialog.library_tab == settings::LibraryTab::keys);
@@ -12244,10 +12385,12 @@ void the_footer_counts_the_settings_changed() {
     CHECK(settings::changed_settings_count(dialog) == 0);
     CHECK(count_shown().empty());
     dialog.focused = settings::first_row_control + 6;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(settings::changed_settings_count(dialog) == 1);
     CHECK(count_shown() == "1 setting changed");
     dialog.focused = settings::first_row_control + 2;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(settings::changed_settings_count(dialog) == 2);
     CHECK(count_shown() == "2 settings changed");
@@ -12290,10 +12433,12 @@ void window_size_and_reset_window_positions_sit_on_user_interface() {
     if (size != nullptr)
         CHECK(size->parts == (std::vector<std::string>{"auto", "compact", "regular", "large"}));
     dialog.focused = settings::first_row_control + 4;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.window_size == settings::WindowSize::compact);
     // Reset asks the host at once; the row then says each window is back.
     dialog.focused = settings::first_row_control + 5;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
     CHECK(dialog.window_reset_asked);
     dialog.window_reset_asked = false;
@@ -12343,6 +12488,7 @@ void look_is_user_interfaces_last_row() {
         );
     // A key moves the look at once: the host applies it as it is chosen.
     dialog.focused = settings::first_row_control + 7;
+    dialog.focus_shown = true;
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.look == settings::Look::modern);
     parts = settings::dialog_layout(dialog);
@@ -12524,6 +12670,79 @@ void updates_entry_shows_its_badge_where_the_caption_keeps_its_width() {
     CHECK(long_badge.surface.rgb == plain.surface.rgb);
 }
 
+/// Tells whether an entry lies wholly inside the section list's view.
+bool entry_in_view(const renderer::SourceRect& entry, const renderer::SourceRect& view) {
+    return entry.height > 0 && entry.y >= view.y && entry.y + entry.height <= view.y + view.height;
+}
+
+void a_scrolled_section_list_stays_where_a_click_leaves_it() {
+    // Compact holds eleven of the twelve entries, so a turn of the wheel
+    // over the list takes Controls out of the view and brings Developer in.
+    settings::Dialog dialog = opened(Page::controls);
+    CHECK(dialog.size_class == oa::ui::kit::SizeClass::compact);
+    CHECK(dialog.focused == settings::page_control(Page::controls));
+    CHECK(!dialog.focus_shown);
+    const geometry::NavLayout nav = geometry::nav_layout(dialog);
+    const Point over{nav.viewport.x + 4, nav.viewport.y + 4};
+    int32_t turns = 0;
+    while (turns < 8 &&
+           (!entry_in_view(geometry::dialog_list_item(dialog, Page::developer), nav.viewport) ||
+            entry_in_view(geometry::dialog_list_item(dialog, Page::controls), nav.viewport))) {
+        CHECK(settings::dialog_wheel(dialog, over.x, over.y, -1.0F) == DialogAction::redraw);
+        ++turns;
+    }
+    CHECK(turns > 0 && turns < 8);
+    const int32_t scrolled = dialog.nav_scroll;
+    CHECK(scrolled > 0);
+    const Point developer = centre(geometry::dialog_list_item(dialog, Page::developer));
+    CHECK(click(dialog, developer) == DialogAction::redraw);
+    CHECK(dialog.page == Page::developer);
+    CHECK(dialog.focused == settings::page_control(Page::developer));
+    CHECK(!dialog.focus_shown);
+    CHECK(dialog.nav_scroll == scrolled);
+}
+
+void a_pointer_move_leaves_the_next_key_on_the_clicked_row() {
+    // Tab shows the ring on Key layout. A pointer move hides it. A click on
+    // Show keys on buttons then takes the focus, so Down goes on to Mouse
+    // wheel zoom.
+    settings::Dialog dialog = opened(Page::controls);
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control && dialog.focus_shown);
+    CHECK(settings::dialog_pointer_move(dialog, 8, 8) == DialogAction::redraw);
+    CHECK(dialog.pointer_hid_ring && dialog.focused == settings::first_row_control);
+    const auto& keys = geometry::place_rows(Page::controls, {}).rows[1].control_area;
+    const Point on{keys.x + keys.width - 4, keys.y + keys.height / 2};
+    static_cast<void>(settings::dialog_pointer_down(dialog, on.x, on.y));
+    static_cast<void>(settings::dialog_pointer_up(dialog, on.x, on.y));
+    CHECK(dialog.focused == settings::first_row_control + 1);
+    CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 2);
+}
+
+void return_on_a_drop_down_outlines_its_mark() {
+    auto dialog = language_dialog();
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control && dialog.focus_shown);
+    CHECK(settings::dialog_key(dialog, DialogKey::enter) == DialogAction::redraw);
+    CHECK(dialog.open_list == settings::first_row_control && dialog.focus_shown);
+    CHECK(dialog.list_marked == 0);
+    CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
+    CHECK(dialog.list_marked == 1 && dialog.list_first == 0 && dialog.focus_shown);
+    const auto field = geometry::open_rows(dialog).rows.rows[0].control_area;
+    const auto list = geometry::choice_list(field, 6);
+    const auto marked = geometry::choice_item(list, dialog.list_marked);
+    // The outline is the top of the marked item, in the focus colour.
+    const renderer::SourceRect edge{marked.x, marked.y, marked.width, 3};
+    Canvas canvas = blank(settings::dialog_width, settings::dialog_height);
+    settings::draw_dialog(canvas.surface, {0, 0, 1}, dialog, settings::DialogFonts{}, kNoIcon);
+    CHECK(rect_has(canvas, edge, kFocus));
+    dialog.focus_shown = false;
+    Canvas hidden = blank(settings::dialog_width, settings::dialog_height);
+    settings::draw_dialog(hidden.surface, {0, 0, 1}, dialog, settings::DialogFonts{}, kNoIcon);
+    CHECK(!rect_has(hidden, edge, kFocus));
+}
+
 int main(int argc, char** argv) {
     if (oa::test::game_data_requested(argc, argv))
         fonts_load_and_every_text_fits_its_place();
@@ -12544,6 +12763,9 @@ int main(int argc, char** argv) {
         language_drop_down_names_each_language_in_itself();
         language_drop_down_opens_marks_and_chooses();
         language_drop_down_locks_by_the_command_line();
+        a_scrolled_section_list_stays_where_a_click_leaves_it();
+        a_pointer_move_leaves_the_next_key_on_the_clicked_row();
+        return_on_a_drop_down_outlines_its_mark();
         available_languages_list_download_and_show_their_state();
         drop_down_lists_scroll_and_open_over_their_field();
         path_tails_keep_the_last_components_that_fit();
@@ -12560,6 +12782,7 @@ int main(int argc, char** argv) {
         the_footer_buttons_restore_cancel_and_keep();
         the_header_close_mark_closes_as_cancel_does();
         the_focus_moves_round_every_control();
+        every_section_keeps_its_first_tab_and_the_new_order();
         the_arrows_move_by_geometry();
         locks_show_their_text_and_hold_their_settings();
         the_view_and_the_scroll_bar_keep_their_places();

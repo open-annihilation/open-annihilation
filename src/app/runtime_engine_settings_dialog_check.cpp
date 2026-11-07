@@ -955,6 +955,10 @@ void Runtime::check_engine_settings_dialog() {
         } own_sections{*this};
 
         tall::show_tall_section(*engine_settings_dialog());
+        // The dialog opens on the open section's entry with the ring hidden.
+        // Scrolling leaves that focus where it is and does not draw the ring.
+        const int32_t focused_before = engine_settings_dialog()->focused;
+        const bool ring_before = engine_settings_dialog()->focus_shown;
         const auto turn_wheel = [&](layout::Point at, float notches) {
             SDL_Event wheel =
                 check_host_input::wheel_event(sdl_.renderer, sdl_.window, at.x, at.y, notches);
@@ -1000,7 +1004,8 @@ void Runtime::check_engine_settings_dialog() {
         tap(SDLK_HOME);
         require(offset() == 0, "Home did not scroll back to the top");
         require(
-            engine_settings_dialog()->focused == settings::no_control &&
+            engine_settings_dialog()->focused == focused_before &&
+                engine_settings_dialog()->focus_shown == ring_before && !ring_before &&
                 same_settings(engine_settings(), defaults),
             "scrolling showed the focus or changed a setting"
         );

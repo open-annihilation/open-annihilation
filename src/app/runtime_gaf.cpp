@@ -177,7 +177,11 @@ void Runtime::load_explosion_gaf(std::string_view name) {
     auto& loaded = match_explosion_gafs_[key];
     const auto path = "anims/" + std::string(name) + ".GAF";
     try {
-        auto file = assets_.read(path).bytes;
+        auto data = assets_.read_if_present(path);
+        // A file the store does not hold stays silent.
+        if (!data)
+            return;
+        auto file = std::move(data->bytes);
         // Every frame is decoded once to check it; none is kept.
         auto parsed = oa::formats::gaf::parse(file, oa::formats::gaf::PixelData::checked);
         if (!parsed.ok()) {
@@ -195,9 +199,7 @@ void Runtime::load_explosion_gaf(std::string_view name) {
                 frame_by_frame_sequences_[&sequence] = &loaded;
         }
     } catch (const std::exception& error) {
-        const std::string_view what = error.what();
-        if (what.find("asset not found") == std::string_view::npos)
-            std::cerr << "match HUD GAF '" << path << "' unavailable: " << error.what() << '\n';
+        std::cerr << "match HUD GAF '" << path << "' unavailable: " << error.what() << '\n';
     }
 }
 
@@ -305,7 +307,13 @@ void Runtime::append_gaf_file(oa::formats::gaf::Archive& destination, std::strin
     if (missing_gaf_paths_.count(key) != 0)
         return;
     try {
-        auto parsed = oa::formats::gaf::parse(assets_.read(std::string(path)).bytes);
+        const auto data = assets_.read_if_present(path);
+        // A file the store does not hold stays silent.
+        if (!data) {
+            missing_gaf_paths_.insert(key);
+            return;
+        }
+        auto parsed = oa::formats::gaf::parse(data->bytes);
         if (!parsed.ok()) {
             missing_gaf_paths_.insert(key);
             if (reported_gaf_paths_.insert(key).second) {
@@ -320,11 +328,9 @@ void Runtime::append_gaf_file(oa::formats::gaf::Archive& destination, std::strin
         caption_gaf_pictures(path, destination, first_sequence);
     } catch (const std::exception& error) {
         missing_gaf_paths_.insert(key);
-        const std::string_view what = error.what();
-        // A file the store does not hold stays silent. Any other failure is
-        // logged once in the run, then tried again in the next match.
-        if (what.find("asset not found") == std::string_view::npos &&
-            reported_gaf_paths_.insert(key).second)
+        // Any other failure is logged once in the run, then tried again in
+        // the next match.
+        if (reported_gaf_paths_.insert(key).second)
             std::cerr << "match HUD GAF '" << path << "' unavailable: " << error.what() << '\n';
     }
 }

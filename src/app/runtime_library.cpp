@@ -4441,6 +4441,8 @@ struct Runtime::LibraryScreen final : LayerScreen {
         }
         case library::Action::watch_replay:
         case library::Action::watch_from:
+        case library::Action::download_replay:
+        case library::Action::browse_core_prime:
         case library::Action::keep_replays:
         case library::Action::open_replay_folder:
         case library::Action::turn_on_recording:
@@ -4570,6 +4572,9 @@ void Runtime::keep_library_for_restart() {
     shown->replay_filter = host.model.replays.filter;
     shown->replay_kind = host.model.replays.kind;
     shown->replay_sort = host.model.replays.sort;
+    shown->replay_source = host.model.replays.source;
+    shown->core_filter = host.model.replays.core_filter;
+    shown->core_planet = host.model.replays.planet;
     shown->replay = host.model.replays.selected;
     shown->replay_page = host.state.replay_page;
     library_kept_ = std::move(shown);
@@ -4664,6 +4669,10 @@ void Runtime::reopen_kept_library() {
     library::set_replay_filter(host.model, shown.replay_filter);
     library::set_replay_kind(host.model, shown.replay_kind);
     library::set_replay_sort(host.model, shown.replay_sort);
+    library::set_replay_source(host.model, shown.replay_source);
+    library::set_core_filter(host.model, shown.core_filter);
+    if (!shown.core_planet.empty())
+        library::set_core_planet(host.model, shown.core_planet);
     if (shown.replay) {
         library::select_replay(host.model, *shown.replay);
         if (shown.tab == library::Tab::replays) {
@@ -4684,6 +4693,16 @@ void Runtime::reopen_kept_library() {
     } else {
         host.kept_replay.reset();
     }
+    if (pending_replay_refused_) {
+        pending_replay_refused_ = false;
+        if (shown.replay && !shown.replay->empty()) {
+            library::refuse_replay(
+                host.model,
+                *shown.replay,
+                std::string(library::shown(host.model.text, library::words::replay_cannot_watch))
+            );
+        }
+    }
     ++host.model_revision;
 }
 
@@ -4699,8 +4718,10 @@ void Runtime::tick_library() {
     // A replay WATCH opened is closed once its match has gone, and what the
     // Replays section's worker read reaches the model.
     host.end_watched_replay(*this);
-    if (!in_match && !soft_restart_requested_)
+    if (!in_match && !soft_restart_requested_) {
+        host.pump_core_prime(*this);
         host.pump_replay_fetch(*this);
+    }
     if (screen_ != Screen::match && match_ == nullptr && !soft_restart_requested_) {
         static_cast<void>(host.pump_replays(*this));
         host.select_kept_replay();

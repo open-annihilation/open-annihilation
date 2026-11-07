@@ -553,7 +553,7 @@ bool Runtime::enter_photo_mode() {
     return true;
 }
 
-void Runtime::leave_photo_mode(bool match_ending) noexcept {
+void Runtime::leave_photo_mode(bool match_ending, bool restore_keys_overlay) noexcept {
     if (photo_ == nullptr)
         return;
     // A feature the photo view put under the pointer stays in the bar.
@@ -580,12 +580,17 @@ void Runtime::leave_photo_mode(bool match_ending) noexcept {
         restore_live_camera(state->live_yaw, state->live_pitch, state->live_unlocked);
     if (LayerScreen* screen = oa_layer().find(kPhotoScreen))
         oa_layer().close(screen);
-    // Open only when it was open on entering, it is not open now, and the
-    // match is not ending. toggle closes an overlay that is already open,
-    // and victory sets the finished flag after this returns.
-    if (state->keys_overlay && !match_ending && !match_finished_ &&
-        oa_layer().find(editor::name_keys_overlay) == nullptr)
-        toggle_keys_overlay_screen();
+    // Put the overlay back as it was on entering. One opened during the
+    // visit closes. One that was open, and is not open now, opens. The
+    // match ending leaves it as it is: victory sets the finished flag
+    // after this returns, and does not reopen one that was closed on
+    // entering. A press on the overlay itself asks not to restore, so
+    // this does not close that screen under the press.
+    if (restore_keys_overlay && !match_ending && !match_finished_) {
+        const bool open_now = oa_layer().find(editor::name_keys_overlay) != nullptr;
+        if (state->keys_overlay != open_now)
+            toggle_keys_overlay_screen();
+    }
     if (match_ == nullptr) {
         offline_services_.set_on_screen_test(nullptr, nullptr);
         if (resume)
@@ -782,6 +787,12 @@ bool Runtime::photo_between(int32_t eighths) {
     return true;
 }
 
+int32_t Runtime::photo_shutter_eighth() const noexcept {
+    if (photo_ == nullptr || !photo_->shutter)
+        return 8;
+    return photo_->shutter_eighth;
+}
+
 bool Runtime::photo_hold_picture() {
     if (photo_ == nullptr || match_ == nullptr)
         return false;
@@ -815,6 +826,8 @@ bool Runtime::photo_hold_picture() {
     if (!capture_photo_picture())
         return false;
     photo_->held_camera_x = match_camera_x_;
+    photo_->held_tick = match_->state().game.tick;
+    photo_->held_speed = match_->state().game.current_speed;
     photo_->held_camera_z = match_camera_z_;
     photo_->held_zoom = match_zoom_;
     photo_->held_zoom_target = match_zoom_target_;

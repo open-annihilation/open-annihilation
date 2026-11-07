@@ -3,6 +3,14 @@
 
 // Match chrome, side HUD, resource readout, fog and minimap.
 #include "oa/app/runtime.hpp"
+
+#include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/present/gaf_sprites.hpp"
+#include "oa/present/surface.h"
+#include "oa/present/world_renderer/world_camera.hpp"
+#include "oa/present/world_renderer/world_radar.hpp"
+#include "oa/ui/hud/shape_cues.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 #include "gui_actions.hpp"
 #include "oa_layer.hpp"
 #include "oa/data/input_actions/actions.hpp"
@@ -17,7 +25,6 @@
 #include "oa/ui/hud/kill_board.hpp"
 #include "oa/ui/hud/status_panel.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
-#include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
@@ -990,9 +997,53 @@ void Runtime::fill_source_rect(int x, int y, int width, int height, uint8_t pale
     );
 }
 
+void Runtime::stamp_shape_marker(
+    int x, int y, int player, uint8_t palette_index, int scale, bool plate
+) {
+    if (!oa::present::colour_vision::shape_cues_active() || player < 0 || player >= OA_PLAYER_COUNT)
+        return;
+    auto& dest = paint_target();
+    if (dest.rgb.empty() || dest.width == 0 || dest.height == 0)
+        return;
+    const auto ink = palette_rgb(palette_index);
+    oa::ui::hud::stamp_player_marker(
+        dest.rgb.data(),
+        static_cast<int32_t>(dest.width),
+        static_cast<int32_t>(dest.height),
+        x,
+        y,
+        player,
+        ink[0],
+        ink[1],
+        ink[2],
+        scale,
+        plate
+    );
+}
+
+void Runtime::notch_health_bar(const oa::ui::hud::HealthBar& bar) {
+    if (!oa::present::colour_vision::shape_cues_active())
+        return;
+    const oa::ui::hud::BarNotches marks = oa::ui::hud::health_bar_notches(bar);
+    const auto paint = [this, color = bar.trough_color](const oa::ui::hud::BarNotch& mark) {
+        if (mark.width > 0 && mark.height > 0)
+            fill_hud_rect(mark.x, mark.y, mark.width, mark.height, color);
+    };
+    paint(marks.one_third);
+    paint(marks.two_thirds);
+}
+
 void Runtime::draw_player_mark(const oa::Player& player, const HudRect& at) {
     if (at.width <= 0 || at.height <= 0)
         return;
+    if (oa::present::colour_vision::shape_cues_active() && player.index < OA_PLAYER_COUNT &&
+        match_) {
+        const uint8_t colour = oa::ui::hud::player_dot_color(match_->state(), player.index);
+        stamp_shape_marker(
+            at.x + at.width / 2, at.y + at.height / 2, static_cast<int>(player.index), colour
+        );
+        return;
+    }
     const auto logo = player_logo_frame(player);
     if (!logo || logo->width == 0 || logo->height == 0)
         return;
@@ -1465,6 +1516,181 @@ void Runtime::blit_match_minimap() {
             mini.rgb[di + 1] = match_palette_[pal + 1];
             mini.rgb[di + 2] = match_palette_[pal + 2];
         }
+    }
+    if (oa::present::colour_vision::shape_cues_active()) {
+        namespace wr = oa::present::world_renderer;
+        // The saved picture keeps every logo. This copy drops each listed
+        // unit's logo, stamps a compact marker, then puts back the radar's
+        // own marks: the selection rings, the cursor logo and the mark colour.
+        const std::vector<uint8_t> base = mini.rgb;
+        const bool blink = (game.radar_blink_flags & wr::radar_flag_blink) != 0;
+        const auto& world = match_->state();
+        const oa::Surface* mapped = radar.surfaces.mapped;
+        const uint8_t mark_index = game.ui_colors[wr::ui_color_radar_marks];
+        const uint8_t sensor_index = game.ui_colors[wr::ui_color_sensor_range];
+        const uint8_t jammer_index = game.ui_colors[wr::ui_color_jammer_range];
+        const uint8_t interceptor_index = game.ui_colors[wr::ui_color_interceptor_range];
+        const auto paint_from = [this, &mini](int x, int y, uint8_t index) {
+            if (x < 0 || y < 0 || x >= static_cast<int>(mini.width) ||
+                y >= static_cast<int>(mini.height))
+                return;
+            const auto pal = static_cast<std::size_t>(index) * 4U;
+            const auto di =
+                (static_cast<std::size_t>(y) * mini.width + static_cast<std::size_t>(x)) * 3U;
+            mini.rgb[di] = match_palette_[pal];
+            mini.rgb[di + 1] = match_palette_[pal + 1];
+            mini.rgb[di + 2] = match_palette_[pal + 2];
+        };
+        const auto well_index = [&](int x, int y) -> uint8_t {
+            return well->pixels[(off_y + y) * well->pitch + off_x + x];
+        };
+        const auto decode = [&](const oa::Sprite* sprite, std::vector<uint8_t>& indices) {
+            indices.clear();
+            if (sprite == nullptr || sprite->width == 0 || sprite->height == 0 ||
+                sprite->data == nullptr)
+                return false;
+            const auto count = static_cast<std::size_t>(sprite->width) * sprite->height;
+            if (sprite->encoding == OA_SPRITE_RAW) {
+                const auto* bytes = static_cast<const uint8_t*>(sprite->data);
+                indices.assign(bytes, bytes + count);
+                return true;
+            }
+            if (sprite->encoding != OA_SPRITE_ROW_RLE)
+                return false;
+            const auto* start = static_cast<const uint8_t*>(sprite->data);
+            const auto* file = radar.fx.bytes.data();
+            const auto* end = file + radar.fx.bytes.size();
+            if (start < file || start >= end)
+                return false;
+            return oa::present::colour_vision::decode_row_rle(
+                std::span<const uint8_t>(start, static_cast<std::size_t>(end - start)),
+                sprite->width,
+                sprite->height,
+                sprite->key,
+                indices
+            );
+        };
+
+        // A pixel erased with a logo stays erased. Restoring a mark copies
+        // back every pixel of that palette index, and a logo can share one
+        // (colour 2's body is the interceptor's index), so a mark returns
+        // only where this mask is clear.
+        std::vector<uint8_t> erased(
+            static_cast<std::size_t>(pic_w) * static_cast<std::size_t>(pic_h), 0
+        );
+        const uint32_t listed =
+            std::min(radar.hot_unit_count, static_cast<uint32_t>(radar.hot_units.size()));
+        for (uint32_t index = 0; index < listed; ++index) {
+            const oa::RadarHotUnit& hot = radar.hot_units[index];
+            const oa::Unit* unit = oa::world_unit_at(&world, hot.unit_id);
+            if (unit == nullptr || unit->type_index == 0 || unit->owner_index >= OA_PLAYER_COUNT)
+                continue;
+            if (unit->damage_countdown != 0 && !blink)
+                continue;
+            const int anchor_x = hot.x - off_x;
+            const int anchor_y = hot.y - off_y;
+            const uint8_t colour = oa::ui::hud::player_dot_color(world, unit->owner_index);
+            const auto ink = palette_rgb(colour);
+            const Player* owner = oa::world_player(&world, unit->owner_index);
+            const PlayerSetupInfo* info =
+                owner != nullptr ? oa::world_player_info(&world, owner) : nullptr;
+            const int frame = info != nullptr ? static_cast<int>(info->color) : -1;
+            std::vector<uint8_t> indices;
+            const oa::Sprite* logo = oa::present::gaf_frame(radar.sprites.unit_logos, frame);
+            if (decode(logo, indices) && mapped != nullptr) {
+                const int left = anchor_x - logo->origin_x;
+                const int top = anchor_y - logo->origin_y;
+                for (int row = 0; row < static_cast<int>(logo->height); ++row) {
+                    for (int column = 0; column < static_cast<int>(logo->width); ++column) {
+                        const uint8_t pixel =
+                            indices[static_cast<std::size_t>(row * logo->width + column)];
+                        if (pixel == logo->key)
+                            continue;
+                        const int x = left + column;
+                        const int y = top + row;
+                        if (x < 0 || y < 0 || x >= pic_w || y >= pic_h)
+                            continue;
+                        if (well_index(x, y) != pixel)
+                            continue;
+                        const auto cell =
+                            static_cast<std::size_t>(y) * static_cast<std::size_t>(pic_w) +
+                            static_cast<std::size_t>(x);
+                        erased[cell] = 1;
+                        const int mapped_y = y < mapped->height ? y : 0;
+                        const int mapped_x = x < mapped->width ? x : 0;
+                        if (y < mapped->height && x < mapped->width)
+                            paint_from(x, y, mapped->pixels[mapped_y * mapped->pitch + mapped_x]);
+                    }
+                }
+            }
+            oa::ui::hud::stamp_compact_marker(
+                mini.rgb.data(),
+                pic_w,
+                pic_h,
+                anchor_x,
+                anchor_y,
+                static_cast<int>(unit->owner_index),
+                ink[0],
+                ink[1],
+                ink[2]
+            );
+        }
+        const auto restore = [&](uint8_t index) {
+            for (int y = 0; y < pic_h; ++y) {
+                for (int x = 0; x < pic_w; ++x) {
+                    if (well_index(x, y) != index)
+                        continue;
+                    const auto cell =
+                        static_cast<std::size_t>(y) * static_cast<std::size_t>(pic_w) +
+                        static_cast<std::size_t>(x);
+                    if (erased[cell] != 0)
+                        continue;
+                    const auto di = cell * 3U;
+                    mini.rgb[di] = base[di];
+                    mini.rgb[di + 1] = base[di + 1];
+                    mini.rgb[di + 2] = base[di + 2];
+                }
+            }
+        };
+        restore(sensor_index);
+        restore(jammer_index);
+        restore(interceptor_index);
+        if (const oa::Unit* cursor = oa::world_unit_at(&world, game.cursor_unit_id);
+            cursor != nullptr) {
+            for (uint32_t index = 0; index < listed; ++index) {
+                const oa::RadarHotUnit& hot = radar.hot_units[index];
+                if (hot.unit_id != cursor->id)
+                    continue;
+                std::vector<uint8_t> indices;
+                const oa::Sprite* sprite = oa::present::gaf_frame(radar.sprites.cursor_logo, 0);
+                if (!decode(sprite, indices))
+                    break;
+                const int left = hot.x - off_x - sprite->origin_x;
+                const int top = hot.y - off_y - sprite->origin_y;
+                for (int row = 0; row < static_cast<int>(sprite->height); ++row) {
+                    for (int column = 0; column < static_cast<int>(sprite->width); ++column) {
+                        if (indices[static_cast<std::size_t>(row * sprite->width + column)] ==
+                            sprite->key)
+                            continue;
+                        const int x = left + column;
+                        const int y = top + row;
+                        if (x < 0 || y < 0 || x >= pic_w || y >= pic_h)
+                            continue;
+                        const auto cell =
+                            static_cast<std::size_t>(y) * static_cast<std::size_t>(pic_w) +
+                            static_cast<std::size_t>(x);
+                        if (erased[cell] != 0)
+                            continue;
+                        const auto di = cell * 3U;
+                        mini.rgb[di] = base[di];
+                        mini.rgb[di + 1] = base[di + 1];
+                        mini.rgb[di + 2] = base[di + 2];
+                    }
+                }
+                break;
+            }
+        }
+        restore(mark_index);
     }
     const auto origin = hud_canvas(off_x, off_y);
     const auto extent = hud_canvas(off_x + pic_w, off_y + pic_h);

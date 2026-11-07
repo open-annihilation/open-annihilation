@@ -166,10 +166,10 @@ void categories_and_letters() {
     const std::vector<editor::CategoryEntry> categories = model.categories();
     const std::vector<std::string> ids = category_ids(categories);
     const std::vector<std::string> expected = {
-        "common",         "orders",    "mouse",         "selection",  "groups",
-        "camera",         "building",  "game",          "chat",       "watching",
-        "window",         "menus",     "heading.hacks", "ui.megamap", "heading.mod",
-        "mod.categories", "mod.menus", "oa-screens",    "all",
+        "common",      "orders",         "mouse",     "selection",     "groups",
+        "camera",      "building",       "game",      "chat",          "watching",
+        "window",      "menus",          "photo",     "heading.hacks", "ui.megamap",
+        "heading.mod", "mod.categories", "mod.menus", "oa-screens",    "all",
     };
     expect(ids == expected, "categories: " + joined_ids(ids));
     expect(
@@ -180,6 +180,11 @@ void categories_and_letters() {
         category_named(categories, "unknown") == nullptr, "unknown is listed on a fresh fixture"
     );
 
+    const editor::CategoryEntry* photo = category_named(categories, "photo");
+    expect(
+        photo != nullptr && photo->title == "Photo mode" && photo->letter.empty(),
+        "photo is not Photo mode with no letter"
+    );
     const editor::CategoryEntry* menus = category_named(categories, "menus");
     const editor::CategoryEntry* watching = category_named(categories, "watching");
     const editor::CategoryEntry* screens = category_named(categories, "oa-screens");

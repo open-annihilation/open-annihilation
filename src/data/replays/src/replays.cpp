@@ -134,56 +134,6 @@ void keep_need(Replay& replay, ContentNeed need) {
     replay.needs.push_back(std::move(need));
 }
 
-/// Copies a `.oademo` manifest onto the replay. The note beside the file is not read.
-void take_manifest(const oademo::Manifest& manifest, const oademo::Meta& meta, Replay& replay) {
-    replay.engine_recorded = manifest.engine.recorded_with;
-    replay.engine_needs = manifest.engine.needs;
-    bool named_map = false;
-    for (const oademo::Need& need : manifest.needs) {
-        if (need.kind == "oamap") {
-            named_map = true;
-            if (need.maps.empty()) {
-                ContentNeed one;
-                one.kind = "oamap";
-                one.id = need.id;
-                one.version = need.version.value_or(std::string{});
-                one.revision = need.revision;
-                one.sha256 = need.sha256.value_or(std::string{});
-                keep_need(replay, std::move(one));
-                continue;
-            }
-            for (const oademo::MapNeed& map : need.maps) {
-                ContentNeed one;
-                one.kind = "oamap";
-                one.id = need.id;
-                one.version = need.version.value_or(std::string{});
-                one.revision = need.revision;
-                one.sha256 = need.sha256.value_or(std::string{});
-                one.map_name = map.name;
-                keep_need(replay, std::move(one));
-            }
-            continue;
-        }
-        ContentNeed one;
-        one.kind = need.kind;
-        one.id = need.id;
-        one.version = need.version.value_or(std::string{});
-        one.revision = need.revision;
-        one.sha256 = need.sha256.value_or(std::string{});
-        if (need.kind == "oamod" && meta.content.mod.has_value() && meta.content.mod->id == need.id)
-            one.name = meta.content.mod->name;
-        if (need.kind == "expansion")
-            one.name = saves::bundle_english_name(need.id);
-        keep_need(replay, std::move(one));
-    }
-    if (!named_map && !replay.map.empty()) {
-        ContentNeed map;
-        map.kind = "oamap";
-        map.map_name = replay.map;
-        keep_need(replay, std::move(map));
-    }
-}
-
 /// Copies a `.tad` mutators sector onto the replay. A sector that is not a loadout is skipped.
 void take_mutator_sector(const tad::Demo& demo, Replay& replay) {
     const tad::Sector* sector = tad::find_sector(demo, tad::SectorType::mutators);
@@ -451,7 +401,7 @@ void read_oademo(std::span<const uint8_t> bytes, Replay& replay) {
             ++place;
     }
     if (described.manifest.has_value())
-        take_manifest(*described.manifest, meta, replay);
+        apply_manifest(*described.manifest, meta, replay);
     else if (!replay.map.empty()) {
         ContentNeed map_need;
         map_need.kind = "oamap";
@@ -622,6 +572,55 @@ bool path_before(const Replay* left, std::string_view right) noexcept {
 }
 
 } // namespace
+
+void apply_manifest(const oademo::Manifest& manifest, const oademo::Meta& meta, Replay& replay) {
+    replay.engine_recorded = manifest.engine.recorded_with;
+    replay.engine_needs = manifest.engine.needs;
+    bool named_map = false;
+    for (const oademo::Need& need : manifest.needs) {
+        if (need.kind == "oamap") {
+            named_map = true;
+            if (need.maps.empty()) {
+                ContentNeed one;
+                one.kind = "oamap";
+                one.id = need.id;
+                one.version = need.version.value_or(std::string{});
+                one.revision = need.revision;
+                one.sha256 = need.sha256.value_or(std::string{});
+                keep_need(replay, std::move(one));
+                continue;
+            }
+            for (const oademo::MapNeed& map : need.maps) {
+                ContentNeed one;
+                one.kind = "oamap";
+                one.id = need.id;
+                one.version = need.version.value_or(std::string{});
+                one.revision = need.revision;
+                one.sha256 = need.sha256.value_or(std::string{});
+                one.map_name = map.name;
+                keep_need(replay, std::move(one));
+            }
+            continue;
+        }
+        ContentNeed one;
+        one.kind = need.kind;
+        one.id = need.id;
+        one.version = need.version.value_or(std::string{});
+        one.revision = need.revision;
+        one.sha256 = need.sha256.value_or(std::string{});
+        if (need.kind == "oamod" && meta.content.mod.has_value() && meta.content.mod->id == need.id)
+            one.name = meta.content.mod->name;
+        if (need.kind == "expansion")
+            one.name = saves::bundle_english_name(need.id);
+        keep_need(replay, std::move(one));
+    }
+    if (!named_map && !replay.map.empty()) {
+        ContentNeed map;
+        map.kind = "oamap";
+        map.map_name = replay.map;
+        keep_need(replay, std::move(map));
+    }
+}
 
 bool damaged(const Replay& replay) noexcept {
     return !replay.damage.empty();
@@ -854,6 +853,90 @@ std::optional<int64_t> kept_set_aside_at(const fs::path& recordings) {
             newest = at;
     }
     return newest;
+}
+
+namespace {
+
+bool ends_ci(std::string_view text, std::string_view suffix) {
+    if (text.size() < suffix.size())
+        return false;
+    for (std::size_t at = 0; at < suffix.size(); ++at) {
+        unsigned char left = static_cast<unsigned char>(text[text.size() - suffix.size() + at]);
+        unsigned char right = static_cast<unsigned char>(suffix[at]);
+        if (left >= 'A' && left <= 'Z')
+            left = static_cast<unsigned char>(left - 'A' + 'a');
+        if (right >= 'A' && right <= 'Z')
+            right = static_cast<unsigned char>(right - 'A' + 'a');
+        if (left != right)
+            return false;
+    }
+    return true;
+}
+
+std::string strip_replay_extension(std::string name) {
+    if (ends_ci(name, ".oademo"))
+        name.resize(name.size() - std::string_view(".oademo").size());
+    else if (ends_ci(name, ".tad"))
+        name.resize(name.size() - std::string_view(".tad").size());
+    return name;
+}
+
+bool reserved_stem(std::string_view name) {
+    std::string lower;
+    lower.reserve(name.size());
+    for (const unsigned char character : name) {
+        const unsigned char folded = character >= 'A' && character <= 'Z'
+                                         ? static_cast<unsigned char>(character - 'A' + 'a')
+                                         : character;
+        lower.push_back(static_cast<char>(folded));
+    }
+    if (lower == "con" || lower == "prn" || lower == "aux" || lower == "nul")
+        return true;
+    if (lower.size() == 4 && (lower.starts_with("com") || lower.starts_with("lpt"))) {
+        const char digit = lower[3];
+        return digit >= '1' && digit <= '9';
+    }
+    return false;
+}
+
+} // namespace
+
+std::string recording_stem(std::string_view title) {
+    constexpr std::size_t cap = 120;
+    std::string name;
+    name.reserve(title.size());
+    for (const unsigned char character : title) {
+        const bool bad = character < 0x20 || character == 0x7F || character == '/' ||
+                         character == '\\' || character == ':' || character == '*' ||
+                         character == '?' || character == '"' || character == '<' ||
+                         character == '>' || character == '|';
+        name.push_back(bad ? '_' : static_cast<char>(character));
+    }
+    std::size_t begin = 0;
+    while (begin < name.size() && (name[begin] == ' ' || name[begin] == '.'))
+        ++begin;
+    std::size_t end = name.size();
+    while (end > begin && (name[end - 1] == ' ' || name[end - 1] == '.'))
+        --end;
+    name = name.substr(begin, end - begin);
+    name = strip_replay_extension(std::move(name));
+    while (!name.empty() && (name.back() == ' ' || name.back() == '.'))
+        name.pop_back();
+    if (name.size() > cap) {
+        end = cap;
+        // A continuation byte is 10xxxxxx. Walking back drops the character
+        // the cap cut through, and leaves the one before it whole.
+        while (end > 0 && (static_cast<unsigned char>(name[end]) & 0xC0U) == 0x80U)
+            --end;
+        name.resize(end);
+    }
+    while (!name.empty() && (name.back() == ' ' || name.back() == '.'))
+        name.pop_back();
+    if (name.empty())
+        name = "replay";
+    if (reserved_stem(name))
+        name.push_back('_');
+    return name;
 }
 
 } // namespace oa::data::replays

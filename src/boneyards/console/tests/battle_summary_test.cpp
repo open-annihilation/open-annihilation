@@ -5,12 +5,21 @@
 // labels battle_summary_create builds and the texts battle_summary_update and the frame's draw
 // main_frame_draw put on them.
 #include "console_state.hpp"
+#include "oa/boneyards/font_atlases.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/boneyards_test/installs.hpp"
+#include "oa/data/languages.hpp"
+#include "oa/data/languages/interface_text.hpp"
+#include "oa/data/languages/translation.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <string_view>
 #include <vector>
 
 using namespace oa::boneyards;
@@ -173,6 +182,135 @@ void test_summary(Fixture* f) {
                 s->arm_wins->visible == 0,
             "an unknown side keeps the owner text and hides the wins without rewriting them"
         );
+
+        p.side = 'i';
+        p.arm_wins = 117;
+        p.core_wins = 117;
+        std::ifstream atlas_file(OA_BONEYARDS_ATLAS, std::ios::binary);
+        const std::string atlas_text(
+            (std::istreambuf_iterator<char>(atlas_file)), std::istreambuf_iterator<char>()
+        );
+        FontAtlas* atlas =
+            font_atlas_open(reinterpret_cast<const uint8_t*>(atlas_text.data()), atlas_text.size());
+        check(atlas != nullptr, "the analogue atlas opened");
+        if (atlas != nullptr)
+            toolkit_set_font_atlas(widget->toolkit, atlas);
+        oa::present::colour_vision::set_active(oa::present::colour_vision::Mode::off, true);
+        battle_summary_update(s);
+        check(
+            text_is(s->arm_wins, "Arm 117") && text_is(s->core_wins, "Core 117"),
+            "shape cues name the side in front of a three-digit count"
+        );
+        check(s->arm_icon->visible == 0 && s->core_icon->visible == 0, "the logos make room");
+        check(
+            s->arm_wins->x == 0x243 && s->core_wins->x == 0x243,
+            "the side words start where a 43-pixel line still ends on the panel edge"
+        );
+        check(
+            s->battles->x == 0x234 && s->forming->x == 0x234 && s->battles->width == 0xf &&
+                s->battles->x + s->battles->width <= s->arm_wins->x,
+            "the battles count steps left and stays clear of the side words"
+        );
+        const int32_t arm_end = s->arm_wins->x + s->arm_wins->width - 1;
+        const int32_t core_end = s->core_wins->x + s->core_wins->width - 1;
+        check(
+            arm_end <= 0x26d && core_end <= 0x26d, "the side words end at the panel's inner edge"
+        );
+
+        std::string widest_name = "Core 117";
+        int32_t widest = 0;
+        const auto measure = [&](const char* line) {
+            int32_t width = 0;
+            int32_t height = 0;
+            toolkit_measure_text(
+                widget->toolkit, widget->system.hat_fonts.small_green, line, &width, &height
+            );
+            if (width > widest) {
+                widest = width;
+                widest_name = line;
+            }
+        };
+        measure("Arm 117");
+        measure("Core 117");
+        measure("Glan 117");
+        measure("Núcleo 117");
+        oa::data::languages::InterfaceText catalogue;
+        std::ifstream catalogue_file(OA_BONEYARDS_CATALOGUE);
+        std::string catalogue_text(
+            (std::istreambuf_iterator<char>(catalogue_file)), std::istreambuf_iterator<char>()
+        );
+        check(catalogue.add(catalogue_text), "the shipped catalogue loaded");
+        const char* tags[] = {"de", "fr", "it", "es", "zh-Hans"};
+        for (const char* tag : tags) {
+            const oa::data::languages::Language* language = oa::data::languages::find_by_tag(tag);
+            if (language == nullptr)
+                continue;
+            oa::data::languages::set_interface_language(&catalogue, *language);
+            char line[48];
+            const std::string_view arm = oa::data::languages::interface_text("Arm");
+            const std::string_view core = oa::data::languages::interface_text("Core");
+            std::snprintf(line, sizeof line, "%.*s 117", static_cast<int>(arm.size()), arm.data());
+            measure(line);
+            std::snprintf(
+                line, sizeof line, "%.*s 117", static_cast<int>(core.size()), core.data()
+            );
+            measure(line);
+        }
+        oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
+        check(
+            widest <= 0x26d - 0x243 + 1,
+            "the widest shipped side line, including Núcleo 117, fits inside the panel"
+        );
+        if (widest > 0x26d - 0x243 + 1)
+            std::fprintf(stderr, "widest %s is %d pixels\n", widest_name.c_str(), widest);
+
+        const auto translate = [](void*, const char* text) -> const char* {
+            if (text != nullptr && std::strcmp(text, "Arm") == 0)
+                return "Glan";
+            if (text != nullptr && std::strcmp(text, "Core") == 0)
+                return "Núcleo";
+            return nullptr;
+        };
+        oa::data::languages::TranslationHooks hook{};
+        hook.translate = translate;
+        oa::data::languages::set_translation_hooks(hook);
+        battle_summary_update(s);
+        check(
+            text_is(s->arm_wins, "Glan 117") && text_is(s->core_wins, "Núcleo 117"),
+            "a 3.1c side name keeps its count"
+        );
+        check(
+            s->core_wins->x + s->core_wins->width - 1 <= 0x26d &&
+                s->arm_wins->x + s->arm_wins->width - 1 <= 0x26d,
+            "Núcleo 117 ends at the panel's inner edge"
+        );
+        int32_t nucleo = 0;
+        int32_t nucleo_height = 0;
+        toolkit_measure_text(
+            widget->toolkit,
+            widget->system.hat_fonts.small_green,
+            "Núcleo 117",
+            &nucleo,
+            &nucleo_height
+        );
+        check(
+            nucleo <= 0x26d - s->core_wins->x + 1 && s->core_wins->width >= nucleo,
+            "Núcleo 117 is drawn in full inside the panel"
+        );
+        oa::data::languages::set_translation_hooks({});
+        oa::present::colour_vision::set_active(oa::present::colour_vision::Mode::off, false);
+        battle_summary_update(s);
+        check(
+            text_is(s->arm_wins, "117") && text_is(s->core_wins, "117") &&
+                s->arm_wins->x == 0x256 && s->core_wins->width == 0xf &&
+                s->arm_icon->visible == 1 && s->battles->x == 0x235 && s->forming->x == 0x235,
+            "cues off restores the digits, the count's place and the logos"
+        );
+        if (atlas != nullptr) {
+            toolkit_set_font_atlas(widget->toolkit, nullptr);
+            font_atlas_close(atlas);
+        }
+        p.side = '?';
     }
     p.forming = 4;
     draw(widget);
@@ -192,6 +330,14 @@ void test_summary(Fixture* f) {
 } // namespace
 
 int main() {
+    struct RestoreMode {
+        ~RestoreMode() {
+            oa::present::colour_vision::set_active(oa::present::colour_vision::Mode::off, false);
+            oa::data::languages::set_translation_hooks({});
+            oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
+        }
+    } restore;
+
     const std::filesystem::path root =
         oa::boneyards_test::require_by_install("the battle summary tests");
     Fixture fixture;

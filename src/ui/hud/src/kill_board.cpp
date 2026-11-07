@@ -3,6 +3,7 @@
 
 #include "oa/ui/hud/kill_board.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/ui/hud/game_fields.hpp"
 #include "oa/ui/hud/share_panel.hpp"
 
@@ -144,7 +145,12 @@ void draw_kill_board(
             const int32_t x1 = left + column;
             if (sink.logo != nullptr)
                 sink.logo(sink.user, player, x0, top, x1, bottom);
-            text(sink, player.name, x0 + 2, top + 5, column, 0);
+            // The marker sits in the wash, so the name starts past it and
+            // the room it is given stops at the wash's right edge.
+            const bool cues = oa::present::colour_vision::shape_cues_active();
+            const int32_t name_x = cues ? x0 + 24 : x0 + 2;
+            const int32_t name_room = cues ? (column > 22 ? column - 22 : 0) : column;
+            text(sink, player.name, name_x, top + 5, name_room, 0);
             std::snprintf(
                 label, sizeof label, "%d", commanders ? player.commanders_killed : player.kills
             );

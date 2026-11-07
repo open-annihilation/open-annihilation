@@ -11,7 +11,9 @@
 #include "oa/ui/key_bindings/layout.hpp"
 
 #include <array>
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -68,6 +70,7 @@ struct PlaceWant {
     std::string_view id{};
     std::string_view word{};
     acts::Target target{};
+    bool photo_only{false}; ///< contexts are photo alone, after the target places
 };
 
 /// The action's short name, already looked up.
@@ -79,6 +82,27 @@ std::string action_name(const keys::Bound& bound, const TextHooks& hooks) {
     if (bound.entry != nullptr && !bound.entry->words.name.empty())
         return show(hooks, bound.entry->words.name);
     return bound.id;
+}
+
+/// The photo context's bit, or 0 when the table has no photo context.
+///
+/// @return the bit
+uint32_t photo_context_bit() noexcept {
+    const std::span<const acts::Context> table = acts::contexts();
+    for (uint32_t index = 0; index < static_cast<uint32_t>(table.size()) && index < 32; ++index) {
+        if (table[index].name == "photo")
+            return uint32_t{1} << index;
+    }
+    return 0;
+}
+
+/// True when the action's contexts are photo and nothing else.
+///
+/// @param contexts the action's context bits
+/// @return true for photo alone
+bool photo_alone(uint32_t contexts) noexcept {
+    const uint32_t photo = photo_context_bit();
+    return photo != 0 && contexts == photo;
 }
 
 /// How well a context suits a button's face.
@@ -238,6 +262,10 @@ kit::MouseLook mouse_look(const Editor& editor, keys::PointerScheme scheme) {
 
     std::array<std::vector<Role>, 10> roles;
     for (const keys::Bound& action : bound.actions) {
+        // A photo-only action is not a playing role. Pan while playing stays,
+        // because that action is also play and watch.
+        if (photo_alone(action.contexts))
+            continue;
         const int rank = face_rank(action.contexts);
         if (rank == 0)
             continue;
@@ -308,17 +336,26 @@ std::vector<RoleLine> mouse_table(const Editor& editor, keys::PointerScheme sche
     const keys::Resolved& bound = kept ? kept->resolved : other;
     const TextHooks& hooks = editor.text();
     const PlaceWant places[] = {
-        {"playing", words::card_while_playing, acts::Target::battlefield},
-        {"minimap", words::place_minimap, acts::Target::minimap},
-        {"build-button", words::place_build, acts::Target::build_button},
-        {"whiteboard", words::place_whiteboard, acts::Target::marker},
+        {"playing", words::card_while_playing, acts::Target::battlefield, false},
+        {"minimap", words::place_minimap, acts::Target::minimap, false},
+        {"build-button", words::place_build, acts::Target::build_button, false},
+        {"whiteboard", words::place_whiteboard, acts::Target::marker, false},
+        {"photo", words::card_in_photo_mode, acts::Target::none, true},
     };
     std::vector<RoleLine> rows;
     for (const PlaceWant& place : places) {
         const std::size_t before = rows.size();
         for (const keys::Bound& action : bound.actions) {
-            if (action.entry == nullptr || action.entry->target != place.target)
+            if (action.entry == nullptr)
                 continue;
+            // Photo alone has its own place. pointer.pan and the camera drags
+            // are play, watch and photo, so they stay while playing.
+            if (place.photo_only) {
+                if (!photo_alone(action.contexts))
+                    continue;
+            } else if (action.entry->target != place.target || photo_alone(action.contexts)) {
+                continue;
+            }
             if (action.entry->kind != acts::Kind::pointer &&
                 action.entry->kind != acts::Kind::wheel)
                 continue;

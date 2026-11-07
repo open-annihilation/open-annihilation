@@ -289,6 +289,8 @@ add_subdirectory(src/ui/game-files)
 add_subdirectory(src/ui/folder-chooser)
 # The Library's model: packages to get and installed, search and queue lines.
 add_subdirectory(src/ui/library)
+# The playback bar along the foot of a replay.
+add_subdirectory(src/ui/replay-viewer)
 # The first-run setup: language, online features and the OA buttons.
 add_subdirectory(src/ui/first-run)
 add_subdirectory(src/ui/screen-registry)
@@ -451,6 +453,12 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-tag-actions-test PRIVATE oa-data-defs oa-ui-key-bindings
     oa-test-support oa-options)
   add_test(NAME app-tag-actions COMMAND oa-app-tag-actions-test)
+  # A saved photo offered to the clipboard, through a hook that stands in for it.
+  add_executable(oa-app-photo-clipboard-test
+    src/app/photo_clipboard_test.cpp src/app/photo_clipboard.cpp src/app/photo_writer.cpp)
+  target_link_libraries(oa-app-photo-clipboard-test PRIVATE oa-formats-png oa-present-photo
+    SDL3::SDL3 oa-test-support oa-options)
+  add_test(NAME app-photo-clipboard COMMAND oa-app-photo-clipboard-test)
 endif()
 # The game's three icons (branding/, made by tools/make_icons.py), each
 # embedded as a PNG file. The 256-pixel pictures: the app icon is the
@@ -1283,6 +1291,7 @@ if(BUILD_TESTING)
     # overlays' area nor over the side column.
     add_executable(oa-app-overlay-placement-test src/app/oa_layer_overlays_test.cpp
       src/app/oa_layer_overlays.cpp src/app/window_placement.cpp)
+    target_include_directories(oa-app-overlay-placement-test PRIVATE src/app/include)
     target_link_libraries(oa-app-overlay-placement-test PRIVATE oa-ui-kit oa-ui-display-layout
       oa-test-support oa-options)
     add_test(NAME app-overlay-placement COMMAND oa-app-overlay-placement-test)
@@ -1416,7 +1425,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_scroll_bars.cpp
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
   src/app/photo_camera.cpp src/app/runtime_photo_mode.cpp
-  src/app/runtime_photo_capture.cpp src/app/photo_writer.cpp
+  src/app/runtime_photo_capture.cpp src/app/photo_writer.cpp src/app/photo_clipboard.cpp
   src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
   src/app/runtime_engine_settings.cpp
@@ -1428,6 +1437,9 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/window_placement.cpp
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_library_replays.cpp
+  src/app/runtime_library_core_prime.cpp
+  src/app/replay_index_pass.cpp
+  src/app/runtime_replay_viewer.cpp
   src/app/runtime_map_browser.cpp
   src/app/runtime_key_editor.cpp
   src/app/runtime_keys_overlay.cpp
@@ -1531,6 +1543,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_key_editor_check.cpp
+  src/app/runtime_replay_viewer_check.cpp
   src/app/runtime_keys_overlay_check.cpp
   src/app/runtime_selection_keys_check.cpp
   src/app/runtime_key_capture_check.cpp
@@ -1553,6 +1566,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_library_content_check.cpp
   src/app/runtime_library_replays_check.cpp
   src/app/runtime_replays_content_check.cpp
+  src/app/runtime_library_core_prime_check.cpp
   src/app/runtime_team_panel_check.cpp src/app/runtime_scroll_bar_check.cpp
   src/app/runtime_interpolation_check.cpp src/app/runtime_unit_playout_check.cpp
   src/app/runtime_engine_settings_wiring_check.cpp src/app/runtime_engine_settings_check.cpp
@@ -1566,11 +1580,13 @@ if(OA_SELF_CHECKS)
 endif()
 # The run manifest of a director render, the settings dialog's header and the
 # Game files screen's header name the engine's version, and the renderer
-# records are written under it. An exported .oademo names it too.
+# records are written under it. An exported .oademo names it too. A photo's
+# Software line names it, and the capture check compares that line.
 set_property(SOURCE src/app/runtime_director.cpp src/app/runtime_engine_settings.cpp
   src/app/main.cpp src/app/game_files_screen.cpp src/app/runtime_game_files.cpp
   src/app/runtime_mutators.cpp src/app/runtime_mutators_check.cpp
-  src/app/runtime_brain_facts.cpp src/app/runtime_library_replays.cpp APPEND
+  src/app/runtime_brain_facts.cpp src/app/runtime_library_replays.cpp
+  src/app/runtime_photo_capture.cpp src/app/runtime_photo_check.cpp APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-game-directory oa-app-mod-profile
   oa-app-user-folder
@@ -1602,7 +1618,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-seat-chat
   oa-ui-key-bindings oa-ui-key-editor oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
-  oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
+  oa-ui-frontend-multiplayer oa-ui-library oa-ui-replay-viewer oa-ui-map-browser oa-ui-mutator-picker
   oa-ui-brain-picker
   oa-ui-first-run
   oa-data-saves)
@@ -2499,6 +2515,27 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_key_editor_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-editor-clean)
+      # The playback bar over a short recorded skirmish, at 640x480, 1280x720
+      # and 1920x1080. Each run starts from a clean folder.
+      set(oa_replay_viewer_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/replay-viewer")
+      file(MAKE_DIRECTORY "${oa_replay_viewer_dir}")
+      add_test(NAME replay-viewer-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_replay_viewer_dir}/Open Annihilation" "${oa_replay_viewer_dir}/replay-viewer.conf"
+        "${oa_replay_viewer_dir}/replay-viewer.ppm"
+        "${oa_replay_viewer_dir}/replay-viewer-640x480.ppm"
+        "${oa_replay_viewer_dir}/replay-viewer-640x480-de.ppm"
+        "${oa_replay_viewer_dir}/replay-viewer-1280x720.ppm"
+        "${oa_replay_viewer_dir}/replay-viewer-1920x1080.ppm")
+      set_tests_properties(replay-viewer-clean PROPERTIES FIXTURES_SETUP replay-viewer-clean)
+      add_test(NAME native-replay-viewer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-replay-viewer
+        --snapshot "${oa_replay_viewer_dir}/replay-viewer.ppm"
+        --preferences-file "${oa_replay_viewer_dir}/replay-viewer.conf"
+        --user-folder "${oa_replay_viewer_dir}/Open Annihilation")
+      set_tests_properties(native-replay-viewer PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_replay_viewer_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED replay-viewer-clean)
       # The keys overlay beside the side column, the order and build cell
       # badges, the help lines, the rotate hint and the latch chips, on a
       # skirmish whose mod turns buildings: the check gives the mod's folder
@@ -3253,6 +3290,42 @@ if(OA_BUILD_PLATFORM)
           WORKING_DIRECTORY "${oa_replays_content_dir}"
           ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
           FIXTURES_REQUIRED replays-content-clean)
+        # Core Prime's replay list, from a loopback feed and key server. The
+        # list fills and the next page follows, a planet narrows it, a download
+        # asks for an oademo key and writes the file, Watch plays it, a release
+        # that changed is read again, a file whose digest differs is refused,
+        # and with the server stopped the list reads offline. The working
+        # folder stays in the build tree and is cleared before each run.
+        set(oa_replays_core_prime_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/replays-core-prime")
+        file(MAKE_DIRECTORY "${oa_replays_core_prime_dir}")
+        add_test(NAME replays-core-prime-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+          "${oa_replays_core_prime_dir}/record" "${oa_replays_core_prime_dir}/play"
+          "${oa_replays_core_prime_dir}/offline" "${oa_replays_core_prime_dir}/pictures"
+          "${oa_replays_core_prime_dir}/backoff" "${oa_replays_core_prime_dir}/rate"
+          "${oa_replays_core_prime_dir}/challenge" "${oa_replays_core_prime_dir}/wait"
+          "${oa_replays_core_prime_dir}/prepare" "${oa_replays_core_prime_dir}/ridge-record"
+          "${oa_replays_core_prime_dir}/beside" "${oa_replays_core_prime_dir}/serve"
+          "${oa_replays_core_prime_dir}/core-prime.facts"
+          "${oa_replays_core_prime_dir}/replays-content.facts"
+          "${oa_replays_core_prime_dir}/core-prime-source.oademo"
+          "${oa_replays_core_prime_dir}/core-prime-ridge.oademo"
+          "${oa_replays_core_prime_dir}/ridge-reach.oamap"
+          "${oa_replays_core_prime_dir}/ridge-reach-new.oamap"
+          "${oa_replays_core_prime_dir}/ridge-wind.oamut"
+          "${oa_replays_core_prime_dir}/ridge-28.oamod" "${oa_replays_core_prime_dir}/ridge-29.oamod"
+          "${oa_replays_core_prime_dir}/ridge-gone.oamap" "${oa_replays_core_prime_dir}/ridge-mod"
+          "${oa_replays_core_prime_dir}/ridge.key" "${oa_replays_core_prime_dir}/pass.txt")
+        set_tests_properties(replays-core-prime-clean PROPERTIES
+          FIXTURES_SETUP replays-core-prime-clean)
+        add_test(NAME native-replays-core-prime COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_replays_core_prime.py"
+          --native $<TARGET_FILE:oa-game> --tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}" --work-dir "${oa_replays_core_prime_dir}")
+        set_tests_properties(native-replays-core-prime PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_replays_core_prime_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+          FIXTURES_REQUIRED replays-core-prime-clean)
       endif()
       # Made-up mod packages posted as the download queue posts them, from a
       # built-in registry and two added ones, installed while the Library
@@ -3464,13 +3537,28 @@ if(OA_BUILD_PLATFORM)
       # Photo mode in a window on the dummy drivers: the battlefield alone,
       # the view put back on leaving, and no order or click changing the match.
       set(oa_photo_mode_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-mode")
-      file(MAKE_DIRECTORY "${oa_photo_mode_dir}")
+      file(MAKE_DIRECTORY "${oa_photo_mode_dir}/user")
       add_test(NAME native-photo-mode COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-photo mode
+        --user-folder "${oa_photo_mode_dir}/user"
         --preferences-file "${oa_photo_mode_dir}/photo-mode.conf")
       set_tests_properties(native-photo-mode PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_photo_mode_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Photo commands on their keys: F9, Space, the shutter, Enter, Primary+C,
+      # PageUp, a refused turn, and Take photo moved to K. Ctrl+F9 is a
+      # screenshot outside photo mode and a photo inside it.
+      set(oa_photo_keys_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-keys")
+      file(MAKE_DIRECTORY "${oa_photo_keys_dir}/user")
+      add_test(NAME native-photo-keys COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo keys
+        --user-folder "${oa_photo_keys_dir}/user"
+        --preferences-file "${oa_photo_keys_dir}/photo-keys.conf")
+      set_tests_properties(native-photo-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_keys_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo keys: ok"
+        FAIL_REGULAR_EXPRESSION "photo keys failed:")
       # Photo mode's time: freeze, step, the eighths between ticks and slow
       # play, then a shared match and a watcher holding the picture.
       set(oa_photo_time_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-time")
@@ -4988,6 +5076,13 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-colour-vision PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A staged ten-player battle with shape cues on: a marker sits on each
+        # minimap dot and on the selected unit, and the other units stay bare.
+        add_test(NAME native-shape-cues COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_shape_cues.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-shape-cues PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The water effects on the graphics card's Full tier, in the classic
         # and the turned view: a lava world's shore, with a kbot walking its
         # edge and shells landing in the lava, draws the same with them at
@@ -5073,6 +5168,15 @@ endforeach()
         # clock just before 2^32 milliseconds the match steps on through the
         # turn of the clock's reading to 0, at 30 frames a second each frame
         # running a tick but the first past it.
+        # The kit's focus ring on the original menus. It is absent when a
+        # screen opens, present around the focused control after Tab, gone
+        # after the pointer moves, and present at open when Always show
+        # focus is on. Each run starts from its own preferences.
+        add_test(NAME native-focus-ring COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_focus_ring.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-focus-ring PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         add_test(NAME native-frame-rate COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_frame_rate.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
@@ -5759,6 +5863,11 @@ endif()
 add_subdirectory(src/app/automation)
 if(TARGET oa-app-automation)
   oa_add_extension(oa-app-automation INIT oa_extension_init_automation)
+endif()
+# The family's ring reads the control listing. The endpoint links that
+# library privately, so the game links it for the headers and the list.
+if(TARGET oa-game AND TARGET oa-app-automation-core)
+  target_link_libraries(oa-game PRIVATE oa-app-automation-core)
 endif()
 # MCP on standard input and output. Registered after the automation
 # endpoint, so the endpoint's option check binds --status-stdout before

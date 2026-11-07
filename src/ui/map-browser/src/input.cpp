@@ -23,7 +23,6 @@
 #include <string_view>
 #include <tuple>
 #include <variant>
-#include <vector>
 
 namespace oa::ui::map_browser {
 namespace {
@@ -165,54 +164,15 @@ void search_changed(Browser& browser, ScreenState& state) {
 }
 
 /// Returns the card Tab enters the grid at: the selected card when it
-/// shows, else the first card.
+/// shows, else the first card. An empty grid has no card stop.
 ///
-/// @param browser the browser
 /// @param list the display list
 /// @return its control; no_control while no card shows
-kit::ControlId grid_entry(const Browser& browser, const kit::DisplayList& list) {
-    kit::ControlId first = kit::no_control;
-    for (const kit::ControlId id : list.tab_order) {
-        if (!ids::is_card(id))
-            continue;
-        if (first == kit::no_control)
-            first = id;
-        const std::size_t place = ids::card_place(id);
-        if (browser.selected && place < browser.shown.size() &&
-            browser.shown[place] == *browser.selected)
-            return id;
-    }
-    return first;
-}
-
-/// Returns the control Tab or Shift+Tab moves the focus to: the declared
-/// order with the grid one stop, entered at grid_entry.
-///
-/// @param browser the browser
-/// @param list the display list
-/// @param from the control the focus is on
-/// @param forward Tab rather than Shift+Tab
-/// @return the control; no_control when nothing takes the focus
-kit::ControlId tab_target(
-    const Browser& browser, const kit::DisplayList& list, kit::ControlId from, bool forward
-) {
-    const kit::ControlId entry = grid_entry(browser, list);
-    std::vector<kit::ControlId> stops;
-    for (const kit::ControlId id : list.tab_order)
-        if (!ids::is_card(id) || id == entry)
-            stops.push_back(id);
-    if (stops.empty())
-        return kit::no_control;
-    const kit::ControlId at = ids::is_card(from) ? entry : from;
-    const auto found = std::find(stops.begin(), stops.end(), at);
-    // A control that is not in the order, including no focus yet, shows an
-    // end. A control that is in the order moves to the next or the previous.
-    if (found == stops.end())
-        return forward ? stops.front() : stops.back();
-    const auto place = static_cast<std::size_t>(found - stops.begin());
-    const std::size_t next =
-        forward ? (place + 1) % stops.size() : (place + stops.size() - 1) % stops.size();
-    return stops[next];
+kit::ControlId grid_entry(const kit::DisplayList& list) {
+    for (const kit::Composite& composite : list.composites)
+        if (composite.id == ids::cards)
+            return kit::composite_landing(list, ids::cards);
+    return kit::no_control;
 }
 
 /// Returns the look of a players or size strip.
@@ -483,18 +443,6 @@ browser_key(Browser& browser, ScreenState& state, const kit::DisplayList& list, 
     switch (pressed) {
     case kit::Key::escape:
         return asking(BrowserAction::cancel);
-    case kit::Key::tab:
-    case kit::Key::back_tab: {
-        const kit::ControlId next =
-            tab_target(browser, list, interaction.focused, pressed == kit::Key::tab);
-        if (next == kit::no_control)
-            return {};
-        interaction.focused = next;
-        interaction.focus_shown = true;
-        interaction.pointer_hid_ring = false;
-        reveal(state, list, next);
-        return redrawn();
-    }
     case kit::Key::space:
         // A space typed into the search arrives as text. On a strip it
         // leaves the choice as it is.
@@ -506,7 +454,7 @@ browser_key(Browser& browser, ScreenState& state, const kit::DisplayList& list, 
         break;
     case kit::Key::enter:
         if (on_search) {
-            const kit::ControlId entry = grid_entry(browser, list);
+            const kit::ControlId entry = grid_entry(list);
             if (entry == kit::no_control)
                 return {};
             interaction.focused = entry;

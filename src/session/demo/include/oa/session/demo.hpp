@@ -441,6 +441,61 @@ void demo_session_end(DemoSession* session) noexcept;
 /// @return True when playback is complete.
 [[nodiscard]] bool demo_session_finished(const DemoSession& session) noexcept;
 
+/// The counts one `demo summary` line is built from.
+///
+/// `--play-demo` fills every field from the playback. A game that joined a
+/// replayer fills the applied records, the created units and the packet
+/// layer's dropped frames from the live match; it has not read the file, so
+/// the file's oversized frames, bad packets and untimed unit states stay 0,
+/// and so do tick errors.
+struct DemoSummary {
+    uint32_t records_applied{};
+    uint32_t records_refused{};
+    uint32_t units_created{};
+    uint32_t creates_refused{};
+    uint32_t creates_past_table{};
+    uint32_t record_errors{};
+    uint32_t tick_errors{};
+    uint32_t dropped_frames{};
+    uint32_t frames_oversized{};
+    uint32_t bad_packets{};
+    uint32_t untimed_unit_states{};
+    std::string last_error{};
+};
+
+/// The `demo summary` line `--play-demo` prints, without its trailing newline.
+///
+/// @param summary The counts.
+/// @return The line.
+[[nodiscard]] std::string demo_summary_line(const DemoSummary& summary);
+
+/// The counts a match has of its own: applied and refused records, record
+/// errors, created units, and dropped frames.
+///
+/// Oversized frames, bad packets, untimed unit states, tick errors and the
+/// last error stay 0. A connection with no packet layer counts no dropped
+/// frames.
+///
+/// @param match The match the records were applied on.
+/// @param binding The binding that counted the created units.
+/// @param connection The connection whose packet layer counted dropped frames.
+/// @return Those counts.
+[[nodiscard]] DemoSummary demo_summary_of_match(
+    const netgame::match::NetMatch& match,
+    const netgame::match::MatchBinding& binding,
+    const netgame::match::NetConnection& connection
+);
+
+/// The counts `--play-demo` prints for a playback session.
+///
+/// The match's own counts come from `demo_summary_of_match`. Tick errors, the
+/// file's oversized frames, bad packets and untimed unit states, and the last
+/// error, come from the session.
+///
+/// @param session The session the line describes.
+/// @return Its counts, including the file's own.
+[[nodiscard]] DemoSummary demo_summary_of(const DemoSession& session);
+
 // How far a gap between two of the tracked unit's full records may stray
 // from units_per_player ticks: delivery spreads a frame's records over up to
 // 30 ticks after a send interval of 6.

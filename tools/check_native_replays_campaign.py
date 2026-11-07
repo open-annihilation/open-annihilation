@@ -14,9 +14,11 @@ Headless games, each in a scratch user folder:
    file is mission 0, ``game.ended`` ``finished``, ``game.length_ticks`` N.
    ``--replay-index`` of that file ends ``finished`` on the same tick: the
    mission ends with no commander's death and no end-screen scores, and the
-   index takes ``meta.json``.
+   index takes ``meta.json``. The recording player's ``result`` is ``won``,
+   and the index shows Won.
 2. Mission 8, 700 ticks, the mission ``native-campaign-defeat`` plays, the
-   same way. It stops at its defeat.
+   same way. It stops at its defeat, the recording player's ``result`` is
+   ``lost``, and the index shows Lost.
 3. Each recording's players and feature cells match the replay. Playing the
    file for one tick creates as many units as the live tick 0 census.
 4. A ``.tad`` from ``--record-game`` and from ``--net-record``, the ``.tad``
@@ -472,9 +474,9 @@ def expect_played_file(native, game_dir, work, replay, live, label, ticks, units
     return playback, created
 
 
-def expect_indexed(native, game_dir, work, replay, victory_tick):
-    """Indexes a victory file. A finished recording with no commander's death ends finished."""
-    user = work / "mission-0-index"
+def expect_indexed(native, game_dir, work, replay, end_tick, players, shows):
+    """Indexes a finished mission. Won lists the recording player; Lost does not."""
+    user = work / "mission-index"
     preferences = work / "mission-0-index.conf"
     output = work / "mission-0-index.json"
     lines = [
@@ -524,14 +526,32 @@ def expect_indexed(native, game_dir, work, replay, victory_tick):
         show(text)
         raise ScriptFailure(f"the index of {replay.name} is not JSON: {error}") from error
     ended = parsed.get("ended", {})
-    if ended.get("how") != "finished" or ended.get("tick") != victory_tick:
+    if ended.get("how") != "finished" or ended.get("tick") != end_tick:
         show(text)
         raise ScriptFailure(
             f"{replay.name} indexed ended {ended.get('how')} at tick {ended.get('tick')}, "
-            f"not finished at {victory_tick}"
+            f"not finished at {end_tick}"
+        )
+    result = parsed.get("result", {})
+    winners = result.get("winners")
+    player = None
+    for one in players:
+        if one.get("recorded_here"):
+            player = one.get("number")
+            break
+    if (
+        result.get("by") != "mission"
+        or not isinstance(winners, list)
+        or player is None
+        or (shows == "Won" and player not in winners)
+        or (shows == "Lost" and (player in winners or not winners))
+    ):
+        raise ScriptFailure(
+            f"{replay.name} does not show {shows} for player {player}: {result}"
         )
     print(
-        f"replays campaign: {replay.name} indexed, ended finished at tick {ended.get('tick')}"
+        f"replays campaign: {replay.name} indexed, ended finished at tick {ended.get('tick')}, "
+        f"shows {shows}"
     )
 
 
@@ -585,7 +605,9 @@ def expect_mission_zero(native, game_dir, work):
     _playback, created = expect_played_file(
         native, game_dir, work, replay, live, "mission-0", victory_tick, units
     )
-    expect_indexed(native, game_dir, work, replay, victory_tick)
+    expect_indexed(
+        native, game_dir, work, replay, victory_tick, meta.get("players", []), "Won"
+    )
     print(
         f"replays campaign: {CAMPAIGN} mission 0 ({mission_name}), victory at tick {victory_tick}, "
         f"the same {own_bytes}-byte trace with recording on and off; "
@@ -649,6 +671,9 @@ def expect_mission_eight(native, game_dir, work):
     _playback, created = expect_played_file(
         native, game_dir, work, replay, live, "mission-8", length, units
     )
+    if outcome != "defeat":
+        raise ScriptFailure(f"mission 8 ended {outcome}, not a defeat")
+    expect_indexed(native, game_dir, work, replay, length, meta.get("players", []), "Lost")
     trace_bytes = len(outputs["off"][1])
     print(
         f"replays campaign: {CAMPAIGN} mission 8 ({mission_name}), "

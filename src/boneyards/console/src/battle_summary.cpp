@@ -7,10 +7,13 @@
 // wins beside its logo.
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "console_state.hpp"
 #include "oa/boneyards/screens/galaxy.hpp"
+#include "oa/boneyards/shown_text.hpp"
 #include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/raster.hpp"
 #include "oa/present/surface.hpp"
@@ -37,6 +40,16 @@ constexpr int32_t count_width = 0xf;
 constexpr int32_t label_height = 9;
 constexpr int32_t icon_size = 0xb;
 constexpr Rect32 picture{0x23a, 0x7e, 0x26d, 0x9c};
+// "Núcleo 117" in the install's small green face is 43 pixels. The side
+// words start so that line's last pixel is the picture's right edge.
+constexpr int32_t side_line_pixels = 43;
+constexpr int32_t side_words_x = picture.x2 - (side_line_pixels - 1);
+// The battles and forming counts move left by one pixel while those words
+// show, so their box ends on the pixel before the words.
+constexpr int32_t count_x_beside_words = side_words_x - count_width;
+static_assert(side_words_x + side_line_pixels - 1 == picture.x2);
+static_assert(count_x_beside_words == count_x - 1);
+static_assert(count_x_beside_words > label_x + caption_width);
 constexpr int32_t picture_x = 0x254;
 constexpr int32_t picture_y = 0x8d;
 } // namespace layout
@@ -302,6 +315,107 @@ void stack_labels(BattleSummary* summary) {
     }
 }
 
+void set_label_text(Window* label, const char* line) {
+    if (label == nullptr || line == nullptr)
+        return;
+    const char* current = "";
+    if (label->states.count > 1 && label->states.texts != nullptr && label->states.texts[1] >= 0)
+        current = text_get(label->states.texts[1]);
+    if (current != nullptr && std::strcmp(current, line) == 0)
+        return;
+    screens::lobby_label_set_text(label, line);
+}
+
+// The wins line starts at the count. While shape cues are in effect it starts
+// where a 43-pixel line still ends on the panel's inner edge. The logo hides.
+void place_wins_label(Window* label, bool take_logo) {
+    if (label == nullptr || label->parent == nullptr)
+        return;
+    const int32_t x = label->parent->x + (take_logo ? layout::side_words_x : layout::wins_x);
+    if (label->x != x)
+        label->x = x;
+}
+
+// The battles and forming counts keep their width. They step one pixel left
+// while the side words need the pixel their box used to end on.
+void place_count_label(Window* label, bool beside_words) {
+    if (label == nullptr || label->parent == nullptr)
+        return;
+    const int32_t x =
+        label->parent->x + (beside_words ? layout::count_x_beside_words : layout::count_x);
+    if (label->x != x)
+        label->x = x;
+}
+
+// The wins label is fifteen pixels until shape cues put the side's name in front.
+// It grows to the measured line. Its last pixel stays on the picture's right edge,
+// the panel's inner edge, or to the left of it.
+void fit_wins_label(const BattleSummary* summary, Window* label, const char* line, bool widen) {
+    if (label == nullptr)
+        return;
+    int32_t width = layout::count_width;
+    if (widen && line != nullptr && line[0] != '\0') {
+        int32_t measured = 0;
+        Toolkit* toolkit = summary->frame != nullptr && summary->frame->owner != nullptr
+                               ? summary->frame->owner->toolkit
+                               : nullptr;
+        if (toolkit != nullptr) {
+            int32_t height = 0;
+            toolkit_measure_text(toolkit, label->font, line, &measured, &height);
+        } else {
+            measured = 40;
+        }
+        if (measured > width)
+            width = measured;
+        const int32_t room = layout::picture.x2 - label->x + 1;
+        if (width > room)
+            width = room;
+    }
+    if (label->width != width)
+        label->width = width;
+}
+
+// The side logos show with a contested planet, and hide while shape cues put the side's name
+// where the logo was.
+void settle_side_logos(BattleSummary* summary) {
+    if (summary == nullptr)
+        return;
+    const screens::GalaxyView* galaxy = galaxy_of(summary);
+    const bool contested = galaxy != nullptr && galaxy->territory.contested_shown;
+    const bool logos = contested && !present::colour_vision::shape_cues_active();
+    if (summary->arm_icon != nullptr)
+        summary->arm_icon->visible = logos ? 1 : 0;
+    if (summary->core_icon != nullptr)
+        summary->core_icon->visible = logos ? 1 : 0;
+}
+
+// Writes each side's win count, with the side's name while shape cues are in effect.
+// A planet that is not contested keeps the text it already shows.
+void show_side_counts(BattleSummary* summary) {
+    if (summary == nullptr)
+        return;
+    const screens::GalaxyView* galaxy = galaxy_of(summary);
+    const bool contested = galaxy != nullptr && galaxy->territory.contested_shown;
+    const bool widen = contested && present::colour_vision::shape_cues_active();
+    place_count_label(summary->battles, widen);
+    place_count_label(summary->forming, widen);
+    place_wins_label(summary->arm_wins, widen);
+    place_wins_label(summary->core_wins, widen);
+    if (!contested) {
+        fit_wins_label(summary, summary->arm_wins, nullptr, false);
+        fit_wins_label(summary, summary->core_wins, nullptr, false);
+        return;
+    }
+    char arm_line[48];
+    char core_line[48];
+    summary_side_count(arm_line, sizeof arm_line, true, galaxy->territory.arm_wins.text);
+    summary_side_count(core_line, sizeof core_line, false, galaxy->territory.core_wins.text);
+    set_label_text(summary->arm_wins, arm_line);
+    set_label_text(summary->core_wins, core_line);
+    fit_wins_label(summary, summary->arm_wins, arm_line, widen);
+    fit_wins_label(summary, summary->core_wins, core_line, widen);
+}
+
 } // namespace
 
 const char* summary_win_icon_label(bool arm) {
@@ -352,14 +466,12 @@ void battle_summary_update(BattleSummary* summary) {
         summary->forming,
     };
     show(first, sizeof first / sizeof first[0], t.shown);
-    if (t.contested_shown) {
-        screens::lobby_label_set_text(summary->arm_wins, t.arm_wins.text);
-        screens::lobby_label_set_text(summary->core_wins, t.core_wins.text);
-    }
+    show_side_counts(summary);
     Window* const contested[] = {
         summary->arm_icon, summary->arm_wins, summary->core_icon, summary->core_wins
     };
     show(contested, sizeof contested / sizeof contested[0], t.contested_shown);
+    settle_side_logos(summary);
     stack_labels(summary);
     refresh_side_icons(summary);
     if (summary->frame != nullptr && summary->frame->owner != nullptr) {
@@ -372,7 +484,26 @@ void battle_summary_update(BattleSummary* summary) {
     }
 }
 
+void summary_side_count(char* out, std::size_t capacity, bool arm, const char* count) {
+    if (out == nullptr || capacity == 0)
+        return;
+    const char* digits = count != nullptr ? count : "";
+    if (!present::colour_vision::shape_cues_active()) {
+        std::snprintf(out, capacity, "%s", digits);
+        return;
+    }
+    const char* name = shown_text(arm ? "Arm" : "Core");
+    if (name == nullptr || name[0] == '\0')
+        name = arm ? "Arm" : "Core";
+    if (digits[0] == '\0')
+        std::snprintf(out, capacity, "%s", name);
+    else
+        std::snprintf(out, capacity, "%s %s", name, digits);
+}
+
 void battle_summary_draw(BattleSummary* summary) {
+    show_side_counts(summary);
+    settle_side_logos(summary);
     refresh_side_icons(summary);
     Surface* background = &summary->background;
     if (background->pixels == nullptr)

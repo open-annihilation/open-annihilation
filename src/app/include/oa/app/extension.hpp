@@ -1773,8 +1773,12 @@ struct ExtensionControl {
     bool visible{true};          ///< it is shown
     bool enabled{true};          ///< it takes a click
     bool focused{};              ///< it holds the keyboard focus
-    bool checked{};              ///< a check box is checked
-    std::string text;            ///< its caption, its label's text or a field's typed text
+    /// The window itself holds the focus. A reported first stop sets
+    /// `focused` and leaves this false, so the family's ring is not drawn
+    /// around a stop the window did not focus.
+    bool holds_focus{};
+    bool checked{};   ///< a check box is checked
+    std::string text; ///< its caption, its label's text or a field's typed text
     /// A masked field. `text` stays empty. `text_length` is the characters it holds.
     bool masked{};
     int32_t text_length{};

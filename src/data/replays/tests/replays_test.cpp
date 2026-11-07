@@ -1537,6 +1537,20 @@ void a_set_aside_kept_file_spares_what_it_may_have_kept(const Scratch& scratch) 
     OA_CHECK(!lib::spared_by_set_aside(long_ago, lib::kept_set_aside_at(recordings)));
 }
 
+void a_multibyte_title_is_cut_on_a_character() {
+    std::string title = "a";
+    for (int count = 0; count < 80; ++count)
+        title += "\xC3\xA9";
+    const std::string stem = lib::recording_stem(title);
+    OA_CHECK(stem.size() == 119);
+    OA_CHECK(static_cast<unsigned char>(stem[stem.size() - 2]) == 0xC3);
+    OA_CHECK(static_cast<unsigned char>(stem.back()) == 0xA9);
+    OA_CHECK(lib::recording_stem("North Reach.oademo") == "North Reach");
+    OA_CHECK(lib::recording_stem("CON") == "CON_");
+    OA_CHECK(lib::recording_stem("") == "replay");
+    OA_CHECK(lib::recording_stem("../../../../escaped") == "_.._.._.._escaped");
+}
+
 /// A campaign's mission name, including a trailing space, is what a scan stores.
 ///
 /// @param scratch the test's folder
@@ -1565,6 +1579,7 @@ void a_campaign_keeps_its_mission_name(const Scratch& scratch) {
 } // namespace
 
 void test_replay_content_rows();
+void test_replay_feed();
 
 int main() {
     const Scratch scratch;
@@ -1583,5 +1598,7 @@ int main() {
     an_exported_mark_keeps_a_replay_past_the_span(scratch);
     a_set_aside_kept_file_spares_what_it_may_have_kept(scratch);
     test_replay_content_rows();
+    test_replay_feed();
+    a_multibyte_title_is_cut_on_a_character();
     return oa::test::check_exit_status();
 }

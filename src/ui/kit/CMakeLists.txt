@@ -78,6 +78,14 @@ if(BUILD_TESTING)
   add_test(NAME ui-kit-controls COMMAND oa-ui-kit-controls-test)
   set_tests_properties(ui-kit-controls PROPERTIES TIMEOUT 30)
 
+  # A state chip's mark while shape cues are in effect, and a chip's width
+  # and pixels with the cues off.
+  add_executable(oa-ui-kit-chip-marks-test tests/chip_marks_test.cpp)
+  target_link_libraries(oa-ui-kit-chip-marks-test PRIVATE oa-ui-kit oa-present-colour-vision
+    oa-test-support oa-options)
+  add_test(NAME ui-kit-chip-marks COMMAND oa-ui-kit-chip-marks-test)
+  set_tests_properties(ui-kit-chip-marks PROPERTIES TIMEOUT 30)
+
   add_executable(oa-ui-kit-tag-icons-test tests/tag_icons_test.cpp)
   target_link_libraries(oa-ui-kit-tag-icons-test PRIVATE oa-ui-kit oa-test-support oa-options
     oa-ui-paint oa-base-sha256)

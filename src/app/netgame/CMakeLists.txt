@@ -81,6 +81,7 @@ set(oa_app_netgame_sources
   runtime_console_network.cpp
   runtime_net.cpp
   runtime_demo.cpp
+  runtime_replay_viewer.cpp
   extension.cpp
   runtime_netgame.cpp
   runtime_opened_launch.cpp
@@ -121,6 +122,10 @@ if(TARGET oa-game)
 endif()
 
 if(BUILD_TESTING)
+  add_executable(oa-netgame-replay-viewer-end-test tests/replay_viewer_end_test.cpp)
+  target_include_directories(oa-netgame-replay-viewer-end-test PRIVATE include)
+  target_compile_features(oa-netgame-replay-viewer-end-test PRIVATE cxx_std_20)
+  add_test(NAME netgame-replay-viewer-end COMMAND oa-netgame-replay-viewer-end-test)
   add_executable(oa-netgame-launch-switches-test tests/launch_switches_test.cpp)
   target_link_libraries(oa-netgame-launch-switches-test PRIVATE oa-app-netgame-launch oa-options)
   add_test(NAME net-launch-switches COMMAND oa-netgame-launch-switches-test)

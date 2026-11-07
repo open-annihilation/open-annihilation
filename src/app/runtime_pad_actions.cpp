@@ -137,6 +137,17 @@ void PadAccess::press(Runtime& runtime, pc::PadButton button, uint64_t now) {
             state.ring.kind == PadRingKind::order ? pc::Action::order_ring : pc::Action::build_ring;
         return;
     }
+    // A replay's bar takes A, the shoulders, the triggers, the d-pad and B
+    // before a match binding. A paused match and a modal screen keep theirs.
+    if ((runtime.current_extension_state() & extension_state::replay) != 0 &&
+        !runtime.match_paused_ && !runtime.oa_layer().modal_shown(true)) {
+        if (runtime.replay_viewer_pad(button)) {
+            state.pressed[index] = {};
+            state.taps[index] = {};
+            state.deferred[index] = false;
+            return;
+        }
+    }
     const auto context = map_context(runtime);
     const auto now_layer = layer(runtime);
     const pc::Binding binding = pc::binding_for(context, now_layer, button);
@@ -434,11 +445,12 @@ void PadAccess::act_press(
         send_key(runtime, SDLK_TAB, SDL_KMOD_LSHIFT);
         return;
     case pc::Action::press: {
-        // The settings dialog's focused control takes Space; elsewhere the
-        // focused button or the default one takes Return.
+        // The settings dialog's focused control takes Space once a key has
+        // shown the ring; at open, as before, and elsewhere the focused button
+        // or the default one takes Return.
         auto* dialog = runtime.engine_settings_dialog();
-        const bool focused =
-            dialog != nullptr && dialog->focused != oa::ui::engine_settings::no_control;
+        const bool focused = dialog != nullptr && dialog->focus_shown &&
+                             dialog->focused != oa::ui::engine_settings::no_control;
         send_key(runtime, focused ? SDLK_SPACE : SDLK_RETURN);
         return;
     }

@@ -225,8 +225,9 @@ keyboard, in the inspector, in Find by key or on a way out of a clash
 writes a chord until its own button does.
 
 The editor's areas, in order, are Orders, Pointer, Selection, Groups,
-Camera, Building, Game, Chat, Watching, Window, Menus, and then Developer
-while Developer Mode is on. Megamap and Whiteboard are areas of their own
+Camera, Building, Game, Chat, Watching, Window, Menus, Photo mode, and then
+Developer while Developer Mode is on. Photo mode has no legend letter, so
+F9 does not wear the Game tint. Megamap and Whiteboard are areas of their own
 while those hacks are on. A hack's other commands stay in the area they
 belong to, and the keys panel groups the ones that exist only because a
 hack is on under **This mod**. Tags, for the units' category words, and
@@ -705,6 +706,49 @@ such as **Pan left**, keep the way their names say.
 | Repeat command | `\` | `game.repeat-command` |
 | Open chat | `Enter` | `chat.open` |
 | Open allies chat | — | `chat.open-allies` |
+
+### Photo mode
+
+These answer only while photo mode is open, except Photo mode itself, which
+opens it while you play or watch. The same chord can do both, because the
+two commands are not active together. The keys panel's title is "Keys in
+photo mode".
+
+| Command | Default keys | Action |
+| --- | --- | --- |
+| Photo mode | `F9` | `game.photo-mode` |
+| Leave | `F9` | `photo.leave` |
+| Take photo | `Enter, Ctrl+F9` | `photo.capture` |
+| Copy last photo | `Primary+C` | `photo.copy` |
+| Freeze / Hold picture | `Space` | `photo.freeze` |
+| Step a tick | `.` | `photo.step` |
+| Shutter back | `Shift+,` | `photo.shutter-back` |
+| Shutter on | `Shift+.` | `photo.shutter-on` |
+| Pan | `MouseLeft` | `photo.pan` |
+| Zoom in | `PageUp` | `photo.zoom-in` |
+| Zoom out | `PageDown` | `photo.zoom-out` |
+| Turn left | `Alt+Left` | `photo.turn-left` |
+| Turn right | `Alt+Right` | `photo.turn-right` |
+| Tilt up | `Alt+Up` | `photo.tilt-up` |
+| Tilt down | `Alt+Down` | `photo.tilt-down` |
+
+### Replay
+
+These answer while a replay plays, and not while a live game is watched. Slower and faster stay Speed down and Speed up (`game.speed-down`, `game.speed-up`). Leave stays the game menu (`F2`, `Escape`, `game.menu`).
+
+| Command | Default keys | Action |
+| --- | --- | --- |
+| Play or pause | `Pause, K` | `watch.replay-pause` |
+| Back 10 seconds | `J` | `watch.replay-back` |
+| Forward 10 seconds | `L` | `watch.replay-forward` |
+| Back a minute | `Shift+J` | `watch.replay-back-long` |
+| Forward a minute | `Shift+L` | `watch.replay-forward-long` |
+| Previous marker | `,` | `watch.replay-previous-marker` |
+| Next marker | `.` | `watch.replay-next-marker` |
+| Go to the start | `Ctrl+Home` | `watch.replay-start` |
+| Go to the end | `Ctrl+End` | `watch.replay-end` |
+| Pin the bar | `B` | `watch.replay-bar` |
+| Shortcut card | `?` | `watch.replay-keys` |
 
 ### Chat
 

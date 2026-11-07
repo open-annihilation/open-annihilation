@@ -451,6 +451,11 @@ inline constexpr int32_t no_control = -1;
 /// An open drop-down's items take the numbers just under no_control, so the
 /// mark keeps a number clear of that run and of the registered list.
 inline constexpr int32_t close_x_control = -9000;
+/// The section list's one tab stop. It is not a control a press reaches and
+/// it is not drawn: the focus lands on one of the list's entries. Its number
+/// is clear of the close mark, of an open list's items and of the registered
+/// list.
+inline constexpr int32_t section_list_control = -8000;
 /// Change layout… on Controls' key layout card: it asks the host to open the
 /// Library on Keys (DialogAction::open_library). Its number follows the close
 /// mark's, clear of an open list's items and of the registered list.
@@ -1183,8 +1188,20 @@ struct Dialog {
     uint32_t forget_renderer_failures{};
     int32_t hovered{no_control}; ///< the control under the pointer
     int32_t pressed{no_control}; ///< the control a held press is on
-    int32_t focused{no_control}; ///< the control with the keyboard focus; shown once a key moves it
-    bool dragging{};             ///< the held press drags a slider's knob or the scroll bar's thumb
+    int32_t focused{no_control}; ///< the control with the keyboard focus
+    /// The ring is drawn while this is set, the pointer has not hidden it
+    /// and focused names a control. A caller that sets focused and leaves
+    /// this at its default draws the ring. The dialog opens with it clear:
+    /// the open section's entry is focused and no ring shows. Return clears
+    /// it after pressing the focused control, while the ring was drawn.
+    bool focus_shown{true};
+    /// The pointer has hidden the ring. The focused control still takes the
+    /// keys, except Return, which accepts while the ring is not drawn.
+    bool pointer_hid_ring{false};
+    /// The section-list entry the keys return to. The open section's entry
+    /// until an arrow or a press chooses another.
+    int32_t nav_part{no_control};
+    bool dragging{}; ///< the held press drags a slider's knob or the scroll bar's thumb
     /// Each section's scroll offset, in source pixels from its top; clamped
     /// to the section's limit wherever it is used. Every section starts at
     /// its top when the dialog opens.
@@ -1522,6 +1539,10 @@ void set_registered_pages(
 [[nodiscard]] std::vector<RegisteredWrite> registered_writes(const Dialog& dialog);
 
 /// Opens the dialog over settings in effect.
+///
+/// The open section's entry in the section list is focused and the ring is
+/// hidden. Tab moves to that section's first control and shows the ring.
+/// Shift+Tab shows the close mark.
 ///
 /// @param[out] dialog the dialog; whatever it held is replaced
 /// @param current the settings in effect

@@ -842,6 +842,14 @@
 	it=Uccisioni;
 	}
 
+[Leave]
+	{
+	de=Verlassen;
+	fr=Quitter;
+	es=Salir;
+	it=Esci;
+	}
+
 [Left]
 	{
 	de=Links;
@@ -1048,6 +1056,14 @@
 	fr=Maj;
 	es=Mayús;
 	it=Maiusc;
+	}
+
+[Shortcut card]
+	{
+	de=Tastenkarte;
+	fr=Carte des raccourcis;
+	es=Tarjeta de atajos;
+	it=Scheda dei tasti;
 	}
 
 [Shot]
@@ -2944,6 +2960,14 @@
 	fr=Ne peut pas fonctionner à côté de {name};
 	es=No puede funcionar junto a {name};
 	it=Non può funzionare accanto a {name};
+	}
+
+[Catching up… {percent} %]
+	{
+	de=Aufholen… {percent} %;
+	fr=Rattrapage… {percent} %;
+	es=Alcanzando… {percent} %;
+	it=Recupero… {percent} %;
 	}
 
 [Cavedog tilesets]
@@ -7186,6 +7210,14 @@
 	it=Controllo di {location}…;
 	}
 
+[Losses]
+	{
+	de=Verluste;
+	fr=Perdus;
+	es=Pérdidas;
+	it=Perdite;
+	}
+
 [Low]
 	{
 	de=Niedrig;
@@ -8178,6 +8210,14 @@
 	it=Non ci sono pacchetti di mappe installati.;
 	}
 
+[No markers yet · finding them, {percent} %]
+	{
+	de=Noch keine Markierungen · ich suche sie, {percent} %;
+	fr=Pas encore de repères · je les cherche, {percent} %;
+	es=Aún no hay marcas · las busco, {percent} %;
+	it=Ancora nessun segno · li cerco, {percent} %;
+	}
+
 [No mutator matches these filters]
 	{
 	de=Kein Mutator passt zu diesen Filtern;
@@ -8232,6 +8272,14 @@
 	fr=Aucune source ne le liste, donc la Bibliothèque ne peut pas l'obtenir à nouveau.;
 	es=Ninguna fuente lo lista, así que la Biblioteca no puede obtenerlo de nuevo.;
 	it=Nessuna fonte lo elenca, quindi la Biblioteca non può ottenerlo di nuovo.;
+	}
+
+[No result]
+	{
+	de=Kein Ergebnis;
+	fr=Pas de résultat;
+	es=Sin resultado;
+	it=Nessun risultato;
 	}
 
 [No signing key]
@@ -8938,6 +8986,14 @@
 	it=In linea;
 	}
 
+[Only a replay in the Library can be exported]
+	{
+	de=Nur ein Replay in der Bibliothek kann exportiert werden;
+	fr=Seul un replay dans la Bibliothèque peut être exporté;
+	es=Solo se puede exportar una repetición de la Biblioteca;
+	it=Si può esportare solo un replay della Biblioteca;
+	}
+
 [Only when I ask]
 	{
 	de=Nur wenn ich frage;
@@ -9490,6 +9546,14 @@
 	it=Piattaforma;
 	}
 
+[Play or pause]
+	{
+	de=Wiedergabe oder Pause;
+	fr=Lecture ou pause;
+	es=Reproducir o pausar;
+	it=Riproduci o metti in pausa;
+	}
+
 [Play the 1997 demo]
 	{
 	de=Die Demo von 1997 spielen;
@@ -9504,6 +9568,14 @@
 	fr=En jeu;
 	es=Jugando;
 	it=In gioco;
+	}
+
+[Plays or pauses the replay]
+	{
+	de=Spielt das Replay oder hält es an;
+	fr=Lit ou met le replay en pause;
+	es=Reproduce o pausa la repetición;
+	it=Riproduce o mette in pausa il replay;
 	}
 
 [Plus]
@@ -10784,6 +10856,14 @@
 	fr=Montre la page suivante.;
 	es=Muestra la página siguiente.;
 	it=Mostra la pagina successiva.;
+	}
+
+[Shows the playback keys]
+	{
+	de=Zeigt die Wiedergabetasten;
+	fr=Montre les touches de lecture;
+	es=Muestra las teclas de reproducción;
+	it=Mostra i tasti di riproduzione;
 	}
 
 [Shows the previous page.]
@@ -13136,6 +13216,14 @@
 	fr=Sans touche;
 	es=Sin tecla;
 	it=Senza tasto;
+	}
+
+[Undecided]
+	{
+	de=Unentschieden;
+	fr=Indécis;
+	es=Indeciso;
+	it=Indeciso;
 	}
 
 [Underwater shimmer]
@@ -15762,6 +15850,14 @@
 	it={added}. {name} è già lì ed è stato tenuto.;
 	}
 
+[{asked} · {reached} now]
+	{
+	de={asked} · jetzt {reached};
+	fr={asked} · {reached} maintenant;
+	es={asked} · {reached} ahora;
+	it={asked} · {reached} ora;
+	}
+
 [{a} and {b}]
 	{
 	de={a} und {b};
@@ -16642,6 +16738,14 @@
 	it={name} non è stato disinstallato. {reason};
 	}
 
+[{name} won]
+	{
+	de={name} hat gewonnen;
+	fr={name} a gagné;
+	es={name} ganó;
+	it={name} ha vinto;
+	}
+
 [{name} {from} → {to}]
 	{
 	de={name} {from} → {to};
@@ -17242,6 +17346,78 @@
 	it={tag} ({count});
 	}
 
+[{time} · End]
+	{
+	de={time} · Ende;
+	fr={time} · Fin;
+	es={time} · Fin;
+	it={time} · Fine;
+	}
+
+[{time} · Paused]
+	{
+	de={time} · Pause;
+	fr={time} · Pause;
+	es={time} · Pausa;
+	it={time} · Pausa;
+	}
+
+[{time} · {name} allied]
+	{
+	de={time} · {name} verbündet;
+	fr={time} · {name} allié;
+	es={time} · {name} aliado;
+	it={time} · {name} alleato;
+	}
+
+[{time} · {name} broke the alliance]
+	{
+	de={time} · {name} hat das Bündnis gelöst;
+	fr={time} · {name} a rompu l'alliance;
+	es={time} · {name} rompió la alianza;
+	it={time} · {name} ha rotto l'alleanza;
+	}
+
+[{time} · {name} dropped]
+	{
+	de={time} · {name} getrennt;
+	fr={time} · {name} déconnecté;
+	es={time} · {name} desconectado;
+	it={time} · {name} disconnesso;
+	}
+
+[{time} · {name} left]
+	{
+	de={time} · {name} hat verlassen;
+	fr={time} · {name} est parti;
+	es={time} · {name} se fue;
+	it={time} · {name} è uscito;
+	}
+
+[{time} · {name} was defeated]
+	{
+	de={time} · {name} wurde besiegt;
+	fr={time} · {name} a été vaincu;
+	es={time} · {name} fue derrotado;
+	it={time} · {name} è stato sconfitto;
+	}
+
+[{time} · {name}'s commander destroyed]
+	{
+	de={time} · Kommandant von {name} zerstört;
+	fr={time} · commandant de {name} détruit;
+	es={time} · comandante de {name} destruido;
+	it={time} · comandante di {name} distrutto;
+	}
+
+[{time} · {name}: {line}]
+	{
+	de={time} · {name}: {line};
+	fr={time} · {name}: {line};
+	es={time} · {name}: {line};
+	it={time} · {name}: {line};
+	}
+
 [{title} could not be rolled back; nothing was changed.]
 	{
 	de={title} konnte nicht zurückgerollt werden. Es wurde nichts geändert.;
@@ -17600,6 +17776,14 @@
 	fr=· ton changement;
 	es=· tu cambio;
 	it=· la tua modifica;
+	}
+
+[½×]
+	{
+	de=½×;
+	fr=½×;
+	es=½×;
+	it=½×;
 	}
 
 [‹ DOWNLOADS]
@@ -21796,6 +21980,14 @@
 
 // The key bindings: each action's name and description, the select.tag
 // family's words (src/data/input-actions, generated from the registry).
+[Next marker]
+	{
+	de=Nächste Markierung;
+	fr=Marqueur suivant;
+	es=Marcador siguiente;
+	it=Indicatore successivo;
+	}
+
 [Next page]
 	{
 	de=Nächste Seite;
@@ -21810,6 +22002,14 @@
 	fr=Page suivante du menu de construction;
 	es=Página siguiente del menú de construcción;
 	it=Pagina successiva del menu di costruzione;
+	}
+
+[Previous marker]
+	{
+	de=Vorherige Markierung;
+	fr=Marqueur précédent;
+	es=Marcador anterior;
+	it=Indicatore precedente;
 	}
 
 [Previous page]
@@ -22708,6 +22908,14 @@
 	it=Il pannello info dell'unità;
 	}
 
+[Pin the bar]
+	{
+	de=Leiste anheften;
+	fr=Épingler la barre;
+	es=Fijar la barra;
+	it=Fissa la barra;
+	}
+
 [Pin unit]
 	{
 	de=Einheit anheften;
@@ -22746,6 +22954,14 @@
 	fr=Panneau des ressources;
 	es=Panel de recursos;
 	it=Pannello risorse;
+	}
+
+[The recording is damaged after {time}]
+	{
+	de=Die Aufnahme ist nach {time} beschädigt;
+	fr=L'enregistrement est abîmé après {time};
+	es=La grabación está dañada a partir de {time};
+	it=La registrazione è danneggiata dopo {time};
 	}
 
 [The resource panel on or off]
@@ -23908,6 +24124,38 @@
 	it=Salto nella minimappa;
 	}
 
+[Jumps back a minute]
+	{
+	de=Springt eine Minute zurück;
+	fr=Recule d'une minute;
+	es=Salta un minuto atrás;
+	it=Torna indietro di un minuto;
+	}
+
+[Jumps back ten seconds]
+	{
+	de=Springt zehn Sekunden zurück;
+	fr=Recule de dix secondes;
+	es=Salta diez segundos atrás;
+	it=Torna indietro di dieci secondi;
+	}
+
+[Jumps forward a minute]
+	{
+	de=Springt eine Minute vor;
+	fr=Avance d'une minute;
+	es=Salta un minuto adelante;
+	it=Va avanti di un minuto;
+	}
+
+[Jumps forward ten seconds]
+	{
+	de=Springt zehn Sekunden vor;
+	fr=Avance de dix secondes;
+	es=Salta diez segundos adelante;
+	it=Va avanti di dieci secondi;
+	}
+
 [Jumps the view to a minimap point]
 	{
 	de=Springt mit der Ansicht zu einem Punkt der Minikarte;
@@ -24860,6 +25108,22 @@
 	it=Segno più recente;
 	}
 
+[Go to the end]
+	{
+	de=Zum Ende;
+	fr=Aller à la fin;
+	es=Ir al final;
+	it=Vai alla fine;
+	}
+
+[Go to the start]
+	{
+	de=Zum Anfang;
+	fr=Aller au début;
+	es=Ir al inicio;
+	it=Vai all'inizio;
+	}
+
 [Goes to the newest marker]
 	{
 	de=Geht zur neuesten Marke;
@@ -25390,12 +25654,36 @@
 	it=Volume su;
 	}
 
+[Back 10 seconds]
+	{
+	de=10 Sekunden zurück;
+	fr=10 secondes en arrière;
+	es=10 segundos atrás;
+	it=10 secondi indietro;
+	}
+
+[Back a minute]
+	{
+	de=Eine Minute zurück;
+	fr=Une minute en arrière;
+	es=Un minuto atrás;
+	it=Un minuto indietro;
+	}
+
 [Back button]
 	{
 	de=Zurück-Taste;
 	fr=Bouton précédent;
 	es=Botón atrás;
 	it=Tasto indietro;
+	}
+
+[Back to the Library]
+	{
+	de=Zurück zur Bibliothek;
+	fr=Retour à la Bibliothèque;
+	es=Volver a la Biblioteca;
+	it=Torna alla Biblioteca;
 	}
 
 [Backquote]
@@ -25588,6 +25876,22 @@
 	fr=Esc;
 	es=Esc;
 	it=Esc;
+	}
+
+[Forward 10 seconds]
+	{
+	de=10 Sekunden vor;
+	fr=10 secondes en avant;
+	es=10 segundos adelante;
+	it=10 secondi avanti;
+	}
+
+[Forward a minute]
+	{
+	de=Eine Minute vor;
+	fr=Une minute en avant;
+	es=Un minuto adelante;
+	it=Un minuto avanti;
 	}
 
 [Forward button]
@@ -26262,6 +26566,38 @@
 	it=Non è stato possibile disegnare l'immagine;
 	}
 
+[Photo not copied: {reason}]
+	{
+	de=Foto nicht kopiert: {reason};
+	fr=Photo non copiée : {reason};
+	es=Foto no copiada: {reason};
+	it=Foto non copiata: {reason};
+	}
+
+[a side is above 8192 pixels]
+	{
+	de=Eine Seite ist über 8192 Pixel;
+	fr=un côté dépasse 8192 pixels;
+	es=un lado pasa de 8192 píxeles;
+	it=un lato supera i 8192 pixel;
+	}
+
+[the photo is above 128 MB]
+	{
+	de=Das Foto ist über 128 MB;
+	fr=la photo dépasse 128 Mo;
+	es=la foto pasa de 128 MB;
+	it=la foto supera i 128 MB;
+	}
+
+[the clipboard did not take the photo]
+	{
+	de=Die Zwischenablage hat das Foto nicht übernommen;
+	fr=le presse-papiers n'a pas pris la photo;
+	es=el portapapeles no se quedó con la foto;
+	it=gli appunti non hanno preso la foto;
+	}
+
 [Play]
 	{
 	de=Spielen;
@@ -26436,6 +26772,14 @@
 	fr=Plus anciens;
 	es=Más antiguas;
 	it=Più vecchi;
+	}
+
+[Keeps the playback bar on screen]
+	{
+	de=Lässt die Wiedergabeleiste auf dem Bildschirm;
+	fr=Garde la barre de lecture à l'écran;
+	es=Mantiene la barra de reproducción en pantalla;
+	it=Tiene la barra di riproduzione sullo schermo;
 	}
 
 [Kept]
@@ -26630,6 +26974,38 @@
 	it=mag;
 	}
 
+[Jumps to the end of the replay]
+	{
+	de=Springt ans Ende des Replays;
+	fr=Va à la fin du replay;
+	es=Salta al final de la repetición;
+	it=Va alla fine del replay;
+	}
+
+[Jumps to the next marker]
+	{
+	de=Springt zur nächsten Markierung;
+	fr=Va au marqueur suivant;
+	es=Salta al marcador siguiente;
+	it=Va all'indicatore successivo;
+	}
+
+[Jumps to the previous marker]
+	{
+	de=Springt zur vorherigen Markierung;
+	fr=Va au marqueur précédent;
+	es=Salta al marcador anterior;
+	it=Va all'indicatore precedente;
+	}
+
+[Jumps to the start of the replay]
+	{
+	de=Springt an den Anfang des Replays;
+	fr=Va au début du replay;
+	es=Salta al inicio de la repetición;
+	it=Va all'inizio del replay;
+	}
+
 [Jun]
 	{
 	de=Juni;
@@ -26814,6 +27190,14 @@
 	it=Core;
 	}
 
+[Watch again]
+	{
+	de=Nochmal ansehen;
+	fr=Revoir;
+	es=Ver de nuevo;
+	it=Guarda di nuovo;
+	}
+
 [Watcher]
 	{
 	de=Zuschauer;
@@ -26982,6 +27366,14 @@
 	it=Dal pacchetto di mappe {pack}.;
 	}
 
+[This replay was recorded with another release of the map pack {name}.]
+	{
+	de=Dieses Replay wurde mit einer anderen Version des Kartenpakets {name} aufgenommen.;
+	fr=Ce replay a été enregistré avec une autre version du pack de cartes {name}.;
+	es=Esta repetición se grabó con otra versión del pack de mapas {name}.;
+	it=Questo replay è stato registrato con un'altra versione del pacchetto di mappe {name}.;
+	}
+
 [Needs the mutator {name}.]
 	{
 	de=Braucht den Mutator {name}.;
@@ -27038,20 +27430,188 @@
 	it=Attiva e guarda;
 	}
 
-[{name} {version} is not in Core Prime's catalogue.]
+[{name} {version} is not in {registry}'s catalogue.]
 	{
-	de={name} {version} ist nicht im Katalog von Core Prime.;
-	fr={name} {version} n'est pas dans le catalogue de Core Prime.;
-	es={name} {version} no está en el catálogo de Core Prime.;
-	it={name} {version} non è nel catalogo di Core Prime.;
+	de={name} {version} ist nicht im Katalog von {registry}.;
+	fr={name} {version} n'est pas dans le catalogue de {registry}.;
+	es={name} {version} no está en el catálogo de {registry}.;
+	it={name} {version} non è nel catalogo di {registry}.;
 	}
 
-[{name} is not in Core Prime's catalogue.]
+[{name} is not in {registry}'s catalogue.]
 	{
-	de={name} ist nicht im Katalog von Core Prime.;
-	fr={name} n'est pas dans le catalogue de Core Prime.;
-	es={name} no está en el catálogo de Core Prime.;
-	it={name} non è nel catalogo di Core Prime.;
+	de={name} ist nicht im Katalog von {registry}.;
+	fr={name} n'est pas dans le catalogue de {registry}.;
+	es={name} no está en el catálogo de {registry}.;
+	it={name} non è nel catalogo di {registry}.;
+	}
+
+[On this computer]
+	{
+	de=Auf diesem Computer;
+	fr=Sur cet ordinateur;
+	es=En este ordenador;
+	it=Su questo computer;
+	}
+
+[On Core Prime]
+	{
+	de=Auf Core Prime;
+	fr=Sur Core Prime;
+	es=En Core Prime;
+	it=Su Core Prime;
+	}
+
+[Longest]
+	{
+	de=Längste;
+	fr=Longues;
+	es=Más largas;
+	it=Più lunghi;
+	}
+
+[Popular]
+	{
+	de=Beliebt;
+	fr=Populaires;
+	es=Populares;
+	it=Popolari;
+	}
+
+[By planet]
+	{
+	de=Nach Planet;
+	fr=Par planète;
+	es=Por planeta;
+	it=Per pianeta;
+	}
+
+[Browse Core Prime's replays]
+	{
+	de=Core Primes Replays durchsuchen;
+	fr=Parcourir les replays de Core Prime;
+	es=Ver los replays de Core Prime;
+	it=Sfoglia i replay di Core Prime;
+	}
+
+[Reading Core Prime's replays…]
+	{
+	de=Core Primes Replays werden gelesen…;
+	fr=Lecture des replays de Core Prime…;
+	es=Leyendo los replays de Core Prime…;
+	it=Lettura dei replay di Core Prime…;
+	}
+
+[Core Prime's list cannot be read.]
+	{
+	de=Core Primes Liste kann nicht gelesen werden.;
+	fr=La liste de Core Prime ne peut pas être lue.;
+	es=La lista de Core Prime no se puede leer.;
+	it=La lista di Core Prime non si può leggere.;
+	}
+
+[Core Prime's replays are not available just now.]
+	{
+	de=Core Primes Replays sind gerade nicht verfügbar.;
+	fr=Les replays de Core Prime ne sont pas disponibles pour le moment.;
+	es=Los replays de Core Prime no están disponibles ahora.;
+	it=I replay di Core Prime non sono disponibili adesso.;
+	}
+
+[Core Prime cannot be reached.]
+	{
+	de=Core Prime ist nicht erreichbar.;
+	fr=Core Prime n'est pas joignable.;
+	es=No se puede llegar a Core Prime.;
+	it=Core Prime non è raggiungibile.;
+	}
+
+[Core Prime has no replays to show.]
+	{
+	de=Core Prime hat keine Replays zu zeigen.;
+	fr=Core Prime n'a aucun replay à montrer.;
+	es=Core Prime no tiene replays que mostrar.;
+	it=Core Prime non ha replay da mostrare.;
+	}
+
+[No replays for this planet.]
+	{
+	de=Keine Replays für diesen Planeten.;
+	fr=Aucun replay pour cette planète.;
+	es=No hay replays de este planeta.;
+	it=Nessun replay per questo pianeta.;
+	}
+
+[1 replay]
+	{
+	de=1 Replay;
+	fr=1 replay;
+	es=1 replay;
+	it=1 replay;
+	}
+
+[{count} replays]
+	{
+	de={count} Replays;
+	fr={count} replays;
+	es={count} replays;
+	it={count} replay;
+	}
+
+[Getting the replay…]
+	{
+	de=Replay wird geholt…;
+	fr=Récupération du replay…;
+	es=Obteniendo el replay…;
+	it=Recupero del replay…;
+	}
+
+[The file does not match the replay.]
+	{
+	de=Die Datei passt nicht zum Replay.;
+	fr=Le fichier ne correspond pas au replay.;
+	es=El archivo no coincide con el replay.;
+	it=Il file non corrisponde al replay.;
+	}
+
+[The replay names no file.]
+	{
+	de=Das Replay nennt keine Datei.;
+	fr=Le replay ne nomme aucun fichier.;
+	es=El replay no nombra ningún archivo.;
+	it=Il replay non indica alcun file.;
+	}
+
+[The replay could not be saved.]
+	{
+	de=Das Replay konnte nicht gespeichert werden.;
+	fr=Le replay n'a pas pu être enregistré.;
+	es=El replay no se ha podido guardar.;
+	it=Il replay non si è potuto salvare.;
+	}
+
+[Try again in {seconds} s.]
+	{
+	de=Versuch es in {seconds} s erneut.;
+	fr=Réessaie dans {seconds} s.;
+	es=Vuelve a intentarlo dentro de {seconds} s.;
+	it=Riprova tra {seconds} s.;
+	}
+
+[The check ran out. Try again for a new code.]
+	{
+	de=Die Prüfung ist abgelaufen. Versuch es erneut für einen neuen Code.;
+	fr=La vérification a expiré. Réessaie pour un nouveau code.;
+	es=La comprobación ha caducado. Vuelve a intentarlo para un código nuevo.;
+	it=Il controllo è scaduto. Riprova per un codice nuovo.;
+	}
+
+[Go to {address} and enter {code}.]
+	{
+	de=Geh zu {address} und gib {code} ein.;
+	fr=Va sur {address} et entre {code}.;
+	es=Ve a {address} e introduce {code}.;
+	it=Vai su {address} e inserisci {code}.;
 	}
 
 [You're offline.]
@@ -27676,4 +28236,236 @@
 	fr=Ce replay ne peut pas être lu, donc il ne peut pas être exporté.;
 	es=Esta repetición no se puede leer, así que no se puede exportar.;
 	it=Questo replay non si può leggere, quindi non si può esportare.;
+	}
+
+[Opens photo mode]
+	{
+	de=Öffnet den Fotomodus;
+	fr=Ouvre le mode photo;
+	es=Abre el modo foto;
+	it=Apre la modalità foto;
+	}
+
+[Leaves photo mode]
+	{
+	de=Verlässt den Fotomodus;
+	fr=Quitte le mode photo;
+	es=Sale del modo foto;
+	it=Esce dalla modalità foto;
+	}
+
+[Take photo]
+	{
+	de=Foto aufnehmen;
+	fr=Prendre une photo;
+	es=Tomar foto;
+	it=Scatta foto;
+	}
+
+[Writes a photo of the battlefield]
+	{
+	de=Speichert ein Foto des Schlachtfelds;
+	fr=Enregistre une photo du champ de bataille;
+	es=Guarda una foto del campo de batalla;
+	it=Salva una foto del campo di battaglia;
+	}
+
+[Copy last photo]
+	{
+	de=Letztes Foto kopieren;
+	fr=Copier la dernière photo;
+	es=Copiar la última foto;
+	it=Copia l'ultima foto;
+	}
+
+[Offers the last photo to the clipboard]
+	{
+	de=Bietet das letzte Foto der Zwischenablage an;
+	fr=Propose la dernière photo au presse-papiers;
+	es=Ofrece la última foto al portapapeles;
+	it=Offre l'ultima foto agli appunti;
+	}
+
+[Freeze / Hold picture]
+	{
+	de=Einfrieren / Bild halten;
+	fr=Geler / Garder l'image;
+	es=Congelar / Mantener imagen;
+	it=Congela / Tieni immagine;
+	}
+
+[Holds the clock, or keeps this screen's last frame in a shared match]
+	{
+	de=Hält die Uhr an, oder behält das letzte Bild dieses Bildschirms in einer gemeinsamen Partie;
+	fr=Arrête l'horloge, ou garde la dernière image de cet écran dans une partie partagée;
+	es=Detiene el reloj, o conserva el último fotograma de esta pantalla en una partida compartida;
+	it=Ferma l'orologio, o tiene l'ultimo fotogramma di questa schermata in una partita condivisa;
+	}
+
+[Step a tick]
+	{
+	de=Einen Tick weiter;
+	fr=Avancer d'un tick;
+	es=Avanzar un tick;
+	it=Avanza di un tick;
+	}
+
+[Advances one tick, then freezes]
+	{
+	de=Geht einen Tick weiter und friert dann ein;
+	fr=Avance d'un tick, puis gèle;
+	es=Avanza un tick y luego congela;
+	it=Avanza di un tick, poi congela;
+	}
+
+[Shutter back]
+	{
+	de=Verschluss zurück;
+	fr=Obturateur en arrière;
+	es=Obturador atrás;
+	it=Otturatore indietro;
+	}
+
+[Moves the shutter one eighth toward the previous tick]
+	{
+	de=Bewegt den Verschluss um ein Achtel zum vorherigen Tick;
+	fr=Déplace l'obturateur d'un huitième vers le tick précédent;
+	es=Mueve el obturador un octavo hacia el tick anterior;
+	it=Sposta l'otturatore di un ottavo verso il tick precedente;
+	}
+
+[Shutter on]
+	{
+	de=Verschluss vor;
+	fr=Obturateur en avant;
+	es=Obturador adelante;
+	it=Otturatore avanti;
+	}
+
+[Moves the shutter one eighth toward the frozen tick]
+	{
+	de=Bewegt den Verschluss um ein Achtel zum eingefrorenen Tick;
+	fr=Déplace l'obturateur d'un huitième vers le tick gelé;
+	es=Mueve el obturador un octavo hacia el tick congelado;
+	it=Sposta l'otturatore di un ottavo verso il tick congelato;
+	}
+
+[Zooms in on the photo]
+	{
+	de=Zoomt auf das Foto hinein;
+	fr=Zoome sur la photo;
+	es=Acerca sobre la foto;
+	it=Ingrandisce sulla foto;
+	}
+
+[Zooms out on the photo]
+	{
+	de=Zoomt vom Foto heraus;
+	fr=Dézoome depuis la photo;
+	es=Aleja sobre la foto;
+	it=Rimpicciolisce sulla foto;
+	}
+
+[Turn left]
+	{
+	de=Nach links drehen;
+	fr=Tourner à gauche;
+	es=Girar a la izquierda;
+	it=Gira a sinistra;
+	}
+
+[Turns the camera left]
+	{
+	de=Dreht die Kamera nach links;
+	fr=Tourne la caméra vers la gauche;
+	es=Gira la cámara a la izquierda;
+	it=Gira la telecamera a sinistra;
+	}
+
+[Turn right]
+	{
+	de=Nach rechts drehen;
+	fr=Tourner à droite;
+	es=Girar a la derecha;
+	it=Gira a destra;
+	}
+
+[Turns the camera right]
+	{
+	de=Dreht die Kamera nach rechts;
+	fr=Tourne la caméra vers la droite;
+	es=Gira la cámara a la derecha;
+	it=Gira la telecamera a destra;
+	}
+
+[Tilt up]
+	{
+	de=Nach oben neigen;
+	fr=Incliner vers le haut;
+	es=Inclinar hacia arriba;
+	it=Inclina verso l'alto;
+	}
+
+[Tilts the camera up]
+	{
+	de=Neigt die Kamera nach oben;
+	fr=Incline la caméra vers le haut;
+	es=Inclina la cámara hacia arriba;
+	it=Inclina la telecamera verso l'alto;
+	}
+
+[Tilt down]
+	{
+	de=Nach unten neigen;
+	fr=Incliner vers le bas;
+	es=Inclinar hacia abajo;
+	it=Inclina verso il basso;
+	}
+
+[Tilts the camera down]
+	{
+	de=Neigt die Kamera nach unten;
+	fr=Incline la caméra vers le bas;
+	es=Inclina la cámara hacia abajo;
+	it=Inclina la telecamera verso il basso;
+	}
+
+[in photo mode]
+	{
+	de=im Fotomodus;
+	fr=en mode photo;
+	es=en modo foto;
+	it=in modalità foto;
+	}
+
+[In photo mode]
+	{
+	de=Im Fotomodus;
+	fr=En mode photo;
+	es=En modo foto;
+	it=In modalità foto;
+	}
+
+[Keys in photo mode]
+	{
+	de=Tasten im Fotomodus;
+	fr=Touches en mode photo;
+	es=Teclas en modo foto;
+	it=Tasti in modalità foto;
+	}
+
+[not available in Game Mode]
+	{
+	de=Im Game Mode nicht verfügbar;
+	fr=pas disponible en Game Mode;
+	es=no disponible en Game Mode;
+	it=non disponibile in Game Mode;
+	}
+
+[the clipboard holds text only]
+	{
+	de=Die Zwischenablage enthält nur Text;
+	fr=le presse-papiers ne contient que du texte;
+	es=el portapapeles solo contiene texto;
+	it=gli appunti contengono solo testo;
 	}

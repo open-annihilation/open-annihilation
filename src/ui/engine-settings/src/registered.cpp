@@ -216,9 +216,14 @@ std::optional<DialogAction> activate_registered(Dialog& dialog, int32_t control)
         dialog.list_pressed = -1;
         dialog.page = Page::registered;
         dialog.wheel_rows = 0.0F;
+        // As show_page: the open page's entry is the one the list remembers,
+        // and a row's focus or an entry's moves to it.
+        const int32_t entry = registered_nav_control(dialog.registered_page);
+        dialog.nav_part = entry;
         if (dialog.focused >= first_row_control ||
+            (dialog.focused >= first_page_control && dialog.focused < restore_control) ||
             registered_nav_index(dialog, dialog.focused) >= 0)
-            dialog.focused = registered_nav_control(dialog.registered_page);
+            dialog.focused = entry;
         return DialogAction::redraw;
     }
     const int32_t index = row_index_of(dialog, control);

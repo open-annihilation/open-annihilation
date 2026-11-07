@@ -29,7 +29,30 @@
 // case=expansion runs with an expansion that is copied and turned off. Turn
 // on and watch plays the replay and puts the player's set back. The next
 // start plays nothing. The same holds after a start that ended during the
-// replay and one that ended before the replay began.
+// replay and one that ended before the replay began. Leaving that replay
+// part way says Watched to that time after the put-back, and Watch from
+// starts there. Playing it to the length its description names, and leaving
+// there with no end screen, keeps no place.
+//
+// case=beside starts with Ridge 2.9 installed and chosen. Get Ridge 2.8 and
+// watch fetches 2.8 into Replay releases, beside Mods, and plays with it.
+// Ridge 2.9 stays in Mods and is chosen again when the replay's end screen
+// is left, and at the next start after one that was stopped during the
+// replay. The copy stays. The registry is then stopped, and Watch plays
+// that copy with no chip and no key request. That copy is then moved to
+// Mods/ridge-2.8, as Install alongside leaves it, and Watch plays that
+// folder. No snapshot is taken.
+//
+// case=update starts with Ridge 2.8 in Mods/ridge, its catalogue origin at
+// release 1, and No Mod chosen. The row reads Watch. Update all, then
+// Update, replaces that folder with 2.9. In the same run the row reads
+// Get Ridge 2.8 and watch. Replay releases is not created.
+//
+// case=packs copies the older map pack into Maps by hand, with no origin.
+// A replay of that copy plays and fetches nothing. The folder is then
+// replaced with the newer catalogue release. A replay of the older release
+// fetches it into Replay releases, plays that folder, and leaves the pack
+// in Maps as it was.
 //
 // Get Ridge 2.8 and watch, Watch of the installed Ridge, and Turn on and
 // watch, end through the replay's own end. The end screen stays until Main
@@ -38,6 +61,7 @@
 // nothing.
 
 #include "library_host.hpp"
+#include "map_packs.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 
@@ -46,7 +70,12 @@
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/service.hpp"
 #include "oa/app/game_directory.hpp"
+#include "oa/app/mod_profile_loader.hpp"
+#include "oa/app/package_install/oamap.hpp"
+#include "oa/app/package_install/origin.hpp"
+#include "oa/app/package_install/replay_release.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/netgame/stream_socket.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/saves/content_record.hpp"
 #include "oa/app/user_folder.hpp"
@@ -56,6 +85,7 @@
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/oamut/manifest.hpp"
+#include "oa/formats/ota.hpp"
 #include "oa/formats/png.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/formats/tnt.hpp"
@@ -77,6 +107,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <system_error>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -91,6 +122,7 @@ namespace library = oa::ui::library;
 namespace oademo = oa::formats::oademo;
 namespace oamut = oa::formats::oamut;
 namespace pack = oa::data::map_pack;
+namespace ota_format = oa::formats::ota;
 namespace png = oa::formats::png;
 namespace sha = oa::base::sha256;
 namespace tad = oa::formats::tad;
@@ -104,8 +136,15 @@ constexpr std::string_view kRidgeFolderName = "ridge-mod";
 constexpr std::string_view kPhaseName = "replays-content.phase";
 constexpr std::string_view kExpansionName = "replays-content.expansion";
 constexpr std::string_view kRidgePathName = "replays-content.ridge-folder";
+constexpr std::string_view kKeptName = "kept.txt";
+constexpr std::string_view kBesideOldName = "replays-content.beside-28";
+constexpr std::string_view kBesideNewName = "replays-content.beside-29";
 constexpr int kMostFrames = 600;
 constexpr uint32_t kWatchedTicks = 30;
+// One second in. Watched to is 0:01, and the recording (about three seconds)
+// has not finished, so the card keeps the place. A few frames cannot reach it.
+constexpr uint32_t kSwitchedLeftTick = 30;
+constexpr std::string_view kFromTickName = "replays-content-from-tick.txt";
 constexpr uint64_t kRegistryWaitMs = 45000;
 constexpr uint64_t kDownloadWaitMs = 90000;
 constexpr std::string_view kPackId = "ridge-reach";
@@ -117,6 +156,63 @@ constexpr std::string_view kMutatorName = "Ridge Wind";
 void require(bool ok, std::string_view what) {
     if (!ok)
         throw std::runtime_error("replays content check: " + std::string(what));
+}
+
+/// Asks the loopback registry the facts name to stop answering.
+///
+/// The descriptor is `http://127.0.0.1:<port>/...`. One GET /stop is enough:
+/// later requests are closed, so the next start finds the registry away.
+///
+/// @param descriptor the facts' registry descriptor
+void ask_registry_stop(std::string_view descriptor) {
+    constexpr std::string_view prefix = "http://127.0.0.1:";
+    require(descriptor.starts_with(prefix), "the registry address is not the loopback");
+    const std::size_t slash = descriptor.find('/', prefix.size());
+    require(slash != std::string_view::npos, "the registry address has no path");
+    int port = 0;
+    for (std::size_t index = prefix.size(); index < slash; ++index) {
+        const char digit = descriptor[index];
+        require(digit >= '0' && digit <= '9', "the registry port is not a number");
+        port = port * 10 + (digit - '0');
+    }
+    require(port > 0 && port <= 65535, "the registry port is out of range");
+    oa::netgame::sock::Address address{};
+    address.ip[0] = 127;
+    address.ip[3] = 1;
+    address.port = static_cast<uint16_t>(port);
+    char connect_error[128] = {};
+    intptr_t stream =
+        oa::netgame::sock::stream_connect(address, connect_error, sizeof connect_error);
+    require(stream != oa::netgame::sock::invalid_socket, "the registry could not be asked to stop");
+    require(
+        oa::netgame::sock::stream_wait_open(stream, 2000) == oa::netgame::sock::StreamOpen::open,
+        "the registry did not accept the stop"
+    );
+    const std::string request =
+        "GET /stop HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    std::size_t sent = 0;
+    const uint64_t began = SDL_GetTicks();
+    while (sent < request.size() && SDL_GetTicks() - began < 2000) {
+        const std::ptrdiff_t wrote = oa::netgame::sock::stream_write(
+            stream, reinterpret_cast<const uint8_t*>(request.data()) + sent, request.size() - sent
+        );
+        if (wrote < 0)
+            break;
+        sent += static_cast<std::size_t>(wrote);
+        if (wrote == 0)
+            SDL_Delay(1);
+    }
+    oa::netgame::sock::stream_finish(stream);
+    uint8_t got[64];
+    const uint64_t read_began = SDL_GetTicks();
+    while (SDL_GetTicks() - read_began < 2000) {
+        const std::ptrdiff_t read = oa::netgame::sock::stream_read(stream, got, sizeof got);
+        if (read != 0)
+            break;
+        SDL_Delay(1);
+    }
+    oa::netgame::sock::stream_close(&stream);
+    require(sent == request.size(), "the stop was not sent");
 }
 
 fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
@@ -187,75 +283,9 @@ std::vector<uint8_t> preview_png(uint8_t colour) {
     return bytes;
 }
 
-/// A 4 by 4 map whose one feature is the pack's own ridgerock.
-std::vector<uint8_t> tiny_tnt() {
-    constexpr std::size_t tile_map_at = 64;
-    constexpr std::size_t attributes_at = 72;
-    constexpr std::size_t tiles_at = 136;
-    const std::size_t features_at = tiles_at + 2 * tnt::layout::tile_bytes;
-    std::vector<uint8_t> bytes(features_at + tnt::layout::feature_record_bytes);
-    const auto put32 = [&bytes](std::size_t at, uint32_t value) {
-        bytes[at] = static_cast<uint8_t>(value);
-        bytes[at + 1] = static_cast<uint8_t>(value >> 8U);
-        bytes[at + 2] = static_cast<uint8_t>(value >> 16U);
-        bytes[at + 3] = static_cast<uint8_t>(value >> 24U);
-    };
-    const auto put16 = [&bytes](std::size_t at, uint16_t value) {
-        bytes[at] = static_cast<uint8_t>(value);
-        bytes[at + 1] = static_cast<uint8_t>(value >> 8U);
-    };
-    put32(0, static_cast<uint32_t>(tnt::Version::total_annihilation));
-    put32(4, 4);
-    put32(8, 4);
-    put32(12, static_cast<uint32_t>(tile_map_at));
-    put32(16, static_cast<uint32_t>(attributes_at));
-    put32(20, static_cast<uint32_t>(tiles_at));
-    put32(24, 2);
-    put32(28, 1);
-    put32(32, static_cast<uint32_t>(features_at));
-    put32(36, 17);
-    put16(tile_map_at, 0);
-    put16(tile_map_at + 2, 1);
-    put16(tile_map_at + 4, 1);
-    put16(tile_map_at + 6, 0);
-    constexpr std::string_view feature = "ridgerock";
-    const std::size_t name_at = features_at + tnt::layout::feature_name_offset;
-    for (std::size_t index = 0; index < feature.size(); ++index)
-        bytes[name_at + index] = static_cast<uint8_t>(feature[index]);
-    return bytes;
-}
-
-std::string tiny_ota() {
-    return "[GlobalHeader]\n"
-           "{\n"
-           "[Schema 0]\n"
-           "{\n"
-           "Type=Network 1;\n"
-           "[features]\n"
-           "{\n"
-           "[feature0]\n"
-           "{\n"
-           "Featurename=ridgerock;\n"
-           "XPos=0;\n"
-           "ZPos=0;\n"
-           "}\n"
-           "}\n"
-           "}\n"
-           "[Schema 1]\n"
-           "{\n"
-           "Type=Network 2;\n"
-           "[units]\n"
-           "{\n"
-           "[unit0]\n"
-           "{\n"
-           "Unitname=ARMCOM;\n"
-           "}\n"
-           "}\n"
-           "}\n"
-           "}\n";
-}
-
-pack::Manifest pack_manifest() {
+/// The pack's manifest. The terrain is the map the recording played, so a
+/// replay of the pack loads the same ground. `size` is that terrain's size.
+pack::Manifest pack_manifest(std::string size) {
     pack::Manifest manifest;
     manifest.format = pack::format_version;
     manifest.id = std::string(kPackId);
@@ -268,27 +298,27 @@ pack::Manifest pack_manifest() {
     map.stem = std::string(kMapStem);
     map.title = std::string(kMapTitle);
     map.players = 2;
-    map.size = "4x4";
+    map.size = std::move(size);
     map.preview = "previews/ridge_reach.png";
-    map.files = {"maps/ridge_reach.ota", "maps/ridge_reach.tnt", "features/ridge/rock.tdf"};
+    map.files = {"maps/ridge_reach.ota", "maps/ridge_reach.tnt"};
     manifest.maps.push_back(std::move(map));
     return manifest;
 }
 
-void write_pack(const fs::path& file, uint8_t colour) {
-    const std::string yaml = pack::write_manifest(pack_manifest());
-    const std::string ota = tiny_ota();
-    const std::string feature = "[ridgerock]\n{\ndescription=Ridge rock;\n}\n";
-    const std::vector<uint8_t> tnt_bytes = tiny_tnt();
+void write_pack(
+    const fs::path& file,
+    uint8_t colour,
+    const std::vector<uint8_t>& ota,
+    const std::vector<uint8_t>& tnt_bytes,
+    const std::string& size
+) {
+    const std::string yaml = pack::write_manifest(pack_manifest(size));
     const std::vector<uint8_t> preview = preview_png(colour);
     const std::vector<uint8_t> yaml_bytes(yaml.begin(), yaml.end());
-    const std::vector<uint8_t> ota_bytes(ota.begin(), ota.end());
-    const std::vector<uint8_t> feature_bytes(feature.begin(), feature.end());
     const zip::NewEntry entries[] = {
         {"oamap.yaml", yaml_bytes},
-        {"maps/ridge_reach.ota", ota_bytes},
+        {"maps/ridge_reach.ota", ota},
         {"maps/ridge_reach.tnt", tnt_bytes},
-        {"features/ridge/rock.tdf", feature_bytes},
         {"previews/ridge_reach.png", preview},
     };
     std::vector<uint8_t> archive;
@@ -373,10 +403,46 @@ void write_mod(const fs::path& file, std::string_view version, const fs::path& f
     write_bytes(file, archive);
 }
 
-void write_packages() {
+/// The pack size of an OTA size such as `16 x 16`. Empty when it is not
+/// `<width>x<height>` with each side from 1 to the pack's limit.
+std::string pack_size_text(std::string_view text) {
+    std::string size;
+    size.reserve(text.size());
+    for (const char character : text) {
+        if (character != ' ')
+            size.push_back(character);
+    }
+    const std::size_t split = size.find('x');
+    if (split == std::string::npos || size.find('x', split + 1) != std::string::npos)
+        return {};
+    const auto side = [](std::string_view digits) {
+        if (digits.empty() || digits.size() > 3 || (digits.size() > 1 && digits.front() == '0'))
+            return false;
+        int value = 0;
+        for (const char character : digits) {
+            if (character < '0' || character > '9')
+                return false;
+            value = value * 10 + (character - '0');
+        }
+        return value >= 1 && value <= pack::most_map_side;
+    };
+    if (!side(std::string_view(size).substr(0, split)) ||
+        !side(std::string_view(size).substr(split + 1)))
+        return {};
+    return size;
+}
+
+void write_packages(const std::vector<uint8_t>& ota, const std::vector<uint8_t>& tnt_bytes) {
+    const tnt::ParseResult parsed = tnt::parse(tnt_bytes);
+    require(parsed.ok(), "the recorded map's terrain does not parse");
+    const std::string_view ota_text(reinterpret_cast<const char*>(ota.data()), ota.size());
+    const ota_format::ParseResult settings = ota_format::parse(ota_text);
+    require(settings.ok(), "the recorded map's settings do not parse");
+    const std::string size = pack_size_text(settings.metadata->map_size);
+    require(!size.empty(), "the recorded map does not fit a pack");
     const fs::path folder = fs::current_path();
-    write_pack(folder / "ridge-reach.oamap", 40);
-    write_pack(folder / "ridge-reach-new.oamap", 200);
+    write_pack(folder / "ridge-reach.oamap", 40, ota, tnt_bytes, size);
+    write_pack(folder / "ridge-reach-new.oamap", 200, ota, tnt_bytes, size);
     write_mutator(folder / "ridge-wind.oamut");
     write_mod(folder / "ridge-28.oamod", "2.8", folder / std::string(kRidgeFolderName));
     write_mod(folder / "ridge-29.oamod", "2.9", {});
@@ -448,11 +514,124 @@ void write_phase(const fs::path& user, std::string_view phase) {
     write_text(user / std::string(kPhaseName), std::string(phase) + "\n");
 }
 
+/// The first line of a file the check wrote, without a trailing CR.
+///
+/// @param file the file
+/// @return the line; empty when it cannot be read
+std::string read_line(const fs::path& file) {
+    std::ifstream in(file);
+    std::string text;
+    std::getline(in, text);
+    if (!text.empty() && text.back() == '\r')
+        text.pop_back();
+    return text;
+}
+
+/// Reports whether an installed folder's profile names `version`.
+///
+/// @param folder the mod folder
+/// @param version the version text
+/// @return true when oamod.yaml names that version
+bool folder_names_version(const fs::path& folder, std::string_view version) {
+    std::ifstream in(folder / "oamod.yaml");
+    const std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    return text.find("version: \"" + std::string(version) + "\"") != std::string::npos;
+}
+
 bool lists_id(const std::vector<std::string>& ids, std::string_view id) {
     for (const std::string& one : ids)
         if (one == id)
             return true;
     return false;
+}
+
+/// A path under `root` for a zip entry name.
+fs::path under(const fs::path& root, std::string_view relative) {
+    fs::path at = root;
+    std::string part;
+    const auto push = [&] {
+        if (part.empty())
+            return;
+        at /= part;
+        part.clear();
+    };
+    for (const char character : relative) {
+        if (character == '/')
+            push();
+        else
+            part.push_back(character);
+    }
+    push();
+    return at;
+}
+
+/// Replaces `folder` with the files of a map pack archive.
+void extract_pack(const fs::path& archive_file, const fs::path& folder) {
+    const std::vector<uint8_t> bytes = read_bytes(archive_file);
+    require(
+        !bytes.empty(),
+        platform::path_to_utf8(archive_file.filename()) + " is not in the working folder"
+    );
+    zip::CentralDirectory directory;
+    zip::ZipError error;
+    require(zip::read_directory(bytes, directory, error), "the map pack was not read");
+    std::error_code made;
+    fs::remove_all(folder, made);
+    fs::create_directories(folder, made);
+    require(!made, "the map pack folder was not made");
+    for (const zip::Entry& entry : directory.entries) {
+        if (entry.directory)
+            continue;
+        require(zip::name_is_safe(entry.name), "a map pack entry is not safe");
+        std::vector<uint8_t> data;
+        require(zip::read_entry(bytes, entry, data, error), "a map pack entry was not read");
+        const fs::path dest = under(folder, entry.name);
+        fs::create_directories(dest.parent_path(), made);
+        require(!made, "a map pack folder was not made");
+        write_bytes(dest, data);
+    }
+}
+
+/// The recording with its map set to the pack map playback mounts.
+std::vector<uint8_t> recording_on_pack(const std::vector<uint8_t>& recording) {
+    const tad::ParseResult parsed = tad::parse(recording);
+    require(parsed.ok(), "the recorded game does not parse");
+    tad::Demo demo = *parsed.demo;
+    demo.map_name = std::string(kMapStem) + "@" + std::string(kPackId);
+    const tad::WriteResult written = tad::write(demo);
+    require(written.ok(), "the recording was not written onto the pack map");
+    return written.bytes;
+}
+
+/// One replay of the pack map, named by `sha`.
+void store_pack_replay(const fs::path& file, const oademo::Replay& source, std::string sha) {
+    oademo::Replay replay = source;
+    replay.recording = recording_on_pack(replay.recording);
+    oademo::Need need = package_need("oamap", std::string(kPackId), "1.0", std::move(sha));
+    oademo::MapNeed map;
+    map.name = std::string(kMapTitle);
+    map.sha256 = std::string(64, 'c');
+    need.maps.push_back(std::move(map));
+    replay.manifest.needs = {std::move(need)};
+    store_replay(file, replay);
+}
+
+/// SHA-256 of the files a replace would change, so the check can see they stayed.
+std::string pack_fingerprint(const fs::path& folder) {
+    std::string joined;
+    for (const std::string_view name :
+         {"oamap.yaml",
+          ".oa-origin.yaml",
+          "previews/ridge_reach.png",
+          "maps/ridge_reach.ota",
+          "maps/ridge_reach.tnt"}) {
+        const std::vector<uint8_t> bytes = read_bytes(under(folder, name));
+        joined.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        joined.push_back('\n');
+    }
+    const std::vector<uint8_t> whole(joined.begin(), joined.end());
+    const auto hex = sha::to_hex(sha::digest_of(whole));
+    return std::string(hex.data(), hex.size());
 }
 
 /// Writes the replays under Recordings/default.
@@ -516,6 +695,19 @@ void write_replays(
     std::cout << "replays content: replays written\n";
 }
 
+/// A replay of the pack map recorded with Ridge, named by both packages.
+void store_pack_and_ridge(const fs::path& file, const oademo::Replay& ridge, std::string pack_sha) {
+    oademo::Replay replay = ridge;
+    replay.recording = recording_on_pack(replay.recording);
+    oademo::Need map_need = package_need("oamap", std::string(kPackId), "1.0", std::move(pack_sha));
+    oademo::MapNeed map;
+    map.name = std::string(kMapTitle);
+    map.sha256 = std::string(64, 'c');
+    map_need.maps.push_back(std::move(map));
+    replay.manifest.needs.push_back(std::move(map_need));
+    store_replay(file, replay);
+}
+
 } // namespace
 
 void Runtime::check_replays_content() {
@@ -524,11 +716,29 @@ void Runtime::check_replays_content() {
     const std::map<std::string, std::string> facts = read_facts();
     const std::string which = fact(facts, "case");
     if (which == "prepare") {
-        write_packages();
+        const std::vector<uint8_t> recorded =
+            read_bytes(fs::current_path() / std::string(kSourceName));
+        require(!recorded.empty(), std::string(kSourceName) + " is not in the working folder");
+        const oademo::ReadResult recorded_read = oademo::read(recorded);
+        require(
+            recorded_read.ok(), std::string(kSourceName) + " does not read: " + recorded_read.error
+        );
+        const tad::ParseResult played = tad::parse(recorded_read.replay->recording);
+        require(played.ok(), "the recorded game does not parse");
+        const std::optional<std::vector<uint8_t>> ota =
+            read("maps/" + played.demo->map_name + ".ota");
+        const std::optional<std::vector<uint8_t>> tnt_bytes =
+            read("maps/" + played.demo->map_name + ".tnt");
+        require(
+            ota.has_value() && tnt_bytes.has_value() && !ota->empty() && !tnt_bytes->empty(),
+            "the recorded map is not installed"
+        );
+        write_packages(*ota, *tnt_bytes);
         return;
     }
     require(
-        which == "play" || which == "offline" || which == "expansion",
+        which == "play" || which == "offline" || which == "expansion" || which == "beside" ||
+            which == "update" || which == "packs",
         "the facts name no case this check runs"
     );
 
@@ -771,6 +981,7 @@ void Runtime::check_replays_content() {
             preference_values_[std::string(replay_expansion_preference)] = player;
             preference_values_[std::string(replay_expansion_state_preference)] = std::string(state);
             preference_values_.erase(std::string(oa::data::saves::pending_demo_key));
+            preference_values_.erase(std::string(oa::data::saves::replay_map_pack_key));
             preference_values_.erase(std::string(replay_mod_marker_preference));
             preference_values_.erase(std::string(replay_mod_preference));
             preferences_dirty_ = true;
@@ -882,9 +1093,434 @@ void Runtime::check_replays_content() {
             }
             std::cout << "replays content: a start that ended before the replay put the set back "
                          "and did not play it\n";
+            open_replays();
+            const auto [part_chip, part_note] = show("default/expansion.oademo");
+            require(part_chip == expected_chip, "the expansion chip is \"" + part_chip + "\"");
+            static_cast<void>(part_note);
+            const std::optional<AutomationControl> part_watch = named("oa.library.action.watch");
+            require(
+                part_watch && part_watch->text == "Turn on and watch",
+                "the button is not Turn on and watch"
+            );
+            write_phase(user_folder_, "partway");
+            click_named("oa.library.action.watch");
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Turn on and watch did not restart"
+            );
+            return;
+        }
+        if (phase == "partway") {
+            require(
+                lists_id(content_choice().expansions, expansion_id),
+                "the expansion is not on for the replay left part way"
+            );
+            require(
+                call_hook_or_raise<&Extension::start_scene>(extension_, *this),
+                "the replay left part way did not start"
+            );
+            until(
+                kDownloadWaitMs,
+                [&] { return screen_ == Screen::match && match_ != nullptr; },
+                "the replay left part way did not start"
+            );
+            const uint32_t first_tick = match_->state().game.tick;
+            // The check's clock is fixed, so ticks are granted one at a time,
+            // as the replays check grants them. The card stores that same
+            // tick. The recording lasts about three seconds, so stopping
+            // after one second leaves a place instead of the end.
+            for (int frame = 0;
+                 frame < kMostFrames && match_ != nullptr && screen_ != Screen::campaign_end &&
+                 !match_finished_ && match_->state().game.tick < first_tick + kSwitchedLeftTick;
+                 ++frame) {
+                static_cast<void>(run_granted_ticks(1));
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const uint32_t played =
+                match_ != nullptr ? match_->state().game.tick : static_cast<uint32_t>(0);
+            require(
+                match_ != nullptr && screen_ != Screen::campaign_end && !match_finished_ &&
+                    played >= first_tick + kSwitchedLeftTick,
+                "the replay was not left after its ticks (at " + std::to_string(played) + ")"
+            );
+            uint32_t stored_tick = played;
+            ReplayPlaybackView playback{};
+            if (call_hook_or_report<&Extension::replay_state>(
+                    extension_, hook_error_report(), *this, &playback
+                ))
+                stored_tick = playback.tick;
+            require(
+                stored_tick >= kSwitchedLeftTick, "the replay clock is before the replay was left"
+            );
+            write_text(
+                user_folder_ / std::string(kFromTickName), std::to_string(stored_tick) + "\n"
+            );
+            write_phase(user_folder_, "partway-back");
+            leave_match();
+            load(Screen::main_menu);
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "leaving the replay did not put the expansions back"
+            );
+            return;
+        }
+        if (phase == "partway-back") {
+            next_start_idle();
+            require(expansion_off(expansion_id), "the expansion stayed on after the replay");
+            require(state_key_gone(), "the replay's expansion state was kept");
+            library_on_replay("default/expansion.oademo");
+            std::ifstream tick_file(user_folder_ / std::string(kFromTickName));
+            std::string tick_line;
+            std::getline(tick_file, tick_line);
+            if (!tick_line.empty() && tick_line.back() == '\r')
+                tick_line.pop_back();
+            require(!tick_line.empty(), "the left tick was not stored");
+            uint32_t expected = 0;
+            for (const char digit : tick_line) {
+                require(digit >= '0' && digit <= '9', "the left tick is not a number");
+                expected = expected * 10u + static_cast<uint32_t>(digit - '0');
+            }
+            require(expected >= kSwitchedLeftTick, "the left tick is before the replay was left");
+            std::string watched;
+            uint32_t left_tick = 0;
+            bool saw_row = false;
+            const uint64_t began = SDL_GetTicks();
+            while (SDL_GetTicks() - began < kDownloadWaitMs) {
+                run_frame(running);
+                require(running, "a frame ended the run");
+                std::vector<AutomationControl> controls;
+                oa_layer().automation_controls(controls);
+                watched.clear();
+                for (const AutomationControl& control : controls) {
+                    if (!control.visible || control.window_width <= 0 || control.window_height <= 0)
+                        continue;
+                    if (control.text.starts_with("Watched to "))
+                        watched = control.text;
+                }
+                const library::ReplayRow* row =
+                    library::find_replay(host.model, "default/expansion.oademo");
+                saw_row = row != nullptr && row->replay.watched_tick.has_value();
+                if (saw_row)
+                    left_tick = *row->replay.watched_tick;
+                // Both ticks are replay_state's tick: the one written when
+                // the replay was left, and the one the card stored.
+                if (saw_row && left_tick == expected && watched.starts_with("Watched to "))
+                    break;
+                saw_row = false;
+            }
+            require(
+                saw_row,
+                "the card does not say where the replay was left (stored " +
+                    std::to_string(left_tick) + ", match " + std::to_string(expected) +
+                    ", label \"" + watched + "\")"
+            );
+            std::cout << "replays content: " << watched << '\n';
+            const std::optional<AutomationControl> from_button =
+                named("oa.library.action.watch-from");
+            require(
+                from_button && from_button->text.starts_with("Watch from "),
+                "Watch from is not offered"
+            );
+            write_text(user_folder_ / std::string(kFromTickName), std::to_string(left_tick) + "\n");
+            write_phase(user_folder_, "from");
+            click_named("oa.library.action.watch-from");
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Watch from did not restart"
+            );
+            return;
+        }
+        if (phase == "from") {
+            require(
+                lists_id(content_choice().expansions, expansion_id),
+                "the expansion is not on for Watch from"
+            );
+            std::ifstream tick_file(user_folder_ / std::string(kFromTickName));
+            std::string tick_line;
+            std::getline(tick_file, tick_line);
+            if (!tick_line.empty() && tick_line.back() == '\r')
+                tick_line.pop_back();
+            require(!tick_line.empty(), "the left tick was not stored");
+            uint32_t remembered = 0;
+            for (const char digit : tick_line) {
+                require(digit >= '0' && digit <= '9', "the left tick is not a number");
+                remembered = remembered * 10u + static_cast<uint32_t>(digit - '0');
+            }
+            require(remembered >= kSwitchedLeftTick, "the left tick is before the replay was left");
+            require(
+                call_hook_or_raise<&Extension::start_scene>(extension_, *this),
+                "Watch from did not start the replay"
+            );
+            until(
+                kDownloadWaitMs,
+                [&] { return screen_ == Screen::match && match_ != nullptr; },
+                "Watch from did not start the replay"
+            );
+            // The jump is the replay's own. Granting ticks would let a start
+            // at the beginning pass. Watch from seeks once the replay can
+            // say where it is, and the card's tick is the one it seeks to.
+            bool reached = false;
+            uint32_t seen = match_->state().game.tick;
+            for (int frame = 0;
+                 frame < kMostFrames && match_ != nullptr && screen_ != Screen::campaign_end;
+                 ++frame) {
+                run_frame(running);
+                require(running, "a frame ended the run");
+                if (match_ == nullptr)
+                    break;
+                seen = match_->state().game.tick;
+                ReplayPlaybackView playback{};
+                const bool have = call_hook_or_report<&Extension::replay_state>(
+                    extension_, hook_error_report(), *this, &playback
+                );
+                if (have && !playback.skipping && playback.tick == remembered &&
+                    playback.tick >= kSwitchedLeftTick) {
+                    reached = true;
+                    seen = playback.tick;
+                    break;
+                }
+            }
+            require(reached, "Watch from did not reach the tick (at " + std::to_string(seen) + ")");
+            std::cout << "replays content: watch from reached tick " << seen << '\n';
+            write_phase(user_folder_, "from-back");
+            leave_match();
+            load(Screen::main_menu);
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "the switched replay did not put the set back"
+            );
+            return;
+        }
+        if (phase == "from-back") {
+            next_start_idle();
+            require(expansion_off(expansion_id), "Watch from left the expansion on");
+            require(state_key_gone(), "Watch from kept the expansion state");
+            require(pending_demo_path().empty(), "Watch from left a demo waiting");
+            std::cout << "replays content: the switched replay put the set back\n";
+            open_replays();
+            const auto [end_chip, end_note] = show("default/expansion.oademo");
+            require(end_chip == expected_chip, "the expansion chip is \"" + end_chip + "\"");
+            static_cast<void>(end_note);
+            const std::optional<AutomationControl> end_watch = named("oa.library.action.watch");
+            require(
+                end_watch && end_watch->text == "Turn on and watch",
+                "the button is not Turn on and watch"
+            );
+            write_phase(user_folder_, "ended");
+            click_named("oa.library.action.watch");
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Turn on and watch did not restart"
+            );
+            return;
+        }
+        if (phase == "ended") {
+            require(
+                lists_id(content_choice().expansions, expansion_id),
+                "the expansion is not on for the replay played to its last tick"
+            );
+            require(
+                source_read.replay.has_value() &&
+                    source_read.replay->meta.game.length_ticks.has_value(),
+                "the recording does not name its length"
+            );
+            const uint64_t named_length = *source_read.replay->meta.game.length_ticks;
+            require(
+                named_length > 0 && named_length <= 0xffffffffULL,
+                "the recording's length is not a tick"
+            );
+            const uint32_t recorded = static_cast<uint32_t>(named_length);
+            require(
+                call_hook_or_raise<&Extension::start_scene>(extension_, *this),
+                "the replay played to its last tick did not start"
+            );
+            until(
+                kDownloadWaitMs,
+                [&] { return screen_ == Screen::match && match_ != nullptr; },
+                "the replay played to its last tick did not start"
+            );
+            // One tick at a time near the end. Granting past the recording
+            // runs the match on to an end screen. Leaving at the length the
+            // recording names does not.
+            bool reached = false;
+            for (int frame = 0; frame < 8000 && match_ != nullptr &&
+                                screen_ != Screen::campaign_end && !match_finished_;
+                 ++frame) {
+                const uint32_t tick = match_->state().game.tick;
+                if (tick >= recorded) {
+                    reached = true;
+                    break;
+                }
+                const uint32_t room = recorded - tick;
+                static_cast<void>(run_granted_ticks(room > 30u ? 30u : 1u));
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            require(
+                reached && match_ != nullptr && screen_ != Screen::campaign_end && !match_finished_,
+                "the replay did not stop on its last recorded tick"
+            );
+            write_phase(user_folder_, "ended-back");
+            leave_match();
+            load(Screen::main_menu);
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "leaving the last tick did not put the expansions back"
+            );
+            return;
+        }
+        if (phase == "ended-back") {
+            next_start_idle();
+            require(expansion_off(expansion_id), "the expansion stayed on after the last tick");
+            require(state_key_gone(), "the replay's expansion state was kept");
+            library_on_replay("default/expansion.oademo");
+            bool clear = false;
+            std::string watched;
+            const uint64_t began = SDL_GetTicks();
+            while (SDL_GetTicks() - began < kDownloadWaitMs) {
+                run_frame(running);
+                require(running, "a frame ended the run");
+                std::vector<AutomationControl> controls;
+                oa_layer().automation_controls(controls);
+                watched.clear();
+                for (const AutomationControl& control : controls) {
+                    if (!control.visible || control.window_width <= 0 || control.window_height <= 0)
+                        continue;
+                    if (control.text.starts_with("Watched to "))
+                        watched = control.text;
+                }
+                const library::ReplayRow* row =
+                    library::find_replay(host.model, "default/expansion.oademo");
+                const bool no_tick = row != nullptr && !row->replay.watched_tick.has_value();
+                if (no_tick && watched.empty() && !named("oa.library.action.watch-from")) {
+                    clear = true;
+                    break;
+                }
+            }
+            require(clear, "a replay played to its last tick kept a place (\"" + watched + "\")");
+            std::cout << "replays content: a replay played to its last tick keeps no place\n";
             return;
         }
         throw std::runtime_error("replays content check: the expansion phase is unknown");
+    }
+
+    if (which == "packs" && options_.restarts > 0) {
+        const std::string phase = read_phase(user_folder_);
+        const auto version_is = [&](std::string_view version) {
+            return mod_profile() != nullptr && mod_profile()->version == version;
+        };
+        if (phase == "both-ready") {
+            require(version_is("2.9"), "Ridge 2.9 is not chosen");
+            const fs::path installed_pack = user_folder_ /
+                                            std::string(package_install::oamap::maps_folder_name) /
+                                            "ridge-reach";
+            const std::vector<uint8_t> origin_bytes =
+                read_bytes(installed_pack / std::string(package_install::origin_file_name));
+            const std::string origin_text(origin_bytes.begin(), origin_bytes.end());
+            require(
+                origin_text.find(fact(facts, "pack_new_sha")) != std::string::npos,
+                "Maps does not hold the newer pack"
+            );
+            const std::string registry_id = fact(facts, "registry");
+            until(
+                kRegistryWaitMs,
+                [&] {
+                    const std::shared_ptr<const content::Snapshot> snapshot_now =
+                        content_service().snapshot();
+                    if (!snapshot_now)
+                        return false;
+                    for (const content::RegistryView& registry_view : snapshot_now->registries) {
+                        if (registry_view.registry.descriptor.id != registry_id)
+                            continue;
+                        return registry_view.releases != nullptr && !registry_view.refreshing;
+                    }
+                    return false;
+                },
+                "the releases list was not held"
+            );
+            open_replays();
+            const auto [chip, note] = show("default/both-pack.oademo");
+            require(
+                note.find("another release of the map pack Ridge Reach") != std::string::npos,
+                "the card does not name the other map pack release"
+            );
+            const std::optional<AutomationControl> watch = named("oa.library.action.watch");
+            require(
+                watch && watch->text.find("and watch") != std::string::npos,
+                "the button does not offer to watch"
+            );
+            write_phase(user_folder_, "both-playing");
+            click_named("oa.library.action.watch");
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "the older pack and the older mod did not restart"
+            );
+            return;
+        }
+        if (phase == "both-playing") {
+            write_phase(user_folder_, "both-back");
+            require(version_is("2.8"), "Ridge 2.8 is not playing");
+            require(
+                call_hook_or_raise<&Extension::start_scene>(extension_, *this),
+                "the replay did not start"
+            );
+            until(
+                kDownloadWaitMs,
+                [&] { return screen_ == Screen::match && match_ != nullptr; },
+                "the replay did not start"
+            );
+            const PackMap* mounted = mounted_pack_map();
+            require(mounted != nullptr, "the kept pack was not mounted after the restart");
+            const std::string folder = platform::path_to_utf8(mounted->folder);
+            const std::string old_sha = fact(facts, "pack_sha");
+            require(
+                folder.find("Replay releases") != std::string::npos &&
+                    folder.find(old_sha) != std::string::npos,
+                "the restarted replay is not using the kept pack"
+            );
+            const uint32_t began_tick = match_->state().game.tick;
+            for (int frame = 0; frame < kMostFrames && match_ != nullptr &&
+                                match_->state().game.tick < began_tick + kWatchedTicks;
+                 ++frame) {
+                static_cast<void>(run_granted_ticks(1));
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            require(
+                match_ != nullptr && match_->state().game.tick >= began_tick + kWatchedTicks,
+                "the restarted replay did not play its ticks"
+            );
+            std::cout << "replays content: older pack and older mod playing\n";
+            leave_match();
+            load(Screen::main_menu);
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Ridge 2.9 was not put back after the pack"
+            );
+            return;
+        }
+        if (phase == "both-back") {
+            next_start_idle();
+            require(version_is("2.9"), "Ridge 2.9 was not chosen after the pack");
+            require(state_key_gone(), "the replay's state was kept");
+            require(
+                preference_values_.find(std::string(oa::data::saves::replay_map_pack_key)) ==
+                    preference_values_.end(),
+                "the kept pack folder was kept"
+            );
+            std::cout << "replays content: 2.9 chosen after the pack\n";
+            return;
+        }
+        throw std::runtime_error("replays content check: the packs phase is unknown");
     }
 
     if (which == "play" && options_.restarts > 0) {
@@ -968,6 +1604,7 @@ void Runtime::check_replays_content() {
             preference_values_[std::string(replay_expansion_state_preference)] = "play";
             preference_values_.erase(std::string(replay_expansion_preference));
             preference_values_.erase(std::string(oa::data::saves::pending_demo_key));
+            preference_values_.erase(std::string(oa::data::saves::replay_map_pack_key));
             preferences_dirty_ = true;
             flush_preferences();
             write_phase(user_folder_, "mod-killed");
@@ -1000,10 +1637,377 @@ void Runtime::check_replays_content() {
         throw std::runtime_error("replays content check: the play phase is unknown");
     }
 
+    if (which == "beside" && options_.restarts > 0) {
+        const std::string phase = read_phase(user_folder_);
+        const fs::path mods = user_folder_ / std::string(user_mods_folder_name);
+        const fs::path installed_ridge = mods / "ridge";
+        const auto version_is = [&](std::string_view version) {
+            return mod_profile() != nullptr && mod_profile()->version == version;
+        };
+        if (phase == "installed") {
+            require(version_is("2.9"), "Ridge 2.9 is not chosen");
+            const std::string registry_id = fact(facts, "registry");
+            until(
+                kRegistryWaitMs,
+                [&] {
+                    const std::shared_ptr<const content::Snapshot> snapshot_now =
+                        content_service().snapshot();
+                    if (!snapshot_now)
+                        return false;
+                    for (const content::RegistryView& registry_view : snapshot_now->registries) {
+                        if (registry_view.registry.descriptor.id != registry_id)
+                            continue;
+                        return registry_view.releases != nullptr && !registry_view.refreshing;
+                    }
+                    return false;
+                },
+                "the releases list was not held"
+            );
+            require(
+                read_line(user_folder_ / std::string(kKeptName)) == "2.9", "the 2.9 marker is gone"
+            );
+            const std::vector<fs::path> listed = list_mods_in(mods);
+            require(listed.size() == 1, "Mods lists something besides Ridge");
+            for (const fs::directory_entry& entry : fs::directory_iterator(mods)) {
+                require(
+                    platform::path_to_utf8(entry.path().filename()) !=
+                        package_install::replay_releases_folder_name,
+                    "Replay releases is under Mods"
+                );
+            }
+            open_replays();
+            const auto [chip, note] = show("default/ridge.oademo");
+            require(chip == "Needs Ridge 2.8", "Ridge's chip is \"" + chip + "\"");
+            require(
+                note.find("You have 2.9") != std::string::npos, "the card does not say you have 2.9"
+            );
+            const std::optional<AutomationControl> watch = named("oa.library.action.watch");
+            require(
+                watch && watch->text == "Get Ridge 2.8 and watch",
+                "the button is not Get Ridge 2.8 and watch"
+            );
+            write_phase(user_folder_, "watching");
+            click_named("oa.library.action.watch");
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Get Ridge 2.8 and watch did not restart"
+            );
+            return;
+        }
+        if (phase == "watching") {
+            require(version_is("2.8"), "Ridge 2.8 is not playing");
+            const std::string layered = platform::path_to_utf8(options_.layered_mod_folder);
+            require(
+                layered.find(package_install::replay_releases_folder_name) != std::string::npos,
+                "Ridge 2.8 is not in Replay releases"
+            );
+            std::error_code same;
+            require(
+                !same && !fs::equivalent(options_.layered_mod_folder, installed_ridge, same),
+                "the replay is using the installed Ridge"
+            );
+            require(
+                read_line(user_folder_ / std::string(kKeptName)) == "2.9",
+                "the 2.9 marker was changed"
+            );
+            require(
+                folder_names_version(installed_ridge, "2.9"), "the installed Ridge is no longer 2.9"
+            );
+            write_text(
+                user_folder_ / std::string(kBesideOldName),
+                platform::path_to_utf8(options_.layered_mod_folder) + "\n"
+            );
+            write_text(
+                user_folder_ / std::string(kBesideNewName),
+                platform::path_to_utf8(installed_ridge) + "\n"
+            );
+            write_phase(user_folder_, "back");
+            play_through();
+            std::cout << "replays content: ridge 2.8 playing\n";
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Ridge 2.9 was not put back"
+            );
+            return;
+        }
+        if (phase == "back") {
+            next_start_idle();
+            require(version_is("2.9"), "Ridge 2.9 was not chosen after the replay");
+            require(
+                read_line(user_folder_ / std::string(kKeptName)) == "2.9",
+                "the 2.9 marker was changed"
+            );
+            std::cout << "replays content: 2.9 chosen\n";
+            library_on_replay("default/ridge.oademo");
+            const std::string old_folder = read_line(user_folder_ / std::string(kBesideOldName));
+            const std::string new_folder = read_line(user_folder_ / std::string(kBesideNewName));
+            require(
+                !old_folder.empty() && !new_folder.empty(), "the two Ridge folders were not kept"
+            );
+            remember_mod_directory(preference_values_, platform::path_from_utf8(old_folder));
+            preference_values_[std::string(replay_mod_marker_preference)] = "1";
+            preference_values_[std::string(replay_mod_preference)] = new_folder;
+            preference_values_[std::string(replay_expansion_state_preference)] = "play";
+            preference_values_.erase(std::string(replay_expansion_preference));
+            preference_values_.erase(std::string(oa::data::saves::pending_demo_key));
+            preference_values_.erase(std::string(oa::data::saves::replay_map_pack_key));
+            preferences_dirty_ = true;
+            flush_preferences();
+            write_phase(user_folder_, "killed");
+            request_soft_restart();
+            return;
+        }
+        if (phase == "killed") {
+            if (soft_restart_requested())
+                return;
+            next_start_idle();
+            require(version_is("2.9"), "a stop during the replay did not choose Ridge 2.9");
+            require(pending_demo_path().empty(), "a stopped replay still had a demo waiting");
+            require(state_key_gone(), "a stopped replay kept its state");
+            require(
+                preference_values_.find(std::string(replay_mod_marker_preference)) ==
+                    preference_values_.end(),
+                "a stopped replay kept the mod marker"
+            );
+            require(
+                read_line(user_folder_ / std::string(kKeptName)) == "2.9",
+                "the 2.9 marker was changed"
+            );
+            std::cout << "replays content: a stop during the replay chose Ridge 2.9 and did not "
+                         "play it\n";
+            ask_registry_stop(fact(facts, "descriptor"));
+            write_phase(user_folder_, "kept");
+            request_soft_restart();
+            return;
+        }
+        if (phase == "kept") {
+            // A catalogue checked moments ago is not fetched again on start.
+            // Ask once: the registry was stopped, so this refresh fails.
+            const std::string kept_registry = fact(facts, "registry");
+            content_service().refresh(content::RefreshReason::check_now, kept_registry);
+            until(
+                kRegistryWaitMs,
+                [&] {
+                    const std::shared_ptr<const content::Snapshot> snapshot_now =
+                        content_service().snapshot();
+                    if (!snapshot_now)
+                        return false;
+                    for (const content::RegistryView& registry_view : snapshot_now->registries) {
+                        if (registry_view.registry.descriptor.id != kept_registry)
+                            continue;
+                        return !registry_view.refreshing &&
+                               registry_view.status == content::RegistryStatus::failed;
+                    }
+                    return false;
+                },
+                "the stopped registry did not fail"
+            );
+            open_replays();
+            const auto [kept_chip, kept_note] = show("default/ridge.oademo");
+            require(kept_chip.empty(), "a kept release still has a chip \"" + kept_chip + "\"");
+            require(kept_note.empty(), "a kept release still has a note \"" + kept_note + "\"");
+            const std::optional<AutomationControl> kept_watch = named("oa.library.action.watch");
+            require(kept_watch && kept_watch->text == "Watch", "the button is not Watch");
+            const library::ReplayRow* kept_row =
+                library::find_replay(host.model, "default/ridge.oademo");
+            require(kept_row != nullptr, "the kept replay has no row");
+            bool names_release = false;
+            for (const library::ReplayFact& fact_line :
+                 library::replay_facts(host.model, *kept_row)) {
+                if (fact_line.key == "mod" && fact_line.value == "Ridge 2.8 (rev 1)")
+                    names_release = true;
+            }
+            require(names_release, "the card does not name Ridge 2.8 (rev 1)");
+            write_phase(user_folder_, "kept-playing");
+            click_named("oa.library.action.watch");
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Watch of the kept release did not restart"
+            );
+            return;
+        }
+        if (phase == "kept-playing") {
+            require(version_is("2.8"), "the kept Ridge 2.8 is not playing");
+            const std::string layered = platform::path_to_utf8(options_.layered_mod_folder);
+            require(
+                layered.find(package_install::replay_releases_folder_name) != std::string::npos,
+                "the kept Ridge 2.8 is not in Replay releases"
+            );
+            std::error_code same;
+            require(
+                !same && !fs::equivalent(options_.layered_mod_folder, installed_ridge, same),
+                "the kept replay is using the installed Ridge"
+            );
+            write_phase(user_folder_, "kept-back");
+            play_through();
+            std::cout << "replays content: kept ridge 2.8 playing\n";
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Ridge 2.9 was not put back after the kept copy"
+            );
+            return;
+        }
+        if (phase == "kept-back") {
+            next_start_idle();
+            require(version_is("2.9"), "Ridge 2.9 was not chosen after the kept copy");
+            library_on_replay("default/ridge.oademo");
+            std::cout << "replays content: 2.9 chosen again\n";
+            // Install alongside leaves the older release in Mods, with its origin.
+            const std::optional<fs::path> kept_release =
+                package_install::replay_release_folder(user_folder_, fact(facts, "ridge_sha"));
+            require(kept_release.has_value(), "the kept Ridge 2.8 is not in Replay releases");
+            const fs::path alongside = mods / "ridge-2.8";
+            std::error_code moved;
+            fs::rename(*kept_release, alongside, moved);
+            require(!moved, "the kept release was not moved to Mods/ridge-2.8");
+            write_phase(user_folder_, "alongside");
+            request_soft_restart();
+            return;
+        }
+        if (phase == "alongside") {
+            require(version_is("2.9"), "Ridge 2.9 is not chosen before the alongside watch");
+            open_replays();
+            const auto [alongside_chip, alongside_note] = show("default/ridge.oademo");
+            require(
+                alongside_chip.empty(),
+                "an alongside release still has a chip \"" + alongside_chip + "\""
+            );
+            require(
+                alongside_note.empty(),
+                "an alongside release still has a note \"" + alongside_note + "\""
+            );
+            const std::optional<AutomationControl> alongside_watch =
+                named("oa.library.action.watch");
+            require(
+                alongside_watch && alongside_watch->text == "Watch",
+                "the alongside button is not Watch"
+            );
+            write_phase(user_folder_, "alongside-playing");
+            click_named("oa.library.action.watch");
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Watch of the alongside release did not restart"
+            );
+            return;
+        }
+        if (phase == "alongside-playing") {
+            require(version_is("2.8"), "the alongside Ridge 2.8 is not playing");
+            const fs::path alongside = mods / "ridge-2.8";
+            std::error_code alongside_same;
+            require(
+                !alongside_same &&
+                    fs::equivalent(options_.layered_mod_folder, alongside, alongside_same),
+                "the replay is not using Mods/ridge-2.8"
+            );
+            write_phase(user_folder_, "alongside-back");
+            play_through();
+            std::cout << "replays content: alongside ridge 2.8 playing\n";
+            until(
+                kDownloadWaitMs,
+                [&] { return soft_restart_requested(); },
+                "Ridge 2.9 was not put back after the alongside copy"
+            );
+            return;
+        }
+        if (phase == "alongside-back") {
+            next_start_idle();
+            require(version_is("2.9"), "Ridge 2.9 was not chosen after the alongside copy");
+            return;
+        }
+        throw std::runtime_error("replays content check: the beside phase is unknown");
+    }
+
     const auto cached_found = facts.find("cached");
     const bool cached_press = cached_found != facts.end() && cached_found->second == "press";
     const std::string registry_id = fact(facts, "registry");
-    if (which == "play") {
+    if (which == "update" && options_.restarts > 0) {
+        require(read_phase(user_folder_) == "ready", "the update phase is unknown");
+        require(mod_profile() == nullptr, "a mod is chosen");
+        const fs::path update_mods = user_folder_ / std::string(user_mods_folder_name);
+        const fs::path update_ridge = update_mods / "ridge";
+        require(folder_names_version(update_ridge, "2.8"), "Ridge 2.8 is not installed");
+        const std::string update_registry = fact(facts, "registry");
+        until(
+            kRegistryWaitMs,
+            [&] {
+                const std::shared_ptr<const content::Snapshot> snapshot_now =
+                    content_service().snapshot();
+                if (!snapshot_now)
+                    return false;
+                for (const content::RegistryView& registry_view : snapshot_now->registries) {
+                    if (registry_view.registry.descriptor.id != update_registry)
+                        continue;
+                    return registry_view.releases != nullptr && !registry_view.refreshing;
+                }
+                return false;
+            },
+            "the releases list was not held"
+        );
+        open_replays();
+        const auto [update_chip, update_note] = show("default/ridge.oademo");
+        static_cast<void>(update_chip);
+        static_cast<void>(update_note);
+        const std::optional<AutomationControl> before = named("oa.library.action.watch");
+        require(before && before->text == "Watch", "Ridge 2.8 does not read Watch");
+        click_named("oa.library.tab.updates");
+        frames(4);
+        // The button is drawn disabled until the installed Ridge is an update.
+        const auto update_all_ready = [&] {
+            const std::optional<AutomationControl> update_all =
+                named("oa.library.action.update-all");
+            return update_all && update_all->enabled;
+        };
+        if (!update_all_ready()) {
+            click_named("oa.library.refresh");
+            until(kRegistryWaitMs, update_all_ready, "Update all was not shown");
+        }
+        click_named("oa.library.action.update-all");
+        until(
+            kDownloadWaitMs,
+            [&] { return named("oa.prompt.update").has_value(); },
+            "Update all did not ask"
+        );
+        click_named("oa.prompt.update");
+        until(
+            kDownloadWaitMs,
+            [&] { return folder_names_version(update_ridge, "2.9"); },
+            "the update did not install Ridge 2.9"
+        );
+        click_named("oa.library.tab.replays");
+        frames(2);
+        click_named(row_of("default/ridge.oademo"));
+        until(
+            kDownloadWaitMs,
+            [&] {
+                const std::optional<AutomationControl> after = named("oa.library.action.watch");
+                return after && after->text == "Get Ridge 2.8 and watch";
+            },
+            "the replay still reads Watch after the update"
+        );
+        const auto [replaced_chip, replaced_note] = show("default/ridge.oademo");
+        require(replaced_chip == "Needs Ridge 2.8", "Ridge's chip is \"" + replaced_chip + "\"");
+        require(
+            replaced_note.find("You have 2.9.") != std::string::npos,
+            "the card does not say you have 2.9."
+        );
+        std::error_code releases_missing;
+        require(
+            !fs::exists(
+                user_folder_ / std::string(package_install::replay_releases_folder_name),
+                releases_missing
+            ),
+            "Replay releases exists after the update"
+        );
+        std::cout << "replays content: update noticed\n";
+        return;
+    }
+
+    if (which == "play" || which == "beside" || which == "update" || which == "packs") {
         const std::string descriptor = fact(facts, "descriptor");
         const uint64_t request = content_service().check_registry_url(descriptor);
         std::optional<content::RegistryCheck> checked;
@@ -1073,6 +2077,346 @@ void Runtime::check_replays_content() {
         fs::remove_all(recordings, removed);
     }
     write_replays(recordings, *source_read.replay, facts);
+    if (which == "packs") {
+        const fs::path maps_root =
+            user_folder_ / std::string(package_install::oamap::maps_folder_name);
+        const fs::path hand_folder = maps_root / "ridge-reach";
+        extract_pack(fs::current_path() / "ridge-reach.oamap", hand_folder);
+        std::string digest_error;
+        const std::optional<sha::Digest> hand_digest =
+            oa::data::mutators::folder_digest(hand_folder, &digest_error);
+        require(hand_digest.has_value(), "the hand-copied pack has no digest: " + digest_error);
+        const auto hand_hex = sha::to_hex(*hand_digest);
+        store_pack_replay(
+            recordings / "default" / "hand.oademo",
+            *source_read.replay,
+            std::string(hand_hex.data(), hand_hex.size())
+        );
+        open_replays();
+        const auto [hand_chip, hand_note] = show("default/hand.oademo");
+        static_cast<void>(hand_note);
+        require(hand_chip.empty(), "the hand-copied pack shows \"" + hand_chip + "\"");
+        const std::optional<AutomationControl> hand_button = named("oa.library.action.watch");
+        require(hand_button && hand_button->text == "Watch", "the hand-copied pack is not Watch");
+        click_named("oa.library.action.watch");
+        until(
+            kDownloadWaitMs,
+            [&] { return screen_ == Screen::match && match_ != nullptr; },
+            "the hand-copied pack did not play"
+        );
+        const PackMap* hand_mounted = mounted_pack_map();
+        require(hand_mounted != nullptr, "the hand-copied pack was not mounted");
+        const std::string hand_mounted_folder = platform::path_to_utf8(hand_mounted->folder);
+        require(
+            hand_mounted_folder.find("Replay releases") == std::string::npos,
+            "the hand-copied pack was fetched"
+        );
+        require(
+            hand_mounted_folder.find("Maps") != std::string::npos,
+            "the hand-copied pack was not played from Maps"
+        );
+        const uint32_t hand_tick = match_->state().game.tick;
+        for (int frame = 0; frame < kMostFrames && match_ != nullptr &&
+                            match_->state().game.tick < hand_tick + kWatchedTicks;
+             ++frame) {
+            static_cast<void>(run_granted_ticks(1));
+            run_frame(running);
+            require(running, "a frame ended the run");
+        }
+        require(
+            match_ != nullptr && match_->state().game.tick >= hand_tick + kWatchedTicks,
+            "the hand-copied pack did not play its ticks"
+        );
+        std::cout << "replays content: hand played with no fetch\n";
+        leave_match();
+        load(Screen::main_menu);
+        frames(5);
+
+        extract_pack(fs::current_path() / "ridge-reach-new.oamap", hand_folder);
+        const std::optional<sha::Digest> newer = sha::parse_hex(fact(facts, "pack_new_sha"));
+        require(newer.has_value(), "the newer pack's digest is not hex");
+        int64_t newer_release = 0;
+        const std::string release_text = fact(facts, "pack_new_release");
+        require(!release_text.empty(), "the newer pack's release is not named");
+        for (const char digit : release_text) {
+            require(digit >= '0' && digit <= '9', "the newer pack's release is not a number");
+            newer_release = newer_release * 10 + (digit - '0');
+        }
+        require(newer_release > 0, "the newer pack's release is empty");
+        package_install::Origin record;
+        record.kind = package_install::OriginKind::catalogue;
+        record.registry = fact(facts, "registry");
+        record.catalogue_id = std::string(kPackId);
+        record.release = newer_release;
+        record.sha256 = *newer;
+        record.installed = "2026-11-01";
+        const std::string origin_record = package_install::origin_text(record);
+        require(!origin_record.empty(), "the newer pack's origin was not written");
+        write_text(hand_folder / std::string(package_install::origin_file_name), origin_record);
+        const std::string installed_before = pack_fingerprint(hand_folder);
+        store_pack_replay(
+            recordings / "default" / "older.oademo", *source_read.replay, fact(facts, "pack_sha")
+        );
+        open_replays();
+        until(
+            kDownloadWaitMs,
+            [&] {
+                if (library::find_replay(host.model, "default/older.oademo") == nullptr)
+                    return false;
+                const auto [older_chip, older_note] = show("default/older.oademo");
+                const std::optional<AutomationControl> watch = named("oa.library.action.watch");
+                return older_chip == "Needs map" &&
+                       older_note.find("another release of the map pack Ridge Reach") !=
+                           std::string::npos &&
+                       watch && watch->text == "Get Ridge Reach 1.0 and watch";
+            },
+            "the older pack did not offer Get Ridge Reach 1.0 and watch"
+        );
+        click_named("oa.library.action.watch");
+        until(
+            kDownloadWaitMs,
+            [&] { return screen_ == Screen::match && match_ != nullptr; },
+            "the older pack did not play"
+        );
+        const PackMap* older_mounted = mounted_pack_map();
+        require(older_mounted != nullptr, "the older pack was not mounted");
+        const std::string older_folder = platform::path_to_utf8(older_mounted->folder);
+        const std::string old_sha = fact(facts, "pack_sha");
+        require(
+            older_folder.find("Replay releases") != std::string::npos &&
+                older_folder.find(old_sha) != std::string::npos,
+            "the older pack was not played from Replay releases"
+        );
+        const uint32_t older_tick = match_->state().game.tick;
+        for (int frame = 0; frame < kMostFrames && match_ != nullptr &&
+                            match_->state().game.tick < older_tick + kWatchedTicks;
+             ++frame) {
+            static_cast<void>(run_granted_ticks(1));
+            run_frame(running);
+            require(running, "a frame ended the run");
+        }
+        require(
+            match_ != nullptr && match_->state().game.tick >= older_tick + kWatchedTicks,
+            "the older pack did not play its ticks"
+        );
+        require(pack_fingerprint(hand_folder) == installed_before, "the installed pack changed");
+        const std::vector<uint8_t> origin_bytes =
+            read_bytes(hand_folder / std::string(package_install::origin_file_name));
+        const std::string origin_after(origin_bytes.begin(), origin_bytes.end());
+        require(
+            origin_after.find(fact(facts, "pack_new_sha")) != std::string::npos,
+            "the installed pack's record changed"
+        );
+        std::cout << "replays content: older pack playing from Replay releases\n";
+        std::cout << "replays content: installed pack unchanged\n";
+        leave_match();
+        load(Screen::main_menu);
+        frames(5);
+
+        const std::string pack_map_name = std::string(kMapStem) + "@" + std::string(kPackId);
+        const auto watch_kept = [&](std::string_view path, bool from_releases) {
+            open_replays();
+            const auto [chip, note] = show(path);
+            static_cast<void>(chip);
+            static_cast<void>(note);
+            const std::optional<AutomationControl> button = named("oa.library.action.watch");
+            require(button && button->text == "Watch", std::string(path) + " is not Watch");
+            click_named("oa.library.action.watch");
+            until(
+                kDownloadWaitMs,
+                [&] { return screen_ == Screen::match && match_ != nullptr; },
+                "the replay did not play"
+            );
+            const PackMap* mounted = mounted_pack_map();
+            require(mounted != nullptr, "the pack was not mounted");
+            const std::string folder = platform::path_to_utf8(mounted->folder);
+            if (from_releases) {
+                require(
+                    folder.find("Replay releases") != std::string::npos &&
+                        folder.find(old_sha) != std::string::npos,
+                    "the replay was not played from Replay releases"
+                );
+            } else {
+                require(
+                    folder.find("Maps") != std::string::npos &&
+                        folder.find("Replay releases") == std::string::npos,
+                    "the replay was not played from Maps"
+                );
+            }
+            const uint32_t began_tick = match_->state().game.tick;
+            for (int frame = 0; frame < kMostFrames && match_ != nullptr &&
+                                match_->state().game.tick < began_tick + kWatchedTicks;
+                 ++frame) {
+                static_cast<void>(run_granted_ticks(1));
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            require(
+                match_ != nullptr && match_->state().game.tick >= began_tick + kWatchedTicks,
+                "the replay did not play its ticks"
+            );
+            leave_match();
+            load(Screen::main_menu);
+            frames(5);
+        };
+
+        write_bytes(hand_folder / "maps" / "ridge_reach.tnt", std::vector<uint8_t>{1, 2, 3, 4});
+        map_packs().refresh();
+        drop_pack_map_fits();
+        refresh_listed_pack_maps();
+        require(
+            pack_map_blocked_reason(pack_map_name) != nullptr,
+            "the damaged pack in Maps was not greyed"
+        );
+        watch_kept("default/older.oademo", true);
+        std::cout << "replays content: greyed pack played from Replay releases\n";
+
+        open_replays();
+        library::select_replay(host.model, "default/older.oademo");
+        ++host.model_revision;
+        until(
+            kDownloadWaitMs,
+            [&] {
+                const library::ReplayRow* indexed =
+                    library::find_replay(host.model, "default/older.oademo");
+                return indexed != nullptr && indexed->replay.timeline.has_value() &&
+                       !indexed->replay.timeline->empty();
+            },
+            "the index pass did not read the kept pack"
+        );
+        std::cout << "replays content: index pass read default/older.oademo\n";
+
+        {
+            std::error_code removed;
+            fs::remove_all(hand_folder, removed);
+            require(!removed, "the pack in Maps was not uninstalled");
+        }
+        watch_kept("default/older.oademo", true);
+        std::cout << "replays content: kept pack played with nothing in Maps\n";
+
+        {
+            std::error_code removed;
+            fs::remove_all(
+                user_folder_ / std::string(package_install::replay_releases_folder_name), removed
+            );
+        }
+        extract_pack(fs::current_path() / "ridge-reach.oamap", hand_folder);
+        const std::optional<sha::Digest> file_sha = sha::parse_hex(old_sha);
+        require(file_sha.has_value(), "the file pack's digest is not hex");
+        package_install::Origin file_origin;
+        file_origin.kind = package_install::OriginKind::file;
+        file_origin.sha256 = *file_sha;
+        file_origin.installed = "2026-11-01";
+        const std::string file_record = package_install::origin_text(file_origin);
+        require(!file_record.empty(), "the file origin was not written");
+        write_text(hand_folder / std::string(package_install::origin_file_name), file_record);
+        store_pack_replay(recordings / "default" / "file.oademo", *source_read.replay, old_sha);
+        watch_kept("default/file.oademo", false);
+        std::cout << "replays content: file origin watched with no fetch\n";
+
+        extract_pack(fs::current_path() / "ridge-reach-new.oamap", hand_folder);
+        package_install::Origin newer_record;
+        newer_record.kind = package_install::OriginKind::catalogue;
+        newer_record.registry = fact(facts, "registry");
+        newer_record.catalogue_id = std::string(kPackId);
+        newer_record.release = newer_release;
+        newer_record.sha256 = *newer;
+        newer_record.installed = "2026-11-01";
+        const std::string newer_text = package_install::origin_text(newer_record);
+        require(!newer_text.empty(), "the newer pack's origin was not written again");
+        write_text(hand_folder / std::string(package_install::origin_file_name), newer_text);
+        {
+            std::error_code removed;
+            fs::remove_all(
+                user_folder_ / std::string(package_install::replay_releases_folder_name), removed
+            );
+        }
+        const fs::path ridge = user_folder_ / std::string(user_mods_folder_name) / "ridge";
+        const std::vector<uint8_t> model(std::begin(kRidgeModel), std::end(kRidgeModel));
+        write_text(ridge / "oamod.yaml", ridge_profile("2.9"));
+        write_text(ridge / "units" / "RGNEW.fbi", kRidgeUnit);
+        write_bytes(ridge / "objects3d" / "RGNEW.3DO", model);
+        const std::optional<sha::Digest> ridge_digest =
+            sha::parse_hex(fact(facts, "ridge_new_sha"));
+        require(ridge_digest.has_value(), "Ridge 2.9's digest is not hex");
+        package_install::Origin ridge_origin;
+        ridge_origin.kind = package_install::OriginKind::catalogue;
+        ridge_origin.registry = fact(facts, "registry");
+        ridge_origin.catalogue_id = "ridge";
+        ridge_origin.release = 3;
+        ridge_origin.sha256 = *ridge_digest;
+        ridge_origin.installed = "2026-11-01";
+        const std::string ridge_record = package_install::origin_text(ridge_origin);
+        require(!ridge_record.empty(), "Ridge 2.9's origin was not written");
+        write_text(ridge / std::string(package_install::origin_file_name), ridge_record);
+        write_text(user_folder_ / std::string(kKeptName), "2.9\n");
+        remember_mod_directory(preference_values_, ridge);
+        preferences_dirty_ = true;
+        flush_preferences();
+        const std::vector<uint8_t> ridge_bytes =
+            read_bytes(recordings / "default" / "ridge.oademo");
+        const oademo::ReadResult ridge_read = oademo::read(ridge_bytes);
+        require(ridge_read.ok(), "ridge.oademo does not read");
+        store_pack_and_ridge(
+            recordings / "default" / "both-pack.oademo", *ridge_read.replay, old_sha
+        );
+        write_phase(user_folder_, "both-ready");
+        request_soft_restart();
+        return;
+    }
+    if (which == "update") {
+        // Release 1 is the catalogue's Ridge 2.8. No Mod stays chosen.
+        const fs::path ridge = user_folder_ / std::string(user_mods_folder_name) / "ridge";
+        const std::vector<uint8_t> model(std::begin(kRidgeModel), std::end(kRidgeModel));
+        write_text(ridge / "oamod.yaml", ridge_profile("2.8"));
+        write_text(ridge / "units" / "RGNEW.fbi", kRidgeUnit);
+        write_bytes(ridge / "objects3d" / "RGNEW.3DO", model);
+        const std::optional<sha::Digest> digest = sha::parse_hex(fact(facts, "ridge_sha"));
+        require(digest.has_value(), "Ridge 2.8's digest is not hex");
+        package_install::Origin record;
+        record.kind = package_install::OriginKind::catalogue;
+        record.registry = fact(facts, "registry");
+        record.catalogue_id = "ridge";
+        record.release = 1;
+        record.sha256 = *digest;
+        record.installed = "2026-11-01";
+        const std::string origin_record = package_install::origin_text(record);
+        require(!origin_record.empty(), "Ridge 2.8's origin was not written");
+        write_text(ridge / std::string(package_install::origin_file_name), origin_record);
+        write_phase(user_folder_, "ready");
+        request_soft_restart();
+        std::cout << "replays content: Ridge 2.8 installed\n";
+        return;
+    }
+    if (which == "beside") {
+        // Ridge 2.9 is already what the player uses. The replay's 2.8 is
+        // fetched later, into Replay releases, and this folder is put back.
+        const fs::path ridge = user_folder_ / std::string(user_mods_folder_name) / "ridge";
+        const std::vector<uint8_t> model(std::begin(kRidgeModel), std::end(kRidgeModel));
+        write_text(ridge / "oamod.yaml", ridge_profile("2.9"));
+        write_text(ridge / "units" / "RGNEW.fbi", kRidgeUnit);
+        write_bytes(ridge / "objects3d" / "RGNEW.3DO", model);
+        const std::optional<sha::Digest> digest = sha::parse_hex(fact(facts, "ridge_new_sha"));
+        require(digest.has_value(), "Ridge 2.9's digest is not hex");
+        package_install::Origin record;
+        record.kind = package_install::OriginKind::catalogue;
+        record.registry = fact(facts, "registry");
+        record.catalogue_id = "ridge";
+        record.release = 3;
+        record.sha256 = *digest;
+        record.installed = "2026-11-01";
+        const std::string origin_record = package_install::origin_text(record);
+        require(!origin_record.empty(), "Ridge 2.9's origin was not written");
+        write_text(ridge / std::string(package_install::origin_file_name), origin_record);
+        write_text(user_folder_ / std::string(kKeptName), "2.9\n");
+        remember_mod_directory(preference_values_, ridge);
+        preferences_dirty_ = true;
+        flush_preferences();
+        write_phase(user_folder_, "installed");
+        request_soft_restart();
+        std::cout << "replays content: Ridge 2.9 installed\n";
+        return;
+    }
     open_replays();
     both_not_read();
     {
@@ -1194,6 +2538,7 @@ void Runtime::check_replays_content() {
     require(
         get_gone && get_gone->text == "Get it and watch", "the 409 button is not Get it and watch"
     );
+    std::string gone_after;
     click_named("oa.library.action.watch");
     until(
         kDownloadWaitMs,
@@ -1201,8 +2546,8 @@ void Runtime::check_replays_content() {
             const library::ReplayRow* row = library::find_replay(host.model, "default/gone.oademo");
             if (row == nullptr)
                 return false;
-            const std::string note = library::replay_note(host.model, *row);
-            return note.find("not in Core Prime's catalogue") != std::string::npos &&
+            gone_after = library::replay_note(host.model, *row);
+            return gone_after.find("not in Ridge Replays's catalogue") != std::string::npos &&
                    !named("oa.library.action.watch");
         },
         "a 409 left Get it and watch"
@@ -1210,6 +2555,7 @@ void Runtime::check_replays_content() {
     frames(3);
     require(!named("oa.library.action.watch"), "Watch came back after the 409");
     std::cout << "replays content: 409 left no Watch\n";
+    std::cout << "replays content: 409 \"" << gone_after << "\"\n";
 
     click_named(row_of("default/both.oademo"));
     bool saw_fetch = false;

@@ -3,6 +3,8 @@
 
 // Runtime construction, main loop and screen loading.
 #include "oa/app/runtime.hpp"
+#include "oa_layer.hpp"
+#include "photo_clipboard.hpp"
 #include "oa/app/netgame/launch_file.hpp"
 #include "renderer_effect_events.hpp"
 #include "oa/app/view_rules.hpp"
@@ -30,6 +32,7 @@
 #include "oa/platform/system.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/gui_input/gadget_panel.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -591,6 +594,15 @@ int Runtime::run() {
 
     [[maybe_unused]] MutatorSentinelOnReturn mutator_sentinel_on_return{*this};
 
+    // A photo promised to the clipboard is read once before this returns.
+    // Video is still up here; it quits after the runtime is gone. On a Mac
+    // that read is what keeps the photo after the game quits.
+    struct PhotoClipboardOnReturn {
+        ~PhotoClipboardOnReturn() { keep_offered_photo_after_quit(); }
+    };
+
+    [[maybe_unused]] PhotoClipboardOnReturn photo_clipboard_on_return;
+
     // The menu draws this window from here. A launch pump must not clear it.
     release_launch_window();
     // The screens before the menu, the setup among them, may have dropped
@@ -774,6 +786,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_replay_viewer) {
+            check_replay_viewer();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_key_capture) {
             check_key_capture();
             flush_preferences();
@@ -916,6 +933,11 @@ int Runtime::run() {
         }
         if (options_.check_replays_content) {
             check_replays_content();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_replays_core_prime) {
+            check_replays_core_prime();
             flush_preferences();
             return 0;
         }
@@ -1276,10 +1298,24 @@ int Runtime::run() {
                 if (SDL_WaitEventTimeout(&event, kHandoffWaitMs))
                     dispatch_event(event, running);
                 take_handed_mod_files();
-            } else if (SDL_WaitEvent(&event)) {
-                dispatch_event(event, running);
+            } else {
+                // The writer posts one event when a photo finishes, so this
+                // wait returns and the photo is offered on the main thread
+                // while the window is still waiting. While a photo is being
+                // written, a short timeout is the backstop. A photo that
+                // finished after this frame's offer is offered before the wait.
+                publish_photo_status();
+                const int photo_wait_ms = photo_idle_wait_ms();
+                bool arrived = false;
+                if (photo_wait_ms >= 0)
+                    arrived = SDL_WaitEventTimeout(&event, photo_wait_ms);
+                else
+                    arrived = SDL_WaitEvent(&event);
+                if (arrived)
+                    dispatch_event(event, running);
             }
             oa::platform::log_files::maintain();
+            publish_photo_status();
             continue;
         }
         run_frame(running);
@@ -1299,11 +1335,44 @@ int Runtime::run() {
     return exit_status_;
 }
 
+bool Runtime::service_headless_replay_viewer() {
+    tick_screen_packages();
+    call_hook_or_raise<&Extension::frame>(extension_, *this, FrameStage::pump);
+    call_hook_or_raise<&Extension::frame>(extension_, *this, FrameStage::after_pump);
+    finish_quit_request();
+    if (exit_requested_)
+        return false;
+    if (match_clock_steps()) {
+        const uint32_t now_ms =
+            static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now().time_since_epoch()
+            )
+                                      .count());
+        // A headless check's clock is the tick count. A live replay arrives on
+        // the wall clock, so the first stepping frame starts from now.
+        if (options_.fixed_clock && match_timing_.tick == 0 && match_timing_.previous_clock == 0)
+            match_timing_.previous_clock =
+                oa::base::game_loop::scaled_clock(now_ms, match_clock_scale());
+        advance_match_clock(now_ms);
+    }
+    if (screen_ == Screen::match && match_ != nullptr)
+        present_match_outcome();
+    call_hook_or_raise<&Extension::frame>(extension_, *this, FrameStage::presented);
+    // The end screen is not opened: this run only waits for the summary, and
+    // a headless check has no window to show it on. A windowed join still
+    // opens the end screen from its own frame.
+    return !exit_requested_;
+}
+
 void Runtime::take_video_capture(std::unique_ptr<VideoCapture> capture) {
     video_capture_ = std::move(capture);
 }
 
 void Runtime::run_frame(bool& running) {
+    // A photo that finished since the last frame is copied from here, in
+    // play as well as in photo mode. The player can leave photo mode before
+    // the write ends.
+    publish_photo_status();
     // A size the window reached without a resize is delivered before this
     // frame's events, so the events and the frame use the window on screen.
     // A headless check and a director lay the match out at a size of their
@@ -1337,6 +1406,15 @@ void Runtime::run_frame(bool& running) {
 }
 
 void Runtime::dispatch_event(SDL_Event& event, bool& running) {
+    // The writer's notice is not input. Whichever loop takes it offers the
+    // photo now: a notice the frame's own poll takes, after the frame has
+    // offered what was ready, would otherwise wait for the next event once
+    // the window waits.
+    if (is_photo_notice_event(event.type)) {
+        publish_photo_status();
+        return;
+    }
+
     // With --trace-input, an event of the window or a display is traced once
     // the game, the full-screen switch and Window edge have answered it, so
     // the line shows how the pointer is held after it. The guard is made
@@ -1501,10 +1579,6 @@ bool Runtime::take_keys_overlay_action() {
     const auto* action = fired_action("ui.keys-overlay");
     if (action == nullptr || action->phase != oa::ui::key_bindings::Phase::pressed)
         return false;
-    // Photo mode leaves the keys overlay out. The key is taken, so it
-    // does not reach the photo screen either.
-    if (photo_mode())
-        return true;
     if (keys_overlay_hook_ != nullptr)
         keys_overlay_hook_(*this);
     toggle_keys_overlay_screen();
@@ -1830,9 +1904,14 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
             extension_, hook_error_report(), *this, now_ms, host
         );
         replay_skip_presentation_ = false;
-        if (replay_end_requested_) {
+        if (replay_library_requested_ || replay_end_requested_) {
+            const bool to_library = replay_library_requested_;
+            replay_library_requested_ = false;
             replay_end_requested_ = false;
+            release_replay_recording();
             leave_match();
+            if (to_library)
+                load(Screen::main_menu);
         }
         return;
     }
@@ -2114,6 +2193,26 @@ int32_t Runtime::frontend_focus() const {
                : -1;
 }
 
+int32_t Runtime::reported_frontend_focus() const {
+    if (!frontend_has_keyboard())
+        return -1;
+    const int32_t held = frontend_focus();
+    if (held >= 0)
+        return held;
+    // The screen focuses none. The first record of its order is what the
+    // first Tab would reach, and the screen's own focus is left where it is.
+    return frontend_panel_focus(resources_.layout, 0, oa::ui::gui_input::FocusDirection::next);
+}
+
+int32_t Runtime::reported_match_focus() const {
+    if (!match_panels_keyboard_ || !match_hud_ || match_hud_->layout.gadgets.empty())
+        return -1;
+    if (match_hud_focus_ > 0 &&
+        static_cast<std::size_t>(match_hud_focus_) < match_hud_->layout.gadgets.size())
+        return match_hud_focus_;
+    return frontend_panel_focus(match_hud_->layout, 0, oa::ui::gui_input::FocusDirection::next);
+}
+
 void Runtime::move_frontend_focus(oa::ui::gui_input::FocusDirection direction) {
     const auto focus = frontend_focus();
     const auto moved = frontend_panel_focus(resources_.layout, std::max(focus, 0), direction);
@@ -2240,9 +2339,26 @@ void Runtime::load(Screen screen) {
     // the game draws its own.
     apply_system_pointer(true);
     rebuild_surface();
+    // The ring stays hidden until a key shows it, unless Always show focus
+    // is on. A screen the press opened starts from that rule.
+    oa_layer().note_family_opened();
 }
 
 void Runtime::rebuild_surface() {
+    // The battle room's own draw replaces the surface, so its colour cells
+    // are stamped after that draw. A dialog covering the room is left alone.
+    const auto stamp_battle_room = [this] {
+        namespace mp = oa::ui::frontend_multiplayer;
+        if (screen_id(screen_) != mp::kScreenBattleroom)
+            return;
+        if (!mp::multiplayer_battle_room_open())
+            return;
+        if (mp::multiplayer_modal_kind() != mp::ModalKind::none)
+            return;
+        stamp_colour_cell_markers(
+            surface_, mp::multiplayer_drawn_layout(), mp::multiplayer_screen_palette(), true
+        );
+    };
     // A front-end frame painted again is a new picture for its prescale
     // target (accelerated_.screen_revision); one kept as shown is not. The
     // loading screen's frames count their own as the sink presents them.
@@ -2250,12 +2366,14 @@ void Runtime::rebuild_surface() {
         refresh_filtered_terrain();
         render_match_surface();
         draw_screen_packages();
+        stamp_battle_room();
         tick_and_draw_cursor();
         return;
     }
     if (screen_ == Screen::loading) {
         draw_loading_screen();
         draw_screen_packages();
+        stamp_battle_room();
         tick_and_draw_cursor();
         return;
     }
@@ -2267,12 +2385,14 @@ void Runtime::rebuild_surface() {
         }
         ++accelerated_.screen_revision;
         draw_screen_packages();
+        stamp_battle_room();
         tick_and_draw_cursor();
         return;
     }
     if (draw_end_screen_battlefield()) {
         ++accelerated_.screen_revision;
         draw_screen_packages();
+        stamp_battle_room();
         return;
     }
     // A panel whose setup has not yet asked for its named background keeps
@@ -2369,6 +2489,12 @@ void Runtime::rebuild_surface() {
     if (screen_ == Screen::load_game)
         present_load_game_panel(lists);
     renderer::render_screen_into(surface_, resources_, presentation, lists);
+    // Colour cells of the skirmish and every other screen drawn this way.
+    // The battle room is stamped on its own draw. With cues off the pass
+    // draws nothing.
+    const auto& drawn_palette =
+        resources_.background.palette ? *resources_.background.palette : resources_.gui_palette;
+    stamp_colour_cell_markers(surface_, resources_.layout, drawn_palette, false);
     if (auto* scrolls = frontend_scrolls()) {
         renderer::refresh_layout_scrolls(*scrolls, resources_.layout);
         renderer::draw_layout_scrolls(
@@ -2472,6 +2598,7 @@ void Runtime::rebuild_surface() {
     if (panel_over_screen())
         compose_panel_over_parent();
     draw_screen_packages();
+    stamp_battle_room();
     if (!end_screen_hides_cursor())
         tick_and_draw_cursor();
 }

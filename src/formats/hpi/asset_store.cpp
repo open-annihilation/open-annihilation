@@ -2205,34 +2205,47 @@ AssetStore::archived_node(std::string_view resource, const std::filesystem::path
     return std::nullopt;
 }
 
-AssetData
-AssetStore::read_skipping(std::string_view resource, const std::filesystem::path* skipped) const {
+std::optional<AssetData> AssetStore::read_present_skipping(
+    std::string_view resource, const std::filesystem::path* skipped
+) const {
     if (const auto hit = MutatorLayerOps::consult(*this, resource); hit.decision.answers()) {
         note_lookup(resource);
         note_mutator(observer_, resource, hit.decision.owner(), hit.decision.hidden());
         if (hit.decision.hidden())
-            fail("asset not found: " + normalized_path(resource));
+            return std::nullopt;
         return MutatorLayerOps::read_entry(*hit.layer, *hit.decision.entry);
     }
     if (const auto loose = loose_path(resource))
-        return {read_loose(*loose), *loose, false};
+        return AssetData{read_loose(*loose), *loose, false};
     if (const auto found = archived_node(resource, skipped)) {
         const auto& mounted = mounts_[found->mount];
         auto bytes = mounted.archive.read_node(found->node);
         if (!bytes.ok())
             fail_entry_read(bytes.error, mounted.path, mounted.archive.nodes()[found->node]);
-        return {std::move(*bytes.value), mounted.path, true};
+        return AssetData{std::move(*bytes.value), mounted.path, true};
     }
     if (const auto layer = pack_layer_snapshot()) {
         const auto listed = layer->index.find(normalized_path(resource));
         if (listed != layer->index.end())
             return PackLayerOps::read_pack_entry(*layer, layer->entries[listed->second]);
     }
-    fail("asset not found: " + normalized_path(resource));
+    return std::nullopt;
+}
+
+AssetData
+AssetStore::read_skipping(std::string_view resource, const std::filesystem::path* skipped) const {
+    auto data = read_present_skipping(resource, skipped);
+    if (!data)
+        fail("asset not found: " + normalized_path(resource));
+    return std::move(*data);
 }
 
 AssetData AssetStore::read(std::string_view resource) const {
     return read_skipping(resource, nullptr);
+}
+
+std::optional<AssetData> AssetStore::read_if_present(std::string_view resource) const {
+    return read_present_skipping(resource, nullptr);
 }
 
 AssetData

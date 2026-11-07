@@ -627,13 +627,10 @@ int32_t Runtime::map_player_capacity() {
 }
 
 std::optional<std::vector<uint8_t>> Runtime::read(std::string_view path) {
-    try {
-        return assets_.read(path).bytes;
-    } catch (const std::runtime_error& error) {
-        if (std::string_view(error.what()).starts_with("asset not found: "))
-            return std::nullopt;
-        throw;
-    }
+    auto data = assets_.read_if_present(path);
+    if (!data)
+        return std::nullopt;
+    return std::move(data->bytes);
 }
 
 namespace {

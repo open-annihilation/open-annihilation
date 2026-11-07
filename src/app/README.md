@@ -260,6 +260,22 @@ latched the closing key and drew a backdrop.
   screen on the stack back to the top by closing every screen above it in
   that way, so that a screen asking for one already under it goes back to
   it rather than stacking a second.
+- **The family's ring.** After the screens have drawn, the layer draws
+  `kit::draw_focus_ring` around the focused gadget of an original menu, and
+  around an extension window that itself holds the focus, at that control's
+  window rectangle and at the layer's scale. A screen that draws the kit's
+  own ring is left to it. A button of an OA screen that joins an original
+  menu's Tab order, such as the mutators button, takes this ring instead,
+  and the tree's `focus_shown` follows it. The ring is hidden when a
+  screen, a dialog, a page of the in-game panel or an extension window
+  opens (`note_family_opened` on load and on the in-game menu, and again in
+  `present_family_ring` when what is showing has changed), unless Always
+  show focus is on.
+  `note_family_tab` shows it, `note_family_return` hides it, and
+  `note_family_pointer` hides it when the pointer moves. Where a screen
+  focuses nothing, the tree reports a first item (SINGLE on the main menu).
+  The ring is drawn around that item on an original menu. On an extension's
+  windows it waits until the window itself holds the focus.
 - **Pushed or queued.** A screen somebody asked for at that moment joins at
   once with `push`: Settings, or a question a screen asks of its own over
   that screen (the Library's Switch Mod question over the Library). One nobody
@@ -1051,6 +1067,12 @@ runtime goes).
   gone (`end_watched_replay`), which writes the tick sampled while the match
   ran (`note_watched_replay`, through `replay_state`) into the index.
   **Watch from** stores that tick and asks `replay_seek` on the first frame
+  the replay can say where it is. A replay opened after a restart to switch
+  the mod or the expansions is remembered from that same sampled tick. It
+  keeps no place once the tick has reached the recording's length. The index
+  pass does not read a replay that needs a package or an expansion, so that
+  length is the one in the replay's description. Watch from keeps its tick in
+  `open-annihilation.replay-watch-from` across that restart and seeks once
   the replay can say where it is. A refusal is the hook's sentence, without the
   file's name the hook puts before it, shown in the card. The hook can refuse
   after its match began loading (the recording's unit table is not the
@@ -1077,7 +1099,12 @@ runtime goes).
   a notice, "Added {title} to Replays". A file that does not parse is refused
   in the same notice. EXPORT… opens the dialog on the
   marked replays, or the one chosen, and `open_replay_export` opens it on
-  one replay for the viewer's end card. The files are made when the dialog
+  one replay for the viewer's end card. While a replay plays, the bar
+  (`runtime_replay_viewer.cpp`, `src/ui/replay-viewer`) shows play, pause,
+  the speed and the timeline, and hides until the pointer is at the
+  battlefield's lower edge or a playback key is pressed.
+  `--check-replay-viewer` (`native-replay-viewer`) records a short skirmish
+  and presses that bar. The files are made when the dialog
   opens and written one each pump, after two frames, into Downloads
   (`SDL_GetUserFolder`) or a folder the dialog's chooser lists. The
   game-install locator is not used: it refuses a folder that is not an
@@ -1088,8 +1115,12 @@ runtime goes).
   onto the export on the main thread. While the Library is open and no match
   is running, `pump_replays` also advances one index pass
   (`--replay-index` of the game's own executable, low priority, standard
-  output discarded). The child runs in the player's own folder, and with
-  `--mod-dir` when the replay's mod is installed. Its standard error goes
+  output discarded). The Library and the playback bar both start it through
+  `launch_index_pass` (`replay_index_pass.cpp`); the bar reads the pass's
+  `replay index: progress N` lines through a pipe that never blocks, N
+  counted against the recording's own length. The child runs in the
+  player's own folder, and with `--mod-dir` when the replay's mod is
+  installed. Its standard error goes
   to `.index-pass/errors.txt`. The game logs one line per pass. One process
   at a time. A row with a gap Watch would fetch, turn on or refuse is left
   out. A refused read stores `read_stamp` and is tried again when it
@@ -1143,8 +1174,34 @@ runtime goes).
   request names that release and its digest. The mutator is no longer
   selected when the match ends. A digest neither list holds reads as not in
   the catalogue, and with the registry stopped the card reads "You're
-  offline." With `--snapshot` it pictures the card at 1280x720.
+  offline." `beside` starts with Ridge 2.9 installed, fetches 2.8 beside
+  it, plays that replay, and puts 2.9 back, including after a stop during
+  the replay. With the registry then stopped, Watch plays the kept 2.8 and
+  puts 2.9 back again. That copy is then moved to `Mods/ridge-2.8`, as
+  Install alongside leaves it, and Watch plays that folder. `update`
+  updates Ridge 2.8 in `Mods/ridge` to 2.9 with Update all, and in the same
+  run the replay offers Get Ridge 2.8 and watch. `packs` plays a replay of a
+  hand-copied map pack with no fetch, then fetches an older release into
+  `Replay releases`, plays it, and leaves the pack in `Maps`. It then plays
+  that kept release when the copy in `Maps` is greyed and when `Maps` holds
+  no copy, reads it in an index pass, watches a file-installed copy with no
+  fetch, and plays an older pack with an older mod across a restart.
+  With `--snapshot` it pictures the card at 1280x720.
   `replays-content-clean` clears the working folder first.
+- **Core Prime's replays.** `runtime_library_core_prime.cpp` asks the feed at
+  `--core-prime-api`, or `https://api.coreprime.net` when that option is
+  unset. A page is kept for one minute. One `.oademo` is fetched at a time
+  into `Recordings/Core Prime`, with a key request of kind `oademo`. A `.tad`
+  is never fetched. Watch plays the file once it is saved and the replay's
+  needs have been offered.
+- **Core Prime's replay check.** `native-replays-core-prime`
+  (`--check-replays-core-prime`, `runtime_library_core_prime_check.cpp`,
+  `tools/check_native_replays_core_prime.py`) serves a loopback feed and key
+  server. The next page arrives, a planet narrows the list, a download writes
+  the file, Watch plays it, a release that changed is read again, a digest
+  that differs is refused, and with the server stopped the list reads offline.
+  With `--snapshot` it pictures the section at 1280x720.
+  `replays-core-prime-clean` clears the working folder first.
 - **Limitations.** A held update is replaced by a Roll back of the mod
   being played, which waits for the run to end in its place; the download
   queue has counted the update installed by then. CANCEL on the held line
@@ -3963,6 +4020,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   runs `--check-photo capture` (`native-photo-capture`,
   `native-photo-capture-basic`, `native-photo-capture-full`) and
   `--check-photo live` (`native-photo-capture-live`).
+  `--check-photo keys` (`native-photo-keys`) presses each photo command,
+  then Take photo moved to K.
 - Director scripts ([docs/director.md](../../docs/director.md)):
   `runtime_director.cpp` runs `--generate-script` (the recording replayed
   undrawn through the extension that replays it, its timeline recorded and
@@ -4958,6 +5017,8 @@ from the manifest. A manifest is read once, and again only when the pack's
 key changes. The key is the SHA-256 in the pack's origin record, or the
 SHA-256 of its `oamap.yaml` when it has no record. A terrain's size is the
 size of the map's TNT file. The index does not open a map.
+`use_replay_map_pack` lays one pack kept for a replay over `Maps` while
+that replay plays, with that pack's maps in place of those of the same name.
 
 ### Map packs in the game
 
@@ -5843,6 +5904,9 @@ a member network play adds. Two private flags, `replay_skip_presentation_`
 and `replay_end_requested_`, are the engine's own: `runtime.cpp` sets them
 while a replay frame runs a tick that is not drawn, and when that frame
 asks to leave the match after the hook has returned.
+The playback bar keeps `replay_viewer_`, the recording's path in
+`replay_recording_path_`, and `replay_chat_hidden_` while Chat hides the
+recorded lines.
 `NetworkPlay` is still a friend of `Runtime` and reaches some of its
 private names until hooks and declared headers cover everything:
 `tools/check_runtime_surface.py` (`netgame-runtime-surface`) holds the

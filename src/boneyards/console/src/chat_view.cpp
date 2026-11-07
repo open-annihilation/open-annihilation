@@ -13,6 +13,8 @@
 #include "console_state.hpp"
 #include "oa/boneyards/console/feature_consoles.hpp"
 #include "oa/boneyards/release.hpp"
+#include "oa/boneyards/screens/lobby_widgets.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/raster.hpp"
 #include "oa/present/surface.hpp"
 #include "widgets.hpp"
@@ -110,7 +112,11 @@ void add_modern_row(void* user, const char* line, int32_t indent, int32_t height
 /// Plays GREEN_BUTTON first unless the line is quiet. The default colour is
 /// the list's small font. With modern fonts on, the rows use those faces at
 /// the player's Text size and the first row starts six pixels in. The log
-/// follows its end only when it was showing it.
+/// follows its end only when it was showing it. While shape cues are in
+/// effect, a line whose font is the session's status, news, Arm or Core face
+/// is printed with that role's tag in front. The tag is chosen from the
+/// handles at this moment, and a line already in the log keeps the words it
+/// was printed with.
 ///
 /// @param user unused context of the chat's output hook
 /// @param text the line
@@ -123,12 +129,31 @@ void chat_print_line(void* /*user*/, const char* text, int32_t font, bool quiet)
         boneyards_console_driver_note("said", text);
     if (!quiet)
         play_sound(g_open_chat, k_green_button);
+    const char* printed = text;
+    char tagged[screens::kChatLineCapacity + 32];
+    if (present::colour_vision::shape_cues_active() && g_open_chat->owner != nullptr &&
+        g_open_chat->owner->navigation != nullptr) {
+        const screens::ChatSession* session = chat_of(g_open_chat)->session;
+        if (session != nullptr) {
+            const screens::ChatRole role = screens::chat_role_for_handles(
+                font,
+                session->system_font,
+                session->rank_0x15_font,
+                session->arm_font,
+                session->core_font
+            );
+            if (role != screens::ChatRole::none) {
+                screens::write_role_line(tagged, sizeof tagged, text, role, true);
+                printed = tagged;
+            }
+        }
+    }
     const screens::HatFonts& fonts = g_open_chat->owner->system.hat_fonts;
     const Handle face = font == screens::kDefaultTextColor ? fonts.small : font;
     ModernPrint print{g_open_chat, face};
     if (modern_chat_write(
             &g_open_chat->log->list,
-            text,
+            printed,
             screens::by_list_row_width(&g_open_chat->log->list.base),
             layout::modern_indent,
             layout::line_indent - 1,
@@ -139,7 +164,7 @@ void chat_print_line(void* /*user*/, const char* text, int32_t font, bool quiet)
         return;
     screens::by_list_wrap_text(
         g_open_chat->log,
-        text,
+        printed,
         &g_open_chat->owner->system.hat_fonts,
         layout::line_indent,
         font == screens::kDefaultTextColor ? k_no_handle : font

@@ -4,6 +4,7 @@
 // World-space drawing: build ghosts, lines and GAF blits.
 #include "oa/app/runtime.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/game_text.hpp"
 #include "match_models.hpp"
 #include "presentation_interpolation.hpp"
@@ -224,6 +225,34 @@ void Runtime::draw_build_site(
         draw_match_line(destination, right, bottom, left, bottom, color);
         draw_match_line(destination, left, bottom, left, top, color);
     }
+    // A refused site also carries a cross at the pointer, in slot 4's colour.
+    // The cross is two diagonals, so it is not the top bar's income mark.
+    if (site->legal || !oa::present::colour_vision::shape_cues_active())
+        return;
+    const int centre_x = static_cast<int>(std::lround(match_pointer_x_)) - match_layout_.left;
+    const int centre_y = static_cast<int>(std::lround(match_pointer_y_)) - match_layout_.top;
+    const auto edge = palette_rgb(0);
+    const auto refused = ui_color_rgb(kBuildSiteRefusedColor);
+    for (int stroke = -1; stroke <= 1; ++stroke) {
+        draw_match_line(
+            destination,
+            centre_x - 4,
+            centre_y - 4 + stroke,
+            centre_x + 4,
+            centre_y + 4 + stroke,
+            edge
+        );
+        draw_match_line(
+            destination,
+            centre_x - 4 + stroke,
+            centre_y + 4,
+            centre_x + 4 + stroke,
+            centre_y - 4,
+            edge
+        );
+    }
+    draw_match_line(destination, centre_x - 4, centre_y - 4, centre_x + 4, centre_y + 4, refused);
+    draw_match_line(destination, centre_x - 4, centre_y + 4, centre_x + 4, centre_y - 4, refused);
 }
 
 int Runtime::build_site_outline_width(float zoom) {

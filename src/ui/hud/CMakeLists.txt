@@ -27,6 +27,7 @@ if(BUILD_TESTING)
   endforeach()
   # The installed game's side layouts and build pages.
   target_link_libraries(oa-ui-hud-whiteboard-test PRIVATE oa-present-colour-vision)
+  target_link_libraries(oa-ui-hud-shared-views-test PRIVATE oa-present-colour-vision)
   foreach(test_case IN ITEMS hud-labels order-panel)
     target_link_libraries(oa-ui-hud-${test_case}-test PRIVATE oa-formats-hpi oa-test-game-data)
     oa_add_game_data_test(ui-hud-${test_case}-data oa-ui-hud-${test_case}-test --data)

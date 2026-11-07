@@ -1521,6 +1521,67 @@ void add_focus_ring(Building& building) {
         }
 }
 
+/// Groups the source pills into one stop and the cards into one grid. The
+/// players and size strips, the search, Cancel, the primary button and the
+/// close mark stay their own stops: a strip is a group of its own, whose
+/// Left and Right step its choice. A grid with no card adds no card stop.
+///
+/// @param building the layout; its plan gives the grid's columns
+/// @param[in,out] list the display list
+void group_browser_stops(const Building& building, kit::DisplayList& list) {
+    std::vector<kit::ControlId> order;
+    std::vector<kit::ControlId> filters;
+    std::vector<kit::ControlId> cards;
+    const auto flush_filters = [&]() {
+        if (filters.empty())
+            return;
+        kit::Composite composite;
+        composite.id = ids::filters_bar;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::list;
+        composite.name = std::string(name_filters);
+        composite.parts = std::move(filters);
+        filters.clear();
+        order.push_back(composite.id);
+        list.composites.push_back(std::move(composite));
+    };
+    const auto flush_cards = [&]() {
+        if (cards.empty())
+            return;
+        kit::Composite composite;
+        composite.id = ids::cards;
+        composite.axis = kit::CompositeAxis::grid;
+        composite.role = kit::CompositeRole::list;
+        composite.columns = static_cast<int32_t>(building.plan->grid.columns);
+        composite.name = std::string(name_cards);
+        composite.parts = std::move(cards);
+        cards.clear();
+        order.push_back(composite.id);
+        list.composites.push_back(std::move(composite));
+    };
+    for (const kit::ControlId id : building.order) {
+        const bool filter =
+            id >= ids::first_source &&
+            id < ids::first_source + static_cast<kit::ControlId>(ids::sources.size());
+        if (filter) {
+            flush_cards();
+            filters.push_back(id);
+            continue;
+        }
+        if (ids::is_card(id)) {
+            flush_filters();
+            cards.push_back(id);
+            continue;
+        }
+        flush_filters();
+        flush_cards();
+        order.push_back(id);
+    }
+    flush_filters();
+    flush_cards();
+    list.tab_order = std::move(order);
+}
+
 } // namespace
 
 kit::Point window_size(const kit::Frame& frame) noexcept {
@@ -1584,7 +1645,7 @@ kit::DisplayList browser_layout(
         for (kit::Control& control : *group)
             list.controls.push_back(std::move(control));
     building.order.push_back(ids::close);
-    list.tab_order = std::move(building.order);
+    group_browser_stops(building, list);
     return list;
 }
 

@@ -12,6 +12,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "oa_layer.hpp"
+#include "photo_state.hpp"
 
 #include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/kit/components.hpp"
@@ -376,8 +377,23 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
     LayerAnswer press(kit::ControlId id) {
         if (id == editor::id_overlay_close)
             return LayerAnswer::close;
-        if (id == editor::id_overlay_edit && runtime_.open_key_editor({}))
-            return LayerAnswer::close;
+        if (id == editor::id_overlay_edit) {
+            // Leave photo mode before the editor, as Settings does. The
+            // overlay stays up until this press closes it: restoring the
+            // overlay from entering would close this screen under the press.
+            const bool in_photo = runtime_.photo_mode();
+            const bool overlay_on_enter =
+                in_photo && runtime_.photo_ != nullptr && runtime_.photo_->keys_overlay;
+            if (in_photo)
+                runtime_.leave_photo_mode(false, false);
+            if (runtime_.open_key_editor({}))
+                return LayerAnswer::close;
+            // The editor did not open. A panel that was closed on entering
+            // closes, which is the overlay photo mode puts back.
+            if (in_photo && !overlay_on_enter)
+                return LayerAnswer::close;
+            return LayerAnswer::none;
+        }
         return LayerAnswer::none;
     }
 

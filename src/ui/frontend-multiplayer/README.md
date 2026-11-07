@@ -1,6 +1,6 @@
 # Multiplayer screens
 
-The multiplayer connect, lobby and battle room. Library `oa-ui-frontend-multiplayer`, headers `include/oa/ui/frontend_multiplayer/`, namespace `oa::ui::frontend_multiplayer`. The battle room's own screens are described beside the host in `src/app/README.md`. This page is the mutator lines that room posts.
+The multiplayer connect, lobby and battle room. Library `oa-ui-frontend-multiplayer`, headers `include/oa/ui/frontend_multiplayer/`, namespace `oa::ui::frontend_multiplayer`. The battle room's own screens are described beside the host in `src/app/README.md`. This page is the mutator lines that room posts, and how a viewer's unit check counts TADR's replayer when that replayer starts the check again.
 
 ## Entry points
 
@@ -41,6 +41,10 @@ The helpers keep none. The caller passes the names and the rectangles and posts 
 ## Tests
 
 `ui-multiplayer-mutator-room` places the host's button and the guest's two-button row over the battle room's rectangles at 640×480 and at 1.5 points a frame pixel, with GET MAP's box present and absent, and checks the chat lines, the guest's lack line once per change, each fetch state and its line, the lacking lines, the waiting line and a translated lookup. `ui-multiplayer-presence-card` checks a host card and a guest card for each mutator, and the words through the translation. `ui-multiplayer-lobby` checks the rules dot for a guest that lacks one mutator of the host's list and for a guest that has them all. `ui-multiplayer-room-mutators` checks the 3.1c lines from a German and a French catalogue, in the code page, and fitted to a bound measure. `native-mutator-room` hosts a battle room alone and checks that the guest's controls stay hidden, and that at 640x480 the 3.1c lines and the waiting line read whole in English, German, French, Spanish and Italian.
+
+## Unit sync
+
+A viewer counts each unit-check record the host sends, and the count keeps going. TADR's replayer starts the check again. The viewer knows the replayer by the name of the session it joined, which begins `TADR `, and by a host without the engine's signature; joining keeps that name beside the battle room, not in the game name the player hosts under. The viewer then counts that pass as TADR does: a unit TADR already gave on its first pass, with the same limit, starts the count at two, and a unit it already gave on its second pass starts the count at the first pass's units plus two. Every other host, the original game's included, is counted as the original game counts. A greeting still makes the viewer report its units from the first one.
 
 ## Limitations
 

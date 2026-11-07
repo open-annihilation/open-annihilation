@@ -7,6 +7,7 @@
 #include "oa/app/view_rules.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_renderer/gadget_draw.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/model/mesh_raster.hpp"
 #include "oa/present/raster.hpp"
 #include "oa/present/game_text.hpp"
@@ -15,6 +16,7 @@
 #include "oa/ui/hud/game_clock.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/kill_board.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 #include "oa/ui/hud/resource_bar.hpp"
 #include "oa/ui/hud/status_panel.hpp"
 #include <SDL3/SDL.h>
@@ -470,42 +472,56 @@ void Runtime::draw_match_kill_board() {
         return static_cast<int32_t>(runtime.gui_text_width(runtime.gui_font_, text));
     };
     // The colour's logo, less its outer pixel, is stretched over the row.
-    sink.logo =
-        [](void* user, const oa::Player& player, int32_t x0, int32_t y0, int32_t x1, int32_t y1) {
-            auto& runtime = *static_cast<Runtime*>(user);
-            const auto rendered = runtime.player_logo_frame(player);
-            if (!rendered)
-                return;
-            const auto& frame = *rendered;
-            oa::Sprite texture{};
-            texture.width = frame.width;
-            texture.height = frame.height;
-            texture.key = frame.transparency_index;
-            texture.encoding = OA_SPRITE_RAW;
-            texture.data = const_cast<uint8_t*>(frame.pixels.data());
-            const int32_t right = x1 - x0, bottom = y1 - y0;
-            const int32_t u = frame.width - 1, v = frame.height - 1;
-            struct Logo {
-                oa::Sprite texture;
-                oa::present::PolygonVertex quad[4];
-                oa::present::model::TexturePoint uv[4];
-            } const logo{
-                texture,
-                {{0, 0}, {right, 0}, {right, bottom}, {0, bottom}},
-                {{1, 1}, {u, 1}, {u, v}, {1, v}},
-            };
-            runtime.overlay_board_patch(
-                x0,
-                y0,
-                right + 1,
-                bottom + 1,
-                [](void* context, oa::Surface& surface) {
-                    const auto& logo = *static_cast<const Logo*>(context);
-                    oa::present::model::texture_quad(&surface, &logo.texture, logo.quad, logo.uv);
-                },
-                const_cast<Logo*>(&logo)
-            );
+    sink.logo = [](void* user,
+                   const oa::Player& player,
+                   int32_t x0,
+                   int32_t y0,
+                   int32_t x1,
+                   int32_t y1) {
+        auto& runtime = *static_cast<Runtime*>(user);
+        const auto rendered = runtime.player_logo_frame(player);
+        if (!rendered)
+            return;
+        const auto& frame = *rendered;
+        oa::Sprite texture{};
+        texture.width = frame.width;
+        texture.height = frame.height;
+        texture.key = frame.transparency_index;
+        texture.encoding = OA_SPRITE_RAW;
+        texture.data = const_cast<uint8_t*>(frame.pixels.data());
+        const int32_t right = x1 - x0, bottom = y1 - y0;
+        const int32_t u = frame.width - 1, v = frame.height - 1;
+        struct Logo {
+            oa::Sprite texture;
+            oa::present::PolygonVertex quad[4];
+            oa::present::model::TexturePoint uv[4];
+        } const logo{
+            texture,
+            {{0, 0}, {right, 0}, {right, bottom}, {0, bottom}},
+            {{1, 1}, {u, 1}, {u, v}, {1, v}},
         };
+        runtime.overlay_board_patch(
+            x0,
+            y0,
+            right + 1,
+            bottom + 1,
+            [](void* context, oa::Surface& surface) {
+                const auto& logo = *static_cast<const Logo*>(context);
+                oa::present::model::texture_quad(&surface, &logo.texture, logo.quad, logo.uv);
+            },
+            const_cast<Logo*>(&logo)
+        );
+        // The wash stays. The marker's top sits below the wash's first rows.
+        if (!oa::present::colour_vision::shape_cues_active() || player.index >= OA_PLAYER_COUNT ||
+            runtime.match_ == nullptr)
+            return;
+        const uint8_t colour = oa::ui::hud::player_dot_color(runtime.match_->state(), player.index);
+        const auto screen = runtime.board_canvas(x0 + 10, y0 + 12);
+        const auto local = runtime.canvas_paint(screen.x, screen.y);
+        runtime.stamp_shape_marker(
+            local.x, local.y, static_cast<int>(player.index), colour, runtime.hud_text_scale(), true
+        );
+    };
     const bool held = action_key_held("game.status-strip") || space_held_by_check_;
     const auto now = oa::base::game_loop::scaled_clock(clock_milliseconds(), match_clock_scale());
     hud::draw_kill_board(

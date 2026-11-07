@@ -6487,6 +6487,94 @@ void test_replays() {
         "broken.oademo · 10:00 · 600 KB · Damaged"
     );
 
+    // Watch from names where a Watch was left. A Watch that plays another
+    // installed release, or turns an expansion on, restarts and starts there
+    // too. Check for updates does not.
+    {
+        lib::Library part_way = library;
+        const auto offers_watch_from = [&part_way] {
+            for (const lib::ReplayButton& button : lib::replay_buttons(part_way)) {
+                if (button.action == Action::watch_from)
+                    return true;
+            }
+            return false;
+        };
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path == "default/coast.oademo")
+                row.replay.watched_tick = 600;
+        }
+        lib::select_replay(part_way, "default/coast.oademo");
+        OA_CHECK(offers_watch_from());
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            oa::data::replays::ContentGap other;
+            other.kind = oa::data::replays::GapKind::mod_missing;
+            other.id = "ridge";
+            other.version = "2.8";
+            other.play_installed = true;
+            row.gaps.push_back(other);
+        }
+        OA_CHECK(offers_watch_from());
+        const std::vector<lib::ReplayButton> plain = lib::replay_buttons(part_way);
+        OA_CHECK(!plain.empty() && plain[0].action == Action::watch_replay && plain[0].enabled);
+        if (!plain.empty())
+            OA_CHECK_TEXT(plain[0].text, "Watch");
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.gaps.clear();
+            oa::data::replays::ContentGap expansion;
+            expansion.kind = oa::data::replays::GapKind::expansion_off;
+            expansion.id = "music";
+            expansion.turn_on = true;
+            row.gaps.push_back(expansion);
+        }
+        OA_CHECK(offers_watch_from());
+        const std::vector<lib::ReplayButton> turned = lib::replay_buttons(part_way);
+        // An older mod and an older map pack: the button names neither.
+        {
+            lib::Library both = part_way;
+            for (lib::ReplayRow& row : both.inputs.replays.rows) {
+                if (row.replay.path != "default/coast.oademo")
+                    continue;
+                row.gaps.clear();
+                oa::data::replays::ContentGap mod;
+                mod.kind = oa::data::replays::GapKind::mod_other;
+                mod.id = "ridge";
+                mod.name = "Ridge";
+                mod.version = "2.8";
+                mod.have_version = "2.9";
+                mod.other_release = true;
+                row.gaps.push_back(mod);
+                oa::data::replays::ContentGap pack;
+                pack.kind = oa::data::replays::GapKind::map;
+                pack.id = "ridge-reach";
+                pack.pack_name = "Ridge Reach";
+                pack.version = "1.0";
+                pack.sha256 = std::string(64, 'b');
+                pack.other_release = true;
+                row.gaps.push_back(pack);
+            }
+            const std::vector<lib::ReplayButton> two = lib::replay_buttons(both);
+            OA_CHECK(!two.empty() && two[0].action == Action::watch_replay);
+            if (!two.empty())
+                OA_CHECK_TEXT(two[0].text, "Get them and watch");
+        }
+        OA_CHECK(!turned.empty() && turned[0].enabled);
+        if (!turned.empty())
+            OA_CHECK_TEXT(turned[0].text, "Turn on and watch");
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.gaps.clear();
+            oa::data::replays::ContentGap newer;
+            newer.kind = oa::data::replays::GapKind::engine;
+            row.gaps.push_back(newer);
+        }
+        OA_CHECK(!offers_watch_from());
+    }
+
     // Each row's words, and its reading.
     const lib::ReplayRow& battle = replay_at(library, "default/show-down.oademo");
     OA_CHECK_TEXT(lib::replay_kind_line(library, battle), "Outpost · Corvane");

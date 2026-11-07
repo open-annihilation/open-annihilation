@@ -6,6 +6,7 @@
 // held (device_state.hpp).
 #include "oa/app/automation_host.hpp"
 #include "oa/app/control_names.hpp"
+#include "controls.hpp"
 #include "oa/app/extension.hpp"
 #include "gui_actions.hpp"
 
@@ -581,6 +582,7 @@ struct AutomationHostAccess {
         placement.x = root.x;
         placement.y = root.y;
         placement.dialog = dialog_name(oa::ui::frontend_dialogs::dialog_layout_name());
+        placement.focus = oa::ui::frontend_dialogs::dialog_keyboard_focus();
         std::vector<AutomationControl> stacked;
         std::array<int, 26> letters{};
         first_quick_letters(gadgets, {}, letters);
@@ -821,8 +823,9 @@ struct AutomationHostAccess {
                                                                   : gadgets.front().common.name
             );
         }
-        // The focus counts while the panel takes the keys.
-        placement.focus = game.frontend_has_keyboard() ? game.frontend_focus() : -1;
+        // The focus the tree reports. Where the screen focuses none, it is the
+        // first record of the order, and the screen's own focus stays put.
+        placement.focus = game.reported_frontend_focus();
         auto* scrolls = game.frontend_scrolls();
         const std::string gui_file = frontend_gui_file(game);
         std::array<int, 26> letters{};
@@ -937,8 +940,9 @@ struct AutomationHostAccess {
         PanelPlacement placement;
         if (game.match_hud_placement_ != 0 || game.match_panel_under_)
             placement.dialog = dialog_name(game.match_hud_panel_);
-        // The focus counts while the match's panels take the keys.
-        placement.focus = game.match_panels_keyboard_ ? game.match_hud_focus_ : -1;
+        // The focus the tree reports while the panels have the keyboard.
+        // Where the panel focuses none, it is the first record of its order.
+        placement.focus = game.reported_match_focus();
         const auto area = game.placed_panel_area();
         const auto& root = gadgets.front().common;
         if (area && (root.width <= 0 || root.height <= 0))
@@ -1240,6 +1244,7 @@ struct AutomationHostAccess {
                     control.visible = source.visible;
                     control.enabled = source.enabled;
                     control.focused = source.focused;
+                    control.holds_focus = source.holds_focus;
                     control.checked = source.checked;
                     control.masked = source.masked;
                     control.text_length = source.text_length > 0 ? source.text_length : 0;
@@ -1300,6 +1305,14 @@ struct AutomationHostAccess {
             }
         }
     }
+
+    /// Marks the focused control the family's ring is drawn around.
+    ///
+    /// @param context AutomationHost::context
+    /// @param[in,out] controls the screen's controls
+    static void stamp_family_focus(void* context, std::vector<AutomationControl>& controls) {
+        static_cast<Runtime*>(context)->stamp_family_focus_shown(controls);
+    }
 };
 
 namespace {
@@ -1343,6 +1356,9 @@ static_assert(
 } // namespace
 
 AutomationHost automation_host(Runtime& runtime) {
+    // The listing marks the control the family's ring is drawn around. The
+    // automation core does not name the runtime, so the mark is set here.
+    automation::set_family_focus_stamp(&AutomationHostAccess::stamp_family_focus);
     AutomationHost host = kAutomationHostEntries;
     host.context = &runtime;
     return host;

@@ -128,6 +128,8 @@ constexpr uint32_t kEndTickSlack = 10 * 60 * 30;
 /// The most ticks a replay whose end is not known may run before the
 /// generator gives up on it: a day of game time at the normal speed.
 constexpr uint32_t kMaxReplayTicks = 24 * 60 * 60 * 30;
+/// Game ticks in a second of a recording's own clock at the normal speed.
+constexpr uint64_t kRecordedTicksPerSecond = 30;
 /// The fewest ticks a replay must run cleanly for a script to be made of
 /// it: a minute of game time.
 constexpr uint32_t kMinUsableTicks = 60 * 30;
@@ -471,6 +473,35 @@ std::optional<oademo::IndexEnd> recorded_end_of(std::span<const uint8_t> file) {
     if (word == oademo::index_end_name(oademo::IndexEnd::left))
         return oademo::IndexEnd::left;
     return std::nullopt;
+}
+
+/// A campaign mission's result for the player who recorded it, from that
+/// player's `result` in `meta.json` (`won` or `lost`). A mission that was
+/// left, a game that is not a campaign, and a file that does not say, give
+/// nothing: the index then keeps the commanders' result.
+///
+/// @param file the recording's bytes
+/// @param[out] player that player's number, when a result is returned
+/// @return won, lost, or nothing
+replay_index::Source::Mission mission_result_of(std::span<const uint8_t> file, int& player) {
+    player = 0;
+    const oademo::DescriptionResult described = oademo::read_description(file);
+    if (!described.ok() || described.meta->game.kind != "campaign")
+        return replay_index::Source::Mission::none;
+    if (!described.meta->game.ended.has_value() ||
+        *described.meta->game.ended != oademo::index_end_name(oademo::IndexEnd::finished))
+        return replay_index::Source::Mission::none;
+    for (const oademo::PlayerInfo& one : described.meta->players) {
+        if (!one.recorded_here.value_or(false) || !one.result.has_value())
+            continue;
+        player = one.number;
+        if (*one.result == "won")
+            return replay_index::Source::Mission::won;
+        if (*one.result == "lost")
+            return replay_index::Source::Mission::lost;
+        return replay_index::Source::Mission::none;
+    }
+    return replay_index::Source::Mission::none;
 }
 
 } // namespace
@@ -1301,6 +1332,10 @@ int Runtime::run_replay_index() {
     try {
         const fs::path recording_path = options_.replay_index;
         const fs::path out = options_.director_output;
+        // One kept pack, mounted before the recording is read, so a replay of
+        // that pack is not played against the copy in Maps.
+        if (!options_.replay_map_pack.empty())
+            use_replay_map_pack(options_.replay_map_pack);
         const auto recording = read_bounded(recording_path, zip::max_entry_bytes, "recording");
         const std::string recording_name = path_to_utf8(recording_path.filename());
 
@@ -1323,6 +1358,19 @@ int Runtime::run_replay_index() {
         const uint32_t first_tick = world.game.tick;
         const uint32_t limit =
             info.expected_end_tick != 0 ? info.expected_end_tick + kEndTickSlack : kMaxReplayTicks;
+        // The tick the progress lines count to. A recording whose end tick is
+        // not known gives its length in time, which stands in for it at the
+        // normal speed. Counting to the day-long limit would stop near 3 % on
+        // a 45-minute game.
+        uint32_t progress_end = limit;
+        if (info.expected_end_tick != 0) {
+            progress_end = info.expected_end_tick;
+        } else if (info.duration_ms != 0) {
+            const uint64_t recorded = info.duration_ms * kRecordedTicksPerSecond / 1000U;
+            progress_end = static_cast<uint32_t>(
+                std::min<uint64_t>(uint64_t{first_tick} + recorded, uint64_t{limit})
+            );
+        }
         std::printf(
             "replay index: replaying %s from tick %u\n", recording_name.c_str(), first_tick
         );
@@ -1340,6 +1388,16 @@ int Runtime::run_replay_index() {
             if (after != before) {
                 stalls = 0;
                 recorder.after_tick(match_->state(), {});
+                if (after / 1000U != before / 1000U) {
+                    const uint32_t span =
+                        progress_end > first_tick ? progress_end - first_tick : 1U;
+                    const uint32_t done = after > first_tick ? after - first_tick : 0U;
+                    uint32_t percent = done * 100U / span;
+                    if (percent > 99U)
+                        percent = 99U;
+                    std::printf("replay index: progress %u\n", percent);
+                    std::fflush(stdout);
+                }
             } else if (++stalls > kMaxStalledSteps) {
                 stopped = "the replay stopped moving on tick " + std::to_string(before);
                 break;
@@ -1369,6 +1427,7 @@ int Runtime::run_replay_index() {
         source.timeline = &timeline;
         source.stream = &*stream;
         source.recorded_end = recorded_end_of(recording);
+        source.mission = mission_result_of(recording, source.mission_player);
         const oademo::TimelineIndex index = replay_index::build_index(source);
         const std::string text = oademo::timeline_index_text(index);
         write_whole_file(out, {reinterpret_cast<const uint8_t*>(text.data()), text.size()});

@@ -27,6 +27,7 @@
 #include "oa/sim/messages.hpp"
 #include "oa/sim/speed.hpp"
 #include "match_fault.hpp"
+#include "oa_layer.hpp"
 #include "panel_first_draw.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -810,8 +811,8 @@ void Runtime::check_frontend_keyboard() {
     // does (a gamepad's A and Menu send Return), through the event dispatch
     // a gamepad's keys take, and a held key's repeat presses nothing: NewCamp
     // leaves Single Player, or says over it why it cannot, and Single Player
-    // then comes back as it was. With no record focused Return rings the
-    // first and presses nothing.
+    // then comes back as it was. With no record focused and the focus ring
+    // hidden, as a screen opens, Return rings the first and presses nothing.
     namespace dialogs = oa::ui::frontend_dialogs;
     const auto entry_state = state_;
     const auto press = [&](SDL_Keycode code, bool repeat = false) {
@@ -837,7 +838,10 @@ void Runtime::check_frontend_keyboard() {
         load(Screen::single_player);
         require(on_single_player(), "Single Player did not come back after " + what);
     };
+    // Tab showed the ring, and while it shows Return presses the record it
+    // rings. Hide it, as Single Player opens with it hidden.
     frontend_focus_ = -1;
+    oa_layer().note_family_return();
     rebuild_surface();
     press(SDLK_RETURN);
     require(

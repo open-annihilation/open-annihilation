@@ -315,7 +315,75 @@ std::string result_word(const Library& library, RecordedResult result) {
 
 } // namespace
 
+const std::vector<ReplayRow>& shown_replay_rows(const Library& library) {
+    if (library.replays.source == ReplaySource::core_prime)
+        return library.inputs.replays.core_rows;
+    return library.inputs.replays.rows;
+}
+
+namespace {
+
+/// Keeps the selection and the marks among the rows that show.
+void keep_replay_selection(Library& library, const std::optional<std::string>& selected_before) {
+    ReplayView& view = library.replays;
+    const std::vector<ReplayRow>& rows = shown_replay_rows(library);
+    std::erase_if(view.marked, [&](const std::string& path) { return !shows(library, path); });
+    if (view.selected && !shows(library, *view.selected))
+        view.selected.reset();
+    if (!view.selected && !view.visible.empty())
+        view.selected = rows[view.visible.front()].replay.path;
+    if (view.selected && view.marked.empty())
+        view.marked.push_back(*view.selected);
+    if (view.anchor && !shows(library, *view.anchor))
+        view.anchor.reset();
+    if (view.selected != selected_before) {
+        view.delete_armed = false;
+        view.delete_failure.clear();
+    }
+}
+
+/// Recomputes Core Prime's visible rows from its filter and the search.
+void update_core_replays(Library& library) {
+    ReplayView& view = library.replays;
+    const std::optional<std::string> selected_before = view.selected;
+    const std::vector<ReplayRow>& rows = library.inputs.replays.core_rows;
+    view.visible.clear();
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+        const ReplayRow& row = rows[index];
+        if (view.core_filter == CorePrimeFilter::planet && !view.planet.empty() &&
+            row.replay.planet != view.planet)
+            continue;
+        if (!replay_matches(row, library.query))
+            continue;
+        view.visible.push_back(index);
+    }
+    if (view.core_filter == CorePrimeFilter::longest) {
+        std::sort(
+            view.visible.begin(), view.visible.end(), [&](std::size_t left, std::size_t right) {
+                if (rows[left].replay.length_ms != rows[right].replay.length_ms)
+                    return rows[left].replay.length_ms > rows[right].replay.length_ms;
+                return rows[left].replay.path < rows[right].replay.path;
+            }
+        );
+    } else if (view.core_filter == CorePrimeFilter::downloads) {
+        std::sort(
+            view.visible.begin(), view.visible.end(), [&](std::size_t left, std::size_t right) {
+                if (rows[left].downloads != rows[right].downloads)
+                    return rows[left].downloads > rows[right].downloads;
+                return rows[left].replay.path < rows[right].replay.path;
+            }
+        );
+    }
+    keep_replay_selection(library, selected_before);
+}
+
+} // namespace
+
 void update_replays(Library& library) {
+    if (library.replays.source == ReplaySource::core_prime) {
+        update_core_replays(library);
+        return;
+    }
     ReplayView& view = library.replays;
     const std::optional<std::string> selected_before = view.selected;
     const std::vector<ReplayRow>& rows = library.inputs.replays.rows;
@@ -358,22 +426,85 @@ void update_replays(Library& library) {
         return newer(left, right);
     };
     std::sort(view.visible.begin(), view.visible.end(), order);
+    keep_replay_selection(library, selected_before);
+}
 
-    // The marks keep only what shows; the selection stays while it shows.
-    std::erase_if(view.marked, [&](const std::string& path) { return !shows(library, path); });
-    if (view.selected && !shows(library, *view.selected))
-        view.selected.reset();
-    if (!view.selected && !view.visible.empty())
-        view.selected = rows[view.visible.front()].replay.path;
-    if (view.selected && view.marked.empty())
-        view.marked.push_back(*view.selected);
-    if (view.anchor && !shows(library, *view.anchor))
-        view.anchor.reset();
-    // Delete's confirm is about the replay the card showed. Another one clears it.
-    if (view.selected != selected_before) {
-        view.delete_armed = false;
-        view.delete_failure.clear();
+void set_replay_source(Library& library, ReplaySource source) {
+    ReplayView& view = library.replays;
+    if (view.source == source)
+        return;
+    view.source = source;
+    std::swap(view.selected, view.other_selected);
+    view.marked.clear();
+    view.anchor.reset();
+    view.delete_armed = false;
+    view.delete_failure.clear();
+    if (source == ReplaySource::core_prime && library.inputs.replays.core_rows.empty())
+        library.inputs.replays.core_loading = true;
+    update_replays(library);
+}
+
+void set_core_filter(Library& library, CorePrimeFilter filter) {
+    library.replays.core_filter = filter;
+    if (filter != CorePrimeFilter::planet)
+        library.replays.planet.clear();
+    update_replays(library);
+}
+
+void set_core_planet(Library& library, std::string_view planet) {
+    library.replays.core_filter = CorePrimeFilter::planet;
+    library.replays.planet = std::string(planet);
+    update_replays(library);
+}
+
+std::optional<std::size_t> core_filter_count(const Library& library, CorePrimeFilter filter) {
+    const ReplayInputs& inputs = library.inputs.replays;
+    const auto counted = [](const std::optional<int64_t>& total) -> std::optional<std::size_t> {
+        if (!total.has_value() || *total < 0)
+            return std::nullopt;
+        return static_cast<std::size_t>(*total);
+    };
+    switch (filter) {
+    case CorePrimeFilter::latest:
+        return counted(inputs.core_latest_total);
+    case CorePrimeFilter::longest:
+        return counted(inputs.core_longest_total);
+    case CorePrimeFilter::downloads:
+        return counted(inputs.core_downloads_total);
+    case CorePrimeFilter::planet:
+        if (library.replays.planet.empty())
+            return std::nullopt;
+        return counted(inputs.core_planet_total);
     }
+    return std::nullopt;
+}
+
+std::string core_filter_title(const Library& library, CorePrimeFilter filter) {
+    switch (filter) {
+    case CorePrimeFilter::latest:
+        return std::string(shown(library.text, words::fact_latest));
+    case CorePrimeFilter::longest:
+        return std::string(shown(library.text, words::core_longest));
+    case CorePrimeFilter::downloads:
+        return std::string(shown(library.text, words::core_most_downloaded));
+    case CorePrimeFilter::planet:
+        return std::string(shown(library.text, words::core_by_planet));
+    }
+    return {};
+}
+
+std::string replay_registry_name(const Library& library, std::string_view id) {
+    if (id.empty() || id == "coreprime")
+        return "Core Prime";
+    for (const Registry& registry : library.inputs.registries) {
+        if (registry.id != id)
+            continue;
+        const std::string& title = registry.title.empty() ? registry.name : registry.title;
+        if (title.empty() || title == "Core Prime")
+            return "Core Prime";
+        return title;
+    }
+    return std::string(id);
 }
 
 void set_replay_filter(Library& library, ReplayFilter filter) {
@@ -406,8 +537,9 @@ void select_replay(Library& library, std::string_view path, ReplayPick pick) {
             const std::size_t first = std::min(*from, *place);
             const std::size_t last = std::max(*from, *place);
             view.marked.clear();
+            const std::vector<ReplayRow>& rows = shown_replay_rows(library);
             for (std::size_t at = first; at <= last; ++at)
-                view.marked.push_back(library.inputs.replays.rows[view.visible[at]].replay.path);
+                view.marked.push_back(rows[view.visible[at]].replay.path);
             view.selected = chosen;
             return;
         }
@@ -442,7 +574,7 @@ void move_replay_selection(Library& library, int delta) {
     const auto last = static_cast<int64_t>(view.visible.size()) - 1;
     const int64_t moved = std::clamp(static_cast<int64_t>(at) + delta, int64_t{0}, last);
     const std::string path =
-        library.inputs.replays.rows[view.visible[static_cast<std::size_t>(moved)]].replay.path;
+        shown_replay_rows(library)[view.visible[static_cast<std::size_t>(moved)]].replay.path;
     select_replay(library, path, ReplayPick::only);
 }
 
@@ -458,7 +590,7 @@ const ReplayRow* selected_replay(const Library& library) {
 }
 
 const ReplayRow* find_replay(const Library& library, std::string_view path) {
-    for (const ReplayRow& row : library.inputs.replays.rows)
+    for (const ReplayRow& row : shown_replay_rows(library))
         if (row.replay.path == path)
             return &row;
     return nullptr;
@@ -466,7 +598,7 @@ const ReplayRow* find_replay(const Library& library, std::string_view path) {
 
 std::optional<std::size_t> replay_place(const Library& library, std::string_view path) {
     const ReplayView& view = library.replays;
-    const std::vector<ReplayRow>& rows = library.inputs.replays.rows;
+    const std::vector<ReplayRow>& rows = shown_replay_rows(library);
     for (std::size_t place = 0; place < view.visible.size(); ++place)
         if (view.visible[place] < rows.size() && rows[view.visible[place]].replay.path == path)
             return place;
@@ -593,14 +725,18 @@ std::vector<ReplayDay> replay_days(const Library& library) {
     std::vector<ReplayDay> days;
     if (view.visible.empty())
         return days;
-    if (view.sort != ReplaySort::newest) {
+    const bool by_day = view.source == ReplaySource::core_prime
+                            ? view.core_filter == CorePrimeFilter::latest
+                            : view.sort == ReplaySort::newest;
+    if (!by_day) {
         days.push_back({{}, 0, view.visible.size()});
         return days;
     }
     std::vector<int32_t> day_numbers;
     day_numbers.reserve(view.visible.size());
+    const std::vector<ReplayRow>& rows = shown_replay_rows(library);
     for (const std::size_t index : view.visible)
-        day_numbers.push_back(library.inputs.replays.rows[index].day);
+        day_numbers.push_back(rows[index].day);
     for (const replays_data::DayGroup& group : replays_data::group_by_day(day_numbers))
         days.push_back({replay_day_heading(library, group.day), group.first, group.count});
     return days;
@@ -766,12 +902,23 @@ void add_sentence(std::string& note, std::string sentence) {
 }
 
 /// A catalogue sentence. An empty version uses the sentence that names none.
-std::string
-catalogue_words(const Library& library, std::string_view name, std::string_view version) {
+std::string catalogue_words(
+    const Library& library,
+    std::string_view name,
+    std::string_view version,
+    std::string_view registry
+) {
+    const std::string catalogue = std::string(registry);
     if (version.empty())
-        return filled(library.text, words::replay_not_in_catalogue_name, {{"name", name}});
+        return filled(
+            library.text,
+            words::replay_not_in_catalogue_name,
+            {{"name", name}, {"registry", catalogue}}
+        );
     return filled(
-        library.text, words::replay_not_in_catalogue, {{"name", name}, {"version", version}}
+        library.text,
+        words::replay_not_in_catalogue,
+        {{"name", name}, {"version", version}, {"registry", catalogue}}
     );
 }
 
@@ -786,7 +933,9 @@ std::string offline_words(const Library& library, std::string_view name, std::st
 std::string gap_sentence(const Library& library, const replays_data::ContentGap& gap) {
     const std::string name = gap_title(gap);
     if (gap.block == replays_data::GapBlock::unlisted)
-        return catalogue_words(library, name, gap.version);
+        return catalogue_words(
+            library, name, gap.version, replay_registry_name(library, gap.registry)
+        );
     if (gap.block == replays_data::GapBlock::offline)
         return {};
     const std::string revision =
@@ -829,6 +978,10 @@ std::string gap_sentence(const Library& library, const replays_data::ContentGap&
             library.text, words::replay_recorded_with, {{"name", name}, {"version", gap.version}}
         );
     case replays_data::GapKind::map: {
+        if (gap.other_release) {
+            const std::string pack = gap.pack_name.empty() ? gap_map_title(gap) : gap.pack_name;
+            return filled(library.text, words::replay_other_map_release, {{"name", pack}});
+        }
         std::string sentence =
             filled(library.text, words::replay_needs_the_map, {{"name", gap_map_title(gap)}});
         if (!gap.pack_name.empty()) {
@@ -855,6 +1008,8 @@ struct ContentCounts {
     int turn_on{};
     bool engine{};
     bool other{};
+    /// How many other releases Watch fetches beside the ones in use.
+    int others{};
     bool blocked{};
     /// An expansion is missing and the catalogue has not said whether it offers it.
     bool unready{};
@@ -874,6 +1029,7 @@ ContentCounts count_gaps(const ReplayRow& row) {
         if (gap.other_release) {
             counts.other = true;
             counts.other_gap = &gap;
+            ++counts.others;
         }
         if (gap.fetchable && !gap.other_release) {
             ++counts.fetchable;
@@ -893,7 +1049,9 @@ ContentCounts count_gaps(const ReplayRow& row) {
 std::string watch_words(const Library& library, const ContentCounts& counts) {
     if (counts.engine)
         return std::string(shown(library.text, words::replay_check_updates));
-    if (counts.fetchable > 1 || (counts.fetchable == 1 && counts.turn_on > 0))
+    // An older mod and an older map pack are two packages: the button names
+    // neither, as it names no package for two missing ones.
+    if (counts.fetchable > 1 || (counts.fetchable == 1 && counts.turn_on > 0) || counts.others > 1)
         return std::string(shown(library.text, words::replay_get_them));
     if (counts.fetchable == 1 && counts.one_fetch != nullptr &&
         counts.one_fetch->kind == replays_data::GapKind::mod_missing &&
@@ -1136,6 +1294,10 @@ std::vector<ReplayFact> replay_facts(const Library& library, const ReplayRow& ro
     } else {
         add("recorded", words::replay_fact_recorded, when);
     }
+    if (library.replays.source == ReplaySource::core_prime) {
+        add("file", words::replay_fact_file, size_text(replay.size, library.text));
+        return facts;
+    }
     add("file",
         words::replay_fact_file,
         joined(library, size_text(replay.size, library.text), file_name(replay.path)));
@@ -1192,11 +1354,72 @@ std::vector<ReplayButton> replay_buttons(const Library& library) {
     const ReplayRow* row = selected_replay(library);
     if (row == nullptr)
         return buttons;
+    if (library.replays.source == ReplaySource::core_prime) {
+        const bool fetching = library.inputs.replays.core_downloading &&
+                              library.inputs.replays.core_download_id == row->replay.path;
+        const std::vector<std::string>& queued = library.inputs.replays.core_queued;
+        const bool waits_its_turn =
+            std::find(queued.begin(), queued.end(), row->replay.path) != queued.end();
+        if (fetching && library.inputs.replays.core_download_waiting) {
+            buttons.push_back(
+                {Action::download_replay,
+                 true,
+                 std::string(shown(library.text, words::action_cancel))}
+            );
+        } else if (fetching || waits_its_turn) {
+            buttons.push_back(
+                {Action::download_replay,
+                 false,
+                 std::string(shown(library.text, words::core_getting_replay))}
+            );
+        } else if (row->saved_here) {
+            buttons.push_back(
+                {Action::download_replay,
+                 false,
+                 std::string(shown(library.text, words::core_downloaded))}
+            );
+        } else {
+            buttons.push_back(
+                {Action::download_replay,
+                 true,
+                 std::string(shown(library.text, words::fact_download))}
+            );
+        }
+        const ContentCounts counts = count_gaps(*row);
+        const bool content = counts.fetchable > 0 || counts.turn_on > 0 || counts.engine ||
+                             counts.other || counts.blocked || counts.unready;
+        if (!content) {
+            buttons.push_back(
+                {Action::watch_replay,
+                 !library.inputs.in_match,
+                 std::string(shown(library.text, words::action_watch))}
+            );
+        } else if (!counts.blocked) {
+            buttons.push_back(
+                {Action::watch_replay, !library.inputs.in_match, watch_words(library, counts)}
+            );
+        }
+        return buttons;
+    }
     const ContentCounts counts = count_gaps(*row);
     const bool fetching =
         library.inputs.replays.fetching && library.inputs.replays.fetch_path == row->replay.path;
     const bool content = counts.fetchable > 0 || counts.turn_on > 0 || counts.engine ||
                          counts.other || counts.blocked || counts.unready || fetching;
+    // Watch from sits beside Watch once a Watch was left part way, including
+    // a Watch that restarts to get a package, turn content on or play another
+    // release: that restart seeks to the same tick. It is not offered beside
+    // Check for updates, or while a download is being cancelled.
+    const auto add_watch_from = [&](bool enabled) {
+        if (!row->replay.watched_tick.has_value())
+            return;
+        const std::string when = replay_tick_text(*row->replay.watched_tick);
+        buttons.push_back(
+            {Action::watch_from,
+             enabled,
+             filled(library.text, words::action_watch_from, {{"time", when}})}
+        );
+    };
     if (fetching) {
         buttons.push_back(
             {Action::watch_replay,
@@ -1204,28 +1427,21 @@ std::vector<ReplayButton> replay_buttons(const Library& library) {
              std::string(shown(library.text, words::action_cancel))}
         );
     } else if (!content) {
+        const bool can_watch = !replays_data::damaged(row->replay) && !library.inputs.in_match;
         buttons.push_back(
-            {Action::watch_replay,
-             !replays_data::damaged(row->replay) && !library.inputs.in_match,
-             std::string(shown(library.text, words::action_watch))}
+            {Action::watch_replay, can_watch, std::string(shown(library.text, words::action_watch))}
         );
-        // Watch from is offered beside a plain Watch only: a press that must
-        // first get or turn on content starts the replay from the beginning.
-        if (row->replay.watched_tick.has_value()) {
-            const std::string when = replay_tick_text(*row->replay.watched_tick);
-            buttons.push_back(
-                {Action::watch_from,
-                 !replays_data::damaged(row->replay) && !library.inputs.in_match,
-                 filled(library.text, words::action_watch_from, {{"time", when}})}
-            );
-        }
+        add_watch_from(can_watch);
     } else if (!counts.blocked && !replays_data::damaged(row->replay)) {
         const std::string words = watch_words(library, counts);
         // A missing expansion the catalogue has not answered yet is not Watch.
         const bool plain_watch = words == shown(library.text, words::action_watch);
         if (!(plain_watch && counts.unready && counts.fetchable == 0 && counts.turn_on == 0 &&
               !counts.engine && !counts.other)) {
-            buttons.push_back({Action::watch_replay, !library.inputs.in_match, words});
+            const bool can_watch = !library.inputs.in_match;
+            buttons.push_back({Action::watch_replay, can_watch, words});
+            if (words != shown(library.text, words::replay_check_updates))
+                add_watch_from(can_watch);
         }
     }
     bool can_export = !replays_data::damaged(row->replay);
@@ -1278,6 +1494,35 @@ std::vector<ReplayButton> replay_buttons(const Library& library) {
 ReplayEmpty replay_empty(const Library& library) {
     ReplayEmpty empty;
     const ReplayInputs& inputs = library.inputs.replays;
+    if (library.replays.source == ReplaySource::core_prime) {
+        if (inputs.core_loading && inputs.core_rows.empty()) {
+            empty.title = std::string(shown(library.text, words::core_reading));
+            empty.reading = true;
+            return empty;
+        }
+        if (inputs.core_unreadable) {
+            empty.title = std::string(shown(library.text, words::core_list_unreadable));
+            return empty;
+        }
+        if (inputs.core_unavailable) {
+            empty.title = std::string(shown(library.text, words::core_replays_unavailable));
+            return empty;
+        }
+        if (inputs.core_offline) {
+            empty.title = std::string(shown(library.text, words::core_offline));
+            return empty;
+        }
+        if (!inputs.core_notice.empty()) {
+            empty.title = inputs.core_notice;
+            return empty;
+        }
+        if (library.replays.core_filter == CorePrimeFilter::planet &&
+            !library.replays.planet.empty())
+            empty.title = std::string(shown(library.text, words::core_none_planet));
+        else
+            empty.title = std::string(shown(library.text, words::core_none));
+        return empty;
+    }
     // Open a replay file waits until a read has ended, and a search that
     // matches nothing does not offer it.
     const bool offer_open = inputs.open_file && !inputs.reading;
@@ -1297,6 +1542,7 @@ ReplayEmpty replay_empty(const Library& library) {
             empty.turn_on = true;
         }
         empty.open_file = offer_open;
+        empty.browse = true;
         return empty;
     }
     if (library.query.find_first_not_of(' ') != std::string::npos) {
@@ -1327,6 +1573,18 @@ ReplayEmpty replay_empty(const Library& library) {
 
 std::string replay_status(const Library& library) {
     const ReplayInputs& inputs = library.inputs.replays;
+    if (library.replays.source == ReplaySource::core_prime) {
+        if (inputs.core_loading && inputs.core_rows.empty())
+            return std::string(shown(library.text, words::core_reading));
+        const std::size_t count = inputs.core_total > 0
+                                      ? static_cast<std::size_t>(inputs.core_total)
+                                      : library.replays.visible.size();
+        if (count == 0)
+            return {};
+        if (count == 1)
+            return std::string(shown(library.text, words::core_count_one));
+        return filled(library.text, words::core_count_many, {{"count", std::to_string(count)}});
+    }
     if (inputs.reading) {
         // Until the folder's files are counted, there is no total to say.
         if (inputs.total == 0)

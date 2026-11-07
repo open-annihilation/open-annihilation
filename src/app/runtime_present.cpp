@@ -35,6 +35,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -985,6 +986,19 @@ void Runtime::present_photo_world() {
 }
 
 void Runtime::present_match_layers() {
+    // A photo asked for as photo mode opened is taken once this present has
+    // shown a photo-mode frame. The destructor runs on every return, and
+    // not while a present error is leaving.
+    struct PendingPhoto {
+        Runtime& runtime;
+        int exceptions{std::uncaught_exceptions()};
+
+        ~PendingPhoto() {
+            if (std::uncaught_exceptions() == exceptions)
+                runtime.deliver_pending_photo();
+        }
+    } pending_photo{*this};
+
     if (match_world_cpu_.rgb.empty())
         return;
     if (match_hud_cpu_.rgb.empty()) {
@@ -1170,6 +1184,10 @@ void Runtime::capture_render_target() {
     // A lost device has no picture to read.
     if (render_run_ && render_run_->device_lost)
         return;
+    // Above the picture, the strip, the screens and the match's menu, and
+    // under the badge. Hidden, this draws nothing and leaves the renderer.
+    if (oa_layer_)
+        oa_layer_->present_family_ring();
     // After the frame, before it is shown, on the front end and in a match.
     // With no client connected this draws nothing, so a frame that is not
     // driven is unchanged. The read below then includes the badge.

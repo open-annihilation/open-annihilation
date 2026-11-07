@@ -229,8 +229,13 @@ void mark_states(DisplayList& list, const Interaction& interaction) noexcept;
 
 /// Returns the next control in the declared order.
 ///
-/// The order wraps around. From a control that is not in it, going forward
-/// gives the first and going back the last. An empty order gives no control.
+/// The order wraps around. From a control that is not in it, and not a part
+/// of a composite that is, going forward gives the first and going back the
+/// last. An empty order gives no control.
+///
+/// A composite is one stop. The control returned is the part it lands on
+/// (composite_landing), never the composite's own id. A part of that
+/// composite is the same stop, so Tab and Shift+Tab leave the group.
 ///
 /// @param list the display list
 /// @param from the control to move on from
@@ -256,6 +261,13 @@ next_in_tab_order(const DisplayList& list, ControlId from, bool forward) noexcep
 /// across it, then the earlier in the declared order. With none in line, the
 /// smallest gap plus twice the gap across, a gap across of 0 when the spans
 /// meet, then the same ties. With no candidate the focus stays.
+///
+/// A composite is one candidate. Its rectangle is the union of its parts,
+/// and the control returned is the part it lands on. Its parts are not
+/// candidates of their own. The focus on one of those parts skips the
+/// composite, so an arrow across the axis can leave the group; an arrow
+/// along the axis moves between the parts (move_along) and does not use
+/// this search.
 ///
 /// @param list the display list
 /// @param from the control the focus is on
@@ -285,6 +297,61 @@ focus_toward(const DisplayList& list, ControlId from, Direction direction) noexc
     const DisplayList& list, ControlId from, Direction direction, std::span<const ScrollArea> areas
 ) noexcept;
 
+/// How an arrow moved inside a composite.
+enum class AxisStep : uint8_t {
+    outside, ///< the control is not one of a composite's parts
+    stayed,  ///< it is a part, and the arrow does not leave it
+    moved,   ///< the arrow moved to another part
+};
+
+/// Where an arrow along a composite's axis landed.
+struct AxisMove {
+    AxisStep step{AxisStep::outside}; ///< outside, stayed or moved
+    ControlId part{no_control};       ///< the part, when the arrow stayed or moved
+};
+
+/// Returns the part a composite stop lands on.
+///
+/// A control that is not a composite's id is returned as it is. A composite
+/// lands on its remembered part when that part takes the focus, else on its
+/// chosen part, else on the first part that takes the focus, else on its
+/// first part. An empty composite lands on no control. The remembered part
+/// is set to the part landed on.
+///
+/// @param list the display list
+/// @param id a stop, a part or any control
+/// @return the part, or `id` when it is not a composite
+[[nodiscard]] ControlId composite_landing(const DisplayList& list, ControlId id) noexcept;
+
+/// Moves between a composite's parts along one arrow, without wrapping.
+///
+/// A column takes Up and Down, a row takes Left and Right, and a grid takes
+/// all four, one cell at a time. A part that does not take the focus is
+/// skipped along a row or a column. On a grid the neighbouring cell is taken
+/// only when it takes the focus; otherwise the focus stays. At an end the
+/// focus stays. A control that is not a part, and an arrow across the axis,
+/// are outside. A move remembers the part.
+///
+/// @param list the display list
+/// @param from the focused control
+/// @param direction the arrow
+/// @return outside, stayed or moved, and the part
+[[nodiscard]] AxisMove
+move_along(const DisplayList& list, ControlId from, Direction direction) noexcept;
+
+/// Returns the first or last part of the composite the focus is inside.
+///
+/// The first or last part that takes the focus. With none that do, the
+/// focus stays on `from` when `from` is a part, so Home and End do not
+/// fall through to a scroll. A control that is not inside a composite gives
+/// no control. An end that is found is remembered.
+///
+/// @param list the display list
+/// @param from the focused control
+/// @param last true for the last part, false for the first
+/// @return that part, or no_control when the focus is not inside a composite
+[[nodiscard]] ControlId composite_end(const DisplayList& list, ControlId from, bool last) noexcept;
+
 /// What a key asks the screen to do.
 enum class /* one key */ KeyResult : uint8_t {
     none,       ///< the key does nothing
@@ -304,8 +371,9 @@ struct KeyOutcome {
 
 /// Places the focus a screen opens with.
 ///
-/// The first control of the declared order is focused, and the ring is
-/// drawn only when `show` is true. An empty order leaves the focus unset.
+/// The first stop of the declared order is focused, a composite on the part
+/// it lands on, and the ring is drawn only when `show` is true. An empty
+/// order leaves the focus unset.
 /// A focus already set is left where it is, so a later layout does not
 /// move it. `show` is the preference that asks every screen to open with
 /// the ring; the kit does not read that preference.
@@ -322,16 +390,21 @@ void focus_opened(Interaction& interaction, const DisplayList& list, bool show) 
 ///
 /// While the ring is hidden, Tab moves to the control after the focused one
 /// and shows the ring there. From none, or from a control that is not in
-/// the order, that is the first. Shift+Tab moves to the control before it
+/// the order, that is the first. A part of a composite is in the order, on
+/// that composite's one stop. Shift+Tab moves to the control before it
 /// and shows the ring; from the first, or from none, that is the last. Up
 /// shows the ring on the last control. Down, Left, Right and Space show it
 /// on the first. Enter does not show the ring: the screen accepts. Escape
 /// cancels. The other keys do what they do with nothing focused.
 ///
-/// While the ring shows, Tab and Shift+Tab move in the declared order. Up
-/// and Down move by where controls sit. Left and Right go to a focused
-/// control that takes steps, and otherwise move by where controls sit.
-/// Space goes to the focused control. Enter goes to it when it is a button,
+/// While the ring shows, Tab and Shift+Tab move in the declared order. A
+/// composite is one stop of that order: the arrows along its axis move
+/// between its parts and do not wrap, Home and End go to its ends, and Tab
+/// and Shift+Tab leave it. Up and Down otherwise move by where controls
+/// sit. Left and Right go to a focused control that takes steps, and
+/// otherwise move by where controls sit. Space goes to the focused control,
+/// and so does Return when the focused control is a part. Enter goes to it
+/// when it is a button,
 /// a link, a list row or a tab, and otherwise the screen accepts, and then
 /// the ring is hidden, except on a text field, which keeps its ring, its
 /// caret and its typing. The focused control stays. Escape cancels. Page Up
@@ -453,7 +526,10 @@ struct AutomationEntry {
 /// Returns the named controls, in list order.
 ///
 /// A control with no name is left out. One is shown when any of its press
-/// area is in view.
+/// area is in view. A composite with a name is listed after the controls,
+/// as a list, with the role of its CompositeRole (a tab list or a list).
+/// Each of its parts carries its place in the group, from 1, and how many
+/// parts the group has.
 ///
 /// @param list the display list
 /// @param interaction the focus, for which control is focused
@@ -481,6 +557,9 @@ automation_entries(const DisplayList& list, const Interaction& interaction);
 ///   parts word for it, else its place from 1. A row that is not choosable
 ///   is listed and is not enabled. A control of the list that bears such an
 ///   item's name is that item, and is listed once, as the part.
+///
+/// A composite with a name is listed after those entries, as
+/// automation_entries lists it, and each part carries its place in the group.
 ///
 /// A part is named <name>.<word>, its word the control's parts word for it,
 /// else its place from 1; a switch's are off and on. A part's kind is its

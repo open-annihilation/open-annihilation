@@ -40,8 +40,12 @@ inline constexpr std::string_view name_filter_all = "mutators.filter.all";
 inline constexpr std::string_view name_filter_installed = "mutators.filter.installed";
 /// The Downloads pill.
 inline constexpr std::string_view name_filter_downloads = "mutators.filter.downloads";
+/// The three filter pills, one stop. Its parts are All, Installed and Downloads.
+inline constexpr std::string_view name_filters = "mutators.filters";
 /// TAGS. Its items are mutators.tags.<tag> for the tags that do not fit as pills.
 inline constexpr std::string_view name_tags = "mutators.tags";
+/// The tag pills, one stop. Tags, the overflow menu, stays its own stop.
+inline constexpr std::string_view name_tag_pills = "mutators.tag-pills";
 /// The search field.
 inline constexpr std::string_view name_search = "mutators.search";
 /// The list. Its rows are mutators.row.<id>.
@@ -261,11 +265,13 @@ struct ScreenState {
 /// mutator's details beside the list at Regular and Large; and the footer.
 /// At Compact the details are a page of their own: while details_page is
 /// set this returns what details_page_layout returns. Every control is
-/// named (the names above). Tab's order is the filters, TAGS, the search,
-/// the list, the details' option controls, the clash mode when the mutator
-/// brings units or weapons, ▲ UP, ▼ DOWN, the footer's buttons and the
-/// close mark. At Compact it is the drop-down, the search, the list,
-/// DETAILS, CANCEL, USE THESE and the close mark. The grips and the labels
+/// named (the names above). Tab's order is the filter pills as one stop,
+/// the tag pills as one stop, TAGS, the search, the list, the details'
+/// option controls, the clash mode when the mutator brings units or
+/// weapons, ▲ UP, ▼ DOWN, the footer's buttons and the close mark. Left
+/// and Right move inside each of those stops. The list is one stop. At
+/// Compact it is the drop-down, the search, the list, DETAILS, CANCEL, USE
+/// THESE and the close mark. The grips and the labels
 /// take no focus, and neither does a row's switch. A drag draws the row
 /// whole inside the list's view, and leaves its controls on the well.
 ///

@@ -101,6 +101,13 @@ struct Source {
     /// other word. Used only when the replay reached the end of the recording
     /// and the commanders, a departure and the end screen did not decide it.
     std::optional<oa::formats::oademo::IndexEnd> recorded_end{};
+    /// How a campaign mission ended for the player who recorded it, from
+    /// that player's `result` in `meta.json`. A skirmish and a network game
+    /// leave this unset, and their result stays with the commanders.
+    enum class Mission : uint8_t { none, won, lost };
+    Mission mission{Mission::none};
+    /// That player's number in the recording. Unused when `mission` is `none`.
+    int mission_player{0};
 };
 
 /// Builds a replay's index.
@@ -114,7 +121,11 @@ struct Source {
 /// `finished` when the commanders decided it or its end-of-game records came,
 /// `left` when players left or dropped with the game undecided, and, when
 /// none of those, `finished` or `left` as `Source::recorded_end` says. It is
-/// `cut` when that is unset. `ended.tick` is the last tick.
+/// `cut` when that is unset. `ended.tick` is the last tick. A campaign
+/// mission that reached its end names its result from `Source::mission`:
+/// the recording player won, or every other player won so that player lost.
+/// That replaces a result the commanders would have given. A mission that
+/// was left, and any game that is not a campaign, keep the commanders' result.
 ///
 /// @param source the timeline, the stream's notes, the last totals and the
 ///        recording's own end

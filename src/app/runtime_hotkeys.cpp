@@ -6,6 +6,7 @@
 #include "console_actions.hpp"
 #include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
+#include "photo_state.hpp"
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/languages/translation.hpp"
@@ -49,21 +50,14 @@ namespace oa::app {
 
 namespace keys = oa::ui::key_bindings;
 
-namespace {
-
-/// The match commands that still answer while photo mode is open.
-///
-/// The camera's pan is a held key, and the wheel zooms on its own. Home
-/// centres and is listed here; it selects nothing while photo mode is open.
-///
-/// @param id the action id
-/// @return true when photo mode runs the command
-bool photo_match_command(std::string_view id) {
+bool photo_match_command(std::string_view id) noexcept {
     return id == "game.menu" || id == "game.pause" || id == "game.speed-up" ||
            id == "game.speed-down" || id == "camera.follow" || id == "camera.follow-previous" ||
            id == "camera.centre" || id == "camera.classic-view" || id == "camera.unlocked" ||
            id == "camera.zoom-in-key" || id == "camera.zoom-out-key" || id == "camera.zoom-reset";
 }
+
+namespace {
 
 /// The squad or page number at the end of an action id, or 0.
 ///
@@ -88,7 +82,10 @@ int action_number(std::string_view id, std::string_view prefix) {
 /// @return true for the speed, page and zoom-key actions
 bool answers_repeat(std::string_view id) {
     return id == "game.speed-up" || id == "game.speed-down" || id == "build.page-next" ||
-           id == "build.page-previous" || id == "camera.zoom-in-key" || id == "camera.zoom-out-key";
+           id == "build.page-previous" || id == "camera.zoom-in-key" ||
+           id == "camera.zoom-out-key" || id == "photo.zoom-in" || id == "photo.zoom-out" ||
+           id == "photo.turn-left" || id == "photo.turn-right" || id == "photo.tilt-up" ||
+           id == "photo.tilt-down" || id == "photo.shutter-back" || id == "photo.shutter-on";
 }
 
 /// The build cell at the end of `build.cell-N`, or 0.
@@ -240,9 +237,104 @@ bool Runtime::press_shown_panel_action(std::string_view id, keys::Phase phase) {
     return false;
 }
 
+bool Runtime::answer_photo_action(const keys::ActionEvent& action) {
+    const std::string_view id = action.action;
+    if (!id.starts_with("photo."))
+        return false;
+    if (!photo_mode())
+        return true;
+    const bool pressed = action.phase == keys::Phase::pressed;
+    const bool repeated = action.phase == keys::Phase::repeated && answers_repeat(id);
+    if (!pressed && !repeated)
+        return true;
+    if (id == "photo.leave") {
+        leave_photo_mode();
+        return true;
+    }
+    if (id == "photo.capture") {
+        // One place for Enter, Ctrl+F9 and any later button. A photo asked
+        // for before a photo-mode frame has been presented waits there.
+        take_photo();
+        return true;
+    }
+    if (id == "photo.copy") {
+        copy_last_photo();
+        return true;
+    }
+    if (id == "photo.freeze") {
+        // Freeze lets a frozen clock run again, as Hold picture lets go of
+        // the picture, so the keys alone can get back to the match's speed.
+        if (photo_time_is_local() || photo_time_is_replay()) {
+            if (photo_frozen())
+                std::ignore = photo_run();
+            else
+                std::ignore = photo_freeze();
+        } else {
+            std::ignore = photo_hold_picture();
+        }
+        return true;
+    }
+    if (id == "photo.step") {
+        std::ignore = photo_step();
+        return true;
+    }
+    if (id == "photo.shutter-back" || id == "photo.shutter-on") {
+        const int32_t now = photo_shutter_eighth();
+        const int32_t next = id == "photo.shutter-on" ? std::min(now + 1, int32_t{8})
+                                                      : std::max(now - 1, int32_t{0});
+        std::ignore = photo_between(next);
+        return true;
+    }
+    if (id == "photo.zoom-in" || id == "photo.zoom-out") {
+        // The photo range, whether or not Mouse wheel zoom is on. A held
+        // picture stays where it is. The key is taken either way.
+        if (!photo_camera_locked()) {
+            const float target = wheel_zoom_target(id == "photo.zoom-in" ? 1.0F : -1.0F);
+            EngineSettingsState::ease_zoom_about_centre(*this, target);
+        }
+        return true;
+    }
+    if (id == "photo.turn-left" || id == "photo.turn-right" || id == "photo.tilt-up" ||
+        id == "photo.tilt-down") {
+        constexpr float kStep = 5.0F;
+        bool turned = false;
+        if (id == "photo.turn-left")
+            turned = photo_turn(-kStep);
+        else if (id == "photo.turn-right")
+            turned = photo_turn(kStep);
+        else if (id == "photo.tilt-up")
+            turned = photo_tilt(kStep);
+        else
+            turned = photo_tilt(-kStep);
+        if (!turned) {
+            const std::string reason = photo_turn_reason();
+            if (!reason.empty()) {
+                status_ = reason;
+                photo_notice_ = reason;
+            }
+        }
+        return true;
+    }
+    return true;
+}
+
 bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // Action ids are strings, so this is a chain of comparisons.
     const std::string_view id = action.action;
+    // A replay's own keys are taken before photo mode and before the match.
+    // They answer only while a replay plays. Any other phase is swallowed.
+    if (id.starts_with("watch.replay-")) {
+        if (action.phase == keys::Phase::pressed)
+            static_cast<void>(replay_viewer_command(id));
+        return true;
+    }
+    if (id == "game.photo-mode") {
+        if (!photo_mode() && action.phase == keys::Phase::pressed)
+            std::ignore = enter_photo_mode();
+        return true;
+    }
+    if (answer_photo_action(action))
+        return true;
     // Anything photo mode does not name is taken and does nothing. The
     // game menu is named, and leaves before it opens.
     if (photo_mode() && !photo_match_command(id))
@@ -557,6 +649,33 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id == "game.speed-up" || id == "game.speed-down") {
         if (action.phase != keys::Phase::pressed && action.phase != keys::Phase::repeated)
             return false;
+        // Photo mode drives its own slow motion on a match on this machine.
+        // A replay keeps the speed it is watched at. A shared match is taken
+        // and does not change anyone's speed.
+        if (photo_mode()) {
+            if (photo_time_is_replay())
+                call_hook_or_report<&Extension::replay_step_speed>(
+                    extension_, hook_error_report(), *this, id == "game.speed-up" ? 1 : -1
+                );
+            else if (photo_time_is_local()) {
+                // Frozen, Slow 1 to the fastest slow speed, then the match's
+                // own speed: + climbs that ladder and - goes down it.
+                const int32_t now = photo_slow_speed();
+                if (id == "game.speed-up") {
+                    if (photo_frozen())
+                        std::ignore = photo_slow(1);
+                    else if (now != 0 && !photo_slow(now + 1))
+                        std::ignore = photo_run();
+                } else if (now == 0 && !photo_frozen()) {
+                    std::ignore = photo_slow(9);
+                } else if (now == 1) {
+                    std::ignore = photo_freeze();
+                } else if (now > 1) {
+                    std::ignore = photo_slow(now - 1);
+                }
+            }
+            return true;
+        }
         // A replay's + and - step the speed it is watched at. A recording's own speed change
         // still paces it, and does not put the viewer's speed back.
         if ((current_extension_state() & extension_state::replay) != 0)
@@ -654,7 +773,19 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // rest, including the chat line, the kills board and the console, are
     // taken here so they do not reach the match. Pan stays a held key.
     if (photo_mode()) {
+        // A photo command wins over a match command on the same chord, so
+        // Ctrl+F9 takes a photo here and a screenshot outside photo mode.
         for (const keys::ActionEvent& fed : events) {
+            if (!fed.action.starts_with("photo."))
+                continue;
+            const bool answers = fed.phase == keys::Phase::pressed ||
+                                 (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
+            if (answers && handle_match_action(fed))
+                return true;
+        }
+        for (const keys::ActionEvent& fed : events) {
+            if (fed.action.starts_with("photo."))
+                continue;
             const bool answers = fed.phase == keys::Phase::pressed ||
                                  (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
             if (answers && handle_match_action(fed))

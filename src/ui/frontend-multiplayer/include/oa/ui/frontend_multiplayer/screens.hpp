@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -542,6 +543,21 @@ void multiplayer_bind_layer_presence_badges(void* context, bool (*draws)(void*))
 ///
 /// @return the layout the last draw composed, or the loaded GUI before that
 [[nodiscard]] const ui::gui_layout::Layout& multiplayer_drawn_layout() noexcept;
+
+/// Returns the palette the base multiplayer screen is drawn with.
+///
+/// The background's palette when it has one, otherwise the GUI palette.
+///
+/// @return the palette, four bytes an entry
+[[nodiscard]] std::span<const uint8_t> multiplayer_screen_palette() noexcept;
+
+/// Returns the frame a named control of the base panel shows.
+///
+/// The battle room's LOGO slot shows its player's colour as that frame.
+///
+/// @param name the control's name
+/// @return the stage, or none when the panel has no such control
+[[nodiscard]] std::optional<uint8_t> multiplayer_control_stage(std::string_view name) noexcept;
 
 /// Returns the stacked dialog's panel, or null when none is open.
 [[nodiscard]] Panel* multiplayer_modal() noexcept;

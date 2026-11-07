@@ -38,6 +38,14 @@ inline constexpr kit::ControlId more_menu = 14;
 inline constexpr kit::ControlId replay_kind_menu = 17;
 /// The Replays section's sort menu (library.replays.sort).
 inline constexpr kit::ControlId replay_sort_menu = 18;
+/// Core Prime's planet menu (library.replays.planet).
+inline constexpr kit::ControlId replay_planet_menu = 19;
+/// On this computer, above the Replays list.
+inline constexpr kit::ControlId replay_source_computer = 20000001;
+/// On Core Prime, above the Replays list.
+inline constexpr kit::ControlId replay_source_core = 20000002;
+/// Core Prime's Latest filter; Longest, Most downloaded and By planet follow.
+inline constexpr kit::ControlId first_core_filter = 21000000;
 /// The All chip or nav entry; New, Installed and Updates follow in Filter's order.
 inline constexpr kit::ControlId first_filter = 20;
 /// The Replays section's This month entry; Older, Kept and Imported follow
@@ -60,6 +68,24 @@ inline constexpr kit::ControlId refresh = 54;
 /// The header's close mark, to the right of the refresh icon. It asks for
 /// the same close as the footer's CLOSE.
 inline constexpr kit::ControlId close_x = 55;
+/// The section list's tabs, one stop. The tab controls are its parts, in
+/// the order they are shown. It is not a control of its own: Tab lands on
+/// the open tab.
+inline constexpr kit::ControlId tabs = -8001;
+/// The open tab's filters, one stop. The catalogue's four, or the Replays
+/// section's four, or Core Prime's four. Not a control of its own.
+inline constexpr kit::ControlId filters = -8002;
+/// The open tab's tags, one stop. Not a control of its own. Named apart
+/// from the tag lists the controls namespace already holds.
+inline constexpr kit::ControlId tags_stop = -8003;
+/// The Active tab's expansion pills, one stop. A locked pill is not a part.
+/// Not a control of its own.
+inline constexpr kit::ControlId expansions = -8004;
+/// A package's tag pills in the details, one stop. Not a control of its own.
+inline constexpr kit::ControlId detail_tags = -8005;
+/// The switch over the Replays list, On this computer and On Core Prime, one
+/// stop. Not a control of its own: Tab lands on the side that is chosen.
+inline constexpr kit::ControlId replay_source_stop = -8006;
 /// The status line's label.
 inline constexpr kit::ControlId status = 60;
 /// The first queue line's label.
@@ -267,6 +293,23 @@ inline constexpr int32_t export_browse_page = 6;
            id < first_replay_filter + static_cast<kit::ControlId>(replay_filter_total);
 }
 
+/// Returns one of Core Prime's filters.
+///
+/// @param filter the filter
+/// @return its number
+[[nodiscard]] constexpr kit::ControlId core_filter_control(CorePrimeFilter filter) noexcept {
+    return first_core_filter + static_cast<kit::ControlId>(filter);
+}
+
+/// Tells whether a control is one of Core Prime's filters.
+///
+/// @param id the control
+/// @return true for Latest, Longest, Most downloaded or By planet
+[[nodiscard]] constexpr bool core_filter_entry(kit::ControlId id) noexcept {
+    return id >= first_core_filter &&
+           id < first_core_filter + static_cast<kit::ControlId>(core_prime_filter_total);
+}
+
 /// Tells whether a control is one of Export's.
 ///
 /// @param id the control
@@ -370,7 +413,8 @@ inline constexpr int32_t details_group = 1;
 inline constexpr int32_t maps_group = 2;
 
 /// Large's filter pane: its filters, tags and worlds, which scroll under its
-/// headings. Tab stops on one of them, and the arrows move among them.
+/// headings. The filters are one stop and the tags another; the arrows move
+/// inside each.
 inline constexpr int32_t filters_group = 3;
 
 /// Returns an action's button's control.
@@ -486,13 +530,14 @@ inline constexpr int32_t filters_group = 3;
 /// One item of a drop-down: its caption, its automation word and what
 /// choosing it does, one of a filter, a tag or an action.
 struct MenuItem {
-    std::string caption{};                    ///< the words shown, looked up
-    std::string word{};                       ///< the word automation names it by
-    std::optional<Filter> filter{};           ///< the filter it shows, with every tag
-    std::optional<std::size_t> tag{};         ///< the tag it shows, its place in tags_in_tab
-    std::optional<Action> action{};           ///< the selected entry's action it asks for
-    std::optional<std::string> replay_kind{}; ///< the kind of replay it shows; empty for all
-    std::optional<ReplaySort> replay_sort{};  ///< the order of the replays it chooses
+    std::string caption{};                      ///< the words shown, looked up
+    std::string word{};                         ///< the word automation names it by
+    std::optional<Filter> filter{};             ///< the filter it shows, with every tag
+    std::optional<std::size_t> tag{};           ///< the tag it shows, its place in tags_in_tab
+    std::optional<Action> action{};             ///< the selected entry's action it asks for
+    std::optional<std::string> replay_kind{};   ///< the kind of replay it shows; empty for all
+    std::optional<ReplaySort> replay_sort{};    ///< the order of the replays it chooses
+    std::optional<std::string> replay_planet{}; ///< the planet it shows
     /// A heading over the items after it, such as WORLD: not a choice, never
     /// marked, pressed or named.
     bool heading{};

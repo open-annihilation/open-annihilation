@@ -53,6 +53,10 @@ inline constexpr std::string_view name_cancel = "maps-cancel";
 inline constexpr std::string_view name_select = "maps-select";
 /// The header's close mark. A press closes the browser as Cancel does.
 inline constexpr std::string_view name_close = "maps-close";
+/// The source pills as one stop: All, Game, Mod and Downloads.
+inline constexpr std::string_view name_filters = "maps-filters";
+/// The map cards as one stop.
+inline constexpr std::string_view name_cards = "maps-cards";
 
 /// The columns of the card grid at Compact.
 inline constexpr std::size_t compact_columns = 3;
@@ -159,9 +163,11 @@ struct ScreenResult {
 /// primary button. Every control is named (screen.hpp's names, and one
 /// name_card_prefix name per card that shows, "-2", "-3"… after a word
 /// already taken in grid order). The players and size strips name each
-/// segment as a part. Tab's order is the source pills, the players strip,
-/// the sizes strip, the search, the cards, Cancel, the primary button and
-/// the close mark last; browser_key enters the cards at the selected one.
+/// segment as a part. Tab's order is the source pills (one stop), the
+/// players strip, the sizes strip, the search, the cards (one stop, entered
+/// at the selected card, else the first), Cancel, the primary button and the
+/// close mark last. The arrows move inside the source pills and, both ways,
+/// inside the card grid; Left and Right step a strip's choice.
 /// Asks the hooks for the pictures of cards_in_view alone.
 ///
 /// @param browser the browser

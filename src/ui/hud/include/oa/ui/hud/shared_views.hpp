@@ -81,6 +81,15 @@ inline constexpr std::array<uint8_t, OA_PLAYER_COUNT> kPlayerDotColors{
     227, 212, 80, 235, 108, 219, 208, 93, 130, 67
 };
 
+/// Returns the palette index a colour number is drawn in on this machine.
+///
+/// No mode uses kPlayerDotColors. A mode uses that colour's dot, the anchor
+/// colour_vision::player_dot names. A number past the last colour is the first.
+///
+/// @param colour the colour number, 0 to 9
+/// @return the palette index
+[[nodiscard]] uint8_t colour_dot_index(uint8_t colour) noexcept;
+
 /// Returns a player's dot colour for this machine's drawing.
 ///
 /// @param world players and their setup records

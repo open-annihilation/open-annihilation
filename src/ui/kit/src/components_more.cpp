@@ -1494,6 +1494,24 @@ std::vector<Rect> place_question_buttons(
 
 } // namespace
 
+void draw_state_mark(const Canvas& canvas, StateTone tone, Point at, Colour ink) {
+    CalloutTone callout = CalloutTone::information;
+    switch (tone) {
+    case StateTone::ok:
+        callout = CalloutTone::ok;
+        break;
+    case StateTone::caution:
+        callout = CalloutTone::caution;
+        break;
+    case StateTone::danger:
+        callout = CalloutTone::danger;
+        break;
+    case StateTone::information:
+        break;
+    }
+    draw_mark(canvas, tone_bits(callout), at, ink);
+}
+
 PlacedNotice place_notice(const Notice& notice, const Measure& regular, const Measure& small) {
     const int32_t width = box_width(notice.size_class);
     PlacedNotice placed{};

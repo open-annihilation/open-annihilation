@@ -2330,6 +2330,8 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
         static_cast<int16_t>(-1)
     );
     std::fill(std::begin(lobby.limits_older_refused), std::end(lobby.limits_older_refused), false);
+    lobby.waiting_players = {};
+    lobby.waiting_count = 0;
     // The recorder's session starts again; the line it answers with stays.
     char program[sizeof lobby.recorder.program];
     std::memcpy(program, lobby.recorder.program, sizeof program);
@@ -3894,6 +3896,126 @@ void send_periodic_status(Lobby& lobby) noexcept {
     lobby_send_player_info(lobby);
 }
 
+/// Drops a remembered player. The ones who arrived after them keep their order.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param id Session player id.
+void waiting_forget(Lobby& lobby, uint32_t id) noexcept {
+    uint8_t kept = 0;
+    for (uint8_t index = 0; index < lobby.waiting_count; ++index) {
+        if (lobby.waiting_players[index].id == id)
+            continue;
+        if (kept != index)
+            lobby.waiting_players[kept] = lobby.waiting_players[index];
+        ++kept;
+    }
+    lobby.waiting_count = kept;
+}
+
+/// The remembered player with this id, or null when they are not waiting.
+///
+/// @param lobby Lobby state.
+/// @param id Session player id.
+/// @return The entry, or null.
+WaitingPlayer* waiting_find(Lobby& lobby, uint32_t id) noexcept {
+    for (uint8_t index = 0; index < lobby.waiting_count; ++index)
+        if (lobby.waiting_players[index].id == id)
+            return &lobby.waiting_players[index];
+    return nullptr;
+}
+
+/// Keeps the latest setup block of a player who is waiting. A player who is
+/// not waiting is left alone, as is a block that does not fit.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param id Session player id.
+/// @param data Block bytes, or null.
+/// @param size Byte count.
+void waiting_note_setup(Lobby& lobby, uint32_t id, const uint8_t* data, uint16_t size) noexcept {
+    if (data == nullptr || size == 0 || size > kWaitingSetupBytes)
+        return;
+    WaitingPlayer* kept = waiting_find(lobby, id);
+    if (kept == nullptr)
+        return;
+    kept->has_setup = true;
+    kept->setup_size = size;
+    std::memcpy(kept->setup, data, size);
+}
+
+/// Applies the setup block a player sent while they were waiting.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param held The player, as they were remembered.
+void apply_saved_setup(Lobby& lobby, const WaitingPlayer& held) noexcept {
+    if (!held.has_setup || held.setup_size == 0 || held.setup_size > kWaitingSetupBytes)
+        return;
+    LobbyEvent saved{};
+    saved.kind = LobbyEventKind::record;
+    saved.player_id = held.id;
+    saved.size = held.setup_size;
+    std::memcpy(saved.data, held.setup, held.setup_size);
+    (void)lobby_apply_event(lobby, saved);
+}
+
+/// Remembers a player who arrived with no seat free. A player already
+/// remembered stays where they are in the order.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param id Session player id.
+/// @param player_name Player name, or null for none.
+void waiting_keep(Lobby& lobby, uint32_t id, const char* player_name) noexcept {
+    if (id == kNoPlayerId || lobby.waiting_count >= static_cast<uint8_t>(kWaitingPlayerCount))
+        return;
+    for (uint8_t index = 0; index < lobby.waiting_count; ++index)
+        if (lobby.waiting_players[index].id == id)
+            return;
+    auto& kept_player = lobby.waiting_players[lobby.waiting_count];
+    kept_player = {};
+    kept_player.id = id;
+    copy_text(
+        kept_player.name,
+        sizeof kept_player.name,
+        text_view(player_name != nullptr ? player_name : "", sizeof kept_player.name)
+    );
+    ++lobby.waiting_count;
+}
+
+/// Seats remembered players, earliest first, while a seat is free.
+///
+/// @param[in,out] lobby Lobby state.
+/// @return True when a player was seated.
+bool seat_waiting(Lobby& lobby) noexcept {
+    // A machine that is leaving keeps its seats as the rejection left them,
+    // and a game that has started seats no one more.
+    if (lobby.game == nullptr || lobby.waiting_count == 0 ||
+        local_player(lobby).reject_reason != 0 ||
+        (lobby.game->session_flags & kNetFlagGameStarted) != 0)
+        return false;
+    bool seated = false;
+    while (lobby.waiting_count > 0 &&
+           netgame::free_player_slot(*lobby.game) != netgame::no_player_slot) {
+        const WaitingPlayer held = lobby.waiting_players[0];
+        waiting_forget(lobby, held.id);
+        if (slot_for_player_id(lobby, held.id) >= 0)
+            continue;
+        if (lobby_add_player(lobby, held.id, held.name)) {
+            seated = true;
+            apply_saved_setup(lobby, held);
+            continue;
+        }
+        // The seat went away between the check and the attempt. Keep the
+        // player at the front and try again when another seat opens.
+        if (lobby.waiting_count < static_cast<uint8_t>(kWaitingPlayerCount)) {
+            for (uint8_t index = lobby.waiting_count; index > 0; --index)
+                lobby.waiting_players[index] = lobby.waiting_players[index - 1];
+            lobby.waiting_players[0] = held;
+            ++lobby.waiting_count;
+        }
+        break;
+    }
+    return seated;
+}
+
 } // namespace
 
 LobbyAction lobby_handle_event(Lobby& lobby, Panel& panel) noexcept {
@@ -3905,6 +4027,9 @@ LobbyAction lobby_handle_event(Lobby& lobby, Panel& panel) noexcept {
 LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view_map) noexcept {
     auto& game = *lobby.game;
     bool changed = false;
+    // A seat opened from the panel (a player removed, a closed seat opened)
+    // goes to whoever has been waiting, before this frame's arrivals.
+    changed = seat_waiting(lobby);
     LobbyEvent event{};
     while (lobby.net.receive != nullptr && lobby.net.receive(lobby.net.context, &event))
         changed = lobby_apply_event(lobby, event) || changed;
@@ -4906,7 +5031,7 @@ bool lobby_add_player(Lobby& lobby, uint32_t player_id, const char* name) noexce
 bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
     auto& game = *lobby.game;
     switch (event.kind) {
-    case LobbyEventKind::player_joined:
+    case LobbyEventKind::player_joined: {
         if (event.refuse_reason != 0) {
             // A refused joiner is told with this machine's lobby blocks, then
             // its rejection; it is not seated and leaves by itself. Records
@@ -4920,8 +5045,25 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
             lobby.refused_joiner = 0;
             return false;
         }
-        return lobby_add_player(lobby, event.player_id, event.name);
+        // Someone who arrived earlier takes a seat that has opened since.
+        const bool seated = seat_waiting(lobby);
+        if (lobby_add_player(lobby, event.player_id, event.name)) {
+            waiting_forget(lobby, event.player_id);
+            return true;
+        }
+        // No seat, and this id is not already in one: keep them in arrival
+        // order. An id already seated, or one a slot already answers to,
+        // is not kept.
+        if (netgame::free_player_slot(*lobby.game) == netgame::no_player_slot &&
+            slot_for_player_id(lobby, event.player_id) < 0 &&
+            netgame::player_slot_of(*lobby.game, event.player_id) == netgame::no_player_slot)
+            waiting_keep(lobby, event.player_id, event.name);
+        else
+            waiting_forget(lobby, event.player_id);
+        return seated;
+    }
     case LobbyEventKind::player_left: {
+        waiting_forget(lobby, event.player_id);
         const auto slot = slot_for_player_id(lobby, event.player_id);
         if (slot < 0)
             return false;
@@ -4948,6 +5090,8 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         }
         player.index = kNoSlot;
         player.machine_group = 0;
+        // The seat that opened goes to the player who has waited longest.
+        (void)seat_waiting(lobby);
         return true;
     }
     case LobbyEventKind::session_lost:
@@ -4995,7 +5139,13 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         if (netgame::decode_record(event.data, event.size, &record) != netgame::WireError::ok)
             return false;
         const auto slot = slot_for_player_id(lobby, record.player_id);
-        if (slot < 0 || slot_player(lobby, slot).status != kSlotRemote)
+        // A block from a player who is still waiting is kept and applied
+        // when they are seated. Anyone else with no seat is unchanged.
+        if (slot < 0) {
+            waiting_note_setup(lobby, record.player_id, event.data, event.size);
+            return false;
+        }
+        if (slot_player(lobby, slot).status != kSlotRemote)
             return false;
         // Read before the block is copied: a later block may not repeat the
         // host bit, and the copy replaces the setup info.
@@ -5162,8 +5312,11 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         if (netgame::decode_record(event.data, event.size, &record) != netgame::WireError::ok)
             return false;
         const auto slot = slot_for_player_id(lobby, record.player_id);
-        if (slot < 0)
+        // A player rejected while waiting for a seat is not seated later.
+        if (slot < 0) {
+            waiting_forget(lobby, record.player_id);
             return false;
+        }
         // The host refused a 3.1c joiner from its room with mutators: a
         // guest names it too, once, from the joiner's own block. A guest
         // never refuses anyone itself.
@@ -5194,6 +5347,8 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         // Passed on once, as for a rejection made here.
         lobby_reject(lobby, record.player_id, record.reason);
         flush(lobby);
+        // The seat that opened goes to the player who has waited longest.
+        (void)seat_waiting(lobby);
         return true;
     }
     case netgame::RecordType::ping: {

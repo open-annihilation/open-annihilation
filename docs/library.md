@@ -276,8 +276,13 @@ title is the link to the pack. **Change…**, each expansion pill but a
 locked one (the
 download arrow sits inside a pill a registry offers, and that pill is
 the press), **Unload mod**, each map's link to its pack while that link
-shows, and the maps search do take a press. Tab and the arrows reach
-them. The expansions hint wraps onto as many lines as it needs.
+shows, and the maps search do take a press. Tab reaches them as a few
+stops: the tabs, **Change…** on the base game, the expansion pills,
+**Unload mod**, **Change…** on the keys, the maps search, each map's
+link to its pack while that link shows, **Close**, **Refresh** when a
+registry can be asked, and the close mark. The arrows move inside the
+tabs and inside the expansion pills, and stay at either end. The
+expansions hint wraps onto as many lines as it needs.
 
 While the tiles leave the maps four rows, the four tiles stay where they
 are. The maps pane runs from under the **MAPS** heading to the bottom of the window,
@@ -309,6 +314,28 @@ each other. The other tabs are where packages are got, updated and played.
 folder for each mod, `Imported` and `Core Prime` included ([what a game
 writes there](replays.md#recording-a-game)). Every network game you play is
 kept there unless the setting `open-annihilation.replays.record` says `off`.
+
+**On Core Prime.** A switch on the first row of either list chooses **On this
+computer** or **On Core Prime**. On Core Prime the filters are **Latest**,
+**Longest**, **Popular** and **By planet**. The planet menu lists every planet
+the pages loaded this run have named, and the chosen one stays checked. The
+list is paged as it scrolls, and the pages stay while that list is showing.
+**Download** saves the `.oademo` into `Recordings/Core Prime`. The file takes
+the map's name, then that name with the time it was recorded, then the
+replay's id, and the card says **Downloaded**, at the next start too while
+the file is there. **Watch** saves it and then plays it, or plays the saved
+file. What the replay still needs is offered before it plays. While Core
+Prime asks for a check or says when to try again ("Try again in 30 s."), the
+card says so and **Download** reads **Cancel**, which stops the wait, as
+closing the Library does. The list and the other cards still load, and
+another replay's **Download** or **Watch** waits its turn, its button reading
+**Getting the replay…**. Each filter shows its count once its list has been
+read, and **By planet** the chosen planet's. The empty
+list on this computer offers **Browse Core Prime's replays**, which opens
+that list. A battle's planet and sector come from the feed, and so does each
+player's result and number of units destroyed, which the card names: Core
+Prime's list has no losses, and its rows need no **Reading…**. The game does
+not download a `.tad`.
 
 **Filters.** Under the section list's divider, in place of a catalogue's
 filters: **This month** (the replays recorded in the last 30 days, today
@@ -365,9 +392,10 @@ it), the players (colour, name and side), then **Length**, **Recorded**
 `.tad` shows its recorder as it was recorded), **Mod**, **Expansions**,
 **Mutators**, **File** (size and name), and **Kept until** the day the
 keep setting names: 30 days after the replay was recorded, or 90, or a
-year. **Forever**, a replay you keep, and a downloaded or exported replay
-say **Kept** ("Until you delete it", or that downloaded and exported
-replays are kept). Exported is a replay you exported, marked beside the
+year. A replay that is only on Core Prime shows the file's size and leaves
+**Kept** and **Kept until** out. **Forever**, a replay you keep, and a
+downloaded or exported replay say **Kept** ("Until you delete it", or that
+downloaded and exported replays are kept). Exported is a replay you exported, marked beside the
 kept marks, not a folder. An imported replay says imported replays are kept. A
 fact's value wraps to a second or a
 third line instead of being cut. The card's parts scroll, with the wheel,
@@ -380,16 +408,19 @@ are marked the card says how many. The buttons are:
 - **Watch**, which plays the replay in the running game, as `--play-demo`
   does. Leaving its match brings the Library back on Replays, the same row
   chosen and the list scrolled as it was. Leaving a Watch remembers where it
-  was left. The card then says **Watched to 11:40** under the buttons, and
-  **Watch from 11:40** starts the replay there. When the game cannot play it (its
-  map is not installed, its unit definitions differ, it needs another mod's
-  limits) the card says why, in the game's words and without the file's
-  name, which the card shows. A refusal that comes after the game began
-  loading the match, as a unit table that differs does, takes down what was
-  begun, shows the main menu again and leaves the Library open on the same
-  row, at the same scroll, with the refusal in its card; the game is never
-  left on its loading screen. Watch is off for a damaged file and during a
-  game.
+  was left, including a Watch that restarts to get a package, turn an
+  expansion on or play another release. The card then says **Watched to
+  11:40** under the buttons, and **Watch from 11:40** starts the replay
+  there. For a replay that needs a package, an expansion turned on or
+  another release, Watch from gets or switches them as Watch does, then
+  starts there. When the game cannot play it (its map is not installed, its
+  unit definitions differ, it needs another mod's limits) the card says why,
+  in the game's words and without the file's name, which the card shows. A
+  refusal that comes after the game began loading the match, as a unit table
+  that differs does, takes down what was begun, shows the main menu again
+  and leaves the Library open on the same row, at the same scroll, with the
+  refusal in its card; the game is never left on its loading screen. Watch
+  is off for a damaged file and during a game.
 - **Export…**, which writes the marked replays, or the one chosen when none
   is marked, as a file each. The dialog offers an **Open Annihilation replay
   (.oademo)**, recommended and selected, or a **TA Demo Recorder (.tad)**.
@@ -436,19 +467,37 @@ or turns the expansions on, and then plays. Several packages go together. A
 newer engine opens **Check for updates** and fetches nothing else. A
 recording names >=0.9.1 as the first release that reads a .oademo. This
 build already reads that format, so that line does not ask for an update. A
-release the catalogue does not list says "Ridge 2.8 is not in Core Prime's
-catalogue." The replay can be kept and exported. While the registry cannot
+release the catalogue does not list says "Ridge 2.8 is not in Ridge Replays's
+catalogue." Core Prime is named when the replay names no registry. The replay can be kept and exported. While the registry cannot
 be reached the card says "You're offline." and "Get Ridge 2.8 when you're
 back online.", and the chip stays. A mutator the replay needs plays in its
-match only, and is not left chosen afterwards. A replay that switched the
-mod or the expansions keeps its end screen up until **Main Menu**, as any
-replay does. The player's mod and expansions are then put back, and the
-Library opens again on Replays, on that replay and at the same scroll.
-Leaving the replay early comes back the same way. If the game is quit or
-stops during that replay, the next start puts them back. Another release of
-a mod that is already installed says "This replay was recorded with Ridge
-2.8 (rev 1). You have 2.9." **Get Ridge 2.8 and watch** is shown. That press
-leaves the installed release where it is.
+match only, and is not left chosen afterwards. A replay that switched the mod
+or the expansions keeps its end screen up until **Main Menu**, as any replay
+does. The player's mod and expansions are then put back, and the Library opens
+again on Replays, on that replay and at the same scroll. Leaving the replay
+early comes back the same way, and the card says where that Watch was left.
+Watch from starts there. If the game is quit or stops during that
+replay, the next start puts them back. Another release of a mod that is
+already installed says "This replay was recorded with Ridge 2.8 (rev 1). You
+have 2.9." **Get Ridge 2.8 and watch** fetches that release and installs it in
+`Replay releases`, next to `Mods`, then plays the replay with it. The release
+you had stays where it is. It is chosen again when you leave the replay's
+end screen, and at the next start if that one was stopped during the replay.
+The fetched copy stays, so a later replay of the same release uses it: the
+row has no chip and **Watch** plays that copy, including when the registry
+cannot be reached and after Ridge is uninstalled. The Mods tab does not list it,
+uninstalling Ridge leaves it, and it is not offered as an update.
+
+A map pack is kept the same way. A replay names the pack by the digest its
+record stores, or by the digest of the folder when the pack was copied by
+hand. **Get Ridge Reach 1.0 and watch** fetches that release into
+`Replay releases`, beside `Maps`, and the replay plays with it. The pack in
+`Maps` stays, and it is still the one you play with. A later replay of the
+kept release plays that copy and does not fetch it again, including when the
+registry cannot be reached and after the pack is uninstalled from `Maps`.
+The kept pack stays, and **Watch** plays it. A hand-copied pack the
+recording names is not fetched. Another release of a pack you have says
+"This replay was recorded with another release of the map pack Ridge Reach."
 
 At start, once the main menu is free, replays older than **Keep replays
 for** go to the trash. **Forever** reads nothing. Any other span is read
@@ -1110,9 +1159,9 @@ where a mod's folder goes to be listed
 
 | Key | Does |
 |---|---|
-| Tab, Shift+Tab | the next and previous control |
-| arrow keys | move by where controls are; on the list, Up and Down choose the row |
-| Page Up, Page Down, Home, End | move through the list, or scroll the details while they have the focus, and on the Active tab scroll the maps pane |
+| Tab, Shift+Tab | the next and previous stop. The tabs are one stop, and so are the filters (Core Prime's too), the tags, the Active tab's expansion pills, a package's tags and the Replays switch (On this computer, On Core Prime) |
+| arrow keys | move by where controls are; inside one of those stops, along it, staying at either end; on the list, Up and Down choose the row |
+| Page Up, Page Down, Home, End | move through the list, or scroll the details while they have the focus, and on the Active tab scroll the maps pane. Home and End inside one of those stops go to its ends. Page Up and Page Down inside the filters or the tags move within that stop |
 | Enter, Space | on a row: open its details page in Compact, or go to its first button; on Unload mod: ask SWITCH MOD; on a map's From link: open Maps on that pack; on the maps search, Enter moves to the first map link |
 | Cmd+F (Ctrl+F elsewhere), or `/` | the search; on the Active tab, the maps search |
 | F5 | the header's refresh icon, when a registry can be asked |

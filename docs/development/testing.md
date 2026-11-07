@@ -133,9 +133,23 @@ serves Ridge, an older map pack, a newer one and a mutator on 127.0.0.1.
 The older pack is only in the catalogue's releases list. One press fetches
 that pack and the mutator and the replay plays; the mutator is no longer
 selected afterwards. A release neither list holds reads as not in Core
-Prime's catalogue. With the registry stopped, the same replay reads "You're
+Prime's catalogue. A refused release names its registry. With the registry stopped, the same replay reads "You're
 offline." `replays-content-clean` clears the working folder before each run.
 The check never calls a live registry.
+
+`native-replays-core-prime` (`--check-replays-core-prime`,
+`tools/check_native_replays_core_prime.py`) records one loopback game, then
+serves a made-up replay feed and its download keys on 127.0.0.1. The list
+fills and scrolling asks for the next page. Those pages stay after the
+cache's minute, and the scroll stays with them. Choosing one planet still
+offers the others. Download asks for a key of kind `oademo` and writes
+`Recordings/Core Prime/<name>.oademo`, and the row is then on this computer.
+A 503 is not asked again inside ten seconds. A 429 waits for its
+`Retry-After` and then saves the file. A 428 shows its code on the card.
+Watch plays the saved file. A release that changed is read again and then
+saved. A file whose digest differs is refused and not kept. With the server
+stopped the list reads "Core Prime cannot be reached." `replays-core-prime-clean`
+clears the working folder before each run. The check never calls a live host.
 
 `native-replays-import` (`--check-replay-import`,
 `tools/check_native_replay_import.py`) copies a made-up `.oademo` and a
@@ -1225,7 +1239,13 @@ outline colour it prints, where it prints it, from the battlefield's
 corner; with the chip's setting stored Off the fixture draws none. Its
 output names each window size. `native-registered-kit` checks the same
 hosts with a page, a screen, a notice and a prompt registered from inside
-the engine, with their size class and scale.
+the engine, with their size class and scale. `native-focus-ring` checks
+the family's focus ring on the original menus: hidden when a screen opens,
+shown by Tab, hidden by a pointer move, and shown from the open when
+Always show focus is on. It also checks that Load game's message opens
+without the ring unless that setting is on, that Skirmish's mutators
+button takes the ring, that the in-game menu's OK takes it after Tab, and
+that `ui.screen` names the control under the strip once the ring is drawn.
 
 ### OA's own screens
 
@@ -1294,8 +1314,9 @@ before Stop. Stop, a click on open ground, a click on an enemy with Attack
 armed, a click on the commander with nothing selected, a right click and a
 dragged box change neither the selection nor any unit's orders, whether or
 not an order is armed. Home centres on the selected unit, or on the
-commander when none is selected, and selects nothing. Enter leaves the
-chat line closed, the kills board stays unpinned and the keys overlay stays
+commander when none is selected, and selects nothing. Enter takes a photo
+into the check's user folder and leaves the chat line closed, the kills
+board stays unpinned and the keys overlay stays
 closed. Escape leaves and keeps the armed order. A resize lays the
 battlefield out alone and leaving puts back the play layout of the new
 size. The game menu leaves photo mode. Settings (Primary+,) leaves photo
@@ -1330,7 +1351,18 @@ on SDL's software renderer: every zoom it offers is drawn by Full, and a
 zoom Full cannot draw is not offered, with the reason.
 `native-live-renderer`'s photo-mode turn reads the unlocked turns from the
 setting, holds a pan toward each edge at the whole map and at eight times,
-and draws the frame at Full's floor after Classic view. A picture held in
+and draws the frame at Full's floor after Classic view. In play, the Right
+key held for 20 seconds in the turned view, at Full's widest zoom, keeps
+the camera within the view's limits. A further pan stays there, and so do
+a drag and a wheel step onward past that limit. The frame is still drawn,
+and Full stays on. A zoom in from a corner of a view wider than the map,
+in play and in photo mode, pulls the centre back within the closer view,
+and the card still draws the frame. A wheel zoom in from that corner,
+pointed near the corner, stays within the closer view too. In the classic
+view under Full, with the centre a zoom left past the closer limits, the
+pan role's drag moves by the drag. Turning that classic view draws the
+turned frame with the place pulled within the closer limits, and turning
+back leaves the classic place and its remembered centre. A picture held in
 the turned view, with the skirmish read as a shared match, refuses a turn,
 a tilt, the wheel and the zoom keys, keeps its zoom when the view goes
 classic under Full, and gives its camera back when it is let go.
@@ -1366,6 +1398,28 @@ gamma once, and skips with status 77 when no device can draw it. Then it
 holds the turned view in a shared match, drawn as played frames are, and
 the photo taken 30 ticks later is the held copy, not the live picture. The
 check removes the photos it wrote.
+`native-photo-keys` (`--check-photo keys`) plays the skirmish's fight in a
+window on the dummy drivers, with Off acceleration. F9 and Enter in one
+input batch write nothing until a photo-mode frame is presented. That photo
+is the size of the window and matches a photo of the next frozen frame.
+Primary+/ opens the keys panel titled "Keys in photo mode", with a Take
+photo line and without the window keys Accept, Press, Page up and Page down.
+It lists Pan up, Speed up and Back, and not Open chat, Status strip,
+Screenshot or Unit info, which photo mode takes and does nothing with.
+A photo with that panel open matches one with it closed, and leaving closes
+a panel that was closed on entering. F9 enters and the clock is frozen.
+Space lets it run and − starts Slow 9, then + runs at the match's speed and
++ again stays there, and Space freezes. `.` steps one tick, Shift+, then
+Shift+. move the shutter from 8 to 7 and back to 8, + starts slow motion
+and Space freezes it, Enter writes a PNG, Primary+C offers that photo
+through the clipboard hook, and Page Up zooms. Alt+Left is refused and the
+line says Needs Full acceleration. S, a left click and Ctrl+C change
+neither a unit nor the view. F9 and Escape each leave. Ctrl+F9 writes a PCX
+screenshot outside photo mode and, on the default layout, a PNG photo inside
+it. A scratch Keys layout moves Take photo to K: K writes a photo and Enter
+does not. The preferences file is unchanged.
+`native-photo-capture-full` also sends F9 and Enter in one batch and requires
+the photo to be the size of the window and to match the next frozen frame.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
 a skirmish, then the overlays' places: Move overlays off by default with
 Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move
@@ -1411,7 +1465,10 @@ has one. `native-key-editor` (`--check-key-editor`) checks the editor over
 Settings and in a paused skirmish, and the question that asks before
 unsaved edits are closed, with Save, Discard and Keep editing; with
 `--snapshot` it also writes `key-editor-draft.ppm` and
-`key-editor-close-question.ppm` at 1280x720. `native-key-capture`
+`key-editor-close-question.ppm` at 1280x720. `native-replay-viewer`
+(`--check-replay-viewer`) records a short skirmish, watches it and presses
+the playback bar, and with `--snapshot` writes the bar at 640x480, 1280x720
+and 1920x1080. `native-key-capture`
 (`--check-key-capture`) captures a chord, swaps a clash only once the
 question's confirm button is pressed, times Choose what happens… for P on
 Load, which Patrol uses, and each move of the pointer over the question

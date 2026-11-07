@@ -474,8 +474,73 @@ std::vector<std::string> replay_texts_cut(
             if (!word.empty() && !holds(drawn, word))
                 problems.push_back(std::string(what) + " \"" + word + "\" is not drawn whole");
         };
-    // Compact's page for a replay has no section list and no menus.
-    if (!nav.empty()) {
+    // Compact's card for one replay has no section list. The list still has
+    // the switch and the four filters, and a cut word on either screen fails.
+    if (model.replays.source == library::ReplaySource::core_prime) {
+        if (!nav.empty()) {
+            for (const library::CorePrimeFilter filter :
+                 {library::CorePrimeFilter::latest,
+                  library::CorePrimeFilter::longest,
+                  library::CorePrimeFilter::downloads,
+                  library::CorePrimeFilter::planet})
+                must(nav, "the filter", library::core_filter_title(model, filter));
+            must(
+                buttons,
+                "the switch",
+                std::string(library::shown(model.text, library::words::core_on_computer))
+            );
+            must(
+                buttons,
+                "the switch",
+                std::string(library::shown(model.text, library::words::core_on_prime))
+            );
+            if (model.replays.core_filter == library::CorePrimeFilter::planet) {
+                const std::string caption =
+                    model.replays.planet.empty()
+                        ? std::string(library::shown(model.text, library::words::core_by_planet))
+                        : model.replays.planet;
+                must(fields, "the planet field", caption);
+            }
+        }
+        if (card && library::selected_replay(model) != nullptr) {
+            const library::ReplayRow* selected = library::selected_replay(model);
+            const std::string_view download = selected->saved_here ? library::words::core_downloaded
+                                                                   : library::words::fact_download;
+            must(buttons, "Download", std::string(library::shown(model.text, download)));
+            must(
+                buttons,
+                "Watch",
+                std::string(library::shown(model.text, library::words::action_watch))
+            );
+        }
+        // A sentence may wrap onto several lines. One that already ends in an
+        // ellipsis is whole when the drawn line is that ending. A cut line is not.
+        const auto sentence = [&](std::string_view word) {
+            return std::string(library::shown(model.text, word));
+        };
+        const std::string allowed[] = {
+            sentence(library::words::core_reading),
+            sentence(library::words::core_getting_replay),
+            sentence(library::words::action_open_replay_file),
+        };
+        const auto cut_line = [&](std::string_view drawn) {
+            if (!cut_short(drawn))
+                return false;
+            for (const std::string& whole : allowed)
+                if (drawn == whole || whole.ends_with(drawn))
+                    return false;
+            return true;
+        };
+        // A row may shorten a kind or a map. The empty section's own lines may not.
+        if (model.replays.visible.empty()) {
+            for (const std::string& drawn : texts)
+                if (cut_line(drawn))
+                    problems.push_back("the list's text \"" + drawn + "\" is cut");
+        }
+        for (const std::string& drawn : buttons)
+            if (cut_line(drawn))
+                problems.push_back("the button \"" + drawn + "\" is cut");
+    } else if (!nav.empty()) {
         for (const library::ReplayFilter filter :
              {library::ReplayFilter::this_month,
               library::ReplayFilter::older,
@@ -489,6 +554,9 @@ std::vector<std::string> replay_texts_cut(
             fields, "the sort menu's field", library::replay_sort_title(model, model.replays.sort)
         );
     }
+    if (menu == library::MenuKind::replay_planet)
+        for (const std::string& planet : model.inputs.replays.planets)
+            must(menu_items, "the planet menu", planet);
     if (menu == library::MenuKind::replay_kind)
         for (const library::ReplayKindItem& item : library::replay_kind_items(model))
             must(menu_items, "the kind menu's item", item.title);
@@ -506,10 +574,11 @@ std::vector<std::string> replay_texts_cut(
         const std::string pattern(library::shown(model.text, library::words::replay_needs_name));
         const std::size_t brace = pattern.find('{');
         const std::string prefix = brace == std::string::npos ? pattern : pattern.substr(0, brace);
+        const std::vector<library::ReplayRow>& rows = library::shown_replay_rows(model);
         for (const std::size_t index : model.replays.visible) {
-            if (index >= model.inputs.replays.rows.size())
+            if (index >= rows.size())
                 continue;
-            const library::ReplayRow& shown_row = model.inputs.replays.rows[index];
+            const library::ReplayRow& shown_row = rows[index];
             if (model.replays.selected != shown_row.replay.path)
                 continue;
             const std::string chip = library::replay_need_chip(model, shown_row);

@@ -48,6 +48,7 @@ constexpr AreaRow kAreas[] = {
     {"watching", words::area_watching, kit::KeyTint::none, words::letter_watching, true},
     {"window", words::area_window, kit::KeyTint::window, words::letter_window, true},
     {"menus", words::area_menus, kit::KeyTint::none, words::letter_menus, true},
+    {"photo", words::area_photo, kit::KeyTint::none, {}, true},
     {"developer", words::area_developer, kit::KeyTint::developer, words::letter_developer, false},
     {"megamap", words::area_megamap, kit::KeyTint::hacks, words::letter_hacks, false},
     {"whiteboard", words::area_whiteboard, kit::KeyTint::hacks, words::letter_hacks, false},
@@ -334,6 +335,8 @@ std::string_view context_word(std::size_t index) {
         return words::context_placing;
     case 12:
         return words::context_box;
+    case 13:
+        return words::context_photo;
     default:
         return {};
     }
@@ -639,6 +642,8 @@ where_text(const TextHooks& hooks, uint32_t bits, bool held, const std::string& 
         context = show(hooks, words::while_playing);
     else if ((bits & (1U << 5)) != 0)
         context = show(hooks, words::while_watching);
+    else if ((bits & (1U << 13)) != 0)
+        context = show(hooks, words::in_photo_mode);
     else {
         std::vector<std::string> titles;
         const std::size_t count = acts::contexts().size();

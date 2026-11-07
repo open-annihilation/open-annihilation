@@ -22,10 +22,12 @@
 // read a file remembers the installed content and tries again when that
 // changes; it does not store an empty timeline. Closing the Library, a
 // match and Watch stop it, and a stopped pass writes nothing. Where a Watch
-// was left is written into the index once the match has gone. A replay that
-// had finished stores no tick, so the card offers Watch.
+// was left is written into the index once the match has gone, including a
+// replay the game restarted to switch the mod or the expansions. A replay
+// that had finished stores no tick, so the card offers Watch.
 
 #include "library_host.hpp"
+#include "replay_index_pass.hpp"
 
 #include "engine_settings_state.hpp"
 #include "map_packs.hpp"
@@ -38,7 +40,9 @@
 #include "oa/app/hook_call.hpp"
 #include "oa/app/mod_profile_loader.hpp"
 #include "oa/app/package_install/inbox.hpp"
+#include "oa/app/package_install/oamap.hpp"
 #include "oa/app/package_install/oamod.hpp"
+#include "oa/app/package_install/replay_release.hpp"
 #include "oa/app/platform_hooks.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/user_folder.hpp"
@@ -46,6 +50,8 @@
 #include "oa/base/threads.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/data/map_pack/manifest.hpp"
+#include "oa/data/map_pack/map_name.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/data/mutator_library/library.hpp"
 #include "oa/data/mutators/loadout.hpp"
@@ -75,24 +81,6 @@
 
 #ifndef OA_PROCESS_SPAWNING
 #error "OA_PROCESS_SPAWNING (0 or 1) says whether the game may start other programs"
-#endif
-
-#if !defined(__ANDROID__) && OA_PROCESS_SPAWNING
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#else
-#include <sys/resource.h>
-#include <unistd.h>
-#endif
-#if defined(__APPLE__)
-#include <mach-o/dyld.h>
-#endif
 #endif
 
 #include <SDL3/SDL.h>
@@ -346,12 +334,39 @@ struct ReplayShelf {
 
     /// Packages Get asked for, watched once they are installed.
     struct PendingGet {
-        std::string path{};                 ///< the replay below Recordings
+        std::string path{}; ///< the replay the card is selected by
+        /// The file below Recordings when `path` is not that file. Empty
+        /// watches `path`. A Core Prime replay's card is selected by its id.
+        std::string watch_path{};
         fs::path file{};                    ///< that file on disk
         std::vector<uint64_t> items{};      ///< the downloads queue returned
         std::vector<std::string> turn_on{}; ///< expansions to turn on before watching
         bool map_pack{};                    ///< a map pack was among the downloads
         std::string mod_id{};               ///< a mod to play this replay with, once installed
+        /// A release kept beside the one in use, already on disk.
+        fs::path beside_mod{};
+        /// The digest of a release being installed beside the one in use.
+        /// The folder is Replay releases/<sha> once the download has finished.
+        std::string beside_mod_sha{};
+        /// The digest of a map pack being installed beside the one in use.
+        /// The folder is Replay releases/<sha> once the download has finished.
+        /// It is not a mod folder.
+        std::string beside_pack_sha{};
+        /// The folder of a map pack the row already matched. Watch mounts
+        /// this pack. It is not passed as a mod.
+        std::string pack_folder{};
+        /// The folder of a release the row already matched. Watch plays this,
+        /// not the first Mods folder of the id.
+        std::string play_folder{};
+        /// True when the mod need names a version, a revision or a digest.
+        /// The first Mods folder of the id is used only when this is false.
+        bool mod_names_release{};
+        std::string mod_version{};
+        std::string mod_sha{};
+        std::optional<int64_t> mod_revision{};
+        /// The tick Watch from jumps to after the restart. Nothing starts
+        /// at the beginning.
+        std::optional<uint32_t> from{};
     };
 
     std::optional<PendingGet> pending_get{};
@@ -498,10 +513,25 @@ constexpr bool replay_index_pass_available = true;
 
 /// The installed folder of a mod the index pass plays one replay with.
 ///
+/// It is the folder Watch plays: the release the replay names, in Mods or
+/// Replay releases, when it is installed and is not the mod being played.
+/// Otherwise the first Mods folder of the replay's mod.
+///
 /// @param runtime the runtime
-/// @param id the mod
+/// @param shelf the section's shelf, whose cached install the rows were compared with
+/// @param replay the replay
 /// @return the folder, or none when that mod is not installed
-std::optional<fs::path> index_pass_mod_folder(Runtime& runtime, std::string_view id);
+std::optional<fs::path>
+index_pass_mod_folder(Runtime& runtime, ReplayShelf& shelf, const replay_data::Replay& replay);
+
+/// The kept map pack the index pass mounts for one replay.
+///
+/// @param runtime the runtime
+/// @param shelf the section's shelf
+/// @param replay the replay
+/// @return the pack folder, or none when Watch plays Maps
+std::optional<fs::path>
+index_pass_map_folder(Runtime& runtime, ReplayShelf& shelf, const replay_data::Replay& replay);
 
 /// What is installed, so a refused read can be tried again once it changes.
 ///
@@ -2834,8 +2864,9 @@ void apply_timeline(library::ReplayRow& row) {
 }
 
 /// A gap Watch would have to fetch, turn on or refuse. An installed mod that
-/// is not the one playing is played with `--mod-dir`. A map named only by
-/// its title is not a package Watch fetches.
+/// is not the one playing is played with `--mod-dir`. A kept map pack is
+/// mounted with `--replay-map-pack`. A map named only by its title is not a
+/// package Watch fetches.
 ///
 /// @param gaps the row's comparison
 /// @return true when the pass leaves the row out
@@ -2861,79 +2892,6 @@ bool index_pass_blocked(const std::vector<replay_data::ContentGap>& gaps) {
 constexpr int kIndexSpawnTries = 3;
 /// Frames between a spawn that failed and the next try.
 constexpr int kIndexBackoffFrames = 45;
-
-/// The file this process was started from.
-///
-/// @return the executable; empty when the system will not name it
-fs::path index_executable() {
-#if defined(_WIN32)
-    std::wstring wide(MAX_PATH, L'\0');
-    for (;;) {
-        const DWORD length =
-            GetModuleFileNameW(nullptr, wide.data(), static_cast<DWORD>(wide.size()));
-        if (length == 0) {
-            std::string narrow(MAX_PATH, '\0');
-            const DWORD narrow_length =
-                GetModuleFileNameA(nullptr, narrow.data(), static_cast<DWORD>(narrow.size()));
-            if (narrow_length == 0 || narrow_length >= narrow.size())
-                return {};
-            narrow.resize(narrow_length);
-            return fs::path(narrow);
-        }
-        if (length < wide.size()) {
-            wide.resize(length);
-            return fs::path(wide);
-        }
-        if (wide.size() >= 32768)
-            return {};
-        wide.resize(wide.size() * 2);
-    }
-#elif defined(__APPLE__)
-    uint32_t size = 0;
-    _NSGetExecutablePath(nullptr, &size);
-    std::vector<char> buffer(static_cast<std::size_t>(size) + 1U, '\0');
-    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
-        return {};
-    return fs::path(buffer.data());
-#else
-    std::error_code failed;
-    const fs::path resolved = fs::read_symlink("/proc/self/exe", failed);
-    return failed ? fs::path() : resolved;
-#endif
-}
-
-/// Lowers a process's priority. A pid of 0 is this process, and is left alone.
-///
-/// @param pid the process
-void lower_index_priority(int pid) {
-    if (pid <= 0)
-        return;
-#if defined(_WIN32)
-    const HANDLE handle = OpenProcess(PROCESS_SET_INFORMATION, FALSE, static_cast<DWORD>(pid));
-    if (handle == nullptr)
-        return;
-    std::ignore = SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS);
-    CloseHandle(handle);
-#else
-    std::ignore = setpriority(PRIO_PROCESS, pid, 10);
-#endif
-}
-
-/// The process id SDL reports, or 0 when it names none.
-///
-/// @param process the process
-/// @return the id
-int index_process_pid(SDL_Process* process) {
-    if (process == nullptr)
-        return 0;
-    const SDL_PropertiesID properties = SDL_GetProcessProperties(process);
-    if (properties == 0)
-        return 0;
-    const Sint64 value = SDL_GetNumberProperty(properties, SDL_PROP_PROCESS_PID_NUMBER, 0);
-    if (value <= 0 || value > 2147483647)
-        return 0;
-    return static_cast<int>(value);
-}
 
 /// Writes a timeline onto one row and saves the index.
 ///
@@ -2995,37 +2953,6 @@ bool remember_index_refusal(
     if (!replay_data::save_index(folder, shelf.index))
         replays_log("the replays' index could not be saved");
     return true;
-}
-
-/// The line a pass wrote when it could not read a replay. Progress and the
-/// playback's own lines are left out.
-///
-/// @param file the pass's standard error
-/// @return the reason; empty when the file gives none
-std::string index_pass_reason(const fs::path& file) {
-    const std::string text = read_text_file(file);
-    std::string reason;
-    std::size_t at = 0;
-    while (at < text.size()) {
-        const std::size_t end = text.find('\n', at);
-        const std::size_t stop = end == std::string::npos ? text.size() : end;
-        std::string_view line(text.data() + at, stop - at);
-        if (!line.empty() && line.back() == '\r')
-            line.remove_suffix(1);
-        constexpr std::string_view mark = "replay index: ";
-        const std::size_t found = line.find(mark);
-        if (found != std::string_view::npos) {
-            const std::string_view tail = line.substr(found + mark.size());
-            const bool progress = tail.starts_with("replaying ") || tail.starts_with("replayed ") ||
-                                  tail.starts_with("wrote ");
-            if (!progress && !tail.empty())
-                reason = std::string(tail);
-        }
-        if (end == std::string::npos)
-            break;
-        at = end + 1;
-    }
-    return reason;
 }
 
 /// Counts a spawn that did not start. After a few tries the row is left until
@@ -3097,12 +3024,9 @@ next_unindexed(const ReplayShelf& shelf, const library::Library& model, const st
     return earliest != nullptr ? earliest->path : std::string{};
 }
 
-/// Starts one index pass. Its standard output is discarded, so a line it
-/// prints cannot fill a pipe. Its standard error goes to a file in the
-/// pass's own folder, or nowhere when that file cannot be opened. It is not
-/// started as a background process: that drops the exit code. It plays in
-/// the player's folder, so an installed mutator and map are there, and a
-/// replay whose mod is installed is started with that folder.
+/// Starts one index pass through the shared launcher. Its standard output is
+/// discarded, so a line it prints cannot fill a pipe. It plays in the player's
+/// folder, and a replay whose mod is installed is started with that folder.
 ///
 /// @param shelf the shelf
 /// @param runtime the runtime, for the installed mod
@@ -3117,9 +3041,6 @@ bool spawn_index_pass(
     const fs::path& game_dir,
     const std::string& relative
 ) {
-    const fs::path executable = index_executable();
-    if (executable.empty())
-        return false;
     const fs::path recordings = user_folder / std::string(recordings_folder_name);
     const std::optional<fs::path> file = replay_file(recordings, relative);
     if (!file)
@@ -3128,112 +3049,36 @@ bool spawn_index_pass(
     fs::path absolute = fs::absolute(*file, failed);
     if (failed)
         absolute = *file;
-    const fs::path scratch = user_folder / ".index-pass";
-    fs::create_directories(scratch, failed);
-    if (failed)
-        return false;
-    const fs::path output = scratch / "out.json";
-    fs::remove(output, failed);
-    const fs::path errors = scratch / "errors.txt";
-    fs::remove(errors, failed);
-    // An empty file is not a preferences file: the pass would stop before it
-    // read the replay. The file names the format and asks for no update, so
-    // the pass does not phone home. It is not the player's own preferences.
-    const fs::path preferences = scratch / "preferences.txt";
-    {
-        std::ofstream made(preferences, std::ios::binary | std::ios::trunc);
-        made << "open-annihilation-preferences 1\n"
-                "\"open-annihilation.update-check\" \"never\"\n"
-                "\"open-annihilation.content-updates\" \"never\"\n";
-        if (!made)
-            return false;
-    }
-    std::string mod_id;
+    IndexPassRequest request;
+    request.recording = absolute;
+    request.user_folder = user_folder;
+    request.game_dir = game_dir;
+    request.scratch = user_folder / ".index-pass";
+    request.output_name = "out.json";
+    request.pipe_stdout = false;
     for (const replay_data::Replay& replay : shelf.index.replays) {
         if (replay.path != relative)
             continue;
-        mod_id = replay.mod_id;
+        if (const std::optional<fs::path> mod_folder =
+                index_pass_mod_folder(runtime, shelf, replay))
+            request.mod_folder = *mod_folder;
+        if (const std::optional<fs::path> map_folder =
+                index_pass_map_folder(runtime, shelf, replay))
+            request.map_pack = *map_folder;
         break;
     }
-    std::vector<std::string> arguments;
-    arguments.push_back(platform::path_to_utf8(executable));
-    arguments.push_back("--replay-index");
-    arguments.push_back(platform::path_to_utf8(absolute));
-    arguments.push_back("--output");
-    arguments.push_back(platform::path_to_utf8(output));
-    if (!game_dir.empty()) {
-        arguments.push_back("--game-dir");
-        arguments.push_back(platform::path_to_utf8(game_dir));
-    }
-    if (!mod_id.empty()) {
-        if (const std::optional<fs::path> mod_folder = index_pass_mod_folder(runtime, mod_id)) {
-            arguments.push_back("--mod-dir");
-            arguments.push_back(platform::path_to_utf8(*mod_folder));
-        }
-    }
-    arguments.push_back("--user-folder");
-    arguments.push_back(platform::path_to_utf8(user_folder));
-    arguments.push_back("--preferences-file");
-    arguments.push_back(platform::path_to_utf8(preferences));
-    arguments.push_back("--skip-intro");
-    arguments.push_back("--mute");
-    std::vector<const char*> argv;
-    argv.reserve(arguments.size() + 1);
-    for (const std::string& argument : arguments)
-        argv.push_back(argument.c_str());
-    argv.push_back(nullptr);
-    const SDL_PropertiesID properties = SDL_CreateProperties();
-    if (properties == 0)
+    const IndexPassHandles started = launch_index_pass(request);
+    if (!started.started || started.process == nullptr)
         return false;
-    SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv.data());
-    SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
-    SDL_SetNumberProperty(
-        properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL
-    );
-    const std::string errors_utf8 = platform::path_to_utf8(errors);
-    SDL_IOStream* errors_stream = SDL_IOFromFile(errors_utf8.c_str(), "wb");
-    if (errors_stream != nullptr) {
-        SDL_SetNumberProperty(
-            properties, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_REDIRECT
-        );
-        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_POINTER, errors_stream);
-    } else {
-        SDL_SetNumberProperty(
-            properties, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL
-        );
-    }
-    SDL_Process* process = SDL_CreateProcessWithProperties(properties);
-    if (process == nullptr && errors_stream != nullptr) {
-        SDL_DestroyProperties(properties);
-        const SDL_PropertiesID again = SDL_CreateProperties();
-        if (again == 0) {
-            SDL_CloseIO(errors_stream);
-            return false;
-        }
-        SDL_SetPointerProperty(again, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv.data());
-        SDL_SetNumberProperty(again, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
-        SDL_SetNumberProperty(again, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL);
-        SDL_SetNumberProperty(again, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL);
-        process = SDL_CreateProcessWithProperties(again);
-        SDL_DestroyProperties(again);
-    } else {
-        SDL_DestroyProperties(properties);
-    }
-    if (errors_stream != nullptr)
-        SDL_CloseIO(errors_stream);
-    if (process == nullptr)
-        return false;
-    const int pid = index_process_pid(process);
-    lower_index_priority(pid);
-    shelf.index_process = process;
-    shelf.index_pid = pid;
+    shelf.index_process = started.process;
+    shelf.index_pid = started.pid;
     shelf.index_target = relative;
-    shelf.index_output = output;
-    shelf.index_errors = errors_stream != nullptr ? errors : fs::path{};
-    shelf.index_scratch = scratch;
+    shelf.index_output = started.output;
+    shelf.index_errors = started.errors;
+    shelf.index_scratch = request.scratch;
     shelf.index_fail_count = 0;
     shelf.index_fail_path.clear();
-    replays_log("index pass started pid " + std::to_string(pid));
+    replays_log("index pass started pid " + std::to_string(started.pid));
     return true;
 }
 
@@ -3347,19 +3192,26 @@ struct ReplayContentAccess {
     /// what the player had chosen.
     ///
     /// A soft restart applies the change. The replay plays when the next run
-    /// starts. An expansion the choice refuses is left as it was, and the mod
-    /// is not switched. `--mod-dir` and `--base-game` keep the mod they named.
+    /// starts, and `from_tick` is kept for that start, which seeks there once
+    /// the replay can say where it is. An expansion the choice refuses is
+    /// left as it was, and the mod is not switched. `--mod-dir` and
+    /// `--base-game` keep the mod they named.
     ///
     /// @param runtime the runtime
     /// @param file the replay
     /// @param ids the expansions to turn on
     /// @param mod_folder the mod to play; empty leaves the mod as it is
+    /// @param pack_folder the kept map pack to mount after the restart; empty leaves Maps
+    /// @param from_tick the tick Watch from jumps to after the restart; none
+    /// starts at the beginning
     /// @return 2 when a restart will play it, 1 when nothing had to change, 0 when it could not
     static int switch_for_replay(
         Runtime& runtime,
         const fs::path& file,
         const std::vector<std::string>& ids,
-        const fs::path& mod_folder
+        const fs::path& mod_folder,
+        const fs::path& pack_folder,
+        std::optional<uint32_t> from_tick
     );
 
     /// Puts the player's expansions and mod back once the player has left the
@@ -3376,12 +3228,39 @@ struct ReplayContentAccess {
     /// @return a stamp that changes when the installed content does
     static std::string installed_stamp(Runtime& runtime);
 
-    /// The installed folder of one mod id, under the player's Mods folder.
+    /// The first Mods folder of one mod id.
+    ///
+    /// A need that names a release does not use this. That release's own
+    /// folder is played.
     ///
     /// @param runtime the runtime
     /// @param id the mod
     /// @return the folder, or none when that mod is not installed
     static std::optional<fs::path> installed_mod_folder(Runtime& runtime, std::string_view id);
+
+    /// The folder a mod need plays from, once any release it named is installed.
+    ///
+    /// A need that names no release uses the first Mods folder of the id.
+    /// A need that names a version, a revision or a digest uses the folder of
+    /// the release that matches, never the first folder of the id.
+    ///
+    /// @param runtime the runtime
+    /// @param shelf the section's shelf; its cached install is read again
+    /// @param id the mod
+    /// @param version the release's version; empty when the need names none
+    /// @param revision the release's revision, when the need names one
+    /// @param sha the release's digest; empty when the need names none
+    /// @param names_release true when the need names a version, revision or digest
+    /// @return the folder, or none when that release is not installed
+    static std::optional<fs::path> folder_to_play(
+        Runtime& runtime,
+        ReplayShelf& shelf,
+        std::string_view id,
+        std::string_view version,
+        const std::optional<int64_t>& revision,
+        std::string_view sha,
+        bool names_release
+    );
 };
 
 void ReplayContentAccess::remember_stock_maps(Runtime& runtime, ReplayShelf& shelf) {
@@ -3412,9 +3291,23 @@ void ReplayContentAccess::remember_stock_maps(Runtime& runtime, ReplayShelf& she
 std::string ReplayContentAccess::installed_stamp(Runtime& runtime) {
     std::string stamp;
     const auto& mods = runtime.engine_settings_state();
+    std::error_code error;
     for (const std::string& folder : mods.mod_folders) {
         stamp += folder;
         stamp.push_back('\n');
+        // A replace keeps the path and swaps a .backup inside the folder, so
+        // the path alone does not say which release is there.
+        const auto written = fs::last_write_time(path_from_utf8(folder), error);
+        if (!error)
+            stamp += std::to_string(static_cast<long long>(written.time_since_epoch().count()));
+        stamp.push_back('\n');
+    }
+    if (!runtime.user_folder_.empty()) {
+        const fs::path mods_root = runtime.user_folder_ / std::string(user_mods_folder_name);
+        const auto mods_written = fs::last_write_time(mods_root, error);
+        if (!error)
+            stamp +=
+                std::to_string(static_cast<long long>(mods_written.time_since_epoch().count()));
     }
     stamp.push_back('|');
     if (const oa::data::mod_profile::ModProfile* profile = runtime.mod_profile()) {
@@ -3429,6 +3322,8 @@ std::string ReplayContentAccess::installed_stamp(Runtime& runtime) {
         stamp.push_back(',');
     }
     stamp.push_back('|');
+    // The write times below change when a pack is added, removed or replaced.
+    // The manifests are read once, in have_content, when this stamp changes.
     try {
         const std::span<const PackMap> maps = runtime.map_packs().maps();
         stamp += std::to_string(maps.size());
@@ -3438,14 +3333,50 @@ std::string ReplayContentAccess::installed_stamp(Runtime& runtime) {
         }
     } catch (const std::exception&) {
     }
+    // A pack updated in place keeps its name. The folder's write time changes
+    // with the files, as a mod folder's does.
+    if (!runtime.user_folder_.empty()) {
+        const fs::path maps_root =
+            runtime.user_folder_ / std::string(package_install::oamap::maps_folder_name);
+        const auto maps_written = fs::last_write_time(maps_root, error);
+        if (!error)
+            stamp +=
+                std::to_string(static_cast<long long>(maps_written.time_since_epoch().count()));
+        stamp.push_back('\n');
+        if (fs::is_directory(maps_root, error)) {
+            for (fs::directory_iterator cursor(maps_root, error), end; !error && cursor != end;
+                 cursor.increment(error)) {
+                const std::string name = platform::path_to_utf8(cursor->path().filename());
+                if (name.empty() || name.front() == '.')
+                    continue;
+                std::error_code directory;
+                if (!cursor->is_directory(directory) || directory)
+                    continue;
+                stamp += name;
+                stamp.push_back('\n');
+                const auto written = fs::last_write_time(cursor->path(), directory);
+                if (!directory)
+                    stamp +=
+                        std::to_string(static_cast<long long>(written.time_since_epoch().count()));
+                stamp.push_back('\n');
+            }
+        }
+    }
     stamp.push_back('|');
     const fs::path mutators =
         runtime.user_folder_ / std::string(oa::data::mutator_library::mutators_folder_name);
-    std::error_code error;
     const auto written = fs::last_write_time(mutators, error);
     if (!error) {
         // The clock's count is wider than the overloads of std::to_string.
         stamp += std::to_string(static_cast<long long>(written.time_since_epoch().count()));
+    }
+    stamp.push_back('|');
+    const fs::path releases =
+        runtime.user_folder_ / std::string(package_install::replay_releases_folder_name);
+    const auto releases_written = fs::last_write_time(releases, error);
+    if (!error) {
+        stamp +=
+            std::to_string(static_cast<long long>(releases_written.time_since_epoch().count()));
     }
     return stamp;
 }
@@ -3467,8 +3398,66 @@ ReplayContentAccess::installed_mod_folder(Runtime& runtime, std::string_view id)
     return std::nullopt;
 }
 
-std::optional<fs::path> index_pass_mod_folder(Runtime& runtime, std::string_view id) {
-    return ReplayContentAccess::installed_mod_folder(runtime, id);
+std::optional<fs::path> ReplayContentAccess::folder_to_play(
+    Runtime& runtime,
+    ReplayShelf& shelf,
+    std::string_view id,
+    std::string_view version,
+    const std::optional<int64_t>& revision,
+    std::string_view sha,
+    bool names_release
+) {
+    // A need that names no release has one folder: the first of its id.
+    if (!names_release)
+        return installed_mod_folder(runtime, id);
+    shelf.have_ready = false;
+    const replay_data::HaveContent have = have_content(runtime, shelf);
+    for (const replay_data::HaveMod& mod : have.mods) {
+        if (mod.id != id || mod.folder.empty())
+            continue;
+        if (mod.version != version)
+            continue;
+        if (revision.has_value() && mod.revision.has_value() && *revision != *mod.revision)
+            continue;
+        if (!sha.empty() && !mod.sha256.empty() && sha != mod.sha256)
+            continue;
+        return path_from_utf8(mod.folder);
+    }
+    return std::nullopt;
+}
+
+std::optional<fs::path>
+index_pass_mod_folder(Runtime& runtime, ReplayShelf& shelf, const replay_data::Replay& replay) {
+    // The folder Watch plays: the release the row matched, in Mods or Replay
+    // releases. The rows were compared with the cached install, so the pass
+    // reads that one too. A map pack's folder is not a mod.
+    const replay_data::HaveContent have =
+        shelf.have_ready ? shelf.have_cached : ReplayContentAccess::have_content(runtime, shelf);
+    for (const replay_data::ContentGap& gap : replay_data::compare_needs(replay, have, {})) {
+        if (gap.kind == replay_data::GapKind::map)
+            continue;
+        if (gap.play_installed && !gap.play_folder.empty())
+            return path_from_utf8(gap.play_folder);
+    }
+    return ReplayContentAccess::installed_mod_folder(runtime, replay.mod_id);
+}
+
+/// The kept map pack Watch would mount for this replay.
+///
+/// @param runtime the runtime
+/// @param shelf the shelf
+/// @param replay the replay
+/// @return the pack folder; nothing when Watch plays Maps
+std::optional<fs::path>
+index_pass_map_folder(Runtime& runtime, ReplayShelf& shelf, const replay_data::Replay& replay) {
+    const replay_data::HaveContent have =
+        shelf.have_ready ? shelf.have_cached : ReplayContentAccess::have_content(runtime, shelf);
+    for (const replay_data::ContentGap& gap : replay_data::compare_needs(replay, have, {})) {
+        if (gap.kind != replay_data::GapKind::map || !gap.play_installed || gap.play_folder.empty())
+            continue;
+        return path_from_utf8(gap.play_folder);
+    }
+    return std::nullopt;
 }
 
 std::string index_pass_content_stamp(Runtime& runtime) {
@@ -3479,6 +3468,9 @@ replay_data::HaveContent ReplayContentAccess::have_content(Runtime& runtime, Rep
     const std::string stamp = installed_stamp(runtime);
     if (shelf.have_ready && shelf.have_stamp == stamp)
         return shelf.have_cached;
+    // One read of Maps when the stamp changes, including a pack copied after
+    // this process started. The stamp's write times are what notice that.
+    runtime.map_packs().refresh();
     replay_data::HaveContent have;
     // Recordings name >=0.9.1, the first release that reads a .oademo, whichever
     // build wrote them. This build already reads that format, so a replay is
@@ -3494,6 +3486,7 @@ replay_data::HaveContent ReplayContentAccess::have_content(Runtime& runtime, Rep
     if (const oa::data::mod_profile::ModProfile* profile = runtime.mod_profile()) {
         have.playing_mod_id = profile->id;
         have.playing_mod_name = profile->name;
+        have.playing_mod_version = profile->version;
     }
     const auto& mods = runtime.engine_settings_state();
     for (std::size_t index = 0; index < mods.mod_folders.size(); ++index) {
@@ -3511,7 +3504,91 @@ replay_data::HaveContent ReplayContentAccess::have_content(Runtime& runtime, Rep
             mod.revision = static_cast<int64_t>(read.revision);
         if (read.origin && read.origin->sha256)
             mod.sha256 = digest_hex(*read.origin->sha256);
+        mod.folder = mods.mod_folders[index];
+        if (mods.playing_mod_folder == mods.mod_folders[index])
+            have.playing_mod_sha256 = mod.sha256;
         have.mods.push_back(std::move(mod));
+    }
+    // Releases a replay fetched, kept beside Mods and Maps. A mod counts as
+    // installed when its origin names the folder's digest, so a later replay
+    // of that release needs nothing more and plays with this folder. A map
+    // pack is read the same way, from its oamap.yaml, and is not a mod.
+    std::vector<replay_data::HaveMapPack> kept_packs;
+    if (!runtime.user_folder_.empty()) {
+        const fs::path releases =
+            runtime.user_folder_ / std::string(package_install::replay_releases_folder_name);
+        std::error_code walked;
+        if (fs::is_directory(releases, walked)) {
+            for (fs::directory_iterator cursor(releases, walked), end; !walked && cursor != end;
+                 cursor.increment(walked)) {
+                std::error_code directory;
+                if (!cursor->is_directory(directory) || directory)
+                    continue;
+                const std::string name = platform::path_to_utf8(cursor->path().filename());
+                const std::optional<fs::path> verified =
+                    package_install::replay_release_folder(runtime.user_folder_, name);
+                if (!verified)
+                    continue;
+                if (!package_install::installed_pack_manifest(*verified)) {
+                    const package_install::InstalledPackage early =
+                        package_install::oamod::read_installed_mod(*verified);
+                    if (early.kind != package_install::FolderKind::package || early.id.empty())
+                        continue;
+                }
+                const package_install::InstalledPackage read =
+                    package_install::oamod::read_installed_mod(*verified);
+                if (read.kind != package_install::FolderKind::package || read.id.empty()) {
+                    const std::optional<fs::path> manifest_path = entry_without_case(
+                        *verified, std::string(oa::data::map_pack::manifest_file)
+                    );
+                    if (!manifest_path)
+                        continue;
+                    std::ifstream manifest_in(*manifest_path, std::ios::binary);
+                    const std::vector<uint8_t> yaml{
+                        std::istreambuf_iterator<char>(manifest_in),
+                        std::istreambuf_iterator<char>()
+                    };
+                    if (!manifest_in && !manifest_in.eof())
+                        continue;
+                    oa::data::map_pack::Manifest manifest;
+                    std::vector<oa::data::map_pack::Problem> problems;
+                    if (!oa::data::map_pack::read_manifest(
+                            yaml, oa::data::map_pack::ManifestUse::package, manifest, problems
+                        ) ||
+                        manifest.id.empty())
+                        continue;
+                    replay_data::HaveMapPack pack;
+                    pack.id = manifest.id;
+                    pack.name = manifest.name;
+                    pack.version = manifest.version;
+                    pack.sha256 = name;
+                    pack.folder = platform::path_to_utf8(*verified);
+                    pack.kept = true;
+                    for (const oa::data::map_pack::MapEntry& map : manifest.maps) {
+                        const std::string listed =
+                            oa::data::map_pack::pack_map_name(map.stem, manifest.id);
+                        if (!listed.empty())
+                            pack.maps.push_back(listed);
+                        if (!map.title.empty())
+                            pack.maps.push_back(map.title);
+                        if (!map.stem.empty())
+                            pack.maps.push_back(map.stem);
+                    }
+                    kept_packs.push_back(std::move(pack));
+                    continue;
+                }
+                replay_data::HaveMod mod;
+                mod.id = read.id;
+                mod.name = read.name;
+                mod.version = read.version;
+                if (read.revision > 0)
+                    mod.revision = static_cast<int64_t>(read.revision);
+                if (read.origin && read.origin->sha256)
+                    mod.sha256 = digest_hex(*read.origin->sha256);
+                mod.folder = platform::path_to_utf8(*verified);
+                have.mods.push_back(std::move(mod));
+            }
+        }
     }
     remember_stock_maps(runtime, shelf);
 
@@ -3524,8 +3601,59 @@ replay_data::HaveContent ReplayContentAccess::have_content(Runtime& runtime, Rep
                 have.maps.push_back(map.title);
             if (!map.stem.empty())
                 have.maps.push_back(map.stem);
+            // A catalogue copy is the package digest. A hand copy is the
+            // folder digest, which is what a recording of that copy stores.
+            // The digest of oamap.yaml is neither.
+            const std::string folder = platform::path_to_utf8(map.folder);
+            replay_data::HaveMapPack* listed = nullptr;
+            for (replay_data::HaveMapPack& pack : have.map_packs) {
+                if (pack.folder == folder) {
+                    listed = &pack;
+                    break;
+                }
+            }
+            if (listed == nullptr) {
+                replay_data::HaveMapPack pack;
+                pack.id = map.id;
+                pack.name = map.pack_name;
+                pack.version = map.pack_version;
+                pack.folder = folder;
+                const std::string releases_name(package_install::replay_releases_folder_name);
+                pack.kept = folder.find(releases_name) != std::string::npos;
+                // The origin's digest whenever the folder has a record with
+                // one, including a pack installed from its file. The folder
+                // digest is only for a pack with no record. oamap.yaml's
+                // digest is neither.
+                const std::optional<package_install::Origin> origin =
+                    package_install::read_origin(map.folder);
+                if (origin && origin->sha256)
+                    pack.sha256 = digest_hex(*origin->sha256);
+                else
+                    pack.sha256 = runtime.folder_digest_text(map.folder);
+                have.map_packs.push_back(std::move(pack));
+                listed = &have.map_packs.back();
+            }
+            if (!map.name.empty())
+                listed->maps.push_back(map.name);
+            if (!map.title.empty())
+                listed->maps.push_back(map.title);
+            if (!map.stem.empty())
+                listed->maps.push_back(map.stem);
         }
     } catch (const std::exception&) {
+    }
+    for (replay_data::HaveMapPack& pack : kept_packs) {
+        bool already = false;
+        for (const replay_data::HaveMapPack& listed : have.map_packs) {
+            if (listed.folder == pack.folder) {
+                already = true;
+                break;
+            }
+        }
+        if (already)
+            continue;
+        have.maps.insert(have.maps.end(), pack.maps.begin(), pack.maps.end());
+        have.map_packs.push_back(std::move(pack));
     }
     const fs::path mutators =
         runtime.user_folder_ / std::string(oa::data::mutator_library::mutators_folder_name);
@@ -3925,6 +4053,53 @@ fs::path normal_folder(const fs::path& folder) {
     return absolute.lexically_normal();
 }
 
+/// True when `left` and `right` are the same folder.
+bool same_pack_folder(const fs::path& left, const fs::path& right) {
+    std::error_code error;
+    if (fs::equivalent(left, right, error))
+        return true;
+    return normal_folder(left) == normal_folder(right);
+}
+
+/// True when the map a replay names is listed from `mount`.
+///
+/// An empty mount plays Maps. A mount whose manifest lists no map is refused:
+/// playback would use the pack of that name in Maps. A name MapPacks does not
+/// list, such as a stock map's title, is not that pack.
+bool replay_mount_holds_map(
+    std::span<const PackMap> maps, const fs::path& mount, const replay_data::Replay* replay
+) {
+    if (mount.empty())
+        return true;
+    const std::optional<oa::data::map_pack::Manifest> manifest =
+        package_install::installed_pack_manifest(mount);
+    if (!manifest || manifest->maps.empty())
+        return false;
+    if (replay == nullptr)
+        return true;
+    const auto from_mount = [&](std::string_view label) {
+        if (label.empty())
+            return true;
+        bool seen = false;
+        bool held = false;
+        for (const PackMap& map : maps) {
+            if (map.name != label && map.title != label && map.stem != label)
+                continue;
+            seen = true;
+            if (same_pack_folder(map.folder, mount))
+                held = true;
+        }
+        return !seen || held;
+    };
+    if (!from_mount(replay->map))
+        return false;
+    for (const replay_data::ContentNeed& need : replay->needs) {
+        if (!from_mount(need.map_name))
+            return false;
+    }
+    return true;
+}
+
 /// Expansion ids joined the way the preference stores them.
 std::vector<std::string> split_ids(std::string_view text) {
     std::vector<std::string> ids;
@@ -4007,24 +4182,29 @@ void remember_refusal(ReplayShelf& shelf, std::string sha, std::string registry,
 }
 
 /// The catalogue sentence for one gap. An empty version names none.
-std::string catalogue_sentence(const library::TextHooks& text, const replay_data::ContentGap& gap) {
+std::string
+catalogue_sentence(const library::Library& library, const replay_data::ContentGap& gap) {
     const std::string title = gap_title(gap);
+    const std::string registry = library::replay_registry_name(library, gap.registry);
     if (gap.version.empty())
         return library::filled(
-            text, library::words::replay_not_in_catalogue_name, {{"name", title}}
+            library.text,
+            library::words::replay_not_in_catalogue_name,
+            {{"name", title}, {"registry", registry}}
         );
     return library::filled(
-        text, library::words::replay_not_in_catalogue, {{"name", title}, {"version", gap.version}}
+        library.text,
+        library::words::replay_not_in_catalogue,
+        {{"name", title}, {"version", gap.version}, {"registry", registry}}
     );
 }
 
 /// "You're offline." and one sentence for each package the card still names.
-std::string offline_sentences(const library::TextHooks& text, const library::ReplayRow* row) {
+std::string
+offline_sentences(const library::TextHooks& text, std::span<const replay_data::ContentGap> gaps) {
     std::string said(library::shown(text, library::words::replay_offline));
-    if (row == nullptr)
-        return said;
-    for (const replay_data::ContentGap& gap : row->gaps) {
-        if (!shown_gap(gap))
+    for (const replay_data::ContentGap& gap : gaps) {
+        if (!shown_gap(gap) || gap.play_installed)
             continue;
         const std::string title = gap_title(gap);
         said.push_back(' ');
@@ -4042,15 +4222,182 @@ std::string offline_sentences(const library::TextHooks& text, const library::Rep
     return said;
 }
 
+/// The tick named by `open-annihilation.replay-watch-from`. Nothing when the
+/// text is empty or is not a whole number of ticks.
+///
+/// @param text the preference's text
+/// @return the tick
+std::optional<uint32_t> tick_text(std::string_view text) {
+    if (text.empty())
+        return std::nullopt;
+    uint32_t value = 0;
+    for (const char digit : text) {
+        if (digit < '0' || digit > '9')
+            return std::nullopt;
+        const auto piece = static_cast<uint32_t>(digit - '0');
+        if (value > 429496729u || (value == 429496729u && piece > 5u))
+            return std::nullopt;
+        value = value * 10u + piece;
+    }
+    return value;
+}
+
+/// `tick` as decimal text, with no leading zero except for 0 itself.
+///
+/// @param tick the tick
+/// @return the text
+std::string tick_decimal(uint32_t tick) {
+    char digits[10];
+    std::size_t count = 0;
+    uint32_t value = tick;
+    do {
+        digits[count] = static_cast<char>('0' + static_cast<int>(value % 10u));
+        ++count;
+        value /= 10u;
+    } while (value != 0u && count < 10u);
+    std::string text(count, '0');
+    for (std::size_t index = 0; index < count; ++index)
+        text[count - 1u - index] = digits[index];
+    return text;
+}
+
+/// The replay's path below Recordings, with '/' between folders.
+///
+/// @param recordings the Recordings folder
+/// @param file the replay
+/// @return that path; nothing when `file` is not inside the folder
+std::optional<std::string> replay_path_below(const fs::path& recordings, const fs::path& file) {
+    const fs::path relative = file.lexically_relative(recordings);
+    std::string path;
+    bool any = false;
+    for (const fs::path& part : relative) {
+        const std::string name = platform::path_to_utf8(part);
+        if (name.empty() || name == "." || name == "..")
+            return std::nullopt;
+        if (any)
+            path.push_back('/');
+        path += name;
+        any = true;
+    }
+    if (!any)
+        return std::nullopt;
+    return path;
+}
+
+/// Writes where a replay was left onto one index entry. A missing entry is
+/// read from the file, so a later scan keeps the tick. A damaged index is
+/// not this function's concern: the caller does not hand one over.
+///
+/// @param index the index
+/// @param folder the Recordings folder
+/// @param path the replay, below Recordings
+/// @param tick where it was left; nothing when it had finished
+/// @param finished the replay had finished, so an earlier tick is cleared
+/// @return true when an entry changed
+bool store_watched_place(
+    replay_data::Index& index,
+    const fs::path& folder,
+    const std::string& path,
+    const std::optional<uint32_t>& tick,
+    bool finished
+) {
+    bool found = false;
+    for (replay_data::Replay& replay : index.replays) {
+        if (replay.path != path)
+            continue;
+        found = true;
+        if (finished) {
+            if (!replay.watched_tick.has_value())
+                return false;
+            replay.watched_tick.reset();
+            return true;
+        }
+        if (!tick.has_value() || (replay.watched_tick.has_value() && *replay.watched_tick == *tick))
+            return false;
+        replay.watched_tick = *tick;
+        return true;
+    }
+    if (found || finished || !tick.has_value())
+        return false;
+    replay_data::Replay replay = replay_data::read_file(folder, path);
+    if (!replay.damage.empty())
+        return false;
+    replay.watched_tick = *tick;
+    index.replays.push_back(std::move(replay));
+    std::sort(
+        index.replays.begin(),
+        index.replays.end(),
+        [](const replay_data::Replay& earlier, const replay_data::Replay& later) {
+            return earlier.path < later.path;
+        }
+    );
+    return true;
+}
+
+/// The index's length for the replay the shelf is sampling, when a pass has
+/// stored a timeline.
+///
+/// @param shelf the shelf
+/// @param index the index to read
+void remember_watch_length(ReplayShelf& shelf, const replay_data::Index& index) {
+    for (const replay_data::Replay& replay : index.replays) {
+        if (replay.path != shelf.left_path)
+            continue;
+        if (replay.timeline.has_value() && !replay.timeline->empty()) {
+            if (const std::optional<oademo::TimelineIndex> parsed =
+                    oademo::parse_timeline_index(*replay.timeline))
+                shelf.watch_length = parsed->length_ticks;
+        }
+        break;
+    }
+}
+
+/// The recording's own length, when the index has no timeline.
+///
+/// A replay that needs a package or an expansion is not read by the index
+/// pass, so nothing else can say where it ends. An Open Annihilation replay
+/// names that length in its description. A sampled tick at or past it is the
+/// replay finished, as a tick at or past a timeline's length is.
+///
+/// @param shelf the shelf
+/// @param folder the Recordings folder
+void remember_recorded_length(ReplayShelf& shelf, const fs::path& folder) {
+    if (shelf.watch_length.has_value() || shelf.left_path.empty())
+        return;
+    const std::optional<fs::path> file = replay_file(folder, shelf.left_path);
+    if (!file.has_value())
+        return;
+    std::vector<uint8_t> bytes;
+    if (!read_replay_bytes(*file, bytes))
+        return;
+    const oademo::DescriptionResult described = oademo::read_description(bytes);
+    if (!described.ok() || !described.meta->game.length_ticks.has_value())
+        return;
+    const uint64_t length = *described.meta->game.length_ticks;
+    if (length == 0 || length > 0xffffffffULL)
+        return;
+    shelf.watch_length = static_cast<uint32_t>(length);
+}
+
 } // namespace
 
 int ReplayContentAccess::switch_for_replay(
     Runtime& runtime,
     const fs::path& file,
     const std::vector<std::string>& ids,
-    const fs::path& mod_folder
+    const fs::path& mod_folder,
+    const fs::path& pack_folder,
+    std::optional<uint32_t> from_tick
 ) {
     namespace bundles = oa::data::content_bundles;
+    const std::string from_key(replay_watch_from_preference);
+    const bool had_from = runtime.preference_values_.erase(from_key) > 0;
+    const auto keep_cleared_from = [&] {
+        if (!had_from)
+            return;
+        runtime.preferences_dirty_ = true;
+        runtime.flush_preferences();
+    };
     const bundles::ContentChoice now = runtime.content_choice();
     const std::vector<std::string> copied = copied_content_bundles(runtime.options_.game_dir);
     const std::vector<std::string> downloaded = registry_content_bundles(runtime.user_folder_);
@@ -4069,8 +4416,10 @@ int ReplayContentAccess::switch_for_replay(
         const bundles::ContentChangeResult step = bundles::turn_content_expansion(
             working, id, true, present, false, mod_active, required
         );
-        if (step.refusal != bundles::ContentRefusal::none)
+        if (step.refusal != bundles::ContentRefusal::none) {
+            keep_cleared_from();
             return 0;
+        }
         if (step.applied)
             expansions_changed = true;
         working = step.choice;
@@ -4088,8 +4437,10 @@ int ReplayContentAccess::switch_for_replay(
         const fs::path previous_normal = previous.empty() ? fs::path{} : normal_folder(previous);
         mod_changed = wanted != previous_normal;
     }
-    if (!expansions_changed && !mod_changed)
+    if (!expansions_changed && !mod_changed) {
+        keep_cleared_from();
         return 1;
+    }
     if (expansions_changed) {
         runtime.preference_values_[std::string(replay_expansion_preference)] =
             bundles::expansions_text(now.expansions);
@@ -4110,6 +4461,15 @@ int ReplayContentAccess::switch_for_replay(
     runtime.preference_values_[std::string(replay_expansion_state_preference)] = "wait";
     runtime.preference_values_[std::string(oa::data::saves::pending_demo_key)] =
         platform::path_to_utf8(file);
+    // The restarted run mounts this pack before the replay's match. An empty
+    // path plays Maps, and a folder left from an earlier replay is dropped.
+    if (pack_folder.empty())
+        runtime.preference_values_.erase(std::string(oa::data::saves::replay_map_pack_key));
+    else
+        runtime.preference_values_[std::string(oa::data::saves::replay_map_pack_key)] =
+            platform::path_to_utf8(pack_folder);
+    if (from_tick.has_value())
+        runtime.preference_values_[from_key] = tick_decimal(*from_tick);
     runtime.preferences_dirty_ = true;
     runtime.flush_preferences();
     runtime.request_soft_restart();
@@ -4189,6 +4549,11 @@ bool ReplayContentAccess::restore_replay_expansions(Runtime& runtime) {
         runtime.preference_values_.erase(std::string(replay_mod_marker_preference));
         runtime.preference_values_.erase(std::string(replay_mod_preference));
     }
+    // The pending replay and the pack it would have mounted are done, including
+    // a start that ended before that replay.
+    runtime.preference_values_.erase(std::string(oa::data::saves::pending_demo_key));
+    runtime.preference_values_.erase(std::string(oa::data::saves::replay_map_pack_key));
+    runtime.preference_values_.erase(std::string(replay_watch_from_preference));
     runtime.preferences_dirty_ = true;
     runtime.flush_preferences();
     if (!expansions_differ && !mod_differ)
@@ -4792,8 +5157,10 @@ void Runtime::LibraryHost::fill_replay_inputs(Runtime& runtime, library::Inputs&
     shown.keep_forever = span == replay_data::KeepSpan::forever;
     if (const std::optional<int32_t> days = replay_data::keep_span_days(span))
         shown.keep_days = *days;
-    if (!replays)
+    if (!replays) {
+        publish_core_prime(shown);
         return;
+    }
     ReplayShelf& shelf = *replays;
     shown.reading = shelf.reading;
     shown.read = shelf.read;
@@ -4854,6 +5221,317 @@ void Runtime::LibraryHost::fill_replay_inputs(Runtime& runtime, library::Inputs&
         shown.fetch_path = shelf.pending_get->path;
         shown.fetch_sentence = shelf.fetch_sentence;
     }
+    publish_core_prime(shown);
+}
+
+std::vector<replay_data::ContentGap>
+Runtime::LibraryHost::replay_gaps(Runtime& runtime, const replay_data::Replay& replay) {
+    ReplayShelf& shelf = replay_shelf();
+    const std::shared_ptr<const content::Snapshot> snapshot = runtime.content_service().snapshot();
+    const replay_data::HaveContent have = ReplayContentAccess::have_content(runtime, shelf);
+    const std::vector<replay_data::ListedRelease> offers =
+        snapshot != nullptr ? offers_for(shelf, *snapshot, replay)
+                            : std::vector<replay_data::ListedRelease>{};
+    return replay_data::compare_needs(replay, have, offers);
+}
+
+Runtime::LibraryHost::ReplayFetch Runtime::LibraryHost::queue_replay_get(
+    Runtime& runtime,
+    std::string relative,
+    const fs::path& file,
+    const replay_data::Replay& replay,
+    std::optional<uint32_t> from
+) {
+    // A replay the feed says needs nothing can be watched without asking a
+    // registry. Asking would start the content service. It plays Maps, so a
+    // pack mounted for an earlier replay goes.
+    if (replay.needs.empty() && replay.engine_needs.empty()) {
+        runtime.use_replay_map_pack({});
+        return ReplayFetch::watch;
+    }
+    bool engine = false;
+    bool other = false;
+    bool blocked = false;
+    bool map_pack = false;
+    std::string mod_id;
+    std::string play_folder;
+    std::string pack_folder;
+    bool mod_names_release = false;
+    std::string mod_version;
+    std::string mod_sha;
+    std::optional<int64_t> mod_revision;
+    bool matched_release = false;
+    std::vector<const replay_data::ContentGap*> fetch;
+    std::vector<const replay_data::ContentGap*> beside;
+    std::vector<std::string> turn_on;
+    const std::vector<replay_data::ContentGap> gaps = replay_gaps(runtime, replay);
+    for (const replay_data::ContentGap& gap : gaps) {
+        if (!shown_gap(gap))
+            continue;
+        if (gap.kind == replay_data::GapKind::engine)
+            engine = true;
+        if (gap.other_release)
+            other = true;
+        if (gap.block != replay_data::GapBlock::none)
+            blocked = true;
+        if (gap.fetchable && !gap.other_release)
+            fetch.push_back(&gap);
+        if ((gap.kind == replay_data::GapKind::mod_other ||
+             gap.kind == replay_data::GapKind::mod_missing ||
+             gap.kind == replay_data::GapKind::map) &&
+            gap.other_release && gap.block == replay_data::GapBlock::none && !gap.sha256.empty() &&
+            !gap.file.empty() && !gap.registry.empty())
+            beside.push_back(&gap);
+        if (gap.kind == replay_data::GapKind::map && gap.fetchable)
+            map_pack = true;
+        if (gap.play_installed) {
+            // The folder compare_needs matched. Not the first of the id.
+            // A map pack is mounted for this replay. It is not a mod, and
+            // Watch does not restart to play it.
+            if (gap.kind == replay_data::GapKind::map)
+                pack_folder = gap.play_folder;
+            else {
+                matched_release = true;
+                play_folder = gap.play_folder;
+            }
+        } else if (
+            gap.kind == replay_data::GapKind::mod_missing && !gap.id.empty() && gap.fetchable
+        ) {
+            mod_id = gap.id;
+            mod_version = gap.version;
+            mod_sha = gap.sha256;
+            mod_revision = gap.revision;
+            mod_names_release =
+                !gap.version.empty() || gap.revision.has_value() || !gap.sha256.empty();
+        }
+        if (gap.turn_on && !gap.id.empty())
+            turn_on.push_back(gap.id);
+    }
+    // A newer engine opens the update centre and does not fetch or play.
+    if (engine) {
+        runtime.start_update_check(true);
+        return ReplayFetch::refused;
+    }
+    // The button is left off for these. A press that still arrives does not play.
+    // Another release is fetched and installed beside the one in use.
+    if (blocked || (other && beside.empty() && fetch.empty() && turn_on.empty()))
+        return ReplayFetch::refused;
+    fs::path kept_mod;
+    fs::path kept_pack;
+    for (const replay_data::ContentGap* gap : beside) {
+        const std::optional<fs::path> kept =
+            package_install::replay_release_folder(runtime.user_folder_, gap->sha256);
+        if (!kept)
+            continue;
+        // A kept pack counts only when it still reads as a pack. An origin
+        // with no manifest is fetched again, and the install replaces it.
+        if (gap->kind == replay_data::GapKind::map) {
+            if (package_install::installed_pack_manifest(*kept))
+                kept_pack = *kept;
+        } else if (
+            gap->kind == replay_data::GapKind::mod_other ||
+            gap->kind == replay_data::GapKind::mod_missing
+        )
+            kept_mod = *kept;
+    }
+    if (!fetch.empty() || !beside.empty()) {
+        const std::shared_ptr<const content::Snapshot> snapshot =
+            runtime.content_service().snapshot();
+        if (snapshot == nullptr) {
+            library::refuse_replay(model, replay.path, offline_sentences(model.text, gaps));
+            ++model_revision;
+            return ReplayFetch::refused;
+        }
+        content::Downloads& downloads = runtime.content_downloads();
+        ReplayShelf::PendingGet pending;
+        pending.path = replay.path;
+        pending.watch_path = std::move(relative);
+        pending.file = file;
+        pending.from = from;
+        pending.turn_on = std::move(turn_on);
+        pending.map_pack = map_pack;
+        pending.mod_id = mod_id;
+        pending.beside_mod = kept_mod;
+        pending.pack_folder = pack_folder;
+        pending.play_folder = play_folder;
+        pending.mod_names_release = mod_names_release;
+        pending.mod_version = mod_version;
+        pending.mod_sha = mod_sha;
+        pending.mod_revision = mod_revision;
+        std::vector<const replay_data::ContentGap*> waiting = fetch;
+        waiting.insert(waiting.end(), beside.begin(), beside.end());
+        for (const replay_data::ContentGap* gap : waiting) {
+            const bool install_beside =
+                std::find(beside.begin(), beside.end(), gap) != beside.end();
+            if (install_beside && (gap->kind == replay_data::GapKind::mod_other ||
+                                   gap->kind == replay_data::GapKind::mod_missing))
+                pending.beside_mod_sha = gap->sha256;
+            if (install_beside && gap->kind == replay_data::GapKind::map)
+                pending.beside_pack_sha = gap->sha256;
+            if (install_beside && gap->kind == replay_data::GapKind::map && !kept_pack.empty())
+                continue;
+            if (install_beside && gap->kind != replay_data::GapKind::map && !kept_mod.empty())
+                continue;
+            std::string why;
+            std::optional<content::DownloadTarget> target = target_for(*snapshot, *gap, &why);
+            if (!target) {
+                library::refuse_replay(
+                    model,
+                    replay.path,
+                    why.empty() ? std::string("the catalogue has no such package") : why
+                );
+                ++model_revision;
+                return ReplayFetch::refused;
+            }
+            target->beside = install_beside;
+            std::optional<uint64_t> id =
+                downloads.queue(std::move(*target), content::DownloadReason::install, &why);
+            bool installed = false;
+            if (!id) {
+                for (const content::DownloadView& item : downloads.view()) {
+                    if (item.target.registry != gap->registry || item.target.key != gap->id ||
+                        item.target.release != gap->release)
+                        continue;
+                    if (item.state == content::DownloadState::done)
+                        installed = true;
+                    else if (
+                        item.state != content::DownloadState::failed &&
+                        item.state != content::DownloadState::cancelled
+                    )
+                        id = item.item;
+                    break;
+                }
+            }
+            if (!id && !installed) {
+                library::refuse_replay(
+                    model,
+                    replay.path,
+                    why.empty()
+                        ? std::string(
+                              library::shown(model.text, library::words::replay_cannot_watch)
+                          )
+                        : why
+                );
+                ++model_revision;
+                return ReplayFetch::refused;
+            }
+            if (id)
+                pending.items.push_back(*id);
+        }
+        if (!pending.items.empty()) {
+            const replay_data::ContentGap* named = !beside.empty() ? beside.front() : nullptr;
+            if (named == nullptr && !fetch.empty())
+                named = fetch.front();
+            const std::string name = named == nullptr ? std::string{} : gap_title(*named);
+            ReplayShelf& shelf = replay_shelf();
+            shelf.fetch_sentence = getting_sentence(model.text, name, 0);
+            shelf.pending_get = std::move(pending);
+            replays_log("getting " + replay.path);
+            fill_replay_inputs(runtime, model.inputs);
+            library::update_replays(model);
+            ++model_revision;
+            return ReplayFetch::waiting;
+        }
+        turn_on = std::move(pending.turn_on);
+        mod_id = std::move(pending.mod_id);
+        kept_mod = std::move(pending.beside_mod);
+        if (kept_mod.empty() && !pending.beside_mod_sha.empty()) {
+            const std::optional<fs::path> kept = package_install::replay_release_folder(
+                runtime.user_folder_, pending.beside_mod_sha
+            );
+            if (kept)
+                kept_mod = *kept;
+        }
+        if (kept_pack.empty() && !pending.beside_pack_sha.empty()) {
+            const std::optional<fs::path> kept = package_install::replay_release_folder(
+                runtime.user_folder_, pending.beside_pack_sha
+            );
+            if (kept)
+                kept_pack = *kept;
+        }
+        if (pack_folder.empty())
+            pack_folder = pending.pack_folder;
+    }
+    fs::path mod_folder = kept_mod;
+    // A release the row matched is played from its own folder.
+    if (mod_folder.empty() && !play_folder.empty())
+        mod_folder = path_from_utf8(play_folder);
+    // The first Mods folder of the id is only for a need that names no release.
+    if (mod_folder.empty() && (mod_names_release || !mod_id.empty())) {
+        const std::optional<fs::path> installed = ReplayContentAccess::folder_to_play(
+            runtime, replay_shelf(), mod_id, mod_version, mod_revision, mod_sha, mod_names_release
+        );
+        if (!installed) {
+            library::refuse_replay(
+                model,
+                replay.path,
+                std::string(library::shown(model.text, library::words::replay_cannot_watch))
+            );
+            ++model_revision;
+            return ReplayFetch::refused;
+        }
+        mod_folder = *installed;
+    }
+    if (matched_release && mod_folder.empty()) {
+        library::refuse_replay(
+            model,
+            replay.path,
+            std::string(library::shown(model.text, library::words::replay_cannot_watch))
+        );
+        ++model_revision;
+        return ReplayFetch::refused;
+    }
+    fs::path pack_mount = kept_pack;
+    if (pack_mount.empty() && !pack_folder.empty())
+        pack_mount = path_from_utf8(pack_folder);
+    if (!pack_mount.empty()) {
+        std::error_code pack_missing;
+        if (!fs::is_directory(pack_mount, pack_missing)) {
+            library::refuse_replay(
+                model,
+                replay.path,
+                std::string(library::shown(model.text, library::words::replay_cannot_watch))
+            );
+            ++model_revision;
+            return ReplayFetch::refused;
+        }
+    }
+    if (!turn_on.empty() || !mod_folder.empty()) {
+        const int turned = ReplayContentAccess::switch_for_replay(
+            runtime, file, turn_on, mod_folder, pack_mount, from
+        );
+        if (turned == 2) {
+            // The Library is still open, so this row crosses the restart into
+            // the run that plays the replay and the one that puts the choice back.
+            // The pack is mounted on that run, not in this one.
+            library::select_replay(model, replay.path);
+            runtime.keep_library_for_restart();
+            return ReplayFetch::waiting;
+        }
+        if (turned == 0) {
+            library::refuse_replay(
+                model,
+                replay.path,
+                std::string(library::shown(model.text, library::words::replay_cannot_watch))
+            );
+            ++model_revision;
+            return ReplayFetch::refused;
+        }
+    }
+    // Empty clears a pack mounted for an earlier replay. A different path
+    // drops the map decisions made for the pack it replaces.
+    runtime.use_replay_map_pack(pack_mount);
+    if (!replay_mount_holds_map(runtime.map_packs().maps(), pack_mount, &replay)) {
+        runtime.use_replay_map_pack({});
+        library::refuse_replay(
+            model,
+            replay.path,
+            std::string(library::shown(model.text, library::words::replay_cannot_watch))
+        );
+        ++model_revision;
+        return ReplayFetch::refused;
+    }
+    return ReplayFetch::watch;
 }
 
 void Runtime::LibraryHost::pump_replay_pictures(Runtime& runtime, const kit::DisplayList& list) {
@@ -4887,9 +5565,14 @@ void Runtime::LibraryHost::pump_replay_pictures(Runtime& runtime, const kit::Dis
     };
     if (const library::ReplayRow* selected = library::selected_replay(model))
         want(*selected);
-    for (const std::size_t place : library::replay_places_shown(model, list))
-        if (place < model.replays.visible.size())
-            want(model.inputs.replays.rows[model.replays.visible[place]]);
+    const std::vector<library::ReplayRow>& listed_rows = library::shown_replay_rows(model);
+    for (const std::size_t place : library::replay_places_shown(model, list)) {
+        if (place >= model.replays.visible.size())
+            continue;
+        const std::size_t index = model.replays.visible[place];
+        if (index < listed_rows.size())
+            want(listed_rows[index]);
+    }
     if (wanted.empty())
         return;
     shelf.cache.new_frame();
@@ -4948,6 +5631,8 @@ bool Runtime::LibraryHost::start_replay_watch(
         ++model_revision;
         return false;
     }
+    runtime.replay_recording_path_ = *file;
+    runtime.replay_handed_timeline_ = timeline_of(runtime, path);
     const std::string name = platform::path_to_utf8(file->filename());
     const RecordingInput input{name.c_str(), bytes.data(), bytes.size(), true};
     ReplayHooks hooks{};
@@ -4966,6 +5651,7 @@ bool Runtime::LibraryHost::start_replay_watch(
         refusal = "the extension that replays " + name + " left a replay hook null";
     }
     if (!refusal.empty()) {
+        runtime.replay_handed_timeline_.clear();
         replays_log("cannot watch " + path + ": " + refusal);
         // The extension may have refused after its match began loading: the
         // screen is then the loading screen, with a half-made match behind it,
@@ -5009,7 +5695,13 @@ bool Runtime::LibraryHost::start_replay_watch(
     shown->replay_filter = model.replays.filter;
     shown->replay_kind = model.replays.kind;
     shown->replay_sort = model.replays.sort;
-    shown->replay = path;
+    shown->replay_source = model.replays.source;
+    shown->core_filter = model.replays.core_filter;
+    shown->core_planet = model.replays.planet;
+    if (model.replays.source == library::ReplaySource::core_prime && model.replays.selected)
+        shown->replay = *model.replays.selected;
+    else
+        shown->replay = path;
     shown->replay_page = state.replay_page;
     runtime.library_return_ = std::move(shown);
     runtime.library_return_since_.reset();
@@ -5075,12 +5767,13 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
                 }
             }
             if (gap != nullptr)
-                sentence = catalogue_sentence(model.text, *gap);
+                sentence = catalogue_sentence(model, *gap);
             else
                 sentence = library::filled(
                     model.text,
                     library::words::replay_not_in_catalogue_name,
-                    {{"name", found->target.name}}
+                    {{"name", found->target.name},
+                     {"registry", library::replay_registry_name(model, found->target.registry)}}
                 );
         } else if (
             found != nullptr && found->failure == content::DownloadFailure::unreachable &&
@@ -5096,7 +5789,11 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
             ++model_revision;
             return;
         } else if (found == nullptr || found->failure == content::DownloadFailure::unreachable) {
-            sentence = offline_sentences(model.text, row);
+            sentence = offline_sentences(
+                model.text,
+                row != nullptr ? std::span<const replay_data::ContentGap>{row->gaps}
+                               : std::span<const replay_data::ContentGap>{}
+            );
         } else {
             sentence = content::failure_message(*found, &oa::data::languages::interface_text);
         }
@@ -5127,10 +5824,35 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
         runtime.map_packs().refresh();
         replays->have_ready = false;
     }
-    fs::path mod_folder;
-    if (!pending.mod_id.empty()) {
-        const std::optional<fs::path> installed =
-            ReplayContentAccess::installed_mod_folder(runtime, pending.mod_id);
+    fs::path mod_folder = pending.beside_mod;
+    // A release the row matched is played from its own folder.
+    if (mod_folder.empty() && !pending.play_folder.empty())
+        mod_folder = path_from_utf8(pending.play_folder);
+    if (mod_folder.empty() && !pending.beside_mod_sha.empty()) {
+        const std::optional<fs::path> kept =
+            package_install::replay_release_folder(runtime.user_folder_, pending.beside_mod_sha);
+        if (!kept) {
+            library::refuse_replay(
+                model,
+                pending.path,
+                std::string(library::shown(model.text, library::words::replay_cannot_watch))
+            );
+            ++model_revision;
+            return;
+        }
+        mod_folder = *kept;
+    }
+    // The first Mods folder of the id is only for a need that names no release.
+    if (mod_folder.empty() && (pending.mod_names_release || !pending.mod_id.empty())) {
+        const std::optional<fs::path> installed = ReplayContentAccess::folder_to_play(
+            runtime,
+            *replays,
+            pending.mod_id,
+            pending.mod_version,
+            pending.mod_revision,
+            pending.mod_sha,
+            pending.mod_names_release
+        );
         if (!installed) {
             library::refuse_replay(
                 model,
@@ -5142,11 +5864,33 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
         }
         mod_folder = *installed;
     }
-    const int turned =
-        ReplayContentAccess::switch_for_replay(runtime, pending.file, pending.turn_on, mod_folder);
+    // The kept pack is known before a restart, so the next run can mount it.
+    // A folder whose origin verifies but that does not read as a pack is
+    // refused: Watch would otherwise play the copy in Maps.
+    fs::path pack_mount;
+    if (!pending.beside_pack_sha.empty()) {
+        const std::optional<fs::path> kept =
+            package_install::replay_release_folder(runtime.user_folder_, pending.beside_pack_sha);
+        if (!kept || !package_install::installed_pack_manifest(*kept)) {
+            library::refuse_replay(
+                model,
+                pending.path,
+                std::string(library::shown(model.text, library::words::replay_cannot_watch))
+            );
+            ++model_revision;
+            return;
+        }
+        pack_mount = *kept;
+    } else if (!pending.pack_folder.empty()) {
+        pack_mount = path_from_utf8(pending.pack_folder);
+    }
+    const int turned = ReplayContentAccess::switch_for_replay(
+        runtime, pending.file, pending.turn_on, mod_folder, pack_mount, pending.from
+    );
     if (turned == 2) {
         // The Library is still open, so this row crosses the restart into the
         // run that plays the replay and the one that puts the choice back.
+        // The pack is mounted on that run, not in this one.
         library::select_replay(model, pending.path);
         runtime.keep_library_for_restart();
         return;
@@ -5160,7 +5904,24 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
         ++model_revision;
         return;
     }
-    static_cast<void>(start_replay_watch(runtime, pending.path, std::nullopt));
+    runtime.use_replay_map_pack(pack_mount);
+    const library::ReplayRow* watching = library::find_replay(model, pending.path);
+    if (!replay_mount_holds_map(
+            runtime.map_packs().maps(),
+            pack_mount,
+            watching != nullptr ? &watching->replay : nullptr
+        )) {
+        runtime.use_replay_map_pack({});
+        library::refuse_replay(
+            model,
+            pending.path,
+            std::string(library::shown(model.text, library::words::replay_cannot_watch))
+        );
+        ++model_revision;
+        return;
+    }
+    const std::string watch_at = pending.watch_path.empty() ? pending.path : pending.watch_path;
+    static_cast<void>(start_replay_watch(runtime, watch_at, pending.from));
 }
 
 bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::ScreenResult& result) {
@@ -5170,6 +5931,8 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
     switch (*result.action) {
     case library::Action::watch_replay:
     case library::Action::watch_from: {
+        const std::optional<uint32_t> from =
+            *result.action == library::Action::watch_from ? result.watch_from : std::nullopt;
         // A press while packages are coming cancels that fetch. It does not
         // start another, for this replay or any other.
         if (replays && replays->pending_get) {
@@ -5185,42 +5948,12 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
             replays_log("stopped getting " + result.replay);
             return false;
         }
-        const library::ReplayRow* row = library::find_replay(model, result.replay);
-        bool engine = false;
-        bool other = false;
-        bool blocked = false;
-        bool map_pack = false;
-        std::string mod_id;
-        std::vector<const replay_data::ContentGap*> fetch;
-        std::vector<std::string> turn_on;
-        if (row != nullptr) {
-            for (const replay_data::ContentGap& gap : row->gaps) {
-                if (!shown_gap(gap))
-                    continue;
-                if (gap.kind == replay_data::GapKind::engine)
-                    engine = true;
-                if (gap.other_release)
-                    other = true;
-                if (gap.block != replay_data::GapBlock::none)
-                    blocked = true;
-                if (gap.fetchable && !gap.other_release)
-                    fetch.push_back(&gap);
-                if (gap.kind == replay_data::GapKind::map && gap.fetchable)
-                    map_pack = true;
-                if (gap.kind == replay_data::GapKind::mod_missing && !gap.id.empty() &&
-                    (gap.fetchable || gap.play_installed))
-                    mod_id = gap.id;
-                if (gap.turn_on && !gap.id.empty())
-                    turn_on.push_back(gap.id);
-            }
-        }
-        // A newer engine opens the update centre and does not fetch or play.
-        if (engine) {
-            runtime.start_update_check(true);
+        if (model.replays.source == library::ReplaySource::core_prime) {
+            start_core_download(runtime, result.replay, true);
             return false;
         }
-        // The button is left off for these. A press that still arrives does not play.
-        if (blocked || (other && fetch.empty() && turn_on.empty()))
+        const library::ReplayRow* row = library::find_replay(model, result.replay);
+        if (row == nullptr)
             return false;
         const std::optional<fs::path> file = replay_file(folder, result.replay);
         if (!file) {
@@ -5232,122 +5965,14 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
             ++model_revision;
             return false;
         }
-        if (!fetch.empty()) {
-            const std::shared_ptr<const content::Snapshot> snapshot =
-                runtime.content_service().snapshot();
-            if (snapshot == nullptr) {
-                library::refuse_replay(model, result.replay, offline_sentences(model.text, row));
-                ++model_revision;
-                return false;
-            }
-            content::Downloads& downloads = runtime.content_downloads();
-            ReplayShelf::PendingGet pending;
-            pending.path = result.replay;
-            pending.file = *file;
-            pending.turn_on = std::move(turn_on);
-            pending.map_pack = map_pack;
-            pending.mod_id = mod_id;
-            for (const replay_data::ContentGap* gap : fetch) {
-                std::string why;
-                std::optional<content::DownloadTarget> target = target_for(*snapshot, *gap, &why);
-                if (!target) {
-                    library::refuse_replay(
-                        model,
-                        result.replay,
-                        why.empty() ? std::string("the catalogue has no such package") : why
-                    );
-                    ++model_revision;
-                    return false;
-                }
-                std::optional<uint64_t> id =
-                    downloads.queue(std::move(*target), content::DownloadReason::install, &why);
-                bool installed = false;
-                if (!id) {
-                    for (const content::DownloadView& item : downloads.view()) {
-                        if (item.target.registry != gap->registry || item.target.key != gap->id ||
-                            item.target.release != gap->release)
-                            continue;
-                        if (item.state == content::DownloadState::done)
-                            installed = true;
-                        else if (
-                            item.state != content::DownloadState::failed &&
-                            item.state != content::DownloadState::cancelled
-                        )
-                            id = item.item;
-                        break;
-                    }
-                }
-                if (!id && !installed) {
-                    library::refuse_replay(
-                        model,
-                        result.replay,
-                        why.empty()
-                            ? std::string(
-                                  library::shown(model.text, library::words::replay_cannot_watch)
-                              )
-                            : why
-                    );
-                    ++model_revision;
-                    return false;
-                }
-                if (id)
-                    pending.items.push_back(*id);
-            }
-            if (!pending.items.empty()) {
-                const std::string name = fetch.empty() ? std::string{} : gap_title(*fetch.front());
-                ReplayShelf& shelf = replay_shelf();
-                shelf.fetch_sentence = getting_sentence(model.text, name, 0);
-                shelf.pending_get = std::move(pending);
-                replays_log("getting " + result.replay);
-                fill_replay_inputs(runtime, model.inputs);
-                library::update_replays(model);
-                ++model_revision;
-                return false;
-            }
-            turn_on = pending.turn_on;
-            mod_id = pending.mod_id;
-        }
-        fs::path mod_folder;
-        if (!mod_id.empty()) {
-            const std::optional<fs::path> installed =
-                ReplayContentAccess::installed_mod_folder(runtime, mod_id);
-            if (!installed) {
-                library::refuse_replay(
-                    model,
-                    result.replay,
-                    std::string(library::shown(model.text, library::words::replay_cannot_watch))
-                );
-                ++model_revision;
-                return false;
-            }
-            mod_folder = *installed;
-            replay_shelf().have_ready = false;
-        }
-        if (!turn_on.empty() || !mod_folder.empty()) {
-            const int turned =
-                ReplayContentAccess::switch_for_replay(runtime, *file, turn_on, mod_folder);
-            if (turned == 2) {
-                // The Library is still open, so this row crosses the restart
-                // into the run that plays the replay and the one that puts
-                // the choice back.
-                library::select_replay(model, result.replay);
-                runtime.keep_library_for_restart();
-                return false;
-            }
-            if (turned == 0) {
-                library::refuse_replay(
-                    model,
-                    result.replay,
-                    std::string(library::shown(model.text, library::words::replay_cannot_watch))
-                );
-                ++model_revision;
-                return false;
-            }
-        }
+        // The same offer, restart and watch as a Core Prime replay whose file
+        // is already on this computer.
+        const ReplayFetch fetch =
+            queue_replay_get(runtime, result.replay, *file, row->replay, from);
+        if (fetch != ReplayFetch::watch)
+            return false;
         // Watch from jumps to where the replay was left, once the replay can say
-        // where it is.
-        const std::optional<uint32_t> from =
-            *result.action == library::Action::watch_from ? result.watch_from : std::nullopt;
+        // where it is. A restart keeps that tick and seeks after it.
         return start_replay_watch(runtime, result.replay, from);
     }
     case library::Action::keep_replays: {
@@ -5533,6 +6158,20 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
         ++model_revision;
         return false;
     }
+    case library::Action::download_replay:
+        if (model.replays.source != library::ReplaySource::core_prime)
+            return false;
+        if (model.inputs.replays.core_download_waiting &&
+            model.inputs.replays.core_download_id == result.replay) {
+            cancel_core_download();
+            return false;
+        }
+        start_core_download(runtime, result.replay, false);
+        return false;
+    case library::Action::browse_core_prime:
+        library::set_replay_source(model, library::ReplaySource::core_prime);
+        ++model_revision;
+        return false;
     default:
         return false;
     }
@@ -6171,24 +6810,94 @@ void Runtime::consider_replay_retention(bool forced) {
 }
 
 void Runtime::LibraryHost::note_watched_replay(Runtime& runtime) {
-    if (!replays || !replays->watching)
-        return;
     if (runtime.screen_ != Screen::match && runtime.match_ == nullptr)
         return;
+    const auto expansion_state =
+        runtime.preference_values_.find(std::string(replay_expansion_state_preference));
+    const bool playing_switched =
+        expansion_state != runtime.preference_values_.end() && expansion_state->second == "play";
+    // The shelf is what remembers a place. A restart that plays the replay
+    // never opens the Library first, so there is no shelf until this makes one.
+    if (!replays) {
+        if (!playing_switched)
+            return;
+        replay_shelf();
+    }
     ReplayShelf& shelf = *replays;
+    // A restart that switched the mod or the expansions opens the replay
+    // itself. The Library's hooks are not on it. The row it was left on, or
+    // the pending replay when that row was not carried, names the file.
+    if (!shelf.watching && shelf.left_path.empty()) {
+        if (playing_switched) {
+            std::string path;
+            if (runtime.library_return_ && runtime.library_return_->replay.has_value())
+                path = *runtime.library_return_->replay;
+            if (path.empty() && !runtime.pending_demo_path().empty() &&
+                !runtime.user_folder_.empty()) {
+                const fs::path recordings =
+                    runtime.user_folder_ / std::string(recordings_folder_name);
+                if (const std::optional<std::string> below = replay_path_below(
+                        recordings, platform::path_from_utf8(runtime.pending_demo_path())
+                    ))
+                    path = *below;
+            }
+            if (!path.empty()) {
+                shelf.left_path = std::move(path);
+                shelf.left_finished = false;
+                if (shelf.listed) {
+                    remember_watch_length(shelf, shelf.index);
+                } else if (!runtime.user_folder_.empty()) {
+                    const fs::path folder =
+                        runtime.user_folder_ / std::string(recordings_folder_name);
+                    const replay_data::IndexRead read = replay_data::read_index(folder);
+                    if (!read.damaged)
+                        remember_watch_length(shelf, read.index);
+                }
+                // The pass leaves a replay that needs a package or an
+                // expansion unread, so the description names the length.
+                if (!shelf.watch_length.has_value() && !runtime.user_folder_.empty()) {
+                    remember_recorded_length(
+                        shelf, runtime.user_folder_ / std::string(recordings_folder_name)
+                    );
+                }
+            }
+        }
+    }
+    if (!shelf.watching && shelf.left_path.empty())
+        return;
+    if (runtime.match_finished_ || runtime.screen_ == Screen::campaign_end)
+        shelf.left_finished = true;
     ReplayPlaybackView view{};
     if (!call_hook_or_report<&Extension::replay_state>(
             runtime.extension_, runtime.hook_error_report(), runtime, &view
         ))
         return;
     if (shelf.pending_seek) {
-        const uint32_t tick = *shelf.pending_seek;
+        const uint32_t jump = *shelf.pending_seek;
         shelf.pending_seek.reset();
         call_hook_or_report<&Extension::replay_seek>(
-            runtime.extension_, runtime.hook_error_report(), runtime, tick
+            runtime.extension_, runtime.hook_error_report(), runtime, jump
         );
+        if (runtime.preference_values_.erase(std::string(replay_watch_from_preference)) > 0) {
+            runtime.preferences_dirty_ = true;
+            runtime.flush_preferences();
+        }
+    } else if (!shelf.watching) {
+        const auto found =
+            runtime.preference_values_.find(std::string(replay_watch_from_preference));
+        if (found != runtime.preference_values_.end()) {
+            const std::optional<uint32_t> jump = tick_text(found->second);
+            runtime.preference_values_.erase(found);
+            runtime.preferences_dirty_ = true;
+            runtime.flush_preferences();
+            if (jump.has_value()) {
+                call_hook_or_report<&Extension::replay_seek>(
+                    runtime.extension_, runtime.hook_error_report(), runtime, *jump
+                );
+            }
+        }
     }
-    if (shelf.watching->status != nullptr) {
+    if (shelf.watching && shelf.watching->status != nullptr) {
         RecordingStatus status{};
         try {
             shelf.watching->status(shelf.watching->context, status);
@@ -6289,6 +6998,98 @@ void Runtime::LibraryHost::mark_replays_read(Runtime& runtime) {
     ++model_revision;
 }
 
+void Runtime::LibraryHost::remember_watched_timeline(
+    Runtime& runtime, const std::string& path, std::string text
+) {
+    if (path.empty() || text.empty() || !oademo::parse_timeline_index(text))
+        return;
+    const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
+    const auto store_on = [&](replay_data::Replay& replay) {
+        replay.timeline = text;
+        replay.read_stamp.reset();
+    };
+    if (replays && replays->listed) {
+        for (replay_data::Replay& replay : replays->index.replays) {
+            if (replay.path != path)
+                continue;
+            store_on(replay);
+            save_marked_index(runtime.user_folder_, *replays);
+            return;
+        }
+    }
+    replay_data::Index index = replay_data::load_index(folder);
+    bool found = false;
+    for (replay_data::Replay& replay : index.replays) {
+        if (replay.path != path)
+            continue;
+        store_on(replay);
+        found = true;
+        break;
+    }
+    if (!found) {
+        replay_data::Replay read = replay_data::read_file(folder, path);
+        if (read.path.empty())
+            read.path = path;
+        store_on(read);
+        index.replays.push_back(std::move(read));
+        std::sort(
+            index.replays.begin(),
+            index.replays.end(),
+            [](const replay_data::Replay& left, const replay_data::Replay& right) {
+                return left.path < right.path;
+            }
+        );
+    }
+    if (!replay_data::save_index(folder, index))
+        replays_log("the replays' index could not be saved");
+    if (replays && replays->listed)
+        replays->index = std::move(index);
+}
+
+std::string Runtime::LibraryHost::timeline_of(const Runtime& runtime, const std::string& relative) {
+    const auto from_index = [](const replay_data::Index& index, const std::string& path) {
+        for (const replay_data::Replay& replay : index.replays) {
+            if (replay.path != path || !replay.timeline.has_value() || replay.timeline->empty())
+                continue;
+            return *replay.timeline;
+        }
+        return std::string{};
+    };
+    if (replays && replays->listed)
+        return from_index(replays->index, relative);
+    const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
+    return from_index(replay_data::load_index(folder), relative);
+}
+
+fs::path Runtime::LibraryHost::index_mod_folder_for(Runtime& runtime, const std::string& relative) {
+    if (relative.empty())
+        return {};
+    ReplayShelf& shelf = replay_shelf();
+    const replay_data::Replay* found = nullptr;
+    replay_data::Replay loaded;
+    for (const replay_data::Replay& replay : shelf.index.replays) {
+        if (replay.path != relative)
+            continue;
+        found = &replay;
+        break;
+    }
+    if (found == nullptr) {
+        const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
+        const replay_data::Index index = replay_data::load_index(folder);
+        for (const replay_data::Replay& replay : index.replays) {
+            if (replay.path != relative)
+                continue;
+            loaded = replay;
+            found = &loaded;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return {};
+    const std::optional<fs::path> folder = index_pass_mod_folder(runtime, shelf, *found);
+    return folder ? *folder : fs::path{};
+}
+
 void Runtime::LibraryHost::store_replay_timeline(
     Runtime& runtime, const std::string& path, std::string text
 ) {
@@ -6316,14 +7117,29 @@ void Runtime::LibraryHost::store_replay_timeline(
 
 void Runtime::LibraryHost::end_watched_replay(Runtime& runtime) {
     const bool in_match = runtime.screen_ == Screen::match || runtime.match_ != nullptr;
-    if (replays && replays->watching) {
+    // A pack mounted for a pending replay stays until that match starts. The
+    // first frame of the match drops the hold, so leaving the match still
+    // clears it. The same empty path changes nothing.
+    if (in_match)
+        runtime.hold_replay_map_pack_ = false;
+    else if (!runtime.hold_replay_map_pack_)
+        runtime.use_replay_map_pack({});
+    if (replays && (replays->watching || !replays->left_path.empty())) {
         if (in_match)
             return;
+        // Reaching the end screen is the replay finished. The index is
+        // written once the player has left that screen, so the card does
+        // not keep a place from the last tick of a replay that ended.
+        if (runtime.screen_ == Screen::campaign_end) {
+            replays->left_finished = true;
+            return;
+        }
         ReplayShelf& shelf = *replays;
-        const ReplayHooks hooks = *shelf.watching;
+        const bool opened_here = shelf.watching.has_value();
+        const std::optional<ReplayHooks> hooks = shelf.watching;
         shelf.watching.reset();
         shelf.pending_seek.reset();
-        const std::optional<uint32_t> left = shelf.left_tick;
+        const std::optional<uint32_t> tick = shelf.left_tick;
         const bool finished = shelf.left_finished;
         const std::string path = shelf.left_path;
         shelf.left_tick.reset();
@@ -6331,30 +7147,32 @@ void Runtime::LibraryHost::end_watched_replay(Runtime& runtime) {
         shelf.watch_length.reset();
         shelf.left_path.clear();
         bool changed = false;
-        if (!path.empty() && shelf.listed && (finished || left)) {
-            for (replay_data::Replay& replay : shelf.index.replays) {
-                if (replay.path != path)
-                    continue;
-                // A replay that had finished offers Watch. An earlier tick goes.
-                if (finished) {
-                    if (replay.watched_tick.has_value()) {
-                        replay.watched_tick.reset();
-                        changed = true;
+        const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
+        // A replay the Library opened has its index in memory. One a restart
+        // opened does not: the index on disk is what the next Library reads.
+        if (!path.empty() && (finished || tick.has_value())) {
+            if (shelf.listed) {
+                changed = store_watched_place(shelf.index, folder, path, tick, finished);
+                if (changed)
+                    save_marked_index(runtime.user_folder_, shelf);
+            } else if (!runtime.user_folder_.empty()) {
+                const replay_data::IndexRead read = replay_data::read_index(folder);
+                if (!read.damaged) {
+                    replay_data::Index stored = read.index;
+                    if (store_watched_place(stored, folder, path, tick, finished)) {
+                        if (!replay_data::save_index(folder, stored))
+                            replays_log("the replays' index could not be saved");
+                        else if (finished)
+                            replays_log("left " + path + " at the end");
+                        else
+                            replays_log("left " + path + " at " + tick_decimal(*tick));
                     }
-                } else if (!replay.watched_tick || *replay.watched_tick != *left) {
-                    replay.watched_tick = *left;
-                    changed = true;
                 }
-                break;
             }
         }
-        call_hook_or_report<&ReplayHooks::close>(hooks, runtime.hook_error_report());
+        if (opened_here && hooks.has_value())
+            call_hook_or_report<&ReplayHooks::close>(*hooks, runtime.hook_error_report());
         if (changed) {
-            if (!runtime.user_folder_.empty()) {
-                const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
-                if (!replay_data::save_index(folder, shelf.index))
-                    replays_log("the replays' index could not be saved");
-            }
             fill_replay_inputs(runtime, model.inputs);
             library::update_replays(model);
             ++model_revision;

@@ -34,6 +34,18 @@ void collect_controls(
 /// @param[out] controls replaced by the controls
 void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& controls);
 
+/// Marks the focused control after the controls have been listed.
+///
+/// The automation core does not know the runtime. The app sets this once,
+/// and collect_controls calls it with the host's context. A null function,
+/// which is what is set until then, marks nothing.
+using FamilyFocusStamp = void (*)(void* context, std::vector<AutomationControl>& controls);
+
+/// Sets the function collect_controls calls once the controls are listed.
+///
+/// @param stamp the function; null marks nothing
+void set_family_focus_stamp(FamilyFocusStamp stamp) noexcept;
+
 /// Returns the name the protocol gives a kind of control.
 ///
 /// @param kind the kind

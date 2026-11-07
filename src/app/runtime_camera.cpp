@@ -810,8 +810,21 @@ void Runtime::zoom_view_about(float zoom, double focus_x, double focus_y) {
             return place;
         return held_view(place, visible, static_cast<double>(map), share, view_hold_from(centre));
     };
-    const double x = along(point_x, focus_x, visible_x, map_width, view_hold_.centre_x);
-    const double z = along(point_z, focus_y, visible_z, map_height, view_hold_.centre_z);
+    double x = along(point_x, focus_x, visible_x, map_width, view_hold_.centre_x);
+    double z = along(point_z, focus_y, visible_z, map_height, view_hold_.centre_z);
+    // The lines above are the classic view, which keeps a centre past the
+    // closer limits. The turned view cannot draw that frame: a zoom in pulls
+    // the centre back within the limits this zoom draws (view_within_limits),
+    // in play and in photo mode. A zoom out, and a zoom that is already
+    // inside, are left as they were.
+    if (!director_mode() && live_renderer_active() && after > before) {
+        if (const auto pulled = view_within_limits(x, z)) {
+            if (std::abs((*pulled)[0] - x) >= 1.0 || std::abs((*pulled)[1] - z) >= 1.0) {
+                x = (*pulled)[0];
+                z = (*pulled)[1];
+            }
+        }
+    }
     place_match_view(x, z);
     view_hold_ = {true, x + visible_x / 2.0, z + visible_z / 2.0};
 }
@@ -1001,19 +1014,24 @@ void Runtime::pan_match_camera() {
     scroll_match_view(dx, dz, step);
 }
 
-std::array<double, 2> Runtime::held_photo_place(double x, double z) const {
-    // A place past the map, then zoomed to eight times, puts a tile's corner
-    // past the card's largest coordinate. The card refuses that frame and
-    // the full tier stops for the session. The limits are the classic view's.
+std::array<double, 2> Runtime::held_turned_place(double x, double z) const {
+    // A centre a wider view left past this zoom, seen up close, is a frame
+    // the card will not draw: the turned view drops back to classic, and
+    // Full stays on. While the view is turned, the limits are the classic
+    // view's at this zoom with nothing remembered past them, so a zoom in
+    // pulls the centre back and a pan stops there. While the view is
+    // classic, the pan role's drag reaches this hold too, and it keeps the
+    // remembered centre, as a classic zoom does. In play and in photo mode.
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
     const auto [map_width, map_height] = shown_map_size();
+    const bool turned = live_renderer_active();
     const auto along = [&](double place, int32_t battlefield, int32_t map, double centre) {
         return held_view(
             place,
             static_cast<double>(battlefield) / zoom,
             static_cast<double>(map),
             past_map_edge_share(),
-            view_hold_from(centre)
+            turned ? std::nullopt : view_hold_from(centre)
         );
     };
     return {

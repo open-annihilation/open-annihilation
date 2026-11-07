@@ -10,7 +10,10 @@ off is compared with each mode. Each player's minimap blip becomes that
 player's anchor colour, and that player's peewee leaves the old team ramp.
 Most of the picture stays as it was: a mode is not a tint of the whole screen.
 Army distance is measured on the unit pixels a mode recolours, under Machado
-and under Viénot or Brettel.
+and under Viénot or Brettel. Achromatopsia always draws shape cues, so its
+minimap dot is a marker. That marker is read from a second picture of the
+same ten peewees standing far enough apart that the markers do not touch.
+The other modes leave the dot's outline as it was.
 """
 import argparse
 import math
@@ -38,6 +41,10 @@ UNIT_Z = 1700
 # stays on the land. A peewee's team colours are a few pixels wide.
 UNIT_X0 = 432
 UNIT_STEP = 24
+# The achromatopsia minimap is a second battle, the same step native-shape-cues
+# uses, so each marker stands clear of the next.
+SPACED_STEP = 640
+MARKER_BOX = 7
 UNIT_HALF_X = 12
 UNIT_ABOVE = 80
 UNIT_BELOW = 36
@@ -138,21 +145,21 @@ def preferences(path, mode):
     path.write_text("\n".join(lines) + "\n")
 
 
-def stage_text():
+def stage_text(step=UNIT_STEP):
     # Full radar, so each army's blip is on the minimap and not only the local player's.
     lines = ["console +radar"]
     for player in range(PLAYERS):
-        lines.append(f"place {player} ARMPW {UNIT_X0 + player * UNIT_STEP} {UNIT_Z} south")
+        lines.append(f"place {player} ARMPW {UNIT_X0 + player * step} {UNIT_Z} south")
     return "\n".join(lines) + "\n"
 
 
-def run(native, game_dir, workdir, mode):
+def run(native, game_dir, workdir, mode, step=UNIT_STEP, snapshot_name=None):
     preferences(workdir / "preferences.conf", mode)
     user = workdir / "user"
     user.mkdir(exist_ok=True)
     stage = workdir / "armies.stage"
-    stage.write_text(stage_text())
-    snapshot = workdir / f"{mode}.ppm"
+    stage.write_text(stage_text(step))
+    snapshot = workdir / (snapshot_name or f"{mode}.ppm")
     result = subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(game_dir), "--mute", "--skip-intro",
          "--headless-check", "--match-ticks", "1", "--seed", "1", "--resolution", "640x480",
@@ -228,13 +235,13 @@ def unit_band(player):
     return left, right, max(ORIGIN_Y, top), min(HEIGHT - ORIGIN_Y, bottom)
 
 
-def check_players(output):
+def check_players(output, step=UNIT_STEP):
     placed = [
         (name, int(player), int(x), int(z))
         for _, name, player, x, z in PLACED.findall(output)
     ]
     expected = [
-        ("ARMPW", player, UNIT_X0 + player * UNIT_STEP, UNIT_Z) for player in range(PLAYERS)
+        ("ARMPW", player, UNIT_X0 + player * step, UNIT_Z) for player in range(PLAYERS)
     ]
     if placed != expected:
         return f"the stage placed {placed}"
@@ -420,7 +427,12 @@ def blip_outline(off, mode_frame, player, groups, mode):
 
     The view rectangle can cross a blip. A pixel that was slot 14 and is now
     that mode's mid colour is the mark, not a damaged outline.
+
+    Achromatopsia always draws shape cues, so the dot is a marker. The anchor
+    cluster above still has to be there. The other modes leave the outline.
     """
+    if mode == "achromatopsia":
+        return None
     body = BODY_RGB[player]
     mark_on = MARK_RGB[mode]
     for group in groups:
@@ -574,14 +586,17 @@ def check_picture(off, mode_frame, mode):
                     anchor_hits.append((x, y))
         blip_groups = [group for group in components(blip) if len(group) >= BLIP_PIXELS]
         blip_groups = [group for group in blip_groups if max(span(group)) <= BLIP_SPAN]
-        if not blip_groups:
-            problems.append(
-                f"player {player} minimap has {len(blip)} anchor pixels, no blip-sized group"
-            )
-        else:
-            outline = blip_outline(off, mode_frame, player, blip_groups, mode)
-            if outline:
-                problems.append(outline)
+        # Achromatopsia draws a marker, and a hollow one leaves the old logo's
+        # body clear. Its minimap is the spaced snapshot, not this close row.
+        if mode != "achromatopsia":
+            if not blip_groups:
+                problems.append(
+                    f"player {player} minimap has {len(blip)} anchor pixels, no blip-sized group"
+                )
+            else:
+                outline = blip_outline(off, mode_frame, player, blip_groups, mode)
+                if outline:
+                    problems.append(outline)
         # The anchor itself is on the unit. A recoloured neighbour is not enough.
         if len(anchor_hits) < UNIT_ANCHOR_PIXELS:
             problems.append(
@@ -600,6 +615,90 @@ def check_picture(off, mode_frame, mode):
         problems.append(f"{changed} pixels changed, {changed / total:.1%} of the picture")
     if not unchanged_block(off, mode_frame):
         problems.append("no 16 by 16 block of the picture stayed as it was")
+    return problems
+
+
+def logo_groups(frame, body):
+    """Body-coloured groups in the minimap, each a minimap logo.
+
+    The minimap is the square at the top of the side column. The panel below
+    it holds pixels of the same colours, and a group there must not stand in
+    for a player's dot.
+    """
+    points = [
+        (x, y)
+        for y in range(SIDE_COLUMN)
+        for x in range(SIDE_COLUMN)
+        if pixel(frame, x, y) == body
+    ]
+    groups = []
+    for group in components(points):
+        wide, tall = span(group)
+        if wide <= BLIP_SPAN and tall <= BLIP_SPAN:
+            groups.append(group)
+    return groups
+
+
+def anchor_in_marker(frame, centre_x, centre_y, colour):
+    """True when the colour lies in the 7x7 box centred on the dot."""
+    half = MARKER_BOX // 2
+    for y in range(centre_y - half, centre_y + half + 1):
+        for x in range(centre_x - half, centre_x + half + 1):
+            if 0 <= x < WIDTH and 0 <= y < HEIGHT and pixel(frame, x, y) == colour:
+                return True
+    return False
+
+
+def check_spaced_minimap(native, game_dir, workdir):
+    """Achromatopsia: each player's anchor is in the 7x7 around its dot."""
+    off_result, off_snapshot = run(
+        native, game_dir, workdir, "off", SPACED_STEP, "spaced-off.ppm"
+    )
+    if off_result.returncode != 0:
+        fail(off_result, f"the spaced battle with colour vision off exited {off_result.returncode}")
+    placed = check_players(off_result.stdout + off_result.stderr, SPACED_STEP)
+    if placed:
+        fail(off_result, f"spaced off: {placed}")
+    off = read_ppm(off_snapshot)
+    if off is None:
+        fail(off_result, "the spaced off snapshot is not a 640x480 picture")
+    on_result, on_snapshot = run(
+        native, game_dir, workdir, "achromatopsia", SPACED_STEP, "spaced-achromatopsia.ppm"
+    )
+    if on_result.returncode != 0:
+        fail(on_result, f"the spaced achromatopsia battle exited {on_result.returncode}")
+    placed = check_players(on_result.stdout + on_result.stderr, SPACED_STEP)
+    if placed:
+        fail(on_result, f"spaced achromatopsia: {placed}")
+    shown = read_ppm(on_snapshot)
+    if shown is None:
+        fail(on_result, "the spaced achromatopsia snapshot is not a 640x480 picture")
+    problems = []
+    anchor = ANCHOR_RGB["achromatopsia"]
+    for player, body in enumerate(BODY_RGB):
+        groups = logo_groups(off, body)
+        if not groups:
+            problems.append(f"player {player + 1} spaced minimap has no dot")
+            continue
+        # The side column holds other pixels of a logo's body colour. The dot
+        # is the group whose 7x7 gained that player's anchor, as the shape-cue
+        # check accepts any such group rather than the largest.
+        found = False
+        for group in groups:
+            xs = [x for x, _ in group]
+            ys = [y for _, y in group]
+            centre_x = (min(xs) + max(xs)) // 2
+            centre_y = (min(ys) + max(ys)) // 2
+            if anchor_in_marker(shown, centre_x, centre_y, anchor[player]):
+                found = True
+                break
+        if not found:
+            problems.append(
+                f"player {player + 1} spaced minimap has {len(groups)} dots "
+                "and none has the anchor in its 7x7"
+            )
+    off_snapshot.unlink()
+    on_snapshot.unlink()
     return problems
 
 
@@ -671,12 +770,16 @@ def main():
                 "a dichromacy's armies are closer than with the mode off, or a unit "
                 "has fewer than 20 team pixels"
             )
+        spaced = check_spaced_minimap(arguments.native, arguments.game_dir, workdir)
+        if spaced:
+            print("\n".join(spaced))
+            fail(off_result, "achromatopsia did not mark each spaced minimap dot")
         off_snapshot.unlink()
     print(
         "colour vision check: ten players in each mode show that mode's anchor "
-        "on the unit and the minimap dot, the blip outline stays, and each "
-        "dichromacy's armies stay at least as far apart as with the mode off "
-        "under both eyes"
+        "on the unit and the minimap dot, the blip outline stays except in "
+        "achromatopsia where the dot is a shape marker, and each dichromacy's "
+        "armies stay at least as far apart as with the mode off under both eyes"
     )
 
 

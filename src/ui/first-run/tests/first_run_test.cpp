@@ -223,7 +223,7 @@ void check_keys() {
 }
 
 /// The language step opens on Skip with the ring hidden. The first Tab is
-/// Back, Shift+Tab is the last card, Return with the ring hidden picks the
+/// Back, Shift+Tab is the last stop, Return with the ring hidden picks the
 /// chosen language, and Return on Next presses it and hides the ring.
 void the_language_step_opens_on_its_first_stop() {
     Session session;
@@ -287,6 +287,88 @@ void the_language_step_opens_on_its_first_stop() {
     const auto advanced = oa::ui::first_run::key(shown, shown_scene, oa::ui::kit::Key::enter);
     OA_CHECK(advanced.ask == Ask::advance);
     OA_CHECK(!shown.interaction.focus_shown);
+}
+
+/// The language cards are one stop. Tab and Shift+Tab leave them. With the
+/// ring showing, Right still turns the carousel and the focus stays on the
+/// card that comes to the middle.
+void tab_leaves_the_language_cards() {
+    Session session;
+    Card english;
+    english.tag = "en";
+    english.own_name = "English";
+    english.english_name = "English";
+    english.kind = CardKind::built_in;
+    english.current = true;
+    Card german;
+    german.tag = "de";
+    german.own_name = "Deutsch";
+    german.english_name = "German";
+    german.kind = CardKind::built_in;
+    session.model.cards = {english, german};
+    session.carousel.selected = 0;
+    oa::ui::first_run::bind(session);
+    oa::ui::kit::Frame frame;
+    frame.area = {0, 0, 1280, 720};
+    frame.size_class = oa::ui::kit::SizeClass::large;
+    const auto scene = oa::ui::first_run::lay_out(session, frame, nullptr);
+    oa::ui::first_run::ensure_focus(session, scene.list);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::skip_id);
+    OA_CHECK(!session.interaction.focus_shown);
+
+    const oa::ui::kit::Composite* cards = nullptr;
+    for (const oa::ui::kit::Composite& group : scene.list.composites) {
+        if (group.id == oa::ui::first_run::language_cards_id)
+            cards = &group;
+    }
+    OA_CHECK(cards != nullptr && cards->name == "first-run.language.cards");
+    OA_CHECK(cards != nullptr && !cards->parts.empty());
+    int card_stops = 0;
+    for (const oa::ui::kit::ControlId stop : scene.list.tab_order) {
+        if (stop == oa::ui::first_run::language_cards_id)
+            ++card_stops;
+    }
+    OA_CHECK(card_stops == 1);
+    if (cards != nullptr) {
+        for (const oa::ui::kit::ControlId part : cards->parts) {
+            OA_CHECK(part >= oa::ui::first_run::card_id && part < oa::ui::first_run::source_id);
+            bool own_stop = false;
+            for (const oa::ui::kit::ControlId stop : scene.list.tab_order) {
+                if (stop == part)
+                    own_stop = true;
+            }
+            OA_CHECK(!own_stop);
+        }
+    }
+
+    const oa::ui::kit::ControlId chosen = oa::ui::first_run::card_id + session.carousel.selected;
+    session.interaction.focused = chosen;
+    session.interaction.focus_shown = true;
+    const auto shown = oa::ui::first_run::lay_out(session, frame, nullptr);
+    std::ignore = oa::ui::first_run::key(session, shown, oa::ui::kit::Key::tab);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::next_card_id);
+    OA_CHECK(session.interaction.focus_shown);
+    OA_CHECK(
+        session.interaction.focused < oa::ui::first_run::card_id ||
+        session.interaction.focused >= oa::ui::first_run::source_id
+    );
+
+    session.interaction.focused = oa::ui::first_run::card_id + session.carousel.selected;
+    session.interaction.focus_shown = true;
+    const auto backing = oa::ui::first_run::lay_out(session, frame, nullptr);
+    std::ignore = oa::ui::first_run::key(session, backing, oa::ui::kit::Key::back_tab);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::previous_id);
+    OA_CHECK(session.interaction.focus_shown);
+
+    session.interaction.focused = oa::ui::first_run::card_id + session.carousel.selected;
+    session.interaction.focus_shown = true;
+    const auto turning = oa::ui::first_run::lay_out(session, frame, nullptr);
+    const int32_t before = session.carousel.selected;
+    const auto moved = oa::ui::first_run::key(session, turning, oa::ui::kit::Key::right);
+    OA_CHECK(moved.redraw);
+    OA_CHECK(session.carousel.selected != before);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::card_id + session.carousel.selected);
+    OA_CHECK(session.interaction.focus_shown);
 }
 
 /// The step line the setup chrome will draw.
@@ -1866,6 +1948,7 @@ int main() {
     check_coaches(oa::ui::kit::SizeClass::large, 1280, 720, true);
     check_keys();
     the_language_step_opens_on_its_first_stop();
+    tab_leaves_the_language_cards();
     check_wrap_click_and_buttons();
     check_lookup();
     check_leave_word();

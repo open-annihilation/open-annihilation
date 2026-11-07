@@ -1973,3 +1973,39 @@
 	zh-Hans=指挥官阵亡时：;
 	}
 
+[SYS]
+	{
+	de=[SYS];
+	fr=[SYS];
+	it=[SIS];
+	es=[SIS];
+	zh-Hans=[系统];
+	}
+
+[NEWS]
+	{
+	de=[NEWS];
+	fr=[ACTU];
+	it=[NEWS];
+	es=[NOTICIAS];
+	zh-Hans=[新闻];
+	}
+
+[ARM]
+	{
+	de=[ARM];
+	fr=[ARM];
+	it=[ARM];
+	es=[GLAN];
+	zh-Hans=[ARM];
+	}
+
+[CORE]
+	{
+	de=[CORE];
+	fr=[CORE];
+	it=[CORE];
+	es=[NÚCLEO];
+	zh-Hans=[CORE];
+	}
+

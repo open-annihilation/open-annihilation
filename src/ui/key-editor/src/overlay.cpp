@@ -49,6 +49,7 @@ constexpr AreaSpec kAreas[] = {
     {"game", words::area_game, kit::KeyTint::game, words::letter_game},
     {"chat", words::area_chat, kit::KeyTint::chat, words::letter_chat},
     {"watching", words::area_watching, kit::KeyTint::none, {}},
+    {"photo", words::area_photo, kit::KeyTint::none, {}},
     {"window", words::area_window, kit::KeyTint::window, words::letter_window},
     {"menus", words::area_menus, kit::KeyTint::none, words::letter_menus},
     {"developer", words::area_developer, kit::KeyTint::developer, words::letter_developer},
@@ -530,6 +531,8 @@ void add_column(
 
 std::string overlay_title(const OverlayInputs& inputs) {
     const uint32_t active = inputs.contexts.active;
+    if ((active & context_bit("photo")) != 0)
+        return show(inputs.text, words::keys_in_photo_mode);
     if ((active & context_bit("placing")) != 0)
         return show(inputs.text, words::keys_while_placing);
     if ((active & context_bit("watch")) != 0 && (active & context_bit("play")) == 0)

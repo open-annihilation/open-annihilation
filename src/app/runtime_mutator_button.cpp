@@ -894,6 +894,14 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
+    /// Tells that the button draws the room's marker, not the kit's ring.
+    ///
+    /// It sits in the original screen's Tab order, so the family's ring is
+    /// the one drawn around it, and the tree follows that ring.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
     /// Follows the view the button is placed on.
     ///
     /// @param placed_on what the screen is placed on

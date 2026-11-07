@@ -251,12 +251,103 @@ void galaxy_draw_map_static(
 /// @param name planet name
 void galaxy_render_label(GalaxyGraphics& graphics, std::size_t index, const char* name);
 
+/// The side mark drawn beside a planet while shape cues are in effect.
+enum class SideSymbol : uint8_t {
+    none, ///< an unowned planet that is not a capitol
+    arm,  ///< a triangle
+    core, ///< a square
+};
+
+/// Pixels on a side of a side symbol.
+inline constexpr int32_t k_side_symbol_side = 7;
+/// Pixels past the planet's drawn reach where a symbol's near corner sits.
+inline constexpr int32_t k_side_symbol_gap = 2;
+/// Light palette entry the symbol's body uses, so it reads when the side colours do not.
+/// A hollow founder mark uses this entry for its outline alone.
+inline constexpr uint8_t k_side_symbol_ink = 80;
+/// Dark palette entry around a filled body.
+inline constexpr uint8_t k_side_symbol_outline = 93;
+
+/// The filled mark of the side that holds the planet.
+///
+/// Arm is a triangle and Core a square. Any other side has none, including a
+/// capitol nobody holds: a filled mark always means held by.
+///
+/// @param side the planet's current side letter, either case
+/// @return the symbol, or none
+[[nodiscard]] SideSymbol held_side_symbol(char side) noexcept;
+
+/// The mark of the side that founded a capitol.
+///
+/// Drawn hollow, on the other side of the planet from the holder's mark.
+/// A planet that is not a capitol has none.
+///
+/// @param capitol the planet shows a capitol picture
+/// @param initial_side the side that founded the capitol, either case
+/// @return the symbol, or none
+[[nodiscard]] SideSymbol founded_side_symbol(bool capitol, char initial_side) noexcept;
+
+/// The planet's drawn reach in viewer pixels, the same drop its name label uses.
+///
+/// @param radius the planet's radius in map units
+/// @param scale the viewer's magnification, 0 to 3
+/// @return pixels from the anchor to just inside the symbol
+[[nodiscard]] int32_t side_symbol_reach(int32_t radius, int32_t scale) noexcept;
+
+/// Where a side symbol's top-left corner goes.
+struct SideSymbolPlace {
+    int32_t left = 0;
+    int32_t top = 0;
+};
+
+/// Places a side symbol just outside the planet.
+///
+/// The holder's bottom-left corner sits on the top-right diagonal, two pixels
+/// past `reach`. The founder's top-right corner sits on the opposite diagonal.
+///
+/// @param anchor_x the planet's anchor column
+/// @param anchor_y the planet's anchor row
+/// @param reach pixels from the anchor, from side_symbol_reach
+/// @param founder true for the founding side's hollow mark
+/// @return the symbol's top-left corner
+[[nodiscard]] SideSymbolPlace
+side_symbol_place(int32_t anchor_x, int32_t anchor_y, int32_t reach, bool founder) noexcept;
+
+/// Whether one pixel of a side symbol belongs to the shape.
+///
+/// The origin is the symbol's top left. A pixel outside the symbol, or a
+/// symbol of none, is not covered. The triangle's tip is its top centre.
+/// The square is the five-by-five block inset by one pixel.
+///
+/// @param symbol which shape
+/// @param x column inside the symbol
+/// @param y row inside the symbol
+/// @return true when the shape covers that pixel
+[[nodiscard]] bool side_symbol_covers(SideSymbol symbol, int32_t x, int32_t y) noexcept;
+
+/// Draws a side symbol.
+///
+/// A filled mark uses the light entry for its body and the dark entry for its
+/// edge. A hollow mark draws the outline alone, in the light entry. A null
+/// surface or a symbol of none draws nothing. Pixels off the surface are left
+/// alone.
+///
+/// @param[in,out] target surface drawn into; null draws nothing
+/// @param left the symbol's left column
+/// @param top the symbol's top row
+/// @param symbol which shape
+/// @param hollow true to draw the outline alone
+void draw_side_symbol(
+    Surface* target, int32_t left, int32_t top, SideSymbol symbol, bool hollow = false
+) noexcept;
+
 /// Plots a line of one colour towards (x1, y1), one pixel per step of the longer axis, the last
 /// step left out.
 ///
 /// Walks the longer axis from the lower end, adding the slope to the other
 /// coordinate in floating point and truncating it per pixel; pixels off the
-/// surface are skipped.
+/// surface are skipped. A dashed line keeps every other step, the first one
+/// included. A solid line plots every step, as the war map always has.
 ///
 /// @param[in,out] target surface drawn into
 /// @param x0 first end, in target pixels
@@ -264,8 +355,15 @@ void galaxy_render_label(GalaxyGraphics& graphics, std::size_t index, const char
 /// @param x1 second end, in target pixels
 /// @param y1 second end, in target pixels
 /// @param color palette index
+/// @param dashed true to keep every other step
 void galaxy_draw_line(
-    Surface* target, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t color
+    Surface* target,
+    int32_t x0,
+    int32_t y0,
+    int32_t x1,
+    int32_t y1,
+    uint8_t color,
+    bool dashed = false
 );
 
 /// Draws a visible star in the grey ramp.
@@ -293,11 +391,14 @@ void galaxy_draw_star_layer(Surface* target, const screens::GalaxyStarLayer& lay
 /// Once galaxy_shows_war_map says so (map data is present, and while it
 /// loads only with GalaxyView.show_map_while_loading set): the
 /// three star layers, each visible connector in its colour (the active
-/// colour-vision mode's side colour when one is on), then each
-/// visible planet in id order: the aura of its current side at its activity
-/// frame, the capitol marker of its initial side, the selection and
-/// passover rings when selected or hovered, its sprite at its frame and,
-/// zoomed in or selected, its name label. Otherwise, while the data loads,
+/// colour-vision mode's side colour when one is on; an Arm link is dashed
+/// in achromatopsia), then each visible planet in id order: the aura of its
+/// current side at its activity frame, the capitol marker of its initial
+/// side, the selection and passover rings when selected or hovered, its
+/// sprite at its frame and, zoomed in or selected, its name label. While
+/// shape cues are in effect, a planet a side holds gets that side's filled
+/// symbol just outside its drawn size, and a capitol also gets its founder's
+/// symbol, the outline alone, on the other side. Otherwise, while the data loads,
 /// the current Map_Static frame. Auras, rings and capitol markers take the
 /// variant scale * 3 + size class. An activity past the aura's frames
 /// draws no aura.

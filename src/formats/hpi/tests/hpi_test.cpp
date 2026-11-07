@@ -994,6 +994,41 @@ void asset_store_loose_links_made_after_listing() {
     check(store.read("units/b.fbi").bytes == text("b"), "a plain file beside it is read");
 }
 
+/// read_if_present answers what read() answers, and nullopt where read()
+/// throws "asset not found"; a path read() refuses for another reason still
+/// throws.
+void asset_store_read_if_present() {
+    TempDir dir;
+    dir.write("game/units/a.fbi", text("loose"));
+    const auto archive = dir.write("game.hpi", archive_of({{"units/b.fbi", text("archived"), 0}}));
+    oa::AssetStore store(dir.path() / "game");
+    store.mount(archive);
+    const auto loose = store.read_if_present("UNITS\\A.FBI");
+    check(
+        loose && loose->bytes == text("loose") && !loose->archived &&
+            loose->source == store.read("units/a.fbi").source,
+        "a loose file is read as read() reads it"
+    );
+    const auto archived = store.read_if_present("units/b.fbi");
+    check(
+        archived && archived->bytes == text("archived") && archived->archived &&
+            archived->source == store.read("units/b.fbi").source,
+        "an archived file is read as read() reads it"
+    );
+    check(!store.read_if_present("units/c.fbi"), "a file nothing provides is nullopt");
+    check(!store.read_if_present("units"), "a folder is not a file");
+    check(
+        throws([&] { (void)store.read_if_present("units/../units/a.fbi"); }, "traversal"),
+        "a traversing path still fails"
+    );
+    check(
+        throws(
+            [&] { (void)store.read_if_present("c:/units/a.fbi"); }, "invalid asset resource path"
+        ),
+        "an invalid path still fails"
+    );
+}
+
 /// A file over the entry limit is refused before its buffer is made, by
 /// every way the store reads a whole file; one at the limit's size is not.
 void asset_store_refuses_files_over_the_entry_limit() {
@@ -1580,6 +1615,7 @@ int main(int argc, char** argv) {
         asset_store_loose_links_made_after_listing();
         asset_store_loose_junctions();
         asset_store_refuses_files_over_the_entry_limit();
+        asset_store_read_if_present();
         resource_file_semantics();
     } catch (const std::exception& error) {
         std::cerr << "unexpected exception: " << error.what() << '\n';

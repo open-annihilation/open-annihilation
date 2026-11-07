@@ -46,6 +46,58 @@ void set_replay_kind(Library& library, std::string_view kind);
 /// @param sort the order
 void set_replay_sort(Library& library, ReplaySort sort);
 
+/// Shows this computer's replays, or Core Prime's.
+///
+/// The selection of the list that is left is kept, and restored when that
+/// list is shown again.
+///
+/// @param[in,out] library the Library
+/// @param source which list
+void set_replay_source(Library& library, ReplaySource source);
+
+/// Shows one of Core Prime's filters.
+///
+/// @param[in,out] library the Library
+/// @param filter the filter
+void set_core_filter(Library& library, CorePrimeFilter filter);
+
+/// Shows one planet of Core Prime's list, and the By planet filter.
+///
+/// @param[in,out] library the Library
+/// @param planet the planet's name
+void set_core_planet(Library& library, std::string_view planet);
+
+/// Returns the rows the section is showing: this computer's, or Core Prime's.
+///
+/// @param library the Library
+/// @return the rows `visible` indexes
+[[nodiscard]] const std::vector<ReplayRow>& shown_replay_rows(const Library& library);
+
+/// The name a catalogue sentence uses for a registry.
+///
+/// An empty id, `coreprime`, or a title of Core Prime is "Core Prime".
+/// Any other registry uses its title, or its short name when it has no title.
+///
+/// @param library the Library
+/// @param id the registry's id
+/// @return the name
+[[nodiscard]] std::string replay_registry_name(const Library& library, std::string_view id);
+
+/// How many replays one of Core Prime's filters keeps, once that list has been read.
+///
+/// @param library the Library
+/// @param filter the filter
+/// @return the count, or none before that list has been read
+[[nodiscard]] std::optional<std::size_t>
+core_filter_count(const Library& library, CorePrimeFilter filter);
+
+/// The words one of Core Prime's filters shows.
+///
+/// @param library the Library
+/// @param filter the filter
+/// @return the words, looked up
+[[nodiscard]] std::string core_filter_title(const Library& library, CorePrimeFilter filter);
+
 /// Selects a replay, and marks it as a press with `pick` does.
 ///
 /// A path that does not show changes nothing.
@@ -367,6 +419,8 @@ struct ReplayEmpty {
         line{};     ///< "Games you play are kept here for 30 days.", "Recording is off.", or empty
     bool turn_on{}; ///< Turn on recording is offered
     bool open_file{}; ///< Open a replay file is offered
+    /// Browse Core Prime's replays is offered. The folder has no replay.
+    bool browse{};
 };
 
 /// Returns what the Replays list shows when no row shows. While the folder is

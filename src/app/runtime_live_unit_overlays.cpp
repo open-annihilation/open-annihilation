@@ -4,6 +4,7 @@
 #include "oa/app/runtime.hpp"
 #include "match_models.hpp"
 #include "oa/ui/hud/health_bar.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 
 #include <string>
 #include <vector>
@@ -51,6 +52,27 @@ void Runtime::draw_live_unit_overlays() {
                 fill(bar.trough, bar.trough_color);
                 fill(bar.fill, bar.fill_color);
                 drawn_health_bars_.push_back(bar);
+                notch_health_bar(bar);
+            }
+        }
+        if (unit.owner_index < OA_PLAYER_COUNT) {
+            const bool marked = (unit.flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+                                unit.id == hovered_match_unit_ ||
+                                unit.id == world.game.cursor_unit_id;
+            if (marked) {
+                // The marker's bottom-right sits one pixel outside the
+                // selection box's top-left, clear of the unit.
+                const auto bounds = live_unit_bounds(id);
+                const int mark_x = bounds ? bounds->x1 - match_layout_.left - 13
+                                          : frame.x - match_layout_.left - 29;
+                const int mark_y =
+                    bounds ? bounds->y1 - match_layout_.top - 7 : frame.y - match_layout_.top - 19;
+                stamp_shape_marker(
+                    mark_x,
+                    mark_y,
+                    static_cast<int>(unit.owner_index),
+                    oa::ui::hud::player_dot_color(world, unit.owner_index)
+                );
             }
         }
         const PanelText labels(*this);

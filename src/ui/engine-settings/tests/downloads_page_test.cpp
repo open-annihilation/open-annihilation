@@ -503,14 +503,18 @@ void a_game_locks_reset_and_empty() {
     OA_CHECK(layout_has(dialog, "Empty"));
     OA_CHECK(layout_has(dialog, "Your install ID"));
     dialog.focused = settings::first_row_control + 2;
+    dialog.focus_shown = true;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::space) != DialogAction::reset_install_id);
     dialog.focused = settings::first_row_control + 3;
+    dialog.focus_shown = true;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::space) != DialogAction::empty_downloads);
 
     dialog.focused = settings::first_row_control;
+    dialog.focus_shown = true;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     OA_CHECK(dialog.chosen.content_check == settings::ContentCheck::when_library_opens);
     dialog.focused = settings::first_row_control + 1;
+    dialog.focus_shown = true;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
     OA_CHECK(!dialog.install_id_chosen[0].on);
 }
@@ -521,18 +525,22 @@ void cancel_puts_the_choice_and_the_switches_back() {
         registry_row("ridge", "Ridge", true, true, kShownId),
     }));
     dialog.focused = settings::first_row_control;
+    dialog.focus_shown = true;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     dialog.focused = settings::first_row_control + 1;
+    dialog.focus_shown = true;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::redraw);
     OA_CHECK(!dialog.install_id_chosen[0].on);
     OA_CHECK(dialog.install_id_chosen[1].on);
 
     dialog.focused = settings::first_row_control + 4;
+    dialog.focus_shown = true;
     const DialogAction reset = settings::dialog_key(dialog, DialogKey::space);
     OA_CHECK(reset == DialogAction::reset_install_id);
     OA_CHECK(dialog.install_id_registry == "ridge");
     OA_CHECK(dialog.page == Page::downloads);
     dialog.focused = settings::first_row_control + 5;
+    dialog.focus_shown = true;
     const DialogAction empty = settings::dialog_key(dialog, DialogKey::space);
     OA_CHECK(empty == DialogAction::empty_downloads);
     OA_CHECK(dialog.page == Page::downloads);
@@ -632,6 +640,7 @@ void names_are_unique() {
     OA_CHECK(names.count("settings.downloaded-files.empty") == 1);
 
     dialog.focused = settings::first_row_control;
+    dialog.focus_shown = true;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
     const std::set<std::string> open = names_of(dialog);
     OA_CHECK(open.count("settings.content-updates.automatically") == 1);

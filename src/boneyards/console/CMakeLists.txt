@@ -84,12 +84,20 @@ if(BUILD_TESTING)
     endif()
     # The war-map colour checks name the colour-vision mode. A private link on
     # the console library does not publish that header to this executable.
-    if(test_id STREQUAL "galaxy-graphics")
+    if(test_id STREQUAL "galaxy-graphics" OR test_id STREQUAL "shape-cues" OR
+       test_id STREQUAL "battle-summary")
       target_link_libraries(oa-boneyards-console-${test_id} PRIVATE oa-present-colour-vision)
     endif()
     # The language catalogue and the new screens are read from the source tree.
     # The analogue atlas is the committed file, so a tall glyph is measured
     # before the game files are copied.
+    # The summary's side words are measured in the install's font, including each
+    # shipped language's line.
+    if(test_id STREQUAL "battle-summary")
+      target_compile_definitions(oa-boneyards-console-${test_id} PRIVATE
+        "OA_BONEYARDS_CATALOGUE=\"${open_annihilation_SOURCE_DIR}/languages/boneyards.tdf\""
+        "OA_BONEYARDS_ATLAS=\"${OA_FONT_ATLASES_DIR}/boneyards-analogues.bin\"")
+    endif()
     if(test_id STREQUAL "translations")
       target_link_libraries(oa-boneyards-console-${test_id}
         PRIVATE oa-formats-hpi oa-formats-tdf)

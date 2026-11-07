@@ -19,6 +19,7 @@
 #include "language_state.hpp"
 #include "oa_layer.hpp"
 #include "photo_camera.hpp"
+#include "photo_clipboard.hpp"
 #include "photo_state.hpp"
 
 #include "oa/app/far_view.hpp"
@@ -26,10 +27,18 @@
 #include "oa/app/frame_pacing.hpp"
 #include "oa/app/user_folder.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/core/player.h"
+#include "oa/core/player_setup.h"
 #include "oa/core/unit.h"
+#include "oa/data/defs/layout.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
+#include "oa/formats/json.hpp"
 #include "oa/formats/png.hpp"
+#include "oa/sim/simulation_state.hpp"
+
 #include "oa/platform/files.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/data/input_actions/actions.hpp"
@@ -64,6 +73,10 @@
 #include <utility>
 #include <vector>
 
+#ifndef OA_ENGINE_VERSION
+#error OA_ENGINE_VERSION is set by the build
+#endif
+
 namespace oa::app {
 namespace {
 
@@ -71,6 +84,8 @@ namespace actions = oa::data::input_actions;
 namespace console = oa::ui::console;
 namespace fs = std::filesystem;
 namespace layout = oa::ui::display_layout;
+namespace library = oa::data::key_library;
+namespace oakeys = oa::formats::oakeys;
 
 /// Ticks each pass of the fight plays, one drawn frame a tick.
 constexpr int kPassTicks = 120;
@@ -96,6 +111,38 @@ constexpr SDL_Keymod kPrimaryModifier = SDL_KMOD_LGUI;
 #else
 constexpr SDL_Keymod kPrimaryModifier = SDL_KMOD_LCTRL;
 #endif
+
+/// Offers the check's hook counted, and the type of the latest one.
+struct ClipboardCatch {
+    int offers = 0;
+    std::string mime;
+};
+
+ClipboardCatch clipboard_catch;
+
+/// Stands in for the clipboard. The bytes are counted, not kept.
+///
+/// @param mime_type the type offered
+/// @return true, the clipboard took them
+bool catch_photo_clipboard(const char* mime_type, const uint8_t*, std::size_t) {
+    ++clipboard_catch.offers;
+    clipboard_catch.mime = mime_type != nullptr ? mime_type : "";
+    return true;
+}
+
+/// The check's hook stands in for the clipboard, including when a require
+/// throws, so the run does not replace whatever text the clipboard holds.
+struct ClipboardHookHold {
+    ClipboardHookHold() {
+        clipboard_catch = {};
+        set_photo_clipboard_hook(catch_photo_clipboard);
+    }
+
+    ClipboardHookHold(const ClipboardHookHold&) = delete;
+    ClipboardHookHold& operator=(const ClipboardHookHold&) = delete;
+
+    ~ClipboardHookHold() { set_photo_clipboard_hook(nullptr); }
+};
 
 /// The extension state the shared and watcher passes report.
 uint32_t photo_extension_bits = 0;
@@ -194,6 +241,24 @@ bool more_than_one_colour(const std::vector<uint8_t>& rgb) {
     return false;
 }
 
+/// The file name in a "Saved …" status, without a copy note after it.
+///
+/// @param status the status line
+/// @return the file name, or empty when the line does not start with "Saved "
+std::string saved_photo_name(std::string_view status) {
+    constexpr std::string_view kSavedStatus = "Saved ";
+    if (!status.starts_with(kSavedStatus))
+        return {};
+    std::string_view name = status.substr(kSavedStatus.size());
+    constexpr std::string_view kCopied = "  Copied";
+    constexpr std::string_view kNotCopied = "  Photo not copied:";
+    if (name.ends_with(kCopied))
+        name.remove_suffix(kCopied.size());
+    else if (const std::size_t at = name.rfind(kNotCopied); at != std::string_view::npos)
+        name = name.substr(0, at);
+    return std::string(name);
+}
+
 /// The pinned SHA-256 of the Off photo's RGB rows. The capture check prints
 /// the digest it measured, then requires this text.
 constexpr std::string_view kPhotoCaptureSha256 =
@@ -226,6 +291,251 @@ void require_no_partials(const fs::path& folder) {
             std::string::npos)
             throw std::runtime_error("photo capture check: a partial photo was left behind");
     }
+}
+
+/// One player the capture check expects a photo to name, or to leave out.
+struct RosterEntry {
+    std::string name;
+    std::string side;
+};
+
+/// The players a photo of this match records, watchers left out.
+///
+/// @param world the match
+/// @return the players, in slot order
+std::vector<RosterEntry> photo_roster(const oa::World& world) {
+    std::vector<RosterEntry> roster;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const oa::Player& player = world.game.players[slot];
+        if (!oa::sim::simulation_state::player_active(player))
+            continue;
+        const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+        if (info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+            continue;
+        RosterEntry entry;
+        const void* end = std::memchr(player.name, 0, sizeof player.name);
+        const std::size_t length =
+            end == nullptr ? sizeof player.name
+                           : static_cast<std::size_t>(static_cast<const char*>(end) - player.name);
+        entry.name.assign(player.name, length);
+        if (info != nullptr)
+            entry.side = oa::data::defs::side_name(info->side);
+        roster.push_back(std::move(entry));
+    }
+    return roster;
+}
+
+/// Reads the photo's text chunks and checks the record against the match.
+///
+/// @param picture the file
+/// @param width the picture's width
+/// @param height the picture's height
+/// @param tick the match's tick
+/// @param map the map's name
+/// @param names_on true when player names are in the photo
+/// @param roster the players, as the match holds them
+/// @param shots_text the screenshots folder, which must not appear
+void require_photo_chunks(
+    const fs::path& picture,
+    uint32_t width,
+    uint32_t height,
+    uint32_t tick,
+    std::string_view map,
+    bool names_on,
+    const std::vector<RosterEntry>& roster,
+    std::string_view shots_text
+) {
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo capture check: " + what);
+    };
+    std::ifstream in(picture, std::ios::binary);
+    if (!in)
+        fail("the photo could not be read");
+    const std::vector<char> stored(
+        (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()
+    );
+    const std::span<const uint8_t> file(
+        reinterpret_cast<const uint8_t*>(stored.data()), stored.size()
+    );
+    oa::formats::png::Messages messages{};
+    oa::formats::png::Info info{};
+    if (!oa::formats::png::read_info(file, messages, &info))
+        fail("the photo is not a PNG");
+    const oa::formats::png::Header header = oa::formats::png::header_of(info, messages);
+    if (header.width != width || header.height != height)
+        fail("the photo's size is not the picture's");
+    std::vector<oa::formats::png::TextChunk> texts;
+    if (!oa::formats::png::read_texts(file, &texts))
+        fail("the photo's text could not be read");
+    static constexpr const char* kKeywords[] = {
+        "Title", "Description", "Software", "Creation Time", "Source", "OpenAnnihilation"
+    };
+    static constexpr oa::formats::png::TextKind kKinds[] = {
+        oa::formats::png::TextKind::utf8,
+        oa::formats::png::TextKind::utf8,
+        oa::formats::png::TextKind::latin1,
+        oa::formats::png::TextKind::latin1,
+        oa::formats::png::TextKind::latin1,
+        oa::formats::png::TextKind::utf8
+    };
+    if (texts.size() != 6)
+        fail("the photo has " + std::to_string(texts.size()) + " text chunks");
+    std::string chunks[6];
+    for (std::size_t at = 0; at < 6; ++at) {
+        if (texts[at].keyword != kKeywords[at] || texts[at].kind != kKinds[at])
+            fail(std::string("text chunk ") + std::to_string(at) + " is not " + kKeywords[at]);
+        chunks[at] = std::string(texts[at].text);
+    }
+    if (chunks[0].empty() || chunks[0].find(',') == std::string::npos)
+        fail("the title is " + chunks[0]);
+    if (!map.empty() && chunks[0].find(map) == std::string::npos)
+        fail("the title misses the map: " + chunks[0]);
+    const std::string software = std::string("Open Annihilation ") + OA_ENGINE_VERSION;
+    if (chunks[2] != software)
+        fail("Software is " + chunks[2]);
+    if (chunks[3].size() < 29 || !chunks[3].ends_with(" GMT"))
+        fail("Creation Time is " + chunks[3]);
+    if (chunks[4] != "Skirmish")
+        fail("Source is " + chunks[4]);
+    for (const std::string& text : chunks) {
+        if (!shots_text.empty() && text.find(shots_text) != std::string::npos)
+            fail("the photo names its folder");
+    }
+    oa::formats::json::JsonError error;
+    const std::optional<oa::formats::json::Json> record =
+        oa::formats::json::parse_json(chunks[5], error);
+    if (!record.has_value())
+        fail("the record is not JSON");
+    const oa::formats::json::Json* version = record->find("photo");
+    if (version == nullptr || !version->integer().has_value() || *version->integer() != 1)
+        fail("the record is not version 1");
+    const oa::formats::json::Json* game = record->find("game");
+    const oa::formats::json::Json* game_tick = game == nullptr ? nullptr : game->find("tick");
+    if (game_tick == nullptr || !game_tick->integer().has_value() ||
+        *game_tick->integer() != static_cast<int64_t>(tick))
+        fail("the record's tick is not the match's");
+    const oa::formats::json::Json* size = record->find("size");
+    const oa::formats::json::Json* size_width = size == nullptr ? nullptr : size->find("width");
+    const oa::formats::json::Json* size_height = size == nullptr ? nullptr : size->find("height");
+    if (size_width == nullptr || size_height == nullptr || !size_width->integer().has_value() ||
+        !size_height->integer().has_value() ||
+        *size_width->integer() != static_cast<int64_t>(width) ||
+        *size_height->integer() != static_cast<int64_t>(height))
+        fail("the record's size is not the picture's");
+    const oa::formats::json::Json* players = record->find("players");
+    if (players == nullptr || players->type() != oa::formats::json::JsonType::array)
+        fail("the record has no players");
+    std::string listed;
+    bool human = false;
+    for (const RosterEntry& entry : roster) {
+        if (!listed.empty())
+            listed += ", ";
+        listed += entry.name + "/" + entry.side;
+        if (entry.name == "Player" && entry.name != entry.side)
+            human = true;
+    }
+    if (!human)
+        fail("the fight has no player named Player (" + listed + ")");
+    bool saw_player = false;
+    for (const oa::formats::json::Json& element : players->elements()) {
+        const oa::formats::json::Json* name = element.find("name");
+        if (names_on) {
+            if (name == nullptr || name->string() == nullptr)
+                fail("a player has no name");
+            if (name->string() != nullptr && *name->string() == "Player")
+                saw_player = true;
+        } else if (name != nullptr) {
+            fail("a name was written while player names were off");
+        }
+        const oa::formats::json::Json* team = element.find("team");
+        if (team == nullptr || team->type() != oa::formats::json::JsonType::null)
+            fail("a player with no team was numbered");
+    }
+    if (!names_on && chunks[1].find("team") != std::string::npos)
+        fail("the description names a team");
+    if (names_on && !saw_player)
+        fail("no player is named Player (" + listed + ")");
+    if (!names_on) {
+        for (const RosterEntry& entry : roster) {
+            if (entry.name.empty() || entry.name == entry.side)
+                continue;
+            if (!map.empty() && map.find(entry.name) != std::string::npos)
+                continue;
+            for (const std::string& text : chunks) {
+                if (text.find(entry.name) != std::string::npos)
+                    fail("the name " + entry.name + " was written while player names were off");
+            }
+        }
+    }
+}
+
+/// The photo's clock. Thirty ticks are one second. Under an hour the text is
+/// minutes and seconds. From an hour it is hours, minutes and seconds.
+///
+/// @param tick the match's tick
+/// @return the clock
+std::string photo_clock(uint32_t tick) {
+    const uint32_t seconds = tick / 30U;
+    const uint32_t second = seconds % 60U;
+    const uint32_t minute = (seconds / 60U) % 60U;
+    const uint32_t hour = seconds / 3600U;
+    const auto pair = [](uint32_t value) {
+        const std::string text = std::to_string(value);
+        return text.size() >= 2 ? text : std::string("0") + text;
+    };
+    if (hour == 0U)
+        return std::to_string(minute) + ":" + pair(second);
+    return std::to_string(hour) + ":" + pair(minute) + ":" + pair(second);
+}
+
+/// The held photo records the tick it was held at, and the title's time is
+/// that tick's clock.
+///
+/// @param picture the file
+/// @param held_tick the tick when the picture was held
+void require_held_moment(const fs::path& picture, uint32_t held_tick) {
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo capture check: " + what);
+    };
+    std::ifstream in(picture, std::ios::binary);
+    if (!in)
+        fail("the held photo could not be read");
+    const std::vector<char> stored(
+        (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()
+    );
+    const std::span<const uint8_t> file(
+        reinterpret_cast<const uint8_t*>(stored.data()), stored.size()
+    );
+    std::vector<oa::formats::png::TextChunk> texts;
+    if (!oa::formats::png::read_texts(file, &texts))
+        fail("the held photo's text could not be read");
+    std::string title;
+    std::string record_text;
+    for (const oa::formats::png::TextChunk& chunk : texts) {
+        if (chunk.keyword == "Title")
+            title = std::string(chunk.text);
+        else if (chunk.keyword == "OpenAnnihilation")
+            record_text = std::string(chunk.text);
+    }
+    if (title.empty() || record_text.empty())
+        fail("the held photo has no title or record");
+    oa::formats::json::JsonError error;
+    const std::optional<oa::formats::json::Json> record =
+        oa::formats::json::parse_json(record_text, error);
+    if (!record.has_value())
+        fail("the held photo's record is not JSON");
+    const oa::formats::json::Json* game = record->find("game");
+    const oa::formats::json::Json* game_tick = game == nullptr ? nullptr : game->find("tick");
+    if (game_tick == nullptr || !game_tick->integer().has_value() ||
+        *game_tick->integer() != static_cast<int64_t>(held_tick))
+        fail("the held photo's tick is not the moment it was held");
+    const std::string clock = photo_clock(held_tick);
+    const std::string suffix = std::string(", ") + clock;
+    const bool titled =
+        title == clock || (title.size() >= suffix.size() &&
+                           title.compare(title.size() - suffix.size(), suffix.size(), suffix) == 0);
+    if (!titled)
+        fail("the held photo's title time is " + title);
 }
 
 /// The SHA-256 of RGB rows, as 64 lower-case hex digits.
@@ -473,6 +783,456 @@ struct SharedMatchHold {
 
 } // namespace
 
+void Runtime::check_photo_keys() {
+    /// Puts the preferences file back to the bytes the check started with.
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& path = host.options_.preferences_file;
+            if (path.has_value())
+                existed = fs::exists(*path);
+            bytes = file_bytes(path);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& path = runtime.options_.preferences_file;
+            if (path.has_value()) {
+                if (!existed) {
+                    std::error_code error;
+                    fs::remove(*path, error);
+                } else {
+                    std::ofstream out(*path, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    const PreferencesHold preferences_hold(*this);
+    const ClipboardHookHold clipboard_hold;
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo keys failed: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    require(sdl_.window != nullptr, "the check has no window");
+    require(
+        options_.user_folder && !options_.user_folder->empty() && !user_folder_.empty(),
+        "the run has no folder of the player's own (--user-folder)"
+    );
+
+    const auto read_orders = [this] {
+        std::vector<UnitOrders> orders;
+        const oa::World& world = match_->state();
+        for (uint32_t slot = 0; slot < world.unit_slot_count; ++slot) {
+            const oa::Unit* unit = oa::world_unit_at(&world, slot);
+            if (unit == nullptr || unit->type_index == 0)
+                continue;
+            orders.push_back(
+                {unit->id,
+                 unit->type_index,
+                 unit->flags,
+                 static_cast<uint32_t>(unit->primary_order),
+                 static_cast<uint32_t>(unit->secondary_order)}
+            );
+        }
+        return orders;
+    };
+
+    struct View {
+        int32_t camera_x{};
+        int32_t camera_z{};
+        float zoom{};
+        float zoom_target{};
+        uint16_t selected{};
+    };
+
+    const auto read_view = [this] {
+        return View{
+            match_camera_x_, match_camera_z_, match_zoom_, match_zoom_target_, selected_match_unit_
+        };
+    };
+    const auto same_view = [](const View& left, const View& right) {
+        return left.camera_x == right.camera_x && left.camera_z == right.camera_z &&
+               left.zoom == right.zoom && left.zoom_target == right.zoom_target &&
+               left.selected == right.selected;
+    };
+
+    struct Shots {
+        int png{};
+        int pcx{};
+    };
+
+    const auto count_shots = [](const fs::path& root) {
+        Shots shots;
+        std::error_code error;
+        if (!fs::exists(root, error))
+            return shots;
+        const fs::recursive_directory_iterator end;
+        for (fs::recursive_directory_iterator it(
+                 root, fs::directory_options::skip_permission_denied, error
+             );
+             !error && it != end;
+             it.increment(error)) {
+            if (error || !it->is_regular_file(error))
+                continue;
+            const fs::path ext = it->path().extension();
+            if (ext == ".png" || ext == ".PNG")
+                ++shots.png;
+            else if (ext == ".pcx" || ext == ".PCX")
+                ++shots.pcx;
+        }
+        return shots;
+    };
+    bool running = true;
+    const auto dispatch = [&](SDL_Event& event) {
+        dispatch_event(event, running);
+        require(running, "a key ended the run");
+    };
+    const auto tap = [&](SDL_Scancode scancode, SDL_Keymod mod = SDL_KMOD_NONE) {
+        SDL_Event event{};
+        event.key.windowID = SDL_GetWindowID(sdl_.window);
+        event.key.scancode = scancode;
+        // The unshifted character, so Shift+. stays the letter "." the chord names.
+        event.key.key = SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, true);
+        event.key.mod = mod;
+        for (const bool down : {true, false}) {
+            event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            event.key.down = down;
+            event.key.repeat = false;
+            dispatch(event);
+        }
+    };
+    const auto window_point = [&](float frame_x, float frame_y) {
+        float window_x = 0;
+        float window_y = 0;
+        require(
+            frame_to_window(sdl_.renderer, frame_x, frame_y, &window_x, &window_y),
+            "the point is not on the window"
+        );
+        return std::pair<float, float>{window_x, window_y};
+    };
+    const auto click_left = [&](float frame_x, float frame_y) {
+        const auto [window_x, window_y] = window_point(frame_x, frame_y);
+        SDL_Event event{};
+        event.motion.windowID = SDL_GetWindowID(sdl_.window);
+        event.button.windowID = event.motion.windowID;
+        event.type = SDL_EVENT_MOUSE_MOTION;
+        event.motion.x = window_x;
+        event.motion.y = window_y;
+        dispatch(event);
+        for (const bool down : {true, false}) {
+            event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+            event.button.button = SDL_BUTTON_LEFT;
+            event.button.down = down;
+            event.button.clicks = 1;
+            event.button.x = window_x;
+            event.button.y = window_y;
+            dispatch(event);
+        }
+    };
+    // A photo asked for before a photo-mode frame waits until one is presented.
+    const auto show_frame = [&] {
+        render_match_surface();
+        present_match_layers();
+    };
+    // The match fills this window, as a player sizes it. The play battlefield
+    // is the part beside the side column; a photo is the whole window.
+    const auto size_window = [&](int width, int height) {
+        require(
+            sdl_.window != nullptr && SDL_SetWindowSize(sdl_.window, width, height) &&
+                SDL_SyncWindow(sdl_.window),
+            std::string("the window did not resize: ") + SDL_GetError()
+        );
+        SDL_Event resized{};
+        resized.type = SDL_EVENT_WINDOW_RESIZED;
+        resized.window.windowID = SDL_GetWindowID(sdl_.window);
+        resized.window.data1 = width;
+        resized.window.data2 = height;
+        dispatch(resized);
+    };
+    const auto overlay_words = [&] {
+        namespace editor = oa::ui::key_editor;
+        const LayerScreen* screen = oa_layer().find(editor::name_keys_overlay);
+        require(screen != nullptr, "the keys overlay is not open");
+        const oa::ui::kit::DisplayList list = screen->display_list();
+        for (const oa::ui::kit::Control& control : list.controls) {
+            if (control.name == editor::name_keys_overlay_list)
+                return control.text;
+        }
+        fail("the keys overlay lists nothing");
+        return std::string{};
+    };
+    const auto photo_file = [&] {
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
+        return photo_shots_folder() / oa::platform::path_from_utf8(saved);
+    };
+    const auto window_photo = [&](const DecodedPng& image, uint32_t play_w, uint32_t play_h) {
+        int window_w = 0;
+        int window_h = 0;
+        require(
+            sdl_.window != nullptr && SDL_GetWindowSize(sdl_.window, &window_w, &window_h),
+            "the window's size could not be read"
+        );
+        int output_w = 0;
+        int output_h = 0;
+        if (sdl_.renderer != nullptr)
+            std::ignore = SDL_GetRenderOutputSize(sdl_.renderer, &output_w, &output_h);
+        const bool window_sized = (image.width == static_cast<uint32_t>(window_w) &&
+                                   image.height == static_cast<uint32_t>(window_h)) ||
+                                  (output_w > 0 && image.width == static_cast<uint32_t>(output_w) &&
+                                   image.height == static_cast<uint32_t>(output_h));
+        require(
+            window_sized,
+            "photo " + std::to_string(image.width) + "x" + std::to_string(image.height) +
+                " window " + std::to_string(window_w) + "x" + std::to_string(window_h) +
+                " output " + std::to_string(output_w) + "x" + std::to_string(output_h) + " play " +
+                std::to_string(play_w) + "x" + std::to_string(play_h)
+        );
+        require(
+            image.width != play_w || image.height != play_h,
+            "the photo is the play battlefield " + std::to_string(play_w) + "x" +
+                std::to_string(play_h)
+        );
+    };
+
+    const fs::path own_file = user_folder_ / std::string(library::keys_folder_name) /
+                              library::own_folder_name("oa-default") /
+                              std::string(oakeys::manifest_file);
+    std::error_code remove_error;
+    fs::remove(own_file, remove_error);
+    reread_key_bindings();
+
+    start_benchmark_skirmish();
+    match_layout_ = lay_out_match(options_.match_width, options_.match_height);
+    spawn_combat_armies(kArmy);
+    render_match_surface();
+    const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+    const fs::path pictures = user_folder_;
+
+    // Outside photo mode Ctrl+F9 is the screenshot.
+    const Shots before_shot = count_shots(pictures);
+    tap(SDL_SCANCODE_F9, SDL_KMOD_LCTRL);
+    const Shots after_shot = count_shots(pictures);
+    require(after_shot.pcx == before_shot.pcx + 1, "Ctrl+F9 wrote no screenshot");
+    require(after_shot.png == before_shot.png, "Ctrl+F9 wrote a photo outside photo mode");
+    require(!photo_mode(), "Ctrl+F9 entered photo mode");
+
+    // F9 and Enter in one input batch, before any photo-mode frame. Off.
+    // 1280x720 is the window the review measured: the play battlefield is
+    // smaller, and the photo is the window.
+    size_window(1280, 720);
+    const uint32_t play_w = match_world_cpu_.width;
+    const uint32_t play_h = match_world_cpu_.height;
+    const Shots before_same = count_shots(pictures);
+    tap(SDL_SCANCODE_F9);
+    tap(SDL_SCANCODE_RETURN);
+    require(photo_mode() && photo_frozen(), "F9 and Enter did not open photo mode frozen");
+    require(
+        count_shots(pictures).png == before_same.png,
+        "a photo was written before a photo-mode frame"
+    );
+    show_frame();
+    wait_for_photos();
+    require(count_shots(pictures).png == before_same.png + 1, "entering wrote no photo");
+    const DecodedPng entered = decode_png(photo_file());
+    window_photo(entered, play_w, play_h);
+    show_frame();
+    take_photo();
+    wait_for_photos();
+    const DecodedPng later = decode_png(photo_file());
+    require(entered.rows == later.rows, "a photo on entering differs from the next frozen frame");
+
+    tap(SDL_SCANCODE_SLASH, kPrimaryModifier);
+    show_frame();
+    const std::string listed = overlay_words();
+    require(listed.find("Keys in photo mode") != std::string::npos, listed);
+    require(listed.find("Take photo") != std::string::npos, listed);
+    require(listed.find("\nAccept ") == std::string::npos, listed);
+    require(listed.find("\nPress ") == std::string::npos, listed);
+    require(listed.find("\nPage up ") == std::string::npos, listed);
+    require(listed.find("\nPage down ") == std::string::npos, listed);
+    // Only keys that answer in photo mode: the camera, the speed, Escape.
+    require(listed.find("\nPan up ") != std::string::npos, listed);
+    require(listed.find("\nSpeed up ") != std::string::npos, listed);
+    require(listed.find("\nBack ") != std::string::npos, listed);
+    require(listed.find("\nOpen chat ") == std::string::npos, listed);
+    require(listed.find("\nStatus strip ") == std::string::npos, listed);
+    require(listed.find("\nScreenshot ") == std::string::npos, listed);
+    require(listed.find("\nUnit info ") == std::string::npos, listed);
+    const Shots before_open = count_shots(pictures);
+    take_photo();
+    wait_for_photos();
+    require(count_shots(pictures).png == before_open.png + 1, "the open panel wrote no photo");
+    const DecodedPng open_panel = decode_png(photo_file());
+    tap(SDL_SCANCODE_SLASH, kPrimaryModifier);
+    require(
+        oa_layer().find(oa::ui::key_editor::name_keys_overlay) == nullptr,
+        "Primary+/ did not close the keys overlay"
+    );
+    take_photo();
+    wait_for_photos();
+    const DecodedPng closed_panel = decode_png(photo_file());
+    require(open_panel.rows == closed_panel.rows, "the keys overlay is in the photo");
+    tap(SDL_SCANCODE_F9);
+    require(!photo_mode(), "F9 did not leave after the keys overlay");
+    require(
+        oa_layer().find(oa::ui::key_editor::name_keys_overlay) == nullptr,
+        "leaving kept a keys overlay opened in photo mode"
+    );
+
+    tap(SDL_SCANCODE_F9);
+    require(photo_mode() && photo_frozen(), "F9 did not open photo mode frozen");
+    tap(SDL_SCANCODE_SPACE);
+    require(
+        photo_mode() && !photo_frozen() && photo_slow_speed() == 0,
+        "Space did not let the frozen clock run"
+    );
+    tap(SDL_SCANCODE_MINUS);
+    require(photo_slow_speed() == 9, "speed down at the match's speed did not start Slow 9");
+    tap(SDL_SCANCODE_EQUALS);
+    require(
+        photo_slow_speed() == 0 && !photo_frozen(),
+        "speed up from Slow 9 did not run at the match's speed"
+    );
+    tap(SDL_SCANCODE_EQUALS);
+    require(
+        photo_slow_speed() == 0 && !photo_frozen(), "speed up at the match's speed slowed the clock"
+    );
+    tap(SDL_SCANCODE_SPACE);
+    require(photo_frozen(), "Space did not freeze the running clock");
+
+    const uint32_t tick_before = match_->state().game.tick;
+    tap(SDL_SCANCODE_PERIOD);
+    require(match_->state().game.tick == tick_before + 1, "the step did not advance one tick");
+    require(photo_frozen() && photo_shutter_eighth() == 8, "the step did not freeze on the tick");
+    tap(SDL_SCANCODE_COMMA, SDL_KMOD_LSHIFT);
+    require(photo_shutter_eighth() == 7, "Shift+, did not move the shutter back");
+    tap(SDL_SCANCODE_PERIOD, SDL_KMOD_LSHIFT);
+    require(photo_shutter_eighth() == 8, "Shift+. did not move the shutter on");
+
+    tap(SDL_SCANCODE_EQUALS);
+    require(photo_slow_speed() == 1 && !photo_frozen(), "speed up did not start slow motion");
+    tap(SDL_SCANCODE_SPACE);
+    require(photo_frozen() && photo_slow_speed() == 0, "Space did not freeze slow motion");
+
+    const float zoom_before = match_zoom_target_;
+    tap(SDL_SCANCODE_PAGEUP);
+    require(match_zoom_target_ > zoom_before, "PageUp did not zoom in");
+    require(photo_mode(), "PageUp left photo mode");
+
+    const View turned = read_view();
+    tap(SDL_SCANCODE_LEFT, SDL_KMOD_LALT);
+    require(same_view(turned, read_view()), "Alt+Left moved the camera");
+    const std::string turn_reason =
+        std::string(oa::data::languages::interface_text("Needs Full acceleration"));
+    require(status_.find(turn_reason) != std::string::npos, "Alt+Left gave no reason");
+    require(photo_mode(), "Alt+Left left photo mode");
+
+    const std::vector<UnitOrders> orders = read_orders();
+    const View quiet = read_view();
+    const int offers_before_match = clipboard_catch.offers;
+    tap(SDL_SCANCODE_S);
+    click_left(24.0F, 24.0F);
+    tap(SDL_SCANCODE_C, SDL_KMOD_LCTRL);
+    require(read_orders() == orders, "a match key changed a unit");
+    require(same_view(quiet, read_view()), "a match key moved the view");
+    require(!chat_composing_, "a match key opened the chat line");
+    require(clipboard_catch.offers == offers_before_match, "Ctrl+C copied a photo");
+    require(photo_mode(), "a match key left photo mode");
+
+    const Shots before_photo = count_shots(pictures);
+    tap(SDL_SCANCODE_RETURN);
+    show_frame();
+    wait_for_photos();
+    const Shots after_photo = count_shots(pictures);
+    require(after_photo.png == before_photo.png + 1, "Enter wrote no photo");
+    require(after_photo.pcx == before_photo.pcx, "Enter wrote a screenshot");
+    require(photo_mode() && !chat_composing_, "Enter opened the chat line");
+    const int offered = clipboard_catch.offers;
+    tap(SDL_SCANCODE_C, kPrimaryModifier);
+    require(clipboard_catch.offers == offered + 1, "Primary+C did not offer the photo");
+    require(photo_mode(), "Primary+C left photo mode");
+
+    // Ctrl+F9 is still Take photo on the default layout. The scratch layout
+    // below keeps only K, so this press has to happen before that layout.
+    const Shots before_inside = count_shots(pictures);
+    tap(SDL_SCANCODE_F9, SDL_KMOD_LCTRL);
+    wait_for_photos();
+    const Shots after_inside = count_shots(pictures);
+    require(after_inside.png == before_inside.png + 1, "Ctrl+F9 wrote no photo");
+    require(after_inside.pcx == before_inside.pcx, "Ctrl+F9 wrote a screenshot in photo mode");
+    require(photo_mode(), "Ctrl+F9 left photo mode");
+
+    tap(SDL_SCANCODE_F9);
+    require(!photo_mode(), "F9 did not leave photo mode");
+    tap(SDL_SCANCODE_F9);
+    require(photo_mode(), "F9 did not enter again");
+    tap(SDL_SCANCODE_ESCAPE);
+    require(!photo_mode(), "Escape did not leave photo mode");
+
+    oakeys::Manifest manifest;
+    manifest.format = oakeys::format_version;
+    manifest.id = "own-oa-default";
+    manifest.name = "Your changes";
+    manifest.version.major = 1;
+    manifest.version.minor = 0;
+    manifest.version.parts = 2;
+    manifest.author.name = "You";
+    manifest.tags = {"own"};
+    manifest.base = oakeys::Base::oa_default;
+    oakeys::BindingEntry binding;
+    binding.action = "photo.capture";
+    binding.chords.push_back(oakeys::ChordText{"K", 0, 0});
+    manifest.bindings.push_back(std::move(binding));
+    std::error_code made;
+    fs::create_directories(own_file.parent_path(), made);
+    require(!made, "the own layout folder was not made");
+    std::ofstream out(own_file, std::ios::binary | std::ios::trunc);
+    require(static_cast<bool>(out), "the own layout was not opened");
+    out << oakeys::write_manifest(manifest);
+    require(static_cast<bool>(out), "the own layout was not written");
+    out.close();
+    reread_key_bindings();
+
+    tap(SDL_SCANCODE_F9);
+    require(photo_mode(), "F9 did not enter on the own layout");
+    const Shots before_k = count_shots(pictures);
+    tap(SDL_SCANCODE_K);
+    show_frame();
+    wait_for_photos();
+    const Shots after_k = count_shots(pictures);
+    require(after_k.png == before_k.png + 1, "K wrote no photo");
+    tap(SDL_SCANCODE_RETURN);
+    wait_for_photos();
+    require(count_shots(pictures).png == after_k.png, "Enter still took a photo");
+    require(photo_mode() && !chat_composing_, "Enter opened the chat line");
+    tap(SDL_SCANCODE_ESCAPE);
+    require(!photo_mode(), "Escape did not leave the own layout");
+
+    require(
+        file_bytes(options_.preferences_file) == preferences_settled, "the preferences file changed"
+    );
+    if (photo_mode())
+        leave_photo_mode();
+    if (match_ != nullptr) {
+        leave_match();
+        load(Screen::main_menu);
+    }
+    std::cout << "photo keys: ok" << std::endl;
+}
+
 int Runtime::check_photo() {
     switch (options_.photo_group) {
     case PhotoGroup::mode:
@@ -489,6 +1249,9 @@ int Runtime::check_photo() {
         return 0;
     case PhotoGroup::live:
         return check_photo_live();
+    case PhotoGroup::keys:
+        check_photo_keys();
+        return 0;
     }
     throw std::runtime_error("photo mode check: unknown group");
 }
@@ -1078,10 +1841,16 @@ void Runtime::check_photo_mode() {
         require(photo_mode(), "F4 left photo mode");
         tap(SDL_SCANCODE_SLASH, kPrimaryModifier);
         require(
-            oa_layer().find(oa::ui::key_editor::name_keys_overlay) == nullptr,
-            "the keys overlay opened"
+            oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr,
+            "the keys overlay did not open"
         );
         require(photo_mode(), "the keys overlay key left photo mode");
+        tap(SDL_SCANCODE_SLASH, kPrimaryModifier);
+        require(
+            oa_layer().find(oa::ui::key_editor::name_keys_overlay) == nullptr,
+            "the keys overlay stayed open"
+        );
+        require(photo_mode(), "closing the keys overlay left photo mode");
 
         // The resize event is the one a window system posts. The layout it
         // lays out is read from the window, so the window changes first.
@@ -2184,6 +2953,7 @@ void Runtime::check_photo_capture() {
     };
 
     const PictureSweep picture_sweep(*this);
+    const ClipboardHookHold clipboard_hold;
     const auto fail = [](const std::string& what) {
         throw std::runtime_error("photo capture check: " + what);
     };
@@ -2279,9 +3049,8 @@ void Runtime::check_photo_capture() {
         );
     };
     const auto saved_name = [&] {
-        constexpr std::string_view kSavedStatus = "Saved ";
-        require(status_.starts_with(kSavedStatus), "status is " + status_);
-        const std::string saved(status_.substr(kSavedStatus.size()));
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
         require(
             saved.find('/') == std::string::npos && saved.find('\\') == std::string::npos, saved
         );
@@ -2433,8 +3202,9 @@ void Runtime::check_photo_capture() {
         take_photo();
         wait_for_photos();
         const fs::path shots = photo_shots_folder();
-        const std::vector<uint8_t> rows =
-            png_rgb(shots / oa::platform::path_from_utf8(saved_name()), held.width, held.height);
+        const fs::path held_file = shots / oa::platform::path_from_utf8(saved_name());
+        const std::vector<uint8_t> rows = png_rgb(held_file, held.width, held.height);
+        require_held_moment(held_file, held_tick);
         // At native density the window scales the held copy up and the photo
         // keeps the copy's size, so the window is compared only where it
         // shows one pixel for each.
@@ -2456,8 +3226,127 @@ void Runtime::check_photo_capture() {
         std::fflush(stdout);
     };
 
+    // F9 and Enter in one batch, Full. The photo is the window, not the play
+    // battlefield the selection box was drawn on, and it matches the next
+    // frozen frame.
+    const auto shoot_entering = [&] {
+        start_fight();
+        clear_pictures();
+        // The window the review measured. The play frame keeps the selection
+        // box; the photo is the window, once a photo-mode frame is presented.
+        // The size goes back afterwards, so the pinned Full photo is unchanged.
+        int was_w = 0;
+        int was_h = 0;
+        require(
+            sdl_.window != nullptr && SDL_GetWindowSize(sdl_.window, &was_w, &was_h) &&
+                SDL_SetWindowSize(sdl_.window, 1280, 720) && SDL_SyncWindow(sdl_.window),
+            std::string("the window did not resize: ") + SDL_GetError()
+        );
+        SDL_Event resized{};
+        resized.type = SDL_EVENT_WINDOW_RESIZED;
+        resized.window.windowID = SDL_GetWindowID(sdl_.window);
+        resized.window.data1 = 1280;
+        resized.window.data2 = 720;
+        bool running = true;
+        dispatch_event(resized, running);
+        require(running, "a resize ended the run");
+        const uint32_t play_w = match_world_cpu_.width;
+        const uint32_t play_h = match_world_cpu_.height;
+        const auto tap_key = [&](SDL_Scancode scancode) {
+            SDL_Event event{};
+            event.key.windowID = SDL_GetWindowID(sdl_.window);
+            event.key.scancode = scancode;
+            event.key.key = SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, true);
+            event.key.mod = SDL_KMOD_NONE;
+            for (const bool down : {true, false}) {
+                event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                event.key.down = down;
+                event.key.repeat = false;
+                dispatch_event(event, running);
+            }
+            require(running, "a key ended the run");
+        };
+        const auto pngs = [&] {
+            int count = 0;
+            const fs::path folder = photo_shots_folder();
+            std::error_code error;
+            if (!fs::exists(folder, error))
+                return 0;
+            for (const fs::directory_entry& entry : fs::directory_iterator(folder, error)) {
+                const fs::path ext = entry.path().extension();
+                if (ext == ".png" || ext == ".PNG")
+                    ++count;
+            }
+            return count;
+        };
+        const int before = pngs();
+        tap_key(SDL_SCANCODE_F9);
+        tap_key(SDL_SCANCODE_RETURN);
+        require(photo_mode() && photo_frozen(), "F9 and Enter did not open photo mode frozen");
+        require(pngs() == before, "a photo was written before a photo-mode frame");
+        render_match_surface();
+        present_match_layers();
+        wait_for_photos();
+        require(pngs() == before + 1, "entering wrote no photo");
+        const std::string entered_name = saved_photo_name(status_);
+        require(!entered_name.empty(), "status is " + status_);
+        const DecodedPng entered =
+            decode_png(photo_shots_folder() / oa::platform::path_from_utf8(entered_name));
+        int window_w = 0;
+        int window_h = 0;
+        require(
+            sdl_.window != nullptr && SDL_GetWindowSize(sdl_.window, &window_w, &window_h),
+            "the window's size could not be read"
+        );
+        int output_w = 0;
+        int output_h = 0;
+        if (sdl_.renderer != nullptr)
+            std::ignore = SDL_GetRenderOutputSize(sdl_.renderer, &output_w, &output_h);
+        const bool window_sized =
+            (entered.width == static_cast<uint32_t>(window_w) &&
+             entered.height == static_cast<uint32_t>(window_h)) ||
+            (output_w > 0 && entered.width == static_cast<uint32_t>(output_w) &&
+             entered.height == static_cast<uint32_t>(output_h));
+        require(
+            window_sized,
+            "photo " + std::to_string(entered.width) + "x" + std::to_string(entered.height) +
+                " window " + std::to_string(window_w) + "x" + std::to_string(window_h) +
+                " output " + std::to_string(output_w) + "x" + std::to_string(output_h) + " play " +
+                std::to_string(play_w) + "x" + std::to_string(play_h)
+        );
+        require(
+            entered.width != play_w || entered.height != play_h, "the photo is the play battlefield"
+        );
+        render_match_surface();
+        present_match_layers();
+        take_photo();
+        wait_for_photos();
+        const std::string later_name = saved_photo_name(status_);
+        require(!later_name.empty(), "status is " + status_);
+        const DecodedPng later =
+            decode_png(photo_shots_folder() / oa::platform::path_from_utf8(later_name));
+        require(
+            entered.rows == later.rows, "a photo on entering differs from the next frozen frame"
+        );
+        end_fight();
+        clear_pictures();
+        require(
+            sdl_.window != nullptr && SDL_SetWindowSize(sdl_.window, was_w, was_h) &&
+                SDL_SyncWindow(sdl_.window),
+            std::string("the window did not resize: ") + SDL_GetError()
+        );
+        SDL_Event restored{};
+        restored.type = SDL_EVENT_WINDOW_RESIZED;
+        restored.window.windowID = SDL_GetWindowID(sdl_.window);
+        restored.window.data1 = was_w;
+        restored.window.data2 = was_h;
+        dispatch_event(restored, running);
+        require(running, "restoring the window ended the run");
+    };
+
     clear_pictures();
     if (asked == HardwareAcceleration::full) {
+        shoot_entering();
         open_photo();
         set_display_gamma(kCheckGamma);
         require(!gamma_identity_, "the gamma is the identity");
@@ -2571,6 +3460,34 @@ void Runtime::check_photo_capture() {
                     rows, width, height, presented, match_layout_.left, match_layout_.top
                 );
                 photo_sha = sha256_hex(rows);
+                require(photo_player_names(), "player names were off");
+                require(
+                    preference_values_.find("open-annihilation.photo.player-names") ==
+                        preference_values_.end(),
+                    "player names were stored before they were changed"
+                );
+                const std::vector<RosterEntry> roster = photo_roster(match_->state());
+                const uint32_t photo_tick = match_->state().game.tick;
+                require_photo_chunks(
+                    shots / oa::platform::path_from_utf8(first_name),
+                    width,
+                    height,
+                    photo_tick,
+                    selected_map_name_runtime_,
+                    true,
+                    roster,
+                    shots_text
+                );
+                require_photo_chunks(
+                    shots / oa::platform::path_from_utf8(second_name),
+                    width,
+                    height,
+                    photo_tick,
+                    selected_map_name_runtime_,
+                    true,
+                    roster,
+                    shots_text
+                );
                 // One photo with the played profile id set to ridge. The
                 // profile is put back before the next frame is drawn.
                 {
@@ -2599,11 +3516,104 @@ void Runtime::check_photo_capture() {
                     std::ignore = picture_rows(saved_name(), ridge_folder, expected, width, height);
                     require_no_partials(ridge_folder);
                 }
+                const auto kept_values = preference_values_;
+                set_photo_player_names(false);
+                require(!photo_player_names(), "player names stayed on");
+                take_photo();
+                wait_for_photos();
+                require_photo_chunks(
+                    shots / oa::platform::path_from_utf8(saved_name()),
+                    width,
+                    height,
+                    match_->state().game.tick,
+                    selected_map_name_runtime_,
+                    false,
+                    roster,
+                    shots_text
+                );
+                set_photo_player_names(true);
+                preference_values_ = kept_values;
+                preferences_dirty_ = false;
+                if (options_.preferences_file.has_value()) {
+                    if (prefs_before.empty()) {
+                        std::error_code remove_error;
+                        fs::remove(*options_.preferences_file, remove_error);
+                    } else {
+                        std::ofstream restored(
+                            *options_.preferences_file, std::ios::binary | std::ios::trunc
+                        );
+                        require(
+                            static_cast<bool>(restored),
+                            "the preferences file could not be restored"
+                        );
+                        restored.write(
+                            prefs_before.data(), static_cast<std::streamsize>(prefs_before.size())
+                        );
+                        restored.close();
+                        require(
+                            static_cast<bool>(restored),
+                            "the preferences file could not be restored"
+                        );
+                    }
+                }
+                require(
+                    file_bytes(options_.preferences_file) == prefs_before,
+                    "the preferences file changed"
+                );
+                // One photo is offered once, and none after the switch is
+                // turned off. The switch and the preferences file are put back.
+                const char* expected_mime = photo_clipboard_mime(this_photo_clipboard_system());
+                require(expected_mime != nullptr, "this system has no image clipboard");
+                const int offered_before = clipboard_catch.offers;
+                take_photo();
+                wait_for_photos();
+                require(
+                    clipboard_catch.offers == offered_before + 1, "the photo was not offered once"
+                );
+                require(clipboard_catch.mime == expected_mime, clipboard_catch.mime);
+                {
+                    const auto values = preference_values_;
+                    const bool dirty = preferences_dirty_;
+                    const std::vector<char> bytes = file_bytes(options_.preferences_file);
+                    set_photo_copy(false);
+                    require(!photo_copy(), "the switch stayed on");
+                    const int offered_held = clipboard_catch.offers;
+                    take_photo();
+                    wait_for_photos();
+                    require(
+                        clipboard_catch.offers == offered_held,
+                        "a photo was offered with the switch off"
+                    );
+                    // An explicit copy copies whatever the switch says.
+                    copy_last_photo();
+                    require(
+                        clipboard_catch.offers == offered_held + 1,
+                        "an explicit copy was not offered with the switch off"
+                    );
+                    require(status_.ends_with("  Copied"), status_);
+                    preference_values_ = values;
+                    if (options_.preferences_file.has_value()) {
+                        std::ofstream restored(
+                            *options_.preferences_file, std::ios::binary | std::ios::trunc
+                        );
+                        require(
+                            static_cast<bool>(restored), "the preferences file was not put back"
+                        );
+                        restored.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                        require(
+                            static_cast<bool>(restored), "the preferences file was not put back"
+                        );
+                    }
+                    preferences_dirty_ = dirty;
+                    require(photo_copy(), "the switch was not put back");
+                }
                 require(
                     file_bytes(options_.preferences_file) == prefs_before,
                     "the preferences file changed"
                 );
                 require_no_partials(shots);
+                std::printf("photo clipboard: %s once\n", expected_mime);
+                std::fflush(stdout);
             }
             if (tick == kLeaveTick)
                 leave_photo_mode();
@@ -2704,6 +3714,7 @@ int Runtime::check_photo_live() {
     };
 
     const PictureSweep picture_sweep(*this);
+    const ClipboardHookHold clipboard_hold;
     const auto fail = [](const std::string& what) {
         throw std::runtime_error("photo capture check: " + what);
     };
@@ -2806,9 +3817,8 @@ int Runtime::check_photo_live() {
         }
         take_photo();
         wait_for_photos();
-        constexpr std::string_view kSavedStatus = "Saved ";
-        require(status_.starts_with(kSavedStatus), "status is " + status_);
-        const std::string saved(status_.substr(kSavedStatus.size()));
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
         const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
         std::error_code exists_error;
         require(fs::is_regular_file(file, exists_error), saved);
@@ -2871,17 +3881,18 @@ int Runtime::check_photo_live() {
             render();
         }
         const auto saved_file = [&] {
-            constexpr std::string_view kSavedStatus = "Saved ";
-            require(status_.starts_with(kSavedStatus), "status is " + status_);
-            const fs::path file = photo_shots_folder() /
-                                  oa::platform::path_from_utf8(status_.substr(kSavedStatus.size()));
+            const std::string saved = saved_photo_name(status_);
+            require(!saved.empty(), "status is " + status_);
+            const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
             std::error_code exists_error;
             require(fs::is_regular_file(file, exists_error), status_);
             return file;
         };
         take_photo();
         wait_for_photos();
-        const std::vector<uint8_t> rows = png_rgb(saved_file(), held.width, held.height);
+        const fs::path held_file = saved_file();
+        const std::vector<uint8_t> rows = png_rgb(held_file, held.width, held.height);
+        require_held_moment(held_file, held_tick);
         if (window_one_to_one(sdl_.window))
             require_presented_battlefield(
                 rows, held.width, held.height, presented, match_layout_.left, match_layout_.top

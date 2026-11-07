@@ -627,6 +627,23 @@ enum class ReplaySort : uint8_t {
 /// How many sorts there are.
 inline constexpr std::size_t replay_sort_total = 4;
 
+/// Which list the Replays section shows.
+enum class ReplaySource : uint8_t {
+    computer,   ///< the replays in Recordings
+    core_prime, ///< the replays Core Prime lists
+};
+
+/// How Core Prime's list is asked for, in the order the section list shows them.
+enum class CorePrimeFilter : uint8_t {
+    latest,    ///< the newest first
+    longest,   ///< the longest game first
+    downloads, ///< the most downloaded first
+    planet,    ///< one planet
+};
+
+/// How many Core Prime filters there are.
+inline constexpr std::size_t core_prime_filter_total = 4;
+
 /// The kinds of game the engine itself records, in the kind menu's order,
 /// after All kinds and before the kinds extensions register.
 inline constexpr std::array<std::string_view, 3> engine_replay_kinds{
@@ -644,12 +661,16 @@ enum class RecordedResult : uint8_t {
 };
 
 /// One player's result and totals, in the same order as the replay's players.
-/// The app fills it from the index pass. The model does not read the timeline.
+/// The app fills it from the index pass, or from Core Prime's list for a
+/// replay that is only there. The model does not read the timeline.
 struct PlayerStanding {
     RecordedResult result{RecordedResult::none}; ///< that player's result
     bool known{};                                ///< kills and losses were in the timeline
-    uint32_t kills{};                            ///< units destroyed
-    uint32_t losses{};                           ///< units lost
+    /// Only the kills are known, as Core Prime's list gives them: the card
+    /// says the kills and no losses. Read only while `known`.
+    bool kills_only{};
+    uint32_t kills{};  ///< units destroyed
+    uint32_t losses{}; ///< units lost
 };
 
 /// One mark on the card's timeline strip.
@@ -683,6 +704,12 @@ struct ReplayRow {
     /// A map named only by its title, with no package, is left out of the
     /// chip and the card: Watch still refuses that as it does today.
     std::vector<oa::data::replays::ContentGap> gaps{};
+    /// How many times Core Prime says this replay was downloaded. 0 for a
+    /// replay that is only on this computer.
+    int64_t downloads{};
+    /// The `.oademo` is already in `Recordings/Core Prime`. Download stays
+    /// disabled and says so.
+    bool saved_here{};
 };
 
 /// What the Replays section is built from, beside the Library's other inputs.
@@ -726,14 +753,46 @@ struct ReplayInputs {
     bool fetching{};
     std::string fetch_path{};
     std::string fetch_sentence{};
+    /// The replays Core Prime's list has given so far. A row's path is the
+    /// replay's id. Empty while the section shows this computer.
+    std::vector<ReplayRow> core_rows{};
+    /// The planets named by the replays loaded so far, in byte order.
+    std::vector<std::string> planets{};
+    /// How many replays the current Core Prime filter matches. 0 until a page arrives.
+    int64_t core_total{};
+    bool core_loading{};     ///< a page is being read
+    bool core_offline{};     ///< Core Prime could not be reached
+    bool core_unreadable{};  ///< the list's answer could not be read
+    bool core_unavailable{}; ///< Core Prime said its replays are not available
+    /// A sentence the list shows under its title: the unavailable sentence,
+    /// or why a download was refused.
+    std::string core_notice{};
+    bool core_downloading{};        ///< a replay's file is being fetched
+    std::string core_download_id{}; ///< the replay being fetched
+    /// The fetch is waiting on a check or a 429. That replay's Download reads Cancel.
+    bool core_download_waiting{};
+    /// The replays whose Download or Watch waits behind the file being
+    /// fetched, in the order they will be fetched. Each one's Download reads
+    /// Getting the replay…, and takes no press.
+    std::vector<std::string> core_queued{};
+    /// Each filter's own total, once that list has been read. Unset until then,
+    /// and the section list shows the word with no number.
+    std::optional<int64_t> core_latest_total{};
+    std::optional<int64_t> core_longest_total{};
+    std::optional<int64_t> core_downloads_total{};
+    /// The chosen planet's total, once that planet's list has been read.
+    std::optional<int64_t> core_planet_total{};
 };
 
 /// The Replays section's own state, kept as the inputs change.
 struct ReplayView {
-    ReplayFilter filter{ReplayFilter::this_month}; ///< the filter shown
-    std::string kind{};                            ///< the kind shown; empty for All kinds
-    ReplaySort sort{ReplaySort::newest};           ///< the order
-    std::vector<std::size_t> visible{};            ///< indexes into the rows, in the order shown
+    ReplayFilter filter{ReplayFilter::this_month};        ///< the filter shown
+    std::string kind{};                                   ///< the kind shown; empty for All kinds
+    ReplaySort sort{ReplaySort::newest};                  ///< the order
+    ReplaySource source{ReplaySource::computer};          ///< which list is shown
+    CorePrimeFilter core_filter{CorePrimeFilter::latest}; ///< Core Prime's filter
+    std::string planet{};               ///< the planet By planet shows; empty until one is chosen
+    std::vector<std::size_t> visible{}; ///< indexes into the rows, in the order shown
     /// The replay the details card shows, by its path. None when no row shows.
     std::optional<std::string> selected{};
     /// The replays marked for Keep, by path; the selected one among them.
@@ -744,6 +803,8 @@ struct ReplayView {
     /// said it. The card shows it while that replay is selected.
     std::string refusal{};
     std::string refused_path{}; ///< the replay the refusal is about
+    /// The selection of the list that is not shown, so the switch can return to it.
+    std::optional<std::string> other_selected{};
     /// Delete was pressed and waits for the confirm button beside it.
     /// Choosing another replay clears it. Nothing is deleted until that button.
     bool delete_armed{false};
@@ -2159,6 +2220,10 @@ enum class Action : uint8_t {
     export_browse_open,
     /// USE THIS FOLDER in the chooser. The host writes into the folder listed.
     export_browse_use,
+    /// DOWNLOAD on a replay Core Prime lists. The host fetches its `.oademo`.
+    download_replay,
+    /// BROWSE CORE PRIME'S REPLAYS in the empty section. The section shows that list.
+    browse_core_prime,
 };
 
 /// Returns the action an expansion's download arrow asks for.

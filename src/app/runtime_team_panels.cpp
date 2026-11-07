@@ -16,14 +16,17 @@
 #include "oa/ui/gui_input.hpp"
 #include "oa/ui/gui_input/gadget_panel.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/ui/hud/chat_panel.hpp"
 #include "oa/ui/hud/ingame_menu.hpp"
 #include "oa/ui/hud/order_panel.hpp"
+#include "oa/ui/hud/shape_cues.hpp"
 #include "oa/ui/hud/share_panel.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/sim/speed.hpp"
 #include "oa/ui/hud/team_panels.hpp"
+#include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include <algorithm>
 #include <array>
@@ -952,6 +955,132 @@ void Runtime::click_team_panel(std::string_view clicked) {
             resume_match_pause();
         return;
     }
+    }
+}
+
+void Runtime::stamp_colour_cell_markers(
+    renderer::Surface& surface,
+    const oa::ui::gui_layout::Layout& layout,
+    std::span<const uint8_t> palette,
+    bool shape_only
+) {
+    if (!oa::present::colour_vision::shape_cues_active())
+        return;
+    if (surface.width == 0 || surface.height == 0 || surface.rgb.empty())
+        return;
+    const int picture_w = static_cast<int>(surface.width);
+    const int picture_h = static_cast<int>(surface.height);
+    for (const auto& gadget : layout.gadgets) {
+        const auto& common = gadget.common;
+        if (common.active == 0 || common.width <= 0 || common.height <= 0)
+            continue;
+        // LOGO and one digit, or Color and one digit. A team panel numbers
+        // LOGO by the row; the row's LIVEPLYR line carries the seat.
+        const auto same_letter = [](char value, char upper) {
+            const auto lower = static_cast<char>(upper - 'A' + 'a');
+            return value == upper || value == lower;
+        };
+        const auto named = [&](std::string_view name, std::string_view prefix) {
+            if (name.size() != prefix.size() + 1)
+                return false;
+            for (std::size_t letter = 0; letter < prefix.size(); ++letter)
+                if (!same_letter(name[letter], prefix[letter]))
+                    return false;
+            const char digit = name.back();
+            return digit >= '0' && digit <= '9';
+        };
+        const bool logo = named(common.name, "LOGO");
+        if (!logo && !named(common.name, "Color"))
+            continue;
+        int player = common.name.back() - '0';
+        bool seated = false;
+        if (logo) {
+            const int top = common.y;
+            const int bottom = static_cast<int>(common.y) + common.height;
+            for (const auto& other : layout.gadgets) {
+                if (!named(other.common.name, "LIVEPLYR"))
+                    continue;
+                const int row_top = other.common.y;
+                const int row_bottom = static_cast<int>(other.common.y) + other.common.height;
+                if (row_bottom <= top || bottom <= row_top)
+                    continue;
+                player = other.common.name.back() - '0';
+                seated = true;
+                break;
+            }
+        }
+        // The colour number, not the pixels. A team panel's row shows the
+        // seat's colour. A battle-room LOGO and a skirmish Color show that
+        // frame: the control's stage, or the frame this screen stored.
+        int colour_number = -1;
+        if (seated && match_ && player >= 0 && player < OA_PLAYER_COUNT) {
+            const auto& world = match_->state();
+            const PlayerSetupInfo* info = world_player_info(&world, &world.game.players[player]);
+            if (info != nullptr && info->color < OA_PLAYER_COUNT)
+                colour_number = info->color;
+        }
+        if (colour_number < 0 && !logo) {
+            const auto frame = widget_gaf_frames_.find(common.name);
+            if (frame != widget_gaf_frames_.end() && frame->second < OA_PLAYER_COUNT)
+                colour_number = static_cast<int>(frame->second);
+        }
+        if (colour_number < 0 && logo) {
+            if (const std::optional<uint8_t> stage =
+                    oa::ui::frontend_multiplayer::multiplayer_control_stage(common.name);
+                stage.has_value() && *stage < OA_PLAYER_COUNT)
+                colour_number = *stage;
+            else if (
+                const auto frame = widget_gaf_frames_.find(common.name);
+                frame != widget_gaf_frames_.end() && frame->second < OA_PLAYER_COUNT
+            )
+                colour_number = static_cast<int>(frame->second);
+        }
+        if (colour_number < 0)
+            continue;
+        const uint8_t index = oa::ui::hud::colour_dot_index(static_cast<uint8_t>(colour_number));
+        const auto entry = static_cast<std::size_t>(index) * 4U;
+        if (entry + 2 >= palette.size())
+            continue;
+        const uint8_t red = palette[entry];
+        const uint8_t green = palette[entry + 1];
+        const uint8_t blue = palette[entry + 2];
+        // A name bar is wide enough for the marker at its left, before the
+        // letters. A colour square holds the marker in its middle. The plate
+        // keeps a filled shape visible on the cell's own colour. The battle
+        // room draws the shape alone, so the version on the cell stays readable.
+        const int centre_y = static_cast<int>(common.y) + static_cast<int>(common.height) / 2;
+        if (shape_only) {
+            const int centre_x = static_cast<int>(common.x) + static_cast<int>(common.width) / 2;
+            oa::ui::hud::stamp_compact_marker(
+                surface.rgb.data(),
+                picture_w,
+                picture_h,
+                centre_x,
+                centre_y,
+                player,
+                red,
+                green,
+                blue
+            );
+            continue;
+        }
+        const bool wide = static_cast<int>(common.width) >= oa::ui::hud::kPlayerMarkerWidth + 8;
+        const int centre_x =
+            wide ? static_cast<int>(common.x) + oa::ui::hud::kPlayerMarkerCentreColumn + 1
+                 : static_cast<int>(common.x) + static_cast<int>(common.width) / 2;
+        oa::ui::hud::stamp_player_marker(
+            surface.rgb.data(),
+            picture_w,
+            picture_h,
+            centre_x,
+            centre_y,
+            player,
+            red,
+            green,
+            blue,
+            1,
+            true
+        );
     }
 }
 

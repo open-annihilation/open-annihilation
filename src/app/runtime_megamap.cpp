@@ -12,10 +12,12 @@
 
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/world_renderer.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/sim/selection/shortcuts.hpp"
 #include "oa/ui/hud/megamap.hpp"
+#include "oa/ui/hud/shape_cues.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 
 #include <SDL3/SDL.h>
@@ -577,10 +579,33 @@ void Runtime::draw_megamap() {
                                int32_t cy,
                                uint8_t dot,
                                bool selected,
-                               bool hovered) {
+                               bool hovered,
+                               int seat) {
+        const bool marked =
+            oa::present::colour_vision::shape_cues_active() && seat >= 0 && seat < OA_PLAYER_COUNT;
+        const auto marker_beside = [&](int32_t icon_right) {
+            if (!marked)
+                return;
+            auto& dest = paint_target();
+            if (dest.rgb.empty())
+                return;
+            const auto ink = palette_rgb(dot);
+            oa::ui::hud::stamp_compact_marker(
+                dest.rgb.data(),
+                static_cast<int32_t>(dest.width),
+                static_cast<int32_t>(dest.height),
+                icon_right + 1 + oa::ui::hud::kCompactMarkerCentre,
+                cy,
+                seat,
+                ink[0],
+                ink[1],
+                ink[2]
+            );
+        };
         if (icon.pixels.empty()) {
-            // A missing picture draws a square of the owner's colour.
+            // A missing picture keeps its square. The marker sits beside it.
             fill_hud_rect(cx - 2, cy - 2, 5, 5, dot);
+            marker_beside(cx + 2);
             return;
         }
         const int32_t left = cx - icon.width / 2, top = cy - icon.height / 2;
@@ -596,6 +621,7 @@ void Runtime::draw_megamap() {
                 if (shown)
                     fill_hud_rect(left + x, top + y, 1, 1, *shown);
             }
+        marker_beside(left + icon.width - 1);
     };
     for (uint32_t slot = 0; slot < world.unit_slot_count; ++slot) {
         const oa::Unit& unit = world.units[slot];
@@ -630,8 +656,16 @@ void Runtime::draw_megamap() {
         if (hovered)
             state.hovered = unit.id;
         const bool selected = (unit.flags & OA_UNIT_FLAG_SELECTED) != 0;
+        const int seat =
+            unit.owner_index < OA_PLAYER_COUNT ? static_cast<int>(unit.owner_index) : -1;
         draw_icon(
-            icon, at[0], at[1], hud::player_dot_color(world, unit.owner_index), selected, hovered
+            icon,
+            at[0],
+            at[1],
+            hud::player_dot_color(world, unit.owner_index),
+            selected,
+            hovered,
+            seat
         );
         if (hovered && state.config.options.circle_hover)
             draw_megamap_ring(

@@ -172,6 +172,12 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   caret and its typing. The focused control stays, and the next key still
   acts on it: Return presses it, the arrows move on from it, Space acts on
   it, and the ring shows again there.
+  A `Composite` groups part controls on one axis, a row, a column or a grid,
+  into one stop of the declared order. Tab and Shift+Tab leave it. The arrows
+  along its axis move between its parts and do not wrap. Home and End go to
+  its ends. Return and Space go to the part. The part it lands on is the one
+  it remembers, the chosen tab or row, else the first. `next_in_tab_order`
+  and `focus_toward` return that part, never the composite.
   For automation, `automation_entries` lists the named controls, and
   `automation_parts` lists each control followed by the parts of it that
   take a press of their own (an `AutomationEntry` with `part` set): a
@@ -183,7 +189,9 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   keyboard focus whether or not the ring is drawn; a part is never focused.
   Each entry also carries `role`, `label`, `value_text`, `has_value` and
   `value`, `least`, `most` and `step` (when `has_range`), `place` and
-  `set_size`, `chosen` and `pressed`. The endpoint lists them after `oa.`
+  `set_size`, `chosen` and `pressed`. A named composite is listed too, after
+  those entries, with its role (`tab_list` or `list`) and each part's place
+  in the group, as in "2 of 9". The endpoint lists them after `oa.`
   (docs/automation.md). The screen object, not each control, says whether
   the ring is drawn (`focus_shown`).
 - `looks.hpp`: how a control looks. A look owns its texts. A text field's

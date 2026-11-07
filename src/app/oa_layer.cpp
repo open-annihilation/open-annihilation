@@ -19,7 +19,12 @@
 #include "engine_settings_state.hpp"
 #include "render_state.hpp"
 
+#include "controls.hpp"
+#include "input.hpp"
+#include "oa/app/automation/screen.hpp"
 #include "oa/app/automation_host.hpp"
+#include "oa/app/check_host.hpp"
+#include "oa/app/family_ring.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/mcp_badge.hpp"
 #include "oa/app/render_policy.hpp"
@@ -1116,7 +1121,8 @@ struct Runtime::SettingsScreen final : LayerScreen {
         shown.hovered = dialog->hovered;
         shown.pressed = dialog->pressed;
         shown.focused = dialog->focused;
-        shown.focus_shown = dialog->focused != settings::no_control;
+        shown.focus_shown = dialog->focus_shown;
+        shown.pointer_hid_ring = dialog->pointer_hid_ring;
         shown.finger_shift = {dialog->finger_shift_x, dialog->finger_shift_y};
         return shown;
     }
@@ -3744,6 +3750,370 @@ void draw_badge_text(
 }
 
 } // namespace
+
+namespace {
+
+constexpr std::string_view k_family_prefix = "oa.";
+
+/// Tells whether an OA screen of this dialog draws the kit's own focus ring.
+///
+/// A dialog that is not one of those screens does not. An unknown screen is
+/// treated as drawing its own, so a second ring is not added on top of it.
+///
+/// @param layer the layer
+/// @param dialog the control's dialog
+/// @return true when that screen draws kit::draw_focus_ring
+bool kit_ring_dialog(const OaLayer& layer, std::string_view dialog) {
+    if (dialog.size() <= k_family_prefix.size() || !dialog.starts_with(k_family_prefix))
+        return false;
+    const LayerScreen* screen = layer.find(dialog.substr(k_family_prefix.size()));
+    if (screen == nullptr)
+        return true;
+    return screen->draws_kit_focus_ring();
+}
+
+/// Tells whether the control takes the family's ring.
+///
+/// A gadget of the original screens does. So does a button of an OA screen
+/// that does not draw the kit's ring and that sits in those screens' order.
+/// A screen that draws the kit's ring, and the OA button that has no dialog,
+/// does not.
+///
+/// @param layer the layer
+/// @param control the control
+/// @return true when the family's ring may be drawn around it
+bool takes_family_ring(const OaLayer& layer, const AutomationControl& control) {
+    if (!control.name.starts_with(k_family_prefix))
+        return true;
+    if (!control.dialog.starts_with(k_family_prefix))
+        return false;
+    return !kit_ring_dialog(layer, control.dialog);
+}
+
+/// The control the family's ring is drawn around.
+///
+/// A shown control wins. A control the strip covers is still the focus when
+/// nothing shown is. An extension window takes the ring only when that
+/// window itself holds the focus: a reported first stop stays in the tree
+/// and is not ringed. A shown control of a screen that draws the kit's ring
+/// owns the focus, and nothing under it is ringed.
+///
+/// @param layer the layer
+/// @param controls the screen's controls
+/// @return the control, or null when the ring is not drawn
+AutomationControl*
+family_ring_target(const OaLayer& layer, std::vector<AutomationControl>& controls) {
+    AutomationControl* covered = nullptr;
+    for (AutomationControl& control : controls) {
+        if (!control.focused)
+            continue;
+        if (!takes_family_ring(layer, control)) {
+            if (!control.hidden && control.name.starts_with(k_family_prefix))
+                return nullptr;
+            continue;
+        }
+        if (!control.window.empty() && !control.package_window && !control.holds_focus)
+            continue;
+        if (control.hidden) {
+            if (covered == nullptr)
+                covered = &control;
+            continue;
+        }
+        return &control;
+    }
+    return covered;
+}
+
+/// Where the canvas lies in the window, for a control that is not already
+/// placed in window pixels.
+///
+/// @param placement the window
+/// @return the map; an identity map when the renderer presents no picture
+FamilyWindowMap window_map(const automation::WindowPlacement& placement) {
+    FamilyWindowMap map;
+    map.density = placement.density > 0.0F ? placement.density : 1.0F;
+    map.identity = true;
+    if (placement.renderer == nullptr)
+        return map;
+    int frame_width = 0;
+    int frame_height = 0;
+    SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+    if (!SDL_GetRenderLogicalPresentation(placement.renderer, &frame_width, &frame_height, &mode) ||
+        mode == SDL_LOGICAL_PRESENTATION_DISABLED || frame_width <= 0 || frame_height <= 0)
+        return map;
+    float left = 0.0F;
+    float top = 0.0F;
+    float right = 0.0F;
+    float bottom = 0.0F;
+    if (!automation::canvas_to_window(placement, 0.0F, 0.0F, left, top) ||
+        !automation::canvas_to_window(
+            placement,
+            static_cast<float>(frame_width),
+            static_cast<float>(frame_height),
+            right,
+            bottom
+        ))
+        return map;
+    map.identity = false;
+    map.origin_x = left;
+    map.origin_y = top;
+    map.scale_x = (right - left) / static_cast<float>(frame_width);
+    map.scale_y = (bottom - top) / static_cast<float>(frame_height);
+    return map;
+}
+
+/// The control's box, in window pixels or on the canvas.
+///
+/// @param control the control
+/// @return its box
+FamilyControlBox control_box(const AutomationControl& control) {
+    FamilyControlBox box;
+    box.window_pixels = control.window_pixels;
+    if (control.window_pixels) {
+        box.x = control.window_x;
+        box.y = control.window_y;
+        box.width = control.window_width;
+        box.height = control.window_height;
+        return box;
+    }
+    box.x = control.x;
+    box.y = control.y;
+    box.width = control.width;
+    box.height = control.height;
+    return box;
+}
+
+/// Draws the ring by reading the ground and blending each pixel as the kit does.
+///
+/// @param renderer the renderer, already drawing in window pixels
+/// @param pixels the ring
+/// @param crisp true at a whole scale
+/// @return false when the ground cannot be read
+bool paint_family_ring(
+    SDL_Renderer* renderer, const std::vector<FamilyRingPixel>& pixels, bool crisp
+) {
+    int32_t least_x = pixels.front().x;
+    int32_t least_y = pixels.front().y;
+    int32_t most_x = pixels.front().x;
+    int32_t most_y = pixels.front().y;
+    for (const FamilyRingPixel& pixel : pixels) {
+        least_x = std::min(least_x, pixel.x);
+        least_y = std::min(least_y, pixel.y);
+        most_x = std::max(most_x, pixel.x);
+        most_y = std::max(most_y, pixel.y);
+    }
+    int output_w = 0;
+    int output_h = 0;
+    if (!SDL_GetRenderOutputSize(renderer, &output_w, &output_h) || output_w <= 0 || output_h <= 0)
+        return false;
+    const int left = std::max(least_x, 0);
+    const int top = std::max(least_y, 0);
+    const int right = std::min(most_x + 1, output_w);
+    const int bottom = std::min(most_y + 1, output_h);
+    if (left >= right || top >= bottom)
+        return false;
+    const SDL_Rect rect{left, top, right - left, bottom - top};
+    SDL_Surface* ground = SDL_RenderReadPixels(renderer, &rect);
+    if (ground == nullptr)
+        return false;
+    for (const FamilyRingPixel& pixel : pixels) {
+        const int column = pixel.x - left;
+        const int row = pixel.y - top;
+        if (column < 0 || row < 0 || column >= rect.w || row >= rect.h)
+            continue;
+        uint8_t red = 0;
+        uint8_t green = 0;
+        uint8_t blue = 0;
+        uint8_t alpha = 255;
+        if (!SDL_ReadSurfacePixel(ground, column, row, &red, &green, &blue, &alpha))
+            continue;
+        blend_family_coverage(red, green, blue, pixel.coverage, crisp);
+        std::ignore = SDL_WriteSurfacePixel(ground, column, row, red, green, blue, 255);
+    }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, ground);
+    SDL_DestroySurface(ground);
+    if (texture == nullptr)
+        return false;
+    const SDL_FRect destination{
+        static_cast<float>(rect.x),
+        static_cast<float>(rect.y),
+        static_cast<float>(rect.w),
+        static_cast<float>(rect.h)
+    };
+    std::ignore = SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+    std::ignore = SDL_RenderTexture(renderer, texture, nullptr, &destination);
+    SDL_DestroyTexture(texture);
+    return true;
+}
+
+/// Draws the ring with the renderer's blend, one share at a time.
+///
+/// Used when the ground cannot be read. A full share is opaque. Any other
+/// share is that many 255ths of the ring's colour.
+///
+/// @param renderer the renderer, already drawing in window pixels
+/// @param pixels the ring
+/// @param crisp true at a whole scale
+void blend_family_blocks(
+    SDL_Renderer* renderer, const std::vector<FamilyRingPixel>& pixels, bool crisp
+) {
+    std::ignore = SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    std::vector<uint16_t> drawn;
+    std::vector<SDL_FRect> blocks;
+    for (const FamilyRingPixel& pixel : pixels) {
+        if (std::find(drawn.begin(), drawn.end(), pixel.coverage) != drawn.end())
+            continue;
+        drawn.push_back(pixel.coverage);
+        blocks.clear();
+        for (const FamilyRingPixel& same : pixels) {
+            if (same.coverage != pixel.coverage)
+                continue;
+            blocks.push_back(
+                SDL_FRect{static_cast<float>(same.x), static_cast<float>(same.y), 1.0F, 1.0F}
+            );
+        }
+        uint8_t alpha = 255;
+        if (crisp) {
+            const uint32_t share = std::min<uint32_t>(pixel.coverage, 256U);
+            alpha = share >= 256U ? static_cast<uint8_t>(255)
+                                  : static_cast<uint8_t>((share * 255U + 128U) / 256U);
+        } else
+            alpha = static_cast<uint8_t>(std::min<uint32_t>(pixel.coverage, 255U));
+        std::ignore = SDL_SetRenderDrawColor(
+            renderer, kit::colour::focus.r, kit::colour::focus.g, kit::colour::focus.b, alpha
+        );
+        std::ignore = SDL_RenderFillRects(renderer, blocks.data(), static_cast<int>(blocks.size()));
+    }
+}
+
+} // namespace
+
+void Runtime::stamp_family_focus_shown(std::vector<AutomationControl>& controls) {
+    if (oa_layer_ == nullptr)
+        return;
+    // A button that joins the original screens' order writes its own flag.
+    // The family's rule replaces it, so a hidden ring is not reported shown.
+    for (AutomationControl& control : controls) {
+        if (!takes_family_ring(*oa_layer_, control) || !control.name.starts_with(k_family_prefix))
+            continue;
+        control.focus_shown = false;
+    }
+    if (!oa_layer_->family_ring_shown())
+        return;
+    if (AutomationControl* target = family_ring_target(*oa_layer_, controls))
+        target->focus_shown = true;
+}
+
+void OaLayer::present_family_ring() noexcept {
+    // Hidden, and nothing this frame asked for it, and Always show focus is
+    // off: a screen that opens later is seen when the ring is next shown.
+    if (!family_ring_shown_ && !family_tabbed_ && !always_show_focus())
+        return;
+    SDL_Renderer* renderer = runtime_.sdl_.renderer;
+    if (renderer == nullptr) {
+        // No frame will draw it. Drop the ask so a later open is not kept shown.
+        family_tabbed_ = false;
+        return;
+    }
+    try {
+        std::vector<AutomationControl> controls;
+        const AutomationHost host = automation_host(runtime_);
+        automation::collect_controls(check_host(runtime_), host, controls);
+        FamilyPlace place;
+        place.screen = automation::screen_name(static_cast<ScreenId>(runtime_.screen_));
+        place.dialogs = automation::dialog_names(controls);
+        // A page of the in-game panel is no dialog of the tree: a quick key
+        // that turns the page (O for Options) must hide the ring as well.
+        if (runtime_.screen_ == Screen::match && runtime_.match_hud_)
+            place.panel = runtime_.match_hud_panel_;
+        for (const AutomationControl& control : controls) {
+            if (control.window.empty() || control.package_window)
+                continue;
+            if (std::find(place.windows.begin(), place.windows.end(), control.window) ==
+                place.windows.end())
+                place.windows.push_back(control.window);
+        }
+        // A newly shown screen, dialog, panel page or extension window hides
+        // the ring. Always show focus shows it on that new place. A key that
+        // just asked for the ring shows it there too.
+        bool show = family_ring_shown_;
+        if (always_show_focus()) {
+            if (!family_place_known_ || place != family_place_)
+                show = true;
+        } else if (family_place_known_ && place != family_place_ && !family_tabbed_)
+            show = false;
+        family_ring_shown_ = show;
+        family_tabbed_ = false;
+        if (show) {
+            family_place_ = place;
+            family_place_known_ = true;
+        }
+        if (!show)
+            return;
+        const AutomationControl* focused = family_ring_target(*this, controls);
+        if (focused == nullptr)
+            return;
+        int32_t left = 0;
+        int32_t top = 0;
+        int32_t width = 0;
+        int32_t height = 0;
+        const automation::WindowPlacement placed =
+            automation::window_placement(check_host(runtime_));
+        if (!control_window_rect(
+                control_box(*focused), window_map(placed), left, top, width, height
+            ))
+            return;
+        const int32_t percent = screen_scale_percent();
+        const std::vector<FamilyRingPixel> pixels =
+            family_ring_pixels(left, top, width, height, percent);
+        if (pixels.empty())
+            return;
+        const bool crisp = percent > 0 && percent % 100 == 0;
+        const RenderState kept(renderer);
+        kept.use_window_pixels();
+        if (!paint_family_ring(renderer, pixels, crisp))
+            blend_family_blocks(renderer, pixels, crisp);
+    } catch (const std::exception&) {
+        // A ring that cannot be placed is left undrawn. The frame stays as it was.
+    }
+}
+
+void OaLayer::note_family_opened() noexcept {
+    // A Tab in this same key already asked for the ring. The in-game menu's
+    // Tab is also the console's options key, which opens that menu again and
+    // notes the open after the Tab. The ask stands. Any other open hides the
+    // ring unless Always show focus is on.
+    if (!family_tabbed_)
+        family_ring_shown_ = always_show_focus();
+    family_pointer_known_ = true;
+    family_pointer_x_ = static_cast<int32_t>(std::lround(static_cast<double>(runtime_.pointer_x_)));
+    family_pointer_y_ = static_cast<int32_t>(std::lround(static_cast<double>(runtime_.pointer_y_)));
+}
+
+void OaLayer::note_family_tab() noexcept {
+    family_ring_shown_ = true;
+    family_tabbed_ = true;
+}
+
+void OaLayer::note_family_return() noexcept {
+    family_ring_shown_ = false;
+}
+
+void OaLayer::note_family_pointer(float x, float y) noexcept {
+    const int32_t column = static_cast<int32_t>(std::lround(static_cast<double>(x)));
+    const int32_t row = static_cast<int32_t>(std::lround(static_cast<double>(y)));
+    if (!family_pointer_known_) {
+        family_pointer_known_ = true;
+        family_pointer_x_ = column;
+        family_pointer_y_ = row;
+        return;
+    }
+    if (column == family_pointer_x_ && row == family_pointer_y_)
+        return;
+    family_pointer_x_ = column;
+    family_pointer_y_ = row;
+    family_ring_shown_ = false;
+}
 
 void OaLayer::present_mcp_badge() noexcept {
     const std::string_view label =

@@ -381,6 +381,8 @@ struct SavedItem {
     sha::Digest sha256{};
     DownloadReason reason = DownloadReason::update;
     bool complete = false;
+    /// The package is installed beside the release in use.
+    bool beside = false;
 };
 
 /// Reads the saved queue. A missing file is an empty queue.
@@ -422,7 +424,7 @@ bool read_queue_file(const fs::path& path, std::vector<SavedItem>& items, bool& 
     const auto finish = [&]() {
         if (!in_item)
             return true;
-        if (fields != 6)
+        if (fields != 6 && !(fields == 7 && current.beside))
             return false;
         items.push_back(current);
         in_item = false;
@@ -453,6 +455,13 @@ bool read_queue_file(const fs::path& path, std::vector<SavedItem>& items, bool& 
                 number > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
                 return false;
             current.release = static_cast<int64_t>(number);
+            ++fields;
+            continue;
+        }
+        if (key == "beside") {
+            if (trim(raw) != "true")
+                return false;
+            current.beside = true;
             ++fields;
             continue;
         }
@@ -605,6 +614,8 @@ struct Downloads::State {
         uint32_t package_rekeys = 0;
         uint32_t package_misses = 0;
         uint32_t hash_failures = 0;
+        /// Dropped connections a replay press has already tried again.
+        uint32_t prompt_resumes = 0;
         bool fetched_whole_after_range = false;
         std::optional<InstallOutcome> outcome;
         std::string install_reason;      ///< the installer's reason for its outcome
@@ -1182,6 +1193,8 @@ void Downloads::State::save_queue() {
             text += yaml_quote(std::string(hex.begin(), hex.end()));
             text += "\n    reason: ";
             text += yaml_quote(reason_text(item.reason));
+            if (item.target.beside)
+                text += "\n    beside: true";
             text += '\n';
         }
     }
@@ -1271,6 +1284,7 @@ void Downloads::State::restore_queue() {
             item.target.kind = row.kind;
             item.target.release = row.release;
             item.target.sha256 = row.sha256;
+            item.target.beside = row.beside;
             item.target.size = package != nullptr ? package->size : older->size;
             item.target.name = package != nullptr ? package->name : older->name;
             const std::string& file = package != nullptr ? package->file : older->file;
@@ -2063,6 +2077,7 @@ void Downloads::State::deliver(http::Client& client, uint64_t id, const fs::path
         origin.release = item->target.release;
         origin.sha256 = item->target.sha256;
         origin.reason = item->reason;
+        origin.beside = item->target.beside;
     }
     bool accepted = false;
     try {
@@ -2088,6 +2103,16 @@ void Downloads::State::deliver(http::Client& client, uint64_t id, const fs::path
                 );
             post = true;
             result = KeyResult::failed;
+        } else if (origin.beside && still_open(item->state)) {
+            // The handoff installed the file beside the release in use and
+            // does not wait for the ordinary installer.
+            item->state = DownloadState::done;
+            item->failure = DownloadFailure::none;
+            item->outcome = InstallOutcome::installed;
+            result = KeyResult::installed;
+            mark_dirty();
+            touch();
+            post = true;
         } else if (still_open(item->state)) {
             item->state = DownloadState::installing;
             touch();
@@ -2436,12 +2461,19 @@ void Downloads::State::process(http::Client& client, uint64_t id) {
             }
             if (end == FetchEnd::resume) {
                 bool prompt = false;
+                bool again = false;
                 {
                     threads::LockGuard guard(mutex);
                     Item* item = find(id);
                     prompt = item != nullptr && item->target.prompt;
+                    // A replay press tries one dropped connection again. The
+                    // next drop, and a registry that was never reached, fail.
+                    if (prompt && item->prompt_resumes < 1) {
+                        ++item->prompt_resumes;
+                        again = true;
+                    }
                 }
-                if (prompt) {
+                if (prompt && !again) {
                     {
                         threads::LockGuard guard(mutex);
                         Item* item = find(id);
@@ -2456,6 +2488,15 @@ void Downloads::State::process(http::Client& client, uint64_t id) {
                     }
                     send_result(client, id, KeyResult::failed);
                     return;
+                }
+                if (again) {
+                    if (package_tokens) {
+                        threads::LockGuard guard(mutex);
+                        Item* item = find(id);
+                        if (item != nullptr && item->key)
+                            key_url = item->key->url;
+                    }
+                    continue;
                 }
                 uintmax_t after = 0;
                 if (fs::is_regular_file(part, error))

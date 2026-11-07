@@ -31,7 +31,11 @@
 // replay, an imported one, the section while it reads and the empty section),
 // and the words its layout shortens are read: each filter, menu item, button
 // and fact label must be drawn whole, and nothing of the card ends in an
-// ellipsis (replay_texts_cut). The Export dialog is painted for a .oademo
+// ellipsis (replay_texts_cut). Core Prime's list is painted too: the switch,
+// its four filters, the planet field, the loading, offline, unreadable,
+// unavailable and empty states, and Download and Watch. With --snapshot,
+// those Core Prime screens at 640x480 are written in French, Spanish and
+// Italian. The Export dialog is painted for a .oademo
 // and for a .tad with all four warnings and a title that wraps at 640x480.
 // A cut warning, description or format caption fails the check, and so do
 // two of the dialog's controls that meet. With --snapshot, that .tad state
@@ -499,8 +503,12 @@ void Runtime::check_text_fit() {
         // the Library from the folder, so a picture is this frame.
         kit::begin_text_fit_frame();
         oa_layer().forget_kept_drawings();
-        const bool shoot = !options_.snapshot.empty() && (language == "en" || language == "de") &&
-                           screen.find("needs-") != std::string_view::npos;
+        const bool needs_picture = (language == "en" || language == "de") &&
+                                   screen.find("needs-") != std::string_view::npos;
+        const bool core_picture = (language == "fr" || language == "es" || language == "it") &&
+                                  width == 640 && height == 480 &&
+                                  screen.find("library/replays/core-") != std::string_view::npos;
+        const bool shoot = !options_.snapshot.empty() && (needs_picture || core_picture);
         renderer::Surface presented;
         if (shoot) {
             oa_layer().read_whole_window(true);
@@ -996,6 +1004,8 @@ void Runtime::check_text_fit() {
                 inputs.replays.rows.push_back(std::move(turn));
             }
             library::refresh(host.model, std::move(inputs));
+            if (host.model.replays.source != library::ReplaySource::computer)
+                library::set_replay_source(host.model, library::ReplaySource::computer);
             library::set_tab(host.model, library::Tab::replays);
             library::set_replay_filter(host.model, library::ReplayFilter::this_month);
             host.state.menu = library::MenuKind::none;
@@ -1322,6 +1332,69 @@ void Runtime::check_text_fit() {
         look("reading", false);
         fill(false, false, false);
         look("empty", false);
+        // Core Prime: the switch, the four filters, the planet field, each
+        // empty state, and Download and Watch. A cut word fails the check.
+        const auto show_core = [&](std::string_view name,
+                                   bool with_row,
+                                   bool saved,
+                                   bool loading,
+                                   bool offline,
+                                   bool unreadable,
+                                   bool unavailable,
+                                   bool card) {
+            library::Inputs inputs = host.model.inputs;
+            inputs.replays = {};
+            inputs.replays.today = today;
+            inputs.replays.planets = {"Ashmere", "Cinder"};
+            inputs.replays.core_total = with_row ? 1 : 0;
+            if (with_row) {
+                library::ReplayRow row;
+                row.replay.path = "r_0000000000000000000001";
+                row.replay.map = "North Reach";
+                row.replay.kind = "outpost";
+                row.replay.planet = "Ashmere";
+                row.replay.sector = "North Span";
+                row.replay.size = 9U * 1024U;
+                row.replay.length_ms = 60000;
+                row.day = today;
+                row.minute = 14 * 60 + 32;
+                row.saved_here = saved;
+                inputs.replays.core_rows.push_back(std::move(row));
+            }
+            library::refresh(host.model, std::move(inputs));
+            library::set_replay_source(host.model, library::ReplaySource::core_prime);
+            library::set_core_filter(host.model, library::CorePrimeFilter::latest);
+            library::set_tab(host.model, library::Tab::replays);
+            host.model.inputs.replays.core_loading = loading;
+            host.model.inputs.replays.core_offline = offline;
+            host.model.inputs.replays.core_unreadable = unreadable;
+            host.model.inputs.replays.core_unavailable = unavailable;
+            library::update_replays(host.model);
+            if (with_row)
+                library::select_replay(host.model, "r_0000000000000000000001");
+            host.state.menu = library::MenuKind::none;
+            host.state.replay_page = card && compact;
+            host.state.list_scroll = 0;
+            host.state.details_scroll = 0;
+            hold_library();
+            look(name, card);
+            host.state.replay_page = false;
+        };
+        show_core("core-list", true, false, false, false, false, false, !compact);
+        if (compact)
+            show_core("core-card", true, false, false, false, false, false, true);
+        show_core("core-downloaded", true, true, false, false, false, false, true);
+        library::set_core_filter(host.model, library::CorePrimeFilter::planet);
+        library::set_core_planet(host.model, "Ashmere");
+        host.state.menu = library::MenuKind::replay_planet;
+        host.state.replay_page = false;
+        look("core-planet", !compact);
+        host.state.menu = library::MenuKind::none;
+        show_core("core-loading", false, false, true, false, false, false, false);
+        show_core("core-offline", false, false, false, true, false, false, false);
+        show_core("core-unreadable", false, false, false, false, true, false, false);
+        show_core("core-unavailable", false, false, false, false, false, true, false);
+        show_core("core-empty", false, false, false, false, false, false, false);
         fill(true, false, true);
         library::set_replay_sort(host.model, library::ReplaySort::newest);
     };
@@ -1427,6 +1500,7 @@ void Runtime::check_text_fit() {
         if (dialog.open_list != settings::no_control)
             std::ignore = settings::dialog_key(dialog, kit::Key::escape);
         dialog.focused = control;
+        dialog.focus_shown = true;
         std::ignore = settings::dialog_key(dialog, kit::Key::space);
         if (dialog.open_list != settings::no_control) {
             paint(screen);

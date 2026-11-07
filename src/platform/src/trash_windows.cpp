@@ -53,6 +53,29 @@ std::wstring shell_path(const std::filesystem::path& file) {
     return listed;
 }
 
+#ifndef OA_RECYCLE_ONLY
+
+/// The shell's wide file operation, SHFileOperationW.
+using FileOperation = int(WINAPI*)(LPSHFILEOPSTRUCTW);
+
+/// Finds the shell's wide file operation.
+///
+/// SHFileOperationW is looked up when it is used: Windows 95's shell does not
+/// have it, and an import of it would stop the game from starting there.
+///
+/// @return the call; null when this system's shell does not have it
+FileOperation shell_file_operation() noexcept {
+    HMODULE shell = GetModuleHandleW(L"shell32.dll");
+    if (shell == nullptr)
+        shell = LoadLibraryW(L"shell32.dll");
+    return shell != nullptr ? reinterpret_cast<FileOperation>(
+                                  reinterpret_cast<void*>(GetProcAddress(shell, "SHFileOperationW"))
+                              )
+                            : nullptr;
+}
+
+#endif
+
 /// Why a file is left before the shell is asked.
 constexpr const char* no_recycle_bin = "the Recycle Bin cannot take a file on this drive";
 
@@ -247,12 +270,17 @@ TrashMove move_to_trash(const std::filesystem::path& file) {
         out.error = no_recycle_bin;
         return out;
     }
+    const FileOperation file_operation = shell_file_operation();
+    if (file_operation == nullptr) {
+        out.error = "the trash cannot be asked on this system";
+        return out;
+    }
     SHFILEOPSTRUCTW operation{};
     operation.wFunc = FO_DELETE;
     operation.pFrom = listed.c_str();
     operation.fFlags =
         static_cast<FILEOP_FLAGS>(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT);
-    const int code = SHFileOperationW(&operation);
+    const int code = file_operation(&operation);
     if (code != 0 || operation.fAnyOperationsAborted) {
         out.error = "the trash did not take the file (" + std::to_string(code) + ")";
         return out;

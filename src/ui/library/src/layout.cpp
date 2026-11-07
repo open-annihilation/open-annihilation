@@ -133,6 +133,10 @@ constexpr std::array<ReplaySort, replay_sort_total> replay_sort_order{
 constexpr std::array<std::string_view, replay_sort_total> replay_sort_words{
     "newest", "longest", "map", "players"
 };
+/// Core Prime's filters, in the order the section list shows them.
+constexpr std::array<std::string_view, core_prime_filter_total> core_filter_words{
+    "latest", "longest", "downloads", "planet"
+};
 
 /// Returns the tags a row or the details show.
 ///
@@ -281,6 +285,10 @@ std::string_view action_word(Action action) {
         return "folder";
     case Action::export_browse_use:
         return "use-folder";
+    case Action::download_replay:
+        return "download";
+    case Action::browse_core_prime:
+        return "browse-core-prime";
     }
     return "action";
 }
@@ -2193,9 +2201,14 @@ std::string heading_of(std::string_view title) {
 /// @param library the model
 /// @return the word
 std::string filter_choice_word(const Library& library) {
-    if (library.tab == Tab::replays)
+    if (library.tab == Tab::replays) {
+        if (library.replays.source == ReplaySource::core_prime)
+            return std::to_string(static_cast<int32_t>(library.tab)) + "/core/" +
+                   std::to_string(static_cast<int32_t>(library.replays.core_filter)) + "/" +
+                   library.replays.planet;
         return std::to_string(static_cast<int32_t>(library.tab)) + "/" +
                std::to_string(static_cast<int32_t>(library.replays.filter)) + "/";
+    }
     return std::to_string(static_cast<int32_t>(library.tab)) + "/" +
            std::to_string(static_cast<int32_t>(shown_filter(library))) + "/" + library.tag;
 }
@@ -2239,9 +2252,10 @@ struct NavPart {
 };
 
 /// Appends the section list down the left: the tabs, then, under a divider,
-/// the open tab's filters and tags. The whole column scrolls. The tabs are
-/// stops here; the filters and tags are stopped once the search has been,
-/// so Tab's order stays tabs, search, filters.
+/// the open tab's filters and tags. The whole column scrolls. The tabs join
+/// Tab's order here, and the filters and tags once the search has been, so
+/// the order stays tabs, search, filters, tags. finish groups each run into
+/// one stop.
 ///
 /// @param[in,out] building the layout
 /// @param column the list's face
@@ -2301,24 +2315,38 @@ void add_section_nav(Building& building, const kit::Rect& column) {
         cursor += nav.rule_margin;
         divider_top = cursor;
         cursor += 1 + nav.rule_margin;
-        for (std::size_t index = 0; index < replay_filter_order.size(); ++index) {
-            const ReplayFilter filter = replay_filter_order[index];
+        const bool core = library.replays.source == ReplaySource::core_prime;
+        const std::size_t filter_count =
+            core ? core_filter_words.size() : replay_filter_order.size();
+        for (std::size_t index = 0; index < filter_count; ++index) {
             NavPart part;
             part.height = nav.entry_height;
             // At Compact the column is narrow: the filters sit nearer the edge so
             // that each word is whole (the longest, "Dieser Monat", needs the room).
             part.indent = building.size_class == kit::SizeClass::compact ? section_filter_indent / 2
                                                                          : section_filter_indent;
-            part.word = replay_filter_title(library, filter);
-            part.count = std::to_string(replay_filter_count(library, filter));
-            part.reading = filled(
-                library.text,
-                words::filter_with_count,
-                {{"filter", part.word}, {"count", part.count}}
-            );
-            part.selected = library.replays.filter == filter;
-            part.id = controls::replay_filter_control(filter);
-            part.name = named("filter." + std::string(replay_filter_words[index]));
+            if (core) {
+                const auto filter = static_cast<CorePrimeFilter>(index);
+                part.word = core_filter_title(library, filter);
+                if (const std::optional<std::size_t> count = core_filter_count(library, filter))
+                    part.count = std::to_string(*count);
+                part.selected = library.replays.core_filter == filter;
+                part.id = controls::core_filter_control(filter);
+                part.name = named("replays.filter." + std::string(core_filter_words[index]));
+            } else {
+                const ReplayFilter filter = replay_filter_order[index];
+                part.word = replay_filter_title(library, filter);
+                part.count = std::to_string(replay_filter_count(library, filter));
+                part.selected = library.replays.filter == filter;
+                part.id = controls::replay_filter_control(filter);
+                part.name = named("filter." + std::string(replay_filter_words[index]));
+            }
+            part.reading = part.count.empty() ? part.word
+                                              : filled(
+                                                    library.text,
+                                                    words::filter_with_count,
+                                                    {{"filter", part.word}, {"count", part.count}}
+                                                );
             part.in_filters = true;
             part.whole_word = true;
             push(std::move(part));
@@ -2441,6 +2469,9 @@ void add_section_nav(Building& building, const kit::Rect& column) {
                 continue;
             state.filters_scroll =
                 shown_offset(state.filters_scroll, part.top, part.height, view.height, limit);
+            // The keys return to this filter or tag after they leave its group.
+            if (part.in_filters)
+                state.filters_stop = focused_id;
             break;
         }
         state.filters_focused = focused_id;
@@ -2598,7 +2629,8 @@ void add_section_nav(Building& building, const kit::Rect& column) {
 }
 
 /// Stops on the filters and tags, after the search, so Tab reaches them in
-/// the order they are drawn and then the list.
+/// the order they are drawn and then the list. finish gathers each run into
+/// one stop.
 ///
 /// @param[in,out] building the layout
 void stop_on_filters(Building& building) {
@@ -7465,8 +7497,9 @@ std::vector<ReplayPart> replay_parts(const Building& building) {
 }
 
 /// Appends what the Replays section shows while no row shows: the film, the
-/// words, Turn on recording while the setting does not record, and Open a
-/// replay file where the platform has a file dialog.
+/// words, Turn on recording while the setting does not record, Open a
+/// replay file where the platform has a file dialog, and Browse Core Prime's
+/// replays while the folder has none.
 ///
 /// @param[in,out] building the layout
 /// @param area where it is centred
@@ -7474,25 +7507,34 @@ void add_replays_empty(Building& building, const kit::Rect& area) {
     const Library& library = *building.library;
     const kit::Metrics& metrics = *building.metrics;
     const ReplayEmpty empty = replay_empty(library);
-    int32_t icon = std::min(3 * metrics.regular_line, std::max(area.height / 4, int32_t{0}));
     const std::vector<std::string> title =
         wrapped(building, kit::FontRole::regular, empty.title, area.width, 2);
     const std::vector<std::string> line =
         empty.line.empty() ? std::vector<std::string>{}
                            : wrapped(building, kit::FontRole::small, empty.line, area.width, 3);
-    const int button_count = (empty.turn_on ? 1 : 0) + (empty.open_file ? 1 : 0);
+    const int button_count =
+        (empty.turn_on ? 1 : 0) + (empty.open_file ? 1 : 0) + (empty.browse ? 1 : 0);
+    const auto stack_height = [&](int32_t icon_side) {
+        int32_t used = icon_side + (icon_side > 0 ? metrics.row_gap : 0) +
+                       static_cast<int32_t>(title.size()) * metrics.regular_line;
+        if (!line.empty())
+            used += metrics.hint_gap + static_cast<int32_t>(line.size()) * metrics.small_line;
+        used += static_cast<int32_t>(button_count) * (metrics.row_gap + metrics.control_height);
+        return used;
+    };
+    int32_t icon = std::min(3 * metrics.regular_line, std::max(area.height / 4, int32_t{0}));
     // A second button takes the room the film would have used, so the empty
     // section stays inside the window it already fitted with one button.
     if (button_count > 1)
         icon = std::max(icon - (metrics.row_gap + metrics.control_height), int32_t{0});
-    int32_t height =
-        icon + metrics.row_gap + static_cast<int32_t>(title.size()) * metrics.regular_line;
-    if (!line.empty())
-        height += metrics.hint_gap + static_cast<int32_t>(line.size()) * metrics.small_line;
-    height += static_cast<int32_t>(button_count) * (metrics.row_gap + metrics.control_height);
+    while (icon > 0 && stack_height(icon) > area.height)
+        icon = std::max(icon - metrics.regular_line, int32_t{0});
+    const int32_t height = stack_height(icon);
     int32_t top = area.y + std::max(area.height - height, int32_t{0}) / 2;
     const int32_t middle = area.x + area.width / 2;
-    if (icon > 0) {
+    // A film smaller than one line is a dot. The room it was given stays, so
+    // the buttons under it do not move, and nothing is drawn there.
+    if (icon >= metrics.regular_line) {
         add_replay_icon(
             building,
             ReplayIcon::film,
@@ -7500,8 +7542,9 @@ void add_replays_empty(Building& building, const kit::Rect& area) {
             kit::colour::hint,
             area
         );
-        top += icon + metrics.row_gap;
     }
+    if (icon > 0)
+        top += icon + metrics.row_gap;
     for (const std::string& text : title) {
         add_text(
             building,
@@ -7567,6 +7610,8 @@ void add_replays_empty(Building& building, const kit::Rect& area) {
         place_button(Action::turn_on_recording);
     if (empty.open_file)
         place_button(Action::open_replay_file);
+    if (empty.browse)
+        place_button(Action::browse_core_prime);
 }
 
 /// Appends the replays list: each day's heading and its rows, scrolled by
@@ -7604,7 +7649,12 @@ void add_replay_list(Building& building, const kit::Rect& pane) {
     }
     const int32_t offset = std::clamp(building.state->list_scroll, int32_t{0}, limit);
     building.state->list_scroll = offset;
+    const int32_t slack = replay_row_height(building);
+    building.state->core_near_end =
+        library.replays.source == ReplaySource::core_prime &&
+        (content <= view.height || offset + view.height + slack >= content);
     const std::vector<std::size_t>& visible = library.replays.visible;
+    const std::vector<ReplayRow>& rows = shown_replay_rows(library);
     for (const ReplayPart& part : parts) {
         const int32_t top = view.y - offset + part.top;
         if (top + part.height <= view.y || top >= view.y + view.height)
@@ -7625,7 +7675,9 @@ void add_replay_list(Building& building, const kit::Rect& pane) {
                 .colour = kit::colour::rule;
             continue;
         }
-        const ReplayRow& row = library.inputs.replays.rows[visible[part.place]];
+        if (part.place >= visible.size() || visible[part.place] >= rows.size())
+            continue;
+        const ReplayRow& row = rows[visible[part.place]];
         add_replay_row(building, row, part.place, {view.x, top, rows_width, part.height}, view);
         add_item(building.list, kit::Role::rule, {view.x, top + part.height, rows_width, 1}, view)
             .colour = kit::colour::rule;
@@ -7900,8 +7952,9 @@ int32_t add_replay_details(
     y = add_timeline_strip(building, row, left, y, width, clip);
 
     // The players: each one's colour, name and side, and, once the pass has
-    // read the replay, that player's result, kills and losses. Every player
-    // is laid out: the card scrolls, so none is left out for want of room.
+    // read the replay, that player's result, kills and losses. Core Prime's
+    // list gives a result and kills, and no losses. Every player is laid
+    // out: the card scrolls, so none is left out for want of room.
     for (std::size_t place = 0; place < row.replay.players.size(); ++place) {
         const oa::data::replays::Player& player = row.replay.players[place];
         const int32_t side = player_dot_side(metrics);
@@ -7964,7 +8017,11 @@ int32_t add_replay_details(
                                            {{"losses", std::to_string(standing.losses)}}
                                        );
             const std::string counts =
-                filled(library.text, words::replay_joined, {{"left", kills}, {"right", losses}});
+                standing.kills_only
+                    ? kills
+                    : filled(
+                          library.text, words::replay_joined, {{"left", kills}, {"right", losses}}
+                      );
             extra =
                 extra.empty()
                     ? counts
@@ -8189,13 +8246,72 @@ replay_kind_caption(const Library& library, const std::vector<controls::MenuItem
     return replay_kind_title(library, library.replays.kind);
 }
 
-/// Appends the bar over the replays list: the kind menu and the sort menu.
+/// Appends the switch over the replays list: On this computer, or On Core Prime.
+///
+/// @param[in,out] building the layout
+/// @param row the switch's row
+void add_replay_source(Building& building, const kit::Rect& row) {
+    const Library& library = *building.library;
+    const int32_t gap = building.metrics->space;
+    const int32_t each = std::max((row.width - gap) / 2, int32_t{0});
+    const int32_t rest = std::max(row.width - each - gap, int32_t{0});
+    const bool computer = library.replays.source == ReplaySource::computer;
+    add_button(
+        building,
+        building.top,
+        {row.x, row.y, each, row.height},
+        shown(library.text, words::core_on_computer),
+        computer,
+        true,
+        controls::replay_source_computer,
+        named("replays.source.computer"),
+        {},
+        -1
+    );
+    add_button(
+        building,
+        building.top,
+        {row.x + each + gap, row.y, rest, row.height},
+        shown(library.text, words::core_on_prime),
+        !computer,
+        true,
+        controls::replay_source_core,
+        named("replays.source.core-prime"),
+        {},
+        -1
+    );
+}
+
+/// Appends the bar over the replays list: the kind menu and the sort menu,
+/// or Core Prime's planet menu while By planet is chosen.
 ///
 /// @param[in,out] building the layout
 /// @param row the bar
 void add_replay_bar(Building& building, const kit::Rect& row) {
     const Library& library = *building.library;
     const kit::Metrics& metrics = *building.metrics;
+    if (library.replays.source == ReplaySource::core_prime) {
+        if (library.replays.core_filter != CorePrimeFilter::planet)
+            return;
+        std::vector<controls::MenuItem> planets =
+            controls::menu_items(library, MenuKind::replay_planet, {});
+        const std::string caption = library.replays.planet.empty()
+                                        ? std::string(shown(library.text, words::core_by_planet))
+                                        : library.replays.planet;
+        const int32_t width = std::min(drop_down_width(building, caption, planets), row.width);
+        add_drop_down(
+            building,
+            building.top,
+            {row.x, row.y, width, row.height},
+            MenuKind::replay_planet,
+            caption,
+            std::move(planets),
+            controls::replay_planet_menu,
+            named("replays.planet"),
+            true
+        );
+        return;
+    }
     std::vector<controls::MenuItem> kinds =
         controls::menu_items(library, MenuKind::replay_kind, {});
     std::vector<controls::MenuItem> sorts =
@@ -8263,8 +8379,18 @@ void add_replays(Building& building, const kit::Rect& area, const Window& window
     const Library& library = *building.library;
     const bool compact = building.size_class == kit::SizeClass::compact;
     const bool large = building.size_class == kit::SizeClass::large;
-    add_replay_bar(building, {area.x, area.y, area.width, window.field_height});
-    const int32_t top = area.y + window.field_height + window.gap;
+    building.state->core_near_end = false;
+    const bool computer = library.replays.source == ReplaySource::computer;
+    const bool planet_menu = !computer && library.replays.core_filter == CorePrimeFilter::planet;
+    int32_t top = area.y;
+    // The switch is the first row on both lists, so it stays under the pointer
+    // that pressed it. The kind and sort menus, or the planet field, follow.
+    add_replay_source(building, {area.x, top, area.width, window.field_height});
+    top += window.field_height + window.gap;
+    if (computer || planet_menu) {
+        add_replay_bar(building, {area.x, top, area.width, window.field_height});
+        top += window.field_height + window.gap;
+    }
     const kit::Rect body{area.x, top, area.width, std::max(area.y + area.height - top, int32_t{0})};
     if (library.replays.visible.empty()) {
         add_replays_empty(building, body);
@@ -10866,6 +10992,178 @@ void add_export(Building& building, const Window& window) {
     building.overlay.back().focusable = false;
 }
 
+/// Which run of stops becomes one composite, or none when the stop stays.
+enum class StopGroup : uint8_t {
+    none,
+    tabs,
+    filters,
+    tags,
+    expansions,
+    detail_tags,
+    replay_source,
+};
+
+/// Returns the group a stop belongs to, or none when it stays its own stop.
+///
+/// @param id the control
+/// @return its group
+StopGroup stop_group(kit::ControlId id) {
+    if (id >= controls::first_tab &&
+        id < controls::first_tab + static_cast<kit::ControlId>(tab_total))
+        return StopGroup::tabs;
+    if ((id >= controls::first_filter &&
+         id < controls::first_filter + static_cast<kit::ControlId>(filter_total)) ||
+        (id >= controls::first_replay_filter &&
+         id < controls::first_replay_filter + static_cast<kit::ControlId>(replay_filter_total)) ||
+        controls::core_filter_entry(id))
+        return StopGroup::filters;
+    if (id >= controls::first_tag && id < controls::first_menu_item)
+        return StopGroup::tags;
+    if (controls::expansion_control(id))
+        return StopGroup::expansions;
+    if (controls::detail_tag_control(id))
+        return StopGroup::detail_tags;
+    if (id == controls::replay_source_computer || id == controls::replay_source_core)
+        return StopGroup::replay_source;
+    return StopGroup::none;
+}
+
+/// Appends one run of parts as a single stop, in the order the parts were stopped.
+///
+/// Tabs, filters and tags are a column. Expansion pills and a package's tags
+/// are a row: they wrap, and Left and Right follow the pill order. The
+/// Replays switch is a row of two tabs. The part
+/// the keys are on is the one they return to; a filter or tag remembers the
+/// one that last had the focus. Otherwise the chosen part, then the first.
+///
+/// @param[in,out] list the display list; the composite is appended
+/// @param[in,out] order the stops; the composite's id is appended
+/// @param kind which run
+/// @param parts the parts, in order
+/// @param state the focus, and the filter or tag to return to
+/// @param chosen the part that is chosen, for a run whose parts are not
+///        checked controls; no_control for the others
+void append_group(
+    kit::DisplayList& list,
+    std::vector<kit::ControlId>& order,
+    StopGroup kind,
+    std::vector<kit::ControlId> parts,
+    const ScreenState& state,
+    kit::ControlId chosen
+) {
+    if (parts.empty())
+        return;
+    kit::Composite composite;
+    switch (kind) {
+    case StopGroup::tabs:
+        composite.id = controls::tabs;
+        composite.axis = kit::CompositeAxis::column;
+        composite.role = kit::CompositeRole::tab_list;
+        composite.name = named("tabs");
+        break;
+    case StopGroup::filters:
+        composite.id = controls::filters;
+        composite.axis = kit::CompositeAxis::column;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("filters");
+        break;
+    case StopGroup::tags:
+        composite.id = controls::tags_stop;
+        composite.axis = kit::CompositeAxis::column;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("tags");
+        break;
+    case StopGroup::expansions:
+        composite.id = controls::expansions;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("expansions");
+        break;
+    case StopGroup::detail_tags:
+        composite.id = controls::detail_tags;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("detail-tags");
+        break;
+    case StopGroup::replay_source:
+        composite.id = controls::replay_source_stop;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::tab_list;
+        composite.name = named("replays.source");
+        break;
+    case StopGroup::none:
+        return;
+    }
+    const auto contains = [&parts](kit::ControlId id) {
+        return std::find(parts.begin(), parts.end(), id) != parts.end();
+    };
+    if (contains(state.interaction.focused))
+        composite.current = state.interaction.focused;
+    else if (
+        (kind == StopGroup::filters || kind == StopGroup::tags) && contains(state.filters_stop)
+    )
+        composite.current = state.filters_stop;
+    else if (chosen != kit::no_control && contains(chosen))
+        composite.current = chosen;
+    composite.parts = std::move(parts);
+    order.push_back(composite.id);
+    list.composites.push_back(std::move(composite));
+}
+
+/// Groups the tabs, the filters, the tags, the expansion pills, a package's
+/// tags and the Replays switch into one stop each, and puts Refresh
+/// immediately before the close mark. The other stops keep the order they
+/// were declared in.
+///
+/// @param building the layout
+/// @param[in,out] list the display list
+void group_library_stops(const Building& building, kit::DisplayList& list) {
+    std::vector<kit::ControlId> order;
+    std::vector<kit::ControlId> run;
+    StopGroup run_kind = StopGroup::none;
+    bool saw_refresh = false;
+    const auto flush = [&]() {
+        if (run_kind == StopGroup::none) {
+            order.insert(order.end(), run.begin(), run.end());
+        } else {
+            // The switch's sides are buttons, not checked tabs: Tab lands on the chosen one.
+            const kit::ControlId chosen =
+                run_kind != StopGroup::replay_source ? kit::no_control
+                : building.library->replays.source == ReplaySource::core_prime
+                    ? controls::replay_source_core
+                    : controls::replay_source_computer;
+            append_group(list, order, run_kind, std::move(run), *building.state, chosen);
+        }
+        run.clear();
+        run_kind = StopGroup::none;
+    };
+    for (const kit::ControlId id : building.order) {
+        if (id == controls::refresh) {
+            saw_refresh = true;
+            continue;
+        }
+        const StopGroup kind = stop_group(id);
+        if (kind == StopGroup::none) {
+            flush();
+            order.push_back(id);
+            continue;
+        }
+        if (kind != run_kind)
+            flush();
+        run_kind = kind;
+        run.push_back(id);
+    }
+    flush();
+    if (saw_refresh) {
+        const auto close = std::find(order.begin(), order.end(), controls::close_x);
+        if (close == order.end())
+            order.push_back(controls::refresh);
+        else
+            order.insert(close, controls::refresh);
+    }
+    list.tab_order = std::move(order);
+}
+
 /// Finishes a layout: the window's edge, the focus ring, the open menu over
 /// everything, the key tooltip, and the controls in the order a press tries them.
 ///
@@ -10913,7 +11211,7 @@ kit::DisplayList finish(Building& building, const Window& window) {
     else if (building.library->key_use.open)
         list.tab_order = std::move(building.question_order);
     else
-        list.tab_order = std::move(building.order);
+        group_library_stops(building, list);
     return list;
 }
 
@@ -11125,6 +11423,15 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
             items.push_back(std::move(item));
         }
         break;
+    case MenuKind::replay_planet:
+        for (const std::string& planet : library.inputs.replays.planets) {
+            MenuItem item;
+            item.caption = planet;
+            item.word = name_word(planet);
+            item.replay_planet = planet;
+            items.push_back(std::move(item));
+        }
+        break;
     case MenuKind::more: {
         const Entry* entry = selected_entry(library);
         if (entry == nullptr)
@@ -11146,11 +11453,13 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
 int32_t chosen_item(const Library& library, MenuKind menu, const std::vector<MenuItem>& items) {
     if (menu == MenuKind::more)
         return -1;
-    if (menu == MenuKind::replay_kind || menu == MenuKind::replay_sort) {
+    if (menu == MenuKind::replay_kind || menu == MenuKind::replay_sort ||
+        menu == MenuKind::replay_planet) {
         for (std::size_t place = 0; place < items.size(); ++place) {
             const MenuItem& item = items[place];
             if ((item.replay_kind && *item.replay_kind == library.replays.kind) ||
-                (item.replay_sort && *item.replay_sort == library.replays.sort))
+                (item.replay_sort && *item.replay_sort == library.replays.sort) ||
+                (item.replay_planet && *item.replay_planet == library.replays.planet))
                 return static_cast<int32_t>(place);
         }
         return -1;

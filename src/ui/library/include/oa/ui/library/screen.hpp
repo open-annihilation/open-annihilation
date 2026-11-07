@@ -30,12 +30,13 @@ namespace oa::ui::library {
 
 /// One of the Library's drop-downs, which can be open.
 enum class MenuKind : uint8_t {
-    none,        ///< no drop-down is open
-    filter,      ///< Compact's filter: the filters, then each tag of the tab (library.filter)
-    tags,        ///< the tags that do not fit as chips or in the filter pane (library.tags)
-    more,        ///< the Compact details page's actions after its first three (library.action)
-    replay_kind, ///< the Replays section's kind menu (library.replays.kind)
-    replay_sort, ///< the Replays section's sort menu (library.replays.sort)
+    none,          ///< no drop-down is open
+    filter,        ///< Compact's filter: the filters, then each tag of the tab (library.filter)
+    tags,          ///< the tags that do not fit as chips or in the filter pane (library.tags)
+    more,          ///< the Compact details page's actions after its first three (library.action)
+    replay_kind,   ///< the Replays section's kind menu (library.replays.kind)
+    replay_sort,   ///< the Replays section's sort menu (library.replays.sort)
+    replay_planet, ///< Core Prime's planet menu (library.replays.planet)
 };
 
 /// One of the Library's panes that scroll.
@@ -71,6 +72,9 @@ struct ScreenState {
     /// How far the list is scrolled, in points. The layout writes it when
     /// reveal_row names a row to bring into view.
     mutable int32_t list_scroll{};
+    /// The Core Prime list is scrolled near its end, or is shorter than the
+    /// view, so the host may ask for the next page. The layout writes it.
+    mutable bool core_near_end{};
     /// How far the tab strip is scrolled, in points from the first tab. The
     /// layout writes it clamped to the strip, and so the open tab stays
     /// wholly in view until the player scrolls the strip.
@@ -99,10 +103,10 @@ struct ScreenState {
     /// filter and the tag, as one word. Empty before the first layout. When
     /// another entry is chosen the layout brings that one into view.
     mutable std::string filters_chosen{};
-    /// The filter pane's entry Tab stops on while the focus is elsewhere: the
-    /// one that last had the focus there, so Shift+Tab from the list comes
-    /// back to it. The layout writes it, and forgets it when another entry
-    /// is chosen; none stops on the chosen entry.
+    /// The filter or tag the keys return to when the focus has left that
+    /// group: the one that last had the focus there, so Shift+Tab from the
+    /// list comes back to it. The layout writes it, and forgets it when
+    /// another entry is chosen; none returns to the chosen entry.
     mutable kit::ControlId filters_stop{kit::no_control};
     /// The control that had the focus when the section list was last laid
     /// out. When the focus moves onto one of its entries the layout brings

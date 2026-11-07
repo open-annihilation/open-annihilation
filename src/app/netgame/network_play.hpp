@@ -12,6 +12,7 @@
 #pragma once
 
 #include "oa/app/netgame/opened_launch.hpp"
+#include "oa/app/netgame/replay_viewer_end.hpp"
 #include "oa/app/presence_facts.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/netgame/presence.hpp"
@@ -515,6 +516,28 @@ class NetworkPlay {
     ///         came units_per_player ticks apart; 1 otherwise.
     int run_headless_demo(std::size_t ticks);
 
+    /// Joins a replayer with `--headless-check` and plays until the watched game ends.
+    ///
+    /// The run has no window. Once it is seated in the battle room and has
+    /// reported its own unit types, it sets READY, and sets it again if the
+    /// room clears the bit. It exits 0 after printing the demo summary when the
+    /// host ends the replay, the host leaves, or the match itself ends, and a
+    /// record of the replay was applied. It exits non-zero, and prints one
+    /// line saying why, when the join fails, no session arrives, the match has
+    /// not started five minutes after the battle room, the session drops, or
+    /// the run is asked to quit.
+    ///
+    /// @return 0 when the watched game ended and the summary was printed; 1 otherwise.
+    int run_headless_replay_viewer();
+
+    /// Prints the demo summary once a `--replay-viewer` game has ended, when a record was applied.
+    ///
+    /// Called after each frame and as a match finishes, before the session is
+    /// cleared. A join that never applied a record prints no summary. A
+    /// session that drops before the host ends it, the host leaves, or the
+    /// match ends is remembered as a drop and prints one line saying why.
+    void note_replay_viewer();
+
     // The match report (runtime_report.cpp), kept with the network session.
 
     /// Returns the world the match report reads: the running match's, else the end-of-game screen's.
@@ -811,6 +834,54 @@ class NetworkPlay {
     bool presence_mutators_seen_ = false;
     bool presence_mutators_held_ = false;
     oa::netgame::PresenceMutators presence_mutators_{};
+    // A --replay-viewer join: the replay was received, its summary was printed,
+    // the watched game ended, or the session dropped before that end. The host
+    // id is the one the match had when it started, so a later host does not
+    // hide the original host leaving.
+    bool replay_viewer_received_ = false;
+    bool replay_viewer_summary_printed_ = false;
+    bool replay_viewer_ended_ = false;
+    bool replay_viewer_dropped_ = false;
+    bool replay_viewer_saw_session_ = false;
+    bool replay_viewer_host_known_ = false;
+    // A READY send has gone out, and when. The line is printed on the first
+    // send only. A later clear of the bit may send again, once a second.
+    bool replay_viewer_ready_sent_ = false;
+    bool replay_viewer_ready_said_ = false;
+    std::chrono::steady_clock::time_point replay_viewer_ready_at_{};
+    // When this headless run first reached the battle room. The five-minute
+    // end counts from there while the match has not started.
+    bool replay_viewer_room_marked_ = false;
+    std::chrono::steady_clock::time_point replay_viewer_room_at_{};
+    bool replay_viewer_reason_printed_ = false;
+    uint32_t replay_viewer_host_id_ = 0xffffffffu;
+
+    /// Notes that the running match has applied a record of the replay, and the host it started with.
+    void note_replay_viewer_match();
+
+    /// Prints the summary from the live match and marks the watched game ended.
+    void print_replay_viewer_summary();
+
+    /// Sets READY under `--headless-check` once this machine is seated in the
+    /// battle room and has reported its unit types, and again if the room
+    /// clears the bit. The line is printed on the first send.
+    void press_replay_viewer_ready();
+
+    /// Remembers a dropped session and prints the one line that says why.
+    ///
+    /// @param watch the facts the end was decided from
+    void note_replay_viewer_drop(const netgame::ReplayViewerWatch& watch);
+
+    /// Tells whether the session this join was in has since been lost.
+    ///
+    /// @return True after the join had a session and that session is gone.
+    [[nodiscard]] bool replay_viewer_session_lost() const;
 };
+
+/// Writes a `--join` or `--host` progress line when that step has changed.
+///
+/// A headless viewer calls it again after a frame, so a join that fails
+/// after the frame's pump still prints its notice.
+void report_direct_game_progress();
 
 } // namespace oa::app

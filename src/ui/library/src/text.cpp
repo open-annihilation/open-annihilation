@@ -489,6 +489,10 @@ std::string_view action_text(Action action, const TextHooks& text) {
         return {};
     case Action::export_browse_use:
         return shown(text, words::export_use_folder);
+    case Action::download_replay:
+        return shown(text, words::fact_download);
+    case Action::browse_core_prime:
+        return shown(text, words::core_browse);
     }
     return {};
 }

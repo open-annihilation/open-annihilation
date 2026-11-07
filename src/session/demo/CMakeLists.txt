@@ -4,7 +4,8 @@
 # TA Demo (.tad) playback through the match's network receive path, and the
 # recording of a network game: its stream on disk and its replay (.oademo).
 add_library(oa-session-demo src/demo_clock.cpp src/demo_keyframe.cpp src/demo_playback.cpp
-  src/demo_recording.cpp src/imported_recording.cpp src/recording_stream.cpp src/replay_record.cpp)
+  src/demo_recording.cpp src/demo_summary.cpp src/imported_recording.cpp src/recording_stream.cpp
+  src/replay_record.cpp)
 add_library(oa::session::demo ALIAS oa-session-demo)
 target_include_directories(oa-session-demo PUBLIC include)
 target_compile_features(oa-session-demo PUBLIC cxx_std_20)

@@ -20,6 +20,7 @@
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/oakeys.hpp"
 #include "oa_layer.hpp"
+#include "photo_state.hpp"
 
 #include "oa/formats/zip/stream.hpp"
 
@@ -184,7 +185,32 @@ int8_t notch_sign(float value) {
     return 0;
 }
 
-/// The keyboard map SDL is using: what events carry, and what keys print.
+/// The glyph Shift produces, when it is a symbol rather than a letter.
+///
+/// A key event keeps the unshifted code and records Shift separately, so the
+/// shortcut card's `?` is this glyph of the `/` key. A capital is the same
+/// chord as its letter and is left unset.
+///
+/// @param scancode the position
+/// @param printed the character the key prints with no modifier
+/// @return the glyph, or 0
+char32_t shifted_glyph(SDL_Scancode scancode, char32_t printed) {
+    const SDL_Keycode shifted_code = SDL_GetKeyFromScancode(scancode, SDL_KMOD_SHIFT, false);
+    if (shifted_code <= 0)
+        return 0;
+    const auto shifted_bits = static_cast<uint32_t>(shifted_code);
+    if ((shifted_bits & keys::position_key_code_bit) != 0 || shifted_bits > 0x10FFFF)
+        return 0;
+    const auto shifted = static_cast<char32_t>(shifted_bits);
+    if ((shifted >= U'A' && shifted <= U'Z') || (shifted >= U'a' && shifted <= U'z'))
+        return 0;
+    if (shifted == printed)
+        return 0;
+    return shifted;
+}
+
+/// The keyboard map SDL is using: what events carry, what keys print, and
+/// the symbol Shift produces.
 ///
 /// @return the map
 keys::KeyboardMap keyboard_from_sdl() {
@@ -201,7 +227,12 @@ keys::KeyboardMap keyboard_from_sdl() {
             if ((printed_bits & keys::position_key_code_bit) == 0)
                 printed = static_cast<char32_t>(printed_bits);
         }
-        map.set(static_cast<uint16_t>(index), static_cast<uint32_t>(event_code), printed);
+        map.set(
+            static_cast<uint16_t>(index),
+            static_cast<uint32_t>(event_code),
+            printed,
+            shifted_glyph(scancode, printed)
+        );
     }
     return map;
 }
@@ -1454,6 +1485,51 @@ std::string Runtime::bound_chord_text(std::string_view action_id) {
     );
 }
 
+std::string Runtime::bound_chords_text(std::string_view action_id) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr)
+        return {};
+    std::vector<keys::Chord> owned;
+    std::vector<const keys::Chord*> chords;
+    if (key_bindings_state_->ready) {
+        for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+            if (bound.id != action_id)
+                continue;
+            for (const auto& held : bound.chords)
+                chords.push_back(&held.chord);
+            break;
+        }
+    }
+    if (chords.empty()) {
+        const actions::Action* action = actions::find(action_id);
+        if (action == nullptr)
+            return {};
+        for (const std::string_view text : action->defaults) {
+            keys::ChordError error;
+            const std::optional<keys::Chord> parsed = keys::parse_chord(text, error);
+            if (!parsed)
+                continue;
+            owned.push_back(*parsed);
+        }
+        for (const keys::Chord& parsed : owned)
+            chords.push_back(&parsed);
+    }
+    std::string joined;
+    const auto& keyboard = key_bindings_state_->dispatcher.keyboard();
+    const auto platform = screen_platform(key_bindings_state_->platform, oa_layer().screen_fonts());
+    for (const keys::Chord* chord : chords) {
+        if (chord == nullptr)
+            continue;
+        const std::string text = keys::display_text(*chord, keyboard, platform);
+        if (text.empty())
+            continue;
+        if (!joined.empty())
+            joined += ", ";
+        joined += text;
+    }
+    return joined;
+}
+
 void Runtime::fill_mod_option_keys(
     oa::ui::engine_settings::ModOptions& current, oa::ui::engine_settings::ModOptions& defaults
 ) {
@@ -1730,6 +1806,8 @@ keys::Contexts Runtime::input_contexts() {
     // menus are not searched under it.
     const bool on_match = screen_ == Screen::match;
     const bool modal_layer = oa_layer().modal_shown(on_match);
+    const bool replaying =
+        match_ != nullptr && (current_extension_state() & extension_state::replay) != 0;
     if (modal_layer) {
         contexts.active |= context_bit("oa-screens");
     } else if (on_match && match_ != nullptr && photo_mode()) {
@@ -1737,9 +1815,11 @@ keys::Contexts Runtime::input_contexts() {
         // photo screen. No order, selection, group or build reaches the match.
         contexts.active |= context_bit("match");
         contexts.active |= context_bit("oa-screens");
+        contexts.active |= context_bit("photo");
     } else if (on_match && match_ != nullptr) {
         contexts.active |= context_bit("match");
-        const bool watcher = (current_extension_state() & extension_state::local_watcher) != 0;
+        const bool watcher =
+            replaying || (current_extension_state() & extension_state::local_watcher) != 0;
         contexts.active |= watcher ? context_bit("watch") : context_bit("play");
         // The surrender question takes the keys ahead of a chat line or a
         // marker's text, which keep what was typed for after it.
@@ -1774,8 +1854,11 @@ keys::Contexts Runtime::input_contexts() {
         contexts.conditions |= condition_bit("multiplayer");
     else if (match_ != nullptr)
         contexts.conditions |= condition_bit("single-player");
-    if (match_ != nullptr && (current_extension_state() & extension_state::local_watcher) == 0)
+    if (match_ != nullptr && !replaying &&
+        (current_extension_state() & extension_state::local_watcher) == 0)
         contexts.conditions |= condition_bit("seat");
+    if (replaying)
+        contexts.conditions |= condition_bit("replaying");
     if (has_local_selection())
         contexts.conditions |= condition_bit("selection");
     if (match_ != nullptr) {
@@ -2146,7 +2229,8 @@ std::optional<std::size_t> Runtime::order_wheel_mouse_aim() const {
 bool Runtime::order_wheel_press_eligible(float x, float y) {
     if (screen_ != Screen::match || match_ == nullptr || match_finished_ || match_paused_)
         return false;
-    if ((current_extension_state() & extension_state::local_watcher) != 0)
+    if ((current_extension_state() & (extension_state::local_watcher | extension_state::replay)) !=
+        0)
         return false;
     if (match_command_ == MatchCommand::build || pending_build_type_ != 0)
         return false;
@@ -2617,6 +2701,63 @@ Runtime::GroupViewMove Runtime::group_key_view_move(int squad) {
     group_key_last_ = second ? 0 : squad;
     group_key_last_ms_ = now_ms;
     return second ? GroupViewMove::always : GroupViewMove::never;
+}
+
+uint8_t Runtime::photo_pan_button() const {
+    if (key_bindings_state_ == nullptr)
+        return 0;
+    const keys::Bound* found = nullptr;
+    for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+        if (bound.id == "photo.pan") {
+            found = &bound;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return 0;
+    const uint8_t held = pointer_modifier_bits();
+    uint8_t button = 0;
+    int best = -1;
+    for (const keys::BoundChord& item : found->chords) {
+        const keys::Chord& chord = item.chord;
+        if (chord.kind != keys::TriggerKind::mouse || chord.button == 0)
+            continue;
+        if (chord.gesture != keys::Gesture::press)
+            continue;
+        uint8_t need = chord.modifiers;
+        if ((need & keys::primary) != 0) {
+            need = static_cast<uint8_t>(need & static_cast<uint8_t>(~keys::primary));
+#ifdef __APPLE__
+            need = static_cast<uint8_t>(need | keys::meta);
+#else
+            need = static_cast<uint8_t>(need | keys::ctrl);
+#endif
+        }
+        if ((need & static_cast<uint8_t>(~held)) != 0)
+            continue;
+        int rank = 0;
+        for (const uint8_t bit :
+             {uint8_t{keys::primary},
+              uint8_t{keys::ctrl},
+              uint8_t{keys::alt},
+              uint8_t{keys::shift},
+              uint8_t{keys::meta}}) {
+            if ((chord.modifiers & bit) != 0)
+                ++rank;
+        }
+        if (rank < best)
+            continue;
+        best = rank;
+        // A chord numbers MouseRight as 2 and MouseMiddle as 3. SDL numbers
+        // those buttons 3 and 2.
+        if (chord.button == 2)
+            button = static_cast<uint8_t>(SDL_BUTTON_RIGHT);
+        else if (chord.button == 3)
+            button = static_cast<uint8_t>(SDL_BUTTON_MIDDLE);
+        else
+            button = chord.button;
+    }
+    return button;
 }
 
 std::span<const keys::ActionEvent> Runtime::match_action_events() const {
@@ -3807,6 +3948,24 @@ void Runtime::fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs) {
     const KeyBindingsState& state = *key_bindings_state_;
     inputs.resolved = state.dispatcher.bindings();
     inputs.contexts = input_contexts();
+    // Photo mode lists the keys that answer there: the photo and global
+    // keys, the camera's pan, Escape, and the match commands photo mode
+    // runs. The rest of the match's keys are taken and do nothing, and Open
+    // chat, Status strip and Screenshot would sit on Enter, Space and
+    // Ctrl+F9 beside their photo commands. The window keys of oa-screens
+    // stay out too: the photo screen does not take them, and Accept would
+    // sit on Enter. Dispatch keeps oa-screens, so Page Up still reaches
+    // photo zoom.
+    if (photo_mode()) {
+        inputs.contexts.active &= ~context_bit("oa-screens");
+        const uint32_t kept = context_bit("photo") | context_bit("global");
+        std::erase_if(inputs.resolved.actions, [kept](const keys::Bound& bound) {
+            if ((bound.contexts & kept) != 0)
+                return false;
+            const std::string_view id = bound.id;
+            return !photo_match_command(id) && id != "game.back" && !id.starts_with("camera.pan-");
+        });
+    }
     inputs.keyboard = state.dispatcher.keyboard();
     inputs.platform = screen_platform(state.platform, oa_layer().screen_fonts());
     inputs.layout_name = keys_overlay_layout_name_;

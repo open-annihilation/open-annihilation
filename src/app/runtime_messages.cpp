@@ -14,7 +14,9 @@
 #include "oa/present/model/mesh_raster.hpp"
 #include "oa/sim/speed.hpp"
 #include "oa/ui/console/console.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/ui/hud/chat_panel.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 #include "oa/ui/frontend/ingame_menu.hpp"
 #include "oa/ui/frontend_renderer/gadget_draw.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
@@ -452,42 +454,60 @@ void Runtime::draw_match_message_log() {
     };
     // The whole frame of the sender's colour logo is stretched over the
     // square, which covers x0..x1-1 and y0..y1-1.
-    sink.logo =
-        [](void* user, const oa::Player& player, int32_t x0, int32_t y0, int32_t x1, int32_t y1) {
-            auto& target = *static_cast<Paint*>(user);
-            const auto frame = target.runtime->player_logo_frame(player);
-            if (!frame)
-                return;
-            const int32_t square[4] = {x0, y0, x1, y1};
-            const auto blit = oa::ui::hud::player_logo_blit(square, frame->width, frame->height, 0);
-            struct Logo {
-                oa::Sprite texture{};
-                oa::present::PolygonVertex quad[4]{};
-                oa::present::model::TexturePoint uv[4]{};
-            } logo{};
-            logo.texture.width = frame->width;
-            logo.texture.height = frame->height;
-            logo.texture.key = frame->transparency_index;
-            logo.texture.encoding = OA_SPRITE_RAW;
-            logo.texture.data = const_cast<uint8_t*>(frame->pixels.data());
-            for (int corner = 0; corner < 4; ++corner) {
-                logo.quad[corner] = {blit.dest[2 * corner] - x0, blit.dest[2 * corner + 1] - y0};
-                logo.uv[corner] = {blit.source[2 * corner], blit.source[2 * corner + 1]};
-            }
-            const int width = x1 - x0 + 1;
-            target.runtime->overlay_patch(
-                {target.corner.x + (x0 - oa::ui::hud::kMessageLogLeft) * target.scale,
-                 target.corner.y + (y0 - oa::ui::hud::kMessageLogTop) * target.scale},
-                width,
-                y1 - y0 + 1,
-                width,
-                [](void* context, oa::Surface& surface) {
-                    const auto& logo = *static_cast<const Logo*>(context);
-                    oa::present::model::texture_quad(&surface, &logo.texture, logo.quad, logo.uv);
-                },
-                &logo
+    sink.logo = [](void* user,
+                   const oa::Player& player,
+                   int32_t x0,
+                   int32_t y0,
+                   int32_t x1,
+                   int32_t y1) {
+        auto& target = *static_cast<Paint*>(user);
+        if (oa::present::colour_vision::shape_cues_active() && player.index < OA_PLAYER_COUNT &&
+            target.runtime->match_ != nullptr) {
+            const uint8_t colour =
+                oa::ui::hud::player_dot_color(target.runtime->match_->state(), player.index);
+            const int scale = target.scale;
+            const int left = target.corner.x + (x0 - oa::ui::hud::kMessageLogLeft) * scale;
+            const int top = target.corner.y + (y0 - oa::ui::hud::kMessageLogTop) * scale;
+            const int side_w = (x1 - x0 + 1) * scale;
+            const int side_h = (y1 - y0 + 1) * scale;
+            target.runtime->stamp_shape_marker(
+                left + side_w / 2, top + side_h / 2, static_cast<int>(player.index), colour, scale
             );
-        };
+            return;
+        }
+        const auto frame = target.runtime->player_logo_frame(player);
+        if (!frame)
+            return;
+        const int32_t square[4] = {x0, y0, x1, y1};
+        const auto blit = oa::ui::hud::player_logo_blit(square, frame->width, frame->height, 0);
+        struct Logo {
+            oa::Sprite texture{};
+            oa::present::PolygonVertex quad[4]{};
+            oa::present::model::TexturePoint uv[4]{};
+        } logo{};
+        logo.texture.width = frame->width;
+        logo.texture.height = frame->height;
+        logo.texture.key = frame->transparency_index;
+        logo.texture.encoding = OA_SPRITE_RAW;
+        logo.texture.data = const_cast<uint8_t*>(frame->pixels.data());
+        for (int corner = 0; corner < 4; ++corner) {
+            logo.quad[corner] = {blit.dest[2 * corner] - x0, blit.dest[2 * corner + 1] - y0};
+            logo.uv[corner] = {blit.source[2 * corner], blit.source[2 * corner + 1]};
+        }
+        const int width = x1 - x0 + 1;
+        target.runtime->overlay_patch(
+            {target.corner.x + (x0 - oa::ui::hud::kMessageLogLeft) * target.scale,
+             target.corner.y + (y0 - oa::ui::hud::kMessageLogTop) * target.scale},
+            width,
+            y1 - y0 + 1,
+            width,
+            [](void* context, oa::Surface& surface) {
+                const auto& logo = *static_cast<const Logo*>(context);
+                oa::present::model::texture_quad(&surface, &logo.texture, logo.quad, logo.uv);
+            },
+            &logo
+        );
+    };
     // While the modern fonts draw game text whole, a line wider than the
     // battlefield leaves it is broken into rows, and the log keeps the rows
     // that fit above the clock or the battlefield's bottom.
@@ -547,6 +567,7 @@ void Runtime::draw_match_message_log() {
             target.lines.push_back({pen, std::move(rows[row]), target.color, boxed, broken});
         }
     };
+    sink.hide_recorded_chat = replay_hides_recorded_chat();
     oa::ui::hud::draw_message_log(match_->state(), sink);
     // The rows over the backdrops, which lay their own boxes.
     const int32_t font_baseline =

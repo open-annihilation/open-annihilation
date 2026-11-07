@@ -142,6 +142,10 @@ void NetworkPlay::start_demo_playback() {
     if (!loaded)
         throw std::runtime_error(error);
     const fs::path recorded = staged ? path_from_utf8(staged->name) : net_options().play_demo;
+    // A staged recording's name is the file name alone. The full path was
+    // stored by whoever handed the bytes over. A file named on the command
+    // line is the path itself.
+    runtime_.remember_replay_file(static_cast<bool>(staged), recorded);
     const std::string needs = runtime_.content_switch_sentence(recorded);
     if (!needs.empty())
         throw std::runtime_error(needs);
@@ -666,25 +670,7 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
             drift->drift_max
         );
     const auto& stats = playback.stats;
-    std::printf(
-        "demo summary: records applied %u refused %u, created %u refused %u past table %u, record "
-        "errors %u, "
-        "tick errors %u, dropped frames %u, oversized %u, bad packets %u, untimed unit states "
-        "%u%s%s\n",
-        demo_->net.records_applied,
-        demo_->net.records_refused,
-        demo_->binding.created_remote,
-        demo_->binding.refused_creates,
-        demo_->binding.creates_past_table,
-        demo_->net.record_errors,
-        demo_->tick_errors,
-        demo_->connection.packets != nullptr ? demo_->connection.packets->dropped_frames : 0u,
-        stats.frames_oversized,
-        stats.bad_packets,
-        stats.untimed_unit_states,
-        demo_->last_error.empty() ? "" : "; last error: ",
-        demo_->last_error.c_str()
-    );
+    std::printf("%s\n", demo::demo_summary_line(demo::demo_summary_of(*demo_)).c_str());
     if (stats.unknown_senders != 0)
         std::printf("demo packets from unknown senders dropped: %u\n", stats.unknown_senders);
     std::fflush(stdout);
@@ -964,6 +950,11 @@ bool NetworkPlay::perform_due_seeks(
         begin_seek(jump, host);
         if (!demo_)
             return true;
+        // A jump back from the end restores a keyframe the recording goes on
+        // from. Without this the catch-up would still see the ended recording
+        // and stop on the keyframe, short of the tick asked for.
+        if (finished != nullptr)
+            *finished = demo::demo_session_finished(*demo_);
         if (demo_->seek)
             sought = true;
     }
@@ -1137,6 +1128,7 @@ void NetworkPlay::run_replay_frame(uint32_t now_ms, const ReplayFrameHost& host)
     if (!demo_ || playing == nullptr || host.match == nullptr ||
         host.match(host.context) != playing)
         return;
+    runtime_.ensure_replay_viewer();
     // A seek's ticks clear the world's pause bit. A Pause pressed during the jump sets that
     // bit before this frame's ticks. Fold it into the pause the landing puts back, then clear
     // it so the skip does not see it. The next press sets the bit again and takes the pause off.

@@ -3,8 +3,11 @@
 
 // SDL event dispatch, menu audio and movie playback.
 #include "oa/app/runtime.hpp"
+#include "oa_layer.hpp"
 #include "gui_actions.hpp"
+#include "photo_state.hpp"
 #include "oa/app/hook_call.hpp"
+#include "oa/app/middle_pan.hpp"
 #include "oa/app/mcp_quit.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/media/intro_player.hpp"
@@ -122,8 +125,11 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         match_pointer_known_ = false;
     // Leaving the window ends a middle-click pan. The focus event itself
     // still reaches the window.
-    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
+    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+        if (photo_ != nullptr)
+            photo_->dragging = false;
         std::ignore = middle_pan_take(event);
+    }
     if (live_renderer_take_event(event))
         return;
     // The character a quick key types after its press answered a panel over
@@ -242,13 +248,47 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         }
         const float x = event.type == SDL_EVENT_MOUSE_MOTION ? event.motion.x : event.button.x;
         const float y = event.type == SDL_EVENT_MOUSE_MOTION ? event.motion.y : event.button.y;
+        // A move to another pixel hides the ring. A press on its own does not.
+        if (event.type == SDL_EVENT_MOUSE_MOTION && oa_layer_ != nullptr)
+            oa_layer_->note_family_pointer(x, y);
         // Photo mode keeps the pointer off the match. A motion must not
         // pick a hover, and a press must not select, order, drag a box,
         // scroll by the minimap or press the panel. The wheel zoomed
         // above and returned. The place stays unknown, so the edges do
-        // not scroll either.
+        // not scroll either. A drag on photo.pan grabs the view, and the
+        // middle-click pan still answers its own button when the picture
+        // is not held.
         if (photo_mode() && screen_ == Screen::match) {
             match_pointer_known_ = false;
+            match_pointer_x_ = x;
+            match_pointer_y_ = y;
+            if (photo_ != nullptr && !photo_picture_held()) {
+                const uint8_t pan_button = photo_pan_button();
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && pan_button != 0 &&
+                    event.button.button == pan_button) {
+                    photo_->dragging = true;
+                    photo_->drag_moved = false;
+                    photo_->drag_x = x;
+                    photo_->drag_y = y;
+                } else if (event.type == SDL_EVENT_MOUSE_MOTION && photo_->dragging) {
+                    const float dx = x - photo_->drag_x;
+                    const float dy = y - photo_->drag_y;
+                    const float slop = middle_pan::kClickSlop;
+                    if (!photo_->drag_moved && dx * dx + dy * dy > slop * slop)
+                        photo_->drag_moved = true;
+                    if (photo_->drag_moved) {
+                        scroll_match_view_by(-static_cast<double>(dx), -static_cast<double>(dy));
+                        photo_->drag_x = x;
+                        photo_->drag_y = y;
+                    }
+                } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && photo_->dragging) {
+                    photo_->dragging = false;
+                    photo_->drag_moved = false;
+                }
+                std::ignore = middle_pan_take(event);
+            } else if (photo_ != nullptr) {
+                photo_->dragging = false;
+            }
             return;
         }
         // Where the pointer is on the match's screen is known once SDL
@@ -581,6 +621,12 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
         )
             direction = gui::FocusDirection::down;
         if (direction) {
+            // Tab and Shift+Tab show the ring on the control the focus lands
+            // on. An arrow moves the focus and leaves the ring hidden.
+            const bool tabbed = fired_action("ui.menu-focus-next") != nullptr ||
+                                fired_action("ui.menu-focus-previous") != nullptr;
+            if (tabbed && oa_layer_ != nullptr)
+                oa_layer_->note_family_tab();
             move_frontend_focus(*direction);
             rebuild_surface();
             return true;
@@ -714,13 +760,28 @@ bool Runtime::press_frontend_gui_action(const SDL_KeyboardEvent& key) {
 
 bool Runtime::press_frontend_focus_action(bool accept) {
     const auto focus = frontend_focus();
+    const bool ring = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
     if (focus < 0) {
-        // A panel with no record focused, as the main menu opens, takes its
-        // first from Return, ringed, for the next press to press.
         if (!accept)
             return false;
-        move_frontend_focus(oa::ui::gui_input::FocusDirection::next);
-        rebuild_surface();
+        // While the ring is hidden, Return does what it does today: the
+        // panel takes its first focus and nothing is pressed.
+        if (!ring) {
+            move_frontend_focus(oa::ui::gui_input::FocusDirection::next);
+            rebuild_surface();
+            return true;
+        }
+        const int32_t first = reported_frontend_focus();
+        if (first < 0)
+            return false;
+        const auto index = static_cast<std::size_t>(first);
+        const auto& gadget = resources_.layout.gadgets[index];
+        const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+        if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
+            return false;
+        // Hide before the press, so a screen the press opens keeps its own rule.
+        oa_layer_->note_family_return();
+        press_frontend_button(index);
         return true;
     }
     const auto index = static_cast<std::size_t>(focus);
@@ -728,6 +789,9 @@ bool Runtime::press_frontend_focus_action(bool accept) {
     const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
     if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
         return false;
+    // Return hides the ring. Space presses and leaves it shown, as the kit does.
+    if (accept && oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
     press_frontend_button(index);
     return true;
 }

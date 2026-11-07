@@ -818,6 +818,10 @@ void Runtime::check_engine_settings_in_match() {
         // Graphics at its end in a game played alone: neither Hardware
         // acceleration nor Vertical sync locked by the game.
         show_page(settings::Page::graphics, on);
+        // The click leaves the focus on Graphics' entry, where End with the
+        // ring goes to the section list's end. With the ring hidden End
+        // scrolls, as it did with nothing focused.
+        engine_settings_dialog()->focus_shown = false;
         tap_key(SDLK_END, SDL_KMOD_NONE);
         {
             const auto* graphics = engine_settings_dialog();
@@ -901,6 +905,9 @@ void Runtime::check_engine_settings_in_match() {
                 !scrolls || settings_revision() != revision,
                 "a scroll did not draw the dialog again" + on
             );
+            // Home scrolls with the ring hidden; on a section's entry with the
+            // ring it goes to the section list's first entry.
+            engine_settings_dialog()->focus_shown = false;
             tap_key(SDLK_HOME, SDL_KMOD_NONE);
             require(offset() == 0, "Home did not scroll the dialog back to its top" + on);
         }
@@ -1137,6 +1144,15 @@ void Runtime::check_engine_settings_in_match() {
         require(
             engine_settings_dialog()->chosen.screen_size == kChosenSize,
             "Screen size never reached 1280x720 in a game"
+        );
+        // Return presses the focused row while the ring shows. OK is the
+        // press that applies Screen size, so Tab reaches it first.
+        for (int press = 0; press < 64 && engine_settings_dialog()->focused != settings::ok_control;
+             ++press)
+            tap_key(SDLK_TAB, SDL_KMOD_NONE);
+        require(
+            engine_settings_dialog()->focused == settings::ok_control,
+            "Tab did not reach OK for the Screen size"
         );
         tap_key(SDLK_RETURN, SDL_KMOD_NONE);
         pump_window_events();

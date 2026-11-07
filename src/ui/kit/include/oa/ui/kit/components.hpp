@@ -11,6 +11,7 @@
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/looks.hpp"
+#include "oa/ui/kit/state_colours.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,15 @@ namespace oa::ui::kit {
 /// @param at the mark's top left, in points
 /// @param ink the colour of its set pixels
 void draw_mark(const Canvas& canvas, Mark mark, Point at, Colour ink);
+
+/// Draws a state's mark: a check, a warning, a cross or an information dot,
+/// the same glyphs a callout uses.
+///
+/// @param canvas where it is drawn
+/// @param tone which mark
+/// @param at the mark's top left, in points
+/// @param ink the colour of its set pixels, normally state_ink(tone)
+void draw_state_mark(const Canvas& canvas, StateTone tone, Point at, Colour ink);
 
 /// Draws a state icon, filling a square of the rectangle's shorter side
 /// centred in it.

@@ -107,9 +107,13 @@ contexts:
     parent: match
     overlay: true
     title: Selection box
+  photo:
+    parent: match
+    overlay: true
+    title: Photo mode
 
 conditions:
-  names: [single-player, multiplayer, seat, selection, developer, debug-keys, wheel-zoom, no-wheel-zoom, pointer-keys]
+  names: [single-player, multiplayer, seat, selection, developer, debug-keys, wheel-zoom, no-wheel-zoom, pointer-keys, replaying]
   exclusive:
     - [single-player, multiplayer]
     - [wheel-zoom, no-wheel-zoom]
@@ -157,6 +161,9 @@ areas:
   whiteboard:
     order: 14
     title: Whiteboard
+  photo:
+    order: 15
+    title: Photo mode
 
 families:
   gui:
@@ -463,7 +470,7 @@ actions:
   pointer.pan:
     area: mouse
     order: 6
-    context: [play, watch]
+    context: [play, watch, photo]
     kind: pointer
     source: [OA]
     default: ["MouseMiddle"]
@@ -472,7 +479,7 @@ actions:
   pointer.camera-orbit:
     area: mouse
     order: 7
-    context: [play, watch]
+    context: [play, watch, photo]
     kind: pointer
     source: [OA]
     default: ["Alt+MouseLeft", "Alt+MouseMiddle"]
@@ -481,7 +488,7 @@ actions:
   pointer.camera-pan:
     area: mouse
     order: 8
-    context: [play, watch]
+    context: [play, watch, photo]
     kind: pointer
     source: [OA]
     default: ["Alt+Shift+MouseLeft"]
@@ -1797,6 +1804,139 @@ actions:
     kind: press
     source: [OA]
     words: {name: "Open allies chat", description: "Opens the chat line to allies"}
+  game.photo-mode:
+    area: photo
+    order: 1
+    context: [play, watch]
+    kind: press
+    source: [OA]
+    default: ["F9"]
+    words: {name: "Photo mode", description: "Opens photo mode"}
+  photo.leave:
+    area: photo
+    order: 2
+    context: [photo]
+    kind: press
+    source: [OA]
+    default: ["F9"]
+    words: {name: "Leave", description: "Leaves photo mode"}
+  photo.capture:
+    area: photo
+    order: 3
+    context: [photo]
+    kind: press
+    source: [OA]
+    default: ["Enter", "Ctrl+F9"]
+    words: {name: "Take photo", description: "Writes a photo of the battlefield"}
+  photo.copy:
+    area: photo
+    order: 4
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Primary+C"]
+    words: {name: "Copy last photo", description: "Offers the last photo to the clipboard"}
+  photo.freeze:
+    area: photo
+    order: 5
+    context: [photo]
+    kind: press
+    source: [OA]
+    default: ["Space"]
+    words: {name: "Freeze / Hold picture", description: "Holds the clock, or keeps this screen's last frame in a shared match"}
+  photo.step:
+    area: photo
+    order: 6
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["."]
+    words: {name: "Step a tick", description: "Advances one tick, then freezes"}
+  photo.shutter-back:
+    area: photo
+    order: 7
+    context: [photo]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Shift+,"]
+    repeatable: true
+    words: {name: "Shutter back", description: "Moves the shutter one eighth toward the previous tick"}
+  photo.shutter-on:
+    area: photo
+    order: 8
+    context: [photo]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Shift+."]
+    repeatable: true
+    words: {name: "Shutter on", description: "Moves the shutter one eighth toward the frozen tick"}
+  photo.pan:
+    area: photo
+    order: 9
+    context: [photo]
+    kind: pointer
+    source: [OA]
+    default: ["MouseLeft"]
+    target: battlefield
+    words: {name: "Pan", description: "Drags the view"}
+  photo.zoom-in:
+    area: photo
+    order: 10
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["PageUp"]
+    repeatable: true
+    words: {name: "Zoom in", description: "Zooms in on the photo"}
+  photo.zoom-out:
+    area: photo
+    order: 11
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["PageDown"]
+    repeatable: true
+    words: {name: "Zoom out", description: "Zooms out on the photo"}
+  photo.turn-left:
+    area: photo
+    order: 12
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Alt+Left"]
+    repeatable: true
+    words: {name: "Turn left", description: "Turns the camera left"}
+  photo.turn-right:
+    area: photo
+    order: 13
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Alt+Right"]
+    repeatable: true
+    words: {name: "Turn right", description: "Turns the camera right"}
+  photo.tilt-up:
+    area: photo
+    order: 14
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Alt+Up"]
+    repeatable: true
+    words: {name: "Tilt up", description: "Tilts the camera up"}
+  photo.tilt-down:
+    area: photo
+    order: 15
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Alt+Down"]
+    repeatable: true
+    words: {name: "Tilt down", description: "Tilts the camera down"}
   debug.keys:
     area: developer
     order: 1
@@ -2004,6 +2144,114 @@ actions:
     default: ["MouseLeft:double"]
     target: resource-row
     words: {name: "Lock view", description: "Locks onto that player's camera"}
+  watch.replay-pause:
+    area: watching
+    order: 3
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Pause", "K"]
+    words: {name: "Play or pause", description: "Plays or pauses the replay"}
+  watch.replay-back:
+    area: watching
+    order: 4
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["J"]
+    words: {name: "Back 10 seconds", description: "Jumps back ten seconds"}
+  watch.replay-forward:
+    area: watching
+    order: 5
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["L"]
+    words: {name: "Forward 10 seconds", description: "Jumps forward ten seconds"}
+  watch.replay-back-long:
+    area: watching
+    order: 6
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Shift+J"]
+    words: {name: "Back a minute", description: "Jumps back a minute"}
+  watch.replay-forward-long:
+    area: watching
+    order: 7
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Shift+L"]
+    words: {name: "Forward a minute", description: "Jumps forward a minute"}
+  watch.replay-previous-marker:
+    area: watching
+    order: 8
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: [","]
+    words: {name: "Previous marker", description: "Jumps to the previous marker"}
+  watch.replay-next-marker:
+    area: watching
+    order: 9
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["."]
+    words: {name: "Next marker", description: "Jumps to the next marker"}
+  watch.replay-start:
+    area: watching
+    order: 10
+    context: [watch]
+    when: [replaying]
+    kind: press
+    source: [OA]
+    default: ["Ctrl+Home"]
+    words: {name: "Go to the start", description: "Jumps to the start of the replay"}
+  watch.replay-end:
+    area: watching
+    order: 11
+    context: [watch]
+    when: [replaying]
+    kind: press
+    source: [OA]
+    default: ["Ctrl+End"]
+    words: {name: "Go to the end", description: "Jumps to the end of the replay"}
+  watch.replay-bar:
+    area: watching
+    order: 12
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["B"]
+    words: {name: "Pin the bar", description: "Keeps the playback bar on screen"}
+  watch.replay-keys:
+    area: watching
+    order: 13
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["?"]
+    words: {name: "Shortcut card", description: "Shows the playback keys"}
   ui.settings:
     area: window
     order: 1

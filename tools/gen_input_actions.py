@@ -43,7 +43,7 @@ TOUCH_HEADER = ROOT / "src/ui/touch-hud/include/oa/ui/touch_hud.hpp"
 
 ENTRY_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$")
 PREFIXES = ("order", "panel", "pointer", "select", "group", "camera", "build", "game", "chat",
-            "debug", "megamap", "whiteboard", "watch", "ui")
+            "debug", "megamap", "whiteboard", "watch", "ui", "photo")
 ID_LIMIT = 96
 KINDS = ("press", "repeat", "hold", "modifier", "pointer", "wheel")
 BYS = ("letter", "place")
@@ -69,13 +69,13 @@ ACTION_FIELDS = {
 }
 REQUIRED_FIELDS = ("area", "order", "context", "kind", "source", "words")
 CONDITION_NAMES = ["single-player", "multiplayer", "seat", "selection", "developer", "debug-keys",
-                   "wheel-zoom", "no-wheel-zoom", "pointer-keys"]
+                   "wheel-zoom", "no-wheel-zoom", "pointer-keys", "replaying"]
 EXCLUSIVE_PAIRS = [["single-player", "multiplayer"], ["wheel-zoom", "no-wheel-zoom"]]
 AREAS = [
     ("orders", "Orders"), ("mouse", "Pointer"), ("selection", "Selection"), ("groups", "Groups"),
     ("camera", "Camera"), ("building", "Building"), ("game", "Game"), ("chat", "Chat"),
     ("watching", "Watching"), ("window", "Window"), ("menus", "Menus"), ("developer", "Developer"),
-    ("megamap", "Megamap"), ("whiteboard", "Whiteboard"),
+    ("megamap", "Megamap"), ("whiteboard", "Whiteboard"), ("photo", "Photo mode"),
 ]
 CONTEXTS = [
     ("global", None, False, "Everywhere"),
@@ -91,6 +91,7 @@ CONTEXTS = [
     ("whiteboard", "match", True, "Whiteboard"),
     ("placing", "play", True, "Placing"),
     ("box", "match", True, "Selection box"),
+    ("photo", "match", True, "Photo mode"),
 ]
 FAMILIES = ("gui", "select.category", "select.tag")
 FAMILY_FIELDS = {
@@ -333,7 +334,7 @@ def check_conditions(reg, problems):
             add(problems, "registry", "field", f"conditions.{key} is not a field")
     names = raw.get("names")
     if names != CONDITION_NAMES:
-        add(problems, "registry", "field", "conditions are not the nine, in order")
+        add(problems, "registry", "field", "conditions are not the catalogue's, in order")
         names = names if as_strings(names) else []
     if raw.get("exclusive") != EXCLUSIVE_PAIRS:
         add(problems, "registry", "exclusive", "the exclusive pairs are not the two named")

@@ -1204,6 +1204,18 @@ const char* summary_win_icon_label(bool arm);
 /// @param[out] labels one English line per top; null writes nothing
 void summary_win_icon_labels(const int32_t* tops, std::size_t count, const char** labels);
 
+/// The win count a contested planet shows beside one side.
+///
+/// While shape cues are in effect the count is that side's name, a space,
+/// then the digits. Otherwise it is the digits alone. The name is in the
+/// player's language. A null count is empty.
+///
+/// @param[out] out the line; null writes nothing
+/// @param capacity size of `out`, including the terminator
+/// @param arm true for Arm's count
+/// @param count the digits already formatted; null is empty
+void summary_side_count(char* out, std::size_t capacity, bool arm, const char* count);
+
 // The sector name and the map's magnification.
 struct DriverMapCaption {
     bool ready{};

@@ -164,6 +164,10 @@ adds.
 | R1 | The keys overlay | Cmd+/ or Ctrl+/ |
 | R2 | A screenshot | Ctrl+F9 |
 
+While a replay plays, A plays or pauses, L1 jumps back ten seconds and R1
+jumps forward ten seconds, L2 and R2 go slower and faster, the D-pad left
+and right jump to the previous and next marker, and B pins the bar.
+
 **Standing orders (hold R5 with a face button or the D-pad).** R5 with R2
 or A stays a forced click.
 

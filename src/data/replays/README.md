@@ -41,8 +41,16 @@ the games being recorded. A game being recorded is never listed.
   mods, the maps, the mutators and the expansions the caller says are
   installed. A digest the caller has found in a catalogue or a releases list
   can be fetched. The same mod in another release is reported and is not
-  fetched. A digest the caller has looked for and not found is not listed,
-  or offline, as the caller says.
+  fetched. The release a replay names, when it is installed and is not the
+  one being played, is played from that release's folder. The first folder
+  of the mod's id is not that release. A map pack the recording names by
+  digest is that pack, in Maps or in Replay releases. Another release of
+  the same pack is not a substitute: it is fetched beside the one in use
+  and played from Replay releases. A kept pack is played from its folder
+  even when Maps holds no other release, and a Maps copy of the same
+  identity is preferred over that kept folder. A map held only by name is
+  enough when the recording names no digest. A digest the caller has looked for
+  and not found is not listed, or offline, as the caller says.
 - `scan` lists the folder and reads each file that the previous index does
   not hold with the same size, modification time and reader. A file it
   holds so is taken from it unopened. A file that has not changed keeps the
@@ -95,6 +103,10 @@ the games being recorded. A game being recorded is never listed.
   sentence that says so. It never throws.
 - `register_kind` adds a kind of game an extension records, with the English
   title the Library looks up and shows; `registered_kinds` lists them.
+- `oa/data/replays/feed.hpp` reads Core Prime's JSON list. `parse_replay_page`
+  and `parse_replay_entry` read an answer, `replay_id_ok` accepts `r_` and 22
+  base64url characters, and `feed_list_url` and `feed_entry_url` join an origin
+  to the paths. The game fetches; this module does not.
 - `day_number` counts the days from 1970-01-01 to a date, and `group_by_day`
   gives the runs of a list that fall on one day, for the list's headings.
 

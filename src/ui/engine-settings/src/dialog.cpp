@@ -1629,22 +1629,96 @@ DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t contro
     );
 }
 
+/// Tells whether a control is one of the section list's entries.
+///
+/// @param dialog the dialog
+/// @param control the control
+/// @return true for a section's entry, including a registered page's
+bool section_entry(const Dialog& dialog, int32_t control) noexcept {
+    if (control >= first_page_control && control < restore_control)
+        return true;
+    return registered_nav_index(dialog, control) >= 0;
+}
+
+/// Tells whether the focus ring is drawn.
+///
+/// @param dialog the dialog
+/// @return true while the ring shows on the focused control
+bool ring_drawn(const Dialog& dialog) noexcept {
+    return dialog.focus_shown && !dialog.pointer_hid_ring && dialog.focused != no_control;
+}
+
+/// Puts the focus on a control and shows the ring.
+///
+/// A section entry is remembered, so Tab returns to it.
+///
+/// @param[in,out] dialog the dialog
+/// @param control the control
+void land_on(Dialog& dialog, int32_t control) noexcept {
+    dialog.focused = control;
+    dialog.focus_shown = true;
+    dialog.pointer_hid_ring = false;
+    if (section_entry(dialog, control))
+        dialog.nav_part = control;
+}
+
+/// Focuses the open section's entry and hides the ring.
+///
+/// @param[in,out] dialog the dialog
+void place_opening_focus(Dialog& dialog) noexcept {
+    int32_t entry = no_control;
+    if (dialog.page == Page::registered) {
+        if (dialog.registered_page < dialog.registered_pages.size())
+            entry = registered_nav_control(dialog.registered_page);
+    } else {
+        entry = page_control(dialog.page);
+    }
+    dialog.focused = entry;
+    dialog.focus_shown = false;
+    dialog.pointer_hid_ring = false;
+    dialog.nav_part = entry;
+}
+
+/// Returns the open section's first control: the stop after the section list.
+///
+/// From no focus, Tab and the arrows other than Up land here, as they did
+/// before the section list was one stop.
+///
+/// @param dialog the dialog
+/// @return that control, or none when the order is empty
+int32_t first_section_control(const Dialog& dialog) {
+    const kit::DisplayList list = layout::dialog_list(dialog, dialog.drawn_fonts);
+    int32_t landed = kit::next_in_tab_order(list, no_control, true);
+    if (section_entry(dialog, landed))
+        landed = kit::next_in_tab_order(list, landed, true);
+    return landed;
+}
+
+/// Returns the last stop's control. Up from no ring lands here, the close mark.
+///
+/// @param dialog the dialog
+/// @return that control, or none when the order is empty
+int32_t last_stop(const Dialog& dialog) {
+    const kit::DisplayList list = layout::dialog_list(dialog, dialog.drawn_fonts);
+    return kit::next_in_tab_order(list, no_control, false);
+}
+
 /// Moves the focus to the next or previous control in the display list's
 /// declared order (kit::next_in_tab_order), round from one end to the
 /// other, and scrolls its row into view when it is a row. From a control
-/// not in the order, forward goes to the first and back to the last.
+/// not in the order, forward goes to the first and back to the last. A
+/// composite is one stop, and the focus lands on its remembered part.
 ///
 /// @param[in,out] dialog the dialog
 /// @param[in,out] open the open section's rows, left at the offset shown
 /// @param forward true for the next control, false for the previous
 /// @return DialogAction::redraw
 DialogAction move_in_tab_order(Dialog& dialog, layout::ScrolledRows& open, bool forward) {
-    const int32_t next = kit::next_in_tab_order(
-        layout::dialog_list(dialog, dialog.drawn_fonts), dialog.focused, forward
-    );
+    const kit::DisplayList list = layout::dialog_list(dialog, dialog.drawn_fonts);
+    const int32_t next = kit::next_in_tab_order(list, dialog.focused, forward);
     if (next == no_control)
         return DialogAction::none;
-    dialog.focused = next;
+    land_on(dialog, next);
     static_cast<void>(show_row(dialog, open, dialog.focused));
     layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
@@ -1671,7 +1745,7 @@ DialogAction move_toward(Dialog& dialog, layout::ScrolledRows& open, kit::Direct
             : kit::focus_toward(list, dialog.focused, direction);
     if (next == no_control)
         return DialogAction::none;
-    dialog.focused = next;
+    land_on(dialog, next);
     static_cast<void>(show_row(dialog, open, dialog.focused));
     layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
@@ -2107,9 +2181,14 @@ DialogAction show_page(Dialog& dialog, Page page) noexcept {
     dialog.list_pressed = -1;
     dialog.page = page;
     dialog.wheel_rows = 0.0F;
-    if (dialog.focused >= first_row_control || registered_nav_index(dialog, dialog.focused) >= 0)
-        dialog.focused = page == Page::registered ? registered_nav_control(dialog.registered_page)
-                                                  : page_control(page);
+    const int32_t entry = page == Page::registered ? registered_nav_control(dialog.registered_page)
+                                                   : page_control(page);
+    dialog.nav_part = entry;
+    // A row's focus, or an entry's, moves to the open section's entry. A
+    // click on an entry from the opening focus moves it there, so the list
+    // keeps that entry in view, and the tree names it.
+    if (dialog.focused >= first_row_control || section_entry(dialog, dialog.focused))
+        dialog.focused = entry;
     layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
@@ -2529,6 +2608,7 @@ void open_dialog(
     dialog.developer.hacks_open.assign(oa::data::mod_profile::standard_hacks().size(), 0);
     updates::follow_mode(dialog);
     geometry::reveal_engine_nav(dialog);
+    place_opening_focus(dialog);
 }
 
 void set_downloads_offer(Dialog& dialog, const DownloadsOffer& offer) {
@@ -2562,6 +2642,7 @@ void open_mod_options_dialog(
     const auto pages = dialog_pages(DialogKind::mod_options);
     if (std::find(pages.begin(), pages.end(), page) == pages.end())
         dialog.page = pages.front();
+    place_opening_focus(dialog);
 }
 
 void open_language_text_dialog(
@@ -2607,6 +2688,8 @@ DialogAction set_touch_controls(Dialog& dialog, bool touch) noexcept {
     // Touch's entry and rows leave the dialog: what pointed at them points
     // at nothing, and Touch's section gives way to the first.
     const int32_t entry = page_control(Page::touch);
+    if (dialog.nav_part == entry)
+        dialog.nav_part = no_control;
     for (int32_t* control : {&dialog.hovered, &dialog.pressed, &dialog.focused})
         if (*control == entry || (dialog.page == Page::touch && *control >= first_row_control))
             *control = no_control;
@@ -2651,6 +2734,8 @@ DialogAction set_controller_section(Dialog& dialog, bool controller, bool steam_
     // Controller's entry and rows leave the dialog: what pointed at them
     // points at nothing, and Controller's section gives way to the first.
     const int32_t entry = page_control(Page::controller);
+    if (dialog.nav_part == entry)
+        dialog.nav_part = no_control;
     for (int32_t* control : {&dialog.hovered, &dialog.pressed, &dialog.focused})
         if (*control == entry || (showing && *control >= first_row_control))
             *control = no_control;
@@ -2669,30 +2754,39 @@ DialogAction dialog_pointer_move(Dialog& dialog, int32_t x, int32_t y) {
         y += dialog.finger_shift_y;
     }
     note_pointer(dialog, x, y);
+    // A move hides the ring. The focused control stays, and the next key
+    // still acts on it, except Return, which accepts while the ring is hidden.
+    // An opening focus is left hidden, so its key table still holds.
+    const bool hid = ring_drawn(dialog);
+    if (hid)
+        dialog.pointer_hid_ring = true;
+    const auto finish = [hid](DialogAction action) {
+        return hid && action == DialogAction::none ? DialogAction::redraw : action;
+    };
     layout::ScrolledRows open = drawn_rows(dialog);
     // An open list marks the item under the pointer.
     if (const auto list = open_list(dialog, open)) {
         const int32_t item = list_item_at(dialog, x, y);
         if (item < 0 || item == dialog.list_marked)
-            return DialogAction::none;
+            return finish(DialogAction::none);
         dialog.list_marked = item;
         return DialogAction::redraw;
     }
     if (dialog.dragging) {
         // The thumb follows the pointer's row only, and the offset the thumb.
         if (dialog.pressed == scroll_bar_control)
-            return scroll_to(
+            return finish(scroll_to(
                 dialog,
                 open,
                 layout::scroll_at(
                     open.area, y - dialog.scroll_grab, open.limit, open.content_height
                 )
-            );
+            ));
         if (const layout::ListRow* row = layout::list_row(open.list, dialog.pressed))
-            return developer::drag_to(dialog, *row, x);
+            return finish(developer::drag_to(dialog, *row, x));
         const layout::Row* row = row_of(open.rows, dialog.pressed);
         if (row != nullptr)
-            return drag_to(dialog, *row, x);
+            return finish(drag_to(dialog, *row, x));
     }
     const int32_t hovered = control_under(dialog, x, y);
     // Your files lights the button under the pointer.
@@ -2702,7 +2796,7 @@ DialogAction dialog_pointer_move(Dialog& dialog, int32_t x, int32_t y) {
             ? layout::folder_button_at(buttons->control_area, x, y)
             : folder_button_count;
     if (hovered == dialog.hovered && button == dialog.folder_hovered)
-        return DialogAction::none;
+        return finish(DialogAction::none);
     dialog.hovered = hovered;
     dialog.folder_hovered = button;
     return DialogAction::redraw;
@@ -2757,8 +2851,16 @@ DialogAction dialog_pointer_down(Dialog& dialog, int32_t x, int32_t y) {
         ));
         return DialogAction::redraw;
     }
-    if (dialog.focused != no_control)
+    // Once a key has shown the ring, a press moves the focus, as before,
+    // whether or not the pointer has hidden the ring since. A ring the
+    // pointer hid stays hidden until the next key, which acts on the control
+    // pressed. A click from the opening focus, or after Return hid the ring,
+    // leaves the focus where it is and still activates the control on release.
+    if (dialog.focus_shown && dialog.focused != no_control) {
         dialog.focused = control;
+        if (section_entry(dialog, control))
+            dialog.nav_part = control;
+    }
     if (const layout::ListRow* row = layout::list_row(open.list, control)) {
         // A press on a slider of the list moves its knob and drags it.
         if (row->kind != layout::ListRowKind::slider)
@@ -2889,44 +2991,119 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
     if (const auto list = open_list(dialog, open))
         return list_key(dialog, open, *list, key);
     close_list(dialog);
-    switch (key) {
-    case DialogKey::enter:
-        return accept(dialog);
-    case DialogKey::escape:
+    // The ring is drawn only while a key has shown it and the pointer has
+    // not hidden it since. Return presses the focused control then, and
+    // hides the ring. While the ring is hidden, Return accepts.
+    const bool acting = dialog.focus_shown && dialog.focused != no_control;
+    if (key == DialogKey::enter) {
+        if (!ring_drawn(dialog))
+            return accept(dialog);
+        const DialogAction pressed = activate(dialog, open, dialog.focused);
+        // A drop-down's list that Return opened keeps the ring, so the list
+        // outlines its marked item as the keys move it, as after Space.
+        if (dialog.open_list == no_control)
+            dialog.focus_shown = false;
+        return pressed == DialogAction::none ? DialogAction::redraw : pressed;
+    }
+    if (key == DialogKey::escape)
         return cancel(dialog);
-    case DialogKey::tab:
-    case DialogKey::back_tab:
-        return move_in_tab_order(dialog, open, key == DialogKey::tab);
-    case DialogKey::up:
-        return move_toward(dialog, open, kit::Direction::up);
-    case DialogKey::down:
-        return move_toward(dialog, open, kit::Direction::down);
-    case DialogKey::page_up:
-    case DialogKey::page_down:
-    case DialogKey::home:
-    case DialogKey::end:
-        return scroll_key(dialog, open, key);
     // Y and N answer a question, and do nothing while none shows. The
     // dialog has no text to edit.
-    case DialogKey::yes:
-    case DialogKey::no:
-    case DialogKey::backspace:
-    case DialogKey::delete_forward:
+    if (key == DialogKey::yes || key == DialogKey::no || key == DialogKey::backspace ||
+        key == DialogKey::delete_forward)
         return DialogAction::none;
-    default:
-        break;
+
+    // While the ring is hidden, the keys do what they did with nothing
+    // focused. Up shows the close mark. Tab, Shift+Tab from the first stop,
+    // and the other arrows and Space show the open section's first control.
+    // From a control already focused, Tab and Shift+Tab move on in the order.
+    if (!acting) {
+        if (key == DialogKey::page_up || key == DialogKey::page_down || key == DialogKey::home ||
+            key == DialogKey::end)
+            return scroll_key(dialog, open, key);
+        int32_t next = no_control;
+        if (key == DialogKey::up || (key == DialogKey::back_tab && dialog.focused == no_control))
+            next = last_stop(dialog);
+        else if (
+            (key == DialogKey::tab || key == DialogKey::back_tab) && dialog.focused != no_control
+        ) {
+            const kit::DisplayList listed = layout::dialog_list(dialog, dialog.drawn_fonts);
+            next = kit::next_in_tab_order(listed, dialog.focused, key == DialogKey::tab);
+        } else if (
+            key == DialogKey::tab || key == DialogKey::down || key == DialogKey::left ||
+            key == DialogKey::right || key == DialogKey::space
+        )
+            next = first_section_control(dialog);
+        else
+            return DialogAction::none;
+        if (next == no_control)
+            return DialogAction::none;
+        land_on(dialog, next);
+        static_cast<void>(show_row(dialog, open, dialog.focused));
+        layout::reveal_engine_nav(dialog);
+        return DialogAction::redraw;
     }
-    if (dialog.focused == no_control)
-        return move_in_tab_order(dialog, open, true);
+
+    // A key shows the ring again where a pointer move hid it.
+    dialog.pointer_hid_ring = false;
+    if (key == DialogKey::page_up || key == DialogKey::page_down)
+        return scroll_key(dialog, open, key);
+    if (key == DialogKey::home || key == DialogKey::end) {
+        // Home and End move inside the section list. Anywhere else they scroll.
+        if (section_entry(dialog, dialog.focused)) {
+            const kit::DisplayList listed = layout::dialog_list(dialog, dialog.drawn_fonts);
+            const int32_t next = kit::composite_end(listed, dialog.focused, key == DialogKey::end);
+            if (next != no_control) {
+                if (next == dialog.focused)
+                    return DialogAction::none;
+                land_on(dialog, next);
+                layout::reveal_engine_nav(dialog);
+                return DialogAction::redraw;
+            }
+        }
+        return scroll_key(dialog, open, key);
+    }
+    if (key == DialogKey::tab || key == DialogKey::back_tab)
+        return move_in_tab_order(dialog, open, key == DialogKey::tab);
+    if (key == DialogKey::up || key == DialogKey::down) {
+        const kit::Direction direction =
+            key == DialogKey::up ? kit::Direction::up : kit::Direction::down;
+        if (section_entry(dialog, dialog.focused)) {
+            const kit::DisplayList listed = layout::dialog_list(dialog, dialog.drawn_fonts);
+            const kit::AxisMove along = kit::move_along(listed, dialog.focused, direction);
+            if (along.step == kit::AxisStep::stayed)
+                return DialogAction::none;
+            if (along.step == kit::AxisStep::moved) {
+                land_on(dialog, along.part);
+                layout::reveal_engine_nav(dialog);
+                return DialogAction::redraw;
+            }
+        }
+        return move_toward(dialog, open, direction);
+    }
+    if (key != DialogKey::left && key != DialogKey::right && key != DialogKey::space)
+        return DialogAction::none;
     if (key != DialogKey::space) {
         // Left and Right step a control that takes steps; from any other
-        // they move the focus to the control on that side.
+        // they move the focus to the control on that side. Inside the
+        // section list they move along it when its axis says so.
         const kit::DisplayList list = layout::dialog_list(dialog, dialog.drawn_fonts);
         const kit::Control* focused = kit::control_of(list, dialog.focused);
-        if (focused == nullptr || !focused->steps)
-            return move_toward(
-                dialog, open, key == DialogKey::left ? kit::Direction::left : kit::Direction::right
-            );
+        if (focused == nullptr || !focused->steps) {
+            const kit::Direction direction =
+                key == DialogKey::left ? kit::Direction::left : kit::Direction::right;
+            if (section_entry(dialog, dialog.focused)) {
+                const kit::AxisMove along = kit::move_along(list, dialog.focused, direction);
+                if (along.step == kit::AxisStep::stayed)
+                    return DialogAction::none;
+                if (along.step == kit::AxisStep::moved) {
+                    land_on(dialog, along.part);
+                    layout::reveal_engine_nav(dialog);
+                    return DialogAction::redraw;
+                }
+            }
+            return move_toward(dialog, open, direction);
+        }
     }
     // A key that acts on a row brings it into view first, so that the
     // player sees what it changed.

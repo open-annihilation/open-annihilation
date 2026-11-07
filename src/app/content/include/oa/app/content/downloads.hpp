@@ -139,8 +139,12 @@ struct DownloadTarget {
     std::optional<formats::url::Url> api; ///< the download API, when the registry uses keys
     data::registry::InstallIdUse install_id = data::registry::InstallIdUse::none;
     /// True for a replay press. When the registry cannot be reached, the
-    /// download fails at once, without the queue's retries.
+    /// download fails at once, without the queue's retries. One dropped
+    /// connection after the download has started is tried again.
     bool prompt = false;
+    /// True when the package is installed beside the one in use, in Replay
+    /// releases, and the player's folder is left as it is.
+    bool beside = false;
 };
 
 /// Resolves a catalogue entry into a download.
@@ -166,6 +170,8 @@ struct InstallOrigin {
     int64_t release = 0;                             ///< the catalogue release
     base::sha256::Digest sha256{};                   ///< the catalogue's SHA-256
     DownloadReason reason = DownloadReason::install; ///< why the player asked
+    /// True when the file is installed beside the release in use.
+    bool beside = false;
 };
 
 /// Gives a finished file to the installer.

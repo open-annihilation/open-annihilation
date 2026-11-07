@@ -176,7 +176,9 @@ struct TextChunk {
 /// @param file the whole file
 /// @param[out] texts the chunks in file order; left unchanged when reading fails
 /// @return false when file is not a whole PNG, a chunk's checksum does not
-///         match, or a tEXt or uncompressed iTXt chunk has no keyword separator
+///         match, or a tEXt or uncompressed iTXt chunk is malformed: it has
+///         no keyword separator, or an iTXt body is cut short of a later
+///         separator or of its method byte
 [[nodiscard]] bool read_texts(std::span<const uint8_t> file, std::vector<TextChunk>* texts);
 
 struct Image {

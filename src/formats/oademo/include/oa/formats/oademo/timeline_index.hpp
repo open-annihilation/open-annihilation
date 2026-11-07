@@ -157,12 +157,13 @@ struct IndexSeries {
 enum class ResultBy : uint8_t {
     none,       ///< the replay decides no result
     commanders, ///< the team whose commanders were left when the others were out
+    mission,    ///< a campaign mission's own end, for the player who recorded it
 };
 
 /// Returns the word `by` is written as.
 ///
 /// @param by how the result was found
-/// @return `none` or `commanders`
+/// @return `none`, `commanders` or `mission`
 [[nodiscard]] std::string_view result_by_name(ResultBy by) noexcept;
 
 /// Who won.

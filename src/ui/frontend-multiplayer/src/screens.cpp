@@ -4705,6 +4705,17 @@ const ui::gui_layout::Layout& multiplayer_drawn_layout() noexcept {
     return ui().base.screen.layout;
 }
 
+std::span<const uint8_t> multiplayer_screen_palette() noexcept {
+    return screen_palette(ui().base.screen);
+}
+
+std::optional<uint8_t> multiplayer_control_stage(std::string_view name) noexcept {
+    const Control* control = panel_control(ui().base.panel, name);
+    if (control == nullptr)
+        return std::nullopt;
+    return control->stage;
+}
+
 Panel* multiplayer_modal() noexcept {
     return ui().modal_kind == ModalKind::none ? nullptr : &ui().modal.panel;
 }

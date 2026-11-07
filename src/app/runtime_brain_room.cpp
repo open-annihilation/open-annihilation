@@ -10,8 +10,10 @@
 // box, and the Mem cell steps the brain's level, or the built-in player's
 // as 3.1c steps a computer's difficulty. Another machine's brain is read
 // alone. Tab, the arrows and the controller reach the Resolution
-// cells. Resting the pointer on one, or the information key, shows the
-// seat's card. With nothing to show the screen is not there.
+// cells and, on a computer this machine runs, the notch at the name's
+// right end. Return or Space on either opens the brain menu. Resting the
+// pointer on a cell, or the information key, shows the seat's card. With
+// nothing to show the screen is not there.
 
 #include "brain_seats_room.hpp"
 #include "oa_button_focus.hpp"
@@ -886,6 +888,14 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
+    /// Tells that the cells draw the room's marker, not the kit's ring.
+    ///
+    /// A cell that sits in the original screen's Tab order takes the
+    /// family's ring, and the tree follows that ring.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
     /// Follows the view the rows are placed on.
     ///
     /// @param placed_on what the screen is placed on
@@ -905,7 +915,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         for (const SeatRow& row : laid.rows) {
             room::RoomCanvas res = room::room_canvas(grown(row.res, room_focus_margin), &frame);
             draw_brain_cell(res, art, row);
-            if (focus_ring_ && focused_slot_ == row.slot)
+            if (focus_ring_ && focused_slot_ == row.slot && focused_part_ != Part::notch)
                 room::draw_room_focus(res, art, row.res);
             paint_room_parts(canvas, view_, laid.bounds, res);
             if (row.mem.width > 0 && !row.level_words.empty()) {
@@ -931,7 +941,11 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                 paint_room_parts(canvas, view_, laid.bounds, mem);
             }
             if (row.button && row.notch.width > 0) {
-                room::RoomCanvas notch = room::room_canvas(row.notch, &frame);
+                const bool ring =
+                    focus_ring_ && focused_slot_ == row.slot && focused_part_ == Part::notch;
+                const room::SourceRect canvas_rect =
+                    ring ? grown(row.notch, room_focus_margin) : row.notch;
+                room::RoomCanvas notch = room::room_canvas(canvas_rect, &frame);
                 room::draw_room_notch(
                     notch,
                     art,
@@ -939,6 +953,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                     menu_.seat == row.slot,
                     pressed_part_ == Part::notch && pressed_slot_ == row.slot
                 );
+                if (ring)
+                    room::draw_room_focus(notch, art, row.notch);
                 paint_room_parts(canvas, view_, laid.bounds, notch);
             }
         }
@@ -1017,6 +1033,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             card_pressed_ = false;
             if (button == SDL_BUTTON_LEFT && focused_slot_ >= 0) {
                 focused_slot_ = -1;
+                focused_part_ = Part::none;
                 focus_ring_ = false;
                 ++revision_;
             }
@@ -1125,7 +1142,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// runs, a label on another machine's, its text the seat's whole label.
     /// Its Mem cell, while it shows a brain's level, is
     /// brain-seat-level.<slot>, its text that level; its notch is
-    /// brain-seat-menu.<slot>. Tab's order holds the Resolution buttons.
+    /// brain-seat-menu.<slot>. Tab's order holds each Resolution button and,
+    /// just after it, that row's notch.
     ///
     /// @return the display list
     [[nodiscard]] kit::DisplayList display_list() const override {
@@ -1163,14 +1181,16 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                 notch.enabled = row.enabled;
                 notch.name = "brain-seat-menu." + std::to_string(row.slot);
                 notch.kind = kit::ControlKind::button;
-                notch.focusable = false;
+                notch.focusable = true;
                 notch.text = row.label;
                 list.controls.push_back(std::move(notch));
             }
         }
         for (const Stop& stop : stops_of(laid)) {
-            if (stop.button)
-                list.tab_order.push_back(id_base + stop.id);
+            if (!stop.button)
+                continue;
+            const kit::ControlId id = id_base + stop.id;
+            list.tab_order.push_back(stop.notch ? id + notch_id_offset : id);
         }
         if (laid.card) {
             kit::add_hover_card(list, *laid.card, laid.card_look);
@@ -1188,6 +1208,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         shown_state.pressed =
             pressed_part_ == Part::cell ? control_id(pressed_slot_) : kit::no_control;
         shown_state.focused = control_id(focused_slot_);
+        if (focused_slot_ >= 0 && focused_part_ == Part::notch)
+            shown_state.focused = control_id(focused_slot_) + notch_id_offset;
         shown_state.focus_shown = focus_ring_;
         return shown_state;
     }
@@ -1214,12 +1236,14 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         }
         if (focused_slot_ >= 0 && button_of(laid, focused_slot_) == nullptr) {
             focused_slot_ = -1;
+            focused_part_ = Part::none;
             pressed_slot_ = -1;
             focus_ring_ = false;
             ++revision_;
         }
         if (focused_slot_ >= 0 && mp::multiplayer_battle_room_focus() != mp::kNoControl) {
             focused_slot_ = -1;
+            focused_part_ = Part::none;
             pressed_slot_ = -1;
             focus_ring_ = false;
             ++revision_;
@@ -1232,7 +1256,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             if (focused_slot_ < 0 && mp::multiplayer_battle_room_focus() == mp::kNoControl) {
                 int32_t first = -1;
                 for (const Stop& stop : stops_of(laid)) {
-                    if (!stop.button)
+                    if (!stop.button || stop.notch)
                         continue;
                     first = stop.id;
                     break;
@@ -1247,6 +1271,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                 }
                 if (first >= 0) {
                     focused_slot_ = first;
+                    focused_part_ = Part::cell;
                     focus_ring_ = runtime_.oa_layer().always_show_focus();
                     if (focus_ring_)
                         ++revision_;
@@ -1321,12 +1346,14 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         kit::HoverCardLook card_look{};          ///< the open card's look
     };
 
-    /// One stop in the combined Tab order: a record, or a seat's cell.
+    /// One stop in the combined Tab order: a record, a seat's cell, or that
+    /// cell's notch.
     struct Stop {
-        bool button{};     ///< true for a seat's cell
+        bool button{};     ///< true for a seat's cell or its notch
         int32_t id{-1};    ///< the control's index, or the slot
         int32_t place{-1}; ///< the record's place in the battle room's order
         int64_t key{};     ///< a cell's Tab key; 0 for a record
+        bool notch{};      ///< true for the notch that follows its cell
     };
 
     /// The control id of a slot, or none.
@@ -1528,8 +1555,13 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             bounds = unite(bounds, frame_rect_points(placed_on, grown(row.res, room_focus_margin)));
             if (row.mem.width > 0)
                 bounds = unite(bounds, frame_rect_points(placed_on, row.mem));
-            if (row.notch.width > 0)
-                bounds = unite(bounds, frame_rect_points(placed_on, row.notch));
+            if (row.notch.width > 0) {
+                const bool ringed =
+                    focus_ring_ && focused_part_ == Part::notch && focused_slot_ == row.slot;
+                const room::SourceRect notch_rect =
+                    ringed ? grown(row.notch, room_focus_margin) : row.notch;
+                bounds = unite(bounds, frame_rect_points(placed_on, notch_rect));
+            }
         }
         if (menu_.seat >= 0)
             bounds = unite(bounds, frame_rect_points(placed_on, menu_.rect));
@@ -1782,9 +1814,18 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return {points.x, points.y, points.width, points.height};
     }
 
+    /// A row's notch in the layer's points, for the arrows.
+    ///
+    /// @param row the row
+    /// @return the notch
+    [[nodiscard]] place::PlaceRect notch_points(const SeatRow& row) const {
+        const kit::Rect points = frame_rect_points(view_, row.notch);
+        return {points.x, points.y, points.width, points.height};
+    }
+
     /// The combined Tab order. Records keep the battle room's own order. A
-    /// cell sits just after the record before it, and cells that share
-    /// that record follow their own Tab key.
+    /// cell sits just after the record before it, and its notch sits just
+    /// after the cell. Cells that share that record follow their own Tab key.
     ///
     /// @param laid the geometry
     /// @return the stops
@@ -1799,24 +1840,33 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             const place::PlaceRect at = cell_points(row);
             const int32_t before = record_before(laid.focusable, at);
             const int32_t place = before >= 0 ? place_of(laid, before) : -1;
-            stops.push_back(Stop{true, row.slot, place, order_key(at)});
+            const int64_t tab_key = order_key(at);
+            stops.push_back(Stop{true, row.slot, place, tab_key, false});
+            if (row.notch.width > 0)
+                stops.push_back(Stop{true, row.slot, place, tab_key, true});
         }
         std::sort(stops.begin(), stops.end(), [](const Stop& left, const Stop& right) {
             if (left.place != right.place)
                 return left.place < right.place;
             if (left.button != right.button)
                 return !left.button;
-            return left.key < right.key;
+            if (left.key != right.key)
+                return left.key < right.key;
+            if (left.notch != right.notch)
+                return !left.notch;
+            return false;
         });
         return stops;
     }
 
-    /// Takes the focus onto a cell and clears the battle room's own.
+    /// Takes the focus onto a cell, or its notch, and clears the battle room's own.
     ///
     /// @param slot the slot
+    /// @param notch true for the notch, false for the cell
     /// @return redraw
-    LayerAnswer take_focus(int32_t slot) {
+    LayerAnswer take_focus(int32_t slot, bool notch = false) {
         focused_slot_ = slot;
+        focused_part_ = notch ? Part::notch : Part::cell;
         pressed_slot_ = -1;
         focus_ring_ = true;
         mp::multiplayer_set_battle_room_focus(mp::kNoControl);
@@ -1830,6 +1880,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// @return redraw
     LayerAnswer hand_focus(int32_t index) {
         focused_slot_ = -1;
+        focused_part_ = Part::none;
         focus_ring_ = false;
         mp::multiplayer_set_battle_room_focus(index);
         ++revision_;
@@ -1842,7 +1893,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// @return redraw, or none when a record cannot take it
     LayerAnswer take_stop(const Stop& stop) {
         if (stop.button)
-            return take_focus(stop.id);
+            return take_focus(stop.id, stop.notch);
         if (stop.id >= 0)
             return hand_focus(stop.id);
         return LayerAnswer::none;
@@ -1905,8 +1956,12 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                             best = &row;
                     }
                 }
+                // Shift+Tab from the record after a row lands on that row's
+                // last stop: its notch, when it has one, then the cell.
                 if (best != nullptr)
-                    return take_focus(best->slot);
+                    return take_focus(
+                        best->slot, pressed == kit::Key::back_tab && best->notch.width > 0
+                    );
             }
             return LayerAnswer::pass;
         }
@@ -1925,8 +1980,10 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         }
         const std::vector<Stop> stops = stops_of(laid);
         std::size_t at = stops.size();
+        const bool on_notch = focused_part_ == Part::notch;
         for (std::size_t found = 0; found < stops.size(); ++found) {
-            if (stops[found].button && stops[found].id == focused_slot_)
+            if (stops[found].button && stops[found].id == focused_slot_ &&
+                stops[found].notch == on_notch)
                 at = found;
         }
         if ((pressed == kit::Key::tab || pressed == kit::Key::back_tab) && at < stops.size() &&
@@ -1939,7 +1996,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         const SeatRow* focused_row = button_of(laid, focused_slot_);
         if (focused_row == nullptr)
             return LayerAnswer::pass;
-        const place::PlaceRect focused_at = cell_points(*focused_row);
+        const place::PlaceRect focused_at =
+            focused_part_ == Part::notch ? notch_points(*focused_row) : cell_points(*focused_row);
         if (pressed == kit::Key::up || pressed == kit::Key::down) {
             const int32_t neighbour =
                 neighbour_slot(laid, focused_slot_, pressed == kit::Key::down);
@@ -2152,8 +2210,9 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     int32_t pressed_slot_{-1}; ///< the row a press is held on; -1 for none
     Part pressed_part_{Part::none}; ///< the part of that row
     uint8_t pressed_button_{};      ///< the pointer's button that holds the press
-    int32_t focused_slot_{-1};      ///< the cell the keyboard focus is on; -1 for none
-    bool focus_ring_{};             ///< the focus ring is drawn on that cell
+    int32_t focused_slot_{-1};      ///< the row the keyboard focus is on; -1 for none
+    Part focused_part_{Part::none}; ///< the cell or the notch of that row
+    bool focus_ring_{};             ///< the focus ring is drawn on that part
     bool opened_focus_{};           ///< the screen has placed its opening focus
     bool have_pointer_{};           ///< the pointer has been seen
     kit::Point pointer_layer_{};    ///< the pointer, in the layer's points

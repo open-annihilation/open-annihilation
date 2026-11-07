@@ -354,7 +354,9 @@ std::string key_request_body(const KeyRequest& request) {
     writer.key("package");
     writer.string(request.package);
     writer.key("kind");
-    writer.string(data::catalogue::kind_name(request.kind));
+    writer.string(
+        request.kind_text.empty() ? data::catalogue::kind_name(request.kind) : request.kind_text
+    );
     writer.key("release");
     writer.integer(request.release);
     writer.key("sha256");

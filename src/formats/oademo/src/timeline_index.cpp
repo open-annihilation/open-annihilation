@@ -354,9 +354,9 @@ bool parse_end(std::string_view text, IndexEnd& end) noexcept {
 ///
 /// @param text the word
 /// @param[out] by how the result was found
-/// @return false for a word that is neither of the two
+/// @return false for a word that is none of the three
 bool parse_result_by(std::string_view text, ResultBy& by) noexcept {
-    for (const ResultBy candidate : {ResultBy::none, ResultBy::commanders})
+    for (const ResultBy candidate : {ResultBy::none, ResultBy::commanders, ResultBy::mission})
         if (result_by_name(candidate) == text) {
             by = candidate;
             return true;
@@ -467,6 +467,8 @@ std::string_view result_by_name(ResultBy by) noexcept {
         return "none";
     case ResultBy::commanders:
         return "commanders";
+    case ResultBy::mission:
+        return "mission";
     }
     return "none";
 }

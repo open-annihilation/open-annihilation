@@ -148,6 +148,20 @@ bool menu_item_control(kit::ControlId id) {
     return id >= controls::first_menu_item;
 }
 
+/// Tells whether a control is a part of one of the layout's groups: the
+/// filter pills or the tag pills.
+///
+/// @param list the display list
+/// @param id the control
+/// @return true for a part of a group
+bool group_part(const kit::DisplayList& list, kit::ControlId id) {
+    for (const kit::Composite& group : list.composites) {
+        if (std::find(group.parts.begin(), group.parts.end(), id) != group.parts.end())
+            return true;
+    }
+    return false;
+}
+
 /// Returns the height of a row the list shows.
 ///
 /// @param list the display list
@@ -2183,6 +2197,10 @@ picker_key(Picker& picker, ScreenState& state, const kit::DisplayList& list, kit
             return kit::edit_text(state.search, pressed) ? redrawn() : ScreenResult{};
         if (in_details)
             return scroll_details(state, list, pressed);
+        // With the ring on a filter pill or a tag pill, Home and End go to
+        // the first and the last pill of that group, as a group's do.
+        if (focus != kit::no_control && group_part(list, focus))
+            break;
         if (kit::control_of(list, controls::list) == nullptr)
             return {};
         {

@@ -5,6 +5,8 @@
 // on the frame that queued the picture.
 #include "photo_writer.hpp"
 
+#include "photo_clipboard.hpp"
+
 #include "oa/formats/png.hpp"
 
 #include <atomic>
@@ -18,7 +20,14 @@ namespace {
 
 constexpr std::string_view kNotWritten = "the file could not be written";
 
+/// The wake the writer's thread calls.
+PhotoWriterWake writer_wake = nullptr;
+
 } // namespace
+
+void set_photo_writer_wake(PhotoWriterWake wake) noexcept {
+    writer_wake = wake;
+}
 
 PhotoWriter::PhotoWriter() = default;
 
@@ -105,6 +114,9 @@ void PhotoWriter::run() {
             if (outstanding_ == 0)
                 idle_.notify_all();
         }
+        // After the lock, so the notice can be read, and once per photo.
+        if (writer_wake != nullptr)
+            writer_wake();
     }
 }
 
@@ -124,17 +136,16 @@ PhotoWriter::Notice PhotoWriter::save(const Picture& picture) {
     header.interlace = oa::formats::png::Interlace::none;
     // The chunk views point at this job's strings, which live until write returns.
     std::vector<oa::formats::png::TextChunk> chunks;
-    const std::size_t texts = picture.text_keywords.size() < picture.text_values.size()
-                                  ? picture.text_keywords.size()
-                                  : picture.text_values.size();
-    chunks.reserve(texts);
-    for (std::size_t index = 0; index < texts; ++index) {
-        if (picture.text_keywords[index].empty())
+    chunks.reserve(picture.texts.size());
+    for (const oa::present::photo::PhotoText& text : picture.texts) {
+        if (text.keyword.empty())
             continue;
         oa::formats::png::TextChunk chunk;
-        chunk.kind = oa::formats::png::TextKind::utf8;
-        chunk.keyword = picture.text_keywords[index];
-        chunk.text = picture.text_values[index];
+        chunk.kind = text.kind == oa::present::photo::ChunkKind::latin1
+                         ? oa::formats::png::TextKind::latin1
+                         : oa::formats::png::TextKind::utf8;
+        chunk.keyword = text.keyword;
+        chunk.text = text.text;
         chunks.push_back(chunk);
     }
     oa::formats::png::Image image;
@@ -172,6 +183,16 @@ PhotoWriter::Notice PhotoWriter::save(const Picture& picture) {
     }
     notice.saved = true;
     notice.reason.clear();
+    notice.width = picture.width;
+    notice.height = picture.height;
+    // The BMP, on Windows, is encoded here. A PNG clipboard reuses the file
+    // just written. The frame's thread offers the bytes once it reads this.
+    PhotoClipboardImage clipboard_image = make_photo_clipboard(
+        picture.rgb, picture.width, picture.height, file, this_photo_clipboard_system()
+    );
+    notice.clipboard = std::move(clipboard_image.bytes);
+    notice.clipboard_mime = clipboard_image.mime;
+    notice.copy_refusal = std::string(clipboard_image.refusal);
     return notice;
 }
 

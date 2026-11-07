@@ -9,6 +9,7 @@
 // pixels a character, 7 in bold, and lines 2 pixels taller than their size.
 
 #include "oa/test/check.hpp"
+#include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 
 #include <array>
@@ -1043,6 +1044,41 @@ void parts_list_their_controls() {
     OA_CHECK(kit::hit(list, {25, 7}) == kit::no_control);
 }
 
+/// A composite is one stop of the declared order. Its parts are not stops,
+/// so Tab from any of them leaves the group, and Tab onto it lands on one part.
+void a_composite_is_one_tab_stop() {
+    kit::DisplayList list;
+    list.controls.push_back(kit::Control{});
+    list.controls.back().id = 1;
+    list.controls.push_back(kit::Control{});
+    list.controls.back().id = 2;
+    list.controls.push_back(kit::Control{});
+    list.controls.back().id = 3;
+    list.controls.push_back(kit::Control{});
+    list.controls.back().id = 4;
+    list.controls.push_back(kit::Control{});
+    list.controls.back().id = 5;
+    kit::Composite composite;
+    composite.id = 9;
+    composite.axis = kit::CompositeAxis::column;
+    composite.parts = {2, 3, 4};
+    composite.current = 3;
+    list.composites.push_back(composite);
+    list.tab_order = {1, 9, 5};
+
+    OA_CHECK(list.tab_order.size() == 3);
+    OA_CHECK(list.tab_order[1] == 9);
+    for (const kit::ControlId stop : list.tab_order)
+        OA_CHECK(stop != 2 && stop != 3 && stop != 4);
+    // One stop: Tab from the control before lands on the remembered part, and
+    // Tab from any part leaves to the control after.
+    OA_CHECK(kit::next_in_tab_order(list, 1, true) == 3);
+    OA_CHECK(kit::next_in_tab_order(list, 2, true) == 5);
+    OA_CHECK(kit::next_in_tab_order(list, 3, true) == 5);
+    OA_CHECK(kit::next_in_tab_order(list, 4, true) == 5);
+    OA_CHECK(kit::next_in_tab_order(list, 5, false) == 3);
+}
+
 } // namespace
 
 int main() {
@@ -1067,5 +1103,6 @@ int main() {
     icons_plain_parts_and_moves();
     a_column_scrolls_its_body_or_the_whole();
     parts_list_their_controls();
+    a_composite_is_one_tab_stop();
     return oa::test::check_exit_status();
 }

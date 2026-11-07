@@ -10,6 +10,7 @@
 #include "oa/ui/hud/command_buttons.hpp"
 #include "director_state.hpp"
 #include "match_models.hpp"
+#include "photo_state.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/app/match_model_draws.hpp"
 #include "presentation_interpolation.hpp"
@@ -19,6 +20,7 @@
 #include "renderer_weapon_style.hpp"
 #include "xrgb_conversion.hpp"
 #include "oa/base/float_precision.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/model/model_draw.hpp"
 #include "oa/present/model/rgb_bridge.hpp"
 #include "oa/present/blit.hpp"
@@ -30,6 +32,7 @@
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/health_bar.hpp"
+#include "oa/ui/hud/shape_cues.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 #include "oa/present/model/sprite_placement.hpp"
 #include "oa/present/world_renderer/scene_filter.hpp"
@@ -1357,6 +1360,9 @@ void Runtime::compose_match_hud() {
         present_team_panel(buttons, lists);
         const auto hud_start = std::chrono::steady_clock::now();
         renderer::render_screen_into(hud, *match_hud_, buttons, lists);
+        const auto& panel_palette = match_hud_->background.palette ? *match_hud_->background.palette
+                                                                   : match_hud_->gui_palette;
+        stamp_colour_cell_markers(hud, match_hud_->layout, panel_palette, false);
         if (auto* scrolls = hud_scrolls()) {
             renderer::refresh_layout_scrolls(*scrolls, match_hud_->layout);
             renderer::draw_layout_scrolls(
@@ -1412,6 +1418,8 @@ void Runtime::render_match_surface() {
     if (!draw_match_surface())
         std::ignore = draw_match_surface();
     show_held_photo_picture();
+    if (photo_ != nullptr)
+        photo_->drawn_since_enter = true;
 }
 
 bool Runtime::draw_match_surface() {
@@ -2123,12 +2131,19 @@ bool Runtime::draw_match_surface() {
             if (model.unit->attach_parent != 0)
                 return;
             const bool selected = show_boxes && (model.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+            // The seat is set only while cues are in effect, which is what
+            // leaves the square out for the marker.
+            const int seat = oa::present::colour_vision::shape_cues_active() &&
+                                     model.unit->owner_index < OA_PLAYER_COUNT
+                                 ? static_cast<int>(model.unit->owner_index)
+                                 : -1;
             far_dots.push_back(
                 {screen.x,
                  screen.y,
                  palette_rgb(oa::ui::hud::player_dot_color(world_record, model.unit->owner_index)),
                  selected,
-                 selected_frame}
+                 selected_frame,
+                 seat}
             );
             return;
         }
@@ -2723,13 +2738,44 @@ bool Runtime::draw_match_surface() {
     if (!live_world && !covered)
         fog_pass(FogPasses::both);
     // The dots over the fog, as the minimap shows its units over its own.
-    if (dots)
+    if (dots) {
+        const int32_t picture_w = static_cast<int32_t>(world_surface.width);
+        const int32_t picture_h = static_cast<int32_t>(world_surface.height);
+        for (FarViewDot& dot : far_dots) {
+            if (dot.player < 0 || dot.player >= OA_PLAYER_COUNT)
+                continue;
+            // The picture is only part of the map. A unit whose centre is
+            // outside it is not drawn at the edge.
+            if (dot.x < 0 || dot.y < 0 || dot.x >= picture_w || dot.y >= picture_h) {
+                dot.framed = false;
+                continue;
+            }
+            const oa::ui::hud::CompactMarkerPlace place =
+                oa::ui::hud::compact_marker_place(picture_w, picture_h, dot.x, dot.y);
+            oa::ui::hud::stamp_compact_marker(
+                world_surface.rgb.data(),
+                picture_w,
+                picture_h,
+                dot.x,
+                dot.y,
+                dot.player,
+                dot.colour[0],
+                dot.colour[1],
+                dot.colour[2]
+            );
+            // The frame follows the marker after it moves in from the edge.
+            dot.x = place.left + oa::ui::hud::kCompactMarkerCentre;
+            dot.y = place.top + oa::ui::hud::kCompactMarkerCentre;
+        }
+        // The selected frame is drawn after the marker, so the marker does
+        // not cover it.
         draw_far_view_dots(
             world_surface.rgb.data(),
             static_cast<int32_t>(world_surface.width),
             static_cast<int32_t>(world_surface.height),
             far_dots
         );
+    }
     // Magnified scenes must carry their effects through the same camera shift
     // and sampling as their terrain, rather than becoming fixed opaque overlays.
     if (!card_world && !live_renderer_active() && scaling.method == SceneMethod::magnify) {
@@ -2885,7 +2931,22 @@ bool Runtime::draw_match_surface() {
                         fill(bar.trough, bar.trough_color);
                         fill(bar.fill, bar.fill_color);
                         drawn_health_bars_.push_back(bar);
+                        notch_health_bar(bar);
                     }
+                }
+                if (!dots && photo_slot.record.owner_index < OA_PLAYER_COUNT) {
+                    const bool marked = (photo_slot.record.flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+                                        photo_slot.record.id == hovered_match_unit_ ||
+                                        photo_slot.record.id == match_->state().game.cursor_unit_id;
+                    if (marked)
+                        stamp_shape_marker(
+                            at.x - 29,
+                            at.y - 19,
+                            static_cast<int>(photo_slot.record.owner_index),
+                            oa::ui::hud::player_dot_color(
+                                match_->state(), photo_slot.record.owner_index
+                            )
+                        );
                 }
             }
         }
@@ -2957,7 +3018,20 @@ bool Runtime::draw_match_surface() {
                 fill(bar.trough, bar.trough_color);
                 fill(bar.fill, bar.fill_color);
                 drawn_health_bars_.push_back(bar);
+                notch_health_bar(bar);
             }
+        }
+        if (!dots && slot.record.owner_index < OA_PLAYER_COUNT) {
+            const bool marked = (slot.record.flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+                                slot.record.id == hovered_match_unit_ ||
+                                slot.record.id == match_->state().game.cursor_unit_id;
+            if (marked)
+                stamp_shape_marker(
+                    screen.x - 29,
+                    screen.y - 19,
+                    static_cast<int>(slot.record.owner_index),
+                    oa::ui::hud::player_dot_color(match_->state(), slot.record.owner_index)
+                );
         }
         // The squad digit of the viewpoint player's own unit in a squad,
         // two rows below its bar, and the self-destruct count above it. The

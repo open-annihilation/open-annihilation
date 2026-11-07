@@ -38,12 +38,17 @@ uint8_t stock_dot_color(const World& world, uint8_t slot) noexcept {
     return kPlayerDotColors[player_color_number(world, slot)];
 }
 
-uint8_t player_dot_color(const World& world, uint8_t slot) noexcept {
-    const uint8_t color = player_color_number(world, slot);
+uint8_t colour_dot_index(uint8_t colour) noexcept {
+    if (colour >= kPlayerDotColors.size())
+        colour = 0;
     // Off is the table above, unchanged. A mode is the anchor matched to the palette in use.
     if (oa::present::colour_vision::active_mode() == oa::present::colour_vision::Mode::off)
-        return kPlayerDotColors[color];
-    return oa::present::colour_vision::player_dot(static_cast<int>(color));
+        return kPlayerDotColors[colour];
+    return oa::present::colour_vision::player_dot(static_cast<int>(colour));
+}
+
+uint8_t player_dot_color(const World& world, uint8_t slot) noexcept {
+    return colour_dot_index(player_color_number(world, slot));
 }
 
 uint8_t drawn_dot_color(uint8_t stored) noexcept {

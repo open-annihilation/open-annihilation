@@ -96,6 +96,8 @@ prompt and Done button stand in it.
 | Gesture | What it does |
 |---|---|
 | Tap | Selects a unit, or gives the order the cursor shows for what lies under the finger: a left click |
+| Tap the battlefield while a replay plays | Shows the playback bar |
+| Drag on the replay's timeline | Seeks to that moment |
 | Double tap a unit | Selects the units of its type, as a double click does |
 | One-finger drag | Tablet: a selection box; with ATTACK, RECLAIM or REPAIR armed, an area order. Phone: scrolls the map |
 | Hold, then drag | A selection box, on both layouts |

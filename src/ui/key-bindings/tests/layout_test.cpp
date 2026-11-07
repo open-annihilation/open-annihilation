@@ -1106,11 +1106,42 @@ void primary_clashes_as_pressed() {
     }
 }
 
+/// Replay keys clash only with an action that can answer during a replay.
+void replay_keys_clash_only_where_they_meet() {
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    const keys::ResolveInput defaults = fresh(us);
+    const Resolved resolved = keys::resolve(defaults);
+    const std::vector<Clash> clashes = keys::find_clashes(resolved, defaults);
+    OA_CHECK(!clash_of(clashes, "watch.replay-forward", "order.load"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-pause", "order.cloak"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-bar", "panel.build-tab"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-next-marker", "build.page-next"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-previous-marker", "build.page-previous"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-pause", "game.pause"));
+
+    keys::Layout home;
+    home.bindings.push_back(binding("watch.replay-back", {"Home"}, 1, 1));
+    keys::ResolveInput rebound = fresh(us);
+    rebound.chosen = &home;
+    const Resolved home_resolved = keys::resolve(rebound);
+    const std::vector<Clash> home_clashes = keys::find_clashes(home_resolved, rebound);
+    OA_CHECK(clash_of(home_clashes, "watch.replay-back", "camera.centre"));
+
+    keys::Layout shared;
+    shared.bindings.push_back(binding("watch.replay-forward", {"J"}, 2, 1));
+    keys::ResolveInput both = fresh(us);
+    both.chosen = &shared;
+    const Resolved both_resolved = keys::resolve(both);
+    const std::vector<Clash> both_clashes = keys::find_clashes(both_resolved, both);
+    OA_CHECK(clash_of(both_clashes, "watch.replay-forward", "watch.replay-back"));
+}
+
 } // namespace
 
 int main() {
     layers_conditions_and_same_key();
     oa_default_has_no_clash();
+    replay_keys_clash_only_where_they_meet();
     base_none_binds_only_fixed();
     chosen_layout();
     mod_letters();

@@ -957,6 +957,22 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
         pointer_x_ = input.x;
         pointer_y_ = input.y;
     }
+    // A screen that takes the key still follows the family's rule: Tab shows
+    // the ring, Return hides it, and a pointer move hides it. An arrow does
+    // not show it, and Space does not hide it.
+    if (taken && oa_layer_ != nullptr) {
+        if (input.kind == ScreenInputKind::key_down) {
+            if (input.key == static_cast<uint32_t>(SDLK_TAB))
+                oa_layer_->note_family_tab();
+            else if (
+                input.key == static_cast<uint32_t>(SDLK_RETURN) ||
+                input.key == static_cast<uint32_t>(SDLK_KP_ENTER)
+            )
+                oa_layer_->note_family_return();
+        } else if (input.kind == ScreenInputKind::pointer_move) {
+            oa_layer_->note_family_pointer(input.x, input.y);
+        }
+    }
     return taken;
 }
 

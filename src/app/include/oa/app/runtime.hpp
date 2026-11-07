@@ -5,6 +5,7 @@
 #pragma once
 
 #include "app.hpp"
+#include "oa/app/automation_host.hpp"
 #include "director_presentation.hpp"
 #include "expansion_entry.hpp"
 #include "extension.hpp"
@@ -663,6 +664,15 @@ class Runtime final : public menu::Host,
     ///     extension run phase set, or, after the application loop, the one
     ///     ScreenServices::quit asked for
     int run();
+
+    /// One frame of a headless `--replay-viewer` join.
+    ///
+    /// Screen passes and the extension's frame run, and a match that is up
+    /// steps from the wall clock, so a replay another machine is playing
+    /// arrives as it is sent. Nothing is drawn and no window is opened.
+    ///
+    /// @return False when the run has been asked to quit.
+    bool service_headless_replay_viewer();
 
     /// Tells whether the run ended to start afresh for another mod: SWITCH
     /// on the settings' Switch Mod question stored the mod and ended the
@@ -1464,6 +1474,20 @@ class Runtime final : public menu::Host,
     ///
     /// @return the match, or null when none is running
     [[nodiscard]] const oa::sim::match_runtime::Match* running_match() const noexcept;
+
+    /// Remembers the file a replay is playing, so the bar can read its timeline.
+    /// A recording handed over by name is stored only when none is remembered
+    /// yet: the Library and the viewer check store the full path first, and
+    /// the handed name is the file name alone. A file named on the command
+    /// line replaces whatever was remembered.
+    ///
+    /// @param staged true when the bytes were handed over rather than opened
+    /// from --play-demo
+    /// @param recorded the path those bytes were named with
+    void remember_replay_file(bool staged, const std::filesystem::path& recorded);
+
+    /// Opens the playback bar while a replay plays, once.
+    void ensure_replay_viewer();
 
     /// The kind of match that is running.
     ///
@@ -2464,12 +2488,16 @@ class Runtime final : public menu::Host,
 
     /// Takes the running match out of photo mode, if it is in it, and puts
     /// back the layout, camera, zoom, follow, live camera and keys overlay
-    /// it replaced. A keys overlay that was open is opened only when it is
-    /// not already open, and not when the match is ending.
+    /// it replaced. The keys overlay returns to the openness it had on
+    /// entering: one opened during the visit closes, and one that was open
+    /// is opened again when it is not already open. The match ending does
+    /// not reopen an overlay that was closed on entering.
     ///
     /// @param match_ending true when victory or defeat is about to cover
-    ///        the battlefield, so the keys overlay stays closed
-    void leave_photo_mode(bool match_ending = false) noexcept;
+    ///        the battlefield, so the keys overlay stays as it is
+    /// @param restore_keys_overlay false when the caller is the overlay
+    ///        itself, so leaving does not close that screen under the press
+    void leave_photo_mode(bool match_ending = false, bool restore_keys_overlay = true) noexcept;
 
     /// Tells whether the running match is in photo mode.
     ///
@@ -2522,8 +2550,53 @@ class Runtime final : public menu::Host,
     /// render mode in use. The photo screen, the cursor and the badge are
     /// not in the picture. The file is written on the photo writer's thread.
     /// Outside photo mode, or when the picture cannot be taken, nothing is
-    /// written and the status says why.
+    /// written and the status says why. When the file has been written and
+    /// copying is on, the photo is also placed on the clipboard. A photo
+    /// asked for before a photo-mode frame has been presented waits, and is
+    /// taken once one has. A held picture does not wait.
     void take_photo();
+
+    /// Takes a photo that was asked for before a photo-mode frame had been
+    /// presented. The present of a photo-mode frame calls this.
+    void deliver_pending_photo() noexcept;
+
+    /// Whether a saved photo is placed on the clipboard.
+    ///
+    /// The preference is open-annihilation.photo.copy, 0 or 1. Absent, or
+    /// any text other than 0, is on.
+    ///
+    /// @return true when copying is on
+    [[nodiscard]] bool photo_copy() const;
+
+    /// Turns copying a photo to the clipboard on or off, and keeps the choice.
+    ///
+    /// @param on true copies later photos
+    void set_photo_copy(bool on);
+
+    /// Copies the last photo to the clipboard again.
+    ///
+    /// The Copy to clipboard switch does not govern this press. Nothing is
+    /// offered when no photo is remembered. In Game Mode, or where the
+    /// clipboard holds text only, the status says why. A photo above the
+    /// copy limits is still not copied, and the status says why.
+    void copy_last_photo();
+
+    /// Whether a photo's details name the players.
+    ///
+    /// The preference is open-annihilation.photo.player-names. Absent, or any
+    /// text other than 0, names them. 0 leaves the names out. The key is
+    /// written only when the player changes it.
+    ///
+    /// @return true when a photo names the players
+    [[nodiscard]] bool photo_player_names() const;
+
+    /// Turns player names in a photo's details on or off, and records that
+    /// choice. Turning them off writes 0. Turning them on erases the key,
+    /// which is the default. Setting the value already in effect writes
+    /// nothing.
+    ///
+    /// @param on true names the players
+    void set_photo_player_names(bool on);
 
     /// Waits until every photo already accepted has been written, then
     /// reports the latest one on the status line.
@@ -2578,6 +2651,14 @@ class Runtime final : public menu::Host,
     /// @param eighths 0 is the tick before, 8 the frozen tick
     /// @return true when that eighth is what the next draw shows
     [[nodiscard]] bool photo_between(int32_t eighths);
+
+    /// The eighth the shutter is showing, from 0 to 8.
+    ///
+    /// 0 is the tick before and 8 the frozen tick. While the shutter is not
+    /// set, the frozen tick shows, so this is 8. Outside photo mode this is 8.
+    ///
+    /// @return that eighth
+    [[nodiscard]] int32_t photo_shutter_eighth() const noexcept;
 
     /// Holds, or lets go of, a copy of the battlefield in a shared match.
     /// The camera stays put while the copy shows, and letting go puts that
@@ -2793,6 +2874,12 @@ class Runtime final : public menu::Host,
     /// @return 77 when the machine has no graphics device, otherwise 0
     /// @throws std::runtime_error when a check fails
     [[nodiscard]] int check_photo_live();
+
+    /// Runs --check-photo keys: each photo command on its default key, then
+    /// Take photo moved to K.
+    ///
+    /// Throws std::runtime_error when a check fails.
+    void check_photo_keys();
 
     /// Runs --generate-script: opens the recording through the extension
     /// that replays it, replays it to its end in director mode without
@@ -3666,6 +3753,15 @@ class Runtime final : public menu::Host,
     /// @return the text, or empty when the action has no chord
     [[nodiscard]] std::string bound_chord_text(std::string_view action_id);
 
+    /// The text a screen shows for every chord of one action, joined by ", ".
+    ///
+    /// Ready bindings are named when there are any, otherwise every default.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param action_id the action
+    /// @return the text, or empty when the action has no chord
+    [[nodiscard]] std::string bound_chords_text(std::string_view action_id);
+
     /// Fills the options dialog's three key sliders from the bound actions
     /// and remembers them, so a later move can be written or put back.
     ///
@@ -3760,6 +3856,15 @@ class Runtime final : public menu::Host,
     /// @param action the action id
     /// @return the button, 1 to 8
     [[nodiscard]] uint8_t pointer_role_button(std::string_view action) const;
+
+    /// The SDL button `photo.pan` holds while its modifiers are down, or 0.
+    ///
+    /// The chord numbers MouseRight and MouseMiddle as 2 and 3; the result is
+    /// SDL's numbering. A chord whose modifiers are not held is skipped.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the button, or 0 when no such chord is held
+    [[nodiscard]] uint8_t photo_pan_button() const;
 
     /// The button that selects, boxes and gives the order the left button gives today.
     ///
@@ -5548,6 +5653,56 @@ class Runtime final : public menu::Host,
         std::vector<renderer::ButtonPresentation>& presentation,
         std::vector<renderer::ListPresentation>& lists
     ) const;
+
+    /// Stamps a player's shape marker on the paint target.
+    ///
+    /// (x, y) is the shape's centre in the same pixels fill_hud_rect uses.
+    /// Nothing is drawn unless shape cues are in effect, or when the player
+    /// is outside 0 to 9. `scale` is the picture pixels on a side of one
+    /// marker pixel, and a plate is the dark border under a marker that sits
+    /// on its own colour.
+    ///
+    /// @param x the shape's centre column
+    /// @param y the shape's centre row
+    /// @param player the player's seat, 0 to 9
+    /// @param palette_index the shape's colour in the match palette
+    /// @param scale picture pixels on a side of one marker pixel
+    /// @param plate true to draw the dark plate under the marker
+    void stamp_shape_marker(
+        int x, int y, int player, uint8_t palette_index, int scale = 1, bool plate = false
+    );
+
+    /// Draws the one-third and two-thirds notches of a health bar.
+    ///
+    /// The notches are the trough's colour, so they show on the fill and
+    /// disappear on the empty trough. Nothing is drawn unless shape cues
+    /// are in effect.
+    ///
+    /// @param bar the bar just drawn
+    void notch_health_bar(const oa::ui::hud::HealthBar& bar);
+
+    /// Stamps a shape marker in each active colour cell.
+    ///
+    /// A cell is named LOGO and one digit, or Color and one digit. A LOGO
+    /// cell beside a LIVEPLYR row takes that row's seat, and its colour is
+    /// that seat's colour number. Any other cell takes the colour number of
+    /// the frame it shows. The marker is filled with that number's dot colour
+    /// through the palette the screen was drawn with. A wide cell holds the
+    /// marker, shape and number, on a dark plate at its left; a small one
+    /// holds it in the middle. The battle room asks for the shape alone, so
+    /// the version on the cell stays readable. Nothing is drawn unless shape
+    /// cues are in effect.
+    ///
+    /// @param[in,out] surface the screen just drawn
+    /// @param layout the screen's controls
+    /// @param palette the palette the screen was drawn with, four bytes an entry
+    /// @param shape_only true to draw the shape with no number
+    void stamp_colour_cell_markers(
+        renderer::Surface& surface,
+        const oa::ui::gui_layout::Layout& layout,
+        std::span<const uint8_t> palette,
+        bool shape_only
+    );
 
     /// Returns the named controls of the team menu or panel loaded as the match HUD.
     ///
@@ -7526,6 +7681,16 @@ class Runtime final : public menu::Host,
     /// map that can be played.
     void refresh_listed_pack_maps();
 
+    /// Mounts one pack kept for a replay over Maps, or clears that mount.
+    ///
+    /// The same folder changes nothing. A different folder drops the list's
+    /// blocks, refusals and mounted name for the map names that folder lists,
+    /// and for the names of the folder it replaces, so the next prepare decides
+    /// for the folder that is listed.
+    ///
+    /// @param folder the pack's folder; empty reads Maps only
+    void use_replay_map_pack(const std::filesystem::path& folder);
+
     /// Rebuilds the pack-map lists when the catalogue snapshot has moved on.
     ///
     /// Does nothing until the content service has published a snapshot, and
@@ -8313,8 +8478,16 @@ class Runtime final : public menu::Host,
     /// The Library's host: its model, its screen's state, its feed and its worker.
     struct LibraryHost;
 
+    /// Core Prime's list reads this runtime's folder and options
+    /// (runtime_library_core_prime.cpp).
+    friend struct CorePrimeGate;
+    friend struct CorePrimeHost;
+
     /// The Library as a screen of the OA layer, named library.
     struct LibraryScreen;
+
+    /// The playback bar as a screen of the OA layer, named replay-viewer.
+    struct ReplayViewerScreen;
 
     /// Frees the Library's host, stopping and joining its worker.
     ///
@@ -8582,6 +8755,17 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_replays_content();
 
+    /// Runs --check-replays-core-prime (runtime_library_core_prime_check.cpp).
+    ///
+    /// The working folder holds core-prime.facts. The list comes from the
+    /// loopback feed --core-prime-api names: the next page, a planet, a
+    /// download, Watch, a release that changed, a file whose digest differs,
+    /// and the same list with that server stopped. With --snapshot it writes
+    /// the section's states at 1280x720.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_replays_core_prime();
+
     /// Considers old replays once the main menu is free. The first time any
     /// would go, one question asks. Nothing is removed before it is answered.
     /// A run nobody watches, with the question unanswered, removes nothing.
@@ -8787,6 +8971,75 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_key_editor();
+
+    /// Runs --check-replay-viewer: a skirmish of at least 2,400 ticks is
+    /// recorded and watched. The bar is pressed at 640x480, 1280x720 and
+    /// 1920x1080, and each press is checked against the replay. With
+    /// --snapshot, writes replay-viewer-<w>x<h>.ppm and
+    /// replay-viewer-640x480-de.ppm. The run ends on the straight playback's
+    /// digest, then Back to the Library.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_replay_viewer();
+
+    /// Carries out one watch.replay action while a replay plays.
+    ///
+    /// @param id the action id
+    /// @return false when no replay is playing
+    bool replay_viewer_command(std::string_view id);
+
+    /// Shows the playback bar while a replay plays.
+    void show_replay_bar();
+
+    /// Tells whether recorded chat is hidden for the replay on show.
+    ///
+    /// @return true while the bar's Chat control has hidden it
+    [[nodiscard]] bool replay_hides_recorded_chat() const;
+
+    /// Carries out a controller button on the playback bar.
+    ///
+    /// @param button the button
+    /// @return true when the bar took it
+    bool replay_viewer_pad(oa::ui::pad_controls::PadButton button);
+
+    /// The first marker after a tick, while the bar is showing.
+    ///
+    /// @param tick the tick
+    /// @return that marker's tick; none when the bar is absent or no marker follows
+    [[nodiscard]] std::optional<uint32_t> replay_marker_after(uint32_t tick) const;
+
+    /// The last marker before a tick, while the bar is showing.
+    ///
+    /// @param tick the tick
+    /// @return that marker's tick; none when the bar is absent or no marker precedes
+    [[nodiscard]] std::optional<uint32_t> replay_marker_before(uint32_t tick) const;
+
+    /// Tells whether the watched replay's timeline has arrived.
+    ///
+    /// @return true once a timeline was taken
+    [[nodiscard]] bool replay_index_arrived() const;
+
+    /// Stops the watched replay's index pass and forgets its path.
+    ///
+    /// The playback bar is a private type. The match clock calls this after
+    /// the frame, before it leaves the match.
+    void release_replay_recording();
+
+    /// The index pass the bar started, while it is running.
+    ///
+    /// @return the process id; 0 when none is running
+    [[nodiscard]] int replay_index_pid() const;
+
+    /// The last progress the bar's index pass reported, kept after it ends.
+    ///
+    /// @return the percent, 0 to 99; 0 before any line arrived
+    [[nodiscard]] int replay_finding_percent() const;
+
+    /// The colour number the end card uses for a player, once it is known.
+    ///
+    /// @param name the player's name
+    /// @return the colour number, or -1 when the card has not named them
+    [[nodiscard]] int replay_named_colour(std::string_view name) const;
 
     /// Runs --check-key-capture: capturing a chord, a clash, Escape held for
     /// a second, a refused Escape, Settings' chord, and a draft clash's card,
@@ -9102,21 +9355,57 @@ class Runtime final : public menu::Host,
     [[nodiscard]] std::vector<uint8_t> live_terrain_visibility_mask() const;
     /// Scrolls the rotated view in screen directions through its ground projection.
     ///
-    /// In photo mode the place is held within View past the map's edge, as a
-    /// classic scroll is (held_view). Play's turned pan is not held.
+    /// The place is held within View past the map's edge, as a classic scroll
+    /// is (held_view), in play and in photo mode.
     ///
     /// @param screen_dx horizontal screen pixels to move the camera
     /// @param screen_dy vertical screen pixels to move the camera
     /// @return true when the live camera handled the scroll, including an active drag
     bool scroll_live_match_view(double screen_dx, double screen_dy);
 
-    /// Holds a turned view's place within View past the map's edge while photo
-    /// mode is the caller. The limits are a classic scroll's (held_view).
+    /// Holds a place within View past the map's edge at the zoom it is drawn
+    /// at. The limits are a classic scroll's (held_view). While the view is
+    /// turned, nothing is remembered past them: a zoom in pulls a centre the
+    /// wider view left past the closer limits back inside, which is a frame
+    /// the card can draw, and a pan stops at those limits. While the view is
+    /// classic, the pan role's drag reaches this hold and keeps the
+    /// remembered centre (view_hold_from), as a classic zoom does. In play
+    /// and in photo mode.
     ///
     /// @param x the place's map column
     /// @param z the place's map row
     /// @return the held place
-    [[nodiscard]] std::array<double, 2> held_photo_place(double x, double z) const;
+    [[nodiscard]] std::array<double, 2> held_turned_place(double x, double z) const;
+
+    /// Pulls the turned view into this zoom's limits when a turn starts from
+    /// a classic place past them, so the frame can be drawn. The classic
+    /// place and the centre it remembered are kept. A move of the turned
+    /// view after that keeps the new place. The director's camera stays
+    /// where the shot put it. In play and in photo mode.
+    void pull_place_for_turned_view();
+
+    /// Puts the classic place and its remembered centre back when the view
+    /// turns back to classic, where the turn had pulled them and the turned
+    /// view has not moved since.
+    void restore_classic_place_after_turn();
+
+    /// Points the live view at the current place and zoom and builds its
+    /// projection, without drawing a frame. The view, the projection and
+    /// whether the height is held are kept, and the ground count is written
+    /// to terrain_vertices. When quiet_ground is set, the ground the wheel
+    /// would pick is set aside. A check uses this for a corner wider than
+    /// the window. restore_live_ground puts all of that back.
+    ///
+    /// @param quiet_ground whether to set the picked ground aside
+    /// @param terrain_vertices receives the ground count to put back
+    /// @return false when the projection cannot be built
+    [[nodiscard]] bool aim_live_view_at_match(bool quiet_ground, std::size_t& terrain_vertices);
+
+    /// Puts back the view, the projection, the held height and the ground
+    /// count that aim_live_view_at_match set aside, so the next frame is
+    /// the one the check had.
+    /// @param terrain_vertices the count aim_live_view_at_match wrote
+    void restore_live_ground(std::size_t terrain_vertices);
     /// Applies camera permission and angle limits without moving the view centre.
     /// @param allowed whether camera rotation is enabled
     /// @param unlocked whether angles outside the art-friendly range are allowed
@@ -12839,10 +13128,30 @@ class Runtime final : public menu::Host,
     /// Moves finished photos onto the status line and the photo screen's line.
     void publish_photo_status();
 
+    /// Registers the event the photo writer posts when a notice is ready.
+    ///
+    /// Called before the writer's thread starts. A failed registration leaves
+    /// the inactive wait's short timeout as the only wake.
+    void arm_photo_notice_wake();
+
+    /// Tells whether an event is the photo writer's notice.
+    ///
+    /// @param type the event's type
+    /// @return true for the notice, which is not input
+    [[nodiscard]] bool is_photo_notice_event(uint32_t type) const noexcept;
+
+    /// How long an inactive window waits while a photo is still being written.
+    ///
+    /// @return 50 while a photo is outstanding, or -1 to wait for an event
+    [[nodiscard]] int photo_idle_wait_ms() const;
+
     /// Reports that a photo was written. The file name is not translated.
+    /// A copy note, already in the player's language, follows the saved
+    /// message when the photo was copied or the copy was refused.
     ///
     /// @param file_name the file's name, without a folder
-    void note_photo_saved(std::string file_name);
+    /// @param copy_note "Copied", or why it was not copied, or empty
+    void note_photo_saved(std::string file_name, std::string copy_note = {});
 
     /// Reports that a photo was not written.
     ///
@@ -14026,11 +14335,38 @@ class Runtime final : public menu::Host,
     /// @return the record, or -1 for none
     [[nodiscard]] int32_t frontend_focus() const;
 
+    /// Returns the record the tree reports as focused on the frontend screen.
+    ///
+    /// It is the record the screen focuses. Where the screen focuses none, as
+    /// the main menu does, it is the first record of the screen's order, and
+    /// the screen's own focus is left where it is, so nothing new is drawn.
+    ///
+    /// @return the record, or -1 for none
+    [[nodiscard]] int32_t reported_frontend_focus() const;
+
+    /// Returns the record the tree reports as focused on the match's panel
+    /// while that panel has the keyboard.
+    ///
+    /// Where the panel focuses none, it is the first record of the panel's
+    /// order, and the panel's own focus is left where it is.
+    ///
+    /// @return the record, or -1 while the panel does not have the keyboard
+    [[nodiscard]] int32_t reported_match_focus() const;
+
+    /// Marks the focused control the screen names when the family's ring is drawn.
+    ///
+    /// The first focused control that is shown gets `focus_shown`. A control of
+    /// an OA screen, whose name starts with oa., keeps the flag its own screen
+    /// wrote. While the family's ring is hidden the controls are left as they were.
+    ///
+    /// @param[in,out] controls the screen's controls, windows included
+    void stamp_family_focus_shown(std::vector<AutomationControl>& controls);
+
     /// Checks Single Player's GUI keyboard: the focus marker's rings round
     /// NewCamp, its loader's focus, then round the records Tab and Shift+Tab
     /// move the focus to, and its buttons' quick keys underlined; Return with
-    /// no record focused rings the first, and Return and Space press NewCamp
-    /// once focused, a held key's repeat nothing.
+    /// no record focused and the focus ring hidden rings the first, and Return
+    /// and Space press NewCamp once focused, a held key's repeat nothing.
     ///
     /// @throws std::runtime_error naming the first difference
     void check_frontend_keyboard();
@@ -14118,9 +14454,12 @@ class Runtime final : public menu::Host,
     /// Presses the frontend screen's focused button for the accept or press action.
     ///
     /// With no record focused, as the main menu opens, accept gives the panel
-    /// its first focus (move_frontend_focus), ringed, and presses nothing. A
-    /// focused record that is no active button, and a grayed-out button, press
-    /// nothing. Press does nothing while no record is focused.
+    /// its first focus (move_frontend_focus) and presses nothing, while the
+    /// family's ring is hidden. While that ring is shown, accept presses that
+    /// first record and hides the ring. A focused record that is no active
+    /// button, and a grayed-out button, press nothing; a text box keeps the
+    /// ring. Press does nothing while no record is focused, and does not hide
+    /// the ring.
     ///
     /// @param accept true for accept, false for the press action
     /// @return true when the key pressed the focused button or gave the focus
@@ -15697,6 +16036,16 @@ class Runtime final : public menu::Host,
     /// @param cell 1 through 12
     /// @return true when that button was pressed
     bool press_build_cell(int cell);
+
+    /// Runs one photo-mode command.
+    ///
+    /// Enter and F9, the zoom, the turn and the shutter are here. A command
+    /// photo mode refuses is still taken, so it does not reach the match.
+    /// [runtime_hotkeys.cpp]
+    ///
+    /// @param action the event
+    /// @return true when the action is a photo command
+    bool answer_photo_action(const oa::ui::key_bindings::ActionEvent& action);
 
     /// Answers one match action.
     ///
@@ -18525,7 +18874,21 @@ class Runtime final : public menu::Host,
     [[nodiscard]] std::string content_switch_sentence(const fs::path& path) const;
 
     /// Takes a save or a recording TURN ON AND LOAD left for this start.
+    /// A kept map pack named beside that recording is mounted when its folder
+    /// still verifies.
     void take_pending_content();
+
+    /// Mounts the kept map pack a pending replay named, when that folder still
+    /// verifies. The mount is held until the replay's match starts, so a frame
+    /// outside a match does not clear it first.
+    ///
+    /// @param folder_text the folder, as the preference stored it
+    void arm_pending_replay_pack(std::string_view folder_text);
+
+    /// Drops a pending replay whose map could not be loaded: the player's mod
+    /// and expansions come back, as they do when a replay is stopped, and the
+    /// game does not quit.
+    void abandon_pending_replay();
 
     /// The recording this start should play, after take_pending_content.
     ///
@@ -19083,7 +19446,11 @@ class Runtime final : public menu::Host,
     /// the view is held within its limits along both axes, from the limits
     /// alone, so that a zoom never takes more of the view past the map's
     /// edges than they let it: the point under the pointer slides where
-    /// the view meets them.
+    /// the view meets them. While the turned view is showing, a zoom in
+    /// then pulls the centre back within the limits that zoom draws
+    /// (view_within_limits), in play and in photo mode, so a corner of a
+    /// view wider than the map does not stay past them. The classic view
+    /// does not.
     ///
     /// @param zoom the zoom to take, screen pixels per map pixel, above 0
     /// @param focus_x the point's column from the battlefield's left edge, screen pixels
@@ -20810,6 +21177,10 @@ class Runtime final : public menu::Host,
     std::string pending_save_path_{};
     /// The recording TURN ON AND LOAD plays on this start.
     std::string pending_demo_path_{};
+    /// The kept pack mounted for `pending_demo_path_` stays until its match starts.
+    bool hold_replay_map_pack_{};
+    /// The pending replay was refused. The Library says so when it opens again.
+    bool pending_replay_refused_{};
     /// The film folder whose content note this run already wrote.
     std::string film_content_noted_{};
     /// The missing-language notice for this run (runtime_language_notice.cpp).
@@ -21775,6 +22146,19 @@ class Runtime final : public menu::Host,
     /// A replay asked to leave the match. advance_match_clock calls leave_match
     /// after the frame's hook returns, so the hook is not inside the step it ends.
     bool replay_end_requested_ = false;
+    /// Back to the Library asked to leave. The same place calls leave_match and
+    /// then opens the main menu, which brings the Library back.
+    bool replay_library_requested_ = false;
+    /// Recorded chat is hidden while the playback bar's Chat control says so.
+    bool replay_chat_hidden_ = false;
+    /// The playback bar, while it is on the OA layer. The screen clears this.
+    ReplayViewerScreen* replay_viewer_ = nullptr;
+    /// The recording being watched, as a full path. The bar reads it.
+    std::filesystem::path replay_recording_path_{};
+    /// A timeline the Library already holds for that recording. The bar takes
+    /// it before it reads the file, and starts no pass. Cleared once the bar
+    /// has copied it.
+    std::string replay_handed_timeline_{};
     /// The commander placement's Done button is held down (commander_placement_pointer).
     bool commander_done_held_ = false;
     /// A left press moved the commander while it was placed; the press's

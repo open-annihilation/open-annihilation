@@ -234,6 +234,10 @@ multiplayer: in the battle room of "XPlay" as EngineHost
 multiplayer: battle room players: EngineHost, RealJoin
 ```
 
+The room has ten seats. A player who is already in the game when every
+seat is taken is seated, in the order they arrived, as soon as a seat
+opens. [A full battle room](docs/multiplayer.md) describes it.
+
 When the join fails, because no game answered, the password was wrong or
 the game is full, the game list shows the notice it shows in the screens,
 and the output says so:

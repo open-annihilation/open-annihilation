@@ -7,6 +7,7 @@
 
 #include "oa/ui/kit/controls.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/components.hpp"
@@ -309,6 +310,106 @@ Colour icon_ink(const ChipLook& look) noexcept {
     return colour::hint;
 }
 
+/// The points a text chip grows by, while shape cues are in effect, to hold
+/// its state's mark. An icon chip keeps its size. A filter or a tag grows
+/// by nothing and draws no mark.
+constexpr int32_t kShapeCueRoom = 12;
+
+/// A serif "i", 5 by 9, for a get or online chip. The callout's dot is too
+/// small once it sits in the room the chip adds.
+constexpr std::array<uint8_t, 5 * 9> kInformationBits{
+    0, 1, 1, 1, 0, //
+    0, 1, 1, 1, 0, //
+    0, 0, 0, 0, 0, //
+    0, 1, 1, 1, 0, //
+    0, 0, 1, 0, 0, //
+    0, 0, 1, 0, 0, //
+    0, 0, 1, 0, 0, //
+    0, 0, 1, 0, 0, //
+    0, 1, 1, 1, 0, //
+};
+constexpr int32_t kInformationWidth = 5;
+constexpr int32_t kInformationHeight = 9;
+
+/// Returns the tone whose mark a chip carries while shape cues are in effect.
+///
+/// Installed and playing are ok, an update is caution, a problem is danger,
+/// and get, online, a filter and a tag are information.
+///
+/// @param state the chip's state
+/// @return the tone
+StateTone chip_tone(ChipState state) noexcept {
+    switch (state) {
+    case ChipState::installed:
+    case ChipState::playing:
+        return StateTone::ok;
+    case ChipState::update:
+        return StateTone::caution;
+    case ChipState::problem:
+        return StateTone::danger;
+    case ChipState::get:
+    case ChipState::online:
+    case ChipState::filter:
+    case ChipState::tag:
+        break;
+    }
+    return StateTone::information;
+}
+
+/// Returns the extra width a chip takes while shape cues are in effect.
+///
+/// An icon chip, a filter, a tag, and every chip with cues off, grows by
+/// nothing, so a chip's measured width stays today's.
+///
+/// @param look the chip
+/// @return the extra points
+int32_t shape_cue_room(const ChipLook& look) noexcept {
+    if (look.icon.has_value() || look.state == ChipState::filter || look.state == ChipState::tag ||
+        !oa::present::colour_vision::shape_cues_active())
+        return 0;
+    return kShapeCueRoom;
+}
+
+/// Draws a chip's state mark, when shape cues are in effect.
+///
+/// The ink is the tone's own, unless that is the chip's face, in which case
+/// the words' colour is used so the mark stays visible. A text chip holds the
+/// mark in the room added on its left. Get and online draw an "i" centred in
+/// that room. An icon chip draws nothing: the icon is already its state. A
+/// filter or a tag draws nothing.
+///
+/// @param canvas where the chip is drawn
+/// @param rect the chip's rectangle
+/// @param look the chip
+/// @param text the words' colour, used when the tone's ink is the face
+void draw_chip_mark(const Canvas& canvas, const Rect& rect, const ChipLook& look, Colour text) {
+    if (!oa::present::colour_vision::shape_cues_active())
+        return;
+    // An icon is already the picture of its state, a maker's mark included.
+    if (look.icon.has_value())
+        return;
+    if (look.state == ChipState::filter || look.state == ChipState::tag)
+        return;
+    const StateTone tone = chip_tone(look.state);
+    Colour ink = state_ink(tone);
+    const ChipColours colours = chip_colours(look);
+    if (colours.face.has_value() && ink == *colours.face)
+        ink = text;
+    if (tone == StateTone::information) {
+        const int32_t left = rect.x + (kShapeCueRoom - kInformationWidth) / 2;
+        const int32_t top = rect.y + (rect.height - kInformationHeight) / 2;
+        draw_mark(
+            canvas,
+            renderer::Mark{kInformationWidth, kInformationHeight, kInformationBits},
+            {left, top},
+            ink
+        );
+        return;
+    }
+    const int32_t top = rect.y + (rect.height - 8) / 2;
+    draw_state_mark(canvas, tone, {rect.x + 2, top}, ink);
+}
+
 /// Returns a chip's width on a canvas: its state icon's side, or its text,
 /// measured when the canvas has fonts, and chip_padding either side.
 ///
@@ -318,7 +419,8 @@ Colour icon_ink(const ChipLook& look) noexcept {
 int32_t chip_width_on(const Canvas& canvas, const ChipLook& look) {
     if (look.icon.has_value())
         return kMetrics.state_icon_side;
-    return measured(canvas, FontRole::small, look.text) + 2 * kMetrics.chip_padding;
+    return measured(canvas, FontRole::small, look.text) + 2 * kMetrics.chip_padding +
+           shape_cue_room(look);
 }
 
 /// Returns a chip's height: its state icon's side, or chip_height.
@@ -1120,7 +1222,8 @@ void add_list_row(
 int32_t chip_width(const Fonts& fonts, const ChipLook& look) {
     if (look.icon.has_value())
         return kMetrics.state_icon_side;
-    return text_width(fonts, FontRole::small, look.text) + 2 * kMetrics.chip_padding;
+    return text_width(fonts, FontRole::small, look.text) + 2 * kMetrics.chip_padding +
+           shape_cue_room(look);
 }
 
 void draw_chip(const Canvas& canvas, const Rect& rect, const ChipLook& look) {
@@ -1130,11 +1233,19 @@ void draw_chip(const Canvas& canvas, const Rect& rect, const ChipLook& look) {
         if (look.hovered && !look.disabled)
             fill_round_rect(canvas, rect, std::min(rect.width, rect.height) / 2, colour::hover);
         draw_state_icon(clipped(canvas, rect), rect, *look.icon, icon_ink(look));
+        draw_chip_mark(canvas, rect, look, icon_ink(look));
         return;
     }
     const ChipColours colours = chip_colours(look);
     draw_capsule(canvas, rect, colours.face, colours.border);
-    line(clipped(canvas, rect), FontRole::small, look.text, rect, Align::centre, colours.text);
+    Rect words = rect;
+    const int32_t room = shape_cue_room(look);
+    if (room > 0 && words.width > room) {
+        words.x += room;
+        words.width -= room;
+    }
+    line(clipped(canvas, rect), FontRole::small, look.text, words, Align::centre, colours.text);
+    draw_chip_mark(canvas, rect, look, colours.text);
 }
 
 // ---- Pills ----

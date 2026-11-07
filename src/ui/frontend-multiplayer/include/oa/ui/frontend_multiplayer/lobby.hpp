@@ -36,6 +36,29 @@
 namespace oa::ui::frontend_multiplayer {
 
 inline constexpr int32_t kSlotCount = OA_PLAYER_COUNT;
+
+/// Players the session can hold besides the ten seats. A player who arrives
+/// with no seat free is remembered until one opens.
+inline constexpr std::size_t kWaitingPlayerCount = 32;
+
+/// Bytes kept of a waiting player's latest setup block. A block is 186 bytes.
+inline constexpr std::size_t kWaitingSetupBytes = 192;
+
+/// A session player the battle room has not seated yet.
+struct WaitingPlayer {
+    /// Session player id.
+    uint32_t id{};
+    /// Name the session gave, as a join event carries it.
+    char name[sizeof(LobbyEvent::name)]{};
+    /// The latest setup block heard while this player waited, applied when
+    /// they are seated. None until one arrives.
+    bool has_setup{};
+    /// How many bytes of setup are in use.
+    uint16_t setup_size{};
+    /// The setup block's bytes, as the record arrived.
+    uint8_t setup[kWaitingSetupBytes]{};
+};
+
 inline constexpr uint8_t kNoSlot = 10;
 inline constexpr uint8_t kNoTeam = 5; // Player.team of a player on no team
 inline constexpr int32_t kTeamCount = 5;
@@ -167,7 +190,9 @@ struct UnitSyncRecord {
     uint8_t local_high{};
     uint8_t remote{}; // the host reported it
     uint8_t remote_high{};
-    int32_t limit{}; // build limit, -1 unlimited
+    int32_t limit{};       // build limit, -1 unlimited
+    uint8_t from_host{};   // 1 once this pass stored a verdict from the host
+    uint8_t first_given{}; // 1 once the recorder gave this key on its first pass
 };
 
 inline constexpr std::size_t kMaxSyncUnits = 1024;
@@ -536,6 +561,17 @@ struct Lobby {
     /// Set once this host has posted the newer-build line for the player in
     /// this slot. A later record from that player does not post it again.
     bool limits_older_refused[kSlotCount]{};
+    /// Players who arrived while every seat was taken, earliest first.
+    /// When a seat opens, the earliest is seated. A player who leaves
+    /// before that is dropped. None until a player arrives with no seat free.
+    std::array<WaitingPlayer, kWaitingPlayerCount> waiting_players{};
+    /// How many entries of waiting_players are in use.
+    uint8_t waiting_count{};
+    /// The name of the session this machine joined, as the game list showed
+    /// it, without its padding. Empty on a host. The unit check reads it to
+    /// tell TADR's replayer from every other host; the game name a player
+    /// hosts under (lobby_game_name) stays as it was.
+    char joined_session[kSessionGameNameBytes + 1]{};
 };
 
 // ---------------------------------------------------------------------------
@@ -678,6 +714,7 @@ struct StartedOptions {
 /// next host's record is folded even when its bytes are the same.
 /// The plain baseline's sim hash is set (PresenceRecords::plain_sim_hash),
 /// resolved the first time a lobby is reset and kept for the run.
+/// Players remembered from a full room are forgotten.
 ///
 /// @param[out] lobby Lobby to reset; it is bound to game.
 /// @param[in,out] game Game block whose player records and chat ring are cleared.
@@ -1337,18 +1374,27 @@ void lobby_add_computer(Lobby& lobby, int32_t slot) noexcept;
 /// Applies one received event: arrivals, departures, a lost session or a lobby record.
 ///
 /// A joiner the host refuses is not seated: this machine's lobby blocks go
-/// out, then 0x1b with the refusal. A departed player is rejected with
-/// reason 1; when it is the host's player before the start, the local
-/// player is rejected with reason 10 too and leaves ("The creator has left
-/// the game"). A record from one of this machine's own players is ignored;
-/// any other record, of whatever type, stamps its seated sender's
-/// Player.last_update_time, which the stall scan reads. A received
-/// 0x1b naming a seated player rejects it as lobby_reject does, passing it
-/// on once. A player's setup block (0x20) sends it this machine's presence
-/// record when it is due (presence_send_due). A presence record (0xf0) from
-/// a seated remote player whose length word is the event's size is kept as
-/// that player's (lobby_presence_record); any other is ignored. A departed
-/// player's record is forgotten.
+/// out, then 0x1b with the refusal. A player who arrives while every seat
+/// is taken is remembered, earliest first, and seated when a seat opens
+/// (someone leaves, or a rejection opens a slot). A player who leaves
+/// before that is forgotten and is not seated, as is one a received 0x1b
+/// names, and no one is seated once the game has started. While a seat is
+/// free, an arrival is seated at once, as a room that still has room does, and a
+/// player who arrived earlier takes a seat that has opened before the new
+/// arrival does. A setup block from a player who is waiting is kept, and
+/// applied when that player is seated; a block from anyone else is unchanged.
+/// A departed player is rejected with reason 1; when it is
+/// the host's player before the start, the local player is rejected with
+/// reason 10 too and leaves ("The creator has left the game"). A record
+/// from one of this machine's own players is ignored; any other record, of
+/// whatever type, stamps its seated sender's Player.last_update_time, which
+/// the stall scan reads. A received 0x1b naming a seated player rejects it
+/// as lobby_reject does, passing it on once, and a remembered player takes
+/// the seat that opened. A player's setup block (0x20) sends it this
+/// machine's presence record when it is due (presence_send_due). A presence
+/// record (0xf0) from a seated remote player whose length word is the
+/// event's size is kept as that player's (lobby_presence_record); any other
+/// is ignored. A departed player's record is forgotten.
 ///
 /// @param[in,out] lobby Lobby state.
 /// @param event Event from LobbyNet::receive.
@@ -1597,10 +1643,31 @@ void unit_sync_destroy(Lobby& lobby) noexcept;
 /// @param record The 14-byte record.
 void unit_sync_send(Lobby& lobby, uint32_t player_id, const uint8_t* record) noexcept;
 
+/// The number of unit-check records handled after one more.
+///
+/// A subtype of 100 or above is not counted. A greeting keeps the count
+/// going. When `again_at` is not zero and this record is not a greeting,
+/// the count becomes `again_at`: how TADR's replayer counts a pass it
+/// starts again.
+///
+/// @param handled How many records were handled before this one.
+/// @param subtype The record's subtype.
+/// @param again_at Zero to count this record, or the count a pass that
+///        starts again uses for this record.
+/// @return The count after this record.
+[[nodiscard]] uint32_t
+unit_sync_handled_count(uint32_t handled, uint8_t subtype, uint32_t again_at) noexcept;
+
 /// Handles a received 0x1a record.
 ///
 /// A client stores the host's verdicts (subtype 3). The host records a
-/// peer's unit count (1), checksums (2) and received count (4).
+/// peer's unit count (1), checksums (2) and received count (4). TADR's
+/// replayer (a joined session named `TADR ` and the rest, whose host is
+/// not Open Annihilation) starts the check again, and the viewer then
+/// counts that pass as TADR does. Every other host, the original game's
+/// and Open Annihilation's included, is counted as the original game
+/// counts. A greeting still starts the client's own report from the first
+/// unit.
 ///
 /// @param[in,out] lobby Lobby state.
 /// @param record The record as received; one that is not a whole 14-byte 0x1a record is dropped, as

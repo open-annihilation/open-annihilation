@@ -482,7 +482,10 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
   `replay_note` (a delete the trash refused, then a damaged file's two
   sentences, or the game's refusal),
   `replay_buttons` (Watch, off for a damaged file and in a game; Watch from,
-  beside a plain Watch once a Watch was left part way, naming that time;
+  beside Watch once a Watch was left part way, naming that time, including
+  when Watch restarts to play another release or to turn content on, which
+  starts where the replay was left, and not beside Check for updates, or
+  while the replay's packages are being fetched (the button then reads Cancel);
   Export…; Keep, Kept while every marked replay is kept, and no Keep at all
   while every marked replay is imported; Delete replay, and Delete it or
   Delete them once it is armed; Open folder), `refuse_replay` (the game's refusal,
@@ -521,7 +524,9 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
     chip. The card shows the map's picture, the title, the kind and time, how
     many are marked, why the replay cannot be watched (`library.note`), the
     players (with Won or Lost, and their kills and losses, once the index
-    pass has read the replay) and a strip of the game's moments, and the facts
+    pass has read the replay; a Core Prime replay's from its list, with kills
+    and no losses, `PlayerStanding::kills_only`) and a strip of the game's
+    moments, and the facts
     (each a label, `library.fact.<fact>`; a value
     wraps to up to three lines), scrolling as the catalogue's details do when
     they are taller than the card, with Watch, Watch from, Export…, Keep,
@@ -886,6 +891,11 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
     `library.tab.languages`, `library.tab.updates` (every tab after Active
     reads its title and its count in brackets: "Updates (2)"; Active stays
     "Active"), `library.tab.registries`;
+  - the groups that are one stop each, listed after the controls:
+    `library.tabs` (the tab-list role), `library.filters`, `library.tags`,
+    `library.expansions` (the Active tab's pills), `library.detail-tags`
+    (a package's tag pills) and `library.replays.source` (the Replays
+    switch, the tab-list role), each a list whose parts give their place in it;
     `library.search`;
   - on the Registries tab `library.registry.<id>` (its halves `.off` and
     `.on`), `.key` (its text the fingerprints, one a line) and `.refresh`,

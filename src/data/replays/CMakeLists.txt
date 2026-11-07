@@ -8,7 +8,7 @@
 # Watch was left at), and the replays the player keeps, in a file of their
 # own beside it.
 add_library(oa-data-replays src/replays.cpp src/index.cpp src/kept.cpp src/kinds.cpp src/days.cpp
-  src/content.cpp src/import.cpp src/retention.cpp)
+  src/content.cpp src/import.cpp src/retention.cpp src/feed.cpp)
 add_library(oa::data::replays ALIAS oa-data-replays)
 target_include_directories(oa-data-replays PUBLIC include)
 target_compile_features(oa-data-replays PUBLIC cxx_std_20)
@@ -30,9 +30,12 @@ if(BUILD_TESTING)
   # extensions register; grouping by day; an import into Imported that leaves
   # sector 6 out, selects the same identity again and refuses a file that
   # does not parse; which replays the retention rule takes, on either side of
-  # 30, 90 and 365 days; and the replays a kept file set aside spares, those
-  # recorded before it was set aside.
-  add_executable(oa-data-replays-test tests/replays_test.cpp tests/content_test.cpp)
+  # 30, 90 and 365 days; the replays a kept file set aside spares, those
+  # recorded before it was set aside; and a Core Prime feed: a page, one
+  # replay with its needs, an empty next, an unknown member, a damaged feed,
+  # an empty feed, an error, and an id that is refused.
+  add_executable(oa-data-replays-test tests/replays_test.cpp tests/content_test.cpp
+    tests/feed_test.cpp)
   target_link_libraries(oa-data-replays-test PRIVATE oa-data-replays oa-formats-oademo
     oa-formats-tad oa-formats-zip oa-base-sha256 oa-test-support oa-options)
   add_test(NAME data-replays COMMAND oa-data-replays-test)

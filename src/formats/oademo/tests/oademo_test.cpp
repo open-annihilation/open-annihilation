@@ -932,6 +932,7 @@ void the_words_of_an_index_are_pinned() {
     OA_CHECK(index_end_name(IndexEnd::cut) == "cut");
     OA_CHECK(result_by_name(ResultBy::none) == "none");
     OA_CHECK(result_by_name(ResultBy::commanders) == "commanders");
+    OA_CHECK(result_by_name(ResultBy::mission) == "mission");
     OA_CHECK(marker_kind_name(MarkerKind::start) == "start");
     OA_CHECK(marker_kind_name(MarkerKind::end) == "end");
     OA_CHECK(marker_kind_name(MarkerKind::commander_death) == "commander_death");

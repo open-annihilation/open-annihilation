@@ -747,6 +747,33 @@ void the_screen_opens_on_its_first_stop(const kit::Frame& frame) {
     OA_CHECK(!shown.state.interaction.focus_shown);
 }
 
+/// The list is one stop. Rows are not focusable, and the screen has no
+/// filter controls to group.
+///
+/// @param frame the frame
+void the_list_is_one_stop(const kit::Frame& frame) {
+    Session session = open_at(frame, opened({}), "list stop");
+    std::size_t lists = 0;
+    std::size_t row_stops = 0;
+    for (const kit::ControlId id : session.list.tab_order) {
+        const kit::Control* control = kit::control_of(session.list, id);
+        if (control == nullptr)
+            continue;
+        if (control->name == picker::name_list)
+            ++lists;
+        if (control->name.rfind(picker::name_row_prefix, 0) == 0)
+            ++row_stops;
+    }
+    OA_CHECK(lists == 1);
+    OA_CHECK(row_stops == 0);
+    OA_CHECK(session.list.composites.empty());
+    for (const kit::Control& control : session.list.controls) {
+        if (control.name.rfind(picker::name_row_prefix, 0) == 0)
+            OA_CHECK(!control.focusable);
+        OA_CHECK(control.name.rfind("brains.filter", 0) != 0);
+    }
+}
+
 /// The controller's back and use, and the footer buttons.
 ///
 /// @param frame the frame
@@ -865,6 +892,7 @@ int main() {
         finger(frame);
         keys(frame);
         the_screen_opens_on_its_first_stop(frame);
+        the_list_is_one_stop(frame);
         commands(frame);
         wheel_and_stick(frame);
     }

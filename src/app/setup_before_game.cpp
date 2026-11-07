@@ -1927,6 +1927,7 @@ struct SetupWindowDrive {
         mode,     ///< the header follows the window; switch to full screen
         full,     ///< the header shows the mark and the name; back to the window
         window,   ///< the header leaves them out again
+        cards,    ///< Tab to the language cards, which shows the ring
         turn,     ///< Left, Left and Right on the carousel
         turned,   ///< the focus is on the card in the middle
         seek,     ///< bring Deutsch onto the carousel
@@ -1940,6 +1941,7 @@ struct SetupWindowDrive {
     };
     Phase phase{Phase::mode};
     int frames{0};  ///< frames this walk has taken
+    int tabs{0};    ///< Tabs pressed on the way to the cards
     int keys{0};    ///< carousel keys pressed
     int back{0};    ///< previous-card presses
     int forward{0}; ///< next-card presses
@@ -2061,8 +2063,26 @@ void drive_setup_window_check(
         );
         std::cout << "setup window check: the header follows the window\n" << std::flush;
         drive.pause = 10;
-        drive.phase = SetupWindowDrive::Phase::turn;
+        drive.phase = SetupWindowDrive::Phase::cards;
         return;
+    case SetupWindowDrive::Phase::cards: {
+        // The step opens on its first stop with no ring. Tab shows the ring
+        // and moves it on, to the cards the arrows turn.
+        const kit::ControlId focused = session.interaction.focused;
+        if (session.interaction.focus_shown && focused >= first_run::card_id &&
+            focused < first_run::source_id) {
+            drive.phase = SetupWindowDrive::Phase::turn;
+            return;
+        }
+        setup_check_expect(
+            drive.tabs < static_cast<int>(scene.list.tab_order.size()),
+            "Tab did not reach the language cards"
+        );
+        handle(first_run::key(session, scene, kit::Key::tab));
+        ++drive.tabs;
+        drive.pause = 4;
+        return;
+    }
     case SetupWindowDrive::Phase::turn: {
         constexpr kit::Key kTurns[] = {kit::Key::left, kit::Key::left, kit::Key::right};
         handle(first_run::key(session, scene, kTurns[drive.keys]));

@@ -64,23 +64,29 @@ struct Platform {
     return platform;
 }
 
-/// What each key's events carry, and the character the key prints.
+/// What each key's events carry, the character the key prints, and the
+/// glyph Shift produces when that glyph is not a letter.
 ///
 /// One slot for every position number below `scancode_limit`. A zero key code
 /// means the map does not know that key.
 struct KeyboardMap {
-    /// Returns the US layout: letters and digits as events carry them, and the
-    /// character each writing-system key prints with no modifier held.
+    /// Returns the US layout: letters and digits as events carry them, the
+    /// character each writing-system key prints with no modifier held, and
+    /// the symbol Shift produces on the digit and punctuation keys.
     ///
     /// @return the US map
     [[nodiscard]] static KeyboardMap us();
 
     /// Records one key.
     ///
+    /// A call that omits the shifted glyph clears it, so a remapped key does
+    /// not keep the glyph the map had there.
+    ///
     /// @param scancode the position number, ignored when it is past the map
     /// @param event_key_code the key code events for that key carry
     /// @param printed the character the key prints, or 0 when it prints none
-    void set(uint16_t scancode, uint32_t event_key_code, char32_t printed);
+    /// @param shifted the glyph Shift produces, or 0 for a letter or no change
+    void set(uint16_t scancode, uint32_t event_key_code, char32_t printed, char32_t shifted = 0);
 
     /// Returns the key code events carry for a key.
     ///
@@ -94,11 +100,18 @@ struct KeyboardMap {
     /// @return the character, or 0 when the key prints none
     [[nodiscard]] char32_t printed(uint16_t scancode) const;
 
+    /// Returns the glyph Shift produces on a key, when that glyph is not a letter.
+    ///
+    /// @param scancode the position number
+    /// @return the glyph, or 0 when Shift types a letter or the same character
+    [[nodiscard]] char32_t shifted(uint16_t scancode) const;
+
   private:
 
     struct Slot {
         uint32_t event_key_code{}; ///< the key code events carry, or 0
         char32_t printed{};        ///< the character the key prints, or 0
+        char32_t shifted{};        ///< the glyph Shift produces, or 0
     };
 
     std::array<Slot, scancode_limit> slots_{};

@@ -5,6 +5,8 @@
 // encodes it and writes the file, then the frame reads the result.
 #pragma once
 
+#include "oa/present/photo/photo_texts.hpp"
+
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -26,27 +28,38 @@ namespace oa::app {
 /// fifth is refused by `enqueue`. Each file is written under a temporary
 /// name in the same folder and renamed when the write is whole. `finish`
 /// writes every photo already accepted, including the one in hand, and joins
-/// the thread. The strings of a future text chunk live in the job until
-/// `write` returns.
+/// the thread. The strings of a text chunk live in the job until `write`
+/// returns.
 class PhotoWriter {
   public:
 
     /// One picture accepted for saving.
     struct Picture {
-        std::vector<uint8_t> rgb;               ///< 8-bit RGB, row by row
-        uint32_t width = 0;                     ///< the picture's width
-        uint32_t height = 0;                    ///< the picture's height
-        std::filesystem::path path;             ///< the file, once the write is whole
-        std::string file_name;                  ///< the file's name, without a folder
-        std::vector<std::string> text_keywords; ///< kept for a later ticket's text
-        std::vector<std::string> text_values;   ///< one value for each keyword
+        std::vector<uint8_t> rgb;   ///< 8-bit RGB, row by row
+        uint32_t width = 0;         ///< the picture's width
+        uint32_t height = 0;        ///< the picture's height
+        std::filesystem::path path; ///< the file, once the write is whole
+        std::string file_name;      ///< the file's name, without a folder
+        /// Text chunks. Each keyword and value stays alive until `write` returns.
+        /// Software, Creation Time and Source are Latin-1; the others are UTF-8.
+        std::vector<oa::present::photo::PhotoText> texts;
     };
 
     /// The outcome of one accepted photo, for the frame's thread to read.
+    ///
+    /// The clipboard image is prepared on this thread: the PNG's bytes on
+    /// macOS and Linux, a BMP encoded from the pixels on Windows. The frame's
+    /// thread offers them. `clipboard` is empty when the photo was not saved,
+    /// the copy is above its limits, or the clipboard holds text only.
     struct Notice {
-        bool saved = false;    ///< the file was renamed into place
-        std::string file_name; ///< the file's name, without a folder
-        std::string reason;    ///< why it was not saved, in English, when `saved` is false
+        bool saved = false;             ///< the file was renamed into place
+        std::string file_name;          ///< the file's name, without a folder
+        std::string reason;             ///< why it was not saved, in English, when `saved` is false
+        uint32_t width = 0;             ///< the photo's width
+        uint32_t height = 0;            ///< the photo's height
+        std::vector<uint8_t> clipboard; ///< the PNG or BMP offered to the clipboard
+        const char* clipboard_mime = nullptr; ///< "image/png" or "image/bmp", or null
+        std::string copy_refusal;             ///< why the copy was refused, in English, or empty
     };
 
     /// Makes a writer. Its thread starts when the first photo is queued.
@@ -106,5 +119,17 @@ class PhotoWriter {
     bool stopping_ = false;
     std::thread thread_;
 };
+
+/// Wakes whoever is waiting when one photo's notice is queued.
+///
+/// Called once for each photo the writer accepted, saved or refused, after
+/// the notice can be read. Null wakes no one. The pointer is called from
+/// the writer's thread.
+using PhotoWriterWake = void (*)() noexcept;
+
+/// Stands a wake in. Null wakes no one.
+///
+/// @param wake the wake, or null
+void set_photo_writer_wake(PhotoWriterWake wake) noexcept;
 
 } // namespace oa::app

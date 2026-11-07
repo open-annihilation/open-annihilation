@@ -174,7 +174,8 @@ when it ends:
   it: an online battle's game id, its planet and its sector;
 - the map's name; each player's name, side, colour, team and kind (`human`,
   `computer` or `watcher`), with `recorded_here` for the player on the machine
-  that recorded;
+  that recorded, and, for a campaign mission that ended in its victory or
+  defeat, that player's `result`, `won` or `lost`;
 - the base game, the expansions that change the rules, the mod (id, name,
   version, revision and sim hash), the mutators and the brains the game played
   with, and the two limits;
@@ -185,9 +186,10 @@ pack map came from, and each mutator. Each package is named by the SHA-256
 the installed package's record keeps for it, or, when the game keeps none, by
 the digest of the package's folder (for a mod that no folder holds, its
 profile's own hash), so that every `oamod`, `oamap` and `oamut` need carries
-one. A map pack that is not installed is left out. `engine.needs` is the first
-release that reads a `.oademo`, and `engine.recorded_with` the version that
-recorded it.
+one. A replay of an older map pack keeps that pack in `Replay releases`
+and plays it from there; the pack in `Maps` stays. A map pack that is not
+installed is left out. `engine.needs` is the first release that reads a
+`.oademo`, and `engine.recorded_with` the version that recorded it.
 
 **No replay holds an address.** The players' network addresses are never
 written: the `.tad` the game writes holds no sector 6, `meta.json`,
@@ -220,6 +222,46 @@ opener of `.oademo`.
 step the speed it is watched at, and **Pause** holds it.
 [Playback](#playback) says how a jump to another moment works.
 
+While a replay plays, a bar along the foot of the battlefield shows play
+and pause, the time, a timeline you can press or drag, and the speed. It
+hides after three seconds away from the battlefield's lower edge and comes
+back on a playback key. **B** pins it for this watch; the pin is not saved.
+At the end, a card names the winner, the length and each player's kills and
+losses, and offers **Watch again**, **Back to the Library** and **Export…**.
+A damaged recording says so, with the time it failed.
+
+`--replay-viewer` with `--join` watches a recording another machine's replayer
+is playing to the session. When that game ends, the watcher prints the same
+`demo summary` line `--play-demo` prints: records applied and refused, units
+created, refused and past the table, record errors, tick errors, dropped
+frames, oversized frames, bad packets and untimed unit states, and the last
+error when there is one. The line is printed when the host ends the replay,
+when the host leaves, or when the match itself ends, and only once a record
+of the replay was applied. A host that sends no packet for 60 seconds drops
+the session, and the watcher prints no summary. A join that is still in the
+battle room, with the replay not started, prints no summary. A windowed one
+keeps waiting there. A headless one ends after five minutes.
+
+`--headless-check --join ADDRESS --replay-viewer` plays that session through
+without a window. It sets READY itself once it is seated in the battle room
+and has reported its own unit types, and sets it again if the room clears the
+bit. The line `replay viewer: READY after the unit sync` is printed once, the
+first time. It exits with status 0 when the watched game ends. It exits with a
+non-zero status, and prints no summary, when the join fails or the session
+drops before one of those ends; the line it prints then says which. A host
+silent for 60 seconds is one of those drops. A headless join still in the
+battle room five minutes after it arrived, with the match not started, prints
+`replay viewer: the replay did not start within 5 minutes of the battle room`
+and no summary. `--play-demo` still owns the summary when both are set.
+
+A joined watcher has not read the recording, so oversized frames, bad packets,
+untimed unit states and tick errors are 0 in its line. Records applied can
+differ from `--play-demo`'s for the same file: TA Demo Recorder sends records
+of its own (it removes the units of a player whose recording has ended, and
+the units left at the end), and its end can arrive before the last records
+have been applied. Every other field of the line is compared exactly.
+Records applied may differ by up to 1%.
+
 ## In the Library
 
 The Library's **Replays** section, second in its section list, lists every
@@ -238,6 +280,12 @@ the read. A read that was stopped writes nothing, so the row says
 **Reading…** again next time. A phone, which cannot start that read, shows
 what the file's header says and no **Reading…** chip. Exporting a replay
 carries what that read wrote. A timeline the file already holds is kept.
+
+**On Core Prime** the same section lists the replays Core Prime publishes.
+**Download** writes the `.oademo` into `Recordings/Core Prime`, and **Watch**
+plays that file. The game does not download the `.tad`.
+[The Library](library.md#replays) says how the switch, the filters and the
+empty list behave.
 
 **Delete replay** on the card, confirmed by the button beside it, moves that
 replay's file to the system's trash and takes it out of the list. If the
@@ -309,13 +357,24 @@ finishes, and an export copies it into a replay whose own timeline is
 missing or empty. The pass runs
 on the fixed clock and the fixed seed, and changes nothing the replay
 computes: it ends on the same tick as `--play-demo`. The same recording
-always gives the same file, byte for byte. `--output` is required.
+always gives the same file, byte for byte. `--output` is required. The
+pass mounts one kept map pack with `--replay-map-pack`.
 
 The pass exits 0 when it wrote the file, also for a recording that did not
 replay cleanly or that stops early: the file says so. It exits 1 and writes
 nothing when the recording cannot be replayed at all: it cannot be read, its
 map or its unit definitions are not installed, or no extension of the build
 replays it.
+
+While a replay is watched, a timeline the Library already holds for that file
+is what the bar shows, and no pass is started. Otherwise the bar starts this
+same pass beside the game, at low priority, and the timeline it writes is
+stored in the Library's index, so the next Watch and the card need no pass.
+The pass keeps a preferences file of its own and does not change the player's.
+It prints `replay index: progress N` on standard output each thousand ticks,
+`N` the percent of the recording's length it has read, and the bar shows that
+percent beside "No markers yet". The bar stops the process when the replay is
+left. The Library's own pass does not run during a match.
 
 ### What the file holds
 
@@ -327,7 +386,7 @@ One compact JSON object, its members in this order:
 | `length` | `ticks`, the last tick, which is the length of the replay (a second of game time is 30 ticks); `ms`, the recording's length on the recorder's clock, when known |
 | `ended` | `how`, `finished`, `left` or `cut`, and `tick`, the tick it ended on |
 | `verdict` | how the replay went: `finished` (everything recorded was replayed), `clean`, `paced`, `content_differs`, `errors`, `first_error_tick` (0 for none) and `last_error` (text, empty for none) |
-| `result` | `winners`, the numbers of the players who won (empty when none is known), and `by`: `commanders`, or `none` |
+| `result` | `winners`, the numbers of the players who won (empty when none is known), and `by`: `commanders`, `mission`, or `none`. A campaign mission that finished uses `mission`: the recording player is the only winner when that mission was won, and is left out of `winners` when it was lost. A mission that was left, and every skirmish and network game, keep `commanders` or `none` |
 | `players` | each player in the recording's order: `number`, `name`, `watcher`, and `final`, the totals on the last tick |
 | `markers` | the markers a timeline shows, in tick order (below) |
 | `markers_omitted` | how many markers were left out; only when it is not 0 |
@@ -378,6 +437,11 @@ and every death of the tick counts first. The winners are the players of
 the team that is left, whichever of them still has a commander. A game in
 which every team is out on one tick has no winner. A game no commander lost
 decides has `winners` empty and `by` `none`.
+
+A campaign mission whose `meta.json` gives the recording player's `result`,
+and which played to the end of what was recorded, takes its result from the
+mission instead, with `by` `mission`: that player alone when it was won, and
+every other player who plays (or `0` when nobody else does) when it was lost.
 
 `ended.how` is, in this order:
 
@@ -467,6 +531,11 @@ took 2.64 to 2.76 s, 18.9 to 20.8 s and 113.1 to 114.4 s.)
   and 5573.
 - The index of a recording is a file of 7 to 100 kilobytes (720: 7.6 KB;
   5573: 98 KB, 184 chat lines).
+
+The playback bar's pass is that same program, started beside the game at low
+priority. Its time and its memory are the pass's own, and they are not part
+of the game's. A timeline the Library holds is used instead, and what a pass
+writes is stored in the Library's index.
 
 ### The six recorded 3.1c games
 

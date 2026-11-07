@@ -754,6 +754,75 @@ void how_a_replay_ended() {
     OA_CHECK(count_of(index, oademo::MarkerKind::alliance) == 0);
 }
 
+// A campaign mission that reached its end takes the recording player's
+// result from the mission: that player won, or the others did so that
+// player lost. A mission that was left, and one the replay did not finish,
+// name nobody. The commanders still decide a game that is not a mission,
+// including one whose commanders would have named a winner the mission then
+// overrides.
+void a_campaign_mission_names_its_result() {
+    director::Timeline quiet = made_up_timeline();
+    quiet.events.erase(quiet.events.begin() + 9);
+    replay_index::StreamNotes stream = three_players();
+    replay_index::Source source;
+    source.timeline = &quiet;
+    source.stream = &stream;
+    source.recorded_end = oademo::IndexEnd::finished;
+    source.mission = replay_index::Source::Mission::won;
+    source.mission_player = 1;
+    oademo::TimelineIndex index = replay_index::build_index(source);
+    OA_CHECK(index.ended == oademo::IndexEnd::finished);
+    OA_CHECK(index.result.winners == std::vector<int>{1});
+    OA_CHECK(index.result.by == oademo::ResultBy::mission);
+
+    source.mission = replay_index::Source::Mission::lost;
+    index = replay_index::build_index(source);
+    OA_CHECK(index.result.by == oademo::ResultBy::mission);
+    OA_CHECK(index.result.winners == std::vector<int>{2});
+
+    // The recording player is the only one who plays: someone else won, so
+    // the row can still say Lost.
+    replay_index::StreamNotes alone;
+    alone.players = {{1, "Anna", false}};
+    source.stream = &alone;
+    index = replay_index::build_index(source);
+    OA_CHECK(index.result.winners == std::vector<int>{0});
+    OA_CHECK(index.result.by == oademo::ResultBy::mission);
+
+    // Left, and a replay that stopped short, show nothing of the mission.
+    source.stream = &stream;
+    source.mission = replay_index::Source::Mission::none;
+    source.recorded_end = oademo::IndexEnd::left;
+    index = replay_index::build_index(source);
+    OA_CHECK(index.ended == oademo::IndexEnd::left);
+    OA_CHECK(index.result.winners.empty() && index.result.by == oademo::ResultBy::none);
+
+    source.mission = replay_index::Source::Mission::won;
+    source.recorded_end = oademo::IndexEnd::finished;
+    director::Timeline stopped = quiet;
+    stopped.verdict.finished = false;
+    source.timeline = &stopped;
+    index = replay_index::build_index(source);
+    OA_CHECK(index.ended == oademo::IndexEnd::cut);
+    OA_CHECK(index.result.winners.empty() && index.result.by == oademo::ResultBy::none);
+
+    // A commander death would name player 1. The mission's defeat replaces it.
+    source.timeline = &quiet;
+    director::Timeline decided = made_up_timeline();
+    source.timeline = &decided;
+    source.mission = replay_index::Source::Mission::lost;
+    source.mission_player = 1;
+    index = replay_index::build_index(source);
+    OA_CHECK(index.result.by == oademo::ResultBy::mission);
+    OA_CHECK(index.result.winners == std::vector<int>{2});
+
+    // The same commanders, with no mission, still name player 1.
+    source.mission = replay_index::Source::Mission::none;
+    index = replay_index::build_index(source);
+    OA_CHECK(index.result.winners == std::vector<int>{1});
+    OA_CHECK(index.result.by == oademo::ResultBy::commanders);
+}
+
 // A kind of marker is kept up to a limit: later markers are left out and
 // counted, the start and the end stay.
 void markers_are_capped() {
@@ -802,6 +871,7 @@ int main() {
     an_index_is_built();
     chat_markers_are_lines_a_player_typed();
     how_a_replay_ended();
+    a_campaign_mission_names_its_result();
     markers_are_capped();
     a_short_game_gives_an_index();
     return oa::test::check_exit_status();

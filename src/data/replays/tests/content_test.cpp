@@ -108,6 +108,8 @@ void test_replay_content_rows() {
         OA_CHECK(other[0].version == "2.8");
         OA_CHECK(other[0].revision == 1);
         OA_CHECK(other[0].have_version == "2.9");
+        OA_CHECK(other[0].release == 4);
+        OA_CHECK(other[0].file.find(ridge_sha) != std::string::npos);
     }
 
     have.mods[0].version = "2.8";
@@ -125,7 +127,82 @@ void test_replay_content_rows() {
     have.playing_mod_id = "ridge";
     OA_CHECK(replays::compare_needs(missing, have, {}).empty());
     have.playing_mod_id.clear();
+    have.mods[0].version = "2.9";
+    have.mods[0].sha256 = std::string(newer_sha);
+    have.playing_mod_id = "ridge";
+    have.playing_mod_version = "2.9";
+    have.playing_mod_sha256 = std::string(newer_sha);
+    replays::HaveMod kept_release;
+    kept_release.id = "ridge";
+    kept_release.name = "Ridge";
+    kept_release.version = "2.8";
+    kept_release.revision = 1;
+    kept_release.sha256 = std::string(ridge_sha);
+    have.mods.push_back(kept_release);
+    const std::vector<replays::ContentGap> kept = replays::compare_needs(
+        missing, have, std::span<const replays::ListedRelease>(&ridge_offer, 1)
+    );
+    OA_CHECK(kept.size() == 1);
+    if (!kept.empty()) {
+        OA_CHECK(kept[0].play_installed);
+        OA_CHECK(!kept[0].other_release);
+        OA_CHECK(!kept[0].fetchable);
+        OA_CHECK(kept[0].block == replays::GapBlock::none);
+        OA_CHECK(kept[0].sha256 == ridge_sha);
+    }
+    replays::ListedRelease offline_offer = ridge_offer;
+    offline_offer.reach = replays::ReleaseReach::offline;
+    const std::vector<replays::ContentGap> kept_away = replays::compare_needs(
+        missing, have, std::span<const replays::ListedRelease>(&offline_offer, 1)
+    );
+    OA_CHECK(kept_away.size() == 1);
+    if (!kept_away.empty()) {
+        OA_CHECK(kept_away[0].play_installed);
+        OA_CHECK(kept_away[0].block == replays::GapBlock::none);
+    }
+    have.mods.erase(have.mods.begin());
+    have.playing_mod_id.clear();
+    have.playing_mod_version.clear();
+    have.playing_mod_sha256.clear();
+    const std::vector<replays::ContentGap> only_kept = replays::compare_needs(missing, have, {});
+    OA_CHECK(only_kept.size() == 1);
+    if (!only_kept.empty())
+        OA_CHECK(only_kept[0].play_installed);
     have.mods.clear();
+
+    // Two folders of one id. The 2.8 need plays the 2.8 folder, whichever
+    // release is listed first. A hand copy names no digest and still does.
+    replays::HaveContent ordered;
+    ordered.playing_mod_id = "ridge";
+    ordered.playing_mod_version = "2.9";
+    ordered.playing_mod_sha256 = std::string(newer_sha);
+    replays::HaveMod playing_release;
+    playing_release.id = "ridge";
+    playing_release.name = "Ridge";
+    playing_release.version = "2.9";
+    playing_release.revision = 1;
+    playing_release.sha256 = std::string(newer_sha);
+    playing_release.folder = "Mods/ridge";
+    replays::HaveMod kept_folder;
+    kept_folder.id = "ridge";
+    kept_folder.name = "Ridge";
+    kept_folder.version = "2.8";
+    kept_folder.revision = 1;
+    kept_folder.sha256 = std::string(ridge_sha);
+    kept_folder.folder = "Mods/ridge-2.8";
+    const auto played_folder = [](const std::vector<replays::ContentGap>& gaps) {
+        if (gaps.size() != 1 || !gaps[0].play_installed)
+            return std::string{};
+        return gaps[0].play_folder;
+    };
+    ordered.mods = {playing_release, kept_folder};
+    OA_CHECK(played_folder(replays::compare_needs(missing, ordered, {})) == "Mods/ridge-2.8");
+    ordered.mods = {kept_folder, playing_release};
+    OA_CHECK(played_folder(replays::compare_needs(missing, ordered, {})) == "Mods/ridge-2.8");
+    kept_folder.sha256.clear();
+    kept_folder.folder = "Mods/hand-2.8";
+    ordered.mods = {playing_release, kept_folder};
+    OA_CHECK(played_folder(replays::compare_needs(missing, ordered, {})) == "Mods/hand-2.8");
 
     replays::Replay map_replay;
     replays::ContentNeed map = need_of("oamap", "fixture-isles", "", "1", std::string(pack_sha));
@@ -148,6 +225,72 @@ void test_replay_content_rows() {
     have.maps.push_back("Twin Rivers");
     OA_CHECK(replays::compare_needs(map_replay, have, {}).empty());
     have.maps.clear();
+
+    replays::HaveMapPack same_pack;
+    same_pack.id = "fixture-isles";
+    same_pack.name = "Fixture Isles";
+    same_pack.version = "1";
+    same_pack.sha256 = std::string(pack_sha);
+    same_pack.folder = "Maps/fixture-isles";
+    same_pack.maps = {"Twin Rivers"};
+    have.map_packs.push_back(same_pack);
+    OA_CHECK(replays::compare_needs(map_replay, have, {}).empty());
+
+    replays::HaveMapPack other_pack = same_pack;
+    other_pack.sha256 = std::string(ridge_sha);
+    other_pack.version = "2";
+    other_pack.folder = "Maps/fixture-isles-new";
+    have.map_packs = {other_pack};
+    const std::vector<replays::ContentGap> other_pack_gaps =
+        replays::compare_needs(map_replay, have, std::span<const replays::ListedRelease>(&pack, 1));
+    OA_CHECK(other_pack_gaps.size() == 1);
+    if (!other_pack_gaps.empty()) {
+        OA_CHECK(other_pack_gaps[0].kind == replays::GapKind::map);
+        OA_CHECK(other_pack_gaps[0].other_release);
+        OA_CHECK(!other_pack_gaps[0].fetchable);
+        OA_CHECK(other_pack_gaps[0].sha256 == pack_sha);
+        OA_CHECK(other_pack_gaps[0].file == pack.file);
+        OA_CHECK(other_pack_gaps[0].registry == pack.registry);
+        OA_CHECK(other_pack_gaps[0].release == 2);
+        OA_CHECK(other_pack_gaps[0].have_version == "2");
+    }
+    have.maps.push_back("Twin Rivers");
+    OA_CHECK(replays::compare_needs(map_replay, have, {}).size() == 1);
+    have.maps.clear();
+
+    have.map_packs = {other_pack, same_pack};
+    const std::vector<replays::ContentGap> kept_pack_gaps =
+        replays::compare_needs(map_replay, have, {});
+    OA_CHECK(kept_pack_gaps.size() == 1);
+    if (!kept_pack_gaps.empty()) {
+        OA_CHECK(kept_pack_gaps[0].play_installed);
+        OA_CHECK(!kept_pack_gaps[0].fetchable);
+        OA_CHECK(!kept_pack_gaps[0].other_release);
+        OA_CHECK(kept_pack_gaps[0].play_folder == "Maps/fixture-isles");
+    }
+    have.map_packs = {same_pack, other_pack};
+    const std::vector<replays::ContentGap> kept_pack_again =
+        replays::compare_needs(map_replay, have, {});
+    OA_CHECK(kept_pack_again.size() == 1);
+    if (!kept_pack_again.empty())
+        OA_CHECK(kept_pack_again[0].play_folder == "Maps/fixture-isles");
+
+    replays::HaveMapPack kept_only = same_pack;
+    kept_only.kept = true;
+    kept_only.folder = "Replay releases/kept";
+    have.map_packs = {kept_only};
+    const std::vector<replays::ContentGap> kept_alone =
+        replays::compare_needs(map_replay, have, {});
+    OA_CHECK(kept_alone.size() == 1);
+    if (!kept_alone.empty()) {
+        OA_CHECK(kept_alone[0].play_installed);
+        OA_CHECK(kept_alone[0].play_folder == "Replay releases/kept");
+    }
+    have.map_packs = {kept_only, same_pack};
+    OA_CHECK(replays::compare_needs(map_replay, have, {}).empty());
+    have.map_packs = {same_pack, kept_only};
+    OA_CHECK(replays::compare_needs(map_replay, have, {}).empty());
+    have.map_packs.clear();
 
     replays::Replay mutator_replay;
     mutator_replay.needs.push_back(

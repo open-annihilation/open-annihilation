@@ -420,6 +420,18 @@ void extension_windows(
 
 } // namespace
 
+namespace {
+
+/// The app's mark for the control the family's ring is drawn around. Null
+/// until the app sets it, and null in a test that does not.
+FamilyFocusStamp family_focus_stamp = nullptr;
+
+} // namespace
+
+void set_family_focus_stamp(FamilyFocusStamp stamp) noexcept {
+    family_focus_stamp = stamp;
+}
+
 void collect_controls(
     const CheckHost& check, const AutomationHost& host, std::vector<AutomationControl>& controls
 ) {
@@ -471,6 +483,8 @@ void collect_controls(
     conceal_windows_behind_modal(controls);
     for (AutomationControl& control : controls)
         finish_control_access(control);
+    if (family_focus_stamp != nullptr && host.context != nullptr)
+        family_focus_stamp(host.context, controls);
 }
 
 void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& controls) {
@@ -573,6 +587,17 @@ void write_dialogs_and_focus(JsonWriter& json, const std::vector<AutomationContr
         if (!control.focused || control.hidden || focused != nullptr)
             continue;
         focused = &control;
+    }
+    // The family's ring can sit on a control the strip covers. When nothing
+    // shown is focused, name the first hidden control whose ring is drawn.
+    // At open that flag is clear, so the screen still names nothing.
+    if (focused == nullptr) {
+        for (const AutomationControl& control : controls) {
+            if (!control.focused || !control.hidden || !control.focus_shown)
+                continue;
+            focused = &control;
+            break;
+        }
     }
     json.key("dialogs");
     json.begin_array();

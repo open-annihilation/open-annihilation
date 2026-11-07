@@ -282,7 +282,8 @@ A replay that needs a mod, a map pack, a mutator or an expansion fetches
 that exact release through the same queue. The key request names the kind,
 the package, the release and the SHA-256 the recording names, including one
 that is only in the catalogue's releases list. A release the server no
-longer lists is shown as not in Core Prime's catalogue. The replay can be
+longer lists is shown as not in that registry's catalogue. Core Prime is
+named when the replay names none. The replay can be
 kept and exported.
 
 Every failure also writes one line to the game's log (the `logs` folder of

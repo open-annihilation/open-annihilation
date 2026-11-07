@@ -27,6 +27,7 @@
 #include "oa/ui/mutator_picker/interface_words.hpp"
 #include "oa/ui/brain_picker/interface_words.hpp"
 #include "oa/ui/touch_hud/interface_words.hpp"
+#include "oa/ui/replay_viewer/interface_words.hpp"
 
 #include <algorithm>
 #include <ostream>
@@ -60,6 +61,7 @@ std::vector<std::string_view> join_interface_words() {
     append(words, oa::data::input_actions::interface_words);
     append(words, oa::ui::folder_chooser::interface_words);
     append(words, oa::ui::touch_hud::interface_words);
+    append(words, oa::ui::replay_viewer::interface_words);
     append(words, oa::netgame::match::interface_words);
     append(words, oa::app::interface_words);
     append(words, oa::app::update::interface_words);

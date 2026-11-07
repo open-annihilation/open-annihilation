@@ -223,7 +223,7 @@ std::vector<std::string> meeting_controls(const kit::DisplayList& list) {
 /// Returns the place a control's name gives it in the declared order: the
 /// tabs, the search, the filters, UPDATE ALL over the list and the list,
 /// the details' actions and a map's From link, the Registries tab's rows,
-/// then the footer's buttons.
+/// then the footer's buttons, Refresh and the close mark.
 ///
 /// @param name the name
 /// @return the place, or -1 for a name of none
@@ -233,10 +233,12 @@ int declared_place(std::string_view name) {
     if (name == "library.search")
         return 1;
     if (name == "library.filter" || starts(name, "library.filter.") ||
-        starts(name, "library.tag.") || name == "library.tags")
+        starts(name, "library.tag.") || name == "library.tags" ||
+        starts(name, "library.replays.filter."))
         return 2;
     if (name == "library.action.update-all" || name == "library.list" ||
-        name == "library.replays.kind" || name == "library.replays.sort")
+        name == "library.replays.kind" || name == "library.replays.sort" ||
+        name == "library.replays.planet" || starts(name, "library.replays.source."))
         return 3;
     if (name == "library.action" || starts(name, "library.action.") ||
         name == "library.active.unload" || name == "library.active.search" ||
@@ -246,24 +248,41 @@ int declared_place(std::string_view name) {
         return 4;
     if (starts(name, "library.registry."))
         return 5;
-    if (name == "library.refresh")
-        return 0;
     if (name == "library.add-registry" || name == "library.details" || name == "library.close" ||
         name == "library.back")
         return 6;
-    if (name == "library.close-x")
+    if (name == "library.refresh")
         return 7;
+    if (name == "library.close-x")
+        return 8;
     // The dialog replaces Tab's order, so its controls are one place and
-    // run top to bottom within it.
+    // run top to bottom within it. It never shares an order with the close mark.
     if (starts(name, "library.export."))
         return 8;
     return -1;
 }
 
-/// Lists how Tab's order differs from the declared one: every control
-/// that takes the focus in it, by place, and within a place top to bottom
-/// and left to right; and how the arrows, searched from the first stop,
-/// fail to reach every one of them.
+/// Returns the control a stop is judged by: itself, or a group's first part.
+/// The first part stays put when the focus moves, so a lower pill does not
+/// change the order.
+///
+/// @param list the display list
+/// @param id the stop
+/// @return the control; null when the stop has none
+const kit::Control* order_control(const kit::DisplayList& list, kit::ControlId id) {
+    if (const kit::Control* control = kit::control_of(list, id))
+        return control;
+    for (const kit::Composite& composite : list.composites)
+        if (composite.id == id && !composite.parts.empty())
+            return kit::control_of(list, composite.parts.front());
+    return nullptr;
+}
+
+/// Lists how Tab's order differs from the declared one. Every control that
+/// takes the focus is one stop or a part of exactly one group whose id is a
+/// stop. The stops run by place, and within a place top to bottom and left
+/// to right, a group judged by its first part. The arrows, from the first
+/// stop's landing and along each group, reach every one of them.
 ///
 /// @param list the display list
 /// @return a line for each difference
@@ -273,12 +292,38 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
     for (const kit::Control& control : list.controls)
         if (control.enabled && control.focusable)
             takes_focus.insert(control.id);
-    const std::set<kit::ControlId> ordered(list.tab_order.begin(), list.tab_order.end());
-    if (ordered != takes_focus || ordered.size() != list.tab_order.size())
+    std::set<kit::ControlId> group_ids;
+    std::set<kit::ControlId> parts;
+    for (const kit::Composite& composite : list.composites) {
+        if (!group_ids.insert(composite.id).second)
+            problems.push_back(composite.name + " repeats a stop");
+        for (const kit::ControlId part : composite.parts) {
+            if (!parts.insert(part).second)
+                problems.push_back("a part is in two groups");
+            if (takes_focus.count(part) == 0)
+                problems.push_back("a group holds a control that does not take the focus");
+        }
+    }
+    std::set<kit::ControlId> covered = parts;
+    std::set<kit::ControlId> seen_stops;
+    for (const kit::ControlId id : list.tab_order) {
+        if (!seen_stops.insert(id).second)
+            problems.push_back("a stop is listed twice");
+        if (group_ids.count(id) != 0) {
+            if (kit::control_of(list, id) != nullptr)
+                problems.push_back("a group is also a control");
+            continue;
+        }
+        if (!covered.insert(id).second)
+            problems.push_back("a part is also its own stop");
+        if (takes_focus.count(id) == 0)
+            problems.push_back("Tab stops on a control that does not take the focus");
+    }
+    if (covered != takes_focus)
         problems.emplace_back("Tab's order is not every control that takes the focus, once");
     const kit::Control* previous = nullptr;
     for (const kit::ControlId id : list.tab_order) {
-        const kit::Control* control = kit::control_of(list, id);
+        const kit::Control* control = order_control(list, id);
         if (control == nullptr) {
             problems.emplace_back("Tab stops on a control the list lacks");
             continue;
@@ -300,8 +345,9 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
     }
     if (list.tab_order.empty())
         return problems;
-    std::set<kit::ControlId> reached{list.tab_order.front()};
-    std::deque<kit::ControlId> waiting{list.tab_order.front()};
+    const kit::ControlId start = kit::composite_landing(list, list.tab_order.front());
+    std::set<kit::ControlId> reached{start};
+    std::deque<kit::ControlId> waiting{start};
     while (!waiting.empty()) {
         const kit::ControlId from = waiting.front();
         waiting.pop_front();
@@ -313,6 +359,9 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
             const kit::ControlId next = kit::focus_toward(list, from, direction);
             if (next != kit::no_control && reached.insert(next).second)
                 waiting.push_back(next);
+            const kit::AxisMove along = kit::move_along(list, from, direction);
+            if (along.step == kit::AxisStep::moved && reached.insert(along.part).second)
+                waiting.push_back(along.part);
         }
     }
     for (const kit::ControlId id : takes_focus)
@@ -337,8 +386,11 @@ bool designed_name(const std::string& name) {
         "list|row\\.[a-z0-9-]+(\\.[a-z0-9-]+)?(\\.(get|update))?|action|"
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
         "check-with-mod|use-by-default|use|edit-keys|uninstall|open-folder|homepage|watch|keep|"
-        "turn-on-recording|open-replay-file|export|delete|delete-confirm)|"
-        "replays\\.(kind|sort|status)(\\.[a-z0-9-]+)?|"
+        "turn-on-recording|open-replay-file|download|browse-core-prime|export|delete|"
+        "delete-confirm)|"
+        "replays\\.(kind|sort|status|planet)(\\.[a-z0-9-]+)?|"
+        "replays\\.source\\.(computer|core-prime)|"
+        "replays\\.filter\\.(latest|longest|downloads|planet)|"
         "details|back|refresh|close-x|close|status|queue|note|from|rules|keys\\.picture|"
         "fact\\.[a-z0-9-]+|"
         "use\\.(keep|aside|block|moves|saved|helpers|for\\.(game|mod)|helper\\.[a-z0-9.-]+)|"
@@ -790,14 +842,28 @@ void check_frame(const fixture::NamedFrame& named) {
         OA_CHECK(fixture::named(active_list, absent) == nullptr);
     for (const kit::ControlId id : active_list.tab_order) {
         const kit::Control* stop = kit::control_of(active_list, id);
+        if (stop == nullptr) {
+            const kit::Composite* group = nullptr;
+            for (const kit::Composite& composite : active_list.composites)
+                if (composite.id == id)
+                    group = &composite;
+            OA_CHECK(group != nullptr);
+            if (group == nullptr)
+                continue;
+            for (const kit::ControlId part : group->parts) {
+                const kit::Control* control = kit::control_of(active_list, part);
+                OA_CHECK(
+                    control != nullptr && (starts(control->name, "library.tab.") ||
+                                           starts(control->name, "library.active.expansion."))
+                );
+            }
+            continue;
+        }
         OA_CHECK(
-            stop != nullptr &&
-            (starts(stop->name, "library.tab.") || stop->name == "library.close" ||
-             stop->name == "library.close-x" || stop->name == "library.refresh" ||
-             stop->name == "library.active.unload" || stop->name == "library.active.search" ||
-             stop->name == "library.active.change" || stop->name == "library.active.keys.change" ||
-             starts(stop->name, "library.active.expansion.") ||
-             starts(stop->name, "library.active.from."))
+            stop->name == "library.close" || stop->name == "library.close-x" ||
+            stop->name == "library.refresh" || stop->name == "library.active.unload" ||
+            stop->name == "library.active.search" || stop->name == "library.active.change" ||
+            stop->name == "library.active.keys.change" || starts(stop->name, "library.active.from.")
         );
     }
     const kit::Control* mod_line = fixture::named(active_list, "library.active.mod");
@@ -1026,10 +1092,11 @@ void larger_classes_show_more() {
     OA_CHECK(fixture::named(regular, "library.filter.all") != nullptr);
     OA_CHECK(fixture::named(compact, "library.filter.all") != nullptr);
     OA_CHECK(fixture::named(compact, "library.filter") == nullptr);
-    // The tabs keep their full names. Active is the first stop; the close
-    // mark is last, after the footer.
-    const kit::Control* first_stop = kit::control_of(compact, compact.tab_order.front());
-    OA_CHECK(first_stop != nullptr && first_stop->name == "library.tab.active");
+    // The tabs keep their full names. The tabs are the first stop, entered
+    // at Active, and the close mark is last, after the footer.
+    OA_CHECK(!compact.tab_order.empty());
+    const kit::Control* first_part = order_control(compact, compact.tab_order.front());
+    OA_CHECK(first_part != nullptr && first_part->name == "library.tab.active");
     const kit::Control* last_stop = kit::control_of(compact, compact.tab_order.back());
     OA_CHECK(last_stop != nullptr && last_stop->name == "library.close-x");
     const kit::Control* languages = fixture::named(compact, "library.tab.languages");
@@ -1417,10 +1484,8 @@ void the_screen_opens_on_its_search() {
     OA_CHECK(at != list.tab_order.end());
     if (at == list.tab_order.end() || list.tab_order.empty())
         return;
-    const auto index = static_cast<std::size_t>(at - list.tab_order.begin());
-    const auto count = list.tab_order.size();
-    const kit::ControlId next = list.tab_order[(index + 1) % count];
-    const kit::ControlId previous = list.tab_order[(index + count - 1) % count];
+    const kit::ControlId next = kit::next_in_tab_order(list, search->id, true);
+    const kit::ControlId previous = kit::next_in_tab_order(list, search->id, false);
     std::ignore = lib::library_key(library, state, list, kit::Key::tab);
     OA_CHECK(state.interaction.focused == next && state.interaction.focus_shown);
 
@@ -1492,49 +1557,51 @@ void tab_follows_the_declared_order() {
         list = laid_out(library, state, large);
     }
     // A state that has not been given the search walks from the first stop,
-    // so the first Tab lands on the second and a full cycle ends on the first.
+    // so the first Tab lands on the second and a full cycle ends on the
+    // first. A group is entered at the part the keys return to.
     std::vector<kit::ControlId> opened_walk;
     if (!list.tab_order.empty()) {
-        opened_walk.insert(opened_walk.end(), list.tab_order.begin() + 1, list.tab_order.end());
-        opened_walk.push_back(list.tab_order.front());
+        for (std::size_t index = 1; index < list.tab_order.size(); ++index)
+            opened_walk.push_back(kit::composite_landing(list, list.tab_order[index]));
+        opened_walk.push_back(kit::composite_landing(list, list.tab_order.front()));
     }
     OA_CHECK(visited == opened_walk);
     OA_CHECK(state.interaction.focus_shown);
-    OA_CHECK(state.interaction.focused == list.tab_order.front());
+    OA_CHECK(state.interaction.focused == kit::composite_landing(list, list.tab_order.front()));
     static_cast<void>(lib::library_key(library, state, list, kit::Key::back_tab));
     OA_CHECK(state.interaction.focused == list.tab_order.back());
 
     // The orders, by name: Compact's list page and its details page, and
-    // Regular's ends.
+    // Regular's ends. A group is named once.
     const auto names_of = [](const kit::DisplayList& laid) {
         std::vector<std::string> names;
-        for (const kit::ControlId id : laid.tab_order)
-            names.push_back(kit::control_of(laid, id)->name);
+        for (const kit::ControlId id : laid.tab_order) {
+            if (const kit::Control* control = kit::control_of(laid, id))
+                names.push_back(control->name);
+            else
+                for (const kit::Composite& composite : laid.composites)
+                    if (composite.id == id)
+                        names.push_back(composite.name);
+        }
         return names;
     };
     const kit::Frame compact = fixture::frames()[0].frame;
     const std::vector<std::string> compact_order{
-        "library.tab.active",     "library.tab.replays",
-        "library.tab.mods",       "library.tab.maps",
-        "library.tab.mutators",   "library.tab.brains",
-        "library.tab.keys",       "library.tab.languages",
-        "library.tab.updates",    "library.tab.registries",
-        "library.search",         "library.filter.all",
-        "library.filter.new",     "library.filter.installed",
-        "library.filter.updates", "library.tag.balance",
-        "library.tag.classic",    "library.tag.conversion",
-        "library.tag.economy",    "library.tag.effects",
-        "library.tag.expansion",  "library.tag.experimental",
-        "library.tag.rules",      "library.tag.units",
-        "library.list",           "library.details",
-        "library.close",          "library.close-x",
+        "library.tabs",
+        "library.search",
+        "library.filters",
+        "library.tags",
+        "library.list",
+        "library.details",
+        "library.close",
+        "library.close-x",
     };
     OA_CHECK(names_of(laid_out(library, {}, compact)) == compact_order);
     lib::open_details(library);
     lib::ScreenState page;
     page.details_page = true;
     const std::vector<std::string> page_order{
-        "library.detail.tag.balance",
+        "library.detail-tags",
         "library.action.update",
         "library.action.play-now",
         "library.action.roll-back",
@@ -1548,7 +1615,7 @@ void tab_follows_the_declared_order() {
         names_of(laid_out(library, {}, fixture::frames()[1].frame));
     const std::vector<std::string> regular_end{
         "library.list",
-        "library.detail.tag.balance",
+        "library.detail-tags",
         "library.action.update",
         "library.action.play-now",
         "library.action.roll-back",
@@ -1558,12 +1625,11 @@ void tab_follows_the_declared_order() {
         "library.close",
         "library.close-x",
     };
-    OA_CHECK(regular.size() > regular_end.size() + 5);
+    OA_CHECK(regular.size() == regular_end.size() + 4);
     OA_CHECK(std::equal(regular_end.rbegin(), regular_end.rend(), regular.rbegin()));
     OA_CHECK(
-        regular.size() > 13 && regular[0] == "library.tab.active" &&
-        regular[1] == "library.tab.replays" && regular[10] == "library.search" &&
-        regular[11] == "library.filter.all" && regular[12] == "library.filter.new"
+        regular.size() > 4 && regular[0] == "library.tabs" && regular[1] == "library.search" &&
+        regular[2] == "library.filters" && regular[3] == "library.tags"
     );
 }
 
@@ -6695,9 +6761,11 @@ std::vector<const kit::Control*> filter_pane_controls(const kit::DisplayList& li
 
 /// Large's filter pane holds every tag in a view that scrolls, with no TAGS
 /// drop-down: the world tags under WORLD without their prefix, apart from
-/// TAGS; the wheel scrolls it; Tab stops once in it and goes on to the list,
-/// Shift+Tab back; the arrows walk every entry and the view follows; a
-/// newly chosen entry is brought into view.
+/// TAGS; the wheel scrolls it. The filters are one stop and the tags another.
+/// Down walks the focused stop and stays at its end; Home and End are that
+/// stop's ends. Tab leaves the filters for the tags, and the tags for the
+/// list; Shift+Tab comes back to the tag that had the focus. A newly chosen
+/// entry is brought into view.
 void filter_pane_scrolls_and_tab_leaves_it() {
     const kit::Frame large = fixture::frames()[2].frame;
     lib::Library library = with_many_maps();
@@ -6736,15 +6804,35 @@ void filter_pane_scrolls_and_tab_leaves_it() {
         bar = bar || (item.role == kit::Role::scroll_bar && ice != nullptr &&
                       kit::contains(ice->clip, {item.rect.x, item.rect.y}));
     OA_CHECK(bar);
-    // Tab stops on every filter and tag, each once.
-    int32_t stops = 0;
+    // The filters and the tags are two stops. Neither entry is a stop of its own.
+    // The ids outlive the list the later layouts replace.
+    std::vector<kit::ControlId> filter_ids;
+    std::vector<kit::ControlId> tag_ids;
+    for (const kit::Control* entry : entries) {
+        if (entry->name.starts_with("library.filter."))
+            filter_ids.push_back(entry->id);
+        else
+            tag_ids.push_back(entry->id);
+    }
+    OA_CHECK(filter_ids.size() == 4);
+    OA_CHECK(tag_ids.size() == 26);
+    int32_t filter_parts = 0;
+    int32_t tag_parts = 0;
+    for (const kit::Composite& composite : list.composites) {
+        if (composite.name == "library.filters") {
+            filter_parts = static_cast<int32_t>(composite.parts.size());
+            OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), composite.id) == 1);
+        }
+        if (composite.name == "library.tags") {
+            tag_parts = static_cast<int32_t>(composite.parts.size());
+            OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), composite.id) == 1);
+        }
+    }
+    OA_CHECK(filter_parts == 4 && tag_parts == 26);
     for (const kit::Control* entry : entries)
-        stops += static_cast<int32_t>(
-            std::count(list.tab_order.begin(), list.tab_order.end(), entry->id)
-        );
-    OA_CHECK(stops == static_cast<int32_t>(entries.size()));
+        OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), entry->id) == 0);
     const kit::Control* all = fixture::named(list, "library.filter.all");
-    OA_CHECK(all != nullptr && std::count(list.tab_order.begin(), list.tab_order.end(), all->id));
+    OA_CHECK(all != nullptr);
     OA_EXPECT_NONE(order_problems(list), "large maps, many tags");
     OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), "large maps, many tags");
 
@@ -6758,37 +6846,58 @@ void filter_pane_scrolls_and_tab_leaves_it() {
         OA_CHECK(moved != nullptr && moved->rect.y < before);
     }
 
-    // The arrows walk every entry, those out of view too, and the view follows.
+    // Down walks the filters and stays on the last. The tags are the next stop.
     state = {};
     list = laid_out(library, state, large);
     all = fixture::named(list, "library.filter.all");
-    OA_CHECK(all != nullptr);
-    if (all == nullptr)
+    OA_CHECK(all != nullptr && !filter_ids.empty() && !tag_ids.empty());
+    if (all == nullptr || filter_ids.empty() || tag_ids.empty())
         return;
     // The walks below replace `list`, so a pointer into this one would dangle.
     const auto all_id = all->id;
+    const kit::ControlId first_tag = tag_ids.front();
     state.interaction.focus_shown = true;
     state.interaction.focused = all_id;
-    for (std::size_t step = 1; step < entries.size(); ++step) {
+    for (std::size_t step = 1; step < filter_ids.size(); ++step) {
+        OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
+        list = laid_out(library, state, large);
+    }
+    const kit::Control* last_filter = kit::control_of(list, state.interaction.focused);
+    OA_CHECK(last_filter != nullptr && last_filter->name == "library.filter.updates");
+    const kit::ControlId updates_id = last_filter != nullptr ? last_filter->id : kit::no_control;
+    OA_CHECK(!lib::library_key(library, state, list, kit::Key::down).redraw);
+    OA_CHECK(state.interaction.focused == updates_id);
+    // Home and End stay inside the filters.
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::home));
+    OA_CHECK(state.interaction.focused == all_id);
+    list = laid_out(library, state, large);
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
+    OA_CHECK(state.interaction.focused == updates_id);
+    // Tab leaves the filters for the first tag, and Down walks the tags.
+    list = laid_out(library, state, large);
+    OA_CHECK(lib::library_key(library, state, list, kit::Key::tab).redraw);
+    OA_CHECK(state.interaction.focused == first_tag);
+    for (std::size_t step = 1; step < tag_ids.size(); ++step) {
         OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
         list = laid_out(library, state, large);
     }
     const kit::Control* last = kit::control_of(list, state.interaction.focused);
     OA_CHECK(last != nullptr && last->name == "library.tag.world-water");
     if (last != nullptr) {
-        // Shown whole in the view, and Tab stops on it once.
+        // Shown whole in the view. It is a part of the tags, not its own stop.
         OA_CHECK(last->rect.y >= last->clip.y);
         OA_CHECK(last->rect.y + last->rect.height <= last->clip.y + last->clip.height);
-        OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), last->id) == 1);
+        OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), last->id) == 0);
     }
-    // Home goes back to All, End to the last world.
+    // Home goes back to the first tag, End to the last world.
+    const kit::ControlId last_world = state.interaction.focused;
     static_cast<void>(lib::library_key(library, state, list, kit::Key::home));
-    OA_CHECK(state.interaction.focused == all_id);
+    OA_CHECK(state.interaction.focused == first_tag);
     list = laid_out(library, state, large);
     static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
     list = laid_out(library, state, large);
-    const kit::ControlId last_world = state.interaction.focused;
-    // Tab leaves the pane for the list; Shift+Tab comes back to the entry.
+    OA_CHECK(state.interaction.focused == last_world);
+    // Tab leaves the tags for the list; Shift+Tab comes back to the world.
     OA_CHECK(lib::library_key(library, state, list, kit::Key::tab).redraw);
     const kit::Control* list_pane = fixture::named(list, "library.list");
     OA_CHECK(list_pane != nullptr && state.interaction.focused == list_pane->id);
@@ -6872,8 +6981,9 @@ void a_chosen_entry_scrolls_out_of_the_section_list() {
         );
     };
 
-    // Shift+Tab from the search reaches the last tab's entry, scrolled out
-    // of view, and brings it into view.
+    // Shift+Tab from the search returns to the open tab. Down through the
+    // tabs reaches Registries, which was scrolled out of view, and brings
+    // it into view.
     OA_CHECK(lib::library_wheel(library, state, list, in_view, -40.0F).redraw);
     const int32_t deepest = state.filters_scroll;
     OA_CHECK(deepest > 0);
@@ -6881,6 +6991,13 @@ void a_chosen_entry_scrolls_out_of_the_section_list() {
     OA_CHECK(state.filters_scroll == deepest);
     OA_CHECK(lib::library_key(library, state, list, kit::Key::back_tab).redraw);
     settle();
+    const kit::Control* maps_tab = fixture::named(list, "library.tab.maps");
+    OA_CHECK(maps_tab != nullptr && state.interaction.focused == maps_tab->id);
+    // Active, Replays, Mods, Maps, then six more to Registries.
+    for (int32_t step = 0; step < 6; ++step) {
+        OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
+        settle();
+    }
     const kit::Control* registries = fixture::named(list, "library.tab.registries");
     OA_CHECK(registries != nullptr && state.interaction.focused == registries->id);
     OA_CHECK(registries != nullptr && shown_whole(*registries));
@@ -7109,9 +7226,14 @@ void replays_section_lays_out() {
         OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), on);
         const kit::Control* tab = fixture::named(list, "library.tab.replays");
         OA_CHECK(tab != nullptr && tab->checked && tab->text == "Replays (6)");
+        const kit::Composite* tabs = nullptr;
+        for (const kit::Composite& composite : list.composites)
+            if (composite.name == "library.tabs")
+                tabs = &composite;
         OA_CHECK(
-            list.tab_order.size() > 2 && list.tab_order[0] == id_of(list, "library.tab.active") &&
-            list.tab_order[1] == id_of(list, "library.tab.replays")
+            tabs != nullptr && list.tab_order.size() > 1 && list.tab_order[0] == tabs->id &&
+            tabs->parts.size() > 1 && tabs->parts[0] == id_of(list, "library.tab.active") &&
+            tabs->parts[1] == id_of(list, "library.tab.replays")
         );
         const kit::Control* month = fixture::named(list, "library.filter.this-month");
         OA_CHECK(month != nullptr && month->checked && month->text == "This month (6)");
@@ -7315,6 +7437,141 @@ bool in_view(const kit::Control& control) {
     return clip.width > 0 && rect.x >= clip.x && rect.y >= clip.y &&
            rect.x + rect.width <= clip.x + clip.width &&
            rect.y + rect.height <= clip.y + clip.height;
+}
+
+/// Each Core Prime filter shows its own total once that list has been read,
+/// and no number before. By planet shows the chosen planet's total.
+void core_prime_filters_count_their_own_lists() {
+    lib::Library library = fixture::replay_library();
+    lib::Inputs inputs = library.inputs;
+    inputs.replays.core_latest_total = 60;
+    inputs.replays.core_downloads_total = 12;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    const auto latest_count = lib::core_filter_count(library, lib::CorePrimeFilter::latest);
+    const auto popular_count = lib::core_filter_count(library, lib::CorePrimeFilter::downloads);
+    OA_CHECK(latest_count.has_value() && *latest_count == 60);
+    OA_CHECK(!lib::core_filter_count(library, lib::CorePrimeFilter::longest).has_value());
+    OA_CHECK(popular_count.has_value() && *popular_count == 12);
+    OA_CHECK(!lib::core_filter_count(library, lib::CorePrimeFilter::planet).has_value());
+
+    const kit::DisplayList list = laid_out(library, {}, fixture::frames()[2].frame);
+    const kit::NavLook* nav = section_nav(list);
+    OA_CHECK(nav != nullptr);
+    if (nav != nullptr) {
+        bool latest = false;
+        bool longest = false;
+        bool popular = false;
+        bool planet = false;
+        for (const kit::NavEntry& entry : nav->entries) {
+            if (entry.caption == "Latest") {
+                latest = true;
+                OA_CHECK(entry.count == "60");
+            } else if (entry.caption == "Longest") {
+                longest = true;
+                OA_CHECK(entry.count.empty());
+            } else if (entry.caption == "Popular") {
+                popular = true;
+                OA_CHECK(entry.count == "12");
+            } else if (entry.caption == "By planet") {
+                planet = true;
+                OA_CHECK(entry.count.empty());
+            }
+        }
+        OA_CHECK(latest && longest && popular && planet);
+    }
+
+    lib::set_core_planet(library, "Cinder");
+    OA_CHECK(!lib::core_filter_count(library, lib::CorePrimeFilter::planet).has_value());
+    inputs = library.inputs;
+    inputs.replays.core_planet_total = 20;
+    inputs.replays.core_latest_total = 60;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    lib::set_core_planet(library, "Cinder");
+    const auto planet_count = lib::core_filter_count(library, lib::CorePrimeFilter::planet);
+    const auto still_latest = lib::core_filter_count(library, lib::CorePrimeFilter::latest);
+    OA_CHECK(planet_count.has_value() && *planet_count == 20);
+    OA_CHECK(still_latest.has_value() && *still_latest == 60);
+    const kit::DisplayList narrowed = laid_out(library, {}, fixture::frames()[2].frame);
+    const kit::NavLook* narrowed_nav = section_nav(narrowed);
+    OA_CHECK(narrowed_nav != nullptr);
+    if (narrowed_nav != nullptr) {
+        bool planet = false;
+        for (const kit::NavEntry& entry : narrowed_nav->entries) {
+            if (entry.caption != "By planet")
+                continue;
+            planet = true;
+            OA_CHECK(entry.count == "20");
+        }
+        OA_CHECK(planet);
+    }
+}
+
+/// While one Core Prime replay's key waits, another replay whose Download
+/// waits its turn says so and takes no second press.
+void core_prime_queued_download_says_so() {
+    lib::Library library = fixture::replay_library();
+    lib::Inputs inputs = library.inputs;
+    for (const char* id : {"r_0000000000000000000000", "r_0000000000000000000001"})
+        inputs.replays.core_rows.push_back(
+            fixture::replay_row(id, "North Reach", "outpost", 0, 12 * 60, {"Pilot", "Kestrel"})
+        );
+    inputs.replays.core_downloading = true;
+    inputs.replays.core_download_id = "r_0000000000000000000000";
+    inputs.replays.core_download_waiting = true;
+    inputs.replays.core_queued = {"r_0000000000000000000001"};
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    lib::select_replay(library, "r_0000000000000000000000");
+    std::vector<lib::ReplayButton> buttons = lib::replay_buttons(library);
+    OA_CHECK(
+        !buttons.empty() && buttons.front().action == lib::Action::download_replay &&
+        buttons.front().enabled && buttons.front().text == "Cancel"
+    );
+    lib::select_replay(library, "r_0000000000000000000001");
+    buttons = lib::replay_buttons(library);
+    OA_CHECK(
+        !buttons.empty() && buttons.front().action == lib::Action::download_replay &&
+        !buttons.front().enabled && buttons.front().text == "Getting the replay…"
+    );
+}
+
+/// A Core Prime card draws the feed's kills and no losses.
+void core_prime_card_names_kills_only() {
+    lib::Library library = fixture::replay_library();
+    lib::Inputs inputs = library.inputs;
+    lib::ReplayRow row = fixture::replay_row(
+        "r_0000000000000000000000", "North Reach", "outpost", 0, 12 * 60, {"Pilot", "Kestrel"}
+    );
+    row.standings.resize(2);
+    row.standings[0].result = lib::RecordedResult::won;
+    row.standings[0].known = true;
+    row.standings[0].kills_only = true;
+    row.standings[0].kills = 41;
+    row.standings[0].losses = 3;
+    row.standings[1].known = true;
+    row.standings[1].kills_only = true;
+    row.standings[1].kills = 12;
+    row.standings[1].losses = 9;
+    inputs.replays.core_rows.push_back(row);
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    lib::select_replay(library, "r_0000000000000000000000");
+    const kit::DisplayList list = laid_out(library, {}, fixture::frames()[2].frame);
+    bool kills = false;
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::text)
+            continue;
+        if (item.text.find("41 kills") != std::string::npos)
+            kills = true;
+        OA_CHECK(item.text.find("loss") == std::string::npos);
+    }
+    OA_CHECK(kills);
 }
 
 /// A replay's card shows every fact: its parts scroll as the catalogue's
@@ -8020,6 +8277,195 @@ void export_long_mutator_pages() {
     lib::close_export(library);
 }
 
+/// The Replays switch is one stop, a row whose Left and Right move between
+/// its two sides and stay at either end, and Tab lands on the chosen side.
+/// Core Prime's four filters are one stop, as this computer's are.
+void replay_switch_and_core_filters_are_stops() {
+    for (const lib::ReplaySource source :
+         {lib::ReplaySource::computer, lib::ReplaySource::core_prime}) {
+        lib::Library library = fixture::replay_library();
+        lib::set_tab(library, lib::Tab::replays);
+        lib::set_replay_source(library, source);
+        const kit::DisplayList list = laid_out(library, {}, fixture::frames()[2].frame);
+        const kit::Composite* switch_stop = nullptr;
+        const kit::Composite* filters = nullptr;
+        for (const kit::Composite& composite : list.composites) {
+            if (composite.name == "library.replays.source")
+                switch_stop = &composite;
+            if (composite.name == "library.filters")
+                filters = &composite;
+        }
+        OA_CHECK(
+            switch_stop != nullptr && switch_stop->parts.size() == 2 &&
+            switch_stop->axis == kit::CompositeAxis::row &&
+            switch_stop->role == kit::CompositeRole::tab_list
+        );
+        OA_CHECK(filters != nullptr && filters->parts.size() == 4);
+        const kit::Control* computer = fixture::named(list, "library.replays.source.computer");
+        const kit::Control* core = fixture::named(list, "library.replays.source.core-prime");
+        OA_CHECK(computer != nullptr && core != nullptr);
+        if (switch_stop == nullptr || filters == nullptr || computer == nullptr || core == nullptr)
+            continue;
+        const auto stops = [&list](kit::ControlId id) {
+            return std::count(list.tab_order.begin(), list.tab_order.end(), id);
+        };
+        OA_CHECK(stops(switch_stop->id) == 1);
+        OA_CHECK(stops(computer->id) == 0 && stops(core->id) == 0);
+        OA_CHECK(stops(filters->id) == 1);
+        for (const kit::ControlId part : filters->parts) {
+            OA_CHECK(stops(part) == 0);
+            const kit::Control* filter = kit::control_of(list, part);
+            OA_CHECK(
+                filter != nullptr && (source == lib::ReplaySource::core_prime
+                                          ? starts(filter->name, "library.replays.filter.")
+                                          : starts(filter->name, "library.filter."))
+            );
+        }
+        const kit::ControlId chosen =
+            source == lib::ReplaySource::computer ? computer->id : core->id;
+        OA_CHECK(kit::composite_landing(list, switch_stop->id) == chosen);
+        lib::ScreenState state;
+        state.interaction.focused = computer->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(library, state, list, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == computer->id);
+        OA_CHECK(lib::library_key(library, state, list, kit::Key::right).redraw);
+        OA_CHECK(state.interaction.focused == core->id);
+        OA_CHECK(!lib::library_key(library, state, list, kit::Key::right).redraw);
+        OA_CHECK(state.interaction.focused == core->id);
+        OA_CHECK(library.replays.source == source);
+        OA_EXPECT_NONE(
+            order_problems(list),
+            source == lib::ReplaySource::core_prime ? "Core Prime's replays"
+                                                    : "this computer's replays"
+        );
+    }
+}
+
+/// The tabs, the filters, the tags, the expansion pills and a package's tags
+/// are each one stop. The arrows move inside them and stay at the ends.
+/// A row's GET and UPDATE icons take no key.
+void composites_group_the_stops() {
+    const std::vector<fixture::NamedFrame> frames = fixture::frames();
+    lib::Library active_library = with_ridge();
+    lib::set_tab(active_library, lib::Tab::active);
+    const kit::DisplayList active = laid_out(active_library, {}, frames[1].frame);
+    std::vector<std::string> names;
+    for (const kit::ControlId id : active.tab_order) {
+        if (const kit::Control* control = kit::control_of(active, id))
+            names.push_back(control->name);
+        else
+            for (const kit::Composite& composite : active.composites)
+                if (composite.id == id)
+                    names.push_back(composite.name);
+    }
+    OA_CHECK(names.size() >= 8);
+    if (names.size() >= 8) {
+        OA_CHECK(names[0] == "library.tabs");
+        OA_CHECK(names[1] == "library.active.change");
+        OA_CHECK(names[2] == "library.expansions");
+        OA_CHECK(names[3] == "library.active.unload");
+        OA_CHECK(names[4] == "library.active.keys.change");
+        OA_CHECK(names[5] == "library.active.search");
+    }
+    std::size_t search_at = names.size();
+    std::size_t close_at = names.size();
+    for (std::size_t index = 0; index < names.size(); ++index) {
+        if (names[index] == "library.active.search")
+            search_at = index;
+        if (names[index] == "library.close")
+            close_at = index;
+    }
+    OA_CHECK(search_at < close_at);
+    for (std::size_t index = search_at + 1; index < close_at; ++index)
+        OA_CHECK(starts(names[index], "library.active.from."));
+    OA_CHECK(!names.empty() && names.back() == "library.close-x");
+    if (names.size() >= 2)
+        OA_CHECK(names[names.size() - 2] == "library.close");
+
+    const kit::Control* active_tab = fixture::named(active, "library.tab.active");
+    const kit::Control* replays_tab = fixture::named(active, "library.tab.replays");
+    OA_CHECK(active_tab != nullptr && replays_tab != nullptr);
+    if (active_tab != nullptr && replays_tab != nullptr) {
+        lib::ScreenState state;
+        state.interaction.focused = active_tab->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(active_library, state, active, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == active_tab->id);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::down).redraw);
+        OA_CHECK(state.interaction.focused == replays_tab->id);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == active_tab->id);
+    }
+
+    const kit::Composite* expansions = nullptr;
+    for (const kit::Composite& composite : active.composites)
+        if (composite.name == "library.expansions")
+            expansions = &composite;
+    OA_CHECK(
+        expansions != nullptr && expansions->parts.size() >= 2 &&
+        expansions->axis == kit::CompositeAxis::row
+    );
+    if (expansions != nullptr && expansions->parts.size() >= 2) {
+        lib::ScreenState state;
+        state.interaction.focused = expansions->parts[0];
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(active_library, state, active, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == expansions->parts[0]);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::right).redraw);
+        OA_CHECK(state.interaction.focused == expansions->parts[1]);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == expansions->parts[0]);
+    }
+
+    lib::Library mods = with_ridge();
+    const kit::DisplayList list = laid_out(mods, {}, frames[1].frame);
+    for (const kit::Control& control : list.controls) {
+        if (!starts(control.name, "library.row."))
+            continue;
+        if (!control.name.ends_with(".get") && !control.name.ends_with(".update"))
+            continue;
+        OA_CHECK(!control.focusable);
+        OA_CHECK(
+            std::find(list.tab_order.begin(), list.tab_order.end(), control.id) ==
+            list.tab_order.end()
+        );
+    }
+    const kit::Composite* detail_tags = nullptr;
+    for (const kit::Composite& composite : list.composites)
+        if (composite.name == "library.detail-tags")
+            detail_tags = &composite;
+    OA_CHECK(detail_tags != nullptr && detail_tags->axis == kit::CompositeAxis::row);
+    if (detail_tags != nullptr && !detail_tags->parts.empty()) {
+        lib::ScreenState state;
+        state.interaction.focused = detail_tags->parts[0];
+        state.interaction.focus_shown = true;
+        if (detail_tags->parts.size() >= 2) {
+            OA_CHECK(lib::library_key(mods, state, list, kit::Key::right).redraw);
+            OA_CHECK(state.interaction.focused == detail_tags->parts[1]);
+            OA_CHECK(lib::library_key(mods, state, list, kit::Key::left).redraw);
+            OA_CHECK(state.interaction.focused == detail_tags->parts[0]);
+        }
+        OA_CHECK(!lib::library_key(mods, state, list, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == detail_tags->parts[0]);
+    }
+
+    const kit::Control* all = fixture::named(list, "library.filter.all");
+    const kit::Control* next_filter = fixture::named(list, "library.filter.new");
+    OA_CHECK(all != nullptr && next_filter != nullptr);
+    if (all != nullptr && next_filter != nullptr) {
+        lib::ScreenState state;
+        state.interaction.focused = all->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(mods, state, list, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == all->id);
+        OA_CHECK(lib::library_key(mods, state, list, kit::Key::down).redraw);
+        OA_CHECK(state.interaction.focused == next_filter->id);
+        OA_CHECK(lib::library_key(mods, state, list, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == all->id);
+    }
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
@@ -8049,6 +8495,8 @@ int main() {
     a_pointer_move_keeps_the_search();
     a_move_after_a_click_presses_back();
     tab_follows_the_declared_order();
+    composites_group_the_stops();
+    replay_switch_and_core_filters_are_stops();
     pressing_rows_selects_and_never_gets();
     the_title_bar_holds_a_close_mark();
     row_icons_are_get_and_update();
@@ -8084,5 +8532,8 @@ int main() {
     export_long_mutator_pages();
     replays_card_shows_every_fact();
     replays_rows_and_cards_say_what_they_hold();
+    core_prime_filters_count_their_own_lists();
+    core_prime_card_names_kills_only();
+    core_prime_queued_download_says_so();
     return oa::test::check_exit_status();
 }

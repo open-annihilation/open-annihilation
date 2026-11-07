@@ -1080,6 +1080,14 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
+    /// Tells that the buttons draw the room's marker, not the kit's ring.
+    ///
+    /// A button that sits in the original screen's Tab order takes the
+    /// family's ring, and the tree follows that ring.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
     /// Follows the view the buttons are placed on.
     ///
     /// @param placed_on what the screen is placed on

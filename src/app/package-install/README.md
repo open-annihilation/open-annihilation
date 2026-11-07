@@ -79,6 +79,12 @@ catalogue, its buttons and what each answers.
 folder a second start writes its files into for the copy already
 running. The folder's name stays `opened-mods`.
 
+`oa/app/package_install/replay_release.hpp` keeps a replay's release beside
+Mods. `replay_releases_folder_name` is that folder's name,
+`replay_release_folder` is `Replay releases/<sha>` when the folder's origin
+names that digest, and `install_replay_release` puts a downloaded package
+there.
+
 ## Kinds
 
 `kKinds` in `src/kinds.cpp` is the table. It holds `oamod`, then `oamap`,
@@ -436,6 +442,11 @@ folder-safe (`version_folder_part`). The first row that applies wins:
 
 A revision that cannot be read counts as another.
 
+`Replay releases/<sha>` is a replay's release, beside Mods. A folder whose
+origin verifies and that still reads as a mod or a map pack is left as it
+is. One that does not is moved to `<sha>.old`, replaced, and the old one
+removed.
+
 ## Changes
 
 Every change is a sequence of renames on the volume Mods is on, each
@@ -639,6 +650,9 @@ a replace that fails leaves the previous record as it was.
   reinstall drops a file the table does not name; uninstall removes that
   folder and leaves a sibling; a link in the expansion's place is left
   alone.
+- `app-package-install-replay-release`: a replay's release kept beside Mods.
+  A folder whose origin verifies and that still reads is left as it is. One
+  that does not is replaced.
 
 The native checks `native-mod-install`, `native-library-install` and
 `native-language-install` (`docs/development/testing.md`,

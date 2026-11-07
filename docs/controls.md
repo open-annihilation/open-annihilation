@@ -7,14 +7,18 @@ The chapter is [Keys](keys.md).
 ## Photo mode
 
 [Photo mode](photo-mode.md) shows the battlefield alone, from the place you
-were looking, and puts that place back when you leave. Escape leaves it.
-The game menu leaves it first, then opens.
+were looking, and puts that place back when you leave. F9 opens it. F9 and
+Escape each leave it. Every photo command can be moved, and the key editor
+lists them under Photo mode. The game menu leaves it first, then opens.
+Primary+/ (Ctrl+/, or Cmd+/ on a Mac) opens the keys panel while photo mode
+is open, titled "Keys in photo mode". EDIT KEYS… leaves photo mode first.
+Leaving puts the panel back as it was on entering.
 
 ## Keys in a match
 
 Ctrl+/ (Cmd+/ on a Mac) opens a translucent panel beside the side column
-listing the keys that work right now: "Keys while playing", "Keys while
-watching", or "Keys while placing a building". The keys are grouped as the
+listing the keys that work right now: "Keys in photo mode", "Keys while
+playing", "Keys while watching", or "Keys while placing a building". The keys are grouped as the
 key editor groups them, with the keys a mod's helpers add under "This mod".
 A run of numbered keys is shown as a range, such as Ctrl+1…9. The panel
 names the layout in use and how many of your own changes it carries, and

@@ -111,6 +111,9 @@ struct AutomationControl {
     bool visible{};   ///< it is shown
     bool enabled{};   ///< it is shown and not grayed out
     bool focused{};   ///< it holds the keyboard focus, whether or not the ring is drawn
+    /// The window itself holds the focus. A reported first item sets
+    /// `focused` and leaves this false. The protocol does not write this.
+    bool holds_focus{};
     /// The focus ring is drawn on it. The screen object writes this once, as
     /// `focus_shown`. A control that is not the focused one leaves it false.
     /// The tree does not write it on each control.

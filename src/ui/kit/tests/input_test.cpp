@@ -1758,6 +1758,155 @@ void a_click_then_a_move_keeps_the_keys() {
     OA_CHECK(opening.focus_shown && !opening.pointer_hid_ring);
 }
 
+/// A column of three parts is one Tab stop. The arrows move inside it and do
+/// not wrap, Home and End go to its ends, Tab leaves it, and the part is
+/// remembered. A grid moves one cell at a time. Automation names the group
+/// and each part's place.
+void a_composite_is_one_stop() {
+    kit::DisplayList list;
+    list.controls.push_back(placed(1, {0, 0, 40, 16}));
+    list.controls.push_back(placed(2, {0, 24, 40, 16}));
+    list.controls.push_back(placed(3, {0, 48, 40, 16}));
+    list.controls.push_back(placed(4, {0, 72, 40, 16}));
+    list.controls.push_back(placed(5, {80, 48, 40, 16}));
+    list.controls[0].name = "screen.before";
+    list.controls[1].name = "screen.one";
+    list.controls[1].kind = kit::ControlKind::tab;
+    list.controls[2].name = "screen.two";
+    list.controls[2].kind = kit::ControlKind::tab;
+    list.controls[2].checked = true;
+    list.controls[3].name = "screen.three";
+    list.controls[3].kind = kit::ControlKind::tab;
+    list.controls[4].name = "screen.after";
+    kit::Composite composite;
+    composite.id = 10;
+    composite.axis = kit::CompositeAxis::column;
+    composite.role = kit::CompositeRole::tab_list;
+    composite.name = "screen.sections";
+    composite.parts = {2, 3, 4};
+    composite.current = 3;
+    list.composites.push_back(std::move(composite));
+    list.tab_order = {1, 10, 5};
+
+    OA_CHECK(kit::next_in_tab_order(list, 1, true) == 3);
+    OA_CHECK(kit::next_in_tab_order(list, 2, true) == 5);
+    OA_CHECK(kit::next_in_tab_order(list, 4, true) == 5);
+    OA_CHECK(kit::next_in_tab_order(list, 5, false) == 3);
+    OA_CHECK(kit::composite_landing(list, 10) == 3);
+
+    kit::Interaction interaction;
+    interaction.focused = 3;
+    interaction.focus_shown = true;
+    const kit::KeyOutcome down = kit::key(interaction, list, kit::Key::down);
+    OA_CHECK(down.result == kit::KeyResult::redraw && down.control == 4);
+    OA_CHECK(kit::key(interaction, list, kit::Key::down).result == kit::KeyResult::none);
+    OA_CHECK(interaction.focused == 4);
+    OA_CHECK(kit::key(interaction, list, kit::Key::up).control == 3);
+    OA_CHECK(kit::key(interaction, list, kit::Key::up).control == 2);
+    OA_CHECK(kit::key(interaction, list, kit::Key::up).result == kit::KeyResult::none);
+    OA_CHECK(interaction.focused == 2);
+
+    OA_CHECK(kit::key(interaction, list, kit::Key::end).control == 4);
+    OA_CHECK(kit::key(interaction, list, kit::Key::end).result == kit::KeyResult::none);
+    OA_CHECK(kit::key(interaction, list, kit::Key::home).control == 2);
+    OA_CHECK(kit::key(interaction, list, kit::Key::home).result == kit::KeyResult::none);
+    // Home and End inside the column do not scroll.
+    OA_CHECK(kit::key(interaction, list, kit::Key::end).result == kit::KeyResult::redraw);
+
+    interaction.focused = 3;
+    const kit::KeyOutcome left = kit::key(interaction, list, kit::Key::tab);
+    OA_CHECK(left.result == kit::KeyResult::redraw && left.control == 5);
+    const kit::KeyOutcome back = kit::key(interaction, list, kit::Key::back_tab);
+    OA_CHECK(back.result == kit::KeyResult::redraw && back.control == 4);
+    OA_CHECK(list.composites[0].current == 4);
+    // Shift+Tab from the first part leaves to the stop before the group.
+    interaction.focused = 2;
+    OA_CHECK(kit::key(interaction, list, kit::Key::back_tab).control == 1);
+
+    // The part is remembered across leaving and returning.
+    list.composites[0].current = 3;
+    interaction.focused = 1;
+    OA_CHECK(kit::key(interaction, list, kit::Key::tab).control == 3);
+    OA_CHECK(kit::key(interaction, list, kit::Key::down).control == 4);
+    OA_CHECK(kit::key(interaction, list, kit::Key::tab).control == 5);
+    OA_CHECK(kit::key(interaction, list, kit::Key::back_tab).control == 4);
+
+    // Right leaves the column to the control beside its middle part.
+    interaction.focused = 3;
+    interaction.focus_shown = true;
+    OA_CHECK(kit::key(interaction, list, kit::Key::right).control == 5);
+    // Space and Return go to the part.
+    interaction.focused = 3;
+    interaction.focus_shown = true;
+    const kit::KeyOutcome spaced = kit::key(interaction, list, kit::Key::space);
+    OA_CHECK(spaced.result == kit::KeyResult::to_control && spaced.control == 3);
+    const kit::KeyOutcome entered = kit::key(interaction, list, kit::Key::enter);
+    OA_CHECK(entered.result == kit::KeyResult::to_control && entered.control == 3);
+    OA_CHECK(!interaction.focus_shown);
+
+    list.composites[0].current = 3;
+    kit::Interaction reading;
+    reading.focused = 3;
+    reading.focus_shown = true;
+    const std::vector<kit::AutomationEntry> entries = kit::automation_entries(list, reading);
+    const kit::AutomationEntry* group = nullptr;
+    const kit::AutomationEntry* second = nullptr;
+    for (const kit::AutomationEntry& entry : entries) {
+        if (entry.name == "screen.sections")
+            group = &entry;
+        if (entry.name == "screen.two")
+            second = &entry;
+    }
+    OA_CHECK(group != nullptr && second != nullptr);
+    if (group != nullptr && second != nullptr) {
+        OA_CHECK(group->role == kit::AccessRole::tab_list);
+        OA_CHECK(group->focusable && group->focused);
+        OA_CHECK(group->place == 2 && group->set_size == 3);
+        OA_CHECK(second->place == 2 && second->set_size == 3);
+        OA_CHECK(second->focused);
+    }
+    const std::vector<kit::AutomationEntry> pressed = kit::automation_parts(list, reading);
+    bool parts_list_the_group = false;
+    for (const kit::AutomationEntry& entry : pressed)
+        if (entry.name == "screen.sections" && entry.role == kit::AccessRole::tab_list)
+            parts_list_the_group = true;
+    OA_CHECK(parts_list_the_group);
+
+    // A grid moves one cell and does not wrap onto the next row.
+    kit::DisplayList grid;
+    grid.controls.push_back(placed(1, {0, 0, 20, 16}));
+    grid.controls.push_back(placed(2, {24, 0, 20, 16}));
+    grid.controls.push_back(placed(3, {0, 20, 20, 16}));
+    grid.controls.push_back(placed(4, {24, 20, 20, 16}));
+    kit::Composite cells;
+    cells.id = 8;
+    cells.axis = kit::CompositeAxis::grid;
+    cells.role = kit::CompositeRole::list;
+    cells.name = "screen.cells";
+    cells.columns = 2;
+    cells.parts = {1, 2, 3, 4};
+    cells.current = 1;
+    grid.composites.push_back(std::move(cells));
+    grid.tab_order = {8};
+    kit::Interaction cell;
+    cell.focused = 1;
+    cell.focus_shown = true;
+    OA_CHECK(kit::key(cell, grid, kit::Key::right).control == 2);
+    OA_CHECK(kit::key(cell, grid, kit::Key::right).result == kit::KeyResult::none);
+    OA_CHECK(cell.focused == 2);
+    cell.focused = 1;
+    OA_CHECK(kit::key(cell, grid, kit::Key::down).control == 3);
+    OA_CHECK(kit::key(cell, grid, kit::Key::down).result == kit::KeyResult::none);
+    OA_CHECK(kit::key(cell, grid, kit::Key::left).result == kit::KeyResult::none);
+    const std::vector<kit::AutomationEntry> cell_entries = kit::automation_entries(grid, cell);
+    const kit::AutomationEntry* cells_entry = nullptr;
+    for (const kit::AutomationEntry& entry : cell_entries)
+        if (entry.name == "screen.cells")
+            cells_entry = &entry;
+    OA_CHECK(cells_entry != nullptr && cells_entry->role == kit::AccessRole::list);
+    OA_CHECK(cells_entry != nullptr && cells_entry->set_size == 4);
+}
+
 } // namespace
 
 int main() {
@@ -1788,6 +1937,7 @@ int main() {
     keys_with_no_focus_show_an_end_of_the_order();
     the_open_focus_follows_the_key_table();
     a_click_then_a_move_keeps_the_keys();
+    a_composite_is_one_stop();
     keys_on_a_stepping_control_stay_with_it();
     keys_on_a_button_a_link_and_a_list_row();
     the_wheel_keeps_the_dialogs_fractions();

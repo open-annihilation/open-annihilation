@@ -404,7 +404,7 @@ settings::Dialog engine_dialog_of(
 /// rectangle (a switch's halves, a strip's levels, Your files' buttons, an
 /// entry's words and the scroll bar's well lie inside theirs, and every other
 /// part is its whole control); and Tab stops only on the list's focusable,
-/// enabled controls, each once.
+/// enabled controls, each once. A composite stop stands for its parts.
 ///
 /// @param dialog the dialog
 /// @param what what the dialog shows, for a failure's message
@@ -428,8 +428,26 @@ void check_list(const settings::Dialog& dialog, const std::string& what) {
         OA_CHECK(listed);
     }
     // Tab stops only on the list's focusable, enabled controls, each once.
+    // The section list is one stop: its id is not a control, and each part is.
     std::set<int32_t> stops;
     for (const int32_t stop : list.tab_order) {
+        const kit::Composite* grouped = nullptr;
+        for (const kit::Composite& composite : list.composites) {
+            if (composite.id == stop)
+                grouped = &composite;
+        }
+        if (grouped != nullptr) {
+            OA_CHECK(stops.insert(stop).second);
+            OA_CHECK(!grouped->parts.empty());
+            for (const int32_t part : grouped->parts) {
+                const kit::Control* part_control = kit::control_of(list, part);
+                OA_CHECK(
+                    part_control != nullptr && part_control->focusable && part_control->enabled
+                );
+                OA_CHECK(stops.insert(part).second);
+            }
+            continue;
+        }
         const kit::Control* control = kit::control_of(list, stop);
         OA_CHECK(control != nullptr && control->focusable && control->enabled);
         OA_CHECK(stops.insert(stop).second);
@@ -697,25 +715,26 @@ std::vector<int32_t> tab_order(const settings::Dialog& dialog) {
     return geometry::dialog_list(dialog, nullptr).tab_order;
 }
 
-/// Returns a section's rows' controls, then the footer, the sections' entries
-/// in the list's order with every section listed (Controls, Accessibility,
-/// Touch, Controller; Graphics, User Interface, Language & Text; Game files,
-/// Downloads, Updates, Game Content, Replays; Engine Limits, System, Developer) and
-/// the title bar's close mark: the Tab order the dialog declares.
+/// Returns the section list as one stop, then a section's own controls, then
+/// Restore defaults, Cancel, OK and the title bar's close mark: the Tab order
+/// the dialog declares. The entries are the list's parts, not stops.
 ///
 /// @param rows the section's own controls, in order
 /// @return the whole order
 std::vector<int32_t> with_footer_and_list(std::vector<int32_t> rows) {
-    for (const int32_t control :
-         {15, 16, 17, 0, 13, 5, 6, 3, 4, 2, 8, 9, 12, 11, 14, 1, 10, 7, settings::close_x_control})
-        rows.push_back(control);
-    return rows;
+    std::vector<int32_t> order;
+    order.reserve(rows.size() + 5);
+    order.push_back(settings::section_list_control);
+    order.insert(order.end(), rows.begin(), rows.end());
+    for (const int32_t control : {15, 16, 17, settings::close_x_control})
+        order.push_back(control);
+    return order;
 }
 
 void tab_follows_the_dialogs_focus_order() {
-    // Controls: the key layout card's Edit keys…, its rows, the footer, then
-    // the sections' entries in their groups. The card shows Change layout…
-    // only where the Library opens over the dialog.
+    // Controls: the section list, then the key layout card's Edit keys… and
+    // its rows, then the footer and the close mark. The card shows Change
+    // layout… only where the Library opens over the dialog.
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
     OA_CHECK(
@@ -743,11 +762,11 @@ void tab_follows_the_dialogs_focus_order() {
                                   33}
                              )
     );
-    // Accessibility: every row, Bounce keys included, then the footer and the
-    // list. A row below the fold stays in the order, and Tab scrolls it into
-    // view. Overlay places' ARRANGE… joins it while Move overlays is on. The
-    // practice pad's Turn every helper off follows the rows while a helper
-    // is on.
+    // Accessibility: the section list, then every row, Bounce keys included,
+    // then the footer and the close mark. A row below the fold stays in the
+    // order, and Tab scrolls it into view. Overlay places' ARRANGE… joins it
+    // while Move overlays is on. The practice pad's Turn every helper off
+    // follows the rows while a helper is on.
     settings::Dialog accessibility = controls;
     accessibility.page = settings::Page::accessibility;
     OA_CHECK(
@@ -767,17 +786,19 @@ void tab_follows_the_dialogs_focus_order() {
             {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, settings::helpers_off_control}
         )
     );
-    // Graphics: After zoom, locked while units are drawn whole, takes none,
-    // nor do the water's sliders, locked below Full; New unit shadows last.
+    // Graphics: the section list, then the rows. After zoom, locked while
+    // units are drawn whole, takes none, nor do the water's sliders, locked
+    // below Full; New unit shadows last.
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
     OA_CHECK(
         tab_order(graphics) ==
         with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 40})
     );
-    // Developer with its first area open: its rows, UI kit gallery's SHOW
-    // and Update channel last of them, its list's headers, Show Active Only
-    // and Restore profile values, then the rest.
+    // Developer with its first area open: the section list, then its rows,
+    // UI kit gallery's SHOW and Update channel last of them, its list's
+    // headers, Show Active Only and Restore profile values, then the footer
+    // and the close mark.
     settings::Dialog developer = controls;
     developer.page = settings::Page::developer;
     developer.chosen.developer_mode = true;
@@ -853,6 +874,7 @@ void updates_names_its_ways() {
     // The open list's items are controls, named as the preference stores them.
     // A click reaches the item where it is drawn.
     dialog.focused = settings::first_row_control + 1;
+    dialog.focus_shown = true;
     OA_CHECK(
         settings::dialog_key(dialog, settings::DialogKey::space) == settings::DialogAction::redraw
     );

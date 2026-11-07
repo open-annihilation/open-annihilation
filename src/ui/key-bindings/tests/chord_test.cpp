@@ -496,6 +496,27 @@ void matching() {
     OA_CHECK(!keys::held(must_parse("Primary"), keys::ctrl, mac));
     OA_CHECK(keys::held(must_parse("Primary"), keys::ctrl, windows));
     OA_CHECK(!keys::held(letter, keys::shift, windows));
+
+    // Shift and the slash key type '?'. The event carries '/', as a key event does.
+    OA_CHECK(
+        keys::match(
+            must_parse("?"), key_event(56, static_cast<uint32_t>('/'), keys::shift), us, windows
+        ) == Match::with_extra_modifiers
+    );
+    OA_CHECK(
+        keys::match(must_parse("?"), key_event(56, static_cast<uint32_t>('/'), 0), us, windows) ==
+        Match::none
+    );
+    OA_CHECK(
+        keys::match(
+            must_parse("="), key_event(46, static_cast<uint32_t>('='), keys::shift), us, windows
+        ) == Match::with_extra_modifiers
+    );
+    OA_CHECK(
+        keys::match(
+            must_parse("+"), key_event(46, static_cast<uint32_t>('='), keys::shift), us, windows
+        ) == Match::with_extra_modifiers
+    );
 }
 
 /// An AZERTY map: the number row's events carry digits, and A sits on the Q key.

@@ -279,6 +279,9 @@ void TouchDispatchAccess::battlefield_tap(Runtime& runtime, float x, float y, ui
     auto& state = runtime.touch_state();
     if (runtime.screen_ != Screen::match || !runtime.match_)
         return;
+    // A tap on the battlefield shows the playback bar. The tap still selects.
+    if ((runtime.current_extension_state() & extension_state::replay) != 0)
+        runtime.show_replay_bar();
     // On the open megamap a tap is the mouse's click there, at the finger,
     // which the megamap takes as it takes the mouse's (megamap_pointer), and
     // nothing reaches the battlefield under it. A building armed is placed

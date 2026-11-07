@@ -199,6 +199,8 @@ enum class PhotoGroup : uint8_t {
     capture,
     /// a photo of the turned view
     live,
+    /// each photo command on its key, then Take photo moved to K
+    keys,
 };
 
 /// A renderer failure --render-fault forces in --check-renderer-ladder.
@@ -846,6 +848,11 @@ struct Options {
     // then the list's edits, the save, a paused skirmish and Developer Mode.
     // A scratch folder holds the player's own layout.
     bool check_key_editor = false;
+    // Records a short skirmish and watches it: the playback bar at 640x480,
+    // 1280x720 and 1920x1080, every control and key, an export into a scratch
+    // folder, and the straight playback's digest. A scratch folder holds the
+    // recording.
+    bool check_replay_viewer = false;
     // Captures a chord over a paused skirmish, settles a clash, and opens a
     // draft clash on the Clashes filter. A scratch folder holds the layout.
     bool check_key_capture = false;
@@ -977,6 +984,15 @@ struct Options {
     // is stopped. prepare writes the packages. With --snapshot, the card at
     // 1280x720.
     bool check_replays_content = false;
+    // Core Prime's replay list, from the loopback feed --core-prime-api names
+    // (core-prime.facts in the working folder): the list and its next page,
+    // a planet filter, a download, Watch, a release that changed, a file
+    // whose digest differs, and the same list with that server stopped.
+    // With --snapshot, the section's states at 1280x720.
+    bool check_replays_core_prime = false;
+    /// Replaces `https://api.coreprime.net` for Core Prime's replay list, and
+    /// sends that list's download keys to `<url>/api/v1`. Empty uses Core Prime.
+    std::string core_prime_api{};
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;
@@ -1005,6 +1021,10 @@ struct Options {
     // --replay-index RECORDING: the recording whose index --output names;
     // empty for none. Implies --headless-check and --skip-intro.
     fs::path replay_index;
+    // --replay-map-pack PATH: the kept map pack --replay-index mounts before
+    // it reads the recording. Empty mounts nothing. Refused without
+    // --replay-index.
+    fs::path replay_map_pack;
     // --render-script FILE: the director script (.oascript) or bundle
     // (.oamovie) to render; empty for none. Implies --headless-check and
     // --skip-intro.

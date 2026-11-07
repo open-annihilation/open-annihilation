@@ -19,6 +19,11 @@
 #include <string_view>
 #include <vector>
 
+namespace oa::formats::oademo {
+struct Manifest;
+struct Meta;
+} // namespace oa::formats::oademo
+
 namespace oa::data::replays {
 
 /// The folder of Recordings that holds the index, and the games being recorded.
@@ -32,6 +37,17 @@ inline constexpr std::string_view imported_folder_name = "Imported";
 
 /// The folder of Recordings that holds the replays downloaded from Core Prime.
 inline constexpr std::string_view core_prime_folder_name = "Core Prime";
+
+/// A recording's title as a file name, without an extension.
+///
+/// Control characters and `/ \ : * ? " < > |` become `_`. A leading or trailing
+/// space or dot is dropped, and a `.oademo` or `.tad` ending is dropped. The
+/// name is kept to 120 bytes on a UTF-8 boundary, so a cut never ends inside
+/// a character. An empty name is `replay`. A reserved Windows name gains `_`.
+///
+/// @param title the title, UTF-8
+/// @return the stem
+[[nodiscard]] std::string recording_stem(std::string_view title);
 
 /// recorded.how of a replay opened from outside Recordings.
 inline constexpr std::string_view how_imported = "imported";
@@ -221,6 +237,21 @@ struct Replay {
     /// does not write it. Export (R09) calls set_exported after it writes the file.
     bool exported{};
 };
+
+/// Copies a `.oademo` manifest onto a replay.
+///
+/// Each package becomes one need. A map pack becomes one need for each map
+/// it names. At most most_content_needs needs are kept, and a digest is stored
+/// in lower case. A mod's name is taken from `meta` when the ids match. When
+/// the manifest names no map and `replay.map` is set, one title-only map need
+/// is added. The note beside a file is not read.
+///
+/// @param manifest the manifest
+/// @param meta the description, for a mod's name
+/// @param[in,out] replay the replay
+void apply_manifest(
+    const formats::oademo::Manifest& manifest, const formats::oademo::Meta& meta, Replay& replay
+);
 
 /// Tells whether a replay's file could not be read.
 ///

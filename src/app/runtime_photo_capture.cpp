@@ -6,14 +6,22 @@
 #include "oa/app/runtime.hpp"
 
 #include "full_presentation.hpp"
+#include "photo_clipboard.hpp"
 #include "photo_state.hpp"
 #include "photo_writer.hpp"
 #include "render_run.hpp"
 #include "render_state.hpp"
 
+#include "oa/core/player.h"
+#include "oa/core/player_setup.h"
+#include "oa/core/world.h"
+#include "oa/data/defs/layout.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/files.hpp"
+#include "oa/platform/machine.hpp"
 #include "oa/present/photo/photo_file_name.hpp"
+#include "oa/present/photo/photo_texts.hpp"
+#include "oa/sim/simulation_state.hpp"
 #include "oa/ui/console/console.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/frontend/savegame_dialogs.hpp"
@@ -21,6 +29,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -49,6 +58,13 @@ constexpr std::string_view kNotRead = "the picture could not be read";
 constexpr std::string_view kDeviceLost = "the graphics device was lost";
 constexpr std::string_view kNotWritten = "the file could not be written";
 constexpr std::string_view kNotDrawn = "the picture could not be drawn";
+/// Absent, or any text other than 0, names the players in a photo. 0 leaves
+/// the names out. Written only when the player changes it.
+constexpr std::string_view kPlayerNamesPreference = "open-annihilation.photo.player-names";
+
+#ifndef OA_ENGINE_VERSION
+#error OA_ENGINE_VERSION is set by the build
+#endif
 
 /// Puts `value` in place of `token` in `pattern`.
 ///
@@ -86,6 +102,90 @@ photo::LocalMoment local_moment() {
     return moment;
 }
 
+/// The UTC date and time a photo's Creation Time records.
+///
+/// @return the moment
+photo::UtcMoment utc_moment() {
+    const std::time_t now = std::time(nullptr);
+    std::tm parts{};
+#if defined(_WIN32)
+    gmtime_s(&parts, &now);
+#else
+    gmtime_r(&now, &parts);
+#endif
+    photo::UtcMoment moment;
+    moment.year = parts.tm_year + 1900;
+    moment.month = parts.tm_mon + 1;
+    moment.day = parts.tm_mday;
+    moment.hour = parts.tm_hour;
+    moment.minute = parts.tm_min;
+    moment.second = parts.tm_sec;
+    return moment;
+}
+
+/// The kind of battle the photo's Source line names.
+///
+/// @param bits the extension state
+/// @param campaign true while a campaign mission is running
+/// @return the kind
+photo::GameKind photo_game_kind(uint32_t bits, bool campaign) noexcept {
+    if ((bits & extension_state::replay) != 0)
+        return photo::GameKind::replay;
+    if ((bits & extension_state::shared_match) != 0)
+        return photo::GameKind::multiplayer;
+    if (campaign)
+        return photo::GameKind::campaign;
+    return photo::GameKind::skirmish;
+}
+
+/// The players a photo records, watchers left out. A name stops at the first
+/// NUL and is never longer than the slot.
+///
+/// @param world the match
+/// @return the players, in slot order
+std::vector<photo::PlayerFact> photo_players(const oa::World& world) {
+    std::vector<photo::PlayerFact> players;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const oa::Player& player = world.game.players[slot];
+        if (!oa::sim::simulation_state::player_active(player))
+            continue;
+        const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+        if (info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+            continue;
+        photo::PlayerFact fact;
+        const void* end = std::memchr(player.name, 0, sizeof player.name);
+        const std::size_t length =
+            end == nullptr ? sizeof player.name
+                           : static_cast<std::size_t>(static_cast<const char*>(end) - player.name);
+        fact.name.assign(player.name, length);
+        if (info != nullptr) {
+            fact.side = oa::data::defs::side_name(info->side);
+            fact.colour = info->color;
+        }
+        // The game's team 0 is team 1. OA_PLAYER_NO_TEAM, and anything past
+        // it, is no team.
+        if (player.team < OA_PLAYER_NO_TEAM)
+            fact.team = static_cast<int>(player.team) + 1;
+        players.push_back(std::move(fact));
+    }
+    return players;
+}
+
+/// The event posted when a photo's notice is ready. 0 until it is registered.
+uint32_t photo_notice_event = 0;
+
+/// How long to wait while a photo is still being written.
+constexpr int kPhotoNoticeWaitMs = 50;
+
+/// Posts the notice event. The writer's thread calls this.
+void push_photo_notice() noexcept {
+    if (photo_notice_event == 0)
+        return;
+    SDL_Event wake{};
+    wake.type = photo_notice_event;
+    (void)SDL_PushEvent(&wake);
+}
+
 /// Holds a flag for the rest of the scope, then clears it.
 struct FlagHold {
     bool& flag;
@@ -98,6 +198,19 @@ struct FlagHold {
     ~FlagHold() { flag = false; }
 };
 
+/// The copy note in the player's language. Empty when the copy was skipped.
+///
+/// @param report what the offer did
+/// @return "Copied", "Photo not copied" and the reason, or empty
+std::string copy_note(const PhotoCopyReport& report) {
+    if (report.result == PhotoCopyResult::copied)
+        return std::string(oa::data::languages::interface_text(kPhotoCopied));
+    if (report.result != PhotoCopyResult::refused || report.reason.empty())
+        return {};
+    const std::string why(oa::data::languages::interface_text(report.reason));
+    return fill_token(oa::data::languages::interface_text(kPhotoNotCopied), "{reason}", why);
+}
+
 } // namespace
 
 void Runtime::destroy_photo_writer(PhotoWriter* writer) noexcept {
@@ -105,25 +218,100 @@ void Runtime::destroy_photo_writer(PhotoWriter* writer) noexcept {
 }
 
 PhotoWriter& Runtime::photo_files() {
+    // Before the thread starts, so a finished photo can wake the wait.
+    arm_photo_notice_wake();
     if (photo_writer_ == nullptr)
         photo_writer_.reset(new PhotoWriter());
     return *photo_writer_;
 }
 
+void Runtime::arm_photo_notice_wake() {
+    if (photo_notice_event != 0)
+        return;
+    const uint32_t wake = SDL_RegisterEvents(1);
+    if (wake == 0)
+        return;
+    photo_notice_event = wake;
+    set_photo_writer_wake(push_photo_notice);
+}
+
+bool Runtime::is_photo_notice_event(uint32_t type) const noexcept {
+    return photo_notice_event != 0 && type == photo_notice_event;
+}
+
+int Runtime::photo_idle_wait_ms() const {
+    if (photo_writer_ == nullptr || photo_writer_->outstanding() == 0)
+        return -1;
+    return kPhotoNoticeWaitMs;
+}
+
 void Runtime::publish_photo_status() {
     if (photo_writer_ == nullptr)
         return;
+    const bool image = photo_clipboard_has_image(this_photo_clipboard_system());
+    const bool game_mode = oa::platform::running_in_steam_game_mode();
     while (std::optional<PhotoWriter::Notice> notice = photo_writer_->poll()) {
-        if (notice->saved)
-            note_photo_saved(notice->file_name);
-        else
+        if (!notice->saved) {
             note_photo_refused(notice->reason);
+            continue;
+        }
+        PhotoClipboardImage prepared;
+        prepared.bytes = std::move(notice->clipboard);
+        prepared.mime = notice->clipboard_mime;
+        prepared.refusal = notice->copy_refusal;
+        const PhotoCopyReport report = offer_photo_clipboard(
+            notice->file_name, std::move(prepared), photo_copy(), game_mode, image
+        );
+        note_photo_saved(std::move(notice->file_name), copy_note(report));
     }
 }
 
-void Runtime::note_photo_saved(std::string file_name) {
-    const std::string line =
-        fill_token(oa::data::languages::interface_text(kSaved), "{name}", file_name);
+bool Runtime::photo_copy() const {
+    const auto found = preference_values_.find(std::string(kPhotoCopyPreference));
+    if (found == preference_values_.end())
+        return true;
+    return photo_copy_on(found->second);
+}
+
+void Runtime::set_photo_copy(bool on) {
+    const std::string key(kPhotoCopyPreference);
+    const std::string value = on ? "1" : "0";
+    const auto found = preference_values_.find(key);
+    if (found != preference_values_.end() && found->second == value)
+        return;
+    preference_values_[key] = value;
+    preferences_dirty_ = true;
+    if (!preference_path_.empty())
+        flush_preferences();
+}
+
+void Runtime::copy_last_photo() {
+    if (!remembered_photo_exists())
+        return;
+    const std::string file_name(remembered_photo_name());
+    // Copy to clipboard governs only the copy after each photo. An explicit
+    // Copy copies whatever that switch says, and says so when it cannot.
+    const bool game_mode = oa::platform::running_in_steam_game_mode();
+    const bool image = photo_clipboard_has_image(this_photo_clipboard_system());
+    if (game_mode || !image) {
+        PhotoCopyReport refused;
+        refused.result = PhotoCopyResult::refused;
+        refused.reason = game_mode ? kPhotoCopyGameMode : kPhotoCopyTextOnly;
+        note_photo_saved(file_name, copy_note(refused));
+        return;
+    }
+    const PhotoCopyReport report = copy_remembered_photo(true, game_mode, image);
+    if (report.result == PhotoCopyResult::skipped)
+        return;
+    note_photo_saved(file_name, copy_note(report));
+}
+
+void Runtime::note_photo_saved(std::string file_name, std::string copy_note_text) {
+    std::string line = fill_token(oa::data::languages::interface_text(kSaved), "{name}", file_name);
+    if (!copy_note_text.empty()) {
+        line += "  ";
+        line += copy_note_text;
+    }
     status_ = line;
     photo_notice_ = std::move(line);
 }
@@ -309,12 +497,54 @@ bool Runtime::capture_photo_pixels(
     return true;
 }
 
+bool Runtime::photo_player_names() const {
+    const auto found = preference_values_.find(std::string(kPlayerNamesPreference));
+    if (found == preference_values_.end())
+        return true;
+    return found->second != "0";
+}
+
+void Runtime::set_photo_player_names(bool on) {
+    if (photo_player_names() == on)
+        return;
+    if (on)
+        preference_values_.erase(std::string(kPlayerNamesPreference));
+    else
+        preference_values_[std::string(kPlayerNamesPreference)] = "0";
+    preferences_dirty_ = true;
+    flush_preferences();
+}
+
+void Runtime::deliver_pending_photo() noexcept {
+    if (photo_ == nullptr || !photo_->capture_waiting)
+        return;
+    if (!photo_->drawn_since_enter && !photo_->picture_held)
+        return;
+    try {
+        take_photo();
+    } catch (const std::exception&) {
+        if (photo_ != nullptr)
+            photo_->capture_waiting = false;
+    }
+}
+
 void Runtime::take_photo() {
     publish_photo_status();
     if (!photo_mode() || match_ == nullptr) {
         note_photo_refused(kNotInPhoto);
         return;
     }
+    // The play layout is what Full last presented, and what Off and Basic
+    // last drew, until a photo-mode frame has been presented. Keep the
+    // request and take it once that frame is up. A held picture is already
+    // the frame photo mode shows, so it does not wait. Enter, Ctrl+F9 and
+    // a later button all come through here.
+    if (photo_ != nullptr && !photo_->drawn_since_enter && !photo_picture_held()) {
+        photo_->capture_waiting = true;
+        return;
+    }
+    if (photo_ != nullptr)
+        photo_->capture_waiting = false;
     if (photo_files().outstanding() >= 4) {
         note_photo_refused(kQueueFull);
         return;
@@ -362,12 +592,54 @@ void Runtime::take_photo() {
         return;
     }
 
+    photo::PhotoFacts facts;
+    facts.map = selected_map_name_runtime_;
+    facts.engine = OA_ENGINE_VERSION;
+    if (const oa::data::mod_profile::ModProfile* profile = mod_profile()) {
+        facts.mod_id = profile->id;
+        facts.mod_version = profile->version;
+    }
+    facts.kind = photo_game_kind(current_extension_state(), campaign_mission_);
+    if (photo_picture_held()) {
+        facts.tick = photo_->held_tick;
+        facts.speed = photo_->held_speed;
+    } else {
+        facts.tick = match_->state().game.tick;
+        facts.speed = match_->state().game.current_speed;
+    }
+    facts.players = photo_players(match_->state());
+    if (photo_ != nullptr && photo_->picture_held && photo_->camera_held) {
+        facts.camera.x = photo_->held_camera_x;
+        facts.camera.z = photo_->held_camera_z;
+        facts.camera.zoom = photo_->held_zoom;
+        facts.camera.yaw = photo_->held_live_yaw;
+        facts.camera.pitch = photo_->held_live_pitch;
+    } else {
+        facts.camera.x = match_camera_x_;
+        facts.camera.z = match_camera_z_;
+        facts.camera.zoom = match_zoom_;
+        if (live_renderer_active()) {
+            const std::array<float, 2> angles = live_camera_angles();
+            facts.camera.yaw = angles[0];
+            facts.camera.pitch = angles[1];
+        }
+    }
+    facts.size.width = width;
+    facts.size.height = height;
+    facts.size.smooth = 1;
+    facts.created = utc_moment();
+    facts.player_names = photo_player_names();
+    // Passed so a photo that stored it would fail the capture check. The
+    // text builder never writes a folder.
+    facts.shots_folder = oa::platform::path_to_generic_utf8(folder);
+
     PhotoWriter::Picture picture;
     picture.rgb = std::move(rgb);
     picture.width = width;
     picture.height = height;
     picture.path = std::move(path);
     picture.file_name = file_name;
+    picture.texts = photo::photo_texts(facts);
     if (!photo_files().enqueue(std::move(picture)))
         note_photo_refused(kQueueFull);
 }

@@ -226,10 +226,15 @@ Each of these takes effect at once.
   any zoom. 50% lets the map's edge reach the middle of the
   battlefield, or, with more than the whole map in view, the map's centre
   reach the view's edge; a zoom keeps the ground under the pointer under
-  it wherever that takes the view. 25% lets a quarter of the battlefield
-  show past an edge, or, with more than the whole map in view, the map's
-  centre a quarter of the battlefield from its middle. Off keeps the view
-  on the map, as 3.1c does, and centres the map in a view wider than it.
+  it wherever that takes the view. In Full 3D Mode's turned view, a zoom in
+  stays within the closer view's limits instead, and the ground under the
+  pointer slides where the view meets them. Turning the view from a place
+  the classic view left past those limits pulls the turned view in, so the
+  frame is drawn, and turning back before the turned view moves shows the
+  classic place again. 25% lets a quarter of the battlefield show past an
+  edge, or, with more than the whole map in view, the map's centre a
+  quarter of the battlefield from its middle. Off keeps the view on the
+  map, as 3.1c does, and centres the map in a view wider than it.
   At 25% and Off a zoom keeps to the limit too: where the view meets it,
   the ground under the pointer slides instead. A unit the camera follows
   toward an edge takes the view as far as the limit, where it stops; the

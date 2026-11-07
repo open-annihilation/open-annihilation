@@ -142,9 +142,14 @@ struct KeyCap {
 /// Meta held beyond the chord still matches, as `with_extra_modifiers`. The
 /// gesture is not judged.
 ///
+/// A character matches the key code the event carries, with a capital read as
+/// its small letter. It also matches when Shift is held and the key's shifted
+/// glyph is that character, so Shift and `/` matches `?` while Shift and `=`
+/// still matches `=`.
+///
 /// @param chord the chord
 /// @param event the event
-/// @param map the keyboard; matching a key does not read it
+/// @param map the keyboard; a shifted glyph is read from it
 /// @param platform which key Primary means
 /// @return how well the event matches
 [[nodiscard]] Match

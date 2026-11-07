@@ -4,7 +4,10 @@
 
 # One native check. A loopback registry lists Ridge, an old map pack and a
 # mutator. The game fetches the pack and the mutator the replay names, plays,
-# and puts the player's mutators back. Nothing is fetched from a live server.
+# and puts the player's mutators back. With Ridge 2.9 installed it fetches
+# 2.8 beside that release, plays, and puts 2.9 back. That copy is then moved
+# under Mods and played from there. An update of Ridge in the same run changes
+# what the row offers. Nothing is fetched from a live server.
 
 import argparse
 import hashlib
@@ -12,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -124,6 +128,7 @@ class RegistryState:
         self.posts = []
         self.lock = threading.Lock()
         self.next_id = 1
+        self.stopped = False
 
 
 def make_handler(state):
@@ -141,8 +146,29 @@ def make_handler(state):
             self.end_headers()
             self.wfile.write(data)
 
+        def _refuse_if_stopped(self):
+            """Closes the connection once the check has asked the registry to stop."""
+            with state.lock:
+                stopped = state.stopped
+            if not stopped:
+                return False
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            self.close_connection = True
+            return True
+
         def do_GET(self):
-            relative = self.path.split("?", 1)[0].lstrip("/")
+            path = self.path.split("?", 1)[0]
+            if path == "/stop":
+                with state.lock:
+                    state.stopped = True
+                self._send(204, b"", "text/plain")
+                return
+            if self._refuse_if_stopped():
+                return
+            relative = path.lstrip("/")
             target = (state.directory / relative).resolve()
             root = state.directory.resolve()
             if not str(target).startswith(str(root)) or not target.is_file():
@@ -157,6 +183,8 @@ def make_handler(state):
             self._send(200, target.read_bytes(), kind)
 
         def do_POST(self):
+            if self._refuse_if_stopped():
+                return
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length)
             path = self.path.split("?", 1)[0]
@@ -536,6 +564,7 @@ def main():
             and "demo mutators: 1 applied" in played.stdout
             and "replays content: mutators selected 0" in played.stdout
             and "not in Core Prime's catalogue" in played.stdout
+            and "Ridge Replays's catalogue" in played.stdout
             and "replays content: 409 left no Watch" in played.stdout
             and "Get Ridge 2.8 and watch" in played.stdout
             and "Getting Ridge Reach" in played.stdout
@@ -562,6 +591,185 @@ def main():
                 f"gone {named_gone}, tables {tables}, posts {posts}",
                 file=sys.stderr,
             )
+            return 1
+
+        with state.lock:
+            posted_before = len(state.posts)
+        ridge_new_sha = sha256_file(work / "ridge-29.oamod")
+        write_facts(
+            facts,
+            {
+                "case": "beside",
+                "descriptor": state.base + "/registry.yaml",
+                "registry": REGISTRY_ID,
+                "pack_sha": old_sha,
+                "mutator_sha": mutator_sha,
+                "ridge_sha": ridge_sha,
+                "ridge_new_sha": ridge_new_sha,
+                "unlisted_sha": unlisted,
+                "gone_sha": gone_sha,
+            },
+        )
+        # No --snapshot: the play case already wrote the card pictures.
+        beside = run_game(
+            args.native,
+            args.game_dir,
+            work,
+            work / "beside",
+            ["--check-replays-content"],
+        )
+        with state.lock:
+            fresh = list(state.posts[posted_before:])
+        beside_parsed = []
+        for body in fresh:
+            try:
+                beside_parsed.append(json.loads(body))
+            except json.JSONDecodeError:
+                beside_parsed.append({})
+        asked_ridge = any(item.get("sha256") == ridge_sha for item in beside_parsed)
+        asked_ridge_count = sum(1 for item in beside_parsed if item.get("sha256") == ridge_sha)
+        asked_newer = any(item.get("sha256") == ridge_new_sha for item in beside_parsed)
+        beside_tables = [
+            int(count)
+            for count in re.findall(
+                r"^demo unit table: (\d+) recorded, \1 matched, 0 missing, 0 extra here$",
+                beside.stdout,
+                re.MULTILINE,
+            )
+        ]
+        beside_ok = (
+            beside.returncode == 0
+            and "Get Ridge 2.8 and watch" in beside.stdout
+            and "You have 2.9" in beside.stdout
+            and "replays content: ridge 2.8 playing" in beside.stdout
+            and "replays content: 2.9 chosen" in beside.stdout
+            and "replays content: end screen stayed until Main Menu" in beside.stdout
+            and "replays content: library open on default/ridge.oademo" in beside.stdout
+            and "a stop during the replay chose Ridge 2.9" in beside.stdout
+            and "replays content: the next start played nothing" in beside.stdout
+            and 'button "Watch"' in beside.stdout
+            and "You're offline" not in beside.stdout
+            and "replays content: kept ridge 2.8 playing" in beside.stdout
+            and "replays content: 2.9 chosen again" in beside.stdout
+            and "replays content: alongside ridge 2.8 playing" in beside.stdout
+            and len(beside_tables) >= 2
+            and asked_ridge
+            and asked_ridge_count == 1
+            and not asked_newer
+        )
+        if not beside_ok:
+            print(
+                f"beside failed: status {beside.returncode}, "
+                f"ridge {asked_ridge} x{asked_ridge_count}, newer {asked_newer}, "
+                f"tables {beside_tables}, "
+                f"posts {fresh}",
+                file=sys.stderr,
+            )
+            return 1
+
+        # The beside case asks the registry to stop. This case needs it again.
+        with state.lock:
+            state.stopped = False
+        write_facts(
+            facts,
+            {
+                "case": "update",
+                "descriptor": state.base + "/registry.yaml",
+                "registry": REGISTRY_ID,
+                "pack_sha": old_sha,
+                "mutator_sha": mutator_sha,
+                "ridge_sha": ridge_sha,
+                "unlisted_sha": unlisted,
+                "gone_sha": gone_sha,
+            },
+        )
+        updated = run_game(
+            args.native,
+            args.game_dir,
+            work,
+            work / "update",
+            ["--check-replays-content"],
+        )
+        update_ok = (
+            updated.returncode == 0
+            and 'button "Watch"' in updated.stdout
+            and "installed in" in updated.stdout
+            and "Mods/ridge" in updated.stdout
+            and "Get Ridge 2.8 and watch" in updated.stdout
+            and "You have 2.9." in updated.stdout
+            and "replays content: update noticed" in updated.stdout
+        )
+        if not update_ok:
+            print(f"update failed: status {updated.returncode}", file=sys.stderr)
+            print("\n".join(updated.stdout.splitlines()[-30:]), file=sys.stderr)
+            return 1
+
+        with state.lock:
+            posted_before = len(state.posts)
+        write_facts(
+            facts,
+            {
+                "case": "packs",
+                "descriptor": state.base + "/registry.yaml",
+                "registry": REGISTRY_ID,
+                "pack_sha": old_sha,
+                "pack_new_sha": new_sha,
+                "pack_new_release": str(NEW_PACK_RELEASE),
+                "mutator_sha": mutator_sha,
+                "ridge_sha": ridge_sha,
+                "ridge_new_sha": sha256_file(work / "ridge-29.oamod"),
+                "unlisted_sha": unlisted,
+                "gone_sha": gone_sha,
+            },
+        )
+        packs = run_game(
+            args.native,
+            args.game_dir,
+            work,
+            work / "packs",
+            ["--check-replays-content"],
+        )
+        with state.lock:
+            fresh = list(state.posts[posted_before:])
+        packs_parsed = []
+        for body in fresh:
+            try:
+                packs_parsed.append(json.loads(body))
+            except json.JSONDecodeError:
+                packs_parsed.append({})
+        asked_old = [
+            item for item in packs_parsed if item.get("sha256") == old_sha
+        ]
+        asked_new = any(item.get("sha256") == new_sha for item in packs_parsed)
+        asked_ridge = sum(1 for item in packs_parsed if item.get("sha256") == ridge_sha)
+        ridge_new_sha = sha256_file(work / "ridge-29.oamod")
+        asked_ridge_new = any(item.get("sha256") == ridge_new_sha for item in packs_parsed)
+        packs_ok = (
+            packs.returncode == 0
+            and "replays content: hand played with no fetch" in packs.stdout
+            and "another release of the map pack Ridge Reach" in packs.stdout
+            and "replays content: older pack playing from Replay releases" in packs.stdout
+            and "replays content: installed pack unchanged" in packs.stdout
+            and "replays content: greyed pack played from Replay releases" in packs.stdout
+            and "index pass read default/older.oademo" in packs.stdout
+            and "replays content: kept pack played with nothing in Maps" in packs.stdout
+            and "replays content: file origin watched with no fetch" in packs.stdout
+            and "replays content: older pack and older mod playing" in packs.stdout
+            and "replays content: 2.9 chosen after the pack" in packs.stdout
+            and "map pack ridge-reach: mounted" in packs.stdout
+            and len(asked_old) == 1
+            and asked_ridge == 1
+            and not asked_new
+            and not asked_ridge_new
+        )
+        if not packs_ok:
+            print(
+                f"packs failed: status {packs.returncode}, "
+                f"old {len(asked_old)}, ridge {asked_ridge}, newer {asked_new}, "
+                f"ridge 2.9 {asked_ridge_new}, posts {fresh}",
+                file=sys.stderr,
+            )
+            print("\n".join(packs.stdout.splitlines()[-40:]), file=sys.stderr)
             return 1
 
         play_yaml = work / "play" / "user" / "Registries.yaml"
@@ -667,6 +875,10 @@ def main():
         and "replays content: the next start played nothing" in expansion.stdout
         and "a stop during the replay put the set back" in expansion.stdout
         and "a start that ended before the replay put the set back" in expansion.stdout
+        and "Watched to " in expansion.stdout
+        and "replays content: watch from reached tick " in expansion.stdout
+        and "replays content: the switched replay put the set back" in expansion.stdout
+        and "replays content: a replay played to its last tick keeps no place" in expansion.stdout
     )
     if not expansion_ok:
         return fail(f"expansion failed: status {expansion.returncode}")

@@ -367,10 +367,10 @@ void show_in_filters(ScreenState& state, const kit::DisplayList& list, kit::Cont
     );
 }
 
-/// Moves the focus among Large's filter pane's entries with Up, Down, Home,
-/// End, Page Up and Page Down while one of them has it, those out of view
-/// among them, and scrolls the pane to show the one it reaches. Up from the
-/// first entry and Down from the last go on as the arrows do elsewhere.
+/// Pages among the filters, or among the tags, while one of that group has
+/// the focus, including an entry out of view, and scrolls the pane to show
+/// the one it reaches. Up, Down, Home and End stay with the kit, which moves
+/// inside the group. Page Up and Page Down do not leave the group.
 ///
 /// @param[in,out] state the screen's state
 /// @param list the display list
@@ -378,16 +378,30 @@ void show_in_filters(ScreenState& state, const kit::DisplayList& list, kit::Cont
 /// @return what the host is to do; none when the key goes on to the screen
 std::optional<ScreenResult>
 filter_pane_key(ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
+    if (pressed != kit::Key::page_up && pressed != kit::Key::page_down)
+        return std::nullopt;
     if (!state.interaction.focus_shown)
         return std::nullopt;
-    const kit::Control* focused = kit::control_of(list, state.interaction.focused);
-    if (focused == nullptr || focused->group != controls::filters_group)
+    const kit::ControlId focused_id = state.interaction.focused;
+    const kit::Composite* group = nullptr;
+    for (const kit::Composite& composite : list.composites) {
+        if (composite.id != controls::filters && composite.id != controls::tags_stop)
+            continue;
+        if (std::find(composite.parts.begin(), composite.parts.end(), focused_id) ==
+            composite.parts.end())
+            continue;
+        group = &composite;
+        break;
+    }
+    if (group == nullptr)
         return std::nullopt;
     std::vector<kit::ControlId> entries;
-    for (const kit::Control& control : list.controls)
-        if (control.group == controls::filters_group && control.enabled)
-            entries.push_back(control.id);
-    const auto at = std::find(entries.begin(), entries.end(), focused->id);
+    for (const kit::ControlId id : group->parts) {
+        const kit::Control* control = kit::control_of(list, id);
+        if (control != nullptr && control->enabled)
+            entries.push_back(id);
+    }
+    const auto at = std::find(entries.begin(), entries.end(), focused_id);
     if (at == entries.end())
         return std::nullopt;
     const auto place = static_cast<int32_t>(at - entries.begin());
@@ -396,33 +410,8 @@ filter_pane_key(ScreenState& state, const kit::DisplayList& list, kit::Key press
     const int32_t page = scroll && scroll->step > 0
                              ? std::max(scroll->view.height / scroll->step - 1, int32_t{1})
                              : 1;
-    int32_t next = place;
-    switch (pressed) {
-    case kit::Key::up:
-        if (place == 0)
-            return std::nullopt;
-        next = place - 1;
-        break;
-    case kit::Key::down:
-        if (place == last)
-            return std::nullopt;
-        next = place + 1;
-        break;
-    case kit::Key::home:
-        next = 0;
-        break;
-    case kit::Key::end:
-        next = last;
-        break;
-    case kit::Key::page_up:
-        next = std::max(place - page, int32_t{0});
-        break;
-    case kit::Key::page_down:
-        next = std::min(place + page, last);
-        break;
-    default:
-        return std::nullopt;
-    }
+    const int32_t next = pressed == kit::Key::page_up ? std::max(place - page, int32_t{0})
+                                                      : std::min(place + page, last);
     state.interaction.focused = entries[static_cast<std::size_t>(next)];
     show_in_filters(state, list, state.interaction.focused);
     return redrawn();
@@ -518,6 +507,8 @@ kit::ControlId field_of(MenuKind menu) {
         return controls::replay_kind_menu;
     case MenuKind::replay_sort:
         return controls::replay_sort_menu;
+    case MenuKind::replay_planet:
+        return controls::replay_planet_menu;
     case MenuKind::none:
         break;
     }
@@ -803,11 +794,13 @@ choose_item(Library& library, ScreenState& state, const kit::DisplayList& list, 
     if (place < 0 || static_cast<std::size_t>(place) >= items.size())
         return redrawn();
     const controls::MenuItem& item = items[static_cast<std::size_t>(place)];
-    if (item.replay_kind || item.replay_sort) {
+    if (item.replay_kind || item.replay_sort || item.replay_planet) {
         if (item.replay_kind)
             set_replay_kind(library, *item.replay_kind);
-        else
+        else if (item.replay_sort)
             set_replay_sort(library, *item.replay_sort);
+        else
+            set_core_planet(library, *item.replay_planet);
         after_browsing(library, state, list);
         return redrawn();
     }
@@ -1303,13 +1296,27 @@ ScreenResult activate(
         after_browsing(library, state, list);
         return redrawn();
     }
+    if (id == controls::replay_source_computer || id == controls::replay_source_core) {
+        set_replay_source(
+            library,
+            id == controls::replay_source_core ? ReplaySource::core_prime : ReplaySource::computer
+        );
+        after_browsing(library, state, list);
+        return redrawn();
+    }
+    if (controls::core_filter_entry(id)) {
+        set_core_filter(library, static_cast<CorePrimeFilter>(id - controls::first_core_filter));
+        after_browsing(library, state, list);
+        return redrawn();
+    }
     if (controls::replay_row_control(id)) {
         const auto place = static_cast<std::size_t>(id - controls::first_replay_row);
         const ReplayPick pick = std::exchange(state.row_pick, ReplayPick::only);
-        if (place >= library.replays.visible.size())
+        const std::vector<ReplayRow>& rows = shown_replay_rows(library);
+        if (place >= library.replays.visible.size() ||
+            library.replays.visible[place] >= rows.size())
             return {};
-        const std::string path =
-            library.inputs.replays.rows[library.replays.visible[place]].replay.path;
+        const std::string path = rows[library.replays.visible[place]].replay.path;
         if (library.replays.selected != path)
             state.details_scroll = 0;
         select_replay(library, path, pick);
@@ -1328,7 +1335,7 @@ ScreenResult activate(
         ScreenResult result = redrawn();
         result.action = action;
         if (action == Action::watch_replay || action == Action::watch_from ||
-            action == Action::open_replay_folder) {
+            action == Action::open_replay_folder || action == Action::download_replay) {
             if (!library.replays.selected)
                 return {};
             result.replay = *library.replays.selected;
@@ -1338,6 +1345,12 @@ ScreenResult activate(
                     return {};
                 result.watch_from = *row->replay.watched_tick;
             }
+            return result;
+        }
+        if (action == Action::browse_core_prime) {
+            set_replay_source(library, ReplaySource::core_prime);
+            after_browsing(library, state, list);
+            result.action = Action::browse_core_prime;
             return result;
         }
         if (action == Action::keep_replays) {
@@ -1461,6 +1474,8 @@ ScreenResult activate(
         return toggle_menu(library, state, list, MenuKind::replay_kind);
     case controls::replay_sort_menu:
         return toggle_menu(library, state, list, MenuKind::replay_sort);
+    case controls::replay_planet_menu:
+        return toggle_menu(library, state, list, MenuKind::replay_planet);
     case controls::update_all:
         result.action = Action::update_all;
         return result;
@@ -2086,7 +2101,9 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         else if (map_link && kit::control_of(list, controls::active_search) != nullptr)
             interaction.focused = controls::active_search;
         else
-            interaction.focused = list.tab_order.empty() ? kit::no_control : list.tab_order.front();
+            interaction.focused = list.tab_order.empty()
+                                      ? kit::no_control
+                                      : kit::composite_landing(list, list.tab_order.front());
     }
     // The first stop takes the keys from the first key, with the ring hidden,
     // unless the host already opened the screen (and may have asked for the ring).
@@ -2104,7 +2121,8 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
     const bool on_list = focus == controls::list;
     const bool on_drop_down = focus == controls::filter_menu || focus == controls::tags_menu ||
                               focus == controls::more_menu || focus == controls::replay_kind_menu ||
-                              focus == controls::replay_sort_menu;
+                              focus == controls::replay_sort_menu ||
+                              focus == controls::replay_planet_menu;
     // On the details page the page keys scroll its body, never the list it
     // hides; on the Registries tab they scroll those cards. The Active tab's
     // page keys scroll its maps, or the whole page when that page scrolls.
@@ -2210,6 +2228,11 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
             return kit::edit_text(state.search, pressed) ? redrawn() : ScreenResult{};
         if (on_maps_search)
             return kit::edit_text(state.maps_search, pressed) ? redrawn() : ScreenResult{};
+        // Home and End inside a group go to its ends. A hidden ring still
+        // scrolls, as it does when the Library opens.
+        if (focus != kit::no_control &&
+            kit::composite_end(list, focus, pressed == kit::Key::end) != kit::no_control)
+            break;
         if (active_shows(list)) {
             const std::optional<PaneScroll> scroll = maps_scroll_of(list);
             if (!scroll)

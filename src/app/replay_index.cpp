@@ -639,6 +639,25 @@ oademo::TimelineIndex build_index(const Source& source) {
         if (!commanders.winners.empty())
             index.result.by = oademo::ResultBy::commanders;
     }
+    // A campaign mission's own end names the recording player's result. It
+    // replaces whatever the commanders decided, and only once the replay
+    // reached the end of the recording. A game that is not a campaign never
+    // sets Source::mission, so its result stays with the commanders.
+    if (timeline.verdict.finished && source.mission != Source::Mission::none &&
+        source.mission_player > 0) {
+        index.result.winners.clear();
+        index.result.by = oademo::ResultBy::mission;
+        if (source.mission == Source::Mission::won) {
+            index.result.winners.push_back(source.mission_player);
+        } else {
+            for (const StreamPlayer& player : stream.players)
+                if (!player.watcher && player.number != source.mission_player && player.number > 0)
+                    index.result.winners.push_back(player.number);
+            // Nobody else plays, and an empty list would show no result.
+            if (index.result.winners.empty())
+                index.result.winners.push_back(0);
+        }
+    }
 
     bool paused = false;
     Alliances alliances;

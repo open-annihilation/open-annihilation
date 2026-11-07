@@ -23,38 +23,33 @@ bool holds(const std::vector<std::string>& names, std::string_view wanted) {
     return std::find(names.begin(), names.end(), wanted) != names.end();
 }
 
-/// The installed mod of an id, or null when none is installed.
-const HaveMod* mod_of(const HaveContent& have, std::string_view id) {
-    for (const HaveMod& mod : have.mods) {
-        if (mod.id == id)
-            return &mod;
-    }
-    return nullptr;
-}
-
-/// The installed mod of a display name or an id, or null when none matches.
-const HaveMod* mod_named(const HaveContent& have, std::string_view name) {
-    if (name.empty())
-        return nullptr;
-    for (const HaveMod& mod : have.mods) {
-        if (mod.name == name || mod.id == name)
-            return &mod;
-    }
-    return nullptr;
-}
-
 /// Reports whether the mod being played is the one a name-only need asks for.
 bool playing_named(const HaveContent& have, std::string_view name) {
     return !name.empty() && (have.playing_mod_name == name || have.playing_mod_id == name);
 }
 
 /// Reports whether the mod being played is this installed release.
+///
+/// The id (or the name, when no id is playing) has to match. When the playing
+/// release's version or digest is known, that has to match too: another
+/// release of the same mod is not the one being played.
 bool playing_release(const HaveContent& have, const HaveMod& installed) {
-    if (!have.playing_mod_id.empty())
-        return have.playing_mod_id == installed.id;
-    if (!have.playing_mod_name.empty())
-        return have.playing_mod_name == installed.name || have.playing_mod_name == installed.id;
-    return false;
+    if (!have.playing_mod_id.empty()) {
+        if (have.playing_mod_id != installed.id)
+            return false;
+    } else if (!have.playing_mod_name.empty()) {
+        if (have.playing_mod_name != installed.name && have.playing_mod_name != installed.id)
+            return false;
+    } else {
+        return false;
+    }
+    if (!have.playing_mod_version.empty() && !installed.version.empty() &&
+        have.playing_mod_version != installed.version)
+        return false;
+    if (!have.playing_mod_sha256.empty() && !installed.sha256.empty() &&
+        have.playing_mod_sha256 != installed.sha256)
+        return false;
+    return true;
 }
 
 /// Reports whether an installed mutator is the one the replay names.
@@ -129,12 +124,11 @@ expansion_offer(std::span<const ListedRelease> listed, const ContentNeed& need) 
 /// Fills the download of a gap from the release the digest names.
 void apply_offer(ContentGap& gap, const ListedRelease* offer) {
     gap.fetchable = false;
-    if (gap.other_release)
-        return;
     if (offer == nullptr || offer->reach == ReleaseReach::unknown)
         return;
     if (offer->reach == ReleaseReach::unlisted) {
         gap.block = GapBlock::unlisted;
+        gap.registry = offer->registry;
         return;
     }
     if (offer->reach == ReleaseReach::offline) {
@@ -153,7 +147,6 @@ void apply_offer(ContentGap& gap, const ListedRelease* offer) {
         gap.block = GapBlock::offline;
         return;
     }
-    gap.fetchable = true;
     gap.registry = offer->registry;
     gap.package_kind = offer->package_kind;
     if (!offer->id.empty())
@@ -168,6 +161,9 @@ void apply_offer(ContentGap& gap, const ListedRelease* offer) {
     gap.file = offer->file;
     gap.release = offer->release;
     gap.size = offer->size;
+    // Another release is installed beside the one in use. It is not the
+    // ordinary install, so the button keeps the words for that press.
+    gap.fetchable = !gap.other_release;
 }
 
 /// A gap for one need, before the listing is applied.
@@ -223,10 +219,25 @@ std::vector<ContentGap> compare_needs(
         if (need.kind == "oamod") {
             if (need.id.empty() && need.name.empty())
                 continue;
-            const HaveMod* installed =
-                need.id.empty() ? mod_named(have, need.name) : mod_of(have, need.id);
             // A note that names the mod and no release matches that name.
+            // Several releases of one mod may be installed. The one the replay
+            // names is that release; the first folder of the id is not.
             const bool name_only = need.id.empty() && need.version.empty();
+            const HaveMod* installed = nullptr;
+            const HaveMod* different = nullptr;
+            for (const HaveMod& mod : have.mods) {
+                const bool id_match = need.id.empty()
+                                          ? (mod.name == need.name || mod.id == need.name)
+                                          : mod.id == need.id;
+                if (!id_match)
+                    continue;
+                if (name_only || same_release(mod, need)) {
+                    installed = &mod;
+                    break;
+                }
+                if (different == nullptr)
+                    different = &mod;
+            }
             if (installed != nullptr && (name_only || same_release(*installed, need))) {
                 // A name is enough. A release the manifest names has to be the
                 // mod this run is playing, not only a folder under Mods.
@@ -234,15 +245,18 @@ std::vector<ContentGap> compare_needs(
                     continue;
                 ContentGap gap = gap_for(GapKind::mod_missing, need);
                 gap.play_installed = true;
+                // The folder the row matched. Watch plays this, not the first
+                // folder of the id.
+                gap.play_folder = installed->folder;
                 gaps.push_back(std::move(gap));
                 continue;
             }
             if (installed == nullptr && name_only && playing_named(have, need.name))
                 continue;
-            if (installed != nullptr) {
+            if (different != nullptr) {
                 ContentGap gap = gap_for(GapKind::mod_other, need);
-                gap.have_version = installed->version;
-                gap.have_revision = installed->revision;
+                gap.have_version = different->version;
+                gap.have_revision = different->revision;
                 gap.other_release = true;
                 apply_offer(gap, offer_of(listed, need.sha256));
                 gaps.push_back(std::move(gap));
@@ -254,9 +268,52 @@ std::vector<ContentGap> compare_needs(
             continue;
         }
         if (need.kind == "oamap") {
-            if (!need.map_name.empty() && holds(have.maps, need.map_name))
-                continue;
             if (need.map_name.empty() && need.sha256.empty() && need.id.empty())
+                continue;
+            // A recording names a pack by the package digest, or by the folder
+            // digest when the pack was copied by hand. The digest of oamap.yaml
+            // is neither. A map held only by name is not that pack.
+            const HaveMapPack* matched = nullptr;
+            const HaveMapPack* different = nullptr;
+            for (const HaveMapPack& pack : have.map_packs) {
+                const bool id_ok = need.id.empty() || pack.id.empty() || pack.id == need.id;
+                if (!need.sha256.empty() && pack.sha256 == need.sha256 && id_ok) {
+                    // Maps wins when it holds this identity. The kept folder
+                    // is the one played only when Maps has no such copy.
+                    if (matched == nullptr || (matched->kept && !pack.kept))
+                        matched = &pack;
+                    continue;
+                }
+                if (!need.id.empty() && pack.id == need.id && different == nullptr)
+                    different = &pack;
+            }
+            if (!need.sha256.empty() && holds(map_packs, need.sha256))
+                continue;
+            if (matched != nullptr) {
+                // Another release, or a kept pack with nothing beside it.
+                if (different != nullptr || matched->kept) {
+                    ContentGap gap = gap_for(GapKind::map, need);
+                    gap.play_installed = true;
+                    gap.play_folder = matched->folder;
+                    if (!need.sha256.empty())
+                        map_packs.push_back(need.sha256);
+                    gaps.push_back(std::move(gap));
+                }
+                continue;
+            }
+            if (different != nullptr) {
+                ContentGap gap = gap_for(GapKind::map, need);
+                gap.other_release = true;
+                gap.have_version = different->version;
+                apply_offer(gap, offer_of(listed, need.sha256));
+                if (!need.sha256.empty())
+                    map_packs.push_back(need.sha256);
+                gaps.push_back(std::move(gap));
+                continue;
+            }
+            // No pack of this id disagrees. A name the player has is enough,
+            // including a stock map and a recording that names no digest.
+            if (!need.map_name.empty() && holds(have.maps, need.map_name))
                 continue;
             add_map(gaps, map_packs, need, listed);
             continue;
