@@ -16,6 +16,13 @@ namespace {
 namespace enhanced = oa::data::enhanced_mode;
 namespace profiles = oa::data::mod_profile;
 
+// The version-1 base profile's simulation rules and complete canonical JSON.
+// Later presets retain these values so old saves and recordings keep their rules.
+constexpr std::string_view capacity_sim_hash =
+    "13cff985db3bf81ac26152dadf25e95ff0dfe788f009b78a6d7b278981990e1b";
+constexpr std::string_view capacity_canonical_hash =
+    "274c2e562b1fb155ac2edf75a483218b1a28c7503f7b55ac8f4b5bda63d0493f";
+
 /// A chosen mod with its own unit capacity and unrelated gameplay rule.
 constexpr std::string_view mod_text =
     "oamod: 1\n"
@@ -51,6 +58,62 @@ void check_off_identity() {
         OA_CHECK(off.resolution->profile.full_hash == normal.resolution->profile.full_hash);
         OA_CHECK(enhanced::rules_version(off.resolution->profile.rules) == enhanced::off_version);
     }
+}
+
+/// Checks that the old preset stays pinned and the new one has its own identity.
+void check_versioned_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto capacity =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::capacity_version);
+    const auto flow = enhanced::resolve_profile(bytes(text), "base", {}, enhanced::flow_version);
+    OA_CHECK(capacity.resolution.has_value());
+    OA_CHECK(flow.resolution.has_value());
+    if (!capacity.resolution || !flow.resolution)
+        return;
+    const auto& previous = *capacity.resolution;
+    const auto& current = *flow.resolution;
+    OA_CHECK(enhanced::rules_version(previous.profile.rules) == enhanced::capacity_version);
+    OA_CHECK(profiles::digest_text(previous.profile.sim_hash) == capacity_sim_hash);
+    OA_CHECK(profiles::digest_text(previous.profile.full_hash) == capacity_canonical_hash);
+    OA_CHECK(
+        profiles::digest_text(oa::base::sha256::digest_of(bytes(previous.canonical))) ==
+        capacity_canonical_hash
+    );
+    OA_CHECK(enhanced::rules_version(current.profile.rules) == enhanced::flow_version);
+    OA_CHECK(current.profile.sim_hash != previous.profile.sim_hash);
+    OA_CHECK(current.profile.full_hash != previous.profile.full_hash);
+    OA_CHECK(current.profile.limits == previous.profile.limits);
+    auto earlier_rules = current.profile.rules;
+    earlier_rules.setup.enhanced_mode.version = previous.profile.rules.setup.enhanced_mode.version;
+    OA_CHECK(earlier_rules == previous.profile.rules);
+
+    auto earlier_canonical = current.canonical;
+    constexpr std::string_view flow_rule = "\"setup.enhanced-mode\":{\"version\":2}";
+    constexpr std::string_view capacity_rule = "\"setup.enhanced-mode\":{\"version\":1}";
+    const auto version_at = earlier_canonical.find(flow_rule);
+    OA_CHECK(version_at != std::string::npos);
+    if (version_at != std::string::npos) {
+        earlier_canonical.replace(version_at, flow_rule.size(), capacity_rule);
+        OA_CHECK(earlier_canonical == previous.canonical);
+    }
+}
+
+/// Preserves the original version selected by a bare profile switch.
+void check_profile_default_version() {
+    const std::string text = std::string{mod_text} + "  setup.enhanced-mode: true\n";
+    const auto profile = profiles::resolve_profile(bytes(text), "chosen", {});
+    OA_CHECK(profile.resolution.has_value());
+    if (profile.resolution)
+        OA_CHECK(
+            enhanced::rules_version(profile.resolution->profile.rules) == enhanced::capacity_version
+        );
+    const auto current =
+        enhanced::resolve_profile(bytes(text), "chosen", {}, enhanced::current_version);
+    OA_CHECK(current.resolution.has_value());
+    if (current.resolution)
+        OA_CHECK(
+            enhanced::rules_version(current.resolution->profile.rules) == enhanced::flow_version
+        );
 }
 
 /// Checks that the preset preserves the mod and other host match choices.
@@ -128,7 +191,7 @@ void check_refusals() {
         bytes(requires_enhanced), "chosen", options, enhanced::current_version
     );
     OA_CHECK(on.resolution.has_value());
-    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 2\n";
+    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 3\n";
     const auto bad_profile =
         enhanced::resolve_profile(bytes(unsupported), "chosen", options, enhanced::current_version);
     OA_CHECK(!bad_profile.resolution);
@@ -158,10 +221,14 @@ void check_required_version() {
 
 int main() {
     OA_CHECK(enhanced::supported_version(enhanced::off_version));
+    OA_CHECK(enhanced::supported_version(enhanced::capacity_version));
+    OA_CHECK(enhanced::supported_version(enhanced::flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
     OA_CHECK(!enhanced::supported_version(enhanced::current_version + 1));
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
     check_off_identity();
+    check_versioned_identity();
+    check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();
     check_refusals();

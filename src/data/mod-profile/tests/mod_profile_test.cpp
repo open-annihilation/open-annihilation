@@ -495,6 +495,17 @@ void test_mutator_match() {
     good.path = "console.game-speed-range.min";
     good.value = "5";
     OA_CHECK(!match_option_problem(good).has_value());
+    MatchOption enhanced;
+    enhanced.path = "setup.enhanced-mode.version";
+    enhanced.turn_on = true;
+    for (const auto version : {"1", "2"}) {
+        enhanced.value = version;
+        OA_CHECK(!match_option_problem(enhanced).has_value());
+    }
+    for (const auto version : {"0", "3"}) {
+        enhanced.value = version;
+        OA_CHECK(match_option_problem(enhanced).has_value());
+    }
 
     std::set<std::string> marked;
     for (const registry::Entry& entry : registry::table().entries) {

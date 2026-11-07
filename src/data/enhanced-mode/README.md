@@ -9,15 +9,22 @@ adding or changing options, so an existing profile keeps its canonical
 form and hashes. A profile that requires Enhanced Mode cannot run with
 Off: resolution returns an error rather than enabling it silently.
 
-`current_version` is one. Version 1 records the simulation-scoped
+`capacity_version` is one. Version 1 records the simulation-scoped
 `setup.enhanced-mode` rule and raises the unit ceiling to 10,000 per
 participating player. The compact pool permits at most 32,767 units across
 all participants, and the projectile pool holds 32,767 shots. Scanner and
 jammer queries share a prepared spatial index within each contact-picture
-pass. Graphics settings are independent and never enter this module.
-Later preset versions can
-introduce enhanced behavior without changing what a recording of an
-earlier version means.
+pass. `flow_version` and `current_version` are two. Version 2 retains those
+capacities and adds shared routing and local unit flow. Its version has a
+different simulation hash. Version 1 remains supported with its canonical
+profile and hashes unchanged. Graphics settings are independent and never
+enter this module.
+
+A profile that writes `setup.enhanced-mode: true` still resolves to version
+1 before match choices apply. The application's Enhanced Mode switch asks
+for `current_version` explicitly for a new game; a save or recording asks
+for the version it holds. Older profiles retain their canonical meaning,
+and recorded matches retain their original movement rules.
 
 `resolve_profile` keeps existing settings, overrides and match choices,
 then applies the required version as a strict match choice. The resolved
@@ -29,6 +36,7 @@ Resolve before allocating a match and retain its rules for the match's
 lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
-`data-enhanced-mode` checks Off identity, enabled identity and hashing,
+`data-enhanced-mode` checks Off identity, pinned version-1 canonical and
+simulation hashes, distinct version-2 identity,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.

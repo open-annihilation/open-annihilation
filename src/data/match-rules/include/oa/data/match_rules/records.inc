@@ -632,8 +632,8 @@ struct SetupTeamStartPositions {
     bool operator==(const SetupTeamStartPositions&) const = default;
 };
 
-/// setup.enhanced-mode: Version 1 allocates unit slots only for participating players, permits
-/// 10000 units per player and expands the projectile pool to 32767; graphics settings remain
+/// setup.enhanced-mode: Version 1 permits 10000 units per participating player and 32767
+/// projectiles; version 2 adds shared routing and local unit flow. Graphics settings remain
 /// independent.
 struct SetupEnhancedMode {
     bool enabled{}; ///< the profile turns the hack on

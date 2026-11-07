@@ -16,8 +16,12 @@ namespace oa::data::enhanced_mode {
 
 /// The version used when Enhanced Mode is off.
 inline constexpr uint32_t off_version = 0;
+/// The original large-battle capacity and contact-query preset.
+inline constexpr uint32_t capacity_version = 1;
+/// The preset adding shared routing and local unit flow.
+inline constexpr uint32_t flow_version = 2;
 /// The Enhanced Mode preset supplied by this build.
-inline constexpr uint32_t current_version = 1;
+inline constexpr uint32_t current_version = flow_version;
 
 /// Tells whether this build can resolve a preset, including Off.
 ///
@@ -37,7 +41,8 @@ inline constexpr uint32_t current_version = 1;
 /// that enables Enhanced Mode itself. An enabled preset follows existing
 /// match choices and must resolve completely at the requested version.
 /// Version 1 permits 10000 units per participating player and 32767
-/// projectiles. Rendering remains independent. Errors leave no usable resolution.
+/// projectiles. Version 2 adds routing and unit-flow changes while retaining
+/// those capacities. Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes
 /// @param source the name used by profile diagnostics
