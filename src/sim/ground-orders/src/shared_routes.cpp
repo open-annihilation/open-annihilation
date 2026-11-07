@@ -435,7 +435,14 @@ FlowResult FlowCache::route(
     // Keep each unit's own unobstructed lane before consulting the regional
     // tree or snapping its start to a coarse anchor. The same probe budget
     // bounds this test, and unknown terrain keeps the sampler's fog rules.
-    if (line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, goal.cell[0], goal.cell[1])) {
+    // Reserve the full supercover cost before trying: a long optional ray
+    // must not exhaust a small budget on every tick and starve local prefixes.
+    const auto goal_dx = static_cast<uint32_t>(std::abs(int32_t{goal.cell[0]} - unit.cell_x));
+    const auto goal_dz = static_cast<uint32_t>(std::abs(int32_t{goal.cell[1]} - unit.cell_z));
+    const auto shortcut_probes =
+        uint64_t{1} + std::max(goal_dx, goal_dz) + uint64_t{2} * std::min(goal_dx, goal_dz);
+    if (shortcut_probes <= get32(state + 60) &&
+        line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, goal.cell[0], goal.cell[1])) {
         points[0] = {
             static_cast<int16_t>(unit.position.x >> 16), static_cast<int16_t>(unit.position.z >> 16)
         };

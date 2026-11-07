@@ -388,6 +388,37 @@ void small_output_and_extraction_budget_are_bounded() {
     CHECK(query(cache, grid, unit, goal) == FlowResult::ready);
 }
 
+void long_shortcut_cannot_starve_a_small_budget_prefix() {
+    Grid grid(400, 400);
+    FlowCache cache(400, 400, {1, 10'000, 2048, 128});
+    auto unit = unit_at(8, 8);
+    const auto goal = circle(360, 360);
+    (void)query(cache, grid, unit, goal);
+    (void)query(cache, grid, unit, goal);
+    finish(cache, grid);
+    // The complete diagonal visibility test costs more than 1,000 probes.
+    // A local coarse edge still fits the128-probe budget and must progress.
+    for (uint32_t tick = 40; tick < 46; ++tick) {
+        cache.advance(tick, 0, grid.sampler());
+        const auto probes_before = grid.queries;
+        std::array<RoutePoint, 2> points{};
+        uint32_t count{};
+        const auto result = cache.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(result == FlowResult::ready);
+        CHECK(count == 2);
+        CHECK(grid.queries - probes_before <= 128);
+        if (result == FlowResult::ready && count == 2) {
+            CHECK(points[1][0] > points[0][0] && points[1][1] > points[0][1]);
+            CHECK(points[1] != (RoutePoint{5768, 5768}));
+            unit = unit_at(
+                static_cast<int16_t>((points[1][0] - 8) / 16),
+                static_cast<int16_t>((points[1][1] - 8) / 16)
+            );
+        }
+    }
+    CHECK(cache.counters().hits == 6);
+}
+
 void malformed_frontiers_are_rejected() {
     Grid grid(32, 32);
     FlowCache cache(32, 32, {1, 64, 1}), restored(32, 32, {1, 64, 1});
@@ -427,6 +458,7 @@ int main() {
     multiple_fields_clear_with_a_separate_byte_budget();
     static_sampler_matches_full_classifier_passability();
     small_output_and_extraction_budget_are_bounded();
+    long_shortcut_cannot_starve_a_small_budget_prefix();
     malformed_frontiers_are_rejected();
     shared_cohort_and_budget();
     narrow_choke_and_mixed_footprints();
