@@ -72,7 +72,8 @@ void Runtime::check_enhanced_mode() {
     require(enhanced_mode_version(*this) == mode::current_version, "On did not resolve the preset");
     const std::string enhanced_hash = simulation_hash(*this);
     require(enhanced_hash != released_hash, "the preset did not enter the simulation hash");
-    for (const uint32_t previous : {mode::capacity_version, mode::flow_version}) {
+    for (const uint32_t previous :
+         {mode::capacity_version, mode::flow_version, mode::regional_flow_version}) {
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
         require(enhanced_mode_version(*this) == previous, "an earlier preset was upgraded");
         require(simulation_hash(*this) != enhanced_hash, "different presets share an identity");
@@ -369,7 +370,8 @@ void Runtime::check_enhanced_mode() {
     );
     leave_match();
     load(Screen::main_menu);
-    for (const uint32_t previous : {mode::capacity_version, mode::flow_version}) {
+    for (const uint32_t previous :
+         {mode::capacity_version, mode::flow_version, mode::regional_flow_version}) {
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
         bootstrap_match(
             {.units_per_player = 10'000, .place_commanders = false, .seat_roster = true}

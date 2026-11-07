@@ -757,7 +757,7 @@ void enhanced_benchmark_options() {
                 .benchmark_units == 10000,
         "the enhanced battle population parses before runtime mode validation"
     );
-    for (const char* version : {"1", "2", "3"}) {
+    for (const char* version : {"1", "2", "3", "4"}) {
         const auto group = parse(
             {"--battle-benchmark",
              "report.json",
@@ -773,11 +773,11 @@ void enhanced_benchmark_options() {
             "group movement can compare every recorded Enhanced preset"
         );
     }
-    for (const char* version : {"0", "4", "4294967296"})
+    for (const char* version : {"0", "5", "4294967296"})
         expect(
             rejection(
                 {"--battle-benchmark", "report.json", "--benchmark-rules-version", version}
-            ) == "--benchmark-rules-version expects 1, 2 or 3",
+            ) == "--benchmark-rules-version expects 1, 2, 3 or 4",
             "unsupported benchmark rules versions are refused without truncation"
         );
     for (const char* value : {"0", "10001", "65536"})

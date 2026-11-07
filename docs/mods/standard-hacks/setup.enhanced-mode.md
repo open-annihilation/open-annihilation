@@ -19,8 +19,10 @@ player and 32,767 units across a match, and a 32,767-record projectile pool.
 It also reuses spatial projections during contact scans. Renderer selection
 is independent. Version 2 adds shared routing and local unit flow while
 retaining those capacities. Version 3 selects regional shared-route
-construction. Versions 1 and 2 remain available for saved and recorded games
-with their original rules.
+construction. Version 4 selects bounded swept ground-step checks when that
+simulation behavior is integrated. Versions 1, 2 and 3 remain available for
+saved and recorded games with their original rules and hashes. The unit and
+projectile capacities stay the same.
 
 ## Configuration example
 
@@ -35,7 +37,8 @@ hacks:
 
 The application still requires Enhanced Mode to be selected before loading
 a profile that enables these rules.
-The switch selects version 2 for new games. An existing profile's bare
+The switch selects version 4 for new games when its corresponding ground-step
+behavior is integrated. An existing profile's bare
 `true` still resolves to version 1 before that match choice is applied.
 
 ## Details
@@ -63,7 +66,7 @@ Hack id `setup.enhanced-mode`, written under the profile's `hacks` block.
 
 | Parameter | Type | Unit | Allowed | Length | Baseline (3.1c) | Default | Adjustable | Scope | Overridden by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `version` | `int` | - | `1` to `3` | - | `1` | `1` | `match` | `sim` | - |
+| `version` | `int` | - | `1` to `4` | - | `1` | `1` | `match` | `sim` | - |
 
 Adjustable: `match`: as `install`, and the host may also change it for one game.
 

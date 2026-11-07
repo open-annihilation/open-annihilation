@@ -1735,7 +1735,7 @@ independent graphics setting.
 | `--benchmark-scenario idle\|march\|group-march\|combat` | Hold fire, independent cross-map moves, shared destination patches, or explicit attacks | combat |
 | `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
-| `--benchmark-rules-version 1\|2\|3` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
+| `--benchmark-rules-version 1\|2\|3\|4` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
 | `--match-ticks N` | Successful measured ticks required | 300 |
 | `--seed N` | Match random seed | the engine's fixed seed |
 | `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |

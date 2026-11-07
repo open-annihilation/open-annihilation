@@ -17,9 +17,13 @@ jammer queries share a prepared spatial index within each contact-picture
 pass. `flow_version` is two. Version 2 retains those
 capacities and adds shared routing and local unit flow. Its version has a
 different simulation hash. Version 1 remains supported with its canonical
-profile and hashes unchanged. `regional_flow_version` and `current_version`
-are three. Version 3 selects regional shared-route construction; version 2
-retains its original routing policy and identity. Graphics settings are
+profile and hashes unchanged. `regional_flow_version` is three. Version 3
+selects regional shared-route construction; version 2 retains its original
+routing policy and identity. `swept_ground_version` and `current_version`
+are four. Version 4 selects bounded obstacle checks along each ground step
+when its matching simulation implementation is integrated. It retains the
+earlier capacities and version-3 routing policy. Versions 1, 2 and 3 keep
+their original canonical profiles and hashes. Graphics settings are
 independent and never enter this module.
 
 A profile that writes `setup.enhanced-mode: true` still resolves to version
@@ -38,7 +42,7 @@ Resolve before allocating a match and retain its rules for the match's
 lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
-`data-enhanced-mode` checks Off identity, pinned version-1 and version-2
-canonical and simulation hashes, distinct version-3 identity,
+`data-enhanced-mode` checks pinned Off, version-1, version-2 and version-3
+canonical and simulation hashes, distinct version-4 identity,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.

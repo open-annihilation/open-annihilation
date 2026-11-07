@@ -16,6 +16,11 @@ namespace {
 namespace enhanced = oa::data::enhanced_mode;
 namespace profiles = oa::data::mod_profile;
 
+// The base profile keeps the released identity when Enhanced Mode is Off.
+constexpr std::string_view off_sim_hash =
+    "1502111e3b1f69bd93be99405e3c61e0c6337698a7c8502f9f6320e80600094d";
+constexpr std::string_view off_canonical_hash =
+    "56b8e36be0dc22beb516a81805d95cf71db2fe600db965a3ad3460baa681b246";
 // The version-1 base profile's simulation rules and complete canonical JSON.
 // Later presets retain these values so old saves and recordings keep their rules.
 constexpr std::string_view capacity_sim_hash =
@@ -27,6 +32,11 @@ constexpr std::string_view flow_sim_hash =
     "2b7bb180e975630800fa1123c8dde85bd76952f644ec5ef74facc6cf4696bee3";
 constexpr std::string_view flow_canonical_hash =
     "4289710df599269b47eda5874eb5ae071d21a1097005d1df7e50a2fc93a8fec9";
+// Version 3 retains its routing, movement rules and canonical identity.
+constexpr std::string_view regional_sim_hash =
+    "1f2a8eb19c55aa46b2e620ac237a8d7f08e7307e0140f5b1b40bd8093cfaff69";
+constexpr std::string_view regional_canonical_hash =
+    "d6e68fa3490dc43f3fcafb02027c9db9f111e54880b56b7275c7659da503bcd6";
 
 /// A chosen mod with its own unit capacity and unrelated gameplay rule.
 constexpr std::string_view mod_text =
@@ -62,6 +72,13 @@ void check_off_identity() {
         OA_CHECK(off.resolution->profile.sim_hash == normal.resolution->profile.sim_hash);
         OA_CHECK(off.resolution->profile.full_hash == normal.resolution->profile.full_hash);
         OA_CHECK(enhanced::rules_version(off.resolution->profile.rules) == enhanced::off_version);
+    }
+    const auto text = profiles::base_game_profile_text();
+    const auto base = enhanced::resolve_profile(bytes(text), "base", {}, enhanced::off_version);
+    OA_CHECK(base.resolution);
+    if (base.resolution) {
+        OA_CHECK(profiles::digest_text(base.resolution->profile.sim_hash) == off_sim_hash);
+        OA_CHECK(profiles::digest_text(base.resolution->profile.full_hash) == off_canonical_hash);
     }
 }
 
@@ -114,12 +131,15 @@ void check_regional_identity() {
     OA_CHECK(flow.resolution && regional.resolution);
     if (!flow.resolution || !regional.resolution)
         return;
-    OA_CHECK(enhanced::current_version == enhanced::regional_flow_version);
     OA_CHECK(
         enhanced::rules_version(regional.resolution->profile.rules) ==
         enhanced::regional_flow_version
     );
     OA_CHECK(regional.resolution->profile.sim_hash != flow.resolution->profile.sim_hash);
+    OA_CHECK(profiles::digest_text(regional.resolution->profile.sim_hash) == regional_sim_hash);
+    OA_CHECK(
+        profiles::digest_text(regional.resolution->profile.full_hash) == regional_canonical_hash
+    );
     auto prior = regional.resolution->profile.rules;
     prior.setup.enhanced_mode.version = enhanced::flow_version;
     OA_CHECK(prior == flow.resolution->profile.rules);
@@ -131,6 +151,37 @@ void check_regional_identity() {
     if (version_at != std::string::npos) {
         canonical.replace(version_at, regional_rule.size(), flow_rule);
         OA_CHECK(canonical == flow.resolution->canonical);
+    }
+}
+
+/// Assigns swept ground checks their own identity without upgrading older rules.
+void check_swept_ground_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto regional =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::regional_flow_version);
+    const auto swept =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::swept_ground_version);
+    OA_CHECK(regional.resolution && swept.resolution);
+    if (!regional.resolution || !swept.resolution)
+        return;
+    OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
+    OA_CHECK(
+        enhanced::rules_version(swept.resolution->profile.rules) == enhanced::swept_ground_version
+    );
+    OA_CHECK(swept.resolution->profile.sim_hash != regional.resolution->profile.sim_hash);
+    OA_CHECK(swept.resolution->profile.full_hash != regional.resolution->profile.full_hash);
+    OA_CHECK(swept.resolution->profile.limits == regional.resolution->profile.limits);
+    auto prior = swept.resolution->profile.rules;
+    prior.setup.enhanced_mode.version = enhanced::regional_flow_version;
+    OA_CHECK(prior == regional.resolution->profile.rules);
+    auto canonical = swept.resolution->canonical;
+    constexpr std::string_view swept_rule = "\"setup.enhanced-mode\":{\"version\":4}";
+    constexpr std::string_view regional_rule = "\"setup.enhanced-mode\":{\"version\":3}";
+    const auto version_at = canonical.find(swept_rule);
+    OA_CHECK(version_at != std::string::npos);
+    if (version_at != std::string::npos) {
+        canonical.replace(version_at, swept_rule.size(), regional_rule);
+        OA_CHECK(canonical == regional.resolution->canonical);
     }
 }
 
@@ -227,7 +278,7 @@ void check_refusals() {
         bytes(requires_enhanced), "chosen", options, enhanced::current_version
     );
     OA_CHECK(on.resolution.has_value());
-    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 4\n";
+    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 5\n";
     const auto bad_profile =
         enhanced::resolve_profile(bytes(unsupported), "chosen", options, enhanced::current_version);
     OA_CHECK(!bad_profile.resolution);
@@ -260,12 +311,14 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::capacity_version));
     OA_CHECK(enhanced::supported_version(enhanced::flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::regional_flow_version));
+    OA_CHECK(enhanced::supported_version(enhanced::swept_ground_version));
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
     OA_CHECK(!enhanced::supported_version(enhanced::current_version + 1));
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
     check_off_identity();
     check_versioned_identity();
     check_regional_identity();
+    check_swept_ground_identity();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();

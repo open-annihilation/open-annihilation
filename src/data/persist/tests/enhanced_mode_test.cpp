@@ -47,10 +47,19 @@ void rules_version_round_trips() {
     CHECK(player_mask == 0);
     CHECK(order.empty());
     // The application decides which positive rules versions it supports.
-    for (const uint32_t recorded : {2u, 3u}) {
+    for (const uint32_t recorded : {2u, 3u, 4u}) {
         CHECK(save_write_enhanced_mode(&bank, recorded));
         CHECK(save_read_enhanced_mode(&bank, version));
         CHECK(version == recorded);
+        ByteImage saved{};
+        CHECK(image_of(bank, saved));
+        Bank restored{};
+        bank_init(&restored);
+        CHECK(bank_read_image(&restored, saved.data, saved.size, nullptr, nullptr, nullptr));
+        CHECK(save_read_enhanced_mode(&restored, version));
+        CHECK(version == recorded);
+        byte_image_free(&saved);
+        bank_destroy(&restored);
     }
     byte_image_free(&image);
     bank_destroy(&read);

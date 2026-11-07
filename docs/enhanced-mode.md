@@ -11,7 +11,8 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 3 is the current preset. It retains the earlier presets' capacity of
+Rules version 4 is the current preset when its bounded ground-step checks
+are integrated. It retains the earlier presets' capacity of
 10,000 units per participating player. It
 allocates ranges only for participating players, with at most 32,767 units
 across the match. Two players can therefore field 10,000 units each.
@@ -28,6 +29,13 @@ Version 3 groups more destinations into each shared field, returns shorter
 route prefixes and retains useful fields when an extracted edge becomes
 blocked. Its construction work stays bounded. Earlier presets keep their
 original routing policy.
+
+Version 4 gives swept ground-step checks a separate rules identity. These
+checks bound the work used to inspect the unit's footprint along its next
+step. Enabling that version requires the matching simulation behavior;
+version metadata alone does not provide collision handling or establish
+smooth movement through a crowded battlefield. Version 3 keeps its
+original ground movement rules.
 
 Version 3 can also remove an unnecessary bend from a published guide when
 the unit's actual footprint has a clear, fully known line to the following
@@ -117,7 +125,7 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2` or `3` with Enhanced Mode to compare the
+Use `--benchmark-rules-version 1`, `2`, `3` or `4` with Enhanced Mode to compare the
 presets on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
