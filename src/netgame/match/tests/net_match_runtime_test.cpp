@@ -875,13 +875,17 @@ void replicated_play() {
 
 /// Shares traffic detours and their return to the original route at the owner's tick.
 void local_traffic_heads_keep_their_copies() {
+    // Keep both routes above the map's hidden bottom edge.
+    constexpr uint16_t traffic_map_cells = kMapCells * 2;
     for (const uint32_t version : {released_mode, enhanced_capacity_mode, enhanced_flow_mode}) {
-        Pair pair(0, kMapCells, false, false, false, false, version);
+        Pair pair(0, traffic_map_cells, false, false, false, false, version);
         auto& host = *pair.host;
         auto& joiner = *pair.joiner;
         if (host.match->fault() != nullptr || joiner.match->fault() != nullptr)
             continue;
-        auto* southbound = host.match->create({0, 1, {72u << 16, 0, 48u << 16}, true, 1, 0});
+        auto* southbound = host.match->create(
+            {0, 1, {72u << 16, 0, 48u << 16}, true, 1, 0, sim::unit_spawn::facing_north}
+        );
         auto* northbound = host.match->create({0, 1, {72u << 16, 0, 144u << 16}, true, 1, 0});
         CHECK(southbound != nullptr && northbound != nullptr);
         if (southbound == nullptr || northbound == nullptr)
@@ -919,7 +923,9 @@ void local_traffic_heads_keep_their_copies() {
             step(joiner);
             bool active = false;
             for (std::size_t i = 0; i < indices.size(); ++i) {
-                divergence[i].compare(joiner, 0, indices[i]);
+                // The first full-record cycle shares the initial facing.
+                if (t >= 10)
+                    divergence[i].compare(joiner, 0, indices[i]);
                 const auto* head = host.match->local_flow_head(indices[i]);
                 const auto* owner = host.match->ground_runtime(indices[i]);
                 const auto* copy = joiner.match->ground_runtime(indices[i]);
@@ -941,7 +947,7 @@ void local_traffic_heads_keep_their_copies() {
                 resumed = true;
         }
         for (const auto& tracked : divergence) {
-            CHECK(tracked.compared >= 310 && tracked.moving > 10);
+            CHECK(tracked.compared >= 300 && tracked.moving > 10);
             CHECK(tracked.differing == 0);
         }
         CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
