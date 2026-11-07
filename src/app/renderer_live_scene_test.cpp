@@ -3960,6 +3960,253 @@ void projected_unit_detail() {
     OA_CHECK(!battle.scene.unit_detail[0].eligible && battle.scene.unit_ranges.empty());
 }
 
+/// Shared posed hulls keep each translated unit's exact bounds and identity.
+void shared_unit_detail_bounds() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr uint32_t population = 12;
+    Fixture battle;
+    battle.inputs.sight.mapping = battle.inputs.sight.line_of_sight = false;
+    battle.inputs.clip_width = battle.inputs.clip_height = 128;
+    battle.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, -0.001F, 0, 0.5F};
+    battle.inputs.unit_marker_pixels = 5;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {
+        {-fixed / 3, fixed / 7, fixed / 5},
+        {3 * fixed + 1, fixed / 11, -fixed / 13},
+        {fixed / 9, -fixed / 17, 4 * fixed - 1}
+    };
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.push_back({});
+    prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+    prepared.objects[0].primitives[0].color = ground_index;
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    std::vector<oa::Unit> units(population);
+    battle.draws.models.resize(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.position = {
+            8 * fixed + int32_t(index) * (fixed / 10),
+            int32_t(index % 3) * (fixed / 5),
+            8 * fixed + int32_t(index / 3) * (fixed / 11)
+        };
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.plan.linked.drawn = true;
+    }
+    const auto check_single_draws = [&] {
+        for (std::size_t index = 0; index < battle.draws.models.size(); ++index) {
+            oa::app::WorldDrawList one;
+            one.models.push_back(battle.draws.models[index]);
+            auto inputs = battle.inputs;
+            inputs.draws = &one;
+            live::Scene reference;
+            OA_CHECK(live::build(inputs, reference, battle.error));
+            if (reference.unit_detail.empty() || index >= battle.scene.unit_detail.size())
+                continue;
+            const auto& actual = battle.scene.unit_detail[index];
+            const auto& expected = reference.unit_detail[0];
+            if (std::all_of(expected.center.begin(), expected.center.end(), [](float value) {
+                    return std::isfinite(value);
+                }))
+                OA_CHECK(actual.center == expected.center);
+            OA_CHECK(actual.pixels == expected.pixels);
+            OA_CHECK(actual.surface == expected.surface && actual.shadow == expected.shadow);
+            OA_CHECK(actual.eligible == expected.eligible && actual.marker == expected.marker);
+        }
+    };
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.detail_poses.size() == 1);
+    OA_CHECK(battle.scene.detail_pose_points.size() == 3);
+    OA_CHECK(battle.scene.detail_pose_hits == population - 1);
+    OA_CHECK(battle.scene.unit_ranges.size() == population);
+    for (std::size_t index = 0; index < battle.scene.unit_ranges.size(); ++index) {
+        OA_CHECK(battle.scene.unit_ranges[index].unit_id == units[index].id);
+        OA_CHECK(battle.scene.unit_ranges[index].vertex_count == 6);
+    }
+    check_single_draws();
+    // The same source model with one presented vertex extended is a
+    // different hull, even while every other unit shares the old pose.
+    auto& extended = battle.draws.models.back();
+    extended.shown_vertices = {instance.pieces()[0].transformed_vertices};
+    extended.shown_vertices[0][1].x += 20 * fixed;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.detail_poses.size() == 2);
+    OA_CHECK(!battle.scene.unit_detail.back().marker);
+    check_single_draws();
+    // Visibility belongs to the pose as well as its local coordinates.
+    auto hidden = runtime::make_instance(source);
+    hidden.rebuild_transforms({});
+    hidden.pieces()[0].flags = 0;
+    battle.draws.models[0].model.instance = &hidden;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.unit_detail[0].eligible);
+    OA_CHECK(
+        std::none_of(
+            battle.scene.unit_ranges.begin(),
+            battle.scene.unit_ranges.end(),
+            [&](const live::UnitRange& range) { return range.unit_id == units[0].id; }
+        )
+    );
+    check_single_draws();
+    // A later build sees a different presented view and pose, without
+    // retaining the first build's face or hull summary.
+    battle.draws.models[0].model.instance = &instance;
+    extended.shown_vertices.clear();
+    battle.inputs.view_direction = {0, 1, 0};
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_ranges.empty());
+    battle.inputs.view_direction = {};
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.detail_poses.size() == 1);
+    OA_CHECK(battle.scene.unit_ranges.size() == population);
+    check_single_draws();
+    // World translations near the fixed-point limits keep the same
+    // result as separately classifying each model through its camera.
+    constexpr int32_t distant_origin = 30000;
+    for (const int32_t sign : {-1, 1}) {
+        for (uint32_t index = 0; index < population; ++index)
+            units[index].position = {
+                sign * distant_origin * fixed + int32_t(index) * (fixed / 10),
+                0,
+                sign * distant_origin * fixed + int32_t(index) * (fixed / 11)
+            };
+        battle.inputs.clip_projection[3] = float(-sign * distant_origin + 8);
+        battle.inputs.clip_projection[7] = float(-sign * distant_origin + 8);
+        OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+        OA_CHECK(battle.scene.detail_poses.size() == 1);
+        OA_CHECK(battle.scene.unit_ranges.size() == population);
+        check_single_draws();
+    }
+    // Distinct poses beyond the bounded cache still retain every unit's
+    // surface and identity through the ordinary uncached summary path.
+    constexpr uint32_t pose_limit = 1024;
+    constexpr uint32_t point_limit = 131072;
+    constexpr uint32_t piece_limit = 32768;
+    constexpr uint32_t distinct_population = pose_limit + 7;
+    units.resize(distinct_population);
+    battle.draws.models.resize(distinct_population);
+    battle.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, -0.001F, 0, 0.5F};
+    for (uint32_t index = 0; index < distinct_population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.position = {8 * fixed, 0, 8 * fixed};
+        auto& draw = battle.draws.models[index];
+        draw = {};
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.plan.linked.drawn = true;
+        draw.shown_vertices = {instance.pieces()[0].transformed_vertices};
+        draw.shown_vertices[0][1].x += int32_t(index);
+    }
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.detail_poses.empty() && battle.scene.detail_poses.size() <= pose_limit);
+    OA_CHECK(battle.scene.detail_pose_points.size() <= point_limit);
+    OA_CHECK(battle.scene.detail_pose_pieces.size() <= piece_limit);
+    OA_CHECK(battle.scene.unit_ranges.size() == distinct_population);
+    std::vector<bool> represented(distinct_population + 1);
+    for (const auto& range : battle.scene.unit_ranges) {
+        OA_CHECK(range.unit_id > 0 && range.unit_id <= distinct_population);
+        if (range.unit_id > 0 && range.unit_id <= distinct_population) {
+            OA_CHECK(!represented[range.unit_id]);
+            represented[range.unit_id] = true;
+        }
+    }
+}
+
+/// Equal posed hulls retain distinct visibility for each team's texture frame.
+void shared_unit_detail_texture_visibility() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr uint32_t population = 6;
+    Fixture battle;
+    battle.inputs.sight.mapping = battle.inputs.sight.line_of_sight = false;
+    battle.inputs.clip_width = battle.inputs.clip_height = 128;
+    battle.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, -0.001F, 0, 0.5F};
+    battle.inputs.unit_marker_pixels = 5;
+    battle.inputs.team_colors[1] = 1;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {
+        {0, 0, 0}, {4 * fixed, 0, 0}, {4 * fixed, 0, 4 * fixed}, {0, 0, 4 * fixed}
+    };
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2, 3};
+    drawing::TextureSequence texture;
+    texture.frames.resize(2);
+    uint8_t pixel = ground_index;
+    for (auto& frame : texture.frames) {
+        frame.width = frame.height = 1;
+        frame.encoding = OA_SPRITE_RAW;
+    }
+    texture.frames[0].data = &pixel;
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.push_back({});
+    prepared.objects[0].primitives[0].flags = drawing::primitive_animated | drawing::primitive_team;
+    prepared.objects[0].primitives[0].texture = &texture;
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    std::array<oa::Unit, population> units{};
+    battle.draws.models.resize(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = static_cast<uint8_t>(index % 2);
+        unit.position = {int32_t(8 + index * 6) * fixed, 0, 8 * fixed};
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.plan.linked.drawn = true;
+    }
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_ranges.size() == population / 2);
+    for (uint32_t index = 0; index < population; ++index) {
+        OA_CHECK(battle.scene.unit_detail[index].eligible == (index % 2 == 0));
+        OA_CHECK(battle.scene.unit_detail[index].marker == (index % 2 == 0));
+    }
+    // Adding the previously missing team frame is visible on the next
+    // build even though the prepared model and all posed vertices persist.
+    texture.frames[1].data = &pixel;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_ranges.size() == population);
+    for (const auto& detail : battle.scene.unit_detail)
+        OA_CHECK(detail.eligible && detail.marker);
+    // Image-key walls are suppressed only for draws that actually use
+    // an image. Equal geometry cannot share that face-visibility result.
+    auto& primitive = prepared.objects[0].primitives[0];
+    primitive.flags = drawing::primitive_colored;
+    primitive.color = drawing::image_key;
+    drawing::ModelState image;
+    image.image = oa::present::create_sprite(8, 8);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& draw = battle.draws.models[index];
+        draw.model.state = &image;
+        draw.plan.model.from_image = index % 2 != 0;
+    }
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_ranges.size() == population / 2);
+    for (uint32_t index = 0; index < population; ++index)
+        OA_CHECK(battle.scene.unit_detail[index].eligible == (index % 2 == 0));
+    primitive.color = ground_index;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_ranges.size() == population);
+}
+
 /// Twenty thousand visible, otherwise over-budget models retain a
 /// representation and canonical pick ID without increasing either cap.
 void crowded_unit_detail() {
@@ -5162,6 +5409,8 @@ int main() {
     shared_model_positions();
     shared_model_coordinate_rounding();
     projected_unit_detail();
+    shared_unit_detail_bounds();
+    shared_unit_detail_texture_visibility();
     crowded_unit_detail();
     large_shared_model_scene();
     shadows_on_card();
