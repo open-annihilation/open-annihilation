@@ -34,6 +34,8 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
     std::vector<combat::UnitIdentity> reached;
     uint32_t random_state{51};
     size_t resolutions{};
+    size_t accelerated_queries{};
+    size_t fallback_queries{};
     bool accelerated{};
     bool radar_fallback{true};
     int32_t radius{160};
@@ -106,9 +108,11 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
                 world, spatial, extras, visible, detected, center, reach, scratch
             );
             if (nearby.complete) {
+                ++accelerated_queries;
                 visible = nearby.seen;
                 detected = nearby.radar;
-            }
+            } else
+                ++fallback_queries;
         }
         found.clear();
         combat::gather_sightings(visible, detected, radar_fallback, center, reach, *this, found);
@@ -178,27 +182,37 @@ void uses_radar_only_when_the_seen_walk_finds_nothing() {
 }
 
 void keeps_target_sampling_and_random_draws_for_more_than_fifty_candidates() {
-    Fixture fixture(100);
+    Fixture fixture(1000);
     for (uint16_t id = 1; id <= 100; ++id)
         fixture.add(id, (100u + id) * fixed_one, (100u + id % 10) * fixed_one);
+    for (uint16_t id = 101; id <= 1000; ++id)
+        fixture.add(id, (2000u + id % 32 * 32) * fixed_one, (2000u + id / 32 * 32) * fixed_one);
     combat::TargetSource source;
     source.identity = 200;
     source.owner = 1;
     source.position = {128 * fixed_one, 0, 128 * fixed_one};
-    fixture.accelerated = false;
-    const auto full_target = combat::select_automatic_target(source, {0, false}, fixture);
-    const auto full_bounds = fixture.random_bounds;
-    const auto full_reached = fixture.reached;
-    const auto full_state = fixture.random_state;
-    fixture.random_bounds.clear();
-    fixture.reached.clear();
-    fixture.random_state = 51;
-    fixture.accelerated = true;
-    OA_CHECK(combat::select_automatic_target(source, {0, false}, fixture) == full_target);
-    OA_CHECK(fixture.random_bounds == full_bounds);
-    OA_CHECK(fixture.reached == full_reached);
-    OA_CHECK(fixture.random_state == full_state);
-    OA_CHECK(fixture.reached.size() == combat::target_search_sample_limit);
+    for (const int32_t radius : {160, 6000}) {
+        fixture.radius = radius;
+        fixture.random_bounds.clear();
+        fixture.reached.clear();
+        fixture.random_state = 51;
+        fixture.accelerated = false;
+        const auto full_target = combat::select_automatic_target(source, {0, false}, fixture);
+        const auto full_bounds = fixture.random_bounds;
+        const auto full_reached = fixture.reached;
+        const auto full_state = fixture.random_state;
+        fixture.random_bounds.clear();
+        fixture.reached.clear();
+        fixture.random_state = 51;
+        fixture.accelerated = true;
+        OA_CHECK(combat::select_automatic_target(source, {0, false}, fixture) == full_target);
+        OA_CHECK(fixture.random_bounds == full_bounds);
+        OA_CHECK(fixture.reached == full_reached);
+        OA_CHECK(fixture.random_state == full_state);
+        OA_CHECK(fixture.reached.size() == combat::target_search_sample_limit);
+    }
+    OA_CHECK(fixture.accelerated_queries == 1);
+    OA_CHECK(fixture.fallback_queries == 1);
 }
 
 void preserves_outside_wrapped_distance_and_unusual_radius_fallback() {
@@ -243,6 +257,8 @@ void matches_full_walk_across_many_fractional_queries() {
             fixture.identities(center, radius, true) == fixture.identities(center, radius, false)
         );
     }
+    OA_CHECK(fixture.accelerated_queries != 0);
+    OA_CHECK(fixture.fallback_queries != 0);
 }
 
 void resolves_local_targets_without_projecting_twenty_thousand_sightings() {
@@ -258,6 +274,34 @@ void resolves_local_targets_without_projecting_twenty_thousand_sightings() {
     fixture.resolutions = 0;
     OA_CHECK(fixture.identities(center, 160, true) == full);
     OA_CHECK(fixture.resolutions < count / 10);
+    OA_CHECK(fixture.accelerated_queries == 1);
+    OA_CHECK(fixture.fallback_queries == 0);
+}
+
+void keeps_broad_and_saturated_queries_on_the_linear_walk() {
+    constexpr uint16_t count = 20000;
+    Fixture fixture(count);
+    for (uint16_t id = 1; id <= count; ++id)
+        fixture.add(id, (1024u + id % 32) * fixed_one, (1024u + id / 32 % 32) * fixed_one);
+    const std::array<uint32_t, 3> center{1024 * fixed_one, 0, 1024 * fixed_one};
+    for (const int32_t radius : {160, 6000}) {
+        const auto nearby = nearby_target_sightings(
+            fixture.world,
+            fixture.spatial,
+            fixture.extras,
+            fixture.seen,
+            fixture.radar,
+            center,
+            radius,
+            fixture.scratch
+        );
+        OA_CHECK(!nearby.complete);
+        OA_CHECK(
+            fixture.identities(center, radius, true) == fixture.identities(center, radius, false)
+        );
+    }
+    OA_CHECK(fixture.accelerated_queries == 0);
+    OA_CHECK(fixture.fallback_queries == 2);
 }
 
 void falls_back_on_insufficient_scratch_and_broken_bucket_chains() {
@@ -281,6 +325,7 @@ int main() {
     preserves_outside_wrapped_distance_and_unusual_radius_fallback();
     matches_full_walk_across_many_fractional_queries();
     resolves_local_targets_without_projecting_twenty_thousand_sightings();
+    keeps_broad_and_saturated_queries_on_the_linear_walk();
     falls_back_on_insufficient_scratch_and_broken_bucket_chains();
     return oa::test::check_exit_status();
 }

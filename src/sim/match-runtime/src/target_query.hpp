@@ -28,7 +28,8 @@ struct NearbyTargetSightings {
 /// supplied unbucketed unit. The caller keeps those extra slots current.
 /// Sightings must be ascending and unique, as the knowledge refresh writes
 /// them. Scratch holds two entries per world slot. Failure requests the full
-/// sightings walk, including for ranges whose signed square wraps.
+/// sightings walk, including for ranges whose signed square wraps or queries
+/// too broad to benefit from sorting a bounded set of nearby slots.
 ///
 /// @param world the canonical unit pool
 /// @param spatial the current bucket heads
@@ -54,6 +55,8 @@ inline NearbyTargetSightings nearby_target_sightings(
     constexpr int32_t largest_signed_square_root = 46340;
     constexpr int32_t fixed_to_bucket_shift = 23;
     constexpr int64_t fixed_one = int64_t{1} << 16;
+    constexpr size_t minimum_candidate_limit = 64;
+    constexpr size_t maximum_candidate_limit = 1024;
     const size_t capacity = world.unit_slot_count;
     const int32_t center_x = std::bit_cast<int32_t>(center[0]);
     const int32_t center_z = std::bit_cast<int32_t>(center[2]);
@@ -64,9 +67,17 @@ inline NearbyTargetSightings nearby_target_sightings(
             spatial.buckets.size())
         return {};
 
+    const size_t known_count = std::max(seen.size(), radar.size());
+    if (known_count == 0)
+        return {{}, {}, 0, true};
+    // Local buckets include allies too. Limit sorting when their population
+    // approaches the sightings count, and keep a fixed cap for dense battles.
+    const size_t candidate_limit =
+        std::clamp(known_count / 4, minimum_candidate_limit, maximum_candidate_limit);
     size_t candidate_count = 0;
     const auto append = [&](uint32_t slot) {
-        if (slot == 0 || slot >= capacity || candidate_count == capacity)
+        if (slot == 0 || slot >= capacity || candidate_count == capacity ||
+            candidate_count == candidate_limit)
             return false;
         scratch[candidate_count++] = static_cast<uint16_t>(slot);
         return true;
@@ -93,6 +104,11 @@ inline NearbyTargetSightings nearby_target_sightings(
         bucket_edge(static_cast<int64_t>(center_z) - reach, spatial.bucket_height);
     const uint32_t last_z =
         bucket_edge(static_cast<int64_t>(center_z) + reach, spatial.bucket_height);
+    const uint64_t query_buckets =
+        static_cast<uint64_t>(last_x - first_x + 1) * (last_z - first_z + 1);
+    const uint64_t all_buckets = spatial.buckets.size();
+    if (query_buckets >= all_buckets - all_buckets / 4)
+        return {};
     for (uint32_t z = first_z; z <= last_z; ++z)
         for (uint32_t x = first_x; x <= last_x; ++x)
             if (!append_chain(
