@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "fixture.hpp"
+#include "oa/sim/unit_spawn/restore_ranges.hpp"
+
+#include <cstring>
 
 namespace {
 constexpr uint16_t army_size = 10000;
@@ -45,6 +48,82 @@ void capacity_bounds() {
     CHECK(!init_unit_pool(*too_small, army_size, participants));
     CHECK(too_small.player(first_player).base_unit_id == 7);
     CHECK((*too_small).game.units_per_player == 0);
+}
+
+/// Restores swapped saved ranges while retaining every physical unit id.
+void restored_range_order() {
+    SpawnWorld world(unit_pool_size(army_size, participants), 2);
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
+        world.player(player).index = player;
+    CHECK(init_unit_pool(*world, army_size, participants));
+    const std::array<uint8_t, 2> order{second_player, first_player};
+    CHECK(restore_unit_player_order(*world, order));
+    CHECK(world.player(second_player).base_unit_id == 1);
+    CHECK(world.player(second_player).last_unit_id == army_size);
+    CHECK(world.player(first_player).base_unit_id == army_size + 1);
+    CHECK(world.player(first_player).last_unit_id == 2 * army_size);
+    for (uint32_t slot = 1; slot < world.units.size(); ++slot) {
+        const auto player = slot <= army_size ? second_player : first_player;
+        const auto& unit = world.units[slot];
+        CHECK(unit.id == slot);
+        CHECK(unit.owner_index == player);
+        CHECK(oa::world_unit_owner(&*world, &unit) == &world.player(player));
+        CHECK(unit.squad == -1);
+    }
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
+        if ((participants & (1u << player)) == 0) {
+            const auto& owner = world.player(player);
+            CHECK(owner.first_unit == 0 && owner.last_unit == 0);
+            CHECK(owner.base_unit_id == 0 && owner.last_unit_id == 0);
+        }
+    CHECK(world.units[0].id == 0 && world.units[0].owner_index == 0xff);
+}
+
+/// Rejects malformed saved orders and occupied pools without changing any record.
+void malformed_range_order() {
+    constexpr uint16_t limit = 3;
+    SpawnWorld world(unit_pool_size(limit, participants), 2);
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
+        world.player(player).index = player;
+    CHECK(init_unit_pool(*world, limit, participants));
+    const auto unchanged = [&](std::span<const uint8_t> order) {
+        const auto before_game = std::make_unique<oa::Game>((*world).game);
+        const auto before_units = world.units;
+        const auto before_count = (*world).unit_slot_count;
+        CHECK(!restore_unit_player_order(*world, order));
+        CHECK(std::memcmp(before_game.get(), &(*world).game, sizeof(oa::Game)) == 0);
+        CHECK(
+            std::memcmp(
+                before_units.data(), world.units.data(), before_units.size() * sizeof(oa::Unit)
+            ) == 0
+        );
+        CHECK((*world).unit_slot_count == before_count);
+    };
+    const std::array<uint8_t, 2> order{second_player, first_player};
+    const std::array<uint8_t, 2> duplicate{first_player, first_player};
+    const std::array<uint8_t, 2> invalid{first_player, OA_PLAYER_COUNT};
+    const std::array<uint8_t, 1> short_order{first_player};
+    unchanged({});
+    unchanged(duplicate);
+    unchanged(invalid);
+    unchanged(short_order);
+    world.units[1].flags |= OA_UNIT_FLAG_LIVE;
+    unchanged(order);
+    world.units[1].flags = 0;
+    world.units[1].type_index = 1;
+    unchanged(order);
+    world.units[1].type_index = 0;
+    world.units[1].id = 2;
+    unchanged(order);
+    world.units[1].id = 1;
+    (*world).game.units_per_player = 0;
+    unchanged(order);
+    (*world).game.units_per_player = limit;
+    --(*world).unit_slot_count;
+    unchanged(order);
+    ++(*world).unit_slot_count;
+    (*world).game.units_per_player = 20000;
+    unchanged(order);
 }
 
 /// Spawns two complete armies in sparse owner slots and rejects every overflow.
@@ -109,6 +188,8 @@ void full_armies() {
 int main() {
     classic_ranges();
     capacity_bounds();
+    restored_range_order();
+    malformed_range_order();
     full_armies();
     std::cout << "20,000 live units in sparse participant ranges passed\n";
 }

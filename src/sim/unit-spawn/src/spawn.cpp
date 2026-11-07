@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/unit_spawn/spawn.hpp"
+#include "oa/sim/unit_spawn/restore_ranges.hpp"
 #include <bit>
 #include <cstdint>
 
@@ -337,6 +338,46 @@ bool init_unit_pool(oa::World& w, uint16_t limit, uint16_t player_mask) noexcept
             w.units[i].owner = oa::oa_ref_from_index(player);
             w.units[i].squad = -1;
             w.units[i].owner_index = owner.index;
+        }
+        first = end;
+    }
+    return true;
+}
+
+bool restore_unit_player_order(oa::World& w, std::span<const uint8_t> order) noexcept {
+    if (w.units == nullptr || order.empty() || order.size() > OA_PLAYER_COUNT ||
+        w.game.units_per_player == 0)
+        return false;
+    const auto total = static_cast<uint64_t>(w.game.units_per_player) * order.size() + 1;
+    if (total > wire_unit_slot_capacity || total != w.unit_slot_count)
+        return false;
+    uint16_t seen = 0;
+    for (const auto player : order) {
+        if (player >= OA_PLAYER_COUNT || (seen & (1u << player)) != 0)
+            return false;
+        seen |= static_cast<uint16_t>(1u << player);
+    }
+    for (uint32_t slot = 0; slot < w.unit_slot_count; ++slot) {
+        const auto& unit = w.units[slot];
+        if (unit.id != slot || unit.type_index != 0 || (unit.flags & OA_UNIT_FLAG_LIVE) != 0)
+            return false;
+    }
+    for (auto& player : w.game.players) {
+        player.first_unit = player.last_unit = 0;
+        player.base_unit_id = player.last_unit_id = 0;
+    }
+    uint32_t first = 1;
+    for (const auto player : order) {
+        auto& owner = w.game.players[player];
+        const auto end = first + w.game.units_per_player;
+        owner.first_unit = oa::oa_ref_from_index(first);
+        owner.last_unit = oa::oa_ref_from_index(end - 1);
+        owner.base_unit_id = w.units[first].id;
+        owner.last_unit_id = w.units[end - 1].id;
+        for (auto slot = first; slot < end; ++slot) {
+            w.units[slot].owner = oa::oa_ref_from_index(player);
+            w.units[slot].owner_index = owner.index;
+            w.units[slot].squad = -1;
         }
         first = end;
     }
