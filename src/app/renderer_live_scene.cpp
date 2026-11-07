@@ -20,6 +20,7 @@
 #include <atomic>
 #include <exception>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <cmath>
@@ -4785,6 +4786,167 @@ bool marker_has_face(
     return false;
 }
 
+constexpr std::size_t detail_pose_limit = 1024;
+constexpr std::size_t detail_pose_point_limit = 131072;
+constexpr std::size_t detail_pose_piece_limit = 32768;
+constexpr std::size_t detail_pose_lookup_slots = detail_pose_limit * 2;
+constexpr std::size_t detail_pose_lookup_probes = 8;
+
+/// Returns a piece's exact presented local points, before world translation.
+std::span<const formats::objects3d::FixedVector3>
+detail_points(const ModelDraw& draw, std::size_t piece) {
+    return piece < draw.shown_vertices.size()
+               ? std::span<const formats::objects3d::FixedVector3>{draw.shown_vertices[piece]}
+               : std::span<const formats::objects3d::FixedVector3>{
+                     draw.model.instance->pieces()[piece].transformed_vertices
+                 };
+}
+
+/// Clears the bounded lookup while retaining its storage between frames.
+void clear_detail_poses(Scene& scene) {
+    scene.detail_poses.clear();
+    scene.detail_pose_points.clear();
+    scene.detail_pose_pieces.clear();
+    scene.detail_pose_hits = 0;
+    scene.detail_pose_slots.assign(detail_pose_lookup_slots, {});
+    scene.detail_pose_recent.assign(detail_pose_limit, 0);
+}
+
+/// Finds exact local geometry already measured in this build, or measures it.
+/// Source points, piece visibility and texture context are compared exactly;
+/// a full lookup falls back to the caller's summary without retaining it.
+DetailPose& detail_pose(
+    const Inputs& in, Scene& scene, const ModelDraw& draw, const Unit& unit, DetailPose& unshared
+) {
+    const auto& reference = draw.model;
+    const auto pieces = reference.instance->pieces();
+    const bool image =
+        draw.plan.model.from_image && reference.state && reference.state->image.sprite.data;
+    const DetailPoseContext context{
+        in.team_colors[unit.owner_index % in.team_colors.size()],
+        image,
+        image && reference.state->image.sprite.aux != nullptr,
+        draw.plan.linked.unlit,
+        unit.build_remaining != 0,
+        (unit.flags & OA_UNIT_FLAG_BUILDING) != 0,
+        in.moving_pieces_once_built
+    };
+    const auto matches = [&](const DetailPose& pose) {
+        if (pose.prepared != reference.prepared || pose.model != &reference.instance->model() ||
+            pose.context != context || pose.piece_count != pieces.size())
+            return false;
+        std::size_t at = pose.first_point;
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            const auto& saved = scene.detail_pose_pieces[pose.first_piece + piece];
+            const auto& source = pieces[piece];
+            if (saved.object_index != source.object_index || saved.flags != source.flags)
+                return false;
+            if ((source.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0)
+                continue;
+            const auto points = detail_points(draw, piece);
+            if (saved.point_count != points.size() ||
+                (!points.empty() &&
+                 std::memcmp(
+                     scene.detail_pose_points.data() + at, points.data(), points.size_bytes()
+                 ) != 0))
+                return false;
+            at += points.size();
+        }
+        return true;
+    };
+    const auto recent = std::hash<const model::PreparedModel*>{}(reference.prepared) %
+                        scene.detail_pose_recent.size();
+    const auto found = [&](uint32_t named) -> DetailPose* {
+        if (named != 0 && named <= scene.detail_poses.size() &&
+            matches(scene.detail_poses[named - 1])) {
+            ++scene.detail_pose_hits;
+            scene.detail_pose_recent[recent] = named;
+            return &scene.detail_poses[named - 1];
+        }
+        return nullptr;
+    };
+    if (auto* pose = found(scene.detail_pose_recent[recent]))
+        return *pose;
+    unshared = {};
+    unshared.prepared = reference.prepared;
+    unshared.model = &reference.instance->model();
+    unshared.context = context;
+    unshared.least.fill(std::numeric_limits<int32_t>::max());
+    unshared.greatest.fill(std::numeric_limits<int32_t>::min());
+    const bool lookup = scene.detail_poses.size() < detail_pose_limit &&
+                        scene.detail_pose_points.size() < detail_pose_point_limit &&
+                        pieces.size() <= detail_pose_piece_limit - scene.detail_pose_pieces.size();
+    uint64_t digest =
+        mix_word(hash_start, std::hash<const model::PreparedModel*>{}(reference.prepared));
+    digest = mix_word(digest, context.team);
+    digest = mix_word(digest, context.image);
+    digest = mix_word(digest, context.depth_image);
+    digest = mix_word(digest, context.unlit);
+    digest = mix_word(digest, context.unfinished);
+    digest = mix_word(digest, context.building);
+    digest = mix_word(digest, context.moving_pieces_once_built);
+    std::size_t point_count{};
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        if (lookup) {
+            digest = mix_word(digest, pieces[piece].object_index);
+            digest = mix_word(digest, pieces[piece].flags);
+        }
+        if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
+            0)
+            continue;
+        const auto points = detail_points(draw, piece);
+        point_count += points.size();
+        if (lookup)
+            digest = mix_word(digest, points.size());
+        for (const auto& point : points) {
+            const std::array coordinates{point.x, point.y, point.z};
+            for (std::size_t axis = 0; axis < coordinates.size(); ++axis) {
+                unshared.least[axis] = std::min(unshared.least[axis], coordinates[axis]);
+                unshared.greatest[axis] = std::max(unshared.greatest[axis], coordinates[axis]);
+                if (lookup)
+                    digest = mix_word(digest, static_cast<uint32_t>(coordinates[axis]));
+            }
+            unshared.bounded = true;
+        }
+    }
+    std::size_t empty = scene.detail_pose_slots.size();
+    for (std::size_t probe = 0; lookup && probe < detail_pose_lookup_probes; ++probe) {
+        const auto at = (digest + probe) & (detail_pose_lookup_slots - 1);
+        const auto& slot = scene.detail_pose_slots[at];
+        if (slot.pose == 0) {
+            empty = at;
+            break;
+        }
+        if (slot.digest == digest)
+            if (auto* pose = found(slot.pose))
+                return *pose;
+    }
+    if (empty == scene.detail_pose_slots.size() || scene.detail_poses.size() >= detail_pose_limit ||
+        point_count > detail_pose_point_limit - scene.detail_pose_points.size() ||
+        pieces.size() > detail_pose_piece_limit - scene.detail_pose_pieces.size())
+        return unshared;
+    unshared.first_piece = static_cast<uint32_t>(scene.detail_pose_pieces.size());
+    unshared.piece_count = static_cast<uint32_t>(pieces.size());
+    unshared.first_point = static_cast<uint32_t>(scene.detail_pose_points.size());
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        const bool visible = (pieces[piece].flags &
+                              static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) != 0;
+        const auto points = visible ? detail_points(draw, piece)
+                                    : std::span<const formats::objects3d::FixedVector3>{};
+        scene.detail_pose_pieces.push_back(
+            {pieces[piece].object_index, static_cast<uint32_t>(points.size()), pieces[piece].flags}
+        );
+        scene.detail_pose_points.insert(
+            scene.detail_pose_points.end(), points.begin(), points.end()
+        );
+    }
+    scene.detail_poses.push_back(unshared);
+    const auto named = static_cast<uint32_t>(scene.detail_poses.size());
+    scene.detail_pose_slots[empty] = {digest, named};
+    scene.detail_pose_recent[recent] = named;
+    return scene.detail_poses.back();
+}
+
 /// Classifies from the actual presented vertices, before shadow decoding,
 /// card positions or triangle emission. Static footprint/radius bounds do
 /// not contain arbitrary animated piece translations, so cannot be used.
@@ -4792,6 +4954,10 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
     scene.unit_detail.clear();
     scene.unit_detail_active = false;
     scene.detail_water.clear();
+    scene.detail_poses.clear();
+    scene.detail_pose_points.clear();
+    scene.detail_pose_pieces.clear();
+    scene.detail_pose_hits = 0;
     std::array<float, 3> across{}, down{};
     if (!(in.unit_marker_pixels > 0) || !std::isfinite(in.unit_marker_pixels) ||
         in.clip_width == 0 || in.clip_height == 0 ||
@@ -4802,6 +4968,10 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
         ) ||
         !marker_axes(in, across, down))
         return;
+    clear_detail_poses(scene);
+    scene.unit_marker_across = across;
+    scene.unit_marker_down = down;
+    scene.unit_marker_radius = std::min(64.0F, in.unit_marker_pixels) * 0.5F;
     const auto& draws = in.draws->models;
     scene.unit_detail.resize(draws.size());
     std::unordered_map<const model::PreparedModel*, ModelAllowance> allowances;
@@ -4847,33 +5017,21 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
             continue;
         }
         detail.brightness = brightness_at(in.sight, origin[0], origin[2] - origin[1] * height_lift);
-        std::array low{
-            std::numeric_limits<float>::infinity(),
-            std::numeric_limits<float>::infinity(),
-            std::numeric_limits<float>::infinity()
+        DetailPose unshared;
+        auto& pose = detail_pose(in, scene, draw, *unit, unshared);
+        // Translate the extrema before finding their centre or extent. This
+        // keeps the same rounding as translating every vertex separately.
+        const std::array low{
+            origin[0] + pose.least[0] / fixed_scale,
+            origin[1] + pose.least[1] / fixed_scale,
+            origin[2] - pose.greatest[2] / fixed_scale
         };
-        std::array high{-low[0], -low[1], -low[2]};
-        bool valid = true;
-        const auto pieces = reference.instance->pieces();
-        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
-            if ((pieces[piece].flags &
-                 static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0)
-                continue;
-            const auto& points = piece < draw.shown_vertices.size()
-                                     ? draw.shown_vertices[piece]
-                                     : pieces[piece].transformed_vertices;
-            for (const auto& point : points) {
-                const std::array world{
-                    origin[0] + point.x / fixed_scale,
-                    origin[1] + point.y / fixed_scale,
-                    origin[2] - point.z / fixed_scale
-                };
-                for (std::size_t axis = 0; axis < 3; ++axis) {
-                    low[axis] = std::min(low[axis], world[axis]);
-                    high[axis] = std::max(high[axis], world[axis]);
-                }
-            }
-        }
+        const std::array high{
+            origin[0] + pose.greatest[0] / fixed_scale,
+            origin[1] + pose.greatest[1] / fixed_scale,
+            origin[2] - pose.least[2] / fixed_scale
+        };
+        bool valid = pose.bounded;
         for (std::size_t axis = 0; axis < 3; ++axis) {
             valid &= std::isfinite(low[axis]) && std::isfinite(high[axis]);
             detail.center[axis] = (low[axis] + high[axis]) * 0.5F;
@@ -4913,7 +5071,11 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
             continue;
         if (!std::isfinite(detail.pixels))
             continue;
-        if (!marker_has_face(in, draw, *unit, corners)) {
+        if (!pose.face_checked) {
+            pose.has_face = marker_has_face(in, draw, *unit, corners);
+            pose.face_checked = true;
+        }
+        if (!pose.has_face) {
             detail.surface = 0;
             continue;
         }
@@ -4978,10 +5140,9 @@ void unit_marker(
     std::optional<AtlasRect>& white_material,
     const PaletteBytes& white_palette
 ) {
-    std::array<float, 3> across{}, down{};
-    if (!marker_axes(in, across, down))
-        return;
-    const float radius = std::min(64.0F, in.unit_marker_pixels) * 0.5F;
+    const auto& across = pass.scene.unit_marker_across;
+    const auto& down = pass.scene.unit_marker_down;
+    const float radius = pass.scene.unit_marker_radius;
     auto center = detail.center;
     // Keep the complete billboard above its anchor, including
     // at shallow camera angles where its down axis changes world height.
@@ -5396,27 +5557,29 @@ bool draw_on_card(
     // it; such a model's surface stays in the vertices. A particle that far
     // from the box around the vertices reaches none of them, as the
     // vertices' distances are worked out.
-    std::array<float, 3> low{place};
-    std::array<float, 3> high{place};
-    for (std::size_t at = first_position; at < end_position; at += 3)
-        for (std::size_t axis = 0; axis < low.size(); ++axis) {
-            const float coordinate = origin[axis] + cards.positions[at + axis];
-            low[axis] = std::min(low[axis], coordinate);
-            high[axis] = std::max(high[axis], coordinate);
-        }
-    constexpr float light_radius = 32.0F;
-    for (const auto& light : lights) {
-        std::array<float, 3> gap{};
-        for (std::size_t axis = 0; axis < gap.size(); ++axis)
-            gap[axis] = std::max({0.0F, low[axis] - light[axis], light[axis] - high[axis]});
-        if (gap[0] * gap[0] + gap[1] * gap[1] + gap[2] * gap[2] >= light_radius * light_radius)
-            continue;
-        for (std::size_t at = first_position; at < end_position; at += 3) {
-            const float dx = (origin[0] + cards.positions[at]) - light[0];
-            const float dy = (origin[1] + cards.positions[at + 1]) - light[1];
-            const float dz = (origin[2] + cards.positions[at + 2]) - light[2];
-            if (dx * dx + dy * dy + dz * dz < light_radius * light_radius)
-                return false;
+    if (!lights.empty()) {
+        std::array<float, 3> low{place};
+        std::array<float, 3> high{place};
+        for (std::size_t at = first_position; at < end_position; at += 3)
+            for (std::size_t axis = 0; axis < low.size(); ++axis) {
+                const float coordinate = origin[axis] + cards.positions[at + axis];
+                low[axis] = std::min(low[axis], coordinate);
+                high[axis] = std::max(high[axis], coordinate);
+            }
+        constexpr float light_radius = 32.0F;
+        for (const auto& light : lights) {
+            std::array<float, 3> gap{};
+            for (std::size_t axis = 0; axis < gap.size(); ++axis)
+                gap[axis] = std::max({0.0F, low[axis] - light[axis], light[axis] - high[axis]});
+            if (gap[0] * gap[0] + gap[1] * gap[1] + gap[2] * gap[2] >= light_radius * light_radius)
+                continue;
+            for (std::size_t at = first_position; at < end_position; at += 3) {
+                const float dx = (origin[0] + cards.positions[at]) - light[0];
+                const float dy = (origin[1] + cards.positions[at + 1]) - light[1];
+                const float dz = (origin[2] + cards.positions[at + 2]) - light[2];
+                if (dx * dx + dy * dy + dz * dz < light_radius * light_radius)
+                    return false;
+            }
         }
     }
     cards.instances[instance].brightness = brightness;

@@ -210,6 +210,37 @@ struct UnitDetail {
     bool marker{};
 };
 
+/// Texture choices that affect whether a local pose has a drawable face.
+struct DetailPoseContext {
+    uint8_t team{};
+    bool image{}, depth_image{}, unlit{}, unfinished{}, building{}, moving_pieces_once_built{};
+
+    [[nodiscard]] bool operator==(const DetailPoseContext&) const = default;
+};
+
+/// One piece's exact visible vertices beside a shared detail-pose summary.
+struct DetailPosePiece {
+    uint32_t object_index{};
+    uint32_t point_count{};
+    uint16_t flags{};
+};
+
+/// Exact local extrema and front-face eligibility shared within one build.
+struct DetailPose {
+    const present::model::PreparedModel* prepared{};
+    const formats::objects3d::Model* model{};
+    DetailPoseContext context{};
+    uint32_t first_piece{}, piece_count{}, first_point{};
+    std::array<int32_t, 3> least{}, greatest{};
+    bool bounded{}, face_checked{}, has_face{};
+};
+
+/// One bounded detail-pose lookup slot; zero names no summary.
+struct DetailPoseSlot {
+    uint64_t digest{};
+    uint32_t pose{}; ///< the summary's index plus one
+};
+
 /// The bucket a ground triangle is listed in, the one holding its least
 /// place along both axes, and how many buckets further its bounds reach.
 struct GroundBucket {
@@ -514,6 +545,18 @@ struct Scene {
     /// Per-draw detail decisions, read by the model and shadow workers.
     std::vector<UnitDetail> unit_detail{};
     bool unit_detail_active{};
+    /// Exact pose summaries for the current detail prepass. At most 1,024
+    /// summaries, 131,072 visible points and 32,768 pieces are retained.
+    /// Eight lookup probes bound a miss; an uncached pose is still measured.
+    std::vector<DetailPose> detail_poses{};
+    std::vector<formats::objects3d::FixedVector3> detail_pose_points{};
+    std::vector<DetailPosePiece> detail_pose_pieces{};
+    std::vector<DetailPoseSlot> detail_pose_slots{};
+    std::vector<uint32_t> detail_pose_recent{};
+    std::size_t detail_pose_hits{};
+    /// Camera axes and radius shared by every marker in the frame.
+    std::array<float, 3> unit_marker_across{}, unit_marker_down{};
+    float unit_marker_radius{};
     /// Water generated once before the detail budget, then joined in its
     /// usual place after translucent units. Bounded by the water passes.
     std::vector<renderer_live_gpu::Vertex> detail_water{};
