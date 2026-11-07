@@ -177,15 +177,33 @@ void TickHost::movement_tick(oa::Unit& record) {
                 flow_head->mobile_blocked = false;
             } else {
                 const auto goal_key = local_flow_goal_key(*g.navigation.goal);
+                const bool recover = sim::unit_movement::local_flow_recovery_due(
+                    *flow_head, match.simulation_.tick, s.unit_index
+                );
                 if (flow_head->active &&
                     (flow_head->goal_key != goal_key ||
                      sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head) ||
-                     flow_head->blocked_ticks >= sim::unit_movement::local_flow_retry_ticks))
+                     recover))
                     flow_head->active = false;
                 if (!flow_head->active &&
-                    flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks) {
+                    (flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks ||
+                     recover)) {
+                    struct ProbeContext {
+                        Match* match{};
+                        sim::spatial_state::CellClassifier movement{};
+                        uint32_t player{};
+                        bool have_movement{};
+                    } context;
+
+                    context.match = &match;
+                    context.player = s.record.owner_index;
+                    if (const auto* klass = match.movement_class_map(g.movement_class)) {
+                        context.movement = klass->record;
+                        context.movement.occupancy_before_tick = 0;
+                        context.have_movement = true;
+                    }
                     sim::unit_movement::LocalFlowProbe probe{};
-                    probe.context = &match;
+                    probe.context = &context;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&
                         match.enhanced_->local_flow_progress_snapshot_tick ==
                             match.simulation_.tick)
@@ -197,7 +215,8 @@ void TickHost::movement_tick(oa::Unit& record) {
                                   const sim::unit_movement::Unit& moving,
                                   std::array<int16_t, 2> cell,
                                   uint8_t occupancy) {
-                        auto& m = *static_cast<Match*>(context);
+                        const auto& probe_context = *static_cast<ProbeContext*>(context);
+                        auto& m = *probe_context.match;
                         using sim::unit_movement::LocalFlowBlocker;
                         using sim::unit_movement::LocalFlowObstacle;
                         LocalFlowBlocker result{};
@@ -207,6 +226,23 @@ void TickHost::movement_tick(oa::Unit& record) {
                             uint32_t(cell[1]) + uint32_t(moving.footprint[1]) >=
                                 m.spatial_.terrain_height)
                             return LocalFlowBlocker{LocalFlowObstacle::stationary};
+                        // Classify visible terrain before looking for traffic
+                        // beyond it. Unknown cells retain the normal fog rule.
+                        if (probe_context.have_movement && probe_context.player < OA_PLAYER_COUNT) {
+                            const auto width = m.spatial_.terrain_width >> 1;
+                            const auto height = m.spatial_.terrain_height >> 1;
+                            const auto x = uint32_t(cell[0] >> 1) +
+                                           uint32_t(probe_context.movement.footprint_x >> 2);
+                            const auto z = uint32_t(cell[1] >> 1) +
+                                           uint32_t(probe_context.movement.footprint_z >> 2);
+                            const auto index = size_t(z) * width + x;
+                            if (x < width && z < height && index < m.sight_.player_bits.size() &&
+                                (m.sight_.player_bits[index] & (1u << probe_context.player)) != 0 &&
+                                !sim::ground_orders::static_flow_passable(
+                                    probe_context.movement, cell[0], cell[1], m.spatial_
+                                ))
+                                return LocalFlowBlocker{LocalFlowObstacle::stationary};
+                        }
                         // Small footprints and eight route samples bound this
                         // work independently of the match's unit count.
                         for (int32_t z = 0; z < moving.footprint[1]; ++z)
@@ -223,9 +259,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                                 const auto* other = m.ground_runtime(occupant);
                                 if (!other || m.air_drivers_[occupant].unit ||
                                     other->geometry.type.maximum_speed <= 0 ||
-                                    link_parent(m.slots_[occupant].record) ||
-                                    (other->mirrored_driver ? other->mirrored_navigation.count < 2
-                                                            : other->navigation.goal == nullptr))
+                                    link_parent(m.slots_[occupant].record))
                                     return LocalFlowBlocker{LocalFlowObstacle::stationary};
                                 const bool have_snapshot =
                                     m.enhanced_->local_flow_progress_snapshot_valid &&

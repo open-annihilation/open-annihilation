@@ -167,6 +167,11 @@ bool local_flow_defer_replan(const LocalFlowHead& head, const Movement& movement
            head.blocked_ticks < local_flow_retry_ticks;
 }
 
+bool local_flow_recovery_due(const LocalFlowHead& head, uint32_t tick, uint16_t unit_id) noexcept {
+    return head.blocked_ticks >= local_flow_retry_ticks &&
+           (uint64_t(tick) + unit_id) % local_flow_retry_ticks == 0;
+}
+
 LocalFlowDecision choose_local_flow(
     const Unit& unit,
     const Movement& movement,

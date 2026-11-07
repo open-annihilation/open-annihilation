@@ -95,6 +95,19 @@ void record_local_flow_block(LocalFlowHead& head, bool blocked) noexcept;
 [[nodiscard]] bool
 local_flow_defer_replan(const LocalFlowHead& head, const Movement& movement) noexcept;
 
+/// Schedules a bounded local retry after sustained traffic blockage.
+///
+/// Ordinary path replanning remains enabled. Unit IDs stagger local recovery
+/// over the thirty-tick retry period, allowing a newly opened passing place
+/// to be used without restarting the transient-blockage grace period.
+///
+/// @param head retained local traffic state
+/// @param tick current simulation tick
+/// @param unit_id stable unit slot
+/// @return whether an old local leg should expire and a new one may be chosen
+[[nodiscard]] bool
+local_flow_recovery_due(const LocalFlowHead& head, uint32_t tick, uint16_t unit_id) noexcept;
+
 /// Writes retained heads as canonical little-endian save bytes.
 ///
 /// @param heads retained heads
@@ -113,7 +126,8 @@ bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8
 
 /// Chooses a short traffic-avoidance waypoint, with bounded footprint queries.
 ///
-/// Only moving occupants cause yielding. Older waiting traffic takes priority,
+/// Only mobile ground occupants, including idle units, cause yielding.
+/// Older waiting traffic takes priority,
 /// with unit id breaking ties. Both ages use the same tick-start snapshot so
 /// an earlier unit update cannot change another unit's priority. Candidate segments retain the host's collision
 /// veto, and diagonal segments test both adjoining cells. Turn and acceleration
