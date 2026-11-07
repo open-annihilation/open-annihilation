@@ -245,6 +245,17 @@ Rect32 sampled_region(const RgbBridge& bridge, const Rect32& region) noexcept {
     return clip;
 }
 
+/// Tells whether a region can change any pixel of the drawing band's surface.
+bool region_reaches_band(
+    const RgbBridge& bridge, const BridgeBand* band, const Rect32& region
+) noexcept {
+    if (band == nullptr)
+        return true;
+    const Rect32 clip = clip_to_surface(region, bridge.surface);
+    return clip.x1 <= clip.x2 && clip.y1 <= clip.y2 && clip.y1 < band->end_row &&
+           clip.y2 >= band->first_row;
+}
+
 } // namespace
 
 std::optional<UnitSupersampling> unit_supersampling_from_factor(uint32_t factor) noexcept {
@@ -354,7 +365,7 @@ void draw_planned_unit(
             bridge_open(bridge, *band, plan.region);
         else
             bridge_open(bridge, plan.region);
-        if (plan.linked.drawn)
+        if (plan.linked.drawn && region_reaches_band(bridge, band, plan.region))
             draw_planned_model(
                 renderer,
                 band != nullptr ? &band->surface : &bridge.surface,
@@ -377,6 +388,10 @@ void draw_planned_unit(
     else
         bridge_end(bridge);
     bridge_holds_draws = false;
+    // A sampled draw still flushes earlier bridge pixels in this band,
+    // even when only another band contains the unit itself.
+    if (!region_reaches_band(bridge, band, plan.covered))
+        return;
     SampledRegion& sampled = scratch.region;
     const uint32_t factor = supersampling_factor(plan.level);
     if (band != nullptr)

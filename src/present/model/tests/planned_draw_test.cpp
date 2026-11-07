@@ -14,6 +14,7 @@
 #include "oa/present/model/unit_supersampling.hpp"
 #include "oa/present/display.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -193,6 +194,7 @@ struct Scene {
 
 // Rect32 is packed: aligned here, since the bridge takes its fields by reference.
 alignas(4) constexpr oa::Rect32 whole_frame{0, 0, frame_side - 1, frame_side - 1};
+alignas(4) constexpr oa::Rect32 unit_region{56, 56, 112, 112};
 
 // The carrier drawn whole, from a plan and in bands, frame after frame,
 // gives the same bytes.
@@ -275,10 +277,140 @@ void planned_bands_draw_as_whole() {
     }
 }
 
+/// Checks whole-frame parity for tight regions, including carried pieces at band edges.
+void tight_plans_draw_as_whole() {
+    for (const auto level :
+         {UnitSupersampling::off, UnitSupersampling::x2, UnitSupersampling::x4}) {
+        for (const bool depth_image : {true, false}) {
+            for (const bool anti_alias : {false, true}) {
+                Scene whole(depth_image, anti_alias);
+                Scene planned(depth_image, anti_alias);
+                for (int32_t frame = 0; frame < frames; ++frame) {
+                    whole.step(frame);
+                    planned.step(frame);
+                    whole.begin();
+                    SupersampledUnitPlan full_plan;
+                    plan_unit_supersampled(
+                        whole.renderer,
+                        whole.bridge,
+                        whole.carrier(),
+                        unit_region,
+                        false,
+                        level,
+                        full_plan
+                    );
+                    bool holds = false;
+                    draw_planned_unit(
+                        whole.renderer,
+                        whole.bridge,
+                        nullptr,
+                        whole.scratch,
+                        whole.carrier(),
+                        full_plan,
+                        holds
+                    );
+                    bridge_end(whole.bridge);
+                    planned.begin();
+                    SupersampledUnitPlan plan;
+                    plan_unit_supersampled(
+                        planned.renderer,
+                        planned.bridge,
+                        planned.carrier(),
+                        unit_region,
+                        false,
+                        level,
+                        plan
+                    );
+                    CHECK(plan.level == level);
+                    const std::vector<uint8_t> start = planned.rgb;
+                    for (int32_t count = 1; count <= most_bands; ++count) {
+                        planned.rgb = start;
+                        planned.begin();
+                        std::vector<BridgeBand> bands;
+                        bridge_split(planned.bridge, count, bands);
+                        for (auto& band : bands) {
+                            holds = false;
+                            draw_planned_unit(
+                                planned.renderer,
+                                planned.bridge,
+                                &band,
+                                planned.scratch,
+                                planned.carrier(),
+                                plan,
+                                holds
+                            );
+                            bridge_end(planned.bridge, band);
+                        }
+                        CHECK(planned.rgb == whole.rgb);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Checks that off-band draws skip workspaces while retaining required flushes.
+void off_band_draw_preserves_workspaces_and_flushes() {
+    constexpr uint8_t workspace_ink = 165;
+    constexpr uint8_t bridge_ink = 44;
+    constexpr uint8_t direct_ink = 77;
+    constexpr int32_t changed_x = 8;
+    constexpr int32_t changed_y = 8;
+    alignas(4) constexpr oa::Rect32 pending_region{0, 0, 31, 31};
+    for (const auto level : {UnitSupersampling::off, UnitSupersampling::x2}) {
+        Scene scene(true, true);
+        scene.begin();
+        SupersampledUnitPlan plan;
+        plan_unit_supersampled(
+            scene.renderer, scene.bridge, scene.carrier(), unit_region, false, level, plan
+        );
+        CHECK(plan.linked.drawn);
+        CHECK(plan.level == level);
+        std::vector<BridgeBand> bands;
+        bridge_split(scene.bridge, 4, bands);
+        BridgeBand& band = bands.front();
+        CHECK(band.end_row <= unit_region.y1);
+        CHECK(level == UnitSupersampling::off || band.end_row <= plan.covered.y1);
+        bridge_open(scene.bridge, band, pending_region);
+        band.surface.pixels[changed_y * band.surface.pitch + changed_x] = bridge_ink;
+        const auto pixel = static_cast<std::size_t>((changed_y * frame_side + changed_x) * 3);
+        CHECK(scene.rgb[pixel] == ground);
+        std::fill(
+            scene.renderer.composite.pixels.begin(),
+            scene.renderer.composite.pixels.end(),
+            workspace_ink
+        );
+        const auto before = scene.renderer.composite.pixels;
+        const auto samples_before = scene.scratch.region.samples;
+        bool holds = true;
+        draw_planned_unit(
+            scene.renderer, scene.bridge, &band, scene.scratch, scene.carrier(), plan, holds
+        );
+        CHECK(scene.renderer.composite.pixels == before);
+        CHECK(scene.scratch.region.samples == samples_before);
+        CHECK(holds == (level == UnitSupersampling::off));
+        if (level == UnitSupersampling::off) {
+            CHECK(!band.open_tiles.empty());
+            CHECK(scene.rgb[pixel] == ground);
+            bridge_end(scene.bridge, band);
+            CHECK(scene.rgb[pixel] == bridge_ink);
+        } else {
+            CHECK(band.open_tiles.empty());
+            CHECK(scene.rgb[pixel] == bridge_ink);
+            for (std::size_t channel = 0; channel < 3; ++channel)
+                scene.rgb[pixel + channel] = direct_ink;
+            bridge_end(scene.bridge, band);
+            CHECK(scene.rgb[pixel] == direct_ink);
+        }
+    }
+}
+
 } // namespace
 
 int main() {
     planned_bands_draw_as_whole();
+    tight_plans_draw_as_whole();
+    off_band_draw_preserves_workspaces_and_flushes();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return EXIT_FAILURE;
