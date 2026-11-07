@@ -296,6 +296,12 @@ if(BUILD_TESTING)
  add_test(NAME match-target-query COMMAND oa-match-target-query-test)
 endif()
 if(BUILD_TESTING)
+ add_executable(oa-match-static-passability-memo-test tests/static_passability_memo_test.cpp)
+ target_include_directories(oa-match-static-passability-memo-test PRIVATE src)
+ target_link_libraries(oa-match-static-passability-memo-test PRIVATE oa-sim-ground-orders oa-sim-spatial-state oa-test-support)
+ add_test(NAME match-static-passability-memo COMMAND oa-match-static-passability-memo-test)
+endif()
+if(BUILD_TESTING)
  # Every test program here may build its match on the shared fixture
  # (oa/test/match_services.hpp, oa/test/projectile_handle.hpp).
  get_property(oa_match_runtime_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
