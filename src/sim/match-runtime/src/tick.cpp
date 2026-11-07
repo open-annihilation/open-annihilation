@@ -264,7 +264,15 @@ void Match::advance_path_search() {
         if (!runtime || runtime->mirrored_driver || !runtime->movement_class)
             return nullptr;
         auto& navigation = runtime->navigation;
-        if (ctx.shared_routes && navigation.needs_search() && navigation.goal &&
+        const auto* traffic = ctx.shared_routes && ctx.match->enhanced_->local_flow_heads
+                                  ? &ctx.match->enhanced_->local_flow_heads[slot->unit_index]
+                                  : nullptr;
+        // Shared fields ignore mobile occupancy. Sustained traffic blockage
+        // must reach the full search, which can route around settled units.
+        const bool shared_route_allowed =
+            !traffic || traffic->blocked_ticks < sim::unit_movement::local_flow_retry_ticks;
+        if (ctx.shared_routes && shared_route_allowed && navigation.needs_search() &&
+            navigation.goal &&
             ctx.match->simulation_.tick >=
                 navigation.last_search_tick + sim::ground_orders::search_retry_ticks) {
             auto* klass = ctx.match->movement_class_map(runtime->movement_class);
