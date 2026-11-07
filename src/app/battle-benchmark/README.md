@@ -36,8 +36,12 @@ progress. Stationary samples alone do not establish an occupancy blockage.
 
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
 minimum, mean, maximum and nearest-rank p50, p95 and p99. Empty samples give
-zeroes. Only successful measured ticks belong in these samples; warmup ticks
-are counted separately.
+zeroes. Timing dictionaries also hold `total`, the cumulative nanoseconds,
+and `over_budget`, the number of samples strictly greater than
+`tick_budget_ns` (33,333,333 nanoseconds). A sum above the largest unsigned
+64-bit value is held at that value and marked `total_saturated: true`.
+Only successful measured ticks belong in these samples; setup and warmup
+costs are excluded.
 
 `report_json` writes schema version 1, explicit completion and error fields,
 the scenario and seed, requested and observed populations, successful tick
@@ -56,14 +60,37 @@ connectivity; the progress summaries expose incomplete trips on the installed
 map. `goal_metrics_available` distinguishes a movement
 assignment from the zero-filled default summaries. `simulation_phase_ns`
 holds timing dictionaries for named phases over measured ticks; their
-percentiles are not additive.
+percentiles are not additive. Totals and over-budget counts also apply to
+these phase dictionaries.
+
+`tick_ns` retains its wall-time meaning. The additive
+`tick_thread_cpu_ns` dictionary measures CPU consumed by the benchmark's
+calling thread over each measured step. The application reads
+`GetThreadTimes` on Windows or `CLOCK_THREAD_CPUTIME_ID` where supported;
+the benchmark module and simulation do not read clocks. Thread CPU excludes
+time when that thread is not running and CPU consumed by other threads.
+A wall/CPU gap can include preemption, waiting or I/O; these statistics do
+not identify its cause or establish movement quality or drawn frame rate.
+The two intervals include clock-reading overhead, and clock resolution can
+produce zero CPU samples.
+
+`thread_cpu_clock` identifies the clock or says `unsupported`.
+`thread_cpu_available` is true when `tick_thread_cpu_ns` holds statistics,
+and `thread_cpu_status` says `available`, `unsupported` or `read_failed`.
+Unsupported clocks and failed reads leave `tick_thread_cpu_ns: null` rather
+than substituting process CPU or wall time. A read failure discards any
+partial CPU samples; wall timing remains available and the run can still
+complete. These fields extend schema version 1 without changing existing
+field meanings.
+
 Its default renderer is `none`: a simulation-only benchmark does not draw.
 Strings are UTF-8, control bytes are escaped and numbers use the classic
 locale. A non-finite mean is written as `null`.
 
 `app-battle-benchmark` checks exact percentiles without mutating samples,
-overflow-safe percentile ranks, map bounds and placement refusals, symmetry,
-the population bound, report metadata and JSON escaping.
+overflow-safe percentile ranks, cumulative costs and threshold boundaries,
+map bounds and placement refusals, symmetry, the population bound, report
+metadata, CPU availability and JSON escaping.
 It also checks grouped arrival geometry with 10,000 mixed-size footprints
 per side, skipped terrain candidates, cross-army reservations, malformed
 inputs, detours, jitter rejection and trip-distance fairness bins.

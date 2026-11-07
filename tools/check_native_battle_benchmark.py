@@ -6,6 +6,7 @@
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -13,6 +14,8 @@ import subprocess
 import tempfile
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
+TICK_BUDGET_NS = 33_333_333
+MAXIMUM_UINT64 = (1 << 64) - 1
 
 
 def play(native, game_dir, workdir, name, options=(), report=None):
@@ -36,6 +39,70 @@ def require(condition, message, process=None):
     if process:
         print(process.stdout + process.stderr, end="")
     raise SystemExit(message)
+
+
+def valid_timing(stats, count, label, allow_zero=True):
+    """Check ranks, cumulative cost and strict budget counts without assuming clock resolution."""
+    require(isinstance(stats, dict), f"{label} timing is not an object")
+    keys = ("count", "min", "p50", "p95", "p99", "max", "total", "over_budget")
+    require(all(type(stats.get(key)) is int and 0 <= stats[key] <= MAXIMUM_UINT64
+                for key in keys), f"{label} timing has invalid integer facts")
+    require(type(stats.get("total_saturated")) is bool,
+            f"{label} timing lacks explicit total saturation")
+    require(stats["count"] == count and
+            0 <= stats["min"] <= stats["p50"] <= stats["p95"] <= stats["p99"] <= stats["max"],
+            f"{label} timing statistics are incomplete or unordered")
+    require(type(stats.get("mean")) in (int, float) and math.isfinite(stats["mean"]),
+            f"{label} timing has no finite mean")
+    if count == 0:
+        require(all(stats[key] == 0 for key in keys) and stats["mean"] == 0 and
+                not stats["total_saturated"], f"{label} empty timing is not zero-filled")
+        return
+    require(allow_zero or stats["min"] > 0, f"{label} wall timing is empty")
+    require(stats["min"] <= stats["mean"] <= stats["max"] and
+            stats["over_budget"] <= count, f"{label} timing facts contradict their bounds")
+    if stats["total_saturated"]:
+        require(stats["total"] == MAXIMUM_UINT64,
+                f"{label} saturated timing total did not stop at uint64 maximum")
+    else:
+        require(count * stats["min"] <= stats["total"] <= count * stats["max"] and
+                math.isclose(stats["mean"], stats["total"] / count, rel_tol=1e-12, abs_tol=1e-6),
+                f"{label} cumulative timing contradicts its mean or range")
+        require(stats["total"] >= stats["over_budget"] * (TICK_BUDGET_NS + 1),
+                f"{label} long ticks exceed their cumulative cost")
+    if stats["max"] <= TICK_BUDGET_NS:
+        require(stats["over_budget"] == 0, f"{label} counted a tick at or below the budget")
+    else:
+        require(stats["over_budget"] > 0, f"{label} omitted its long maximum tick")
+    if stats["min"] > TICK_BUDGET_NS:
+        require(stats["over_budget"] == count, f"{label} omitted ticks above its budget")
+    else:
+        require(stats["over_budget"] < count, f"{label} counted every tick as above budget")
+
+
+def valid_timing_report(report):
+    """Keep wall elapsed timing distinct from optional calling-thread CPU observations."""
+    require(report["tick_budget_ns"] == TICK_BUDGET_NS, "benchmark changed its tick budget")
+    count = report["successful_ticks"]
+    valid_timing(report["tick_ns"], count, "wall", allow_zero=False)
+    available = report["thread_cpu_available"]
+    require(type(available) is bool, "benchmark CPU availability is not explicit")
+    clock = report["thread_cpu_clock"]
+    status = report["thread_cpu_status"]
+    if available:
+        require(status == "available" and clock in ("GetThreadTimes", "CLOCK_THREAD_CPUTIME_ID"),
+                "benchmark CPU timing lacks a supported clock")
+        # Coarse thread clocks can report zero, and sampling overhead means CPU
+        # and wall intervals need not obey a strict CPU <= wall comparison.
+        valid_timing(report["tick_thread_cpu_ns"], count, "thread CPU")
+    else:
+        require(report["tick_thread_cpu_ns"] is None and status in ("unsupported", "read_failed"),
+                "unavailable CPU timing was filled with substitute samples")
+        require((status == "unsupported" and clock == "unsupported") or
+                (status == "read_failed" and clock in ("GetThreadTimes", "CLOCK_THREAD_CPUTIME_ID")),
+                "benchmark CPU unavailability lacks its clock reason")
+    for phase, timing in report["simulation_phase_ns"].items():
+        valid_timing(timing, count, f"{phase} phase")
 
 
 def valid_report(process, report, scenario, enabled, ticks=12, version=None):
@@ -62,10 +129,7 @@ def valid_report(process, report, scenario, enabled, ticks=12, version=None):
     if scenario in ("idle", "march", "group-march"):
         require(report["projectile_high_water"] == 0,
                 "noncombat workload fired a projectile")
-    stats = report["tick_ns"]
-    require(stats["count"] == ticks and
-            0 < stats["min"] <= stats["p50"] <= stats["p95"] <= stats["p99"] <= stats["max"],
-            "benchmark timing statistics are incomplete or unordered")
+    valid_timing_report(report)
 
 
 def main():
@@ -161,12 +225,14 @@ def main():
                                ("--no-enhanced-mode", "--benchmark-rules-version", "1"))
         require(process.returncode != 0 and report is not None and not report["completed"],
                 "an explicit Enhanced preset silently enabled the mode", process)
+        valid_timing_report(report)
         invalid_path = workdir / "capacity.json"
         process, report = play(native, game_dir, workdir, "capacity",
                                ("--no-enhanced-mode", "--benchmark-units", "10000"), invalid_path)
         require(process.returncode != 0 and report is not None and
                 not report["completed"] and report["successful_ticks"] == 0,
                 "classic mode accepted an Enhanced population", process)
+        valid_timing_report(report)
         stale_path = workdir / "stale.json"
         stale_path.write_text('{"completed": true}\n', encoding="utf-8")
         process, report = play(native, game_dir, workdir, "missing-map",
@@ -174,6 +240,7 @@ def main():
         require(process.returncode != 0 and report is not None and
                 report["completed"] is False and report["error"] and report["successful_ticks"] == 0,
                 "failed setup left a stale successful report", process)
+        valid_timing_report(report)
     print("battle benchmark: seeded workloads, group flow, preset versions, graphics independence and failures checked")
 
 

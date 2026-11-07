@@ -1763,6 +1763,30 @@ hash, final world digest, successful warmup and measured tick counts, and
 minimum, mean, p50, p95, p99 and maximum tick time in nanoseconds. Percentiles
 use the nearest-rank method. Warmup and setup costs are excluded.
 
+`tick_ns` continues to measure elapsed wall time. `tick_thread_cpu_ns`
+measures CPU consumed by the benchmark's calling thread over the same
+successful measured steps, using `GetThreadTimes` on Windows or
+`CLOCK_THREAD_CPUTIME_ID` where supported. Wall time includes delays when
+the thread is not running; thread CPU excludes those delays and work on
+other threads. Both intervals include clock-reading overhead, and coarse
+clock resolution can produce zero CPU samples.
+
+Every timing dictionary also records cumulative nanoseconds in `total`
+and a count in `over_budget` of samples strictly greater than
+`tick_budget_ns` (33,333,333 nanoseconds). A cumulative sum that exceeds an
+unsigned 64-bit value is held at that maximum and marked
+`total_saturated: true`. Existing maxima and percentiles retain their
+meaning, including in the per-phase dictionaries.
+
+`thread_cpu_available`, `thread_cpu_clock` and `thread_cpu_status` state
+whether CPU timing was collected. Unsupported clocks or failed reads give
+`tick_thread_cpu_ns: null`, with status `unsupported` or `read_failed`;
+neither wall time nor process CPU is substituted. A failed CPU read discards
+partial CPU statistics while preserving wall timing. These additive fields
+keep report schema version 1. They distinguish simulation-thread CPU costs
+from elapsed time; a gap can include preemption, waiting or I/O. They make
+no claim about unit flow or drawn FPS.
+
 A run that starts atomically replaces its report with an incomplete result.
 Only a fully completed measurement marks `completed` true. A failed setup
 or tick records the error and returns failure; an unsupported command line

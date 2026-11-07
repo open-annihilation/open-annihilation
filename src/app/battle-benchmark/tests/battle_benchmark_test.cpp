@@ -29,13 +29,17 @@ namespace benchmark = oa::app::battle_benchmark;
 
 /// Checks exact nearest-rank percentiles and leaves input ordering unchanged.
 void timings() {
-    CHECK(benchmark::summarize({}).count == 0);
+    const auto empty = benchmark::summarize({});
+    CHECK(empty.count == 0 && empty.total_ns == 0 && empty.over_budget_count == 0);
+    CHECK(!empty.total_ns_saturated);
     const std::array<uint64_t, 4> samples{40, 10, 30, 20};
     const auto summary = benchmark::summarize(samples);
     CHECK(summary.count == 4);
     CHECK(summary.min_ns == 10 && summary.max_ns == 40);
     CHECK(summary.p50_ns == 20 && summary.p95_ns == 40 && summary.p99_ns == 40);
     CHECK(summary.mean_ns == 25);
+    CHECK(summary.total_ns == 100 && summary.over_budget_count == 0);
+    CHECK(!summary.total_ns_saturated);
     CHECK(samples.front() == 40 && samples.back() == 20);
     std::vector<uint64_t> hundred;
     for (uint64_t value = 100; value != 0; --value)
@@ -45,8 +49,28 @@ void timings() {
     const std::array<uint64_t, 1> one{std::numeric_limits<uint64_t>::max()};
     const auto single = benchmark::summarize(one);
     CHECK(single.min_ns == one[0] && single.p99_ns == one[0]);
+    CHECK(single.total_ns == one[0] && !single.total_ns_saturated);
+    CHECK(single.over_budget_count == 1);
     const std::array<uint64_t, 2> huge{one[0], one[0]};
-    CHECK(benchmark::summarize(huge).mean_ns > 1.0e19);
+    const auto saturated = benchmark::summarize(huge);
+    CHECK(saturated.mean_ns > 1.0e19);
+    CHECK(saturated.total_ns == one[0] && saturated.total_ns_saturated);
+    CHECK(saturated.over_budget_count == 2);
+    const auto with_zero = benchmark::summarize(std::array<uint64_t, 2>{one[0], 0});
+    CHECK(with_zero.total_ns == one[0] && !with_zero.total_ns_saturated);
+    const auto one_past = benchmark::summarize(std::array<uint64_t, 2>{one[0], 1});
+    CHECK(one_past.total_ns == one[0] && one_past.total_ns_saturated);
+
+    // A tick exactly at the budget is not long; zero is a valid CPU sample.
+    constexpr auto budget = benchmark::tick_budget_ns;
+    CHECK(budget == 33'333'333);
+    const std::array<uint64_t, 5> boundary{budget + 1, 0, budget * 2, budget - 1, budget};
+    const auto long_ticks = benchmark::summarize(boundary);
+    CHECK(long_ticks.count == 5 && long_ticks.min_ns == 0 && long_ticks.max_ns == budget * 2);
+    CHECK(long_ticks.p50_ns == budget && long_ticks.p95_ns == budget * 2);
+    CHECK(long_ticks.total_ns == budget * 5 && !long_ticks.total_ns_saturated);
+    CHECK(long_ticks.over_budget_count == 2);
+    CHECK(boundary.front() == budget + 1 && boundary.back() == budget);
 }
 
 /// Checks that two full armies fit inside margins with no duplicate points.
@@ -309,6 +333,11 @@ void reports() {
     report.simulation_hash = "hash";
     report.world_digest = "digest";
     report.ticks.mean_ns = 1.5;
+    report.thread_cpu_clock = "CLOCK_THREAD_CPUTIME_ID";
+    report.thread_cpu_status = "available";
+    report.thread_cpu_ticks = benchmark::summarize(
+        std::array<uint64_t, 3>{0, benchmark::tick_budget_ns, benchmark::tick_budget_ns + 1}
+    );
     report.simulation_phases.push_back(
         {"movement", benchmark::summarize(std::array<uint64_t, 2>{2, 4})}
     );
@@ -324,6 +353,14 @@ void reports() {
     CHECK(json.find("Map \\\"name\\\"\\\\path\\u000a\\u0009\\u0000é") != std::string::npos);
     CHECK(json.find("\"renderer\": \"none\"") != std::string::npos);
     CHECK(json.find("\"mean\": 1.5") != std::string::npos);
+    CHECK(json.find("\"tick_budget_ns\": 33333333") != std::string::npos);
+    CHECK(json.find("\"thread_cpu_clock\": \"CLOCK_THREAD_CPUTIME_ID\"") != std::string::npos);
+    CHECK(json.find("\"thread_cpu_status\": \"available\"") != std::string::npos);
+    CHECK(json.find("\"thread_cpu_available\": true") != std::string::npos);
+    CHECK(json.find("\"tick_thread_cpu_ns\": {\"count\": 3, \"min\": 0") != std::string::npos);
+    CHECK(json.find("\"total\": 66666667") != std::string::npos);
+    CHECK(json.find("\"over_budget\": 1") != std::string::npos);
+    CHECK(json.find("\"total_saturated\": false") != std::string::npos);
     CHECK(json.find("\"simulation_phase_ns\": {") != std::string::npos);
     CHECK(json.find("\"movement\": {\"count\": 2, \"min\": 2") != std::string::npos);
     CHECK(json.find("\"phase\\\"name\":") != std::string::npos);
@@ -348,15 +385,31 @@ void reports() {
     CHECK(json.find("cumulative_setup_warmup_and_measured") != std::string::npos);
     CHECK(json.find("\"activity_observed\": true") != std::string::npos);
     CHECK(json.find("after_each_successful_warmup_and_measured_tick") != std::string::npos);
+    report.thread_cpu_clock = "unsupported";
+    report.thread_cpu_status = "unsupported";
+    report.thread_cpu_ticks.reset();
+    const auto unsupported = benchmark::report_json(report);
+    CHECK(unsupported.find("\"thread_cpu_available\": false") != std::string::npos);
+    CHECK(unsupported.find("\"thread_cpu_status\": \"unsupported\"") != std::string::npos);
+    CHECK(unsupported.find("\"tick_thread_cpu_ns\": null") != std::string::npos);
     report.completed = false;
     report.error = "tick failed";
     report.successful_ticks = 5;
     report.ticks.mean_ns = std::numeric_limits<double>::infinity();
+    report.thread_cpu_clock = "GetThreadTimes";
+    report.thread_cpu_status = "read_failed";
+    report.ticks.total_ns = std::numeric_limits<uint64_t>::max();
+    report.ticks.total_ns_saturated = true;
     const auto failed = benchmark::report_json(report);
     CHECK(failed.find("\"completed\": false") != std::string::npos);
     CHECK(failed.find("\"error\": \"tick failed\"") != std::string::npos);
     CHECK(failed.find("\"successful_ticks\": 5") != std::string::npos);
     CHECK(failed.find("\"mean\": null") != std::string::npos);
+    CHECK(failed.find("\"thread_cpu_clock\": \"GetThreadTimes\"") != std::string::npos);
+    CHECK(failed.find("\"thread_cpu_status\": \"read_failed\"") != std::string::npos);
+    CHECK(failed.find("\"tick_thread_cpu_ns\": null") != std::string::npos);
+    CHECK(failed.find("\"total\": 18446744073709551615") != std::string::npos);
+    CHECK(failed.find("\"total_saturated\": true") != std::string::npos);
 }
 
 } // namespace
