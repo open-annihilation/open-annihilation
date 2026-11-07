@@ -49,8 +49,9 @@ candidates describe query work. Projectile capacity and failed allocations
 expose a saturated shot pool.
 Shared-route and local-flow work counters have an explicit cumulative
 setup/warmup/measured scope. `full_route_searches` counts traditional route
-searches started; target query, candidate and full-scan counts show how much
-target selection examines. Standable terminal cells do not establish route
+searches started; target queries, sighting-resolution attempts (including
+fallback scans and radar), and full-scan counts show how much target selection
+examines. Standable terminal cells do not establish route
 connectivity; the progress summaries expose incomplete trips on the installed
 map. `goal_metrics_available` distinguishes a movement
 assignment from the zero-filled default summaries. `simulation_phase_ns`
