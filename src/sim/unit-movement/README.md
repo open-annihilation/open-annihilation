@@ -44,6 +44,12 @@ Final collision checks still reject occupied terrain. Waiting priority uses
 clocks captured before any unit moves in the tick, with unit IDs breaking
 ties. The original navigator keeps its mission and destination.
 
+The controller-aware overload probes along the actual projected steering
+aim while retaining the original waypoint for candidate directions and
+passing history. It keeps the original scan horizon, limited to eight
+cells. A distant waypoint can otherwise appear clear while the controller
+pulls a unit back toward an occupied part of its original segment.
+
 A retained avoidance leg completes within five world units of its target or
 after crossing the target's forward plane. This lets a turning unit resume
 its route without circling a short waypoint. A replacement route also clears

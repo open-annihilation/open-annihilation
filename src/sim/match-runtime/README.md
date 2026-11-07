@@ -706,6 +706,10 @@ before that worker completes. Shared publication uses `accept_path` and the
 same route-change flag as a full search, observes its 60-tick retry interval,
 and clears completed local history. Pending fields do not consume that
 interval. Publication adds no network transport budget.
+The first active player rotates each tick, including sparse player slots,
+so the shared probe budget does not always favour the first army. A mature
+replacement that only follows a geometric prefix of the live guide leaves
+its local passing head and ordinary dynamic search available.
 
 Local traffic heads temporarily steer around mobile ground units, including
 idle units, while preserving the original navigator and final occupancy veto.
@@ -724,6 +728,12 @@ before every lookup. Class records and physical plots remain unchanged
 during that invocation; event hooks may only observe them. A new invocation
 starts a new epoch, even on the same simulation tick. The memo is private
 scratch outside saved tables and shared hashes.
+
+Traffic probes use the exact projected target shared with the ground
+steering controller, rather than only its distant waypoint. Passing angles
+and completed-leg history retain the original route direction. The scan
+distance remains bounded by the original waypoint and eight cells, even
+when the controller's projected target is closer.
 
 Nearby target queries preserve ascending sighting order and exact legacy
 filtering; broad or crowded queries use the full scan. A preallocated slot
@@ -762,6 +772,17 @@ index are private derived state, outside the saved navigation tables and
 shared hashes. Isolated 20,000-unit CPU measurements and the remaining
 installed-map congestion are described in
 [Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
+
+V2 also preallocates `OrderOwnershipIndex` for order lookup, ownership slots
+and observer-list certificates. Deletion destroys an order immediately and
+leaves an empty ownership slot; later compaction preserves creation order,
+including the order of nano effects. Capacity pressure keeps a linear
+storage-reuse fallback. Observer certificates track their preceding order,
+verify the actual list edge before unlinking and update the successor on
+every mutation. Overflow and uncertified entries retain legacy lookup and
+checks. Explicit full graph audits and corruption controls cover these
+derived certificates. None of this storage is saved or hashed; Off and v1
+retain their original ownership and observer operations.
 
 ## Verification
 

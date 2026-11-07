@@ -89,6 +89,11 @@ repeats the last point for requested missing trailing points and outputs Y
 zero. `Navigation` has the game's 20-point capacity. Invalid counts are
 rejected rather than reading outside it.
 
+`steering_target.hpp` exposes the controller's existing eighty-pixel target
+projection and the distance to the original next point. Native steering and
+Enhanced traffic probes share that exact calculation. The original distance
+continues to control speed limits, and Off and v1 retain their arithmetic.
+
 ## Owned spawn adapter
 
 `GroundRuntime` owns concrete movement and navigation state and projects it
