@@ -506,8 +506,14 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     spatial_.terrain_width = input.map.attribute_width;
     spatial_.terrain_height = input.map.attribute_height;
     if (enhanced_ && input.rules.setup.enhanced_mode.version >= 2) {
+        constexpr int32_t regional_flow_version = 3;
         enhanced_->shared_routes = std::make_unique<sim::ground_orders::FlowCache>(
-            spatial_.terrain_width, spatial_.terrain_height
+            spatial_.terrain_width,
+            spatial_.terrain_height,
+            sim::ground_orders::FlowLimits{},
+            input.rules.setup.enhanced_mode.version >= regional_flow_version
+                ? sim::ground_orders::FlowPreset::large_regions
+                : sim::ground_orders::FlowPreset::original
         );
         const bool routes_added = add_rule_state(
             rule_state_,

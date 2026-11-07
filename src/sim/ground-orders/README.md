@@ -170,6 +170,14 @@ Pending requests leave the full search's retry stamp untouched. The cache
 retains its cursors and frontiers in validated little-endian save bytes;
 it is owner-local state, excluded from shared simulation digests.
 
+The default `FlowPreset::original` retains format 1, 32-cell destination
+regions and extraction of up to 128 coarse edges. Enhanced rules version 3
+selects `FlowPreset::large_regions`: format 2, 96-cell regions and at most
+16 coarse edges per prefix. A blocked connection rejects that route and
+marks the field for bounded refresh while preserving other useful branches.
+The work and probe limits remain the same. Both formats use the same table
+layout and size; restoring another preset's format fails without changes.
+
 ## Verification
 
 The native test exercises handler→goal→initial route→steering→arrival, plus

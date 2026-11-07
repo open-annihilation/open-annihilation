@@ -44,6 +44,10 @@ struct FlowLimits {
     uint32_t route_probes_per_tick{65'536};
 };
 
+/// Selects immutable shared-route key, prefix and blocked-field behavior.
+/// The original preset retains the version-two match behavior and format.
+enum class FlowPreset : uint8_t { original, large_regions };
+
 /// A movement class and a player's knowledge of the static map.
 struct FlowContext {
     uint32_t movement_class{}; ///< stable movement-class table index, 0 through 31
@@ -90,6 +94,14 @@ class FlowCache {
     /// @param height map height in footprint cells
     /// @param limits maximum fields, total coarse cells and work per tick
     FlowCache(uint32_t width, uint32_t height, FlowLimits limits = {});
+
+    /// Allocates a specific shared-route preset without changing legacy defaults.
+    ///
+    /// @param width map width in footprint cells
+    /// @param height map height in footprint cells
+    /// @param limits maximum fields, total coarse cells and work per tick
+    /// @param preset immutable key, prefix and blocked-field policy
+    FlowCache(uint32_t width, uint32_t height, FlowLimits limits, FlowPreset preset);
 
     /// Clears at most 65,536 direction bytes and spends the configured expansion budget.
     /// Seed connections consume expansion credits; clearing uses contiguous slices.

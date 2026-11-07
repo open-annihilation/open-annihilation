@@ -839,6 +839,362 @@ void a_blocked_first_corner_keeps_the_start_anchor() {
     CHECK(points[2] == (RoutePoint{272, 272}));
 }
 
+/// Pins the original guides and saved frontier bytes across revisions and a load pass.
+uint64_t legacy_flow_hash() {
+    constexpr uint64_t basis = 14695981039346656037ull, prime = 1099511628211ull;
+    uint64_t hash = basis;
+    const auto byte = [&](uint8_t value) { hash = (hash ^ value) * prime; };
+    const auto number = [&](uint32_t value) {
+        for (unsigned shift = 0; shift < 32; shift += 8)
+            byte(static_cast<uint8_t>(value >> shift));
+    };
+    Grid grid(192, 128);
+    for (uint32_t z = 24; z <= 100; ++z)
+        grid.cells[z * grid.width + 96] = 0;
+    FlowCache cache(192, 128, {8, 12288, 64, 1024});
+    FlowCache loaded(192, 128, {8, 12288, 64, 1024});
+    uint32_t revision = 0;
+    for (uint32_t tick = 1; tick <= 160; ++tick) {
+        if (tick == 60)
+            for (uint32_t z = 0; z < 24; ++z)
+                grid.cells[z * grid.width + 96] = 0;
+        if (tick == 70 || tick == 125)
+            ++revision;
+        if (tick == 125)
+            grid.cells[64 * grid.width + 96] = 1;
+        cache.advance(tick, revision, grid.sampler());
+        if (tick > 50)
+            loaded.advance(tick, revision, grid.sampler());
+        for (uint32_t actor = 0; actor < 8; ++actor) {
+            const auto unit = unit_at(
+                static_cast<int16_t>(12 + actor * 2), static_cast<int16_t>(16 + actor * 12)
+            );
+            const auto goal =
+                circle(static_cast<int16_t>(160 + actor), static_cast<int16_t>(16 + actor * 12));
+            std::array<RoutePoint, navigation_capacity> points{}, resumed{};
+            uint32_t count{}, resumed_count{};
+            const auto ctx = context(0, revision);
+            const auto result = cache.route(ctx, unit, goal, points, count, grid.sampler());
+            number(static_cast<uint32_t>(result));
+            number(count);
+            for (uint32_t i = 0; i < count; ++i) {
+                number(static_cast<uint16_t>(points[i][0]));
+                number(static_cast<uint16_t>(points[i][1]));
+            }
+            if (tick > 50) {
+                CHECK(
+                    loaded.route(ctx, unit, goal, resumed, resumed_count, grid.sampler()) == result
+                );
+                CHECK(count == resumed_count && points == resumed);
+            }
+        }
+        if (tick == 50) {
+            CHECK(loaded.restore(cache.state_bytes()));
+            loaded.advance(tick, revision, grid.sampler());
+        }
+        if (tick >= 50)
+            CHECK(
+                std::equal(
+                    cache.state_bytes().begin(),
+                    cache.state_bytes().end(),
+                    loaded.state_bytes().begin()
+                )
+            );
+        for (const auto value : cache.state_bytes())
+            byte(value);
+    }
+    return hash;
+}
+
+void original_preset_keeps_its_state_and_guides() {
+    constexpr uint64_t expected = 0xaa4f8ef12e56dfc2ull;
+    CHECK(legacy_flow_hash() == expected);
+}
+
+/// Keeps old constructor bytes and refuses cross-preset or inconsistent state atomically.
+void route_presets_keep_distinct_formats_and_goal_regions() {
+    Grid grid(128, 128);
+    const FlowLimits limits{4, 4096, 64, 256};
+    FlowCache original(128, 128, limits);
+    FlowCache explicit_original(128, 128, limits, FlowPreset::original);
+    FlowCache regional(128, 128, limits, FlowPreset::large_regions);
+    FlowCache loaded(128, 128, limits, FlowPreset::large_regions);
+    CHECK(
+        std::equal(
+            original.state_bytes().begin(),
+            original.state_bytes().end(),
+            explicit_original.state_bytes().begin()
+        )
+    );
+    CHECK(original.state_bytes().size() == regional.state_bytes().size());
+    CHECK(original.state_bytes()[4] == 1 && regional.state_bytes()[4] == 2);
+    const auto unit = unit_at(4, 4);
+    const auto first = circle(40, 40), second = circle(80, 80);
+    CHECK(query(original, grid, unit, first) == FlowResult::fallback);
+    CHECK(query(original, grid, unit, second) == FlowResult::fallback);
+    CHECK(query(regional, grid, unit, first) == FlowResult::fallback);
+    CHECK(query(regional, grid, unit, second) == FlowResult::pending);
+    CHECK(regional.counters().fields_started == 1);
+    CHECK(original.counters().fields_started == 0);
+    CHECK(query(original, grid, unit, first) == FlowResult::pending);
+    CHECK(query(original, grid, unit, second) == FlowResult::pending);
+    CHECK(original.counters().fields_started == 2);
+    const std::vector<uint8_t> old_bytes(
+        original.state_bytes().begin(), original.state_bytes().end()
+    );
+    const std::vector<uint8_t> new_bytes(
+        regional.state_bytes().begin(), regional.state_bytes().end()
+    );
+    CHECK(!original.restore(new_bytes));
+    CHECK(!regional.restore(old_bytes));
+    CHECK(std::equal(old_bytes.begin(), old_bytes.end(), original.state_bytes().begin()));
+    CHECK(std::equal(new_bytes.begin(), new_bytes.end(), regional.state_bytes().begin()));
+    auto forged = old_bytes;
+    forged[4] = 2;
+    CHECK(!regional.restore(forged));
+    forged = new_bytes;
+    constexpr size_t admission_region_x = 128 + 28;
+    forged[admission_region_x] = 255;
+    CHECK(!regional.restore(forged));
+    CHECK(std::equal(new_bytes.begin(), new_bytes.end(), regional.state_bytes().begin()));
+    CHECK(loaded.restore(new_bytes));
+    for (uint32_t tick = 1; tick <= 40; ++tick) {
+        regional.advance(tick, 0, grid.sampler());
+        loaded.advance(tick, 0, grid.sampler());
+        CHECK(query(regional, grid, unit, second) == query(loaded, grid, unit, second));
+        CHECK(
+            std::equal(
+                regional.state_bytes().begin(),
+                regional.state_bytes().end(),
+                loaded.state_bytes().begin()
+            )
+        );
+    }
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    regional.advance(41, 0, grid.sampler());
+    CHECK(
+        regional.route(context(), unit, second, points, count, grid.sampler()) == FlowResult::ready
+    );
+    CHECK(count >= 2);
+    if (count >= 2)
+        CHECK(points[count - 1] == (RoutePoint{1288, 1288}));
+}
+
+/// A newly learned wall must not discard a useful branch of the same field.
+void regional_blocked_edge_keeps_an_unaffected_branch_ready() {
+    Grid grid(128, 128);
+    for (uint32_t z = 48; z <= 80; ++z)
+        grid.cells[z * 128 + 64] = 0;
+    FlowCache cache(128, 128, {1, 1024, 2048}, FlowPreset::large_regions);
+    const auto goal = circle(112, 64);
+    const auto north = unit_at(32, 40), south = unit_at(32, 88);
+    (void)query(cache, grid, north, goal);
+    (void)query(cache, grid, north, goal);
+    finish(cache, grid);
+    CHECK(query(cache, grid, north, goal) == FlowResult::ready);
+    CHECK(query(cache, grid, south, goal) == FlowResult::ready);
+    const auto before = cache.counters();
+    // Close the northern end of the original wall; the south stays open.
+    for (uint32_t z = 0; z < 48; ++z)
+        grid.cells[z * 128 + 64] = 0;
+    CHECK(query(cache, grid, north, goal) == FlowResult::fallback);
+    CHECK(query(cache, grid, south, goal) == FlowResult::ready);
+    CHECK(query(cache, grid, north, goal) == FlowResult::fallback);
+    CHECK(cache.counters().fields_started == before.fields_started);
+    CHECK(cache.counters().invalidations == before.invalidations);
+    cache.advance(40, 0, grid.sampler());
+    const auto probes = grid.queries;
+    uint32_t pending = 0;
+    for (uint32_t i = 0; i < 1000; ++i)
+        pending += query(cache, grid, north, goal) == FlowResult::pending;
+    CHECK(pending > 0);
+    CHECK(grid.queries - probes <= 65'536);
+    CHECK(cache.counters().fields_started == before.fields_started);
+    cache.advance(41, 0, grid.sampler());
+    CHECK(query(cache, grid, south, goal) == FlowResult::ready);
+}
+
+/// Lets a dirty frontier finish, then repairs its blocked branch after restore.
+void regional_blocked_building_edge_resumes_and_refreshes() {
+    Grid grid(128, 128);
+    FlowCache original(128, 128, {1, 1024, 32}, FlowPreset::large_regions);
+    FlowCache restored(128, 128, {1, 1024, 32}, FlowPreset::large_regions);
+    const auto goal = circle(112, 64);
+    const auto affected = unit_at(108, 68), unaffected = unit_at(112, 72);
+    (void)query(original, grid, affected, goal);
+    (void)query(original, grid, affected, goal);
+    original.advance(1, 0, grid.sampler());
+    CHECK(query(original, grid, affected, goal) == FlowResult::ready);
+    grid.cells[66 * 128 + 110] = 0;
+    CHECK(query(original, grid, affected, goal) == FlowResult::fallback);
+    CHECK(query(original, grid, unaffected, goal) == FlowResult::ready);
+    CHECK(restored.restore(original.state_bytes()));
+    restored.advance(1, 0, grid.sampler());
+    CHECK(
+        std::equal(
+            original.state_bytes().begin(),
+            original.state_bytes().end(),
+            restored.state_bytes().begin()
+        )
+    );
+    bool repaired = false;
+    for (uint32_t tick = 2; tick <= 180; ++tick) {
+        const auto before = original.counters();
+        original.advance(tick, 0, grid.sampler());
+        restored.advance(tick, 0, grid.sampler());
+        const auto after = original.counters();
+        CHECK(after.cells_expanded - before.cells_expanded <= 32);
+        CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
+        const auto probes = grid.queries;
+        const auto result = query(original, grid, affected, goal);
+        CHECK(grid.queries - probes <= 65'536);
+        CHECK(result == query(restored, grid, affected, goal));
+        repaired |= result == FlowResult::ready;
+        CHECK(query(original, grid, unaffected, goal) == query(restored, grid, unaffected, goal));
+        if (tick == 80) {
+            CHECK(original.counters().cells_expanded == 1024);
+            CHECK(original.counters().fields_started == 1);
+            CHECK(original.counters().invalidations == 0);
+            CHECK(!repaired);
+        }
+        const auto once = original.counters();
+        original.advance(tick, 0, grid.sampler());
+        restored.advance(tick, 0, grid.sampler());
+        CHECK(original.counters().cells_expanded == once.cells_expanded);
+        CHECK(original.counters().cells_cleared == once.cells_cleared);
+        CHECK(
+            std::equal(
+                original.state_bytes().begin(),
+                original.state_bytes().end(),
+                restored.state_bytes().begin()
+            )
+        );
+    }
+    CHECK(repaired);
+    CHECK(original.counters().fields_started == 2);
+    CHECK(original.counters().invalidations == 1);
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(
+        original.route(context(), affected, goal, points, count, grid.sampler()) ==
+        FlowResult::ready
+    );
+    CHECK(count >= 3); // The repaired route still goes around the learned obstacle.
+}
+
+/// Checks continuous segment intersections independently of the sampler's walk.
+bool segment_avoids_blocked_cells(const Grid& grid, RoutePoint from, RoutePoint to) {
+    const std::array<double, 2> start{double(from[0] - 8) / 16, double(from[1] - 8) / 16};
+    const std::array<double, 2> delta{double(to[0] - from[0]) / 16, double(to[1] - from[1]) / 16};
+    for (uint32_t z = 0; z < grid.height; ++z)
+        for (uint32_t x = 0; x < grid.width; ++x) {
+            if (grid.cells[z * grid.width + x] != 0)
+                continue;
+            const std::array<double, 2> centre{double(x), double(z)};
+            double first = 0, last = 1;
+            for (size_t axis = 0; axis < 2; ++axis) {
+                if (delta[axis] == 0) {
+                    if (std::abs(start[axis] - centre[axis]) > 0.5)
+                        first = 2;
+                } else {
+                    const auto a = (centre[axis] - 0.5 - start[axis]) / delta[axis];
+                    const auto b = (centre[axis] + 0.5 - start[axis]) / delta[axis];
+                    first = std::max(first, std::min(a, b));
+                    last = std::min(last, std::max(a, b));
+                }
+            }
+            if (first <= last)
+                return false;
+        }
+    return true;
+}
+
+/// Delivers a legal nearby prefix while a stale connection farther away waits for repair.
+void regional_prefixes_continue_to_the_original_goal_after_restore() {
+    Grid grid(512, 128);
+    for (uint32_t x = 0; x <= 256; ++x)
+        grid.cells[48 * 512 + x] = 0;
+    for (uint32_t z = 48; z <= 80; ++z)
+        grid.cells[z * 512 + 256] = 0;
+    FlowCache original(512, 128, {1, 4096, 4096, 256}, FlowPreset::large_regions);
+    FlowCache restored(512, 128, {1, 4096, 4096, 256}, FlowPreset::large_regions);
+    auto unit = unit_at(32, 64);
+    const auto goal = circle(480, 64);
+    const auto saved_goal = goal.cell;
+    (void)query(original, grid, unit, goal);
+    (void)query(original, grid, unit, goal);
+    finish(original, grid);
+    // The old tree crossed row84. A longer guide would encounter this new
+    // barrier before delivering any of the still useful western approach.
+    for (uint32_t z = 81; z < 88; ++z)
+        grid.cells[z * 512 + 256] = 0;
+    bool saved = false, arrived = false, initial_prefix = true;
+    uint32_t consumed = 0;
+    for (uint32_t tick = 40; tick <= 180; ++tick) {
+        const auto before = original.counters();
+        original.advance(tick, 0, grid.sampler());
+        if (saved)
+            restored.advance(tick, 0, grid.sampler());
+        CHECK(original.counters().cells_expanded - before.cells_expanded <= 4096);
+        CHECK(original.counters().cells_cleared - before.cells_cleared <= 65'536);
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto probes = grid.queries;
+        const auto result = original.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(grid.queries - probes <= 256);
+        CHECK(goal.cell == saved_goal && goal.shape == GoalShape::circle);
+        if (saved) {
+            std::array<RoutePoint, navigation_capacity> resumed{};
+            uint32_t resumed_count{};
+            CHECK(
+                restored.route(context(), unit, goal, resumed, resumed_count, grid.sampler()) ==
+                result
+            );
+            CHECK(resumed_count == count);
+            CHECK(std::equal(points.begin(), points.begin() + count, resumed.begin()));
+            CHECK(
+                std::equal(
+                    original.state_bytes().begin(),
+                    original.state_bytes().end(),
+                    restored.state_bytes().begin()
+                )
+            );
+        }
+        if (initial_prefix) {
+            CHECK(result == FlowResult::ready && count >= 2);
+            if (result != FlowResult::ready || count < 2)
+                return;
+            CHECK(points[count - 1][0] < 256 * 16);
+            CHECK(points[count - 1] != (RoutePoint{7688, 1032}));
+            CHECK(std::abs(int32_t(points[count - 1][0]) - points[0][0]) <= 1024);
+            CHECK(std::abs(int32_t(points[count - 1][1]) - points[0][1]) <= 1024);
+            initial_prefix = false;
+        }
+        if (result == FlowResult::fallback && !saved) {
+            CHECK(restored.restore(original.state_bytes()));
+            restored.advance(tick, 0, grid.sampler());
+            saved = true;
+        }
+        if (result != FlowResult::ready)
+            continue;
+        for (uint32_t i = 1; i < count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+        ++consumed;
+        unit = unit_at(
+            static_cast<int16_t>((points[count - 1][0] - 8) / 16),
+            static_cast<int16_t>((points[count - 1][1] - 8) / 16)
+        );
+        if (unit.cell_x == goal.cell[0] && unit.cell_z == goal.cell[1]) {
+            arrived = true;
+            break;
+        }
+    }
+    CHECK(saved && arrived && consumed >= 4);
+    CHECK(original.counters().fields_started == 2);
+    CHECK(original.counters().invalidations == 1);
+}
+
 void malformed_frontiers_are_rejected() {
     Grid grid(32, 32);
     FlowCache cache(32, 32, {1, 64, 1}), restored(32, 32, {1, 64, 1});
@@ -875,6 +1231,11 @@ void malformed_frontiers_are_rejected() {
 } // namespace
 
 int main() {
+    original_preset_keeps_its_state_and_guides();
+    route_presets_keep_distinct_formats_and_goal_regions();
+    regional_blocked_edge_keeps_an_unaffected_branch_ready();
+    regional_blocked_building_edge_resumes_and_refreshes();
+    regional_prefixes_continue_to_the_original_goal_after_restore();
     visible_first_corner_does_not_require_a_short_anchor_turn();
     a_blocked_first_corner_keeps_the_start_anchor();
     unrelated_revisions_keep_complete_routes_and_admissions();

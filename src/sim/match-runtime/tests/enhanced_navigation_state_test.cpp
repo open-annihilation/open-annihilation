@@ -62,7 +62,13 @@ void version_one_and_off_keep_no_flow_state() {
 
 /// Installs an unfinished field whose revision is one behind the current map.
 void install_pending_field(runtime::Match& match) {
-    routes::FlowCache cache(16, 16);
+    routes::FlowCache cache(
+        16,
+        16,
+        routes::FlowLimits{},
+        match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
+                                                       : routes::FlowPreset::original
+    );
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
@@ -109,9 +115,9 @@ void install_steering_state(runtime::Match& match, uint16_t unit) {
     match.ground_runtime(unit)->movement.last_motion_tick = match.state().game.tick - 9;
 }
 
-void navigation_state_survives_restore() {
-    Fixture source(options_for(2));
-    Fixture loaded(options_for(2));
+void navigation_state_survives_restore(uint32_t version) {
+    Fixture source(options_for(version));
+    Fixture loaded(options_for(version));
     auto& first = source.spawn(0, 64, 64);
     auto& second = loaded.spawn(0, 64, 64);
     CHECK(first.unit_index == second.unit_index);
@@ -163,8 +169,8 @@ void navigation_state_survives_restore() {
     );
 }
 
-void malformed_state_is_rejected_atomically() {
-    Fixture fixture(options_for(2));
+void malformed_state_is_rejected_atomically(uint32_t version) {
+    Fixture fixture(options_for(version));
     auto& unit = fixture.spawn(0, 64, 64);
     fixture.match->simulation().tick = 123;
     install_pending_field(*fixture.match);
@@ -203,6 +209,23 @@ void malformed_state_is_rejected_atomically() {
     constexpr std::array<uint8_t, 5> unscanned{};
     CHECK(scan.restore(scan.context, unscanned));
     CHECK(bytes_of(scan) == std::vector<uint8_t>(unscanned.begin(), unscanned.end()));
+}
+
+/// Match construction fixes the routing format to its recorded rules version.
+void different_presets_refuse_each_others_routes() {
+    Fixture original(options_for(2));
+    Fixture regional(options_for(3));
+    install_pending_field(*original.match);
+    install_pending_field(*regional.match);
+    const auto& old_routes = table(*original.match, "shared-routes");
+    const auto& new_routes = table(*regional.match, "shared-routes");
+    const auto old_bytes = bytes_of(old_routes), new_bytes = bytes_of(new_routes);
+    CHECK(old_bytes.size() == new_bytes.size());
+    CHECK(old_bytes[4] == 1 && new_bytes[4] == 2);
+    CHECK(!old_routes.restore(old_routes.context, new_bytes));
+    CHECK(!new_routes.restore(new_routes.context, old_bytes));
+    CHECK(bytes_of(old_routes) == old_bytes);
+    CHECK(bytes_of(new_routes) == new_bytes);
 }
 
 /// Rebuilds the fixture with one real, permissive ground movement class.
@@ -1255,8 +1278,11 @@ void passing_units_rejoin_and_arrive() {
 int main() {
     try {
         version_one_and_off_keep_no_flow_state();
-        navigation_state_survives_restore();
-        malformed_state_is_rejected_atomically();
+        for (const uint32_t version : {2u, 3u}) {
+            navigation_state_survives_restore(version);
+            malformed_state_is_rejected_atomically(version);
+        }
+        different_presets_refuse_each_others_routes();
         shared_poll_progresses_without_legacy_credit();
         shared_poll_rotates_extraction_opportunities();
         shared_poll_preserves_an_active_full_search();
