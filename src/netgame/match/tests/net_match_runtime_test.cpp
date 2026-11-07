@@ -18,6 +18,7 @@
 #include "oa/sim/air/driver.hpp"
 #include "oa/sim/air/goal.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
+#include "oa/sim/unit_movement/local_flow.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/weapon_execution/interceptor.hpp"
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
@@ -62,6 +63,9 @@ constexpr uint16_t kFloaterType = 4;
 constexpr uint32_t kNavalSeaLevel = 60;
 constexpr int8_t kFloaterWaterline = 4;
 constexpr uint32_t kUptimeMilliseconds = 1000;
+constexpr uint32_t released_mode = 0;
+constexpr uint32_t enhanced_capacity_mode = 1;
+constexpr uint32_t enhanced_flow_mode = 2;
 // The transport machines' air transport, air pad and cargo types. The cargo
 // stands kCargoHeight units high; the pad's landing piece sits on its deck.
 constexpr uint16_t kTransportType = 5;
@@ -737,7 +741,8 @@ struct Pair {
         bool armed = false,
         bool killable = false,
         bool naval = false,
-        bool transports = false
+        bool transports = false,
+        uint32_t enhanced_version = released_mode
     )
         : host(
               std::make_unique<Machine>(structure_type, cells, armed, killable, naval, transports)
@@ -747,6 +752,10 @@ struct Pair {
           ) {
         host->inbox.peer = &joiner->inbox;
         joiner->inbox.peer = &host->inbox;
+        for (auto* machine : {host.get(), joiner.get()}) {
+            machine->rules.setup.enhanced_mode.enabled = enhanced_version != released_mode;
+            machine->rules.setup.enhanced_mode.version = static_cast<int32_t>(enhanced_version);
+        }
         host->start(0);
         joiner->start(1);
     }
@@ -854,6 +863,154 @@ void replicated_play() {
     }
     CHECK(staging != nullptr && staging->metal.produced >= before + 50.0F - 0.01F);
     CHECK(host_world.game.players[0].metal == 450.0F);
+}
+
+/// Shares traffic detours and their return to the original route at the owner's tick.
+void local_traffic_heads_keep_their_copies() {
+    for (const uint32_t version : {released_mode, enhanced_capacity_mode, enhanced_flow_mode}) {
+        Pair pair(0, kMapCells, false, false, false, false, version);
+        auto& host = *pair.host;
+        auto& joiner = *pair.joiner;
+        auto* southbound = host.match->create({0, 1, {72u << 16, 0, 48u << 16}, true, 1, 0});
+        auto* northbound = host.match->create({0, 1, {72u << 16, 0, 144u << 16}, true, 1, 0});
+        CHECK(southbound != nullptr && northbound != nullptr);
+        if (southbound == nullptr || northbound == nullptr)
+            continue;
+        const std::array<uint16_t, 2> indices{southbound->unit_index, northbound->unit_index};
+        std::array<Divergence, 2> divergence;
+        bool saw_head = false;
+        bool saw_original_route = false;
+        bool resumed = false;
+        for (uint32_t t = 0; t < 320; ++t) {
+            if (t == 30) {
+                (void)host.match->issue_ground_move(indices[0], {72 << 16, 0, 200 << 16}, false);
+                (void)host.match->issue_ground_move(indices[1], {72 << 16, 0, 24 << 16}, false);
+            }
+            if (t == 32) {
+                // Both valid routes share a lane. Local traffic steering may
+                // temporarily leave it while the missions retain these goals.
+                for (std::size_t i = 0; i < indices.size(); ++i) {
+                    auto& nav = host.match->ground_runtime(indices[i])->navigation;
+                    const int16_t start = i == 0 ? 48 : 144;
+                    const int16_t end = i == 0 ? 200 : 24;
+                    nav.points[0] = {72, start};
+                    nav.points[1] = nav.points[2] = {72, end};
+                    nav.count = 3;
+                    nav.flags = sim::ground_orders::route_present_flag |
+                                sim::ground_orders::route_changed_flag;
+                }
+            }
+            if (t == 240)
+                for (const auto index : indices)
+                    (void)host.match->issue_stop(index);
+            step(host);
+            for (std::size_t i = 0; i < indices.size(); ++i)
+                divergence[i].note_owner(host, indices[i]);
+            step(joiner);
+            bool active = false;
+            for (std::size_t i = 0; i < indices.size(); ++i) {
+                divergence[i].compare(joiner, 0, indices[i]);
+                const auto* head = host.match->local_flow_head(indices[i]);
+                const auto* owner = host.match->ground_runtime(indices[i]);
+                const auto* copy = joiner.match->ground_runtime(indices[i]);
+                if (head == nullptr || !head->active)
+                    continue;
+                active = true;
+                saw_head = true;
+                saw_original_route =
+                    saw_original_route || (owner->navigation.count > 1 && head->count > 1 &&
+                                           owner->navigation.points[1] != head->points[1]);
+                if (copy != nullptr && joiner.match->state().game.players[0].last_sim_tick ==
+                                           static_cast<int32_t>(host.match->state().game.tick)) {
+                    CHECK(copy->mirrored_navigation.count == head->count);
+                    for (uint8_t point = 0; point < head->count; ++point)
+                        CHECK(copy->mirrored_navigation.points[point] == head->points[point]);
+                }
+            }
+            if (t > 250 && saw_head && !active)
+                resumed = true;
+        }
+        for (const auto& tracked : divergence) {
+            CHECK(tracked.compared >= 310 && tracked.moving > 10);
+            CHECK(tracked.differing == 0);
+        }
+        CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
+        if (version == enhanced_flow_mode)
+            CHECK(saw_head && saw_original_route && resumed);
+        else
+            CHECK(!saw_head);
+    }
+}
+
+/// Publishes restored braking and steering heads without replacing the saved route.
+void restored_traffic_heads_publish_their_effective_route() {
+    Pair pair(0, kMapCells, false, false, false, false, enhanced_flow_mode);
+    auto& host = *pair.host;
+    auto* unit = host.match->create({0, 1, {48u << 16, 0, 48u << 16}, true, 1, 0});
+    CHECK(unit != nullptr);
+    if (unit == nullptr)
+        return;
+    const auto index = unit->unit_index;
+    for (uint32_t t = 0; t < 4; ++t) {
+        step(host);
+        step(*pair.joiner);
+    }
+    auto& world = host.match->state();
+    auto& nav = host.match->ground_runtime(index)->navigation;
+    nav.points[0] = {48, 48};
+    nav.points[1] = nav.points[2] = {48, 176};
+    nav.count = 3;
+    nav.flags = sim::ground_orders::route_present_flag;
+    const auto original = nav.points;
+    const auto* table = sim::match_runtime::find_rule_state(host.match->rule_state(), "local-flow");
+    CHECK(table != nullptr && table->restore != nullptr);
+    if (table == nullptr || table->restore == nullptr)
+        return;
+    std::vector<sim::unit_movement::LocalFlowHead> heads(world.unit_slot_count);
+    std::vector<uint8_t> bytes(heads.size() * sim::unit_movement::local_flow_head_bytes);
+    // A saved active head can brake, steer, or relinquish its temporary
+    // target. Each published delta must describe that effective route.
+    constexpr uint8_t braking = 0, steering = 1, original_route = 2;
+    for (const auto state : {braking, steering, original_route}) {
+        auto& head = heads[index];
+        head.active = state != original_route;
+        head.tick = world.game.tick;
+        head.count = state == braking ? 0 : 3;
+        head.points = {{{48, 48}, {64, 96}, {48, 176}}};
+        CHECK(sim::unit_movement::write_local_flow_heads(heads, bytes));
+        CHECK(table->restore(table->context, bytes));
+        nav.flags |= sim::ground_orders::route_changed_flag;
+        host.inbox.sent.clear();
+        auto& hooks = host.match->multiplayer;
+        hooks.local_player_ticked(hooks.context, world.game.players[0]);
+        packet_layer_flush(host.connection.packets, 0, true);
+        CHECK(nav.count == 3 && nav.points == original);
+        CHECK(sim::ground_orders::route_present(nav));
+        CHECK((nav.flags & sim::ground_orders::route_changed_flag) == 0);
+        const auto records = sent_of(host.inbox, RecordType::unit_state);
+        CHECK(records.size() == 1);
+        if (records.size() != 1)
+            continue;
+        const auto& record = records[0].bytes;
+        BitReader reader{};
+        bit_reader_init(&reader, record.data(), record.size());
+        (void)bit_reader_read(&reader, 8);
+        (void)bit_reader_read(&reader, 16);
+        (void)bit_reader_read(&reader, 32);
+        CHECK(
+            bit_reader_read(&reader, unit_state_unit_index_bits) ==
+            index - world.game.players[0].base_unit_id
+        );
+        CHECK(bit_reader_read(&reader, world.game.unit_def_id_bits) == 1);
+        WaypointDelta delta{};
+        read_waypoint_delta(&reader, &delta);
+        CHECK(!bit_reader_overrun(&reader));
+        CHECK(delta.count == (state == braking ? 0 : 3));
+        for (uint8_t point = 0; point < delta.count; ++point) {
+            const auto& expected = state == steering ? head.points[point] : original[point];
+            CHECK(delta.points[point][0] == expected[0] && delta.points[point][1] == expected[1]);
+        }
+    }
 }
 
 // The joiner's copy of the host's unit, driven through the joiner's
@@ -2878,6 +3035,8 @@ void wide_interceptions_reach_the_shot_s_owner() {
 
 int main() {
     replicated_play();
+    local_traffic_heads_keep_their_copies();
+    restored_traffic_heads_publish_their_effective_route();
     remote_driver_brakes_and_blocks();
     remote_aircraft_follow_their_owner();
     aircraft_arriving_inside_a_radius_keep_their_copy();

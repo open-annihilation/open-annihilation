@@ -11,6 +11,7 @@
 
 #include "oa/sim/air/host.hpp"
 #include "oa/sim/feature_runtime.hpp"
+#include "oa/sim/unit_movement/local_flow.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
 #include "oa/sim/unit_health.hpp"
 
@@ -640,6 +641,20 @@ void capture_route(MatchBinding& b, uint16_t index, MovementRecord& m) {
     const auto& nav = ground->navigation;
     m.flags = ground->movement.flags;
     m.ground.flags = nav.flags;
+    const auto* head = b.match->local_flow_head(index);
+    if (head != nullptr && head->active && head->tick == b.match->state().game.tick) {
+        const auto count = std::min<std::size_t>(head->count, head->points.size());
+        m.ground.flags = static_cast<uint8_t>(
+            (nav.flags & ~sim::ground_orders::route_present_flag) |
+            (count > 1 ? sim::ground_orders::route_present_flag : 0)
+        );
+        m.ground.path_count = static_cast<int32_t>(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            m.ground.path[i][0] = head->points[i][0];
+            m.ground.path[i][1] = head->points[i][1];
+        }
+        return;
+    }
     const auto count = std::min<uint32_t>(nav.count, ground_driver_path_capacity);
     m.ground.path_count = static_cast<int32_t>(count);
     for (uint32_t i = 0; i < count && i < nav.points.size(); ++i) {
@@ -655,8 +670,15 @@ void capture_route(MatchBinding& b, uint16_t index, MovementRecord& m) {
 /// @param m The unit's replication record after the capture.
 void release_route(MatchBinding& b, uint16_t index, const MovementRecord& m) {
     auto* ground = b.match->ground_runtime(index);
-    if (ground != nullptr && m.driver == MovementClass::ground)
-        ground->navigation.flags = m.ground.flags;
+    if (ground != nullptr && m.driver == MovementClass::ground) {
+        // A temporary traffic head can brake or steer without replacing the
+        // navigator's route. Only publication state belongs to both routes.
+        constexpr uint8_t shared_flags =
+            sim::ground_orders::route_changed_flag | sim::ground_orders::route_sent_blocked_flag;
+        ground->navigation.flags = static_cast<uint8_t>(
+            (ground->navigation.flags & ~shared_flags) | (m.ground.flags & shared_flags)
+        );
+    }
     if (auto* driver = b.match->air_driver(index);
         driver != nullptr && m.driver == MovementClass::air)
         driver->flags = m.air.flags;
