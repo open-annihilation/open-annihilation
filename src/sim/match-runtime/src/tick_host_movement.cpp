@@ -180,10 +180,11 @@ void TickHost::movement_tick(oa::Unit& record) {
                 const bool recover = sim::unit_movement::local_flow_recovery_due(
                     *flow_head, match.simulation_.tick, s.unit_index
                 );
+                const bool completed_head =
+                    flow_head->active && flow_head->goal_key == goal_key &&
+                    sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head);
                 if (flow_head->active &&
-                    (flow_head->goal_key != goal_key ||
-                     sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head) ||
-                     recover))
+                    (flow_head->goal_key != goal_key || completed_head || recover))
                     flow_head->active = false;
                 if (!flow_head->active &&
                     (flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks ||
@@ -204,6 +205,9 @@ void TickHost::movement_tick(oa::Unit& record) {
                     }
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
+                    probe.allow_reverse = recover;
+                    if (completed_head)
+                        probe.previous_head = flow_head;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&
                         match.enhanced_->local_flow_progress_snapshot_tick ==
                             match.simulation_.tick)

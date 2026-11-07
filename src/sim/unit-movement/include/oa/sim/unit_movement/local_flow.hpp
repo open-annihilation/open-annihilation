@@ -30,6 +30,8 @@ struct LocalFlowCounters {
     uint64_t deferred_replans{};     ///< mobile blockages held locally before requesting a path
 };
 
+struct LocalFlowHead;
+
 /// Reads current occupancy without scanning all units or refreshing every projection.
 struct LocalFlowProbe {
     void* context{};
@@ -39,6 +41,10 @@ struct LocalFlowProbe {
     /// Last progress ticks captured before any unit moves this tick, indexed by unit id.
     /// An empty span uses the caller's current movement clock.
     std::span<const uint32_t> progress_at_tick_start{};
+    /// Leg completed on this tick for the same goal; null supplies no history.
+    const LocalFlowHead* previous_head{};
+    /// Whether a mature retry may undo a completed leg to explore a passing place.
+    bool allow_reverse{true};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.

@@ -241,12 +241,37 @@ LocalFlowDecision choose_local_flow(
         return result;
     ++counters.yielded_ticks;
     const auto heading = oa::base::game_math::direction(-dx, -dz);
+    std::array<int32_t, 2> previous_leg{};
+    if (probe.previous_head != nullptr && !probe.allow_reverse) {
+        auto previous = *probe.previous_head;
+        previous.active = true;
+        if (local_flow_head_reached(unit, previous))
+            previous_leg = {
+                int32_t(previous.points[1][0]) - previous.points[0][0],
+                int32_t(previous.points[1][1]) - previous.points[0][1]
+            };
+    }
+    const auto reverses_leg = [&](const std::array<Fixed, 3>& candidate) {
+        if (previous_leg[0] == 0 && previous_leg[1] == 0)
+            return false;
+        const auto step_x = int64_t(candidate[0]) - unit.position[0];
+        const auto step_z = int64_t(candidate[2]) - unit.position[2];
+        if (step_x * previous_leg[0] + step_z * previous_leg[1] >= 0)
+            return false;
+        const auto forward = step_x * dx + step_z * dz;
+        const auto cross = step_x * dz - step_z * dx;
+        // A sideways return must not undo the previous passing leg. Forward
+        // rejoining still works, and mature recovery may reverse when needed.
+        constexpr int64_t minimum_forward_ratio_denominator = 4;
+        return forward * minimum_forward_ratio_denominator <= std::abs(cross);
+    };
     constexpr std::array<int32_t, 4> turns{-eighth_turn, eighth_turn, -quarter_turn, quarter_turn};
     for (const auto reach : {cell_step, cell_step * 2})
         for (const auto angle : turns) {
             const auto velocity = aim_velocity(static_cast<uint16_t>(heading + angle), 0, reach);
             std::array<Fixed, 3> candidate;
             if (!offset_point(unit.position, velocity[0], velocity[2], reach, reach, candidate) ||
+                reverses_leg(candidate) ||
                 !clear_segment(unit, candidate, occupancy, host, counters))
                 continue;
             result.target = candidate;
@@ -262,7 +287,7 @@ LocalFlowDecision choose_local_flow(
         if (offset_point(
                 unit.position, velocity[0], velocity[2], cell_step, cell_step, candidate
             ) &&
-            clear_segment(unit, candidate, occupancy, host, counters)) {
+            !reverses_leg(candidate) && clear_segment(unit, candidate, occupancy, host, counters)) {
             result.reverse = true;
             result.adjusted = true;
             result.target = candidate;
