@@ -882,6 +882,150 @@ void far_terrain_detour_releases_a_mature_queue() {
     CHECK(delivered.full_route_searches == before.full_route_searches);
 }
 
+/// Keeps a passing head when a shared guide only changes redundant points.
+void equivalent_shared_guides_preserve_passing_heads() {
+    enum class Storage { duplicate, collinear, inactive };
+    constexpr uint32_t request_tick = 120;
+    constexpr uint16_t east = 49152;
+    constexpr int32_t width = 16, height = 32, wall_x = 8;
+    for (const auto storage : {Storage::duplicate, Storage::collinear, Storage::inactive}) {
+        Fixture fixture(options_for(2));
+        fixture.map.attribute_height = height;
+        fixture.map.attributes.resize(width * height);
+        fixture.terrain_values.resize(width * height);
+        fixture.collision_plots.resize(width * height);
+        fixture.altitude_cells.resize((width / 2) * (height / 2));
+        configure_movement_class(fixture);
+        auto& match = *fixture.match;
+        for (int32_t z = 0; z < height; ++z)
+            if (!(z >= 4 && z < 8) && !(z >= 12 && z < 16))
+                match.spatial().plots[size_t(z) * width + wall_x].blocking_feature = true;
+        std::fill(
+            match.sight_mutable().player_bits.begin(),
+            match.sight_mutable().player_bits.end(),
+            uint16_t{1}
+        );
+        auto& unit = fixture.spawn(0, 72, 136);
+        auto& blocker = fixture.spawn(0, 104, 136);
+        unit.record.heading = east;
+        blocker.record.flags &= ~OA_UNIT_FLAG_MOVE_ORDER_MASK;
+        CHECK(!match.order_refused(
+            match.issue_ground_move(unit.unit_index, {200 << 16, 0, 136 << 16}, false)
+        ));
+        for (uint32_t tick = 0; tick < 30 && !match.local_flow_head(unit.unit_index)->active;
+             ++tick)
+            fixture.run(1);
+        CHECK(match.local_flow_head(unit.unit_index)->active);
+        auto* ground = match.ground_runtime(unit.unit_index);
+        CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+        const auto* goal = ground->navigation.goal;
+
+        routes::FlowCache cache(width, height);
+        const routes::FlowSampler sampler{
+            &match, [](void* context, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+                const auto& world = static_cast<runtime::Match*>(context)->spatial();
+                if (x < 0 || z < 0 || x >= width || z >= height)
+                    return 0;
+                return world.plots[size_t(z) * width + size_t(x)].blocking_feature ? 0 : 1;
+            }
+        };
+        const routes::FlowContext context{0, 0, 0, 0, 1, 1};
+        std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+        uint32_t count{};
+        cache.advance(request_tick - 2, 0, sampler);
+        CHECK(
+            cache.route(context, unit.record, *goal, points, count, sampler) ==
+            routes::FlowResult::fallback
+        );
+        CHECK(
+            cache.route(context, unit.record, *goal, points, count, sampler) ==
+            routes::FlowResult::pending
+        );
+        cache.advance(request_tick - 1, 0, sampler);
+        CHECK(
+            cache.route(context, unit.record, *goal, points, count, sampler) ==
+            routes::FlowResult::ready
+        );
+        CHECK(count > 2 && count < points.size());
+        const auto& shared = table(match, "shared-routes");
+        CHECK(shared.restore(shared.context, cache.state_bytes()));
+        const auto& revision = table(match, "flow-map-version");
+        constexpr std::array<uint8_t, 4> current_revision{};
+        CHECK(revision.restore(revision.context, current_revision));
+
+        auto& navigation = ground->navigation;
+        navigation.points = points;
+        navigation.count = count;
+        navigation.flags = routes::search_pending_flag;
+        if (storage != Storage::inactive) {
+            navigation.flags |= routes::route_present_flag;
+            const size_t insertion = storage == Storage::duplicate ? 1 : 2;
+            routes::RoutePoint redundant = points[1];
+            if (storage == Storage::collinear) {
+                CHECK(points[1] != points[2]);
+                for (size_t axis = 0; axis < redundant.size(); ++axis) {
+                    const int32_t sum = int32_t(points[1][axis]) + points[2][axis];
+                    CHECK(sum % 2 == 0);
+                    redundant[axis] = static_cast<int16_t>(sum / 2);
+                }
+                CHECK(redundant != points[1] && redundant != points[2]);
+            }
+            std::move_backward(
+                navigation.points.begin() + insertion,
+                navigation.points.begin() + navigation.count,
+                navigation.points.begin() + navigation.count + 1
+            );
+            navigation.points[insertion] = redundant;
+            ++navigation.count;
+            CHECK(navigation.count != count);
+        }
+        navigation.last_search_tick = 0;
+        std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
+        const auto& steering = table(match, "local-flow");
+        CHECK(flow::read_local_flow_heads(heads, bytes_of(steering)));
+        CHECK(heads[unit.unit_index].active && heads[unit.unit_index].count >= 2);
+        heads[unit.unit_index].blocked_ticks = flow::local_flow_retry_ticks + 1;
+        heads[unit.unit_index].mobile_blocked = true;
+        std::vector<uint8_t> steering_bytes(heads.size() * flow::local_flow_head_bytes);
+        CHECK(flow::write_local_flow_heads(heads, steering_bytes));
+        CHECK(steering.restore(steering.context, steering_bytes));
+        ground->movement.flags |= flow::collision_blocked;
+        auto& jobs = match.path_search_jobs();
+        jobs.tick_credit = 0;
+        jobs.credit.fill(0);
+        match.simulation().tick = request_tick;
+        const auto original_points = navigation.points;
+        const auto original_count = navigation.count;
+        const auto original_flags = navigation.flags;
+        const auto before = match.enhanced_counters();
+        match.advance_path_search();
+        CHECK(match.fault() == nullptr);
+        const auto after = match.enhanced_counters();
+        CHECK(after.shared_route_requests == before.shared_route_requests + 1);
+        CHECK(after.shared_route_hits == before.shared_route_hits + 1);
+        CHECK(after.full_route_searches == before.full_route_searches);
+        CHECK(navigation.goal == goal);
+        if (storage != Storage::inactive) {
+            CHECK(bytes_of(steering) == steering_bytes);
+            CHECK(navigation.points == original_points);
+            CHECK(navigation.count == original_count);
+            CHECK(navigation.flags == original_flags);
+            CHECK(navigation.last_search_tick == 0);
+        } else {
+            // Identical storage without a live guide must still get a route.
+            CHECK(routes::route_present(navigation));
+            CHECK(navigation.count == count);
+            CHECK(navigation.last_search_tick == request_tick);
+            CHECK(!match.local_flow_head(unit.unit_index)->active);
+            CHECK(match.local_flow_head(unit.unit_index)->count == 0);
+            CHECK(
+                match.local_flow_head(unit.unit_index)->blocked_ticks ==
+                flow::local_flow_retry_ticks + 1
+            );
+        }
+    }
+}
+
 /// Finds a genuine temporary traffic head while two units pass each other.
 uint16_t create_passing_head(Fixture& fixture) {
     configure_movement_class(fixture);
@@ -1119,6 +1263,7 @@ int main() {
         sustained_blockage_bypasses_shared_routes();
         static_barrier_keeps_shared_route_access();
         far_terrain_detour_releases_a_mature_queue();
+        equivalent_shared_guides_preserve_passing_heads();
         delivered_shared_routes_keep_their_retry_interval();
         accepted_routes_release_old_traffic_heads();
         passing_units_rejoin_and_arrive();
