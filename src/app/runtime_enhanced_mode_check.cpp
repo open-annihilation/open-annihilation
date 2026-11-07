@@ -407,7 +407,8 @@ void Runtime::check_enhanced_mode() {
         );
     }
     require(
-        !hold_enhanced_rules_once(mode::current_version + 1), "an unknown version was accepted"
+        !hold_enhanced_rules_once(mode::corridor_flow_version + 1),
+        "an unknown version was accepted"
     );
     require(
         enhanced_mode_version(*this) == mode::current_version, "a rejected version changed rules"

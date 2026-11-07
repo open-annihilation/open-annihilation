@@ -11,9 +11,10 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 5 is prepared as the current preset only when its matching
-corridor flow behavior is integrated and validated. It retains the earlier
-presets' capacity of 10,000 units per participating player. It
+Rules version 4 remains the current preset while version 5 corridor flow
+is measured on the fixed 20,000-unit battle. Version 5 is available for
+explicit benchmark comparisons. The presets retain a capacity of
+10,000 units per participating player. The engine
 allocates ranges only for participating players, with at most 32,767 units
 across the match. Two players can therefore field 10,000 units each.
 Spectators do not consume a unit range. The projectile pool holds 32,767

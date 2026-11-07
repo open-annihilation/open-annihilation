@@ -27,7 +27,7 @@ inline constexpr uint32_t swept_ground_version = 4;
 /// The preset reserved for advisory corridor lanes.
 inline constexpr uint32_t corridor_flow_version = 5;
 /// The Enhanced Mode preset supplied by this build.
-inline constexpr uint32_t current_version = corridor_flow_version;
+inline constexpr uint32_t current_version = swept_ground_version;
 
 /// Tells whether this build can resolve a preset, including Off.
 ///

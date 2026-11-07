@@ -203,7 +203,7 @@ void check_corridor_identity() {
     OA_CHECK(swept.resolution && corridor.resolution);
     if (!swept.resolution || !corridor.resolution)
         return;
-    OA_CHECK(enhanced::current_version == enhanced::corridor_flow_version);
+    OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
     OA_CHECK(
         enhanced::rules_version(corridor.resolution->profile.rules) ==
         enhanced::corridor_flow_version
@@ -303,7 +303,7 @@ void check_enhanced_capacity() {
 void check_refusals() {
     const profiles::ResolveOptions options{};
     for (const uint32_t version :
-         {enhanced::current_version + 1, std::numeric_limits<uint32_t>::max()}) {
+         {enhanced::corridor_flow_version + 1, std::numeric_limits<uint32_t>::max()}) {
         const auto result = enhanced::resolve_profile(bytes(mod_text), "chosen", options, version);
         OA_CHECK(!result.resolution);
         OA_CHECK(!result.errors.empty());
@@ -354,7 +354,7 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::swept_ground_version));
     OA_CHECK(enhanced::supported_version(enhanced::corridor_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
-    OA_CHECK(!enhanced::supported_version(enhanced::current_version + 1));
+    OA_CHECK(!enhanced::supported_version(enhanced::corridor_flow_version + 1));
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
     check_off_identity();
     check_versioned_identity();

@@ -23,7 +23,8 @@ routing policy and identity. `swept_ground_version` is four. Version 4
 selects bounded obstacle checks along each ground step
 when its matching simulation implementation is integrated. It retains the
 earlier capacities and version-3 routing policy. `corridor_flow_version`
-and `current_version` are five. Version 5 reserves a separate identity for
+is five; `current_version` remains four pending large-battle validation.
+Version 5 reserves a separate identity for
 advisory corridor lanes. That version requires
 the matching flow behavior to be integrated and validated before adoption;
 version metadata alone does not provide it. Versions 1, 2, 3 and 4 keep
