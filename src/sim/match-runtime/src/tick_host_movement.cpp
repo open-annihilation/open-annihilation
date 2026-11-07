@@ -107,6 +107,11 @@ void TickHost::movement_tick(oa::Unit& record) {
     auto* flow_head = enhanced_flow && s.unit_index < match.enhanced_->unit_count
                           ? &match.enhanced_->local_flow_heads[s.unit_index]
                           : nullptr;
+    if (flow_head && (air_driven || parent_index || g.mirrored_driver)) {
+        if (flow_head->active)
+            g.navigation.flags |= sim::ground_orders::route_changed_flag;
+        *flow_head = {};
+    }
     // The driver's per-tick slot and the steering step run for carried units
     // too; the carried branch below then overrides their position, attitude,
     // velocity and speed but keeps the turn rate and filtered vector.
