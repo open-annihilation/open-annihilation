@@ -29,6 +29,19 @@ route prefixes and retains useful fields when an extracted edge becomes
 blocked. Its construction work stays bounded. Earlier presets keep their
 original routing policy.
 
+Version 3 can also remove an unnecessary bend from a published guide when
+the unit's actual footprint has a clear, fully known line to the following
+point. The optional check has its own probe limit within the existing shared
+budget. It traces the actual fixed-point position, including both sides of
+diagonal grid crossings.
+
+For an installed route with sustained blockage, version 3 periodically checks
+the following corner without waiting for another search result. Each unit has
+a 120-tick phase, with at most 128 origin queries and 512 footprint cells per
+attempt. Successful advancement preserves the original goal, pending search,
+retry clock and a compatible temporary passing head. This corrects blocked
+waypoint cases; sustained 20,000-unit congestion remains unresolved.
+
 Local steering gives moving units temporary detours around mobile ground
 traffic, including idle units, and yields by waiting time measured at the
 start of the tick, with unit ID breaking ties. The original mission and route
@@ -59,7 +72,7 @@ Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
 Versions 1 and 2 remain supported with their original behavior and simulation hashes.
-Version 2 saves five owner-local navigation tables: shared fields, the
+Versions 2 and 3 save five owner-local navigation tables: shared fields, the
 current static-map revision, temporary traffic heads, actual-progress clocks
 and the shared-route scan clock. The scan clock prevents a load pass and a
 regular pass at the same tick from polling the unit ranges twice. These
