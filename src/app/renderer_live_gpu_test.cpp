@@ -3313,6 +3313,172 @@ void scene_marker_readback() {
     }
 }
 
+/// A synthetic twenty-thousand-unit scene reaches the real GPU, with one
+/// nonoverlapping five-pixel marker and canonical pick range per unit.
+void large_marker_scene_readback() {
+    namespace live_scene = oa::app::renderer_live_scene;
+    namespace object = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr uint32_t columns = 200, rows = 100, spacing = 8;
+    constexpr uint32_t population = columns * rows;
+    constexpr uint32_t width = columns * spacing, height = rows * spacing;
+    constexpr int32_t fixed = object::kThreeDoUnitsPerWorldUnit;
+    constexpr std::array<uint8_t, 3> ground{24, 36, 48};
+    constexpr std::array<std::array<uint8_t, 3>, 2> owners{{{255, 96, 0}, {0, 160, 255}}};
+    constexpr std::array<float, 12> projection{1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0};
+    static_assert(width <= largest_edge && height <= largest_edge);
+    oa::formats::tnt::Map map;
+    map.attribute_width = width / 16;
+    map.attribute_height = height / 16;
+    map.tile_width = width / 32;
+    map.tile_height = height / 32;
+    map.tile_count = 1;
+    map.attributes.resize(map.attribute_width * map.attribute_height);
+    map.tile_indices.assign(map.tile_width * map.tile_height, 0);
+    map.tile_palette_indices.assign(32 * 32, 1);
+    oa::PaletteBytes palette{};
+    std::copy(ground.begin(), ground.end(), palette.begin() + oa::palette_entry_bytes);
+    auto source = std::make_shared<object::Model>();
+    source->objects.resize(1);
+    auto& body = source->objects[0];
+    body.vertices = {
+        {0, 4 * fixed, 0},
+        {2 * fixed, 4 * fixed, 0},
+        {2 * fixed, 4 * fixed, -2 * fixed},
+        {0, 4 * fixed, -2 * fixed}
+    };
+    body.primitives.resize(1);
+    body.primitives[0].vertex_indices = {0, 1, 2, 3};
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms();
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(1);
+    prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+    prepared.objects[0].primitives[0].color = 2;
+    std::vector<oa::Unit> units(population);
+    oa::app::WorldDrawList draws;
+    draws.shown_map_width = width;
+    draws.shown_map_height = height;
+    draws.models.resize(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = index % columns < columns / 2 ? 0 : 1;
+        // The model centre is one world pixel left/up from its origin.
+        // Half-pixel centres give exact 5x5 squares at offsets 2..6.
+        unit.position = {
+            static_cast<int32_t>(index % columns * spacing) * fixed + 11 * fixed / 2,
+            0,
+            static_cast<int32_t>(index / columns * spacing) * fixed + 11 * fixed / 2
+        };
+        auto& draw = draws.models[index];
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.model.unit = &unit;
+        draw.plan.linked.drawn = true;
+    }
+    live_scene::Inputs inputs;
+    inputs.map = &map;
+    inputs.palette = &palette;
+    inputs.draws = &draws;
+    inputs.right = width;
+    inputs.bottom = height;
+    inputs.clip_width = width;
+    inputs.clip_height = height;
+    inputs.clip_projection = projection;
+    inputs.view_direction = {0, 1, 0};
+    inputs.unit_marker_pixels = 5;
+    inputs.owner_colors[0] = owners[0];
+    inputs.owner_colors[1] = owners[1];
+    inputs.sight.line_of_sight = inputs.sight.mapping = false;
+    inputs.models_on_card = true;
+    live_scene::Scene scene;
+    std::string error;
+    const bool built = live_scene::build(inputs, scene, error);
+    OA_CHECK(built);
+    if (!built) {
+        std::fprintf(stderr, "twenty-thousand-marker scene: %s\n", error.c_str());
+        return;
+    }
+    OA_CHECK(scene.unit_detail_active && scene.model_count == population);
+    OA_CHECK(scene.unit_ranges.size() == population);
+    OA_CHECK(scene.vertices.size() == scene.terrain_vertex_count + population * 6);
+    OA_CHECK(scene.vertices.size() + scene.cards.vertices <= largest_vertex_count);
+    OA_CHECK(scene.cards.cast_indices.size() <= largest_vertex_count);
+    OA_CHECK(scene.cards.instances.empty() && scene.cards.positions.empty());
+    OA_CHECK(scene.cards.indices.empty() && scene.cards.cast_indices.empty());
+    OA_CHECK(scene.camera_projection == projection);
+    OA_CHECK(scene.camera_width == width && scene.camera_height == height);
+    std::vector<uint8_t> seen(population + 1);
+    for (const auto& range : scene.unit_ranges) {
+        const bool valid = range.unit_id > 0 && range.unit_id <= population;
+        OA_CHECK(valid && range.vertex_count == 6);
+        OA_CHECK(
+            range.first_vertex >= scene.terrain_vertex_count &&
+            range.first_vertex + range.vertex_count <= scene.vertices.size()
+        );
+        if (valid)
+            ++seen[range.unit_id];
+    }
+    OA_CHECK(std::all_of(seen.begin() + 1, seen.end(), [](uint8_t count) { return count == 1; }));
+    const auto models = live_scene::card_draws(scene.card_types, scene.cards);
+    Context context;
+    std::vector<uint8_t> pixels;
+    const auto result = render(
+        context,
+        scene.vertices,
+        scene.texture_rgba,
+        scene.texture_width,
+        scene.texture_height,
+        scene.texture_revision,
+        width,
+        height,
+        projection,
+        pixels,
+        error,
+        1,
+        &scene.atlas_update,
+        &inputs.water,
+        &scene.card_ground,
+        {},
+        nullptr,
+        &models
+    );
+    OA_CHECK(result == Result::success);
+    if (result != Result::success) {
+        std::fprintf(stderr, "twenty-thousand-marker GPU readback: %s\n", error.c_str());
+        return;
+    }
+    OA_CHECK(!context.kept_on_card && pixels.size() == width * height * channels);
+    if (pixels.size() != width * height * channels)
+        return;
+    std::size_t mismatches{};
+    std::array<std::size_t, 2> owner_pixels{};
+    for (uint32_t y = 0; y < height; ++y)
+        for (uint32_t x = 0; x < width; ++x) {
+            const auto offset = (std::size_t(y) * width + x) * channels;
+            const bool marker =
+                x % spacing >= 2 && x % spacing < 7 && y % spacing >= 2 && y % spacing < 7;
+            const auto& expected = marker ? owners[x / spacing < columns / 2 ? 0 : 1] : ground;
+            const std::array actual{pixels[offset], pixels[offset + 1], pixels[offset + 2]};
+            mismatches += actual != expected || pixels[offset + 3] != 255;
+            for (std::size_t owner = 0; owner < owners.size(); ++owner)
+                owner_pixels[owner] += actual == owners[owner] && pixels[offset + 3] == 255;
+        }
+    OA_CHECK(mismatches == 0);
+    OA_CHECK(owner_pixels[0] == population / 2 * 25 && owner_pixels[1] == population / 2 * 25);
+    std::printf(
+        "Synthetic marker Scene GPU: %zu unit ranges, %zu/%zu owner pixels, %ux%u, no window\n",
+        scene.unit_ranges.size(),
+        owner_pixels[0],
+        owner_pixels[1],
+        width,
+        height
+    );
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -3341,6 +3507,7 @@ int main() {
         card_models();
         card_shadows();
         scene_marker_readback();
+        large_marker_scene_readback();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();
