@@ -284,6 +284,12 @@ if(BUILD_TESTING)
  add_test(NAME match-event-hooks COMMAND oa-match-event-hooks-test)
 endif()
 if(BUILD_TESTING)
+ add_executable(oa-match-target-query-test tests/target_query_test.cpp)
+ target_include_directories(oa-match-target-query-test PRIVATE src)
+ target_link_libraries(oa-match-target-query-test PRIVATE oa-sim-combat-state oa-sim-spatial-state oa-test-support)
+ add_test(NAME match-target-query COMMAND oa-match-target-query-test)
+endif()
+if(BUILD_TESTING)
  # Every test program here may build its match on the shared fixture
  # (oa/test/match_services.hpp, oa/test/projectile_handle.hpp).
  get_property(oa_match_runtime_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)

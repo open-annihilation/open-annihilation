@@ -3,6 +3,8 @@
 
 #include "oa/sim/match_runtime.hpp"
 #include "match_state.hpp"
+#include "enhanced_state.hpp"
+#include "target_query.hpp"
 #include "oa/sim/weapon_execution/interceptor.hpp"
 #include "oa/sim/unit_health/paralysis.hpp"
 #include "oa/sim/weapon_execution/retaliation.hpp"
@@ -57,6 +59,24 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
             return match.slots_[0];
         }
         return match.slots_[id];
+    }
+
+    /// Lists live targets that have no bucket once per tick or carry change.
+    void refresh_target_query_extras() noexcept {
+        auto& enhanced = *match.enhanced_;
+        if (enhanced.target_query_extras_valid &&
+            enhanced.target_query_extras_tick == match.simulation_.tick)
+            return;
+        enhanced.target_query_extra_count = 0;
+        for (size_t id = 1; id < match.slots_.size(); ++id) {
+            const auto& unit = match.slots_[id].record;
+            if (unit_is_live_target(unit.flags) &&
+                (unit.attach_parent != 0 || !match.spatial_units_[id].bucket_linked))
+                enhanced.target_query_extras[enhanced.target_query_extra_count++] =
+                    static_cast<uint16_t>(id);
+        }
+        enhanced.target_query_extras_tick = match.simulation_.tick;
+        enhanced.target_query_extras_valid = true;
     }
 
   public:
@@ -170,15 +190,33 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
             return {};
         }
         const auto& sightings = match.sightings_[owner];
+        std::span<const uint16_t> seen{sightings.seen, sightings.seen_count};
+        std::span<const uint16_t> radar{sightings.radar, sightings.radar_count};
+        if (match.enhanced_) {
+            auto& enhanced = *match.enhanced_;
+            ++enhanced.counters.target_queries;
+            refresh_target_query_extras();
+            const auto nearby = nearby_target_sightings(
+                match.state(),
+                match.spatial_,
+                {enhanced.target_query_extras.get(), enhanced.target_query_extra_count},
+                seen,
+                radar,
+                center,
+                radius,
+                {enhanced.target_query_slots.get(), 2 * match.slots_.size()}
+            );
+            if (nearby.complete) {
+                seen = nearby.seen;
+                radar = nearby.radar;
+                enhanced.counters.target_candidates += nearby.candidates;
+            } else {
+                ++enhanced.counters.target_full_scans;
+            }
+        }
         match.sighting_query_.clear();
         sim::combat_state::gather_sightings(
-            {sightings.seen, sightings.seen_count},
-            {sightings.radar, sightings.radar_count},
-            sightings.radar_fallback != 0,
-            center,
-            radius,
-            *this,
-            match.sighting_query_
+            seen, radar, sightings.radar_fallback != 0, center, radius, *this, match.sighting_query_
         );
         return match.sighting_query_;
     }
