@@ -28,10 +28,14 @@ struct View {
     uint16_t players = 2;        ///< the skirmish's players
     double menu_seconds = 1.0;   ///< seconds on the main menu before SINGLE
     uint32_t warmup_ticks = 600; ///< the match tick the measured span starts at
+    uint32_t warmup_frames{};    ///< rendered warm-up frames after the tick warm-up
     double measure_seconds = 25; ///< the longest measured span, in seconds
     /// The measured span in match ticks, however long they take, within
     /// measure_seconds; 0 measures for measure_seconds.
     uint32_t measure_ticks{};
+    uint32_t measure_frames{};      ///< measured frame limit; 0 uses the time and tick limits
+    uint32_t expected_live_units{}; ///< required live population; 0 leaves it unchecked
+    bool require_paused{};    ///< require a fixed paused world and camera throughout measurement
     double shot_at = 12;      ///< seconds into the span of the SHOT line
     uint32_t shot_ticks{};    ///< ticks into the span of the SHOT line; 0 for shot_at
     double centre_x = 2048;   ///< the map pixel the view centres on, across

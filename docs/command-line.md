@@ -622,8 +622,12 @@ a comment. Every key may be left out:
 | `players N` | The skirmish's players, from 2 to 10. | 2 |
 | `menu_seconds S` | Seconds on the main menu first. | 1 |
 | `warmup_ticks N` | The match tick the measured span starts at. | 600 |
+| `warmup_frames N` | Additional rendered warm-up frames after staging and the tick warm-up. | 0 |
 | `measure_seconds S` | The longest the span lasts. | 25 |
 | `measure_ticks N` | The span's match ticks, within `measure_seconds`; 0 measures for `measure_seconds`. | 0 |
+| `measure_frames N` | Require this many measured frames within the time and tick limits; stop with an error if a limit ends the run first. | 0, unchecked |
+| `expected_live_units N` | Require this live population before warm-up and throughout measurement. | 0, unchecked |
+| `require_paused 1` | Require a paused, unchanged world and fixed camera. Needs `warmup_ticks`, `measure_ticks` and `turn_rate` set to 0. | 0, off |
 | `shot_at S`, `shot_ticks N` | When in the span the SHOT line is printed, in seconds, or in ticks when `shot_ticks` is above 0. | 12 seconds |
 | `centre_x X`, `centre_z Z` | The map pixel the view is centred on. | 2048, 2048 |
 | `yaw D`, `pitch D` | The camera's turn and tilt from the classic view, in degrees; both 0 keep the classic view. | 0, 0 |
@@ -638,6 +642,16 @@ twice stop the bench with the file and line, and so do a skirmish that
 does not start, a match that ends in the warm-up and a closed window: the
 bench prints `bench: FAILED` and what went wrong, and the game ends with
 status 1.
+
+For a fixed rendering workload, pause in the stage, set `warmup_ticks 0`,
+and use `warmup_frames` to prepare the actual rendering caches. Set
+`expected_live_units`, `measure_frames` and `require_paused 1` to reject
+partial staging, resumed simulation or a changed camera. The bench checks
+the roster before and after the run, checks live counters and the held tick
+each frame, and compares the saved-state digest outside the measured span.
+A successful paused span prints a `STATIC` line with its world digest and
+verified frame count. These are rendering measurements, not a running battle's
+simulation or frame-rate guarantee.
 
 The bench prints its lines on standard output, which the game writes into
 its log (or into the folder `--log-dir` names), each beginning `bench:`:

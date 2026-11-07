@@ -122,6 +122,13 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
             }
             return true;
         };
+        const auto frames = [&](uint32_t& member) {
+            if (!read_count(value, member)) {
+                error = where + std::string(key) + " takes a whole number of frames";
+                return false;
+            }
+            return true;
+        };
         bool read = true;
         if (key == "label") {
             view.label = std::string(value);
@@ -138,10 +145,19 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
             read = seconds(view.menu_seconds);
         } else if (key == "warmup_ticks") {
             read = ticks(view.warmup_ticks);
+        } else if (key == "warmup_frames") {
+            read = frames(view.warmup_frames);
         } else if (key == "measure_seconds") {
             read = seconds(view.measure_seconds);
         } else if (key == "measure_ticks") {
             read = ticks(view.measure_ticks);
+        } else if (key == "measure_frames") {
+            read = frames(view.measure_frames);
+        } else if (key == "expected_live_units") {
+            if (!read_count(value, view.expected_live_units)) {
+                error = where + "expected_live_units takes a whole number of units";
+                return false;
+            }
         } else if (key == "shot_at") {
             read = seconds(view.shot_at);
         } else if (key == "shot_ticks") {
@@ -164,18 +180,25 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
             read = number(view.turn_rate);
         } else if (key == "hold_after") {
             read = seconds(view.hold_after);
-        } else if (key == "stage_timers" || key == "frame_log") {
+        } else if (key == "stage_timers" || key == "frame_log" || key == "require_paused") {
             if (value != "0" && value != "1") {
                 error = where + std::string(key) + " takes 0 or 1";
                 return false;
             }
-            (key == "stage_timers" ? view.stage_timers : view.frame_log) = value == "1";
+            (key == "stage_timers" ? view.stage_timers
+             : key == "frame_log"  ? view.frame_log
+                                   : view.require_paused) = value == "1";
         } else {
             error = where + "the bench has no key " + std::string(key);
             return false;
         }
         if (!read)
             return false;
+    }
+    if (view.require_paused &&
+        (view.warmup_ticks != 0 || view.measure_ticks != 0 || view.turn_rate != 0)) {
+        error = "require_paused needs warmup_ticks, measure_ticks and turn_rate set to 0";
+        return false;
     }
     return true;
 }

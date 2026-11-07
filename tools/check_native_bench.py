@@ -273,6 +273,33 @@ def main():
             expected = f"bench: FAILED {view}: line 2: the bench has no key speed"
             if refused.returncode != 1 or expected not in refused.stdout.splitlines():
                 fail(refused, "a view file with a key the bench does not know was not refused")
+
+            # A paused render span must warm actual frames without advancing
+            # the world and must refuse a partially staged population.
+            paused_stage = workdir / "paused.stage"
+            paused_stage.write_text("key Pause\n", encoding="utf-8")
+            paused_view = (
+                f"label paused\nstage {paused_stage}\nmenu_seconds 0\n"
+                "warmup_ticks 0\nwarmup_frames 2\nmeasure_frames 3\n"
+                "measure_seconds 30\nexpected_live_units 2\nrequire_paused 1\n"
+                "stage_timers 0\nframe_log 1\n"
+            )
+            paused = run_bench(arguments.native, arguments.game_dir, workdir,
+                               "paused", paused_view)
+            if paused.returncode != 0 or not re.search(
+                    r"^bench: STATIC tick \d+ units 2 world [0-9a-f]{16} "
+                    r"warmup_frames 2 verified_frames 3$", paused.stdout, re.M):
+                fail(paused, "the paused rendering span was not verified")
+            if len(re.findall(r"^bench: FRAME ", paused.stdout, re.M)) != 3 or not re.search(
+                    r"^bench: RESULT label=paused .* frames 3 .* ticks 0 ", paused.stdout, re.M):
+                fail(paused, "the paused rendering span did not measure three frames without ticks")
+            wrong_population = run_bench(
+                arguments.native, arguments.game_dir, workdir, "wrong-population",
+                paused_view.replace("expected_live_units 2", "expected_live_units 3"))
+            if wrong_population.returncode != 1 or \
+                    "bench: FAILED the live unit roster differs from expected_live_units" \
+                    not in wrong_population.stdout:
+                fail(wrong_population, "a wrong rendering population was not refused")
     except BenchFailure as failure:
         raise SystemExit(f"bench check: {failure}")
     print(f"bench check: the battle played, measured and reported {len(lines)} well-formed lines")

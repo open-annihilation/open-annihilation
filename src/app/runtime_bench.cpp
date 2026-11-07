@@ -12,6 +12,8 @@
 #include "oa/app/frame_coordinates.hpp"
 
 #include "oa/core/unit.h"
+#include "oa/sim/state_hash.hpp"
+#include "oa/ui/console/game_fields.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -232,7 +234,9 @@ void Runtime::play_bench() {
         }
         const bool turned = yaw != 0 || view.pitch != 0;
         if (turned && (yaw != applied_yaw || !live_renderer_active())) {
-            turn_live_camera(static_cast<float>(yaw), static_cast<float>(view.pitch));
+            if (!turn_live_camera(static_cast<float>(yaw), static_cast<float>(view.pitch)) &&
+                view.require_paused)
+                fail("the requested turned camera is unavailable");
             applied_yaw = yaw;
         }
     };
@@ -275,6 +279,59 @@ void Runtime::play_bench() {
                 ++units[slot.record.owner_index == match_local_player_ ? 0 : 1];
         return units;
     };
+    const auto counted_population = [&] {
+        uint32_t units = 0;
+        for (const auto& player : match_->state().game.players)
+            units += player.unit_count;
+        return units;
+    };
+    const auto check_population = [&] {
+        if (view.expected_live_units != 0 && counted_population() != view.expected_live_units)
+            fail("the live unit counters differ from expected_live_units");
+    };
+    const auto check_roster = [&] {
+        if (view.expected_live_units != 0) {
+            const auto units = count_units();
+            if (uint32_t(units[0] + units[1]) != view.expected_live_units)
+                fail("the live unit roster differs from expected_live_units");
+            check_population();
+        }
+    };
+    const uint32_t held_tick = match_timing_.tick;
+    const auto check_paused = [&] {
+        if (view.require_paused &&
+            ((match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0 ||
+             match_timing_.tick != held_tick))
+            fail("the paused benchmark advanced or resumed its match");
+    };
+    check_roster();
+    check_paused();
+    for (uint32_t index = 0; index < view.warmup_frames; ++index) {
+        aim(view.yaw);
+        frame();
+        if (screen_ != Screen::match || !match_)
+            fail("the match ended in the frame warm-up");
+        check_paused();
+        check_population();
+    }
+    const std::array<int32_t, 2> held_camera{match_camera_x_, match_camera_z_};
+    const float held_zoom = match_zoom_;
+    const auto held_angles = live_camera_angles();
+    const auto check_frame = [&] {
+        check_population();
+        check_paused();
+        if (view.require_paused &&
+            (held_camera != std::array<int32_t, 2>{match_camera_x_, match_camera_z_} ||
+             held_zoom != match_zoom_ || held_angles != live_camera_angles() ||
+             ((view.yaw != 0 || view.pitch != 0) != live_renderer_active())))
+            fail("the paused benchmark changed its camera");
+    };
+    const auto world_digest = [&] {
+        return oa::sim::trace::match_state_hash(
+            *match_, match_timing_, match_camera_x_, match_camera_z_, nullptr
+        );
+    };
+    const uint64_t held_world = view.require_paused ? world_digest() : 0;
     std::vector<FrameSample> samples;
     samples.reserve(kExpectedFrames);
     // What the stage timers summed over each frame, for the slowest frames'
@@ -298,6 +355,7 @@ void Runtime::play_bench() {
     for (;;) {
         const double elapsed = now() - start;
         if (elapsed >= view.measure_seconds ||
+            (view.measure_frames != 0 && samples.size() >= view.measure_frames) ||
             (view.measure_ticks != 0 && match_timing_.tick - first_tick >= view.measure_ticks))
             break;
         aim(view.yaw + view.turn_rate * elapsed);
@@ -305,6 +363,12 @@ void Runtime::play_bench() {
         const auto totals_before = bench_timers::timers.totals;
         frame();
         const double finished = now();
+        if (screen_ != Screen::match || !match_) {
+            if (view.require_paused || view.expected_live_units != 0)
+                fail("the benchmark lost its match");
+        } else {
+            check_frame();
+        }
         frame_totals.push_back(
             bench_timers::totals_since(bench_timers::timers.totals, totals_before)
         );
@@ -362,6 +426,21 @@ void Runtime::play_bench() {
     }
     const double seconds = previous - start;
     const std::size_t frames = samples.size();
+    if (view.measure_frames != 0 && frames != view.measure_frames)
+        fail("the benchmark reached its time or tick limit before measure_frames");
+    check_roster();
+    if (view.require_paused) {
+        if (frames == 0 || world_digest() != held_world)
+            fail("the paused benchmark changed its world or measured no frames");
+        std::printf(
+            "bench: STATIC tick %u units %u world %016llx warmup_frames %u verified_frames %zu\n",
+            held_tick,
+            counted_population(),
+            static_cast<unsigned long long>(held_world),
+            view.warmup_frames,
+            frames
+        );
+    }
     const uint32_t ticks = match_timing_.tick - first_tick;
     const auto frame_spread = bench::spread(measure_values(samples, &FrameSample::frame));
     const auto per_frame = [&](double total) {

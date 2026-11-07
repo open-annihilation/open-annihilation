@@ -60,6 +60,8 @@ void view_reads_every_key() {
     OA_CHECK(near(defaults.measure_seconds, 25) && defaults.measure_ticks == 0);
     OA_CHECK(near(defaults.zoom, 1) && near(defaults.yaw, 0) && near(defaults.pitch, 0));
     OA_CHECK(defaults.stage_timers && defaults.stage.empty());
+    OA_CHECK(defaults.warmup_frames == 0 && defaults.measure_frames == 0);
+    OA_CHECK(defaults.expected_live_units == 0 && !defaults.require_paused);
 
     bench::View view;
     const char* text = "# the low view\n"
@@ -91,6 +93,18 @@ void view_reads_every_key() {
     OA_CHECK(near(view.yaw, 20) && near(view.pitch, -53) && near(view.zoom, 0));
     OA_CHECK(near(view.turn_rate, 6) && near(view.hold_after, 2) && !view.stage_timers);
     OA_CHECK(view.frame_log && !defaults.frame_log);
+
+    bench::View paused;
+    OA_CHECK(
+        bench::parse_view(
+            "warmup_ticks 0\nwarmup_frames 30\nmeasure_frames 60\n"
+            "expected_live_units 20000\nrequire_paused 1\n",
+            paused,
+            error
+        )
+    );
+    OA_CHECK(paused.warmup_frames == 30 && paused.measure_frames == 60);
+    OA_CHECK(paused.expected_live_units == 20000 && paused.require_paused);
 }
 
 /// A key the bench does not know, a value that does not read or is out of
@@ -108,6 +122,27 @@ void view_refuses_what_it_cannot_read() {
     OA_CHECK(refusal("zoom -1") == "line 1: zoom takes 0 for the farthest out, or a zoom above 0");
     OA_CHECK(refusal("stage_timers yes") == "line 1: stage_timers takes 0 or 1");
     OA_CHECK(refusal("frame_log 2") == "line 1: frame_log takes 0 or 1");
+    OA_CHECK(refusal("warmup_frames -1") == "line 1: warmup_frames takes a whole number of frames");
+    OA_CHECK(
+        refusal("measure_frames 1.5") == "line 1: measure_frames takes a whole number of frames"
+    );
+    OA_CHECK(
+        refusal("expected_live_units -1") ==
+        "line 1: expected_live_units takes a whole number of units"
+    );
+    OA_CHECK(refusal("require_paused 2") == "line 1: require_paused takes 0 or 1");
+    OA_CHECK(
+        refusal("require_paused 1") ==
+        "require_paused needs warmup_ticks, measure_ticks and turn_rate set to 0"
+    );
+    OA_CHECK(
+        refusal("require_paused 1\nwarmup_ticks 0\nmeasure_ticks 1") ==
+        "require_paused needs warmup_ticks, measure_ticks and turn_rate set to 0"
+    );
+    OA_CHECK(
+        refusal("require_paused 1\nwarmup_ticks 0\nturn_rate 1") ==
+        "require_paused needs warmup_ticks, measure_ticks and turn_rate set to 0"
+    );
     OA_CHECK(refusal("\n\nlabel") == "line 3: label has no value");
     OA_CHECK(refusal("yaw 1\nyaw 2") == "line 2: yaw is given twice");
 }
