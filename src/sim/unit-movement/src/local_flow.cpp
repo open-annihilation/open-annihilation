@@ -135,6 +135,24 @@ bool clear_segment(
 
 } // namespace
 
+bool local_flow_head_reached(const Unit& unit, const LocalFlowHead& head) noexcept {
+    if (!head.active || head.count < 2)
+        return false;
+    const auto target_x = int64_t(head.points[1][0]) * one_world_unit;
+    const auto target_z = int64_t(head.points[1][1]) * one_world_unit;
+    const auto dx = int64_t(unit.position[0]) - target_x;
+    const auto dz = int64_t(unit.position[2]) - target_z;
+    constexpr int64_t arrival_distance = 5 * one_world_unit;
+    if (dx > -arrival_distance && dx < arrival_distance && dz > -arrival_distance &&
+        dz < arrival_distance && dx * dx + dz * dz < arrival_distance * arrival_distance)
+        return true;
+    // Keep the leg in whole world units and the position in fixed point.
+    // The mixed-scale dot product fits int64_t even at signed map limits.
+    const auto leg_x = int64_t(head.points[1][0]) - head.points[0][0];
+    const auto leg_z = int64_t(head.points[1][1]) - head.points[0][1];
+    return (leg_x != 0 || leg_z != 0) && dx * leg_x + dz * leg_z >= 0;
+}
+
 void record_local_flow_block(LocalFlowHead& head, bool blocked) noexcept {
     constexpr uint8_t maximum_blocked_ticks = local_flow_retry_ticks + 1;
     head.blocked_ticks =

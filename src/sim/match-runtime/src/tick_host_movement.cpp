@@ -13,8 +13,6 @@
 namespace oa::sim::match_runtime {
 namespace {
 
-constexpr uint32_t local_flow_arrival_distance = 5 * 65536;
-
 /// Identifies goal geometry without retaining order pointers or native padding.
 ///
 /// @param goal original navigation goal
@@ -179,18 +177,9 @@ void TickHost::movement_tick(oa::Unit& record) {
                 flow_head->mobile_blocked = false;
             } else {
                 const auto goal_key = local_flow_goal_key(*g.navigation.goal);
-                const auto target_x = int32_t(flow_head->points[1][0]) * 65536;
-                const auto target_z = int32_t(flow_head->points[1][1]) * 65536;
                 if (flow_head->active &&
                     (flow_head->goal_key != goal_key ||
-                     base::game_math::distance(
-                         std::bit_cast<int32_t>(
-                             uint32_t(target_x) - uint32_t(g.geometry.position[0])
-                         ),
-                         std::bit_cast<int32_t>(
-                             uint32_t(target_z) - uint32_t(g.geometry.position[2])
-                         )
-                     ) < local_flow_arrival_distance ||
+                     sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head) ||
                      flow_head->blocked_ticks >= sim::unit_movement::local_flow_retry_ticks))
                     flow_head->active = false;
                 if (!flow_head->active &&

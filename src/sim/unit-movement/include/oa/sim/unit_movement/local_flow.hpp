@@ -69,6 +69,18 @@ inline constexpr size_t local_flow_head_bytes = 27;
 /// Number of consecutive blocked ticks before the navigator retries the route.
 inline constexpr uint8_t local_flow_retry_ticks = 30;
 
+/// Tests whether a temporary steering waypoint has been reached or passed.
+///
+/// A unit within five world units has arrived. Crossing the target's forward
+/// plane also completes the leg, so a unit whose turn radius exceeds this
+/// short detour cannot keep circling an already-passed waypoint. Empty braking
+/// heads do not complete through this test.
+///
+/// @param unit moving unit
+/// @param head retained local steering head
+/// @return whether the original route should resume
+[[nodiscard]] bool local_flow_head_reached(const Unit& unit, const LocalFlowHead& head) noexcept;
+
 /// Records an occupancy result independently of subpixel motion within a cell.
 ///
 /// @param[in,out] head retained local traffic state
