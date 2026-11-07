@@ -28,6 +28,9 @@ struct Match::EnhancedState {
     std::unique_ptr<sim::ground_orders::FlowCache> shared_routes{};
     uint32_t shared_static_revision{};
     std::array<uint8_t, 4> shared_static_revision_bytes{};
+    std::unique_ptr<uint8_t[]> target_sighting_membership{};
+    std::array<bool, OA_PLAYER_COUNT> target_sighting_membership_valid{};
+    std::array<uint8_t, 5> shared_route_scan_state{};
 };
 
 } // namespace oa::sim::match_runtime
