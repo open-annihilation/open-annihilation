@@ -66,6 +66,7 @@ constexpr uint32_t kUptimeMilliseconds = 1000;
 constexpr uint32_t released_mode = 0;
 constexpr uint32_t enhanced_capacity_mode = 1;
 constexpr uint32_t enhanced_flow_mode = 2;
+constexpr uint16_t participating_players = (1u << 0) | (1u << 1);
 // The transport machines' air transport, air pad and cargo types. The cargo
 // stands kCargoHeight units high; the pad's landing piece sits on its deck.
 constexpr uint16_t kTransportType = 5;
@@ -588,10 +589,17 @@ struct Machine {
         };
         input.feature_defs = feature_defs;
         input.rules = rules;
+        if (rules.setup.enhanced_mode.enabled)
+            input.unit_player_mask = participating_players;
         input.unit_type_rules = unit_type_rules;
         // Both machines read the same uptime, so a hovercraft's bob agrees.
         input.uptime_milliseconds = [] { return kUptimeMilliseconds; };
         match = std::make_unique<sim::match_runtime::Match>(input, services);
+        if (const char* fault = match->fault()) {
+            std::fprintf(stderr, "match construction: %s\n", fault);
+            CHECK(fault == nullptr);
+            return;
+        }
         match->configure_strategic_environment({0, 0.5f, 0});
         auto& world = match->state();
         world.game.map_pixel_width = world.game.map_pixel_height = cells * 16;
@@ -871,6 +879,8 @@ void local_traffic_heads_keep_their_copies() {
         Pair pair(0, kMapCells, false, false, false, false, version);
         auto& host = *pair.host;
         auto& joiner = *pair.joiner;
+        if (host.match->fault() != nullptr || joiner.match->fault() != nullptr)
+            continue;
         auto* southbound = host.match->create({0, 1, {72u << 16, 0, 48u << 16}, true, 1, 0});
         auto* northbound = host.match->create({0, 1, {72u << 16, 0, 144u << 16}, true, 1, 0});
         CHECK(southbound != nullptr && northbound != nullptr);
@@ -935,9 +945,22 @@ void local_traffic_heads_keep_their_copies() {
             CHECK(tracked.differing == 0);
         }
         CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
-        if (version == enhanced_flow_mode)
+        if (version == enhanced_flow_mode) {
+            if (!saw_head || !saw_original_route || !resumed)
+                std::fprintf(
+                    stderr,
+                    "Enhanced traffic: head %d, original route %d, resumed %d; units at %d,%d / "
+                    "%d,%d\n",
+                    saw_head,
+                    saw_original_route,
+                    resumed,
+                    host.match->state().units[indices[0]].position.x >> 16,
+                    host.match->state().units[indices[0]].position.z >> 16,
+                    host.match->state().units[indices[1]].position.x >> 16,
+                    host.match->state().units[indices[1]].position.z >> 16
+                );
             CHECK(saw_head && saw_original_route && resumed);
-        else
+        } else
             CHECK(!saw_head);
     }
 }
@@ -946,6 +969,8 @@ void local_traffic_heads_keep_their_copies() {
 void restored_traffic_heads_publish_their_effective_route() {
     Pair pair(0, kMapCells, false, false, false, false, enhanced_flow_mode);
     auto& host = *pair.host;
+    if (host.match->fault() != nullptr)
+        return;
     auto* unit = host.match->create({0, 1, {48u << 16, 0, 48u << 16}, true, 1, 0});
     CHECK(unit != nullptr);
     if (unit == nullptr)
