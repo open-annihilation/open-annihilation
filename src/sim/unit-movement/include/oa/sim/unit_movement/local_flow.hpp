@@ -5,6 +5,8 @@
 
 #include "oa/sim/unit_movement/movement.hpp"
 
+#include <span>
+
 namespace oa::sim::unit_movement {
 
 /// The result of a footprint query for local traffic steering.
@@ -43,6 +45,35 @@ struct LocalFlowDecision {
     bool reverse{};
     bool mobile_blocked{};
 };
+
+/// A retained local steering head, shared with movement replication.
+///
+/// Its three points have the same origin, target and braking-point meaning as
+/// a ground route. The original navigator still owns the mission and arrival.
+struct LocalFlowHead {
+    std::array<std::array<int16_t, 2>, 3> points{};
+    uint64_t goal_key{}; ///< stable identity of the original goal's geometry
+    uint32_t tick{};     ///< tick on which this effective head was used
+    uint8_t count{};     ///< zero brakes; two or three points steer
+    bool active{};
+};
+
+/// Canonical bytes per retained head, without native padding or pointers.
+inline constexpr size_t local_flow_head_bytes = 26;
+
+/// Writes retained heads as canonical little-endian save bytes.
+///
+/// @param heads retained heads
+/// @param[out] bytes exactly heads.size() * local_flow_head_bytes bytes
+/// @return false when the output size does not match
+bool write_local_flow_heads(std::span<const LocalFlowHead> heads, std::span<uint8_t> bytes) noexcept;
+
+/// Restores retained heads after validating the entire saved table.
+///
+/// @param[in,out] heads retained heads
+/// @param bytes canonical little-endian save bytes
+/// @return false without changing heads when sizes or head flags are invalid
+bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8_t> bytes) noexcept;
 
 /// Chooses a short traffic-avoidance waypoint, with bounded footprint queries.
 ///
