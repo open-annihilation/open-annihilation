@@ -50,6 +50,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
                          public sim::combat_state::TargetSearchHost,
                          public sim::combat_state::AttackHost {
     Match& match;
+    bool gathering_sightings_{};
 
     // An identity outside the pool is noted and names the reserved slot 0,
     // which holds no unit.
@@ -96,6 +97,8 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
     }
 
     const sim::combat_state::TargetUnit* resolve(sim::combat_state::UnitIdentity id) override {
+        if (gathering_sightings_ && match.enhanced_)
+            ++match.enhanced_->counters.target_candidates;
         auto& s = slot(id);
         auto& unit = *s.unit;
         if (!unit.type || !unit.owner)
@@ -209,15 +212,16 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
             if (nearby.complete) {
                 seen = nearby.seen;
                 radar = nearby.radar;
-                enhanced.counters.target_candidates += nearby.candidates;
             } else {
                 ++enhanced.counters.target_full_scans;
             }
         }
         match.sighting_query_.clear();
+        gathering_sightings_ = true;
         sim::combat_state::gather_sightings(
             seen, radar, sightings.radar_fallback != 0, center, radius, *this, match.sighting_query_
         );
+        gathering_sightings_ = false;
         return match.sighting_query_;
     }
 
