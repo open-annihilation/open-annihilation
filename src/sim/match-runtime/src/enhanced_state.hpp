@@ -31,6 +31,7 @@ struct Match::EnhancedState {
     std::unique_ptr<uint8_t[]> target_sighting_membership{};
     std::array<bool, OA_PLAYER_COUNT> target_sighting_membership_valid{};
     std::array<uint8_t, 5> shared_route_scan_state{};
+    bool air_goal_cleanup_required{};
 };
 
 } // namespace oa::sim::match_runtime
