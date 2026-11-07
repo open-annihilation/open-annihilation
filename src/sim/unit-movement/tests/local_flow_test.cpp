@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <span>
 
 using namespace oa::sim::unit_movement;
 
@@ -40,9 +41,18 @@ struct Grid : Host {
     std::array<int16_t, std::size_t(map_width) * map_height> occupants{};
     std::array<bool, std::size_t(map_width) * map_height> walls{};
     std::array<Agent, maximum_agents> agents{};
+    std::array<uint32_t, maximum_agents + 1> progress_at_tick_start{};
     std::size_t count{};
     uint32_t tick{};
     unsigned overlap_count{};
+    bool progress_snapshot_enabled{};
+
+    void snapshot_progress() {
+        for (std::size_t i = 0; i < count; ++i)
+            progress_at_tick_start[static_cast<uint16_t>(agents[i].unit.id)] =
+                agents[i].movement.last_motion_tick;
+        progress_snapshot_enabled = true;
+    }
 
     static std::size_t index(int16_t x, int16_t z) {
         return std::size_t(z) * map_width + std::size_t(x);
@@ -137,12 +147,18 @@ struct Grid : Host {
                 const auto& other = agents[std::size_t(id - 1)];
                 if (!other.travelling)
                     return {LocalFlowObstacle::stationary};
-                if (selected.obstacle == LocalFlowObstacle::clear || id < selected.unit_id)
+                const auto last_motion_tick = progress_snapshot_enabled
+                                                  ? progress_at_tick_start[std::size_t(id)]
+                                                  : other.movement.last_motion_tick;
+                const auto waiting_ticks = tick - last_motion_tick;
+                if (selected.obstacle == LocalFlowObstacle::clear ||
+                    waiting_ticks > selected.waiting_ticks ||
+                    (waiting_ticks == selected.waiting_ticks && id < selected.unit_id))
                     selected = {
                         LocalFlowObstacle::moving,
                         static_cast<uint16_t>(id),
                         other.unit.heading,
-                        tick - other.movement.last_motion_tick
+                        waiting_ticks
                     };
             }
         return selected;
@@ -153,13 +169,58 @@ struct Grid : Host {
             this,
             [](void* context, const Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy) {
                 return static_cast<Grid*>(context)->probe(unit, cell, occupancy);
-            }
+            },
+            progress_snapshot_enabled ? std::span<const uint32_t>(progress_at_tick_start)
+                                      : std::span<const uint32_t>{}
         };
     }
 };
 
 Fixed distance(std::array<Fixed, 3> from, std::array<Fixed, 3> to) {
     return oa::base::game_math::distance(to[0] - from[0], to[2] - from[2]);
+}
+
+void test_sequential_progress_preserves_tick_start_priority() {
+    for (const uint32_t earlier_progress_tick : {uint32_t{19}, uint32_t{5}}) {
+        Grid grid;
+        auto& earlier = grid.add(8, 6, west, 2, 6);
+        auto& later = grid.add(6, 6, east, 14, 6);
+        grid.tick = 20;
+        earlier.movement.last_motion_tick = earlier_progress_tick;
+        later.movement.last_motion_tick = grid.tick - 1;
+        grid.snapshot_progress();
+        LocalFlowCounters counters{};
+        const auto earlier_decision = choose_local_flow(
+            earlier.unit,
+            earlier.movement,
+            earlier.destination,
+            grid.tick,
+            grid,
+            grid.query(),
+            counters
+        );
+        OA_CHECK(earlier_decision.mobile_blocked);
+        OA_CHECK(!earlier_decision.adjusted);
+        const auto before_integration = choose_local_flow(
+            later.unit, later.movement, later.destination, grid.tick, grid, grid.query(), counters
+        );
+        OA_CHECK(before_integration.mobile_blocked);
+        OA_CHECK(before_integration.adjusted);
+
+        // The lower id moves first in the owner update. Its live clock now
+        // reports this tick even when it had waited much longer at tick start.
+        earlier.movement.speed = fixed_one;
+        earlier.movement.velocity = {-fixed_one, 0, 0};
+        integrate_local_flow(earlier.unit, earlier.movement, grid.tick, true, grid, counters);
+        OA_CHECK(earlier.movement.last_motion_tick == grid.tick);
+        const auto after_integration = choose_local_flow(
+            later.unit, later.movement, later.destination, grid.tick, grid, grid.query(), counters
+        );
+        OA_CHECK(after_integration.mobile_blocked);
+        OA_CHECK(after_integration.adjusted);
+        OA_CHECK(after_integration.target == before_integration.target);
+        OA_CHECK(grid.overlap_count == 0);
+    }
 }
 
 void test_priority_and_stationary_obstacles() {
@@ -317,6 +378,8 @@ BattleResult run_traffic(Traffic traffic, bool enhanced) {
     }
     LocalFlowCounters counters;
     for (grid.tick = 1; grid.tick <= battle_tick_limit; ++grid.tick) {
+        if (enhanced)
+            grid.snapshot_progress();
         bool travelling = false;
         for (std::size_t i = 0; i < grid.count; ++i) {
             auto& agent = grid.agents[i];
@@ -465,6 +528,7 @@ void test_counterflow_crossing_and_choke() {
 
 int main() {
     test_priority_and_stationary_obstacles();
+    test_sequential_progress_preserves_tick_start_priority();
     test_diagonal_corner_clearance();
     test_collision_veto_and_last_progress();
     test_blocked_boundary_creep_cannot_defer_forever();
