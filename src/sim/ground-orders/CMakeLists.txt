@@ -11,6 +11,12 @@ target_link_libraries(oa-sim-ground-orders PUBLIC oa-data-match-rules oa-sim-sim
 target_link_libraries(oa-sim-ground-orders PUBLIC oa-sim-unit-movement oa-base-game-math oa-sim-unit-spawn
   PRIVATE oa-base-bytes)
 target_compile_features(oa-sim-ground-orders PUBLIC cxx_std_20)
+target_sources(oa-sim-ground-orders PRIVATE src/corridors.cpp)
+if(BUILD_TESTING)
+  add_executable(oa-ground-corridors-test tests/corridors_test.cpp)
+  target_link_libraries(oa-ground-corridors-test PRIVATE oa-sim-ground-orders oa-test-support)
+  add_test(NAME ground-corridors COMMAND oa-ground-corridors-test)
+endif()
 if(TARGET oa-options)
   target_link_libraries(oa-sim-ground-orders PUBLIC oa-options)
 endif()
