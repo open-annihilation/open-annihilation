@@ -1907,9 +1907,12 @@ class Emitter {
     struct BodyPage {
         uint32_t index{};
         bool bright{};
+        card::PageHandle handle{};
     };
 
     std::optional<BodyPage> body_page_;
+    PlacedFrame body_white_{};
+    bool body_white_checked_{};
     std::vector<card::Vertex>& vertices_{impl_.emission.vertices};
     std::vector<card::Index>& indices_{impl_.emission.indices};
     std::vector<card::Vertex>& wet_vertices_{impl_.emission.wet_vertices};
@@ -1984,7 +1987,11 @@ void Emitter::prefer_body_page(card::PageHandle page) noexcept {
         const auto& slots = bright ? impl_.bright_slots : impl_.slots;
         for (uint32_t at = 0; at < slots.size(); ++at)
             if (slots[at].handle == page && page != card::PageHandle{}) {
-                body_page_ = BodyPage{at, bright};
+                if (!body_page_ || body_page_->handle != page) {
+                    body_white_ = {};
+                    body_white_checked_ = false;
+                }
+                body_page_ = BodyPage{at, bright, page};
                 return;
             }
     }
@@ -1993,6 +2000,11 @@ void Emitter::prefer_body_page(card::PageHandle page) noexcept {
 bool Emitter::place_body_white(PlacedFrame& out) {
     if (!body_page_)
         return false;
+    if (body_white_checked_) {
+        out = body_white_;
+        return out.page != card::PageHandle{};
+    }
+    body_white_checked_ = true;
     auto& pages = body_page_->bright ? bright_pages_ : pages_;
     auto& slots = body_page_->bright ? impl_.bright_slots : impl_.slots;
     const auto result =
@@ -2002,6 +2014,7 @@ bool Emitter::place_body_white(PlacedFrame& out) {
         return false;
     const auto& slot = slots[result.record.page];
     out = {slot.handle, slot.size, result.record.rect};
+    body_white_ = out;
     return true;
 }
 
@@ -3310,6 +3323,8 @@ void Emitter::lift_under_water(const Canvas& surface) {
 
 void Emitter::emit_polygons(const Canvas& surface) {
     body_page_.reset();
+    body_white_ = {};
+    body_white_checked_ = false;
     if (in_.share_solid_materials && !frame_.batches.empty())
         prefer_body_page(frame_.batches.back().page);
     if (in_.share_solid_materials && !body_page_)
