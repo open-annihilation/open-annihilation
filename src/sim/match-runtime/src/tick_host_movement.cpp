@@ -15,7 +15,7 @@
 namespace oa::sim::match_runtime {
 namespace {
 constexpr uint8_t ground_occupancy = 1;
-constexpr uint32_t live_route_corner_version = 3;
+constexpr int32_t live_route_corner_version = 3;
 
 /// Identifies goal geometry without retaining order pointers or native padding.
 ///
