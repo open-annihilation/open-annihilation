@@ -333,9 +333,11 @@ void shared_poll_progresses_without_legacy_credit() {
         if (pending) {
             CHECK(first.shared_route_waits == before.shared_route_waits + 1);
             CHECK(ground->navigation.count == 0);
+            CHECK(ground->navigation.last_search_tick == 0);
         } else {
             CHECK(first.shared_route_hits == before.shared_route_hits + 1);
             CHECK(ground->navigation.count >= 2);
+            CHECK(ground->navigation.last_search_tick == request_tick);
         }
         const auto& scan = table(match, "shared-route-scan");
         constexpr std::array<uint8_t, 5> scanned{1, request_tick, 0, 0, 0};
@@ -364,6 +366,7 @@ void shared_poll_progresses_without_legacy_credit() {
         CHECK(delivered.shared_route_hits == first.shared_route_hits + 1);
         CHECK(delivered.full_route_searches == before.full_route_searches);
         CHECK(ground->navigation.count >= 2);
+        CHECK(ground->navigation.last_search_tick == request_tick + 2);
         CHECK(jobs.unit_cursor[0] == distant_cursor && jobs.unit_cursor[1] == distant_cursor);
     }
 }
@@ -654,6 +657,77 @@ uint16_t create_passing_head(Fixture& fixture) {
     return 0;
 }
 
+/// Keeps a delivered route and its avoidance head through the retry interval.
+void delivered_shared_routes_keep_their_retry_interval() {
+    Fixture fixture(options_for(2));
+    const auto unit = create_passing_head(fixture);
+    auto& match = *fixture.match;
+    auto* ground = match.ground_runtime(unit);
+    CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+    CHECK(match.local_flow_head(unit)->active);
+    const auto* goal = ground->navigation.goal;
+    const auto& steering = table(match, "local-flow");
+    const auto genuine_head = bytes_of(steering);
+    constexpr uint32_t request_tick = 120;
+    constexpr uint32_t retry_tick = request_tick + routes::search_retry_ticks;
+    for (const auto& slot : match.world().slots)
+        if (auto* other = match.ground_runtime(slot.unit_index); other != nullptr) {
+            other->navigation.flags &= uint8_t(~routes::search_pending_flag);
+            other->navigation.last_search_tick = retry_tick;
+        }
+    auto& jobs = match.path_search_jobs();
+    jobs.tick_credit = 0;
+    jobs.credit.fill(0);
+    match.simulation().tick = request_tick;
+    install_poll_field(match, unit, request_tick, false);
+    ground->navigation.count = 0;
+    ground->navigation.flags = routes::search_pending_flag;
+    ground->navigation.last_search_tick = 0;
+    const auto before = match.enhanced_counters();
+    match.advance_path_search();
+    CHECK(match.fault() == nullptr);
+    const auto delivered = match.enhanced_counters();
+    CHECK(delivered.shared_route_requests == before.shared_route_requests + 1);
+    CHECK(delivered.shared_route_hits == before.shared_route_hits + 1);
+    CHECK(delivered.full_route_searches == before.full_route_searches);
+    CHECK(ground->navigation.last_search_tick == request_tick);
+    CHECK(ground->navigation.count >= 2);
+    CHECK(!match.local_flow_head(unit)->active);
+    const auto delivered_points = ground->navigation.points;
+    const auto delivered_count = ground->navigation.count;
+
+    // This head was produced by actual passing movement, and belongs to the
+    // same goal. A collision request must not repeatedly replace it with the
+    // same cached route before that route's retry deadline.
+    CHECK(steering.restore(steering.context, genuine_head));
+    CHECK(match.local_flow_head(unit)->active);
+    ground->navigation.flags |= routes::search_pending_flag;
+    for (const uint32_t tick : {request_tick, request_tick + 1, retry_tick - 1}) {
+        match.simulation().tick = tick;
+        match.advance_path_search();
+        CHECK(match.fault() == nullptr);
+        CHECK(match.enhanced_counters().shared_route_requests == delivered.shared_route_requests);
+        CHECK(match.enhanced_counters().shared_route_hits == delivered.shared_route_hits);
+        CHECK(ground->navigation.points == delivered_points);
+        CHECK(ground->navigation.count == delivered_count);
+        CHECK(ground->navigation.goal == goal);
+        CHECK(ground->navigation.last_search_tick == request_tick);
+        CHECK(ground->navigation.needs_search());
+        CHECK(match.local_flow_head(unit)->active);
+    }
+
+    match.simulation().tick = retry_tick;
+    match.advance_path_search();
+    CHECK(match.fault() == nullptr);
+    CHECK(match.enhanced_counters().shared_route_requests == delivered.shared_route_requests + 1);
+    CHECK(match.enhanced_counters().shared_route_hits == delivered.shared_route_hits + 1);
+    CHECK(match.enhanced_counters().full_route_searches == before.full_route_searches);
+    CHECK(ground->navigation.goal == goal);
+    CHECK(ground->navigation.last_search_tick == retry_tick);
+    CHECK(!ground->navigation.needs_search());
+    CHECK(!match.local_flow_head(unit)->active);
+}
+
 /// New searches must replace temporary steering from an older route of the same goal.
 void accepted_routes_release_old_traffic_heads() {
     for (const bool shared_path : {false, true}) {
@@ -790,6 +864,7 @@ int main() {
         shared_poll_preserves_an_active_full_search();
         sustained_blockage_bypasses_shared_routes();
         static_barrier_keeps_shared_route_access();
+        delivered_shared_routes_keep_their_retry_interval();
         accepted_routes_release_old_traffic_heads();
         passing_units_rejoin_and_arrive();
         std::cout << "Enhanced navigation state: restore and pending invalidation match\n";
