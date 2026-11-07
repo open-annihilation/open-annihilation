@@ -157,7 +157,7 @@ module, allocated while the match is built, never in `Unit`, `Game` or
 integers, no padding) and how to restore them, and adds it with
 `add_rule_state(match.rule_state(), table)` while the match is built, and
 only when its parameters need the state: at its baseline a rule adds none.
-`Match::fold_rule_state` folds the profile's sim hash and every table into
+`Match::fold_rule_state` folds the profile's sim hash and each shared table into
 the match-state digest (`src/sim/state-hash`), and `match_tick_digest` and
 the trace recorder fold the same into the trace's total; a save keeps each
 table as a blob of its ModProfile account. A mutator digest the match holds
