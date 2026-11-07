@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <span>
+#include <cstdio>
 
 namespace movement = oa::sim::unit_movement;
 namespace ground = oa::sim::ground_orders;
@@ -28,6 +30,9 @@ constexpr uint32_t tick_limit = 900;
 constexpr uint32_t progress_measurement_tick = 450;
 constexpr uint16_t east = 49152;
 constexpr uint16_t west = 16384;
+constexpr uint16_t south = 32768;
+constexpr uint16_t north = 0;
+constexpr uint32_t crossing_count = 4;
 
 uint32_t
 planar_distance(const std::array<movement::Fixed, 3>& a, const std::array<movement::Fixed, 3>& b) {
@@ -62,14 +67,23 @@ struct Arena : movement::Host {
     size_t count{};
     uint32_t tick{};
     unsigned overlap_count{};
+    bool idle_units_are_mobile{};
 
     static size_t plot(int16_t x, int16_t z) { return size_t(z) * map_width + size_t(x); }
 
     Agent& add(int16_t x, int16_t destination_x, uint16_t heading) {
+        return add_at(x, 32, destination_x, 32, heading);
+    }
+
+    /// Places a mover on an axis-aligned route through an intersection.
+    Agent&
+    add_at(int16_t x, int16_t z, int16_t destination_x, int16_t destination_z, uint16_t heading) {
         auto& agent = agents[count++];
         agent.unit.id = static_cast<int16_t>(count);
-        agent.unit.cell = {x, 32};
-        agent.unit.position = {(int32_t(x) * 16 + 8) * fixed_one, 0, (32 * 16 + 8) * fixed_one};
+        agent.unit.cell = {x, z};
+        agent.unit.position = {
+            (int32_t(x) * 16 + 8) * fixed_one, 0, (int32_t(z) * 16 + 8) * fixed_one
+        };
         agent.unit.footprint = {1, 1};
         agent.unit.flags = 1;
         agent.unit.heading = heading;
@@ -79,7 +93,9 @@ struct Arena : movement::Host {
         agent.motion.speed = agent.unit.type.maximum_speed;
         agent.initial = agent.unit.position;
         agent.destination = {
-            (int32_t(destination_x) * 16 + 8) * fixed_one, 0, agent.unit.position[2]
+            (int32_t(destination_x) * 16 + 8) * fixed_one,
+            0,
+            (int32_t(destination_z) * 16 + 8) * fixed_one
         };
         agent.navigation.count = 3;
         agent.navigation.flags = ground::route_present_flag;
@@ -140,7 +156,7 @@ struct Arena : movement::Host {
                 if (id == 0 || id == uint16_t(unit.id))
                     return LocalFlowBlocker{};
                 const auto& other = arena.agents[id - 1];
-                if (!other.travelling)
+                if (!other.travelling && !arena.idle_units_are_mobile)
                     return LocalFlowBlocker{LocalFlowObstacle::stationary};
                 return LocalFlowBlocker{
                     LocalFlowObstacle::moving,
@@ -162,6 +178,7 @@ struct Result {
     uint64_t progress_at_450{};
     uint64_t blocked{};
     uint64_t adjustments{};
+    uint64_t history_transitions{};
     uint32_t arrived{};
     uint32_t last_arrival{};
     uint32_t end_tick{};
@@ -170,19 +187,30 @@ struct Result {
     bool operator==(const Result&) const = default;
 };
 
-Result run_cohorts(bool passed_plane) {
+enum class CohortKind { opposing, crossing };
+
+Result
+run_cohorts(bool passed_plane, bool history = false, CohortKind kind = CohortKind::opposing) {
     Arena arena;
-    for (int16_t i = 0; i < 4; ++i)
-        arena.add(static_cast<int16_t>(16 + i * 4), static_cast<int16_t>(100 + i * 4), east);
-    for (int16_t i = 0; i < 4; ++i)
-        arena.add(static_cast<int16_t>(100 + i * 4), static_cast<int16_t>(16 + i * 4), west);
+    if (kind == CohortKind::opposing) {
+        for (int16_t i = 0; i < 4; ++i)
+            arena.add(static_cast<int16_t>(16 + i * 4), static_cast<int16_t>(100 + i * 4), east);
+        for (int16_t i = 0; i < 4; ++i)
+            arena.add(static_cast<int16_t>(100 + i * 4), static_cast<int16_t>(16 + i * 4), west);
+    } else {
+        arena.idle_units_are_mobile = true;
+        arena.add_at(40, 32, 88, 32, east);
+        arena.add_at(88, 32, 40, 32, west);
+        arena.add_at(64, 8, 64, 56, south);
+        arena.add_at(64, 56, 64, 8, north);
+    }
     movement::LocalFlowCounters counters{};
     Result result{};
     for (arena.tick = 1; arena.tick <= tick_limit; ++arena.tick) {
         for (size_t i = 0; i < arena.count; ++i)
             arena.progress[i + 1] = arena.agents[i].motion.last_motion_tick;
         bool travelling = false;
-        for (auto& agent : arena.agents) {
+        for (auto& agent : std::span{arena.agents}.first(arena.count)) {
             if (!agent.travelling)
                 continue;
             if (planar_distance(agent.unit.position, agent.destination) < arrival_radius) {
@@ -195,20 +223,23 @@ Result run_cohorts(bool passed_plane) {
                 continue;
             }
             travelling = true;
-            if (agent.head.active &&
-                ((passed_plane ? movement::local_flow_head_reached(agent.unit, agent.head)
-                               : radius_only_reached(agent.unit, agent.head)) ||
-                 agent.head.blocked_ticks >= movement::local_flow_retry_ticks))
+            const bool recovery =
+                movement::local_flow_recovery_due(agent.head, arena.tick, uint16_t(agent.unit.id));
+            const bool just_reached =
+                agent.head.active &&
+                (passed_plane ? movement::local_flow_head_reached(agent.unit, agent.head)
+                              : radius_only_reached(agent.unit, agent.head));
+            if (agent.head.active && (just_reached || recovery))
                 agent.head.active = false;
-            if (!agent.head.active && agent.head.blocked_ticks < movement::local_flow_retry_ticks) {
+            if (!agent.head.active &&
+                (agent.head.blocked_ticks < movement::local_flow_retry_ticks || recovery)) {
+                auto probe = arena.probe();
+                probe.previous_head = history && just_reached ? &agent.head : nullptr;
+                probe.allow_reverse = recovery;
+                if (probe.previous_head != nullptr)
+                    ++result.history_transitions;
                 const auto decision = movement::choose_local_flow(
-                    agent.unit,
-                    agent.motion,
-                    agent.destination,
-                    arena.tick,
-                    arena,
-                    arena.probe(),
-                    counters
+                    agent.unit, agent.motion, agent.destination, arena.tick, arena, probe, counters
                 );
                 agent.head.mobile_blocked = decision.mobile_blocked;
                 if (decision.adjusted) {
@@ -267,7 +298,7 @@ Result run_cohorts(bool passed_plane) {
         }
         result.end_tick = arena.tick;
         if (arena.tick == progress_measurement_tick)
-            for (const auto& agent : arena.agents)
+            for (const auto& agent : std::span{arena.agents}.first(arena.count))
                 result.progress_at_450 += static_cast<uint64_t>(
                     std::abs(int64_t(agent.unit.position[0]) - agent.initial[0])
                 );
@@ -277,7 +308,7 @@ Result run_cohorts(bool passed_plane) {
     result.blocked = counters.blocked_ticks;
     result.adjustments = counters.steering_adjustments;
     result.overlaps = arena.overlap_count;
-    for (const auto& agent : arena.agents) {
+    for (const auto& agent : std::span{arena.agents}.first(arena.count)) {
         result.progress +=
             static_cast<uint64_t>(std::abs(int64_t(agent.unit.position[0]) - agent.initial[0]));
         for (const auto value : agent.unit.position) {
@@ -402,11 +433,45 @@ void test_sustained_opposing_cohorts() {
         current.arrived > radius_only.arrived || current.last_arrival < radius_only.last_arrival
     );
 }
+
+/// Checks that immediate history preserves complete opposing and crossing trips.
+void test_history_in_actual_opposing_and_crossing_steering() {
+    for (const auto kind : {CohortKind::opposing, CohortKind::crossing}) {
+        const auto current = run_cohorts(true, false, kind);
+        const auto history = run_cohorts(true, true, kind);
+        std::printf(
+            "kind%d old arrivals%u last%u orbits%llu turn%llu blocked%llu overlap%u; history "
+            "arrivals%u last%u orbits%llu turn%llu blocked%llu overlap%u\n",
+            kind == CohortKind::crossing,
+            current.arrived,
+            current.last_arrival,
+            (unsigned long long)current.closed_orbit_windows,
+            (unsigned long long)current.turn,
+            (unsigned long long)current.blocked,
+            current.overlaps,
+            history.arrived,
+            history.last_arrival,
+            (unsigned long long)history.closed_orbit_windows,
+            (unsigned long long)history.turn,
+            (unsigned long long)history.blocked,
+            history.overlaps
+        );
+        OA_CHECK(history == run_cohorts(true, true, kind));
+        OA_CHECK(history.arrived == (kind == CohortKind::opposing ? agent_count : crossing_count));
+        OA_CHECK(history.history_transitions != 0);
+        OA_CHECK(history.overlaps == 0);
+        OA_CHECK(history.last_arrival <= current.last_arrival);
+        OA_CHECK(history.closed_orbit_windows <= current.closed_orbit_windows);
+        OA_CHECK(history.turn <= current.turn);
+        OA_CHECK(history.blocked <= current.blocked);
+    }
+}
 } // namespace
 
 int main() {
     test_ground_steering_does_not_orbit_a_passed_head();
     test_waypoint_completion_geometry();
     test_sustained_opposing_cohorts();
+    test_history_in_actual_opposing_and_crossing_steering();
     return oa::test::check_exit_status();
 }
