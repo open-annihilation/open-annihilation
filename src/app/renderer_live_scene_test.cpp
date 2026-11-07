@@ -4023,6 +4023,54 @@ void shared_unit_detail_bounds() {
             OA_CHECK(actual.pixels == expected.pixels);
             OA_CHECK(actual.surface == expected.surface && actual.shadow == expected.shadow);
             OA_CHECK(actual.eligible == expected.eligible && actual.marker == expected.marker);
+            // Translate every presented point before taking extrema, so
+            // sharing local hulls is held to independent world arithmetic.
+            constexpr float fixed_scale = static_cast<float>(fixed);
+            const auto& draw = battle.draws.models[index];
+            const auto position = draw.shown_position.value_or(draw.model.unit->position);
+            const std::array origin{
+                position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+            };
+            std::array world_low{
+                std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::infinity()
+            };
+            std::array world_high{-world_low[0], -world_low[1], -world_low[2]};
+            const auto pieces = draw.model.instance->pieces();
+            for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+                if ((pieces[piece].flags & static_cast<uint16_t>(runtime::PieceFlag::visible)) == 0)
+                    continue;
+                const auto& points = piece < draw.shown_vertices.size()
+                                         ? draw.shown_vertices[piece]
+                                         : pieces[piece].transformed_vertices;
+                for (const auto& point : points) {
+                    const std::array world{
+                        origin[0] + point.x / fixed_scale,
+                        origin[1] + point.y / fixed_scale,
+                        origin[2] - point.z / fixed_scale
+                    };
+                    for (std::size_t axis = 0; axis < world.size(); ++axis) {
+                        world_low[axis] = std::min(world_low[axis], world[axis]);
+                        world_high[axis] = std::max(world_high[axis], world[axis]);
+                    }
+                }
+            }
+            if (std::all_of(world_low.begin(), world_low.end(), [](float value) {
+                    return std::isfinite(value);
+                })) {
+                for (std::size_t axis = 0; axis < world_low.size(); ++axis)
+                    OA_CHECK(actual.center[axis] == (world_low[axis] + world_high[axis]) * 0.5F);
+                float expected_pixels{};
+                for (std::size_t row = 0; row < 2; ++row) {
+                    float extent{};
+                    for (std::size_t axis = 0; axis < world_low.size(); ++axis)
+                        extent += std::abs(inputs.clip_projection[row * 4 + axis]) *
+                                  (world_high[axis] - world_low[axis]);
+                    expected_pixels = std::max(expected_pixels, extent);
+                }
+                OA_CHECK(actual.pixels == expected_pixels);
+            }
         }
     };
     OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
@@ -4202,7 +4250,8 @@ void shared_unit_detail_texture_visibility() {
     OA_CHECK(battle.scene.unit_ranges.size() == population / 2);
     for (uint32_t index = 0; index < population; ++index)
         OA_CHECK(battle.scene.unit_detail[index].eligible == (index % 2 == 0));
-    primitive.color = ground_index;
+    static_assert(alternate_index != drawing::image_key);
+    primitive.color = alternate_index;
     OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
     OA_CHECK(battle.scene.unit_ranges.size() == population);
 }
