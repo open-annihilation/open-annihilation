@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <vector>
 
@@ -162,6 +163,97 @@ void shared_cohort_and_budget() {
         static_cast<unsigned long long>(stats.cells_expanded),
         static_cast<unsigned long long>(grid.queries)
     );
+}
+
+void open_routes_keep_heading_and_individual_destinations() {
+    Grid grid(400, 400);
+    FlowCache cache(400, 400, {2, 20'000, 2048});
+    const auto seed = circle(200, 200);
+    (void)query(cache, grid, unit_at(40, 200), seed);
+    (void)query(cache, grid, unit_at(41, 200), seed);
+    finish(cache, grid);
+    constexpr std::array<std::array<int16_t, 2>, 4> starts{
+        {{40, 200}, {360, 200}, {200, 40}, {200, 360}}
+    };
+    for (const auto& start : starts) {
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        CHECK(
+            cache.route(
+                context(), unit_at(start[0], start[1]), seed, points, count, grid.sampler()
+            ) == FlowResult::ready
+        );
+        CHECK(count == 2);
+        CHECK(points[1] == (RoutePoint{3208, 3208}));
+    }
+    // A neighbour's field must not pull this unit toward the first unit's
+    // arrival row when its own horizontal route is completely clear.
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(
+        cache.route(context(), unit_at(40, 208), circle(216, 208), points, count, grid.sampler()) ==
+        FlowResult::ready
+    );
+    CHECK(count == 2);
+    CHECK(points[0][1] == points[1][1]);
+    CHECK(points[1] == (RoutePoint{3464, 3336}));
+}
+
+void blocked_lane_detours_are_symmetric_and_bounded() {
+    const auto measure = [](int16_t from_x, int16_t to_x) {
+        Grid grid(128, 128);
+        for (uint32_t z = 48; z <= 80; ++z)
+            grid.cells[z * 128 + 64] = 0;
+        FlowCache cache(128, 128);
+        const auto start = unit_at(from_x, 64);
+        const auto goal = circle(to_x, 64);
+        (void)query(cache, grid, start, goal);
+        (void)query(cache, grid, start, goal);
+        finish(cache, grid);
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        CHECK(
+            cache.route(context(), start, goal, points, count, grid.sampler()) == FlowResult::ready
+        );
+        double length = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            CHECK(std::abs(int32_t{points[i][1]} - 1032) <= 320);
+            if (i != 0)
+                length += std::hypot(
+                    double(points[i][0] - points[i - 1][0]), double(points[i][1] - points[i - 1][1])
+                );
+        }
+        CHECK(length <= 1850);
+        return length;
+    };
+    // Direct visibility is blocked in both directions. A region's BFS tie
+    // order must not send only the west bank far south before the choke.
+    const auto eastbound = measure(16, 112), westbound = measure(112, 16);
+    CHECK(std::abs(eastbound - westbound) < 1.0);
+    std::printf(
+        "wall-route: east %.3f, west %.3f footprint cells\n", eastbound / 16, westbound / 16
+    );
+}
+
+void own_destination_can_cross_a_region_split() {
+    Grid grid(64, 64);
+    for (uint32_t z = 0; z < 64; ++z)
+        grid.cells[z * 64 + 42] = 0;
+    FlowCache cache(64, 64);
+    const auto seed = circle(52, 40);
+    (void)query(cache, grid, unit_at(52, 8), seed);
+    (void)query(cache, grid, unit_at(53, 8), seed);
+    finish(cache, grid);
+    // Both goals key the same32x32region, but lie in disconnected rooms.
+    // A directly reachable own goal still has a valid route.
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(
+        cache.route(context(), unit_at(36, 8), circle(36, 52), points, count, grid.sampler()) ==
+        FlowResult::ready
+    );
+    CHECK(count == 2);
+    CHECK(points[1] == (RoutePoint{584, 840}));
 }
 
 void multiple_fields_clear_with_a_separate_byte_budget() {
@@ -329,6 +421,9 @@ void malformed_frontiers_are_rejected() {
 } // namespace
 
 int main() {
+    blocked_lane_detours_are_symmetric_and_bounded();
+    open_routes_keep_heading_and_individual_destinations();
+    own_destination_can_cross_a_region_split();
     multiple_fields_clear_with_a_separate_byte_budget();
     static_sampler_matches_full_classifier_passability();
     small_output_and_extraction_budget_are_bounded();

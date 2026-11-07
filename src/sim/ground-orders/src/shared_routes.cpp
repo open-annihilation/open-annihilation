@@ -19,6 +19,9 @@ constexpr uint8_t root = 0xfd, unseen = 0xff;
 constexpr uint32_t clear_bytes_per_tick = 65'536, clear_slice = 4'096;
 constexpr std::array<int32_t, 8> dx{1, 1, 0, -1, -1, -1, 0, 1};
 constexpr std::array<int32_t, 8> dz{0, 1, 1, 1, 0, -1, -1, -1};
+// Equal-depth parents must favour straight cardinal progress. Angular order
+// picks diagonal parents first on some banks and creates large V detours.
+constexpr std::array<uint8_t, 8> expansion_order{0, 2, 4, 6, 1, 3, 5, 7};
 using Key = std::array<uint8_t, key_size>;
 
 uint32_t get32(const uint8_t* p) noexcept {
@@ -288,7 +291,7 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         put32(f + 56, head);
         const int32_t x = static_cast<int32_t>(node % columns_);
         const int32_t z = static_cast<int32_t>(node / columns_);
-        for (uint32_t d = 0; d < dx.size(); ++d) {
+        for (const auto d : expansion_order) {
             const int32_t nx = x + dx[d], nz = z + dz[d];
             if (nx < 0 || nz < 0 || static_cast<uint32_t>(nx) >= columns_ ||
                 static_cast<uint32_t>(nz) >= rows_)
@@ -428,6 +431,21 @@ FlowResult FlowCache::route(
                        : 0;
         }
     };
+    // A shared region is a search-work key, not a formation destination.
+    // Keep each unit's own unobstructed lane before consulting the regional
+    // tree or snapping its start to a coarse anchor. The same probe budget
+    // bounds this test, and unknown terrain keeps the sampler's fog rules.
+    if (line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, goal.cell[0], goal.cell[1])) {
+        points[0] = {
+            static_cast<int16_t>(unit.position.x >> 16), static_cast<int16_t>(unit.position.z >> 16)
+        };
+        points[1] = point_at(goal.cell[0], goal.cell[1], context);
+        count = 2;
+        increment(state, 1);
+        return FlowResult::ready;
+    }
+    if (budget.exhausted)
+        return wait();
     const auto* directions = selected + metadata_size;
     auto node =
         connect_anchor(columns_, rows_, unit.cell_x, unit.cell_z, key.data(), bounded, directions);
