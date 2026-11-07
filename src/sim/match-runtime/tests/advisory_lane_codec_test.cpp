@@ -304,6 +304,115 @@ void pointers_and_endian() {
     OA_CHECK(source[0].goal == nullptr && source[0].order == nullptr);
 }
 
+/// Retains late first-enrollment state without inventing an observed route prefix.
+void late_crossing_without_prefix_history() {
+    for (const bool vertical : {false, true})
+        for (const bool reverse : {false, true})
+            for (const bool far_body : {false, true}) {
+                Fixture fixture(vertical, reverse);
+                const auto ordinary = fixture.state;
+                const auto axis = vertical ? 1u : 0u;
+                ground::CorridorOrigin cell{};
+                cell[1 - axis] = fixture.state.lane;
+                cell[axis] = int16_t(far_body ? (reverse ? 10 : 30) : 18);
+                fixture.place(cell);
+                fixture.state = {};
+                fixture.choose(1000);
+                OA_CHECK(fixture.decision.active);
+                OA_CHECK(fixture.state.entered);
+                OA_CHECK(fixture.state.phase == runtime::AdvisoryLanePhase::crossing);
+                OA_CHECK(fixture.state.admitted_count == 0);
+                OA_CHECK(fixture.state.entry_segment == 0 && fixture.state.exit_segment == 0);
+                OA_CHECK(
+                    std::all_of(
+                        fixture.state.admitted_route.begin(),
+                        fixture.state.admitted_route.end(),
+                        [](ground::RoutePoint point) { return point == ground::RoutePoint{}; }
+                    )
+                );
+                const auto late = fixture.state;
+                fixture.choose(0);
+                OA_CHECK(fixture.state.entered && !fixture.state.steering_active);
+                std::array<runtime::AdvisoryLaneState, 3> source{ordinary, late, fixture.state};
+                std::array<uint8_t, source.size() * record_bytes> bytes{};
+                auto loaded = source;
+                watch_allocations = true;
+                const auto before_allocations = allocation_count;
+                const bool wrote = runtime::write_advisory_lane_states(source, bytes);
+                const bool valid = runtime::can_read_advisory_lane_states(bytes);
+                const bool read = runtime::read_advisory_lane_states(loaded, bytes);
+                watch_allocations = false;
+                OA_CHECK(wrote && valid && read && allocation_count == before_allocations);
+                for (size_t at = 0; at < source.size(); ++at) {
+                    OA_CHECK(equal_state(source[at], loaded[at]));
+                    OA_CHECK(loaded[at].goal == nullptr && loaded[at].order == nullptr);
+                }
+                loaded[1].goal = fixture.navigation.goal;
+                loaded[1].order = fixture.navigation.goal->order;
+                cell[axis] = int16_t(reverse ? 8 : 32);
+                fixture.place(cell);
+                auto uninterrupted = late;
+                auto sampler = fixture.grid.sampler();
+                ground::CorridorBudget first_budget{1000}, second_budget{1000};
+                const auto first = runtime::choose_advisory_lane(
+                    fixture.unit,
+                    fixture.navigation,
+                    generation,
+                    &fixture.approach,
+                    &fixture.corridor,
+                    sampler,
+                    first_budget,
+                    uninterrupted
+                );
+                const auto second = runtime::choose_advisory_lane(
+                    fixture.unit,
+                    fixture.navigation,
+                    generation,
+                    &fixture.approach,
+                    &fixture.corridor,
+                    sampler,
+                    second_budget,
+                    loaded[1]
+                );
+                OA_CHECK(first.released && first.request_search && first.rejoin_count == 0);
+                OA_CHECK(second.released && second.request_search && second.rejoin_count == 0);
+                OA_CHECK(equal_state(uninterrupted, loaded[1]));
+                OA_CHECK(fixture.navigation.goal == &fixture.goal);
+                OA_CHECK(fixture.navigation.goal->order == &fixture.order);
+
+                constexpr size_t phase_byte = 1, flags_byte = 3, entry_byte = 74;
+                constexpr size_t exit_byte = 76, count_byte = 80, first_point_byte = 84;
+                constexpr size_t last_point_byte = 160;
+                constexpr std::array<std::array<size_t, 2>, 8> mutations{
+                    {{phase_byte, 1},
+                     {flags_byte, 2},
+                     {entry_byte, 1},
+                     {exit_byte, 1},
+                     {count_byte, 1},
+                     {count_byte, 2},
+                     {first_point_byte, 1},
+                     {last_point_byte, 1}}
+                };
+                for (const auto mutation : mutations) {
+                    auto malformed = bytes;
+                    malformed[record_bytes + mutation[0]] = static_cast<uint8_t>(mutation[1]);
+                    auto preserved = source;
+                    OA_CHECK(!runtime::can_read_advisory_lane_states(malformed));
+                    OA_CHECK(!runtime::read_advisory_lane_states(preserved, malformed));
+                    for (size_t at = 0; at < source.size(); ++at) {
+                        OA_CHECK(equal_state(source[at], preserved[at]));
+                        OA_CHECK(preserved[at].goal == source[at].goal);
+                        OA_CHECK(preserved[at].order == source[at].order);
+                    }
+                }
+                auto bad_state = source;
+                bad_state[1].admitted_route.back()[0] = 1;
+                auto preserved_bytes = bytes;
+                OA_CHECK(!runtime::write_advisory_lane_states(bad_state, preserved_bytes));
+                OA_CHECK(preserved_bytes == bytes);
+            }
+}
+
 /// Rejects malformed later records before changing any earlier live state or pointer.
 void malformed_state_is_atomic() {
     Fixture fixture;
@@ -385,6 +494,7 @@ void malformed_state_is_atomic() {
 int main() {
     native_states_round_trip();
     pointers_and_endian();
+    late_crossing_without_prefix_history();
     malformed_state_is_atomic();
     return 0;
 }

@@ -18,7 +18,8 @@ inline constexpr size_t advisory_lane_record_bytes = 176;
 ///
 /// Input and output storage must be separate. Goal and order addresses are
 /// ignored; the match keeps their stable saved identities separately. Invalid
-/// input leaves all output bytes unchanged.
+/// input leaves all output bytes unchanged. An entered crossing may have no
+/// admitted route history; its route points and entry and exit indexes are zero.
 ///
 /// @param states caller-owned guide states, including unused unit slots
 /// @param[out] bytes exactly one advisory_lane_record_bytes record per state

@@ -137,6 +137,16 @@ bool valid_corridor(const ground::CorridorGeometry& corridor) noexcept {
            corridor.lane_origins[1] == lower_lane + transverse_footprint;
 }
 
+/// Checks that no admitted route or claimed entry and exit indexes are retained.
+bool empty_route(const AdvisoryLaneState& state) noexcept {
+    if (state.admitted_count != 0 || state.entry_segment != 0 || state.exit_segment != 0)
+        return false;
+    for (const auto& point : state.admitted_route)
+        if (point != ground::RoutePoint{})
+            return false;
+    return true;
+}
+
 /// Checks that an unused guide carries no residual nonpointer state.
 bool empty_state(const AdvisoryLaneState& state) noexcept {
     const auto& corridor = state.corridor;
@@ -150,10 +160,7 @@ bool empty_state(const AdvisoryLaneState& state) noexcept {
         state.steering_active || state.admitted_count != 0 || state.entry_segment != 0 ||
         state.exit_segment != 0)
         return false;
-    for (const auto& point : state.admitted_route)
-        if (point != ground::RoutePoint{})
-            return false;
-    return true;
+    return empty_route(state);
 }
 
 /// Checks live helper invariants while allowing budget fallback and pre-contact crossing.
@@ -163,9 +170,16 @@ bool valid_state(const AdvisoryLaneState& state) noexcept {
     if ((state.phase != AdvisoryLanePhase::approach &&
          state.phase != AdvisoryLanePhase::crossing) ||
         (state.entered && state.phase != AdvisoryLanePhase::crossing) ||
-        !valid_corridor(state.corridor) || state.admitted_count < 2 ||
-        state.admitted_count > state.admitted_route.size() || state.entry_segment == 0 ||
-        state.entry_segment > state.exit_segment || state.exit_segment >= state.admitted_count)
+        !valid_corridor(state.corridor))
+        return false;
+    if (state.admitted_count == 0) {
+        if (!state.entered || state.phase != AdvisoryLanePhase::crossing || !empty_route(state))
+            return false;
+    } else if (
+        state.admitted_count < 2 || state.admitted_count > state.admitted_route.size() ||
+        state.entry_segment == 0 || state.entry_segment > state.exit_segment ||
+        state.exit_segment >= state.admitted_count
+    )
         return false;
     int16_t lane{};
     return ground::corridor_lane(state.corridor, state.direction, lane) && state.lane == lane;
