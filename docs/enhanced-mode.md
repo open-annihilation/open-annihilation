@@ -11,8 +11,9 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 4 is the current preset. It retains the earlier presets' capacity of
-10,000 units per participating player. It
+Rules version 5 is prepared as the current preset only when its matching
+corridor flow behavior is integrated and validated. It retains the earlier
+presets' capacity of 10,000 units per participating player. It
 allocates ranges only for participating players, with at most 32,767 units
 across the match. Two players can therefore field 10,000 units each.
 Spectators do not consume a unit range. The projectile pool holds 32,767
@@ -36,6 +37,13 @@ intermediate cell. Work is bounded to 128 origins and 512 footprint cells;
 an unsupported step receives the ordinary blocked response. This corrects
 collision handling, but does not establish smooth movement through a crowded
 battlefield. Off and versions 1, 2 and 3 keep their original movement rules.
+
+Version 5 reserves a distinct rules identity for advisory corridor lanes
+and ground-turn anticipation. The version metadata prepares save, replay
+and multiplayer agreement; it does not by itself implement those behaviors
+or establish improved bridge flow. Version 4 keeps its original ground
+movement and collision checks. Unit and projectile capacities and renderer
+selection remain unchanged.
 
 Version 3 can also remove an unnecessary bend from a published guide when
 the unit's actual footprint has a clear, fully known line to the following
@@ -125,7 +133,7 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2`, `3` or `4` with Enhanced Mode to compare the
+Use `--benchmark-rules-version 1`, `2`, `3`, `4` or `5` with Enhanced Mode to compare the
 presets on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.

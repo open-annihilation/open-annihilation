@@ -37,6 +37,11 @@ constexpr std::string_view regional_sim_hash =
     "1f2a8eb19c55aa46b2e620ac237a8d7f08e7307e0140f5b1b40bd8093cfaff69";
 constexpr std::string_view regional_canonical_hash =
     "d6e68fa3490dc43f3fcafb02027c9db9f111e54880b56b7275c7659da503bcd6";
+// Version 4 retains its swept-ground rules and canonical identity.
+constexpr std::string_view swept_ground_sim_hash =
+    "eb720332ee25a3e289956f795835d02f5c5f48da5cae2a5855454f6a47120235";
+constexpr std::string_view swept_ground_canonical_hash =
+    "fb94f560a48e47523c670a225e479db1f5cfc6a8550423c784a852ed8c9b7e0c";
 
 /// A chosen mod with its own unit capacity and unrelated gameplay rule.
 constexpr std::string_view mod_text =
@@ -164,12 +169,15 @@ void check_swept_ground_identity() {
     OA_CHECK(regional.resolution && swept.resolution);
     if (!regional.resolution || !swept.resolution)
         return;
-    OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
     OA_CHECK(
         enhanced::rules_version(swept.resolution->profile.rules) == enhanced::swept_ground_version
     );
     OA_CHECK(swept.resolution->profile.sim_hash != regional.resolution->profile.sim_hash);
     OA_CHECK(swept.resolution->profile.full_hash != regional.resolution->profile.full_hash);
+    OA_CHECK(profiles::digest_text(swept.resolution->profile.sim_hash) == swept_ground_sim_hash);
+    OA_CHECK(
+        profiles::digest_text(swept.resolution->profile.full_hash) == swept_ground_canonical_hash
+    );
     OA_CHECK(swept.resolution->profile.limits == regional.resolution->profile.limits);
     auto prior = swept.resolution->profile.rules;
     prior.setup.enhanced_mode.version = enhanced::regional_flow_version;
@@ -182,6 +190,38 @@ void check_swept_ground_identity() {
     if (version_at != std::string::npos) {
         canonical.replace(version_at, swept_rule.size(), regional_rule);
         OA_CHECK(canonical == regional.resolution->canonical);
+    }
+}
+
+/// Reserves corridor flow's identity without upgrading earlier ground rules.
+void check_corridor_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto swept =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::swept_ground_version);
+    const auto corridor =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::corridor_flow_version);
+    OA_CHECK(swept.resolution && corridor.resolution);
+    if (!swept.resolution || !corridor.resolution)
+        return;
+    OA_CHECK(enhanced::current_version == enhanced::corridor_flow_version);
+    OA_CHECK(
+        enhanced::rules_version(corridor.resolution->profile.rules) ==
+        enhanced::corridor_flow_version
+    );
+    OA_CHECK(corridor.resolution->profile.sim_hash != swept.resolution->profile.sim_hash);
+    OA_CHECK(corridor.resolution->profile.full_hash != swept.resolution->profile.full_hash);
+    OA_CHECK(corridor.resolution->profile.limits == swept.resolution->profile.limits);
+    auto prior = corridor.resolution->profile.rules;
+    prior.setup.enhanced_mode.version = enhanced::swept_ground_version;
+    OA_CHECK(prior == swept.resolution->profile.rules);
+    auto canonical = corridor.resolution->canonical;
+    constexpr std::string_view corridor_rule = "\"setup.enhanced-mode\":{\"version\":5}";
+    constexpr std::string_view swept_rule = "\"setup.enhanced-mode\":{\"version\":4}";
+    const auto version_at = canonical.find(corridor_rule);
+    OA_CHECK(version_at != std::string::npos);
+    if (version_at != std::string::npos) {
+        canonical.replace(version_at, corridor_rule.size(), swept_rule);
+        OA_CHECK(canonical == swept.resolution->canonical);
     }
 }
 
@@ -278,7 +318,7 @@ void check_refusals() {
         bytes(requires_enhanced), "chosen", options, enhanced::current_version
     );
     OA_CHECK(on.resolution.has_value());
-    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 5\n";
+    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 6\n";
     const auto bad_profile =
         enhanced::resolve_profile(bytes(unsupported), "chosen", options, enhanced::current_version);
     OA_CHECK(!bad_profile.resolution);
@@ -312,6 +352,7 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::regional_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::swept_ground_version));
+    OA_CHECK(enhanced::supported_version(enhanced::corridor_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
     OA_CHECK(!enhanced::supported_version(enhanced::current_version + 1));
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
@@ -319,6 +360,7 @@ int main() {
     check_versioned_identity();
     check_regional_identity();
     check_swept_ground_identity();
+    check_corridor_identity();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();

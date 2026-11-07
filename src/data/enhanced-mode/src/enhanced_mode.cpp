@@ -28,7 +28,8 @@ void refuse(mod_profile::ResolveResult& result, std::string_view source, std::st
 
 bool supported_version(uint32_t version) noexcept {
     return version == off_version || version == capacity_version || version == flow_version ||
-           version == regional_flow_version || version == swept_ground_version;
+           version == regional_flow_version || version == swept_ground_version ||
+           version == corridor_flow_version;
 }
 
 uint32_t rules_version(const match_rules::MatchRules& rules) noexcept {

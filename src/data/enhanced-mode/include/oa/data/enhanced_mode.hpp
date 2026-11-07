@@ -24,8 +24,10 @@ inline constexpr uint32_t flow_version = 2;
 inline constexpr uint32_t regional_flow_version = 3;
 /// The preset checking each swept ground step against current obstacles.
 inline constexpr uint32_t swept_ground_version = 4;
+/// The preset reserved for advisory corridor lanes and ground-turn anticipation.
+inline constexpr uint32_t corridor_flow_version = 5;
 /// The Enhanced Mode preset supplied by this build.
-inline constexpr uint32_t current_version = swept_ground_version;
+inline constexpr uint32_t current_version = corridor_flow_version;
 
 /// Tells whether this build can resolve a preset, including Off.
 ///
@@ -48,6 +50,7 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// projectiles. Version 2 adds routing and unit-flow changes while retaining
 /// those capacities. Version 3 selects regional shared-route construction.
 /// Version 4 adds bounded obstacle checks along each ground step.
+/// Version 5 reserves a separate identity for corridor flow when integrated.
 /// Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes

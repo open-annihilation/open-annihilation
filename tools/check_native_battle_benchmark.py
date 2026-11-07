@@ -188,7 +188,7 @@ def main():
                      "local_flow_probes", "local_flow_moving_blockers",
                      "local_flow_steering_adjustments", "local_flow_yielded_ticks",
                      "local_flow_blocked_ticks", "local_flow_deferred_replans")
-        for version in (1, 2, 2, 3, 3, 4, 4):
+        for version in (1, 2, 2, 3, 3, 4, 4, 5, 5):
             name = f"group-{version}-{'repeat' if version in group_references else 'first'}"
             process, report = play(native, game_dir, workdir, name,
                                    ("--enhanced-mode", "--benchmark-rules-version", str(version),

@@ -1263,8 +1263,8 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         uint32_t version{};
         const auto parsed = std::from_chars(text.data(), text.data() + text.size(), version);
         if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
-            (version != 1 && version != 2 && version != 3 && version != 4))
-            throw std::runtime_error("--benchmark-rules-version expects 1, 2, 3 or 4");
+            (version != 1 && version != 2 && version != 3 && version != 4 && version != 5))
+            throw std::runtime_error("--benchmark-rules-version expects 1, 2, 3, 4 or 5");
         options.benchmark_rules_version = version;
         return true;
     }
@@ -1930,7 +1930,7 @@ void write_startup_line(std::string_view text) {
                      "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
                      "[--battle-benchmark REPORT.json [--benchmark-units N] "
                      "[--benchmark-scenario idle|march|group-march|combat] [--benchmark-warmup N] "
-                     "[--benchmark-rules-version 1|2|3|4] "
+                     "[--benchmark-rules-version 1|2|3|4|5] "
                      "[--benchmark-map NAME]] "
                      "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
