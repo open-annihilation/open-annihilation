@@ -45,6 +45,9 @@ struct LocalFlowProbe {
     const LocalFlowHead* previous_head{};
     /// Whether a mature retry may undo a completed leg to explore a passing place.
     bool allow_reverse{true};
+    /// Whether a mature, stationary retry may voluntarily yield its traffic priority.
+    /// The caller schedules this from the existing retry phase and actual motion age.
+    bool recovery_yield{};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.

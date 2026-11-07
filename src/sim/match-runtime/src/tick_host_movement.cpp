@@ -226,6 +226,12 @@ void TickHost::movement_tick(oa::Unit& record) {
                             match.enhanced_->local_flow_progress_at_tick_start.get(),
                             match.enhanced_->unit_count
                         };
+                    const auto own_progress = s.unit_index < probe.progress_at_tick_start.size()
+                                                  ? probe.progress_at_tick_start[s.unit_index]
+                                                  : g.movement.last_motion_tick;
+                    probe.recovery_yield =
+                        recover && match.simulation_.tick - own_progress >=
+                                       sim::unit_movement::local_flow_retry_ticks;
                     probe.at = [](void* context,
                                   const sim::unit_movement::Unit& moving,
                                   std::array<int16_t, 2> cell,

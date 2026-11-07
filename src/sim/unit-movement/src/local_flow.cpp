@@ -265,15 +265,15 @@ LocalFlowDecision choose_local_flow(
     // Traffic turning together still follows the same direction even while
     // its current headings differ from the route ahead.
     const int difference = std::bit_cast<int16_t>(uint16_t(unit.heading - blocker.heading));
-    if (std::abs(difference) < eighth_turn && blocker.waiting_ticks <= 1)
+    if (!probe.recovery_yield && std::abs(difference) < eighth_turn && blocker.waiting_ticks <= 1)
         return result;
     const auto unit_id = static_cast<uint16_t>(unit.id);
     const auto last_progress = unit_id < probe.progress_at_tick_start.size()
                                    ? probe.progress_at_tick_start[unit_id]
                                    : movement.last_motion_tick;
     const auto waiting = tick - last_progress;
-    if (waiting > blocker.waiting_ticks ||
-        (waiting == blocker.waiting_ticks && unit_id < blocker.unit_id))
+    if (!probe.recovery_yield && (waiting > blocker.waiting_ticks ||
+                                  (waiting == blocker.waiting_ticks && unit_id < blocker.unit_id)))
         return result;
     ++counters.yielded_ticks;
     const auto heading = oa::base::game_math::direction(-dx, -dz);
