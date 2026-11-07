@@ -2009,10 +2009,14 @@ int Runtime::check_live_renderer() {
     int32_t sub_bottom = std::numeric_limits<int32_t>::max();
     int32_t sub_top = std::numeric_limits<int32_t>::min();
     std::size_t sub_pieces{};
-    for (const auto& piece : submerged_draw->shown_vertices) {
-        if (!piece.empty())
+    const auto sub_geometry = submerged_draw->model.instance->pieces();
+    for (std::size_t piece = 0; piece < sub_geometry.size(); ++piece) {
+        const auto& points = piece < submerged_draw->shown_vertices.size()
+                                 ? submerged_draw->shown_vertices[piece]
+                                 : sub_geometry[piece].transformed_vertices;
+        if (!points.empty())
             ++sub_pieces;
-        for (const auto& point : piece) {
+        for (const auto& point : points) {
             sub_bottom = std::min(sub_bottom, sub_position.y + point.y);
             sub_top = std::max(sub_top, sub_position.y + point.y);
         }
@@ -2206,7 +2210,13 @@ int Runtime::check_live_renderer() {
                 }
             );
             require(found != planned.draws.models.end(), "the GPU fixture model is missing");
-            return *found;
+            auto model = *found;
+            // This fixture retains the draw while changing unit positions;
+            // own the posed geometry instead of borrowing the live instance.
+            if (model.shown_vertices.empty())
+                for (const auto& piece : model.model.instance->pieces())
+                    model.shown_vertices.push_back(piece.transformed_vertices);
+            return model;
         };
         const auto boat_model = model_for(battleship);
         const auto aircraft_model = model_for(aircraft);
