@@ -703,18 +703,27 @@ divided among active players, using tick-derived ranges. It does not spend
 the ordinary search credit or move its cursors. The unit of an active full
 search is skipped, so a ready shared route cannot replace its navigation
 before that worker completes. Shared publication uses `accept_path` and the
-same route-change flag as a full search; it adds no network transport budget.
+same route-change flag as a full search, observes its 60-tick retry interval,
+and clears completed local history. Pending fields do not consume that
+interval. Publication adds no network transport budget.
 
 Local traffic heads temporarily steer around mobile ground units, including
 idle units, while preserving the original navigator and final occupancy veto.
 Visible static barriers are classified before traffic. After 30 consecutive
 collision-blocked ticks, dynamic replanning resumes and local recovery may
 retry once every 30 ticks, staggered by unit ID, without resetting the
-collision clock. Sustained blockage normally bypasses the static cache.
-A known static barrier within an eight-cell lookahead of the next original
-route leg still permits a shared lookup, so a traffic wait cannot prevent the
-first terrain detour. `enhanced_counters` exposes cumulative routing, traffic
-and target-query work without changing decisions.
+collision clock. Sustained blockage still queries the bounded static cache,
+so units behind a queue can receive terrain detours before reaching the wall.
+A pending field, unchanged route or direct goal leg leaves ordinary dynamic
+search available after that deadline. `enhanced_counters` exposes cumulative
+routing, traffic and target-query work without changing decisions.
+
+A fixed 640 KiB physical-passability memo reuses footprint results within
+one `advance_path_search` invocation. Bounds and the player's fog are checked
+before every lookup. Class records and physical plots remain unchanged
+during that invocation; event hooks may only observe them. A new invocation
+starts a new epoch, even on the same simulation tick. The memo is private
+scratch outside saved tables and shared hashes.
 
 Nearby target queries preserve ascending sighting order and exact legacy
 filtering; broad or crowded queries use the full scan. A preallocated slot
@@ -730,7 +739,7 @@ Five rule tables retain owner-local navigation across saves:
 | --- | --- |
 | `shared-routes` | Retained fields, pending work, dirty refresh state and cache budgets |
 | `flow-map-version` | Current static-map revision |
-| `local-flow` | Temporary traffic heads and consecutive collision clocks |
+| `local-flow` | Temporary traffic heads, one-tick completion history and collision clocks |
 | `flow-progress` | Actual-progress ticks |
 | `shared-route-scan` | Whether a unit range was polled and the tick of that scan |
 

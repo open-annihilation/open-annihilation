@@ -52,11 +52,14 @@ clock that restores normal replanning after 30 blocked ticks.
 
 After that clock reaches 30, local recovery can try another passing leg once
 every 30 ticks, staggered by unit ID. It does not defer ordinary replanning
-again or reset the collision clock. A leg completed on this tick supplies
+again or reset the collision clock. A leg completed on this or the preceding tick supplies
 short-lived direction history: an immediate sideways return cannot undo it,
 but useful forward rejoining remains available. Mature recovery may reverse
 when a passing place changes. Older inactive heads do not restrict later
-maneuvers or a different goal.
+maneuvers or a different goal. An inactive two-point head marks completion
+and retains its completion tick; a new route clears that marker. Active
+heads retain the current tick for replication, with no change to the
+27-byte saved representation.
 
 `unit-local-flow` checks clearance, priorities, coherent turns, bounded retries
 and canonical saved heads. `unit-local-flow-steering` runs the actual ground

@@ -205,9 +205,11 @@ smooth whole-battle performance.
 Shared-route polling now visits at most 1,024 unit slots per tick across the
 active players independently of the ordinary search cursor and its credit.
 It skips a unit whose full search is already active, leaving that search's
-route and completion authoritative. Sustained mobile blockage normally
-bypasses the static fields for dynamic replanning; a known static barrier
-on the next short route leg still permits the shared terrain detour.
+route and completion authoritative. Sustained blockage can still receive a
+shared terrain detour when the wall lies beyond the local traffic probe.
+Pending fields, unchanged guides and direct goal legs leave ordinary dynamic
+replanning available after 30 blocked ticks. A successful delivery observes
+the ordinary 60-tick retry interval; pending fields do not consume it.
 
 Static-map changes, including wrecks, retain useful fields and mark them
 dirty rather than discarding every frontier. Returned connections are
@@ -215,10 +217,17 @@ checked against the current map. Completed dirty fields refresh one at a
 time, at 30-tick intervals, at least 60 ticks after completion. A route can
 skip its first coarse anchor when a bounded footprint check clears the
 connection to the next corner. Local passing also rejects an immediate
-sideways return that would undo a leg completed on that tick, while allowing
-forward rejoining and a mature recovery to reverse.
+sideways return that would undo a leg completed on that or the preceding
+tick, while allowing forward rejoining and a mature recovery to reverse.
+Completed inactive heads retain their completion tick; new routes clear
+that history. The saved head remains 27 bytes.
 
-The connected 20,000-unit recordings still show very little passage through
+Physical footprint results share a fixed 640 KiB scratch memo within one
+planner invocation. Each lookup still checks the requesting player's current
+fog first. A new invocation, including another load pass at the same tick,
+starts empty. This scratch storage is neither saved nor hashed.
+
+The earlier connected 20,000-unit recordings still show very little passage through
 the centre bridges. In the 1,800-tick comparison, recorded bridge crossings
 involve four distinct units in combat and eleven in the hold-fire march.
 The count requires a completed side change inside the bridge lane; touching
