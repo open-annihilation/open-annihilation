@@ -13,6 +13,7 @@
 
 #include <array>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -3428,6 +3429,166 @@ bool same_on_card(const live::Scene& on_card, const live::Scene& vertices, const
            on_card.materials.size() == vertices.materials.size();
 }
 
+/// Shared posed vertices preserve exact source values, retries and bounded memory.
+void shared_model_positions() {
+    namespace models = oa::formats::objects3d;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    live::ModelCards cards;
+    live::clear_cards(cards);
+    live::CardType type;
+    type.piece_vertices = {0, 3, 5};
+    std::array<runtime::PieceState, 2> pieces;
+    pieces[0].transformed_vertices = {
+        {fixed / 3, -fixed / 7, fixed / 11}, {0, 0, 0}, {-fixed, fixed, -fixed}
+    };
+    pieces[1].transformed_vertices = {
+        {fixed * 3, -fixed * 2, fixed * 5}, {-fixed * 4, fixed / 13, 0}
+    };
+    const auto first = live::card_positions(cards, 0, type, pieces, {});
+    OA_CHECK(first == 0);
+    const auto original = cards.positions;
+    constexpr uint32_t population = 20000;
+    for (uint32_t unit = 1; unit < population; ++unit)
+        OA_CHECK(live::card_positions(cards, 0, type, pieces, {}) == first);
+    OA_CHECK(cards.positions == original);
+    OA_CHECK(cards.positions.size() == 15 && cards.pose_points.size() == 5);
+    OA_CHECK(cards.poses.size() == 1);
+    // Different types never borrow a range even when their vertices match.
+    OA_CHECK(live::card_positions(cards, 1, type, pieces, {}) == 5);
+    // An interpolated source replaces only the pieces it supplies.
+    std::vector<std::vector<models::FixedVector3>> shown{pieces[0].transformed_vertices};
+    ++shown[0][0].x;
+    const auto interpolated = live::card_positions(cards, 0, type, pieces, shown);
+    OA_CHECK(interpolated == 10);
+    OA_CHECK(cards.positions[3 * interpolated] == shown[0][0].x / float{fixed});
+    OA_CHECK(live::card_positions(cards, 0, type, pieces, shown) == interpolated);
+    const auto size = cards.positions.size();
+    shown[0].clear();
+    OA_CHECK(live::card_positions(cards, 0, type, pieces, shown) == -1);
+    OA_CHECK(cards.positions.size() == size);
+    // A matching digest alone is never enough: simulate a collision naming
+    // a different source range and require the complete exact comparison.
+    live::ModelCards other;
+    live::clear_cards(other);
+    ++pieces[0].transformed_vertices[0].y;
+    OA_CHECK(live::card_positions(other, 0, type, pieces, {}) == 0);
+    const auto occupied =
+        std::find_if(other.pose_slots.begin(), other.pose_slots.end(), [&](const auto& slot) {
+            return slot.epoch == other.pose_epoch;
+        });
+    OA_CHECK(occupied != other.pose_slots.end());
+    if (occupied != other.pose_slots.end()) {
+        const auto slot = std::size_t(occupied - other.pose_slots.begin());
+        cards.pose_slots[slot] = {occupied->digest, 0, cards.pose_epoch};
+        const auto distinct = live::card_positions(cards, 0, type, pieces, {});
+        OA_CHECK(distinct == static_cast<int64_t>(size / 3));
+        OA_CHECK(
+            cards.positions[3 * distinct + 1] == pieces[0].transformed_vertices[0].y / float{fixed}
+        );
+    }
+    // A material retry can remove a newly listed pose. No stale lookup may
+    // return that truncated range when the following draw begins.
+    live::mark_cards(cards);
+    const auto marked = cards.positions.size();
+    ++pieces[1].transformed_vertices[0].x;
+    OA_CHECK(live::card_positions(cards, 0, type, pieces, {}) >= 0);
+    live::unmark_cards(cards);
+    OA_CHECK(cards.positions.size() == marked);
+    OA_CHECK(cards.poses.empty() && cards.pose_points.empty());
+    OA_CHECK(live::card_positions(cards, 0, type, pieces, {}) == static_cast<int64_t>(marked / 3));
+    const auto point_capacity = cards.pose_points.capacity();
+    const auto slot_capacity = cards.pose_slots.capacity();
+    cards.pose_epoch = std::numeric_limits<uint32_t>::max();
+    live::clear_cards(cards);
+    OA_CHECK(cards.pose_epoch == 1 && cards.positions.empty());
+    OA_CHECK(
+        cards.pose_points.capacity() == point_capacity &&
+        cards.pose_slots.capacity() == slot_capacity
+    );
+    OA_CHECK(live::card_positions(cards, 0, type, pieces, {}) == 0);
+
+    // Distinct poses exhaust only the bounded lookup memory. Their geometry
+    // is still listed, and a completely occupied hash table cannot loop.
+    live::clear_cards(cards);
+    type.piece_vertices = {0, 128};
+    std::array<runtime::PieceState, 1> varied;
+    varied[0].transformed_vertices.resize(128);
+    for (uint32_t pose = 0; pose < 1200; ++pose) {
+        varied[0].transformed_vertices[0].x = static_cast<int32_t>(pose);
+        const auto at = live::card_positions(cards, 2, type, varied, {});
+        OA_CHECK(at == static_cast<int64_t>(pose) * 128);
+        OA_CHECK(cards.positions[3 * at] == pose / float{fixed});
+    }
+    OA_CHECK(cards.poses.size() <= 1024 && cards.pose_points.size() <= 131072);
+    OA_CHECK(cards.pose_slots.size() == 2048 && cards.recent_poses.size() == 1024);
+    for (auto& slot : cards.pose_slots)
+        slot = {0, 0, cards.pose_epoch};
+    varied[0].transformed_vertices[0].x = fixed;
+    OA_CHECK(live::card_positions(cards, 3, type, varied, {}) == 1200 * 128);
+}
+
+/// Relative posed coordinates keep the old world addition's exact float rounding.
+void shared_model_coordinate_rounding() {
+    namespace models = oa::formats::objects3d;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr int32_t maximum = std::numeric_limits<int32_t>::max();
+    constexpr int32_t minimum = std::numeric_limits<int32_t>::min();
+    constexpr std::array<models::FixedVector3, 7> origins{
+        {{0, 0, 0},
+         {1, -1, 1},
+         {-fixed / 3, fixed / 7, -fixed / 13},
+         {fixed * 30000 + 1, -fixed * 20000 + 17, fixed * 25000 - 1},
+         {-fixed * 30000 - 1, fixed * 20000 - 17, -fixed * 25000 + 1},
+         {maximum, minimum, maximum - fixed},
+         {minimum, maximum, minimum + fixed}}
+    };
+    std::array<runtime::PieceState, 1> pieces;
+    pieces[0].transformed_vertices = {
+        {0, 0, 0},
+        {1, -1, 1},
+        {-fixed / 3, fixed / 7, -fixed / 13},
+        {fixed * 23 + 1, -fixed * 17 + 17, fixed * 13 - 1},
+        {maximum, minimum, minimum},
+        {minimum, maximum, maximum}
+    };
+    live::CardType type;
+    type.piece_vertices = {0, static_cast<uint32_t>(pieces[0].transformed_vertices.size())};
+    live::CardTypes types;
+    for (uint32_t vertex = 0; vertex < type.piece_vertices.back(); ++vertex)
+        types.records.insert(types.records.end(), {vertex, 0});
+    live::ModelCards cards;
+    live::clear_cards(cards);
+    cards.piece_frames = {1};
+    cards.textures = {0, 0, 1, 1};
+    const auto first = live::card_positions(cards, 0, type, pieces, {});
+    OA_CHECK(first == 0);
+    for (const auto& origin : origins) {
+        oa::app::renderer_live_gpu::ModelInstance instance;
+        instance.positions = static_cast<uint32_t>(first);
+        instance.origin = {
+            origin.x / float{fixed}, origin.y / float{fixed}, origin.z / float{fixed}
+        };
+        cards.instances = {instance};
+        for (uint32_t vertex = 0; vertex < pieces[0].transformed_vertices.size(); ++vertex) {
+            const auto& point = pieces[0].transformed_vertices[vertex];
+            const std::array old_world{
+                origin.x / float{fixed} + point.x / float{fixed},
+                origin.y / float{fixed} + point.y / float{fixed},
+                origin.z / float{fixed} - point.z / float{fixed}
+            };
+            const auto corner = live::card_corner(types, cards, {}, vertex);
+            const std::array shared_world{corner.x, corner.height, corner.z};
+            for (std::size_t axis = 0; axis < old_world.size(); ++axis)
+                OA_CHECK(
+                    std::bit_cast<uint32_t>(old_world[axis]) ==
+                    std::bit_cast<uint32_t>(shared_world[axis])
+                );
+        }
+    }
+}
+
 /// A battle with its models on the card draws what its vertices draw,
 /// frame after frame, on any number of drawing threads: each card draw's
 /// triangles, where they fall among the frame's vertices, are the
@@ -3683,6 +3844,78 @@ void models_on_card() {
     OA_CHECK(revision != 0 && revision != scenes[2].card_types.revision);
     OA_CHECK(live::build(in, scenes[1], battle.error));
     OA_CHECK(scenes[1].card_types.revision == revision);
+}
+
+/// Twenty thousand translated models share their exact pose without changing a corner.
+void large_shared_model_scene() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr uint32_t population = 20000;
+    constexpr uint32_t vertex_count = 64;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    Fixture battle;
+    battle.inputs.sight.mapping = battle.inputs.sight.line_of_sight = false;
+    battle.inputs.view_direction = {0, 1, 0};
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    auto& object = source->objects[0];
+    object.vertices.resize(vertex_count);
+    object.vertices[1].x = 2 * fixed;
+    object.vertices[2].z = 2 * fixed;
+    object.primitives.resize(2);
+    object.primitives[0].vertex_indices = {0, 1, 2};
+    object.primitives[1].vertex_indices = {0, 2, 1};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    for (uint32_t polygon = 0; polygon < 2; ++polygon) {
+        drawing::PreparedPrimitive primitive;
+        primitive.source_index = polygon;
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = 40;
+        prepared.objects[0].primitives.push_back(primitive);
+    }
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    std::vector<oa::Unit> units(population);
+    battle.draws.models.resize(population);
+    for (uint32_t unit = 0; unit < population; ++unit) {
+        auto& record = units[unit];
+        record.id = static_cast<uint16_t>(unit + 1);
+        record.position = {
+            8 * fixed + static_cast<int32_t>(unit % 100) * (fixed / 10),
+            static_cast<int32_t>(unit % 3) * (fixed / 4),
+            8 * fixed + static_cast<int32_t>((unit / 100) % 100) * (fixed / 10)
+        };
+        auto& draw = battle.draws.models[unit];
+        draw.model.unit = &record;
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.plan.linked.drawn = true;
+    }
+    live::Scene expanded;
+    live::Scene shared;
+    battle.inputs.models_on_card = false;
+    OA_CHECK(live::build(battle.inputs, expanded, battle.error));
+    battle.inputs.models_on_card = true;
+    OA_CHECK(live::build(battle.inputs, shared, battle.error));
+    OA_CHECK(shared.cards.instances.size() == population);
+    OA_CHECK(shared.cards.positions.size() == vertex_count * 3);
+    OA_CHECK(same_on_card(shared, expanded, battle.inputs));
+    for (const auto& drawn : shared.cards.instances) {
+        OA_CHECK(drawn.positions == 0 && drawn.position_count == vertex_count);
+        OA_CHECK(drawn.origin[0] >= 8 && drawn.origin[2] >= 8);
+    }
+    // A later frame changes every translation without changing the retained
+    // type or turning stale pose entries into a different model.
+    for (auto& unit : units)
+        unit.position.x += fixed / 17;
+    battle.inputs.models_on_card = false;
+    OA_CHECK(live::build(battle.inputs, expanded, battle.error));
+    battle.inputs.models_on_card = true;
+    OA_CHECK(live::build(battle.inputs, shared, battle.error));
+    OA_CHECK(shared.cards.positions.size() == vertex_count * 3);
+    OA_CHECK(same_on_card(shared, expanded, battle.inputs));
 }
 
 /// With its models on the card, a battle's units cast their shadows on the
@@ -4698,6 +4931,9 @@ int main() {
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();
     models_on_card();
+    shared_model_positions();
+    shared_model_coordinate_rounding();
+    large_shared_model_scene();
     shadows_on_card();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();

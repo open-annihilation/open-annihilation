@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_live_models.hpp"
 
+#include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <map>
 #include <span>
 #include <utility>
@@ -20,6 +22,25 @@ constexpr uint32_t vertex_mask = field_limit - 1;
 constexpr uint32_t slot_mask = slot_limit - 1;
 constexpr uint32_t polygon_corner_mask = 3;
 constexpr uint32_t corner_mask = (1U << gpu::model_corner_bits) - 1;
+constexpr std::size_t shared_pose_count = 1024;
+constexpr std::size_t shared_pose_points = 131072;
+constexpr std::size_t pose_lookup_slots = shared_pose_count * 2;
+constexpr std::size_t pose_lookup_probes = 8;
+constexpr std::size_t recent_pose_types = 1024;
+constexpr uint64_t pose_digest_start = 14695981039346656037ULL;
+constexpr uint64_t pose_digest_factor = 1099511628211ULL;
+constexpr float fixed_scale = formats::objects3d::kThreeDoUnitsPerWorldUnit;
+
+/// Forgets lookup entries without releasing their bounded memory.
+void forget_poses(ModelCards& cards) noexcept {
+    cards.poses.clear();
+    cards.pose_points.clear();
+    if (++cards.pose_epoch == 0) {
+        std::fill(cards.pose_slots.begin(), cards.pose_slots.end(), CardPoseSlot{});
+        std::fill(cards.recent_poses.begin(), cards.recent_poses.end(), CardPoseRecent{});
+        cards.pose_epoch = 1;
+    }
+}
 
 /// What tells two textures of a type apart: a colour, a primitive's fixed
 /// frame, a team's frames, a sequence's first frame, or a primitive's
@@ -221,6 +242,7 @@ void clear_cards(ModelCards& cards) noexcept {
     cards.shadow_ground = 0;
     cards.draw_instance = -1;
     cards.mark = {};
+    forget_poses(cards);
 }
 
 void mark_cards(ModelCards& cards) noexcept {
@@ -254,6 +276,8 @@ void unmark_cards(ModelCards& cards) noexcept {
     cards.cast_depths = mark.cast_depths;
     cards.vertices = mark.vertices;
     cards.draw_instance = -1;
+    // A material retry may have discarded a range that a lookup named.
+    forget_poses(cards);
     // A run the draw grew goes back to what it held before.
     if (!cards.runs.empty()) {
         auto& run = cards.runs.back();
@@ -263,6 +287,106 @@ void unmark_cards(ModelCards& cards) noexcept {
         auto& run = cards.cast_runs.back();
         run.index_count = static_cast<uint32_t>(mark.cast_indices - run.first_index);
     }
+}
+
+int64_t card_positions(
+    ModelCards& cards,
+    uint32_t type_index,
+    const CardType& type,
+    std::span<const sim::model_runtime::PieceState> pieces,
+    std::span<const std::vector<formats::objects3d::FixedVector3>> shown
+) {
+    using Point = formats::objects3d::FixedVector3;
+    static_assert(sizeof(Point) == 3 * sizeof(int32_t));
+    if (type.piece_vertices.size() != pieces.size() + 1 || type.piece_vertices.front() != 0)
+        return -1;
+    const auto points = [&](std::size_t piece) -> std::span<const Point> {
+        return piece < shown.size() ? std::span<const Point>{shown[piece]}
+                                    : std::span<const Point>{pieces[piece].transformed_vertices};
+    };
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece)
+        if (type.piece_vertices[piece + 1] < type.piece_vertices[piece] ||
+            points(piece).size() != type.piece_vertices[piece + 1] - type.piece_vertices[piece])
+            return -1;
+    const std::size_t count = type.piece_vertices.back();
+    const auto matches = [&](const CardPose& pose) {
+        if (pose.type != type_index || pose.point_count != count)
+            return false;
+        std::size_t at = pose.first_point;
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            const auto vertices = points(piece);
+            if (!vertices.empty() &&
+                std::memcmp(
+                    cards.pose_points.data() + at, vertices.data(), vertices.size_bytes()
+                ) != 0)
+                return false;
+            at += vertices.size();
+        }
+        return true;
+    };
+    if (type_index < cards.recent_poses.size()) {
+        const auto recent = cards.recent_poses[type_index];
+        if (recent.epoch == cards.pose_epoch && recent.pose < cards.poses.size() &&
+            matches(cards.poses[recent.pose]))
+            return cards.poses[recent.pose].first_position;
+    }
+    uint64_t digest = (pose_digest_start ^ type_index) * pose_digest_factor;
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece)
+        for (const auto& point : points(piece))
+            for (const int32_t coordinate : {point.x, point.y, point.z})
+                digest = (digest ^ static_cast<uint32_t>(coordinate)) * pose_digest_factor;
+    if (cards.pose_slots.empty()) {
+        cards.pose_slots.resize(pose_lookup_slots);
+        cards.recent_poses.resize(recent_pose_types);
+        cards.poses.reserve(shared_pose_count);
+        cards.pose_points.reserve(shared_pose_points);
+        if (cards.pose_epoch == 0)
+            cards.pose_epoch = 1;
+    }
+    std::size_t empty = cards.pose_slots.size();
+    for (std::size_t probe = 0; probe < pose_lookup_probes; ++probe) {
+        const std::size_t at = (digest + probe) & (pose_lookup_slots - 1);
+        const auto slot = cards.pose_slots[at];
+        if (slot.epoch != cards.pose_epoch) {
+            empty = at;
+            break;
+        }
+        if (slot.digest == digest && slot.pose < cards.poses.size() &&
+            matches(cards.poses[slot.pose])) {
+            if (type_index < cards.recent_poses.size())
+                cards.recent_poses[type_index] = {slot.pose, cards.pose_epoch};
+            return cards.poses[slot.pose].first_position;
+        }
+    }
+    const std::size_t first = cards.positions.size() / 3;
+    if (count > gpu::largest_vertex_count || first > gpu::largest_vertex_count - count)
+        return -1;
+    cards.positions.resize(cards.positions.size() + count * 3);
+    std::size_t at = first * 3;
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece)
+        for (const auto& point : points(piece)) {
+            cards.positions[at++] = point.x / fixed_scale;
+            cards.positions[at++] = point.y / fixed_scale;
+            cards.positions[at++] = -(point.z / fixed_scale);
+        }
+    if (empty != cards.pose_slots.size() && cards.poses.size() < shared_pose_count &&
+        count <= shared_pose_points - cards.pose_points.size()) {
+        const auto pose = static_cast<uint32_t>(cards.poses.size());
+        cards.poses.push_back(
+            {type_index,
+             static_cast<uint32_t>(first),
+             static_cast<uint32_t>(cards.pose_points.size()),
+             static_cast<uint32_t>(count)}
+        );
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            const auto vertices = points(piece);
+            cards.pose_points.insert(cards.pose_points.end(), vertices.begin(), vertices.end());
+        }
+        cards.pose_slots[empty] = {digest, pose, cards.pose_epoch};
+        if (type_index < cards.recent_poses.size())
+            cards.recent_poses[type_index] = {pose, cards.pose_epoch};
+    }
+    return static_cast<int64_t>(first);
 }
 
 CardCorner card_corner(
@@ -280,9 +404,9 @@ CardCorner card_corner(
     const uint32_t corner = (drawn >> gpu::model_polygon_corner_shift) & polygon_corner_mask;
     // Corners 1 and 2 take the second place across, 2 and 3 the second down.
     return {
-        cards.positions[vertex],
-        cards.positions[vertex + 1],
-        cards.positions[vertex + 2],
+        instance.origin[0] + cards.positions[vertex],
+        instance.origin[1] + cards.positions[vertex + 1],
+        instance.origin[2] + cards.positions[vertex + 2],
         cards.textures[texture + (corner == 1 || corner == 2 ? 2 : 0)],
         cards.textures[texture + (corner >= 2 ? 3 : 1)]
     };

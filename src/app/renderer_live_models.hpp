@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -129,6 +130,27 @@ struct CardMark {
     std::size_t vertices{};
 };
 
+/// A posed vertex range shared by instances of one type within a frame.
+struct CardPose {
+    uint32_t type{};
+    uint32_t first_position{};
+    uint32_t first_point{};
+    uint32_t point_count{};
+};
+
+/// One bounded lookup slot; an earlier epoch is empty for the current frame.
+struct CardPoseSlot {
+    uint64_t digest{};
+    uint32_t pose{};
+    uint32_t epoch{};
+};
+
+/// The last shared pose found for a type, before a full vertex digest is needed.
+struct CardPoseRecent {
+    uint32_t pose{};
+    uint32_t epoch{};
+};
+
 /// A frame's model draws on the card, as one scene pass lists them, and
 /// then the frame, for render() and the pick.
 struct ModelCards {
@@ -164,6 +186,14 @@ struct ModelCards {
     /// before.
     int64_t draw_instance{-1};
     CardMark mark{}; ///< the sizes as the pass's draw began
+    /// Shared posed vertices, independent of each instance's world translation.
+    /// At most 1,024 poses and 131,072 source points are remembered. A lookup
+    /// examines at most eight slots; a full cache lists an unshared pose.
+    std::vector<CardPose> poses{};
+    std::vector<formats::objects3d::FixedVector3> pose_points{};
+    std::vector<CardPoseSlot> pose_slots{};
+    std::vector<CardPoseRecent> recent_poses{};
+    uint32_t pose_epoch{};
 };
 
 /// A model draw's triangle corner, as the card draws it: its world place and
@@ -217,6 +247,28 @@ void mark_cards(ModelCards& cards) noexcept;
 ///
 /// @param[in,out] cards the frame's model draws
 void unmark_cards(ModelCards& cards) noexcept;
+
+/// Lists a model's exact posed vertices once for matching instances in a frame.
+///
+/// Returns model-relative x, height and negated z coordinates; an instance adds
+/// its own world translation when the coordinates are read. Shown vertices
+/// replace the corresponding pieces' transformed vertices. Invalid piece
+/// sizes or exhausted vertex capacity leave the lists unchanged. The bounded
+/// cache verifies source vertices exactly and never changes drawing order.
+///
+/// @param[in,out] cards the frame's model draws and retained lookup memory
+/// @param type_index the type's place in the scene's kept types
+/// @param type the kept type's piece and vertex ranges
+/// @param pieces the instance's posed pieces
+/// @param shown interpolated piece vertices, or an empty range
+/// @return the first listed vertex, or -1 for invalid sizes or vertex capacity
+[[nodiscard]] int64_t card_positions(
+    ModelCards& cards,
+    uint32_t type_index,
+    const CardType& type,
+    std::span<const sim::model_runtime::PieceState> pieces,
+    std::span<const std::vector<formats::objects3d::FixedVector3>> shown
+);
 
 /// Returns a triangle corner of a frame's model draw as the card draws it.
 ///

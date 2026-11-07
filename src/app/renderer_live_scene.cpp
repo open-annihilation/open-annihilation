@@ -4814,27 +4814,15 @@ int64_t card_instance(
         return -1;
     const auto& type = pass.scene.card_types.types[type_index];
     const auto pieces = draw.model.instance->pieces();
-    // Its vertices, placed as its vertices would be.
+    // Its exact posed vertices can be shared; each instance places them.
     const auto position = draw.shown_position.value_or(unit.position);
     const float x = position.x / fixed_scale;
     const float h = position.y / fixed_scale;
     const float z = position.z / fixed_scale;
-    const std::size_t first_position = cards.positions.size();
-    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
-        const auto& points = piece < draw.shown_vertices.size()
-                                 ? draw.shown_vertices[piece]
-                                 : pieces[piece].transformed_vertices;
-        if (points.size() != type.piece_vertices[piece + 1] - type.piece_vertices[piece]) {
-            cards.positions.resize(first_position);
-            return -1;
-        }
-        for (const auto& point : points) {
-            const std::array world{
-                x + point.x / fixed_scale, h + point.y / fixed_scale, z - point.z / fixed_scale
-            };
-            cards.positions.insert(cards.positions.end(), world.begin(), world.end());
-        }
-    }
+    const int64_t first_position =
+        card_positions(cards, type_index, type, pieces, draw.shown_vertices);
+    if (first_position < 0)
+        return -1;
     // Each piece's first frame or its running one.
     const bool first_cached = shows_first_frame(draw, unit, true, in.moving_pieces_once_built);
     const bool first_moving = shows_first_frame(draw, unit, false, in.moving_pieces_once_built);
@@ -4851,13 +4839,14 @@ int64_t card_instance(
     cards.instances.push_back(
         {type.first_record,
          type.record_count,
-         static_cast<uint32_t>(first_position / 3),
+         static_cast<uint32_t>(first_position),
          type.piece_vertices.back(),
          first_piece,
          static_cast<uint32_t>(pieces.size()),
          table,
          static_cast<uint32_t>(type.slots.size()),
-         1.0F}
+         1.0F,
+         {x, h, z}}
     );
     return cards.draw_instance;
 }
@@ -4919,9 +4908,10 @@ void cast_on_card(
         for (std::size_t at = std::size_t{record.positions} * 3;
              at < (std::size_t{record.positions} + record.position_count) * 3;
              at += 3) {
-            const float corner_across = cards.positions[at];
-            const float corner_down =
-                cards.positions[at + 2] - (cards.positions[at + 1] - base) * 0.5F;
+            const float corner_across = record.origin[0] + cards.positions[at];
+            const float corner_height = record.origin[1] + cards.positions[at + 1];
+            const float corner_z = record.origin[2] + cards.positions[at + 2];
+            const float corner_down = corner_z - (corner_height - base) * 0.5F;
             left = std::min(left, corner_across);
             right = std::max(right, corner_across);
             top = std::min(top, corner_down);
@@ -5065,6 +5055,7 @@ bool draw_on_card(
     const std::size_t first_position = std::size_t{cards.instances[instance].positions} * 3;
     const std::size_t end_position =
         first_position + std::size_t{cards.instances[instance].position_count} * 3;
+    const auto& origin = cards.instances[instance].origin;
     // A nanolathe particle within a light's reach of a vertex would light
     // it; such a model's surface stays in the vertices. A particle that far
     // from the box around the vertices reaches none of them, as the
@@ -5073,8 +5064,9 @@ bool draw_on_card(
     std::array<float, 3> high{place};
     for (std::size_t at = first_position; at < end_position; at += 3)
         for (std::size_t axis = 0; axis < low.size(); ++axis) {
-            low[axis] = std::min(low[axis], cards.positions[at + axis]);
-            high[axis] = std::max(high[axis], cards.positions[at + axis]);
+            const float coordinate = origin[axis] + cards.positions[at + axis];
+            low[axis] = std::min(low[axis], coordinate);
+            high[axis] = std::max(high[axis], coordinate);
         }
     constexpr float light_radius = 32.0F;
     for (const auto& light : lights) {
@@ -5084,9 +5076,9 @@ bool draw_on_card(
         if (gap[0] * gap[0] + gap[1] * gap[1] + gap[2] * gap[2] >= light_radius * light_radius)
             continue;
         for (std::size_t at = first_position; at < end_position; at += 3) {
-            const float dx = cards.positions[at] - light[0];
-            const float dy = cards.positions[at + 1] - light[1];
-            const float dz = cards.positions[at + 2] - light[2];
+            const float dx = (origin[0] + cards.positions[at]) - light[0];
+            const float dy = (origin[1] + cards.positions[at + 1]) - light[1];
+            const float dz = (origin[2] + cards.positions[at + 2]) - light[2];
             if (dx * dx + dy * dy + dz * dz < light_radius * light_radius)
                 return false;
         }
@@ -5136,7 +5128,9 @@ bool draw_on_card(
             corners.clear();
             for (const uint16_t index : indices) {
                 const float* point = piece_positions + std::size_t{index} * 3;
-                corners.push_back({point[0], point[1], point[2]});
+                corners.push_back(
+                    {origin[0] + point[0], origin[1] + point[1], origin[2] + point[2]}
+                );
             }
             if (back_facing_corners(std::span<const CardCorner>(corners), in.view_direction))
                 continue;
