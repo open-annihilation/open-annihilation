@@ -5,6 +5,7 @@
 #include "oa/sim/ground_orders/ground_runtime.hpp"
 #include "oa/sim/ground_orders/movement_map.hpp"
 #include "oa/sim/ground_orders/search_trace.hpp"
+#include "oa/sim/ground_orders/steering_target.hpp"
 #include <array>
 #include <cstdlib>
 #include <iostream>
@@ -54,7 +55,43 @@ struct MapFixture : MovementMapSampler {
     }
 };
 
+/// Preserves the raw distance while exposing the controller's projected target.
+void test_steering_target_contract() {
+    constexpr Fixed pixel = 65536;
+    oa::sim::unit_movement::Unit unit{};
+    std::array<Point, 3> points{{{0, 0, 0}, {160 * pixel, 7 * pixel, 0}, {160 * pixel, 0, 0}}};
+    const auto original = points;
+    const auto distant = steering_target(unit, points);
+    CHECK(distant.point == (Point{80 * pixel, 7 * pixel, 0}));
+    CHECK(distant.distance == 160 * pixel);
+    CHECK(points == original);
+    for (const Fixed range : {79 * pixel, 80 * pixel}) {
+        points[1][0] = range;
+        const auto near = steering_target(unit, points);
+        CHECK(near.point == points[1]);
+        CHECK(near.distance == range);
+    }
+    points[0] = points[1] = {160 * pixel, 7 * pixel, 0};
+    const auto degenerate = steering_target(unit, points);
+    CHECK(degenerate.point == points[1]);
+    CHECK(degenerate.distance == 160 * pixel);
+
+    // After a passing leg, the distant waypoint can be due east while the
+    // native controller aims north to rejoin the original route segment.
+    unit.position = {368 * pixel, 0, 552 * pixel};
+    points = {
+        {{272 * pixel, 0, 528 * pixel},
+         {1200 * pixel, 0, 552 * pixel},
+         {1200 * pixel, 0, 552 * pixel}}
+    };
+    const auto rejoin = steering_target(unit, points);
+    CHECK(rejoin.distance == (1200 - 368) * pixel);
+    CHECK(rejoin.point[0] > unit.position[0] + 80 * pixel);
+    CHECK(rejoin.point[2] > points[0][2] && rejoin.point[2] < unit.position[2]);
+}
+
 int main() {
+    test_steering_target_contract();
     oa::sim::unit_spawn::LegacyWorld world(2);
     auto& state = world.unit(1);
     oa::sim::simulation_state::Order order;

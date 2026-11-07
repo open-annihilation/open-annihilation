@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ground_orders/orders.hpp"
+#include "oa/sim/ground_orders/steering_target.hpp"
 #include "oa/core/unit.h"
 #include "oa/sim/ground_orders/movement_map.hpp"
 #include "oa/base/game_math.hpp"
@@ -305,6 +306,24 @@ uint32_t standby(UnitView u, sim::simulation_state::Order& order, uint32_t tick,
     return 7;
 }
 
+SteeringTarget
+steering_target(const sim::unit_movement::Unit& unit, const std::array<Point, 3>& points) noexcept {
+    auto target = points[1];
+    const auto distance = norm(sub(target[0], unit.position[0]), sub(target[2], unit.position[2]));
+    if (distance > lookahead_limit) {
+        const auto dx = sub(target[0], points[0][0]), dz = sub(target[2], points[0][2]);
+        const auto segment = norm(dx, dz);
+        if (segment >= one_world_unit) {
+            const auto amount = std::min(segment, sub(distance, lookahead_limit));
+            const auto nx = low(int64_t(dx) * one_world_unit / segment),
+                       nz = low(int64_t(dz) * one_world_unit / segment);
+            target[0] = sub(target[0], low((int64_t(nx) * amount) >> 16));
+            target[2] = sub(target[2], low((int64_t(nz) * amount) >> 16));
+        }
+    }
+    return {target, distance};
+}
+
 namespace {
 /// The speed, 16.16 pixels a tick, above which a unit of a match that applied
 /// mutators is held to its route (hold_to_route).
@@ -421,19 +440,9 @@ void steer_along(
         sim::unit_movement::accelerate(u, m, adjustment, sea_level);
         return;
     }
-    auto& target = points[1];
-    const auto distance = norm(sub(target[0], u.position[0]), sub(target[2], u.position[2]));
-    if (distance > lookahead_limit) {
-        const auto dx = sub(target[0], points[0][0]), dz = sub(target[2], points[0][2]);
-        const auto segment = norm(dx, dz);
-        if (segment >= one_world_unit) {
-            const auto amount = std::min(segment, sub(distance, lookahead_limit));
-            const auto nx = low(int64_t(dx) * one_world_unit / segment),
-                       nz = low(int64_t(dz) * one_world_unit / segment);
-            target[0] = sub(target[0], low((int64_t(nx) * amount) >> 16));
-            target[2] = sub(target[2], low((int64_t(nz) * amount) >> 16));
-        }
-    }
+    const auto projected = steering_target(u, points);
+    const auto& target = projected.point;
+    const auto distance = projected.distance;
     const auto dx = sub(target[0], u.position[0]), dz = sub(target[2], u.position[2]);
     const auto heading = facing(sub(u.position[0], target[0]), sub(u.position[2], target[2]));
     const auto requested = short_bits(uint32_t(heading) - u.heading);

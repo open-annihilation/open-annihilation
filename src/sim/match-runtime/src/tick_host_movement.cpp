@@ -6,6 +6,7 @@
 
 #include "oa/sim/air/flight.hpp"
 #include "oa/sim/air/host.hpp"
+#include "oa/sim/ground_orders/steering_target.hpp"
 #include "oa/sim/world_environment/wind.hpp"
 
 #include <cstdint>
@@ -297,10 +298,12 @@ void TickHost::movement_tick(oa::Unit& record) {
                         return result;
                     };
                     const auto points = sim::ground_orders::steering_points(g.navigation);
+                    const auto target = sim::ground_orders::steering_target(g.geometry, points);
                     const auto decision = sim::unit_movement::choose_local_flow(
                         g.geometry,
                         g.movement,
                         points[1],
+                        target.point,
                         match.simulation_.tick,
                         *this,
                         probe,

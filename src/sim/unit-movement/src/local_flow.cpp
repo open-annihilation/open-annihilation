@@ -186,6 +186,19 @@ LocalFlowDecision choose_local_flow(
     LocalFlowProbe probe,
     LocalFlowCounters& counters
 ) {
+    return choose_local_flow(unit, movement, target, target, tick, host, probe, counters);
+}
+
+LocalFlowDecision choose_local_flow(
+    const Unit& unit,
+    const Movement& movement,
+    std::array<Fixed, 3> target,
+    std::array<Fixed, 3> probe_target,
+    uint32_t tick,
+    Host& host,
+    LocalFlowProbe probe,
+    LocalFlowCounters& counters
+) {
     LocalFlowDecision result{target};
     const auto occupancy = uint8_t(movement.flags & occupancy_mask);
     if (probe.at == nullptr || occupancy != 1 || unit.type.maximum_speed <= 0 ||
@@ -204,13 +217,31 @@ LocalFlowDecision choose_local_flow(
     const auto length = static_cast<Fixed>(unsigned_length);
     if (length < cell_step)
         return result;
+    auto probe_dx = dx, probe_dz = dz, probe_length = length;
+    if (probe_target[0] != target[0] || probe_target[2] != target[2]) {
+        const auto probe_x = int64_t(probe_target[0]) - unit.position[0];
+        const auto probe_z = int64_t(probe_target[2]) - unit.position[2];
+        if (probe_x <= std::numeric_limits<Fixed>::min() ||
+            probe_x > std::numeric_limits<Fixed>::max() ||
+            probe_z <= std::numeric_limits<Fixed>::min() ||
+            probe_z > std::numeric_limits<Fixed>::max())
+            return result;
+        probe_dx = static_cast<Fixed>(probe_x);
+        probe_dz = static_cast<Fixed>(probe_z);
+        const auto distance = oa::base::game_math::distance(probe_dx, probe_dz);
+        if (distance > uint32_t(std::numeric_limits<Fixed>::max()))
+            return result;
+        probe_length = static_cast<Fixed>(distance);
+        if (probe_length < cell_step)
+            return result;
+    }
     LocalFlowBlocker blocker;
     Fixed blocker_distance = 0;
     auto previous = unit.cell;
     for (unsigned step = 1; step <= maximum_probe_steps; ++step) {
         const auto travelled = std::min(length, cell_step * static_cast<Fixed>(step));
         std::array<Fixed, 3> point;
-        if (!offset_point(unit.position, dx, dz, travelled, length, point))
+        if (!offset_point(unit.position, probe_dx, probe_dz, travelled, probe_length, point))
             break;
         const auto cell = cell_at(unit, point);
         if (cell != previous) {

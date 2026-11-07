@@ -5,6 +5,7 @@
 // terrain keeps the navigator's unknown-passable rule.
 #include "combat_fixture.hpp"
 
+#include "oa/sim/ground_orders/steering_target.hpp"
 #include "oa/sim/match_runtime/enhanced_counters.hpp"
 #include "oa/sim/match_runtime/rule_state.hpp"
 #include "oa/sim/unit_movement/local_flow.hpp"
@@ -121,6 +122,78 @@ void traffic_probes_respect_static_terrain_and_fog() {
         }
 }
 
+/// Detects traffic on the controller's rejoin path after leaving a route segment.
+void traffic_probe_follows_the_actual_rejoin_target() {
+    constexpr int32_t pixel = 65536;
+    Options options;
+    options.sight_cells = 9;
+    Fixture fixture(options);
+    std::array<uint8_t, 4> yard{4, 4, 4, 4};
+    fixture.fields[1].yard_mask = yard;
+    fixture.def.max_velocity_fixed = 117964;
+    fixture.def.turn_rate = 1120;
+    fixture.def.acceleration_fixed = fixture.def.brake_rate_fixed = 6553;
+    configure_water_barrier(fixture, false, 2);
+    auto& blocker = fixture.spawn(0, 120, 48);
+    auto& mover = fixture.spawn(0, 120, 72);
+    auto& match = *fixture.match;
+    blocker.record.heading = west;
+    mover.record.heading = east;
+    CHECK(!match.order_refused(
+        match.issue_ground_move(mover.unit_index, {208 * pixel, 0, 72 * pixel}, false)
+    ));
+    fixture.run(1);
+    auto& ground = *match.ground_runtime(mover.unit_index);
+    match.place_unit_at(mover.unit_index, 120 * pixel, 60 * pixel, 72 * pixel, 1);
+    mover.record.heading = east;
+    ground.project_slot();
+    ground.movement.speed = 0;
+    ground.movement.velocity = {};
+    ground.movement.turn = 0;
+    ground.movement.flags = 1;
+    ground.navigation.count = 2;
+    ground.navigation.points[0] = {32, 48};
+    ground.navigation.points[1] = {208, 72};
+    ground.navigation.flags = oa::sim::ground_orders::route_present_flag;
+    ground.navigation.last_search_tick = match.simulation().tick;
+    CHECK(ground.navigation.goal != nullptr);
+    const auto points = oa::sim::ground_orders::steering_points(ground.navigation);
+    const auto actual = oa::sim::ground_orders::steering_target(ground.geometry, points);
+    CHECK(points[1][2] == ground.geometry.position[2]);
+    CHECK(actual.point[2] < ground.geometry.position[2]);
+
+    // Before a full route retry is eligible, local steering must see the
+    // blocker on the northward rejoin even though the raw eastward ray clears.
+    bool saw_passing_head = false;
+    for (uint32_t tick = 0; tick < 58; ++tick) {
+        fixture.run(1);
+        const auto* head = match.local_flow_head(mover.unit_index);
+        CHECK(head != nullptr);
+        if (head->active) {
+            CHECK(head->mobile_blocked);
+            CHECK(ground.navigation.points[0] == (oa::sim::ground_orders::RoutePoint{32, 48}));
+            CHECK(ground.navigation.points[1] == (oa::sim::ground_orders::RoutePoint{208, 72}));
+            saw_passing_head = true;
+            break;
+        }
+    }
+    CHECK(match.simulation().tick < oa::sim::ground_orders::search_retry_ticks);
+    CHECK(saw_passing_head);
+    const auto idle_x = blocker.record.position.x;
+    const auto idle_z = blocker.record.position.z;
+    for (uint32_t tick = 0; tick < 600 && ground.navigation.goal; ++tick) {
+        fixture.run(1);
+        CHECK(blocker.record.position.x == idle_x && blocker.record.position.z == idle_z);
+        const bool overlap =
+            mover.record.cell_x < blocker.record.cell_x + blocker.record.footprint_x &&
+            mover.record.cell_x + mover.record.footprint_x > blocker.record.cell_x &&
+            mover.record.cell_z < blocker.record.cell_z + blocker.record.footprint_z &&
+            mover.record.cell_z + mover.record.footprint_z > blocker.record.cell_z;
+        CHECK(!overlap);
+    }
+    CHECK(ground.navigation.goal == nullptr);
+}
+
 struct IdleResult {
     uint64_t digest{14695981039346656037ull};
     uint32_t completion_tick{};
@@ -234,6 +307,7 @@ void idle_mobile_occupants_remain_passable_traffic() {
 int main() {
     try {
         traffic_probes_respect_static_terrain_and_fog();
+        traffic_probe_follows_the_actual_rejoin_target();
         idle_mobile_occupants_remain_passable_traffic();
         std::cout << "local flow terrain: ok\n";
     } catch (const std::exception& error) {
