@@ -90,6 +90,12 @@ struct Timing {
 /// @return nearest-rank statistics, or all zeroes when there are no samples
 [[nodiscard]] Timing summarize(std::span<const uint64_t> samples);
 
+/// Holds the measured contribution of one simulation phase.
+struct PhaseTiming {
+    std::string name{};
+    Timing ticks{};
+};
+
 /// Holds one simulation-only benchmark's result and reproducibility facts.
 struct Report {
     bool completed{};
@@ -123,6 +129,7 @@ struct Report {
     std::string world_digest{};
     std::string renderer{"none"};
     Timing ticks{};
+    std::vector<PhaseTiming> simulation_phases{};
 };
 
 /// Writes a UTF-8 JSON object with stable keys and locale-independent numbers.

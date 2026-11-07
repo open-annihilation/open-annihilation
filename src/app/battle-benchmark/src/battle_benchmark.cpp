@@ -83,6 +83,18 @@ void json_string(std::ostream& out, std::string_view text) {
     out << '"';
 }
 
+/// Writes a timing object, including null for a non-finite mean.
+void json_timing(std::ostream& out, const Timing& timing) {
+    out << "{\"count\": " << timing.count << ", \"min\": " << timing.min_ns
+        << ", \"p50\": " << timing.p50_ns << ", \"p95\": " << timing.p95_ns
+        << ", \"p99\": " << timing.p99_ns << ", \"max\": " << timing.max_ns << ", \"mean\": ";
+    if (std::isfinite(timing.mean_ns))
+        out << timing.mean_ns;
+    else
+        out << "null";
+    out << '}';
+}
+
 } // namespace
 
 std::size_t maximum_layout_units(
@@ -197,15 +209,21 @@ std::string report_json(const Report& report) {
     text("simulation_hash", report.simulation_hash);
     text("world_digest", report.world_digest);
     text("renderer", report.renderer);
-    out << ",\n  \"tick_ns\": {\n    \"count\": " << report.ticks.count
-        << ",\n    \"min\": " << report.ticks.min_ns << ",\n    \"p50\": " << report.ticks.p50_ns
-        << ",\n    \"p95\": " << report.ticks.p95_ns << ",\n    \"p99\": " << report.ticks.p99_ns
-        << ",\n    \"max\": " << report.ticks.max_ns << ",\n    \"mean\": ";
-    if (std::isfinite(report.ticks.mean_ns))
-        out << report.ticks.mean_ns;
-    else
-        out << "null";
-    out << "\n  }\n}\n";
+    out << ",\n  \"simulation_phase_ns\": {";
+    bool first = true;
+    for (const auto& phase : report.simulation_phases) {
+        if (!first)
+            out << ',';
+        out << "\n    ";
+        json_string(out, phase.name);
+        out << ": ";
+        json_timing(out, phase.ticks);
+        first = false;
+    }
+    out << (first ? "}" : "\n  }");
+    out << ",\n  \"tick_ns\": ";
+    json_timing(out, report.ticks);
+    out << "\n}\n";
     return out.str();
 }
 

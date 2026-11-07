@@ -152,6 +152,12 @@ void reports() {
     report.simulation_hash = "hash";
     report.world_digest = "digest";
     report.ticks.mean_ns = 1.5;
+    report.simulation_phases.push_back(
+        {"movement", benchmark::summarize(std::array<uint64_t, 2>{2, 4})}
+    );
+    report.simulation_phases.push_back(
+        {"phase\"name", {.mean_ns = std::numeric_limits<double>::infinity()}}
+    );
     const auto old_locale = std::locale();
     std::locale::global(std::locale(old_locale, new DecimalComma));
     const auto json = benchmark::report_json(report);
@@ -161,6 +167,9 @@ void reports() {
     CHECK(json.find("Map \\\"name\\\"\\\\path\\u000a\\u0009\\u0000é") != std::string::npos);
     CHECK(json.find("\"renderer\": \"none\"") != std::string::npos);
     CHECK(json.find("\"mean\": 1.5") != std::string::npos);
+    CHECK(json.find("\"simulation_phase_ns\": {") != std::string::npos);
+    CHECK(json.find("\"movement\": {\"count\": 2, \"min\": 2") != std::string::npos);
+    CHECK(json.find("\"phase\\\"name\":") != std::string::npos);
     CHECK(json.find("\"successful_ticks\": 100") != std::string::npos);
     CHECK(json.find("\"enhanced_version\": 1") != std::string::npos);
     CHECK(json.find("\"moved_unit_ticks\": 40") != std::string::npos);
