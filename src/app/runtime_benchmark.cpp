@@ -5,6 +5,7 @@
 // campaign matches.
 #include "oa/app/runtime.hpp"
 #include "oa/app/battle_benchmark.hpp"
+#include "benchmark_thread_cpu.hpp"
 #include "oa/app/enhanced_mode.hpp"
 #include "oa/data/limits.hpp"
 #if __has_include("oa_engine_build.hpp")
@@ -1545,6 +1546,14 @@ void Runtime::run_battle_benchmark() {
     report.enhanced_mode = report.enhanced_version != 0;
     report.engine_version = running_engine_version_line();
     report.error = "the benchmark did not complete";
+    report.thread_cpu_clock = benchmark_timing::thread_cpu_clock_name();
+    bool sample_thread_cpu = false;
+    if (report.thread_cpu_clock != "unsupported") {
+        sample_thread_cpu = benchmark_timing::thread_cpu_nanoseconds().has_value();
+        report.thread_cpu_status = sample_thread_cpu ? "available" : "read_failed";
+        if (sample_thread_cpu)
+            report.thread_cpu_ticks = benchmark::Timing{};
+    }
     auto kept_preferences = preferences_;
     auto kept_skirmish = skirmish_settings_;
     const uint16_t kept_limit = frontend_game().max_units_setting;
@@ -1576,6 +1585,14 @@ void Runtime::run_battle_benchmark() {
     write_report();
     std::vector<uint64_t> samples;
     samples.reserve(report.measured_ticks);
+    std::vector<uint64_t> thread_cpu_samples;
+    if (sample_thread_cpu)
+        thread_cpu_samples.reserve(report.measured_ticks);
+    const auto summarize_timings = [&] {
+        report.ticks = benchmark::summarize(samples);
+        if (sample_thread_cpu)
+            report.thread_cpu_ticks = benchmark::summarize(thread_cpu_samples);
+    };
     std::array<std::vector<benchmark::ProgressState>, 2> goal_progress;
     const auto census = [this] {
         std::size_t live = 0;
@@ -1904,11 +1921,26 @@ void Runtime::run_battle_benchmark() {
         );
         std::fflush(stdout);
         for (std::size_t tick = 0; tick < report.measured_ticks; ++tick) {
+            const auto cpu_started = sample_thread_cpu ? benchmark_timing::thread_cpu_nanoseconds()
+                                                       : std::optional<uint64_t>{};
             const auto started = BenchClock::now();
             tick_profile.begin();
             step_match_simulation();
             tick_profile.mark(OA_PROFILE_MISC);
-            samples.push_back(static_cast<uint64_t>(elapsed_ns(started)));
+            const auto wall_elapsed = static_cast<uint64_t>(elapsed_ns(started));
+            const auto cpu_finished = sample_thread_cpu ? benchmark_timing::thread_cpu_nanoseconds()
+                                                        : std::optional<uint64_t>{};
+            samples.push_back(wall_elapsed);
+            if (sample_thread_cpu) {
+                if (cpu_started && cpu_finished && *cpu_finished >= *cpu_started) {
+                    thread_cpu_samples.push_back(*cpu_finished - *cpu_started);
+                } else {
+                    sample_thread_cpu = false;
+                    thread_cpu_samples.clear();
+                    report.thread_cpu_ticks.reset();
+                    report.thread_cpu_status = "read_failed";
+                }
+            }
             for (std::size_t phase = 0; phase < phase_samples.size(); ++phase)
                 phase_samples[phase].push_back(tick_profile.elapsed[phase]);
             ++report.successful_ticks;
@@ -1923,7 +1955,7 @@ void Runtime::run_battle_benchmark() {
             static_cast<unsigned long long>(frame_run_digest())
         );
         report.world_digest = digest.data();
-        report.ticks = benchmark::summarize(samples);
+        summarize_timings();
         constexpr std::array<std::string_view, OA_PROFILE_CATEGORY_COUNT> phase_names{
             "sync",
             "units",
@@ -1953,6 +1985,26 @@ void Runtime::run_battle_benchmark() {
             static_cast<double>(report.ticks.p99_ns) / 1.0e6,
             static_cast<double>(report.ticks.max_ns) / 1.0e6
         );
+        if (report.thread_cpu_ticks) {
+            const auto& cpu = *report.thread_cpu_ticks;
+            std::printf(
+                "battle benchmark thread CPU: p50 %.3f ms p95 %.3f ms p99 %.3f ms max %.3f ms; "
+                "%llu wall and %llu CPU ticks over %.6f ms\n",
+                static_cast<double>(cpu.p50_ns) / 1.0e6,
+                static_cast<double>(cpu.p95_ns) / 1.0e6,
+                static_cast<double>(cpu.p99_ns) / 1.0e6,
+                static_cast<double>(cpu.max_ns) / 1.0e6,
+                static_cast<unsigned long long>(report.ticks.over_budget_count),
+                static_cast<unsigned long long>(cpu.over_budget_count),
+                static_cast<double>(benchmark::tick_budget_ns) / 1.0e6
+            );
+        } else {
+            std::printf(
+                "battle benchmark thread CPU: %s (%s)\n",
+                report.thread_cpu_status.c_str(),
+                report.thread_cpu_clock.c_str()
+            );
+        }
         std::printf("battle benchmark phase p50 ms:");
         for (const auto& phase : report.simulation_phases)
             std::printf(
@@ -1986,7 +2038,7 @@ void Runtime::run_battle_benchmark() {
         report.completed = false;
         report.error = error.what();
         report.final_units = census();
-        report.ticks = benchmark::summarize(samples);
+        summarize_timings();
         note_work();
         write_report();
         throw;

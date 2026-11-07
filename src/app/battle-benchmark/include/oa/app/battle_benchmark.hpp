@@ -14,6 +14,8 @@
 namespace oa::app::battle_benchmark {
 
 inline constexpr uint32_t report_schema_version = 1;
+/// Nanoseconds allowed by the benchmark's 30-tick-per-second reference budget.
+inline constexpr uint64_t tick_budget_ns = 33'333'333;
 inline constexpr std::size_t maximum_units_per_side = 10'000;
 /// Bounds placement candidates so blocked terrain can be skipped before spawning.
 inline constexpr std::size_t maximum_layout_candidates = 1'000'000;
@@ -173,7 +175,7 @@ void sample_progress(ProgressState& state, Point position, bool live);
 /// @return counts over setup, warmup and measured samples supplied by the caller
 [[nodiscard]] ProgressSummary summarize_progress(std::span<const ProgressState> states);
 
-/// Holds nearest-rank timing percentiles, in nanoseconds.
+/// Holds nearest-rank timings, cumulative nanoseconds and reference-budget counts.
 struct Timing {
     uint64_t count{};
     uint64_t min_ns{};
@@ -182,12 +184,16 @@ struct Timing {
     uint64_t p99_ns{};
     uint64_t max_ns{};
     double mean_ns{};
+    uint64_t total_ns{};
+    uint64_t over_budget_count{};
+    /// Signals a cumulative sum above uint64_t, represented by its maximum.
+    bool total_ns_saturated{};
 };
 
 /// Summarizes samples without changing their order in the caller's storage.
 ///
 /// @param samples elapsed nanoseconds of successful measured ticks
-/// @return nearest-rank statistics, or all zeroes when there are no samples
+/// @return statistics and a saturating sum, or all zeroes when there are no samples
 [[nodiscard]] Timing summarize(std::span<const uint64_t> samples);
 
 /// Holds the measured contribution of one simulation phase.
@@ -238,6 +244,9 @@ struct Report {
     std::string world_digest{};
     std::string renderer{"none"};
     Timing ticks{};
+    std::optional<Timing> thread_cpu_ticks{};
+    std::string thread_cpu_clock{"unsupported"};
+    std::string thread_cpu_status{"unsupported"};
     std::vector<PhaseTiming> simulation_phases{};
 };
 

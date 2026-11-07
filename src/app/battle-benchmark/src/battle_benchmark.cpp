@@ -7,6 +7,7 @@
 #include <cmath>
 #include <iomanip>
 #include <locale>
+#include <limits>
 #include <numeric>
 #include <sstream>
 #include <string_view>
@@ -96,7 +97,8 @@ void json_timing(std::ostream& out, const Timing& timing) {
         out << timing.mean_ns;
     else
         out << "null";
-    out << '}';
+    out << ", \"total\": " << timing.total_ns << ", \"over_budget\": " << timing.over_budget_count
+        << ", \"total_saturated\": " << (timing.total_ns_saturated ? "true" : "false") << '}';
 }
 
 /// Measures whole-pixel Manhattan distance without overflowing signed coordinates.
@@ -366,8 +368,18 @@ Timing summarize(std::span<const uint64_t> samples) {
     std::vector<uint64_t> ordered(samples.begin(), samples.end());
     std::sort(ordered.begin(), ordered.end());
     double total = 0;
-    for (const auto sample : ordered)
+    uint64_t total_ns = 0, over_budget = 0;
+    bool saturated = false;
+    for (const auto sample : ordered) {
         total += static_cast<double>(sample);
+        over_budget += sample > tick_budget_ns;
+        if (sample > std::numeric_limits<uint64_t>::max() - total_ns) {
+            total_ns = std::numeric_limits<uint64_t>::max();
+            saturated = true;
+        } else {
+            total_ns += sample;
+        }
+    }
     return {
         static_cast<uint64_t>(ordered.size()),
         ordered.front(),
@@ -375,7 +387,10 @@ Timing summarize(std::span<const uint64_t> samples) {
         percentile(ordered, tail_percentile),
         percentile(ordered, slow_percentile),
         ordered.back(),
-        total / static_cast<double>(ordered.size())
+        total / static_cast<double>(ordered.size()),
+        total_ns,
+        over_budget,
+        saturated
     };
 }
 
@@ -449,6 +464,16 @@ std::string report_json(const Report& report) {
     text("simulation_hash", report.simulation_hash);
     text("world_digest", report.world_digest);
     text("renderer", report.renderer);
+    number("tick_budget_ns", tick_budget_ns);
+    text("thread_cpu_clock", report.thread_cpu_clock);
+    text("thread_cpu_status", report.thread_cpu_status);
+    out << ",\n  \"thread_cpu_available\": "
+        << (report.thread_cpu_ticks.has_value() ? "true" : "false");
+    out << ",\n  \"tick_thread_cpu_ns\": ";
+    if (report.thread_cpu_ticks)
+        json_timing(out, *report.thread_cpu_ticks);
+    else
+        out << "null";
     out << ",\n  \"simulation_phase_ns\": {";
     bool first = true;
     for (const auto& phase : report.simulation_phases) {
