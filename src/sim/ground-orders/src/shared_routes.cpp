@@ -15,6 +15,8 @@ constexpr uint32_t magic = 0x3246414f, format = 1, stride = 4, region = 32;
 constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 64;
 constexpr std::size_t metadata_size = 80, key_size = 36;
 constexpr uint32_t empty = 0, clearing = 1, building = 2, complete = 3, failed = 4;
+constexpr size_t dirty_offset = 68, dirty_since_offset = 72, completed_tick_offset = 76;
+constexpr uint32_t refresh_period = 30, completed_refresh_grace = 60;
 constexpr uint8_t root = 0xfd, unseen = 0xff;
 constexpr uint32_t clear_bytes_per_tick = 65'536, clear_slice = 4'096;
 constexpr std::array<int32_t, 8> dx{1, 1, 0, -1, -1, -1, 0, 1};
@@ -45,6 +47,16 @@ void put64(uint8_t* p, uint64_t value) noexcept {
 void increment(uint8_t* state, uint32_t counter, uint64_t amount = 1) noexcept {
     auto* p = state + 64 + counter * 8;
     put64(p, get64(p) + amount);
+}
+
+/// Restarts one field through the existing bounded clearing and expansion work.
+void restart_field(uint8_t* state, uint8_t* selected) noexcept {
+    put32(selected, clearing);
+    // Keep the movement key, seed destination and last-use tick.
+    std::memset(selected + 48, 0, 16);
+    std::memset(selected + dirty_offset, 0, metadata_size - dirty_offset);
+    increment(state, 2);
+    increment(state, 6);
 }
 
 uint8_t* field(uint8_t* state, uint32_t cells, uint32_t index) noexcept {
@@ -205,16 +217,34 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
 
 void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sampler) noexcept {
     auto* state = state_.get();
+    const auto previous_tick = get32(state + 32);
     put32(state + 32, tick);
     if (get32(state + 36) != revision) {
         for (uint32_t i = 0; i < fields_; ++i) {
             auto* f = field(state, cells_, i);
-            if (get32(f) != empty)
+            if (get32(f) == empty)
+                continue;
+            if (get32(f) == failed) {
                 increment(state, 6);
-            put32(f, empty);
+                put32(f, empty);
+                continue;
+            }
+            // Returned connections are checked against the current map. An
+            // unrelated wreck must not discard an entire useful tree/frontier.
+            put32(f + 12, revision);
+            if (get32(f + dirty_offset) == 0) {
+                put32(f + dirty_offset, 1);
+                // The map changed since this cache's last advance. Using
+                // that saved boundary also keeps a same-tick load pass and
+                // the original match's next regular pass equivalent.
+                put32(f + dirty_since_offset, previous_tick);
+            }
         }
-        // Old admissions cannot cause a new revision to admit on its first request.
-        std::memset(state + header_size, 0, admission_count * admission_size);
+        for (uint32_t i = 0; i < admission_count; ++i) {
+            auto* entry = state + header_size + i * admission_size;
+            if (get32(entry + 40) != 0)
+                put32(entry + 8, revision);
+        }
         put32(state + 36, revision);
     }
     // A load pass and the regular tick can both call the scheduler. The
@@ -226,6 +256,27 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
     put32(state + 60, route_probes_per_tick_);
     if (fields_ == 0)
         return;
+    // A removed obstacle can make a retained route unnecessarily long or open
+    // a previously unreachable corridor. Refresh at most one completed dirty
+    // tree per period, oldest first. Never interrupt a building frontier, and
+    // let every newly completed tree serve routes before it can be refreshed.
+    if (tick % refresh_period == 0) {
+        uint8_t* oldest = nullptr;
+        uint32_t oldest_age = 0;
+        for (uint32_t i = 0; i < fields_; ++i) {
+            auto* f = field(state, cells_, i);
+            if (get32(f) != complete || get32(f + dirty_offset) == 0 ||
+                tick - get32(f + completed_tick_offset) < completed_refresh_grace)
+                continue;
+            const auto age = tick - get32(f + dirty_since_offset);
+            if (!oldest || age > oldest_age) {
+                oldest = f;
+                oldest_age = age;
+            }
+        }
+        if (oldest)
+            restart_field(state, oldest);
+    }
     uint32_t cursor = get32(state + 40) % fields_;
     uint32_t idle = 0, work = 0, clear_budget = clear_bytes_per_tick;
     // Clearing bytes is much cheaper than classifying graph edges. Share a
@@ -285,6 +336,7 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         auto head = get32(f + 56), tail = get32(f + 60);
         if (head == tail) {
             put32(f, complete);
+            put32(f + completed_tick_offset, tick);
             continue;
         }
         const auto node = get32(queue + static_cast<std::size_t>(head++) * 4);
@@ -317,8 +369,10 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         }
         put32(f + 60, tail);
         increment(state, 4);
-        if (head == tail && get32(f) == building)
+        if (head == tail && get32(f) == building) {
             put32(f, complete);
+            put32(f + completed_tick_offset, tick);
+        }
     }
     put32(state + 40, cursor);
 }
@@ -575,7 +629,8 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
     for (uint32_t i = 0; i < fields_; ++i) {
         const auto* f = field(bytes.data(), cells_, i);
         const auto phase = get32(f);
-        if (phase > failed || (phase != empty && !valid_key(f + 4)) || get32(f + 52) > cells_ ||
+        if (phase > failed || get32(f + dirty_offset) > 1 ||
+            (phase != empty && !valid_key(f + 4)) || get32(f + 52) > cells_ ||
             get32(f + 56) > get32(f + 60) || get32(f + 60) > cells_)
             return false;
         if (phase != empty && (get32(f + 12) != get32(bytes.data() + 36) ||

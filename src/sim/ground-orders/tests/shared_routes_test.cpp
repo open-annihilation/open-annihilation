@@ -85,8 +85,8 @@ FlowResult query(
     return result;
 }
 
-void finish(FlowCache& cache, Grid& grid, uint32_t revision = 0) {
-    for (uint32_t tick = 1; tick < 40; ++tick)
+void finish(FlowCache& cache, Grid& grid, uint32_t revision = 0, uint32_t first_tick = 1) {
+    for (uint32_t tick = first_tick; tick < first_tick + 39; ++tick)
         cache.advance(tick, revision, grid.sampler());
 }
 
@@ -299,13 +299,11 @@ void narrow_choke_and_mixed_footprints() {
     grid.cells[29 * 64 + 30] = 0;
     grid.cells[28 * 64 + 30] = 1;
     cache.advance(40, 1, grid.sampler());
-    CHECK(query(cache, grid, unit_at(8, 28), goal, context(0, 1)) == FlowResult::fallback);
-    CHECK(query(cache, grid, unit_at(9, 28), goal, context(0, 1)) == FlowResult::pending);
-    finish(cache, grid, 1);
+    // A new clear direct connection is usable before the retained tree refreshes.
     CHECK(query(cache, grid, unit_at(8, 28), goal, context(0, 1)) == FlowResult::ready);
     CHECK(query(cache, grid, unit_at(8, 28, 2), goal, context(1, 1)) == FlowResult::fallback);
     CHECK(query(cache, grid, unit_at(10, 28, 2), goal, context(1, 1)) == FlowResult::pending);
-    finish(cache, grid, 1);
+    finish(cache, grid, 1, 41);
     CHECK(query(cache, grid, unit_at(8, 28, 2), goal, context(1, 1)) == FlowResult::fallback);
 }
 
@@ -337,15 +335,233 @@ void revisions_and_restore_pending() {
     CHECK(query(first, grid, unit, goal) == FlowResult::fallback);
     CHECK(first.counters().invalidations == 1);
     first.advance(30, 1, grid.sampler());
-    CHECK(query(first, grid, unit, goal, context(0, 1)) == FlowResult::fallback);
+    // The repeated destination's admission survives an unrelated revision.
     CHECK(query(first, grid, unit, goal, context(0, 1)) == FlowResult::pending);
-    finish(first, grid, 1);
+    finish(first, grid, 1, 31);
     CHECK(query(first, grid, unit, goal, context(0, 1)) == FlowResult::fallback);
     std::vector<uint8_t> broken(first.state_bytes().begin(), first.state_bytes().end());
     broken[0] ^= 1;
     const std::vector<uint8_t> before(resumed.state_bytes().begin(), resumed.state_bytes().end());
     CHECK(!resumed.restore(broken));
     CHECK(std::equal(before.begin(), before.end(), resumed.state_bytes().begin()));
+}
+
+/// Keeps useful trees and repeated-goal admission after unrelated map changes.
+void unrelated_revisions_keep_complete_routes_and_admissions() {
+    Grid grid(64, 64);
+    FlowCache cache(64, 64);
+    const auto first_goal = circle(52, 52), second_goal = circle(52, 12);
+    const auto first_unit = unit_at(8, 8), second_unit = unit_at(8, 12);
+    (void)query(cache, grid, first_unit, first_goal);
+    (void)query(cache, grid, first_unit, first_goal);
+    // Keep this second destination's first admission across the revision too.
+    CHECK(query(cache, grid, second_unit, second_goal) == FlowResult::fallback);
+    finish(cache, grid);
+    const auto before = cache.counters();
+    grid.cells[63 * 64] = 0;
+    cache.advance(40, 1, grid.sampler());
+    CHECK(query(cache, grid, first_unit, first_goal, context(0, 1)) == FlowResult::ready);
+    CHECK(cache.counters().invalidations == before.invalidations);
+    CHECK(cache.counters().fields_started == before.fields_started);
+    CHECK(query(cache, grid, second_unit, second_goal, context(0, 1)) == FlowResult::pending);
+    finish(cache, grid, 1, 41);
+    CHECK(query(cache, grid, second_unit, second_goal, context(0, 1)) == FlowResult::ready);
+
+    // A real new barrier invalidates the touched tree, not every destination.
+    grid.cells[30 * 64 + 30] = 0;
+    cache.advance(80, 2, grid.sampler());
+    const auto invalidations = cache.counters().invalidations;
+    CHECK(query(cache, grid, first_unit, first_goal, context(0, 2)) == FlowResult::fallback);
+    CHECK(cache.counters().invalidations == invalidations + 1);
+    CHECK(query(cache, grid, second_unit, second_goal, context(0, 2)) == FlowResult::ready);
+    CHECK(cache.counters().invalidations == invalidations + 1);
+}
+
+/// Completes a frontier despite a different map revision on every tick.
+void changing_revisions_cannot_restart_building_frontiers() {
+    Grid grid(128, 128);
+    for (uint32_t z = 48; z <= 80; ++z)
+        grid.cells[z * 128 + 64] = 0;
+    FlowCache cache(128, 128, {1, 1024, 32});
+    const auto unit = unit_at(16, 64);
+    const auto goal = circle(112, 64);
+    (void)query(cache, grid, unit, goal);
+    (void)query(cache, grid, unit, goal);
+    uint32_t first_ready = 0;
+    for (uint32_t tick = 1; tick <= 60; ++tick) {
+        const auto before = cache.counters();
+        cache.advance(tick, tick, grid.sampler());
+        const auto after = cache.counters();
+        CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
+        CHECK(after.cells_expanded - before.cells_expanded <= 32);
+        if (query(cache, grid, unit, goal, context(0, tick)) == FlowResult::ready && !first_ready)
+            first_ready = tick;
+    }
+    CHECK(first_ready != 0 && first_ready <= 60);
+    CHECK(cache.counters().fields_started == 1);
+    CHECK(cache.counters().invalidations == 0);
+    CHECK(cache.counters().cells_expanded > 500);
+}
+
+/// Measures the currently returned route around the fixture's wall.
+double route_length(FlowCache& cache, Grid& grid, FlowContext ctx) {
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(
+        cache.route(ctx, unit_at(32, 64), circle(96, 64), points, count, grid.sampler()) ==
+        FlowResult::ready
+    );
+    double length = 0;
+    for (uint32_t i = 1; i < count; ++i)
+        length += std::hypot(
+            double(points[i][0] - points[i - 1][0]), double(points[i][1] - points[i - 1][1])
+        );
+    return length;
+}
+
+/// Replaces a legal long detour after a closer off-axis bridge opens.
+void periodic_refresh_discovers_a_new_bridge() {
+    Grid grid(128, 128);
+    for (uint32_t z = 0; z < 128; ++z)
+        if (z < 8 || z >= 16)
+            grid.cells[z * 128 + 64] = 0;
+    FlowCache cache(128, 128, {1, 1024, 2048});
+    (void)query(cache, grid, unit_at(32, 64), circle(96, 64));
+    (void)query(cache, grid, unit_at(32, 64), circle(96, 64));
+    finish(cache, grid);
+    const auto original_length = route_length(cache, grid, context());
+    for (uint32_t z = 80; z < 88; ++z)
+        grid.cells[z * 128 + 64] = 1;
+    cache.advance(40, 1, grid.sampler());
+    const auto retained_length = route_length(cache, grid, context(0, 1));
+    CHECK(retained_length == original_length);
+    for (uint32_t tick = 41; tick <= 90; ++tick)
+        cache.advance(tick, 1, grid.sampler());
+    const auto refreshed_length = route_length(cache, grid, context(0, 1));
+    CHECK(refreshed_length + 500 < original_length);
+    CHECK(cache.counters().fields_started == 2);
+    CHECK(cache.counters().invalidations == 1);
+    std::printf("opened-bridge: %.1f -> %.1f world units\n", original_length, refreshed_length);
+}
+
+/// Preserves pending work, refresh policy and tick budgets across a saved state.
+void dirty_pending_state_resumes_with_the_same_budget_and_refresh_order() {
+    Grid grid(128, 128);
+    for (uint32_t z = 48; z <= 80; ++z)
+        grid.cells[z * 128 + 64] = 0;
+    FlowCache first(128, 128, {2, 2048, 32}), resumed(128, 128, {2, 2048, 32});
+    const auto unit = unit_at(16, 64);
+    const auto goal = circle(112, 64);
+    (void)query(first, grid, unit, goal);
+    (void)query(first, grid, unit, goal);
+    for (uint32_t tick = 1; tick <= 4; ++tick)
+        first.advance(tick, tick, grid.sampler());
+    CHECK(resumed.restore(first.state_bytes()));
+    for (uint32_t tick = 5; tick <= 180; ++tick) {
+        const auto before = first.counters();
+        first.advance(tick, tick, grid.sampler());
+        resumed.advance(tick, tick, grid.sampler());
+        const auto after = first.counters();
+        CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
+        CHECK(after.cells_expanded - before.cells_expanded <= 32);
+        CHECK(
+            query(first, grid, unit, goal, context(0, tick)) ==
+            query(resumed, grid, unit, goal, context(0, tick))
+        );
+        const auto once = first.counters();
+        first.advance(tick, tick, grid.sampler());
+        resumed.advance(tick, tick, grid.sampler());
+        CHECK(first.counters().cells_expanded == once.cells_expanded);
+        CHECK(first.counters().cells_cleared == once.cells_cleared);
+        CHECK(
+            std::equal(
+                first.state_bytes().begin(),
+                first.state_bytes().end(),
+                resumed.state_bytes().begin()
+            )
+        );
+    }
+    CHECK(first.counters().fields_started >= 2);
+    CHECK(resumed.restore(first.state_bytes()));
+}
+
+/// Matches continuation when loading observes a pending revision one pass earlier.
+void pending_map_revision_keeps_the_same_age_across_a_load_pass() {
+    Grid grid(64, 64);
+    FlowCache original(64, 64), loaded(64, 64);
+    const auto unit = unit_at(8, 8);
+    const auto goal = circle(52, 52);
+    (void)query(original, grid, unit, goal);
+    (void)query(original, grid, unit, goal);
+    finish(original, grid);
+    CHECK(loaded.restore(original.state_bytes()));
+    // The save's actual map revision is ahead of the last cache advance.
+    // Loading runs a pass on the saved tick; the original next advances on40.
+    loaded.advance(39, 1, grid.sampler());
+    original.advance(40, 1, grid.sampler());
+    loaded.advance(40, 1, grid.sampler());
+    CHECK(
+        std::equal(
+            original.state_bytes().begin(),
+            original.state_bytes().end(),
+            loaded.state_bytes().begin()
+        )
+    );
+    for (uint32_t tick = 41; tick <= 130; ++tick) {
+        original.advance(tick, 1, grid.sampler());
+        loaded.advance(tick, 1, grid.sampler());
+        CHECK(
+            query(original, grid, unit, goal, context(0, 1)) ==
+            query(loaded, grid, unit, goal, context(0, 1))
+        );
+        CHECK(
+            std::equal(
+                original.state_bytes().begin(),
+                original.state_bytes().end(),
+                loaded.state_bytes().begin()
+            )
+        );
+    }
+}
+
+/// Services older dirty destinations before a newly dirtied low-index field.
+void periodic_refresh_keeps_older_destinations_ahead_of_recent_refreshes() {
+    Grid grid(64, 64);
+    for (uint32_t z = 16; z <= 48; ++z)
+        grid.cells[z * 64 + 32] = 0;
+    FlowCache cache(64, 64, {4, 1024, 32});
+    const auto unit = unit_at(8, 32);
+    const auto goal = circle(56, 32);
+    for (uint32_t player = 0; player < 4; ++player) {
+        auto ctx = context();
+        ctx.player = player;
+        (void)query(cache, grid, unit, goal, ctx);
+        (void)query(cache, grid, unit, goal, ctx);
+    }
+    finish(cache, grid);
+    CHECK(cache.counters().fields_started == 4);
+    for (uint32_t tick = 40; tick <= 210; ++tick) {
+        const auto before = cache.counters();
+        cache.advance(tick, tick, grid.sampler());
+        CHECK(cache.counters().cells_expanded - before.cells_expanded <= 32);
+        if (tick == 120 || tick == 150 || tick == 180 || tick == 210) {
+            const uint32_t selected_player = (tick - 120) / 30;
+            for (uint32_t player = 0; player < 4; ++player) {
+                auto ctx = context(0, tick);
+                ctx.player = player;
+                CHECK(
+                    query(cache, grid, unit, goal, ctx) ==
+                    (player == selected_player ? FlowResult::pending : FlowResult::ready)
+                );
+            }
+            CHECK(cache.counters().fields_started == 5 + selected_player);
+            const auto once = cache.counters();
+            cache.advance(tick, tick, grid.sampler());
+            CHECK(cache.counters().fields_started == once.fields_started);
+            CHECK(cache.counters().cells_expanded == once.cells_expanded);
+        }
+    }
+    CHECK(cache.counters().invalidations == 4);
 }
 
 void singletons_do_not_starve_building_fields() {
@@ -447,11 +663,20 @@ void malformed_frontiers_are_rejected() {
     broken[directions] = 0;
     broken[directions + 1] = 4;
     CHECK(!restored.restore(broken));
+    broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
+    write32(broken, field + 68, 2); // dirty state is a boolean
+    CHECK(!restored.restore(broken));
 }
 
 } // namespace
 
 int main() {
+    unrelated_revisions_keep_complete_routes_and_admissions();
+    changing_revisions_cannot_restart_building_frontiers();
+    periodic_refresh_discovers_a_new_bridge();
+    dirty_pending_state_resumes_with_the_same_budget_and_refresh_order();
+    pending_map_revision_keeps_the_same_age_across_a_load_pass();
+    periodic_refresh_keeps_older_destinations_ahead_of_recent_refreshes();
     blocked_lane_detours_are_symmetric_and_bounded();
     open_routes_keep_heading_and_individual_destinations();
     own_destination_can_cross_a_region_split();
