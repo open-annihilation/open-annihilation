@@ -19,8 +19,8 @@ player and 32,767 units across a match, and a 32,767-record projectile pool.
 It also reuses spatial projections during contact scans. Renderer selection
 is independent. Version 2 adds shared routing and local unit flow while
 retaining those capacities. Version 3 selects regional shared-route
-construction. Version 4 selects bounded swept ground-step checks when that
-simulation behavior is integrated. Versions 1, 2 and 3 remain available for
+construction. Version 4 selects bounded swept ground-step checks.
+Versions 1, 2 and 3 remain available for
 saved and recorded games with their original rules and hashes. The unit and
 projectile capacities stay the same.
 
@@ -37,8 +37,7 @@ hacks:
 
 The application still requires Enhanced Mode to be selected before loading
 a profile that enables these rules.
-The switch selects version 4 for new games when its corresponding ground-step
-behavior is integrated. An existing profile's bare
+The switch selects version 4 for new games. An existing profile's bare
 `true` still resolves to version 1 before that match choice is applied.
 
 ## Details

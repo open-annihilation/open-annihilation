@@ -11,8 +11,7 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 4 is the current preset when its bounded ground-step checks
-are integrated. It retains the earlier presets' capacity of
+Rules version 4 is the current preset. It retains the earlier presets' capacity of
 10,000 units per participating player. It
 allocates ranges only for participating players, with at most 32,767 units
 across the match. Two players can therefore field 10,000 units each.
@@ -30,12 +29,13 @@ route prefixes and retains useful fields when an extracted edge becomes
 blocked. Its construction work stays bounded. Earlier presets keep their
 original routing policy.
 
-Version 4 gives swept ground-step checks a separate rules identity. These
-checks bound the work used to inspect the unit's footprint along its next
-step. Enabling that version requires the matching simulation behavior;
-version metadata alone does not provide collision handling or establish
-smooth movement through a crowded battlefield. Version 3 keeps its
-original ground movement rules.
+Version 4 checks the unit's footprint along each locally simulated ground
+step, including intermediate cells and both sides of an exact diagonal
+crossing. A free destination no longer permits a step through an occupied
+intermediate cell. Work is bounded to 128 origins and 512 footprint cells;
+an unsupported step receives the ordinary blocked response. This corrects
+collision handling, but does not establish smooth movement through a crowded
+battlefield. Off and versions 1, 2 and 3 keep their original movement rules.
 
 Version 3 can also remove an unnecessary bend from a published guide when
 the unit's actual footprint has a clear, fully known line to the following
@@ -80,7 +80,7 @@ Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
 Versions 1 and 2 remain supported with their original behavior and simulation hashes.
-Versions 2 and 3 save five owner-local navigation tables: shared fields, the
+Versions 2, 3 and 4 save five owner-local navigation tables: shared fields, the
 current static-map revision, temporary traffic heads, actual-progress clocks
 and the shared-route scan clock. The scan clock prevents a load pass and a
 regular pass at the same tick from polling the unit ranges twice. These
@@ -323,7 +323,7 @@ unresolved in the hold-fire crossing workload.
 
 ## Version 3 installed-map checkpoint
 
-The current preset repeats the connected, native 20,000-unit capture on Core
+Version 3 repeats the connected, native 20,000-unit capture on Core
 Prime Industrial Area for 1,800 ticks. Troops retain stock two-cell footprints,
 48-pixel initial spacing and 1,024-pixel bank offsets. Combat uses actual
 attack orders, with 9,567 ARM and 9,499 CORE units surviving. All 934 recorded
@@ -350,12 +350,33 @@ Every recorded footprint is physically legal and no sample has overlapping
 units, but shared-route coverage and low CPU cost have not resolved the
 waypoint pile-ups.
 
+## Version 4 ground-step checkpoint
+
+The swept ground guard passes both independent footprint-intersection checks
+and Match movement tests. In a native sixteen-unit corridor comparison,
+arrivals rise from eight to nine, but the remaining total goal distance rises
+from 3,845 to 4,287 pixels. This is a collision-correctness improvement with
+mixed movement results. The separate corridor-coordination prototype is not
+enabled: it reduced arrivals to four in the same comparison.
+
+Two Check-build combat runs on the M5 use Core Prime Industrial Area, seed 7,
+10,000 units per side, 30 warmup ticks and 300 measured ticks. Every non-timing
+report field repeats exactly, with world digest `54bc88091f949178`, active
+combat and zero projectile allocation failures. Median simulation thread CPU
+time is 10.23–10.48 ms, p99 is 13.93–14.20 ms and the largest tick is
+15.57 ms. All measured wall and thread CPU times stay below 33.3 ms. Earlier
+versions reproduce their pinned world digests in this build.
+
+These short scripted runs contain no strategic AI or rendered frames. Other
+host workloads were uncontrolled. They do not prove a speedup, sustained
+whole-game frame rate or improved bridge throughput at 20,000 units.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
    before making a whole-battle smoothness claim. Compare the same seeded
    workloads on the Mac and a gaming desktop.
-2. Validate v3 flow on sustained installed-map battles and extend it where
+2. Validate the current preset on sustained installed-map battles and extend it where
    measured stalls remain. The synthetic counterflow, crossing and choke
    fixtures check arrival, determinism and zero overlap; those results alone
    do not establish that every installed-map group finishes its trip. Preserve

@@ -77,6 +77,19 @@ These fixtures do not establish repaired flow in the connected 20,000-unit
 installed-map recordings; their current bridge limits are recorded in
 [Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
 
+Enhanced version 4 uses `integrate_swept_local_flow` for locally simulated,
+unattached ground movement. Its underlying `integrate_swept_ground` checks
+the complete fixed-point step against native footprint occupancy, including
+intermediate origins and both side origins at exact diagonal crossings.
+Preflight bounds work to 128 origins and 512 footprint cells before any Host
+query. Unsupported steps fail closed; blocked steps retain the ordinary
+current-cell clamp, speed reduction, height and clock behavior. Successful
+steps update registration once. Remote and nonground movement delegates to
+the original integration. Off and earlier rules keep the original entry
+points. `unit-swept-ground` checks independent geometric intersections,
+callback ordering, budgets, refusal and legacy parity; these checks do not
+establish queue throughput.
+
 ## TNT terrain and four-point ground pose
 
 `Terrain::height` extracts signed integer high words from 16.16 X/Z, locates
