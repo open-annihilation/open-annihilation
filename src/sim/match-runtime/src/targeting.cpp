@@ -201,7 +201,16 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
         } else if (match.enhanced_) {
             auto& enhanced = *match.enhanced_;
             ++enhanced.counters.target_queries;
-            refresh_target_query_extras();
+            if (!seen.empty() || (sightings.radar_fallback != 0 && !radar.empty()))
+                refresh_target_query_extras();
+            const std::span<const uint8_t> membership =
+                enhanced.target_sighting_membership_valid[owner]
+                    ? std::span<const uint8_t>{
+                          enhanced.target_sighting_membership.get() +
+                              size_t(owner) * match.slots_.size(),
+                          match.slots_.size()
+                      }
+                    : std::span<const uint8_t>{};
             const auto nearby = nearby_target_sightings(
                 match.state(),
                 match.spatial_,
@@ -210,7 +219,9 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
                 radar,
                 center,
                 radius,
-                {enhanced.target_query_slots.get(), 2 * match.slots_.size()}
+                {enhanced.target_query_slots.get(), 2 * match.slots_.size()},
+                membership,
+                sightings.radar_fallback != 0
             );
             if (nearby.complete) {
                 seen = nearby.seen;

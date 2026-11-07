@@ -29,6 +29,7 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
     std::vector<uint16_t> radar;
     std::vector<uint16_t> extras;
     std::vector<uint16_t> scratch;
+    std::vector<uint8_t> membership;
     std::vector<combat::TargetUnit> found;
     std::vector<uint32_t> random_bounds;
     std::vector<combat::UnitIdentity> reached;
@@ -37,11 +38,13 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
     size_t accelerated_queries{};
     size_t fallback_queries{};
     bool accelerated{};
+    bool indexed{true};
     bool radar_fallback{true};
     int32_t radius{160};
 
     explicit Fixture(size_t count, uint32_t width = 32, uint32_t height = 40)
-        : units(count + 1), projections(count + 1), scratch(2 * (count + 1)) {
+        : units(count + 1), projections(count + 1), scratch(2 * (count + 1)),
+          membership(count + 1) {
         world.units = units.data();
         world.unit_slot_count = static_cast<uint32_t>(units.size());
         spatial.bucket_width = width;
@@ -104,8 +107,23 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
         std::span<const uint16_t> visible = seen;
         std::span<const uint16_t> detected = radar;
         if (accelerated) {
+            if (indexed)
+                OA_CHECK(
+                    oa::sim::match_runtime::rebuild_target_sighting_membership(
+                        seen, radar, membership
+                    )
+                );
             const auto nearby = nearby_target_sightings(
-                world, spatial, extras, visible, detected, center, reach, scratch
+                world,
+                spatial,
+                extras,
+                visible,
+                detected,
+                center,
+                reach,
+                scratch,
+                indexed ? std::span<const uint8_t>{membership} : std::span<const uint8_t>{},
+                radar_fallback
             );
             if (nearby.complete) {
                 ++accelerated_queries;
@@ -253,12 +271,96 @@ void matches_full_walk_across_many_fractional_queries() {
             random() % (2000 * fixed_one), 0, random() % (2000 * fixed_one)
         };
         const auto radius = static_cast<int32_t>(random() % 1000);
-        OA_CHECK(
-            fixture.identities(center, radius, true) == fixture.identities(center, radius, false)
-        );
+        const auto full = fixture.identities(center, radius, false);
+        fixture.indexed = true;
+        OA_CHECK(fixture.identities(center, radius, true) == full);
+        fixture.indexed = false;
+        OA_CHECK(fixture.identities(center, radius, true) == full);
     }
     OA_CHECK(fixture.accelerated_queries != 0);
     OA_CHECK(fixture.fallback_queries != 0);
+}
+
+void indexes_only_known_nearby_slots_and_replaces_old_membership() {
+    using oa::sim::match_runtime::rebuild_target_sighting_membership;
+    Fixture fixture(1024);
+    for (uint16_t id = 1; id <= 1024; ++id)
+        fixture.add(
+            id, (id <= 96 ? 128u : 2000u) * fixed_one, (id <= 96 ? 128u : 2000u) * fixed_one
+        );
+    fixture.seen = {2, 7};
+    fixture.radar = {3, 8};
+    for (uint16_t id = 97; id <= 1024; ++id) {
+        fixture.seen.push_back(id);
+        fixture.radar.push_back(id);
+    }
+    // A duplicate supplied through extras still appears only once.
+    fixture.extras.push_back(2);
+    const std::array<uint32_t, 3> center{128 * fixed_one, 0, 128 * fixed_one};
+    const auto list = nearby_target_sightings(
+        fixture.world,
+        fixture.spatial,
+        fixture.extras,
+        fixture.seen,
+        fixture.radar,
+        center,
+        32,
+        fixture.scratch
+    );
+    OA_CHECK(list.complete && list.candidates == 96);
+    const std::vector<uint16_t> seen(list.seen.begin(), list.seen.end());
+    const std::vector<uint16_t> radar(list.radar.begin(), list.radar.end());
+    OA_CHECK(rebuild_target_sighting_membership(fixture.seen, fixture.radar, fixture.membership));
+    const auto indexed = nearby_target_sightings(
+        fixture.world,
+        fixture.spatial,
+        fixture.extras,
+        fixture.seen,
+        fixture.radar,
+        center,
+        32,
+        fixture.scratch,
+        fixture.membership
+    );
+    OA_CHECK(indexed.complete && indexed.candidates == 4);
+    OA_CHECK(std::equal(indexed.seen.begin(), indexed.seen.end(), seen.begin(), seen.end()));
+    OA_CHECK(std::equal(indexed.radar.begin(), indexed.radar.end(), radar.begin(), radar.end()));
+
+    // Ignoring radar results must not reduce the raw bucket budget to the
+    // small seen list's minimum and force a full scan of this local query.
+    const std::array<uint16_t, 2> small_seen{2, 7};
+    std::vector<uint16_t> many_radar;
+    for (uint16_t id = 1; id <= 1024; ++id)
+        many_radar.push_back(id);
+    OA_CHECK(rebuild_target_sighting_membership(small_seen, many_radar, fixture.membership));
+    const auto no_radar = nearby_target_sightings(
+        fixture.world,
+        fixture.spatial,
+        fixture.extras,
+        small_seen,
+        many_radar,
+        center,
+        32,
+        fixture.scratch,
+        fixture.membership,
+        false
+    );
+    OA_CHECK(no_radar.complete && no_radar.candidates == 2);
+    OA_CHECK(
+        std::equal(no_radar.seen.begin(), no_radar.seen.end(), small_seen.begin(), small_seen.end())
+    );
+    OA_CHECK(no_radar.radar.empty());
+
+    const std::array<uint16_t, 2> next_seen{3, 10};
+    const std::array<uint16_t, 1> next_radar{7};
+    OA_CHECK(rebuild_target_sighting_membership(next_seen, next_radar, fixture.membership));
+    OA_CHECK(fixture.membership[2] == 0);
+    OA_CHECK(fixture.membership[3] == oa::sim::match_runtime::target_sighting_seen);
+    OA_CHECK(fixture.membership[7] == oa::sim::match_runtime::target_sighting_radar);
+    OA_CHECK(fixture.membership[8] == 0);
+    const std::array<uint16_t, 1> reserved{0}, outside{1025};
+    OA_CHECK(!rebuild_target_sighting_membership(reserved, {}, fixture.membership));
+    OA_CHECK(!rebuild_target_sighting_membership(outside, {}, fixture.membership));
 }
 
 void resolves_local_targets_without_projecting_twenty_thousand_sightings() {
@@ -319,6 +421,7 @@ void falls_back_on_insufficient_scratch_and_broken_bucket_chains() {
 } // namespace
 
 int main() {
+    indexes_only_known_nearby_slots_and_replaces_old_membership();
     keeps_order_carried_units_outside_units_and_fractional_edges();
     uses_radar_only_when_the_seen_walk_finds_nothing();
     keeps_target_sampling_and_random_draws_for_more_than_fifty_candidates();

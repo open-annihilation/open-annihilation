@@ -403,6 +403,8 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         enhanced_->unit_count = slots_.size();
         enhanced_->target_query_slots = std::make_unique<uint16_t[]>(2 * slots_.size());
         enhanced_->target_query_extras = std::make_unique<uint16_t[]>(slots_.size());
+        enhanced_->target_sighting_membership =
+            std::make_unique<uint8_t[]>(slots_.size() * OA_PLAYER_COUNT);
         enhanced_->local_flow_heads =
             std::make_unique<sim::unit_movement::LocalFlowHead[]>(slots_.size());
         enhanced_->local_flow_save_bytes =

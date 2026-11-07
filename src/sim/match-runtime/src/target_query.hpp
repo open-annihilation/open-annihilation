@@ -22,6 +22,32 @@ struct NearbyTargetSightings {
     bool complete{};
 };
 
+inline constexpr uint8_t target_sighting_seen = 1;
+inline constexpr uint8_t target_sighting_radar = 2;
+
+/// Rebuilds a slot membership index from one player's current sightings.
+///
+/// @param seen ascending visible slots
+/// @param radar ascending radar slots
+/// @param[out] membership preallocated flags indexed by canonical unit slot
+/// @return whether every sighting names a nonreserved slot within the index
+inline bool rebuild_target_sighting_membership(
+    std::span<const uint16_t> seen, std::span<const uint16_t> radar, std::span<uint8_t> membership
+) noexcept {
+    std::fill(membership.begin(), membership.end(), uint8_t{0});
+    for (const auto slot : seen) {
+        if (slot == 0 || slot >= membership.size())
+            return false;
+        membership[slot] |= target_sighting_seen;
+    }
+    for (const auto slot : radar) {
+        if (slot == 0 || slot >= membership.size())
+            return false;
+        membership[slot] |= target_sighting_radar;
+    }
+    return true;
+}
+
 /// Retains sightings in nearby buckets without resolving distant units.
 ///
 /// Reads canonical bucket links and includes the outside bucket and every
@@ -39,6 +65,8 @@ struct NearbyTargetSightings {
 /// @param center query position in signed 16.16 world coordinates
 /// @param radius query radius in whole world units
 /// @param[out] scratch storage for the retained seen and radar slots
+/// @param membership current slot flags rebuilt with these sightings; empty uses list searches
+/// @param include_radar whether the target search may use radar sightings
 /// @return the retained sightings, or an incomplete result requiring a full walk
 /// @quirk Fractional distances are rounded down by the sightings walk, so
 ///        the bucket rectangle extends one whole world unit beyond the range.
@@ -50,7 +78,9 @@ inline NearbyTargetSightings nearby_target_sightings(
     std::span<const uint16_t> radar,
     const std::array<uint32_t, 3>& center,
     int32_t radius,
-    std::span<uint16_t> scratch
+    std::span<uint16_t> scratch,
+    std::span<const uint8_t> membership = {},
+    bool include_radar = true
 ) noexcept {
     constexpr int32_t largest_signed_square_root = 46340;
     constexpr int32_t fixed_to_bucket_shift = 23;
@@ -68,18 +98,28 @@ inline NearbyTargetSightings nearby_target_sightings(
         return {};
 
     const size_t known_count = std::max(seen.size(), radar.size());
-    if (known_count == 0)
+    if (seen.empty() && (!include_radar || radar.empty()))
         return {{}, {}, 0, true};
     // Local buckets include allies too. Limit sorting when their population
     // approaches the sightings count, and keep a fixed cap for dense battles.
     const size_t candidate_limit =
         std::clamp(known_count / 4, minimum_candidate_limit, maximum_candidate_limit);
     size_t candidate_count = 0;
+    size_t visited_count = 0;
+    const bool indexed = membership.size() >= capacity;
+    const uint8_t relevant = uint8_t(
+        (seen.empty() ? 0 : target_sighting_seen) |
+        (!include_radar || radar.empty() ? 0 : target_sighting_radar)
+    );
     const auto append = [&](uint32_t slot) {
-        if (slot == 0 || slot >= capacity || candidate_count == capacity ||
-            candidate_count == candidate_limit)
+        if (slot == 0 || slot >= capacity || visited_count == capacity ||
+            visited_count == candidate_limit)
             return false;
-        scratch[candidate_count++] = static_cast<uint16_t>(slot);
+        ++visited_count;
+        // Own and unknown units still consume the bounded bucket walk, but
+        // need no sorting or membership searches for this player's query.
+        if (!indexed || (membership[slot] & relevant) != 0)
+            scratch[candidate_count++] = static_cast<uint16_t>(slot);
         return true;
     };
     const auto append_chain = [&](uint32_t slot) {
@@ -129,9 +169,12 @@ inline NearbyTargetSightings nearby_target_sightings(
     size_t radar_count = 0;
     for (size_t index = 0; index < candidate_count; ++index) {
         const uint16_t slot = scratch[index];
-        if (std::binary_search(radar.begin(), radar.end(), slot))
+        if (include_radar &&
+            (indexed ? !radar.empty() && (membership[slot] & target_sighting_radar) != 0
+                     : std::binary_search(radar.begin(), radar.end(), slot)))
             scratch[capacity + radar_count++] = slot;
-        if (std::binary_search(seen.begin(), seen.end(), slot))
+        if (indexed ? !seen.empty() && (membership[slot] & target_sighting_seen) != 0
+                    : std::binary_search(seen.begin(), seen.end(), slot))
             scratch[seen_count++] = slot;
     }
     return {

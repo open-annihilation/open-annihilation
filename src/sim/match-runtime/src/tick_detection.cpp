@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "tick_internal.hpp"
+#include "enhanced_state.hpp"
+#include "target_query.hpp"
 
 #include "oa/sim/ai.hpp"
 #include "oa/sim/detection.hpp"
@@ -627,6 +629,14 @@ void Match::refresh_player_knowledge(uint8_t player) {
     if (knowledge != nullptr)
         sim::ai::computer_knowledge_settle(*knowledge, tally);
     sightings.refreshed_tick = tick;
+    if (enhanced_ && enhanced_->target_sighting_membership) {
+        enhanced_->target_sighting_membership_valid[player] = rebuild_target_sighting_membership(
+            {sightings.seen, sightings.seen_count},
+            {sightings.radar, sightings.radar_count},
+            {enhanced_->target_sighting_membership.get() + size_t(player) * slots_.size(),
+             slots_.size()}
+        );
+    }
     // Writes this refresh's seen list, with each unit's generation.
     const auto fill_seen = [&](detection::SightedUnit* list) {
         uint32_t count = 0;
