@@ -29,7 +29,7 @@ Local steering gives moving traffic temporary detours and yields by waiting
 time, with unit ID breaking ties. The original mission and route remain in
 place, and the final footprint occupancy test still prevents overlap. A short
 mobile blockage can wait before requesting another full path; after 30
-consecutive occupancy vetoes it must replan, even if boundary jitter moves it
+consecutive collision-blocked ticks it must replan, even if boundary jitter moves it
 slightly. Target searches
 use nearby spatial buckets when that reduces work, retaining the legacy
 candidate order, target selection and random draws.
