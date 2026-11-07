@@ -1742,30 +1742,16 @@ struct NetworkPlay::NetHost {
             entry.team = player.team;
             setup.players.push_back(std::move(entry));
         };
-        if (setup.enhanced_mode_version != 0) {
-            // Playback preserves the compact pool's range order. Watchers
-            // own no range and have no unit commands to record.
-            std::vector<uint8_t> unit_owners;
-            for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
-                if (world.game.players[slot].first_unit != 0)
-                    unit_owners.push_back(slot);
-            std::sort(unit_owners.begin(), unit_owners.end(), [&](uint8_t a, uint8_t b) {
-                return world.game.players[a].first_unit < world.game.players[b].first_unit;
-            });
-            for (const auto slot : unit_owners)
+        for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const auto& player = world.game.players[slot];
+            if (player.in_use != 0 && (player.status == OA_PLAYER_STATUS_LOCAL ||
+                                       player.status == OA_PLAYER_STATUS_COMPUTER))
                 add_player(slot);
-        } else {
-            for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
-                const auto& player = world.game.players[slot];
-                if (player.in_use != 0 && (player.status == OA_PLAYER_STATUS_LOCAL ||
-                                           player.status == OA_PLAYER_STATUS_COMPUTER))
-                    add_player(slot);
-            }
-            for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
-                if (world.game.players[slot].in_use != 0 &&
-                    world.game.players[slot].status == OA_PLAYER_STATUS_MIRRORED)
-                    add_player(slot);
         }
+        for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
+            if (world.game.players[slot].in_use != 0 &&
+                world.game.players[slot].status == OA_PLAYER_STATUS_MIRRORED)
+                add_player(slot);
         // This machine's unit checksums as its battle room sent them, then
         // the verdicts its launch applied.
         int32_t unit_count = 0;

@@ -240,6 +240,10 @@ void NetworkPlay::start_demo_playback() {
         }
     } loadout_once{runtime_};
 
+    uint16_t unit_player_mask = 0;
+    for (std::size_t slot = 0; slot < session->playback.players.size(); ++slot)
+        if ((session->playback.players[slot].info.options & OA_SETUP_OPTION_WATCHER) == 0)
+            unit_player_mask |= static_cast<uint16_t>(1U << slot);
     runtime_.bootstrap_match(
         {.units_per_player = recording.max_units,
          .place_commanders = false,
@@ -247,7 +251,8 @@ void NetworkPlay::start_demo_playback() {
          .unit_filter =
              {const_cast<oa::ui::frontend_multiplayer::UnitSync*>(verdicts),
               verdicts != nullptr ? mark_recorded_units : nullptr},
-         .replay = true}
+         .replay = true,
+         .unit_player_mask = unit_player_mask}
     );
     if (!runtime_.match_ || runtime_.altitude_sight_blocked_)
         throw std::runtime_error("demo playback: " + runtime_.status_);
