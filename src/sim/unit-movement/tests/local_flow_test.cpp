@@ -223,6 +223,57 @@ void test_sequential_progress_preserves_tick_start_priority() {
     }
 }
 
+void test_older_higher_id_keeps_priority_after_moving() {
+    Grid grid;
+    auto& lower_id = grid.add(6, 6, east, 14, 6);
+    auto& older_waiter = grid.add(8, 6, west, 2, 6);
+    grid.tick = 20;
+    lower_id.movement.last_motion_tick = grid.tick - 1;
+    older_waiter.movement.last_motion_tick = 5;
+    grid.snapshot_progress();
+    LocalFlowCounters counters{};
+    const auto before_integration = choose_local_flow(
+        lower_id.unit,
+        lower_id.movement,
+        lower_id.destination,
+        grid.tick,
+        grid,
+        grid.query(),
+        counters
+    );
+    OA_CHECK(before_integration.mobile_blocked);
+    OA_CHECK(before_integration.adjusted);
+    older_waiter.movement.speed = fixed_one;
+    older_waiter.movement.velocity = {-fixed_one, 0, 0};
+    integrate_local_flow(older_waiter.unit, older_waiter.movement, grid.tick, true, grid, counters);
+    OA_CHECK(older_waiter.movement.last_motion_tick == grid.tick);
+    const auto after_integration = choose_local_flow(
+        lower_id.unit,
+        lower_id.movement,
+        lower_id.destination,
+        grid.tick,
+        grid,
+        grid.query(),
+        counters
+    );
+    OA_CHECK(after_integration.mobile_blocked);
+    OA_CHECK(after_integration.adjusted);
+    OA_CHECK(after_integration.target == before_integration.target);
+    // The snapshot also keeps the older unit's own priority after it moved.
+    const auto older_decision = choose_local_flow(
+        older_waiter.unit,
+        older_waiter.movement,
+        older_waiter.destination,
+        grid.tick,
+        grid,
+        grid.query(),
+        counters
+    );
+    OA_CHECK(older_decision.mobile_blocked);
+    OA_CHECK(!older_decision.adjusted);
+    OA_CHECK(grid.overlap_count == 0);
+}
+
 void test_priority_and_stationary_obstacles() {
     Grid grid;
     auto& first = grid.add(8, 6, west, 2, 6);
@@ -529,6 +580,7 @@ void test_counterflow_crossing_and_choke() {
 int main() {
     test_priority_and_stationary_obstacles();
     test_sequential_progress_preserves_tick_start_priority();
+    test_older_higher_id_keeps_priority_after_moving();
     test_diagonal_corner_clearance();
     test_collision_veto_and_last_progress();
     test_blocked_boundary_creep_cannot_defer_forever();
