@@ -199,16 +199,31 @@ void Runtime::check_enhanced_mode() {
         runtime->navigation.last_search_tick =
             match_->simulation().tick - sim::ground_orders::search_retry_ticks;
     }
-    constexpr uint32_t admission_attempts = 8;
+    // The fixture owns four nearby slots in a 10,000-slot player range.
+    // Start the round-robin scan at that cohort instead of timing empty slots.
+    const auto base_unit = match_->state().game.players[match_local_player_].base_unit_id;
+    require(flow_units.front() > base_unit, "the flow cohort lacks a preceding cursor slot");
+    match_->path_search_jobs().unit_cursor[match_local_player_] =
+        flow_units.front() - base_unit - 1;
+    constexpr uint32_t admission_attempts = 64;
     for (uint32_t attempt = 0;
          attempt < admission_attempts && match_->enhanced_counters().shared_route_fields == 0;
          ++attempt)
         match_->advance_path_search();
-    require(
-        match_->enhanced_counters().shared_route_fields > 0 &&
-            match_->enhanced_counters().shared_route_cells == 0,
-        "the flow fixture did not save an admitted, unexpanded shared field"
-    );
+    const auto pending_flow_work = match_->enhanced_counters();
+    const bool pending_field =
+        pending_flow_work.shared_route_fields > 0 && pending_flow_work.shared_route_cells == 0;
+    if (!pending_field)
+        std::fprintf(
+            stderr,
+            "Enhanced flow pending: requests %llu fields %llu cells %llu waits %llu at tick %u\n",
+            static_cast<unsigned long long>(pending_flow_work.shared_route_requests),
+            static_cast<unsigned long long>(pending_flow_work.shared_route_fields),
+            static_cast<unsigned long long>(pending_flow_work.shared_route_cells),
+            static_cast<unsigned long long>(pending_flow_work.shared_route_waits),
+            static_cast<uint32_t>(match_->simulation().tick)
+        );
+    require(pending_field, "the flow fixture did not save an admitted, unexpanded shared field");
     const SavedFlowTables saved_flow_tables = flow_tables(*match_);
     require(
         saved_flow_tables[0] != idle_flow_tables[0] &&
