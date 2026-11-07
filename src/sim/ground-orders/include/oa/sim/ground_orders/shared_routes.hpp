@@ -19,6 +19,7 @@ struct FlowLimits {
     uint32_t fields{16};
     uint32_t total_cells{2'097'152};
     uint32_t work_per_tick{2048};
+    uint32_t route_probes_per_tick{65'536};
 };
 
 /// A movement class and a player's knowledge of the static map.
@@ -78,6 +79,8 @@ class FlowCache {
     /// Looks up a circle-goal route, admitting repeated destinations when needed.
     ///
     /// Pending suppresses a full search without consuming its retry timestamp.
+    /// Extraction shares a separate per-tick cell-probe budget. Exhaustion
+    /// returns pending so large cohorts cannot burst unbounded validation work.
     /// Ready writes at least two points; a route may be a prefix when the output
     /// fills. Every returned edge is checked against current static knowledge.
     ///
@@ -114,6 +117,7 @@ class FlowCache {
     std::unique_ptr<uint8_t[]> state_{}, restore_marks_{};
     std::size_t state_size_{};
     uint32_t width_{}, height_{}, columns_{}, rows_{}, cells_{}, fields_{}, work_per_tick_{};
+    uint32_t route_probes_per_tick_{};
 };
 
 } // namespace oa::sim::ground_orders

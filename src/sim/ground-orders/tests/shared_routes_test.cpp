@@ -105,12 +105,18 @@ void shared_cohort_and_budget() {
         );
     }
     finish(cache, grid);
+    uint32_t tick = 40;
     for (uint32_t i = 0; i < 1000; ++i) {
         const auto unit =
             unit_at(static_cast<int16_t>(4 + i % 24), static_cast<int16_t>(4 + (i / 24) % 24));
         const auto arrival =
             circle(static_cast<int16_t>(96 + i % 24), static_cast<int16_t>(96 + (i / 24) % 24));
-        CHECK(query(cache, grid, unit, arrival) == FlowResult::ready);
+        auto result = query(cache, grid, unit, arrival);
+        if (result == FlowResult::pending) {
+            cache.advance(++tick, 0, grid.sampler());
+            result = query(cache, grid, unit, arrival);
+        }
+        CHECK(result == FlowResult::ready);
     }
     const auto stats = cache.counters();
     CHECK(stats.fields_started == 1 && stats.hits == 1000);
@@ -173,6 +179,7 @@ void revisions_and_restore_pending() {
             )
         );
     }
+    CHECK(resumed.restore(first.state_bytes()));
     CHECK(query(first, grid, unit, goal) == FlowResult::ready);
     // A new visible obstacle is rejected even without a knowledge revision.
     for (uint32_t z = 0; z < 64; ++z)
@@ -202,9 +209,70 @@ void singletons_do_not_starve_building_fields() {
     finish(cache, grid);
     CHECK(query(cache, grid, unit_at(8, 8), circle(220, 220)) == FlowResult::ready);
 }
+
+void small_output_and_extraction_budget_are_bounded() {
+    Grid grid(64, 64);
+    FlowCache cache(64, 64, {2, 1024, 512, 512});
+    const auto unit = unit_at(9, 9);
+    const auto goal = circle(52, 52);
+    (void)query(cache, grid, unit, goal);
+    (void)query(cache, grid, unit, goal);
+    finish(cache, grid);
+    std::array<RoutePoint, 2> points{};
+    uint32_t count{};
+    CHECK(cache.route(context(), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
+    CHECK(count == 2);
+    cache.advance(40, 0, grid.sampler());
+    const auto probes_before = grid.queries;
+    uint32_t waiting = 0;
+    for (uint32_t i = 0; i < 1000; ++i)
+        if (query(cache, grid, unit, goal) == FlowResult::pending)
+            ++waiting;
+    CHECK(waiting > 900);
+    CHECK(grid.queries - probes_before <= 512);
+    const auto before = cache.counters();
+    cache.advance(40, 0, grid.sampler()); // A second load/regular pass gets no second budget.
+    CHECK(query(cache, grid, unit, goal) == FlowResult::pending);
+    CHECK(cache.counters().cells_expanded == before.cells_expanded);
+    cache.advance(41, 0, grid.sampler());
+    CHECK(query(cache, grid, unit, goal) == FlowResult::ready);
+}
+
+void malformed_frontiers_are_rejected() {
+    Grid grid(32, 32);
+    FlowCache cache(32, 32, {1, 64, 1}), restored(32, 32, {1, 64, 1});
+    const auto unit = unit_at(4, 4);
+    const auto goal = circle(24, 24);
+    (void)query(cache, grid, unit, goal);
+    (void)query(cache, grid, unit, goal);
+    const auto write32 = [](std::vector<uint8_t>& bytes, size_t offset, uint32_t value) {
+        for (uint32_t i = 0; i < 4; ++i)
+            bytes[offset + i] = static_cast<uint8_t>(value >> (i * 8));
+    };
+    constexpr size_t field = 128 + 64 * 48;
+    std::vector<uint8_t> broken(cache.state_bytes().begin(), cache.state_bytes().end());
+    write32(broken, field + 52, 64); // clearing cannot resume beyond its last cell
+    CHECK(!restored.restore(broken));
+    for (uint32_t tick = 1; tick < 130; ++tick)
+        cache.advance(tick, 0, grid.sampler());
+    CHECK(restored.restore(cache.state_bytes()));
+    broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
+    constexpr size_t directions = field + 80, queue = directions + 64;
+    write32(broken, queue + 4, broken[queue]); // duplicate seed queue entry
+    CHECK(!restored.restore(broken));
+    broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
+    // Adjacent non-root nodes now point at one another. Queue uniqueness
+    // and discovered count remain valid, but parent-before-child cannot.
+    broken[directions] = 0;
+    broken[directions + 1] = 4;
+    CHECK(!restored.restore(broken));
+}
+
 } // namespace
 
 int main() {
+    small_output_and_extraction_budget_are_bounded();
+    malformed_frontiers_are_rejected();
     shared_cohort_and_budget();
     narrow_choke_and_mixed_footprints();
     revisions_and_restore_pending();

@@ -151,7 +151,8 @@ RoutePoint point_at(int32_t x, int32_t z, const FlowContext& context) noexcept {
 
 FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
     : width_(width), height_(height), columns_(width / stride + (width % stride != 0)),
-      rows_(height / stride + (height % stride != 0)), work_per_tick_(limits.work_per_tick) {
+      rows_(height / stride + (height % stride != 0)), work_per_tick_(limits.work_per_tick),
+      route_probes_per_tick_(limits.route_probes_per_tick) {
     const auto count = uint64_t{columns_} * rows_;
     if (count > 0 && count <= limits.total_cells && count <= std::numeric_limits<uint32_t>::max()) {
         cells_ = static_cast<uint32_t>(count);
@@ -170,6 +171,8 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
     put32(state_.get() + 20, cells_);
     put32(state_.get() + 24, work_per_tick_);
     put32(state_.get() + 28, stride);
+    put32(state_.get() + 56, route_probes_per_tick_);
+    put32(state_.get() + 60, route_probes_per_tick_);
 }
 
 void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sampler) noexcept {
@@ -192,6 +195,7 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         return;
     put32(state + 48, 1);
     put32(state + 52, tick);
+    put32(state + 60, route_probes_per_tick_);
     if (fields_ == 0)
         return;
     uint32_t cursor = get32(state + 40) % fields_;
@@ -360,11 +364,35 @@ FlowResult FlowCache::route(
     };
     if (phase == clearing)
         return wait();
+    if (get32(state + 60) == 0)
+        return wait();
+
+    struct ProbeBudget {
+        const FlowSampler* sampler;
+        uint8_t* remaining;
+        bool exhausted{};
+    } budget{&sampler, state + 60};
+
+    const FlowSampler bounded{
+        &budget,
+        [](void* c, uint32_t movement_class, uint32_t player, int32_t x, int32_t z) -> uint8_t {
+            auto& b = *static_cast<ProbeBudget*>(c);
+            const auto remaining = get32(b.remaining);
+            if (remaining == 0) {
+                b.exhausted = true;
+                return 0;
+            }
+            put32(b.remaining, remaining - 1);
+            return b.sampler->cell
+                       ? b.sampler->cell(b.sampler->context, movement_class, player, x, z)
+                       : 0;
+        }
+    };
     const auto* directions = selected + metadata_size;
     auto node =
-        connect_anchor(columns_, rows_, unit.cell_x, unit.cell_z, key.data(), sampler, directions);
+        connect_anchor(columns_, rows_, unit.cell_x, unit.cell_z, key.data(), bounded, directions);
     if (node < 0)
-        return phase == building ? wait() : fallback();
+        return budget.exhausted || phase == building ? wait() : fallback();
     // Validate every coarse edge afresh: newly learned static obstacles cannot
     // leak a stale route, even when the player's knowledge epoch stayed zero.
     points[0] = {
@@ -382,7 +410,7 @@ FlowResult FlowCache::route(
         const auto direction = directions[node];
         if (direction == root || (static_cast<uint32_t>(x) / region == get32(key.data() + 28) &&
                                   static_cast<uint32_t>(z) / region == get32(key.data() + 32))) {
-            if (line_clear(sampler, key.data(), x, z, goal.cell[0], goal.cell[1])) {
+            if (line_clear(bounded, key.data(), x, z, goal.cell[0], goal.cell[1])) {
                 const auto corner = point_at(x, z, context);
                 if (points[count - 1] != corner) {
                     if (count == points.size())
@@ -402,7 +430,7 @@ FlowResult FlowCache::route(
             }
             if (direction == root) {
                 count = 0;
-                return fallback();
+                return budget.exhausted ? wait() : fallback();
             }
         }
         if (direction >= 8) {
@@ -411,7 +439,11 @@ FlowResult FlowCache::route(
         }
         const int32_t nx = x + dx[direction] * static_cast<int32_t>(stride),
                       nz = z + dz[direction] * static_cast<int32_t>(stride);
-        if (!line_clear(sampler, key.data(), x, z, nx, nz)) {
+        if (!line_clear(bounded, key.data(), x, z, nx, nz)) {
+            if (budget.exhausted) {
+                count = 0;
+                return wait();
+            }
             put32(selected, empty);
             increment(state, 6);
             count = 0;
@@ -466,6 +498,8 @@ std::span<const uint8_t> FlowCache::state_bytes() const noexcept {
 bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
     if (bytes.size() != state_size_ || std::memcmp(bytes.data(), state_.get(), 32) != 0 ||
         get32(bytes.data() + 44) >= admission_count ||
+        get32(bytes.data() + 56) != route_probes_per_tick_ ||
+        get32(bytes.data() + 60) > route_probes_per_tick_ || get32(bytes.data() + 48) > 1 ||
         (fields_ != 0 && get32(bytes.data() + 40) >= fields_))
         return false;
     for (uint32_t i = 0; i < admission_count; ++i) {
