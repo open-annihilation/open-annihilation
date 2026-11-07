@@ -406,6 +406,7 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
             std::make_unique<sim::unit_movement::LocalFlowHead[]>(slots_.size());
         enhanced_->local_flow_save_bytes =
             std::make_unique<uint8_t[]>(slots_.size() * sim::unit_movement::local_flow_head_bytes);
+        enhanced_->local_flow_progress_bytes = std::make_unique<uint8_t[]>(slots_.size() * 4);
         sighting_query_.reserve(slots_.size());
     }
     target_projection_.resize(slots_.size());
@@ -556,7 +557,41 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
              },
              false}
         );
-        if (!routes_added || !heads_added || !revision_added)
+        const bool progress_added = add_rule_state(
+            rule_state_,
+            {"flow-progress",
+             this,
+             [](void* context) -> std::span<const uint8_t> {
+                 auto& match = *static_cast<Match*>(context);
+                 for (size_t id = 0; id < match.enhanced_->unit_count; ++id) {
+                     const auto* ground = match.ground_runtime(static_cast<uint16_t>(id));
+                     const auto tick = ground != nullptr ? ground->movement.last_motion_tick : 0;
+                     for (size_t byte = 0; byte < 4; ++byte)
+                         match.enhanced_->local_flow_progress_bytes[id * 4 + byte] =
+                             static_cast<uint8_t>(tick >> (byte * 8));
+                 }
+                 return {
+                     match.enhanced_->local_flow_progress_bytes.get(),
+                     match.enhanced_->unit_count * 4
+                 };
+             },
+             [](void* context, std::span<const uint8_t> bytes) {
+                 auto& match = *static_cast<Match*>(context);
+                 if (bytes.size() != match.enhanced_->unit_count * 4)
+                     return false;
+                 for (size_t id = 0; id < match.enhanced_->unit_count; ++id) {
+                     if (auto* ground = match.ground_runtime(static_cast<uint16_t>(id))) {
+                         uint32_t tick = 0;
+                         for (size_t byte = 0; byte < 4; ++byte)
+                             tick |= static_cast<uint32_t>(bytes[id * 4 + byte]) << (byte * 8);
+                         ground->movement.last_motion_tick = tick;
+                     }
+                 }
+                 return true;
+             },
+             false}
+        );
+        if (!routes_added || !heads_added || !revision_added || !progress_added)
             fault_.note("Enhanced navigation state could not be registered");
     }
     spatial_.plots.resize(cells);

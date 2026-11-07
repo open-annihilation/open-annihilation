@@ -16,6 +16,7 @@ struct Match::EnhancedState {
     sim::unit_movement::LocalFlowCounters local_flow_counters{};
     std::unique_ptr<sim::unit_movement::LocalFlowHead[]> local_flow_heads{};
     std::unique_ptr<uint8_t[]> local_flow_save_bytes{};
+    std::unique_ptr<uint8_t[]> local_flow_progress_bytes{};
     size_t unit_count{};
     std::unique_ptr<uint16_t[]> target_query_slots{}, target_query_extras{};
     size_t target_query_extra_count{};
