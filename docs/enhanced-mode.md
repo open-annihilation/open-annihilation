@@ -72,6 +72,15 @@ Target searches use nearby spatial buckets and a sightings membership index
 when that reduces work, retaining the legacy candidate order, target
 selection and random draws.
 
+Version 5 adds advisory lanes for fully known narrow ground corridors. Units
+align with their directional lane before entering, preserve their original
+orders while crossing, and request an ordinary route after leaving. Shared
+work limits bound corridor discovery, new queries and retained guidance.
+Retained units receive service in rotating slot order; deferred work keeps
+crossing history, and saved games retain the service cursor. Native movement
+and the swept footprint guard still decide every actual step. Version 5
+remains an explicit benchmark choice pending the fixed 20,000-unit comparison.
+
 These changes do not yet establish smooth frame rates at that population.
 Ray tracing remains future work and will be a separate graphics choice.
 
