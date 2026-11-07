@@ -8,11 +8,17 @@
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/sim/unit_spawn/restore_ranges.hpp"
+#include "oa/sim/unit_spawn/spawn.hpp"
+#include "oa/sim/unit_movement/local_flow.hpp"
+#include "oa/sim/match_runtime/enhanced_counters.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace oa::app {
 namespace {
@@ -21,6 +27,30 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition)
         throw std::runtime_error(std::string("Enhanced Mode check: ") + message);
+}
+
+/// The owner-local tables a movement save must retain without shared digesting.
+constexpr std::array<std::string_view, 4> flow_table_names{
+    "shared-routes", "local-flow", "flow-map-version", "flow-progress"
+};
+using SavedFlowTables = std::array<std::vector<uint8_t>, flow_table_names.size()>;
+
+/// Copies canonical flow bytes before saving or comparing a resumed match.
+SavedFlowTables flow_tables(const sim::match_runtime::Match& match) {
+    SavedFlowTables saved;
+    for (std::size_t at = 0; at < flow_table_names.size(); ++at) {
+        const auto* table =
+            sim::match_runtime::find_rule_state(match.rule_state(), flow_table_names[at]);
+        require(
+            table != nullptr && table->bytes != nullptr && table->restore != nullptr &&
+                !table->digest,
+            "a flow table was absent or included in shared digests"
+        );
+        const auto bytes = table->bytes(table->context);
+        require(!bytes.empty(), "a flow table did not expose canonical save bytes");
+        saved[at].assign(bytes.begin(), bytes.end());
+    }
+    return saved;
 }
 
 } // namespace
@@ -65,6 +95,130 @@ void Runtime::check_enhanced_mode() {
         oa::world_projectile_capacity(&match_->world().record) == 32'767,
         "the match kept the classic projectile capacity"
     );
+    // Opposing traffic on a clear patch exercises real retained steering
+    // heads. Requests wait together so the save catches shared work pending.
+    const auto idle_flow_tables = flow_tables(*match_);
+    const auto mover_type = sim::unit_spawn::find_type_index(spawn_type_names_, "ARMPW");
+    require(mover_type != 0, "the flow fixture lacks its ground unit");
+    const auto& mover_definition = spawn_types_[mover_type];
+    require(
+        mover_definition.footprint_x <= 2 && mover_definition.footprint_z <= 2,
+        "the flow fixture unit exceeds its placement spacing"
+    );
+    constexpr int32_t patch_width = 28;
+    constexpr int32_t patch_height = 12;
+    std::array<int32_t, 2> patch{};
+    bool patch_found{};
+    for (int32_t z = 4; !patch_found && z + patch_height < match_->state().game.map_height; z += 8)
+        for (int32_t x = 4; !patch_found && x + patch_width < match_->state().game.map_width;
+             x += 32) {
+            bool clear = true;
+            for (int32_t dz = 0; clear && dz < patch_height; ++dz)
+                for (int32_t dx = 0; clear && dx < patch_width; ++dx)
+                    clear = match_->site_clear_for(mover_type, x + dx, z + dz, 0, 1);
+            if (clear) {
+                patch = {x, z};
+                patch_found = true;
+            }
+        }
+    require(patch_found, "the flow fixture could not find a clear traffic patch");
+    constexpr unsigned coordinate_fraction_bits = 16;
+    const auto point_at = [&](int32_t cell_x, int32_t cell_z) {
+        const auto x = static_cast<uint32_t>(cell_x * 16 + mover_definition.footprint_x * 8 - 8)
+                       << coordinate_fraction_bits;
+        const auto z = static_cast<uint32_t>(cell_z * 16 + mover_definition.footprint_z * 8 - 8)
+                       << coordinate_fraction_bits;
+        return sim::ground_orders::Point{
+            static_cast<int32_t>(x),
+            static_cast<int32_t>(
+                static_cast<uint32_t>(match_->map_height(x, z)) << coordinate_fraction_bits
+            ),
+            static_cast<int32_t>(z)
+        };
+    };
+    std::array<uint16_t, 4> flow_units{};
+    std::array<oa::FixedVec3, flow_units.size()> flow_start_positions{};
+    for (std::size_t at = 0; at < flow_units.size(); ++at) {
+        const auto point = point_at(patch[0] + static_cast<int32_t>(at) * 4, patch[1] + 4);
+        sim::unit_spawn::Request request;
+        request.player = match_local_player_;
+        request.type = mover_type;
+        request.finished = true;
+        request.state = kGroundOccupancyState;
+        request.position = {
+            static_cast<uint32_t>(point[0]),
+            static_cast<uint32_t>(point[1]),
+            static_cast<uint32_t>(point[2])
+        };
+        const auto* placed = match_->create(request);
+        require(placed != nullptr && placed->unit != nullptr, "the flow fixture did not spawn");
+        flow_units[at] = placed->unit_index;
+        flow_start_positions[at] = placed->record.position;
+        match_->issue_ground_move(
+            placed->unit_index, point_at(patch[0] + (at < 2 ? 24 : 0), patch[1] + 4), false
+        );
+        require(
+            give_state_order(placed->unit_index, "Standing_FireOrder", 0),
+            "the flow fixture could not hold fire"
+        );
+    }
+    std::vector<sim::unit_movement::LocalFlowHead> flow_heads(match_->world().slots.size());
+    bool traffic_head{};
+    bool traffic_progress{};
+    constexpr uint32_t traffic_tick_limit = 120;
+    for (uint32_t tick = 0; tick < traffic_tick_limit && !(traffic_head && traffic_progress);
+         ++tick) {
+        for (const auto id : flow_units) {
+            auto* runtime = match_->ground_runtime(id);
+            require(runtime != nullptr, "the flow fixture lost a movement runtime");
+            runtime->navigation.last_search_tick = match_->simulation().tick;
+        }
+        step_match_simulation();
+        const auto heads = flow_tables(*match_)[1];
+        require(
+            sim::unit_movement::read_local_flow_heads(flow_heads, heads),
+            "the flow fixture did not expose valid retained heads"
+        );
+        traffic_head = false;
+        for (std::size_t at = 0; at < flow_units.size(); ++at) {
+            traffic_head |= flow_heads[flow_units[at]].active;
+            const auto& position = match_->world().slots[flow_units[at]].record.position;
+            traffic_progress |= position.x != flow_start_positions[at].x ||
+                                position.z != flow_start_positions[at].z;
+        }
+    }
+    require(traffic_head && traffic_progress, "the traffic fixture did not steer and move");
+    require(
+        match_->enhanced_counters().shared_route_fields == 0,
+        "the flow fixture admitted shared work before its pending save point"
+    );
+    for (const auto id : flow_units) {
+        auto* runtime = match_->ground_runtime(id);
+        require(runtime != nullptr && runtime->navigation.goal != nullptr, "a move lost its goal");
+        runtime->navigation.flags |= sim::ground_orders::search_pending_flag;
+        runtime->navigation.last_search_tick =
+            match_->simulation().tick - sim::ground_orders::search_retry_ticks;
+    }
+    constexpr uint32_t admission_attempts = 8;
+    for (uint32_t attempt = 0;
+         attempt < admission_attempts && match_->enhanced_counters().shared_route_fields == 0;
+         ++attempt)
+        match_->advance_path_search();
+    require(
+        match_->enhanced_counters().shared_route_fields > 0 &&
+            match_->enhanced_counters().shared_route_cells == 0,
+        "the flow fixture did not save an admitted, unexpanded shared field"
+    );
+    const SavedFlowTables saved_flow_tables = flow_tables(*match_);
+    require(
+        saved_flow_tables[0] != idle_flow_tables[0] &&
+            saved_flow_tables[1] != idle_flow_tables[1] &&
+            saved_flow_tables[3] != idle_flow_tables[3],
+        "the save fixture kept empty route, steering or progress state"
+    );
+    std::array<oa::FixedVec3, flow_units.size()> flow_saved_positions{};
+    for (std::size_t at = 0; at < flow_units.size(); ++at)
+        flow_saved_positions[at] = match_->world().slots[flow_units[at]].record.position;
     const fs::path enhanced_save = options_.preferences_file->parent_path() / "enhanced.sav";
     require(save_match_game(enhanced_save, "Enhanced Mode", 0), "the enhanced save failed");
     chosen.enhanced_mode = false;
@@ -82,6 +236,29 @@ void Runtime::check_enhanced_mode() {
     require(!engine_settings().enhanced_mode, "loading changed the menu preference");
     require(match_->world().slots.size() == 20'001, "the saved match lost its unit ranges");
     require(match_->unit_player_mask() == 3, "the saved match lost its allocation mask");
+    require(flow_tables(*match_) == saved_flow_tables, "loading changed canonical flow save bytes");
+    constexpr uint32_t continuation_ticks = 120;
+    bool resumed_progress{};
+    for (uint32_t tick = 0; tick < continuation_ticks; ++tick) {
+        step_match_simulation();
+        for (std::size_t at = 0; at < flow_units.size(); ++at) {
+            const auto& position = match_->world().slots[flow_units[at]].record.position;
+            resumed_progress |= position.x != flow_saved_positions[at].x ||
+                                position.z != flow_saved_positions[at].z;
+        }
+    }
+    require(resumed_progress && match_->fault() == nullptr, "restored traffic made no progress");
+    require(
+        match_->enhanced_counters().shared_route_cells > 0,
+        "the restored shared field did not perform pending work"
+    );
+    const auto continued_flow_tables = flow_tables(*match_);
+    require(
+        continued_flow_tables[0] != saved_flow_tables[0] &&
+            continued_flow_tables[3] != saved_flow_tables[3],
+        "the restored shared field or progress clocks did not advance"
+    );
+    std::puts("Enhanced Mode: populated pending flow tables restored and continued");
     require(hold_enhanced_rules_once(mode::off_version), "a subsequent load could not hold Off");
     release_enhanced_rules_once(true);
     require(
