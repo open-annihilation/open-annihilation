@@ -132,6 +132,9 @@ The group march kept all 20,000 units alive. Units advancing at least 16
 pixels toward their assigned goals rose from 12,646 to 13,544. No unit
 completed its long trip within the measured interval; some remained stalled.
 The v2 march used 26 shared-route hits and 27 ordinary search starts.
+This stress layout starts touching-width rows at 32-pixel spacing, with only
+96 pixels between the opposing fronts and hold fire enabled. It measures
+congestion after early contact, rather than sustained motion across open ground.
 
 A separate v2 combat run completed 1,000 measured ticks, ending with 19,281
 units and no projectile allocation failures. It measured 15.2 ms median,
