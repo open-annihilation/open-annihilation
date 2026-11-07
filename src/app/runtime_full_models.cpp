@@ -155,6 +155,8 @@ constexpr double sloped_shown_margin = -0.5;
 /// start and its multiplier.
 constexpr uint64_t shape_digest_start = 0xcbf29ce484222325ULL;
 constexpr uint64_t shape_digest_multiplier = 0x100000001b3ULL;
+/// Mixes the upper digest bits into set selection for integer-aligned shapes.
+constexpr unsigned shape_digest_fold_shift = 32;
 /// The edge of the white page every solid fill draws from, so that each
 /// renderer draws the fill with the batch's own blend.
 constexpr uint32_t solid_page_edge = 2;
@@ -893,7 +895,7 @@ uint64_t polygon_shape(
             fold(corner.depth);
         }
     }
-    return digest;
+    return digest ^ (digest >> shape_digest_fold_shift);
 }
 
 /// Returns how far below the depth of the earlier of two polygons, in the
