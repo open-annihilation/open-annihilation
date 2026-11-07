@@ -3,6 +3,7 @@
 
 // Exercise persistent GPU resources, atlas revisions, resizing and invalid input without a window.
 #include "renderer_live_gpu.hpp"
+#include "renderer_live_scene.hpp"
 #include "renderer_effects.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_water_appearance.hpp"
@@ -11,6 +12,9 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
+#include <memory>
+#include <string>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -2986,6 +2990,329 @@ void card_shadows() {
     OA_CHECK(refused(broken));
 }
 
+/// Scene policy preserves full composition and gives distant units stable,
+/// owner-coloured pixels through the ordinary retained GPU readback path.
+void scene_marker_readback() {
+    namespace live_scene = oa::app::renderer_live_scene;
+    namespace object = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = object::kThreeDoUnitsPerWorldUnit;
+    constexpr uint32_t edge = 32;
+    constexpr std::array<uint8_t, 3> orange{255, 96, 0};
+    constexpr std::array<uint8_t, 3> cyan{0, 160, 255};
+    constexpr std::array<float, 12> overhead{1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0};
+
+    struct Fixture {
+        oa::formats::tnt::Map map{};
+        oa::PaletteBytes palette{};
+        oa::app::WorldDrawList draws{};
+        std::array<uint16_t, 1> coverage{1};
+        std::array<uint16_t, 1> mapped{1};
+        live_scene::Inputs inputs{};
+        std::array<oa::Unit, 6> units{};
+        std::array<runtime::Instance, 6> instances{};
+        drawing::PreparedModel prepared{};
+        drawing::ModelState pictured{};
+        oa::formats::gaf::RenderedFrame sprite{};
+        std::array<oa::app::renderer_water::Disturbance, 1> disturbances{{{16, 20, 0, 1}}};
+
+        Fixture() {
+            map.attribute_width = map.attribute_height = 2;
+            map.tile_width = map.tile_height = map.tile_count = 1;
+            map.tile_indices = {0};
+            map.attributes.resize(4);
+            map.tile_palette_indices.assign(32 * 32, 1);
+            const std::array<std::array<uint8_t, 3>, 3> colors{
+                std::array<uint8_t, 3>{24, 36, 48},
+                std::array<uint8_t, 3>{40, 110, 210},
+                std::array<uint8_t, 3>{90, 200, 45}
+            };
+            for (std::size_t index = 0; index < colors.size(); ++index)
+                for (std::size_t channel = 0; channel < 3; ++channel)
+                    palette[(index + 1) * oa::palette_entry_bytes + channel] =
+                        colors[index][channel];
+            inputs.map = &map;
+            inputs.palette = &palette;
+            inputs.draws = &draws;
+            inputs.sight.coverage = coverage;
+            inputs.sight.player_bits = mapped;
+            inputs.sight.width = inputs.sight.height = 1;
+            inputs.sight.mapped_bits = 1;
+            inputs.sight.line_of_sight = inputs.sight.mapping = true;
+            inputs.right = inputs.bottom = 32;
+            inputs.clip_width = inputs.clip_height = 32;
+            inputs.clip_projection = classic_projection;
+            inputs.view_direction = {0, 1, 0.5F};
+            inputs.owner_colors[0] = {255, 96, 0};
+            inputs.owner_colors[1] = {0, 160, 255};
+            inputs.nanolathe_lighting = false;
+            inputs.tick = 12;
+            inputs.water_disturbances = disturbances;
+            draws.shown_map_width = draws.shown_map_height = 32;
+            prepared.objects.resize(1);
+            prepared.objects[0].primitives.resize(1);
+            prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+            prepared.objects[0].primitives[0].color = 2;
+            draws.models.resize(units.size());
+            const auto source = [](int32_t side) {
+                auto model = std::make_shared<object::Model>();
+                model->objects.resize(1);
+                auto& body = model->objects[0];
+                constexpr int32_t scale = object::kThreeDoUnitsPerWorldUnit;
+                body.vertices = {
+                    {0, 4 * scale, 0},
+                    {side * scale, 4 * scale, 0},
+                    {side * scale, 4 * scale, -side * scale},
+                    {0, 4 * scale, -side * scale}
+                };
+                body.primitives.resize(1);
+                body.primitives[0].vertex_indices = {0, 1, 2, 3};
+                return model;
+            };
+            const auto large = source(8);
+            const auto small = source(2);
+            constexpr int32_t scale = object::kThreeDoUnitsPerWorldUnit;
+            for (std::size_t index = 0; index < units.size(); ++index) {
+                instances[index] = runtime::make_instance(index == 0 || index == 5 ? large : small);
+                instances[index].rebuild_transforms();
+                auto& unit = units[index];
+                unit.id = static_cast<uint16_t>(index + 11);
+                unit.owner_index = static_cast<uint8_t>(index % 2);
+                unit.position = {
+                    static_cast<int32_t>(index == 0 ? 4 : 15 + index * 3) * scale,
+                    0,
+                    static_cast<int32_t>(index == 0 ? 10 : 5 + index * 4) * scale
+                };
+                auto& draw = draws.models[index];
+                draw.model.instance = &instances[index];
+                draw.model.prepared = &prepared;
+                draw.model.unit = &unit;
+                draw.plan.linked.drawn = true;
+            }
+            units[0].position.y = units[5].position.y = 6 * fixed;
+            units[1].state_flags = drawing::unit_state_cloaked;
+            units[2].flags = OA_UNIT_FLAG_BUILDING;
+            // A canonical-ID-zero feature is always a full model, never an owner marker.
+            units[3].id = 0;
+            draws.stand_ins.push_back(units[3]);
+            draws.models[3].stand_in = 0;
+            draws.models[3].on_map = true;
+            units[4].build_remaining = 0.4F;
+            pictured.image = oa::present::create_sprite(8, 8);
+            pictured.image.sprite.key = 1;
+            std::fill(pictured.image.pixels.begin(), pictured.image.pixels.end(), 0);
+            draws.models[0].model.state = &pictured;
+            draws.models[0].plan.model.from_image = true;
+            inputs.graphics_flags = drawing::graphics_shadows | drawing::graphics_vehicle_shadows;
+            sprite.width = sprite.height = 3;
+            sprite.pixels.assign(9, 3);
+            sprite.coverage.assign(9, 1);
+            draws.sprites.push_back({&sprite, {16, 16}});
+            draws.sprites.back().world_position = oa::FixedVec3{16 * scale, 6 * scale, 19 * scale};
+            draws.sprites.back().effect_opacity = 0.5F;
+            draws.spatial_particles.push_back(
+                {{14 * scale, 5 * scale, 17 * scale}, {230, 210, 70}, false}
+            );
+            draws.projectiles.emplace_back();
+            auto& shot = draws.projectiles.back();
+            shot.position = {20 * scale, 0, 16 * scale};
+            shot.object = &instances[0].model().objects[0];
+            shot.prepared = &prepared.objects[0];
+        }
+    } fixture;
+
+    const auto readback =
+        [&](live_scene::Scene& scene, Context& context, std::vector<uint8_t>& rgba) {
+            std::string error;
+            const bool built = live_scene::build(fixture.inputs, scene, error);
+            OA_CHECK(built);
+            if (!built) {
+                std::fprintf(stderr, "scene marker build: %s\n", error.c_str());
+                return false;
+            }
+            const auto models = live_scene::card_draws(scene.card_types, scene.cards);
+            const auto result = render(
+                context,
+                scene.vertices,
+                scene.texture_rgba,
+                scene.texture_width,
+                scene.texture_height,
+                scene.texture_revision,
+                edge,
+                edge,
+                fixture.inputs.clip_projection,
+                rgba,
+                error,
+                1,
+                &scene.atlas_update,
+                &fixture.inputs.water,
+                &scene.card_ground,
+                {},
+                nullptr,
+                &models
+            );
+            OA_CHECK(result == Result::success);
+            if (result != Result::success) {
+                std::fprintf(stderr, "scene marker readback: %s\n", error.c_str());
+                return false;
+            }
+            OA_CHECK(!context.kept_on_card && rgba.size() == edge * edge * 4);
+            return rgba.size() == edge * edge * 4;
+        };
+    const auto any_marker = [](const live_scene::Scene& scene) {
+        return std::any_of(
+            scene.unit_detail.begin(), scene.unit_detail.end(), [](const auto& detail) {
+                return detail.marker;
+            }
+        );
+    };
+    const auto marker_pixels = [](const std::vector<uint8_t>& rgba,
+                                  const std::array<uint8_t, 3>& color) {
+        std::size_t count = 0;
+        for (std::size_t offset = 0; offset + 3 < rgba.size(); offset += 4)
+            count += rgba[offset] == color[0] && rgba[offset + 1] == color[1] &&
+                     rgba[offset + 2] == color[2] && rgba[offset + 3] == 255;
+        return count;
+    };
+    const auto pixel = [](const std::vector<uint8_t>& rgba,
+                          uint32_t x,
+                          uint32_t y,
+                          const std::array<uint8_t, 3>& color) {
+        const auto offset = (std::size_t(y) * edge + x) * 4;
+        return offset + 3 < rgba.size() && rgba[offset] == color[0] &&
+               rgba[offset + 1] == color[1] && rgba[offset + 2] == color[2] &&
+               rgba[offset + 3] == 255;
+    };
+
+    // Full-size ordinary models, cloaked units, buildings, features and
+    // construction keep every pixel, including their shadows and the
+    // half-transparent card/particle passes. Rebuilds exercise atlas reuse.
+    for (const bool on_card : {false, true}) {
+        fixture.inputs.models_on_card = on_card;
+        std::array<live_scene::Scene, 2> scenes;
+        std::array<Context, 2> contexts;
+        std::array<std::vector<uint8_t>, 2> pixels;
+        for (const bool water : {false, true}) {
+            fixture.inputs.sea_level = water ? 3 : 0;
+            fixture.inputs.water = {};
+            if (water) {
+                fixture.inputs.water.sea_level = 3;
+                fixture.inputs.water.seconds = 1.25F;
+                fixture.inputs.water.detail = 1;
+                fixture.inputs.water.shimmer = 0.5F;
+                fixture.inputs.water.coastal_waves = 0.5F;
+                fixture.inputs.water.ripples = 0.5F;
+                fixture.inputs.water.wind.strength = 1;
+            }
+            for (int frame = 0; frame < 3; ++frame) {
+                fixture.inputs.unit_marker_pixels = 0;
+                if (!readback(scenes[0], contexts[0], pixels[0]))
+                    return;
+                fixture.inputs.unit_marker_pixels = 5;
+                if (!readback(scenes[1], contexts[1], pixels[1]))
+                    return;
+                OA_CHECK(!any_marker(scenes[1]));
+                OA_CHECK(scenes[1].unit_detail_active);
+                if (water)
+                    OA_CHECK(!scenes[1].detail_water.empty());
+                OA_CHECK(!pixels[0].empty() && pixels[0] == pixels[1]);
+                OA_CHECK(scenes[0].model_count == scenes[1].model_count);
+                OA_CHECK(scenes[0].shadow_count == scenes[1].shadow_count);
+            }
+        }
+    }
+
+    // Two eligible, fully seen 2x2 hulls. Half-pixel centres and the
+    // overhead matrix put each five-pixel marker on a known 5x5 square.
+    fixture.inputs.sea_level = 0;
+    fixture.inputs.water = {};
+    fixture.inputs.graphics_flags = 0;
+    fixture.inputs.clip_projection = overhead;
+    fixture.inputs.view_direction = {0, 1, 0};
+    fixture.inputs.unit_marker_pixels = 5;
+    fixture.inputs.models_on_card = true;
+    fixture.draws.sprites.clear();
+    fixture.draws.spatial_particles.clear();
+    fixture.draws.projectiles.clear();
+    fixture.draws.models.resize(2);
+    fixture.draws.stand_ins.clear();
+    fixture.units[0].position = {13 * fixed / 2, 0, 21 * fixed / 2};
+    fixture.units[1].position = {45 * fixed / 2, 0, 21 * fixed / 2};
+    fixture.units[1].state_flags = 0;
+    fixture.units[1].flags = 0;
+    fixture.draws.models[0].model.instance = &fixture.instances[1];
+    fixture.draws.models[0].model.state = nullptr;
+    fixture.draws.models[0].plan.model.from_image = false;
+    fixture.draws.models[1].model.instance = &fixture.instances[2];
+    live_scene::Scene marker_scene;
+    Context marker_context;
+    std::vector<uint8_t> rgba;
+    for (int frame = 0; frame < 3; ++frame) {
+        if (!readback(marker_scene, marker_context, rgba))
+            return;
+        OA_CHECK(marker_scene.unit_detail.size() == 2);
+        OA_CHECK(
+            marker_scene.unit_detail.size() == 2 && marker_scene.unit_detail[0].marker &&
+            marker_scene.unit_detail[1].marker
+        );
+        OA_CHECK(marker_scene.unit_ranges.size() == 2);
+        OA_CHECK(marker_scene.cards.units.empty());
+        OA_CHECK(marker_pixels(rgba, orange) == 25 && marker_pixels(rgba, cyan) == 25);
+        OA_CHECK(pixel(rgba, 7, 11, orange) && pixel(rgba, 23, 11, cyan));
+        for (const auto& range : marker_scene.unit_ranges)
+            OA_CHECK(
+                range.vertex_count == 6 &&
+                (range.unit_id == fixture.units[0].id || range.unit_id == fixture.units[1].id)
+            );
+        for (const auto& unit : {fixture.units[0], fixture.units[1]})
+            OA_CHECK(
+                std::count_if(
+                    marker_scene.unit_ranges.begin(),
+                    marker_scene.unit_ranges.end(),
+                    [&](const auto& range) { return range.unit_id == unit.id; }
+                ) == 1
+            );
+    }
+    const auto initial = rgba;
+    fixture.units[0].position.x += 8 * fixed;
+    if (!readback(marker_scene, marker_context, rgba))
+        return;
+    OA_CHECK(rgba != initial);
+    OA_CHECK(!pixel(rgba, 7, 11, orange) && pixel(rgba, 15, 11, orange));
+    OA_CHECK(pixel(rgba, 23, 11, cyan));
+    OA_CHECK(marker_pixels(rgba, orange) == 25 && marker_pixels(rgba, cyan) == 25);
+
+    // Hidden geometry does not become an owner-coloured marker. The other
+    // actor remains visible through the same scene, atlas and GPU context.
+    auto& piece = fixture.instances[1].pieces()[0];
+    const auto visible = static_cast<uint16_t>(runtime::PieceFlag::visible);
+    piece.flags = static_cast<uint16_t>(piece.flags & ~visible);
+    if (!readback(marker_scene, marker_context, rgba))
+        return;
+    OA_CHECK(!marker_scene.unit_detail[0].marker);
+    OA_CHECK(marker_pixels(rgba, orange) == 0 && marker_pixels(rgba, cyan) == 25);
+    piece.flags = static_cast<uint16_t>(piece.flags | visible);
+    fixture.draws.models[0].plan.linked.drawn = false;
+    if (!readback(marker_scene, marker_context, rgba))
+        return;
+    OA_CHECK(!marker_scene.unit_detail[0].marker);
+    OA_CHECK(marker_pixels(rgba, orange) == 0 && marker_pixels(rgba, cyan) == 25);
+    fixture.draws.models[0].plan.linked.drawn = true;
+
+    // An unexplored sight cell hides both full models and markers. Retained
+    // device/atlas state must not leave a coloured unit in the black frame.
+    fixture.coverage[0] = fixture.mapped[0] = 0;
+    for (int frame = 0; frame < 2; ++frame) {
+        if (!readback(marker_scene, marker_context, rgba))
+            return;
+        OA_CHECK(!any_marker(marker_scene));
+        OA_CHECK(marker_pixels(rgba, orange) == 0 && marker_pixels(rgba, cyan) == 0);
+        for (std::size_t offset = 0; offset + 3 < rgba.size(); offset += 4)
+            OA_CHECK(rgba[offset] == 0 && rgba[offset + 1] == 0 && rgba[offset + 2] == 0);
+    }
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -3013,6 +3340,7 @@ int main() {
         picture_on_card();
         card_models();
         card_shadows();
+        scene_marker_readback();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

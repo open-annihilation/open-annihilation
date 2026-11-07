@@ -3846,6 +3846,234 @@ void models_on_card() {
     OA_CHECK(scenes[1].card_types.revision == revision);
 }
 
+/// Projected detail follows the presented animated hull and zoom, keeps
+/// near geometry exact and never replaces hidden/cloaked/unfinished units.
+void projected_unit_detail() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    Fixture battle;
+    battle.inputs.sight.mapping = battle.inputs.sight.line_of_sight = false;
+    battle.inputs.clip_width = battle.inputs.clip_height = 128;
+    battle.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, -0.001F, 0, 0.5F};
+    battle.inputs.owner_colors[0] = {255, 128, 32};
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {4 * fixed, 0, 0}, {0, 0, 4 * fixed}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.push_back({});
+    prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+    prepared.objects[0].primitives[0].color = ground_index;
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.position = {16 * fixed, 0, 16 * fixed};
+    battle.draws.models.resize(1);
+    auto& draw = battle.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.plan.linked.drawn = true;
+    live::Scene full;
+    OA_CHECK(live::build(battle.inputs, full, battle.error));
+    battle.inputs.unit_marker_pixels = 5;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_detail.size() == 1);
+    if (battle.scene.unit_detail.size() != 1)
+        return;
+    OA_CHECK(battle.scene.unit_detail_active && battle.scene.unit_detail[0].marker);
+    OA_CHECK(battle.scene.unit_ranges.size() == 1);
+    OA_CHECK(battle.scene.unit_ranges[0].unit_id == unit.id);
+    OA_CHECK(battle.scene.unit_ranges[0].vertex_count == 6);
+    const auto first = battle.scene.unit_ranges[0].first_vertex;
+    OA_CHECK(triangle_color(battle.scene, first) == (std::array<uint8_t, 4>{255, 128, 32, 255}));
+    const auto& p = battle.inputs.clip_projection;
+    float left = 128, top = 128, right{}, bottom{};
+    for (std::size_t index = first; index < first + 6; ++index) {
+        const auto& vertex = battle.scene.vertices[index];
+        const float x = p[0] * vertex.x + p[1] * vertex.height + p[2] * vertex.z + p[3];
+        const float y = p[4] * vertex.x + p[5] * vertex.height + p[6] * vertex.z + p[7];
+        left = std::min(left, x);
+        right = std::max(right, x);
+        top = std::min(top, y);
+        bottom = std::max(bottom, y);
+    }
+    OA_CHECK(std::abs(right - left - 5) < tolerance);
+    OA_CHECK(std::abs(bottom - top - 5) < tolerance);
+    // A zoomed-in hull keeps the exact complete draw/atlas/ranges.
+    battle.inputs.clip_projection[0] *= 4;
+    battle.inputs.clip_projection[5] *= 4;
+    battle.inputs.clip_projection[6] *= 4;
+    battle.inputs.unit_marker_pixels = 0;
+    live::Scene near_full;
+    OA_CHECK(live::build(battle.inputs, near_full, battle.error));
+    battle.inputs.unit_marker_pixels = 5;
+    live::Scene near;
+    OA_CHECK(live::build(battle.inputs, near, battle.error));
+    OA_CHECK(near.unit_detail_active && !near.unit_detail[0].marker);
+    OA_CHECK(same_frame(near_full, near));
+    // The actual interpolated extended piece prevents a static-footprint
+    // estimate from turning a large animated model into a tiny marker.
+    battle.inputs.clip_projection[0] /= 4;
+    battle.inputs.clip_projection[5] /= 4;
+    battle.inputs.clip_projection[6] /= 4;
+    draw.shown_vertices = {instance.pieces()[0].transformed_vertices};
+    draw.shown_vertices[0][1].x = -20 * fixed;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.unit_detail[0].marker);
+    draw.shown_vertices.clear();
+    for (const auto remaining : {0.5F, 1.0F}) {
+        unit.build_remaining = remaining;
+        OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+        OA_CHECK(!battle.scene.unit_detail[0].eligible);
+    }
+    unit.build_remaining = 0;
+    unit.state_flags |= drawing::unit_state_cloaked;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.unit_detail[0].eligible);
+    OA_CHECK(!battle.scene.translucent_ranges.empty());
+    unit.state_flags = 0;
+    instance.pieces()[0].flags = 0;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.unit_detail[0].eligible && battle.scene.unit_ranges.empty());
+    instance.pieces()[0].flags = static_cast<uint16_t>(runtime::PieceFlag::visible);
+    battle.inputs.view_direction = {0, 1, 0};
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.unit_detail[0].eligible && battle.scene.unit_ranges.empty());
+    battle.inputs.view_direction = {};
+    drawing::ModelState walls;
+    walls.image = oa::present::create_sprite(8, 8);
+    draw.model.state = &walls;
+    draw.plan.model.from_image = true;
+    prepared.objects[0].primitives[0].color = drawing::image_key;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.unit_detail[0].eligible && battle.scene.unit_ranges.empty());
+    draw.plan.model.from_image = false;
+    battle.inputs.sight.mapping = battle.inputs.sight.line_of_sight = true;
+    battle.coverage[0] = battle.mapped[0] = 0;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.scene.unit_detail[0].eligible && battle.scene.unit_ranges.empty());
+}
+
+/// Twenty thousand visible, otherwise over-budget models retain a
+/// representation and canonical pick ID without increasing either cap.
+void crowded_unit_detail() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr uint32_t population = 20000;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    Fixture battle;
+    battle.inputs.sight.mapping = battle.inputs.sight.line_of_sight = false;
+    battle.inputs.clip_width = battle.inputs.clip_height = 128;
+    battle.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, -0.001F, 0, 0.5F};
+    battle.inputs.unit_marker_pixels = 5;
+    battle.inputs.owner_colors[0] = {255, 128, 32};
+    battle.inputs.owner_colors[1] = {32, 128, 255};
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    auto& object = source->objects[0];
+    object.vertices = {{0, 0, 0}, {8 * fixed, 0, 0}, {0, 0, 8 * fixed}};
+    object.primitives.resize(128);
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    for (uint32_t polygon = 0; polygon < object.primitives.size(); ++polygon) {
+        object.primitives[polygon].vertex_indices = {0, 1, 2};
+        drawing::PreparedPrimitive primitive;
+        primitive.source_index = polygon;
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = alternate_index;
+        prepared.objects[0].primitives.push_back(primitive);
+    }
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    drawing::ModelState state;
+    state.image = oa::present::create_sprite(8, 8);
+    battle.inputs.graphics_flags = drawing::graphics_shadows | drawing::graphics_vehicle_shadows;
+    std::vector<oa::Unit> units(population);
+    battle.draws.models.resize(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = index >= population / 2 ? 1 : 0;
+        unit.position = {16 * fixed, 0, 16 * fixed};
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.model.state = &state;
+        draw.plan.linked.drawn = true;
+        draw.plan.model.from_image = true;
+    }
+    battle.inputs.models_on_card = true;
+    const bool built = live::build(battle.inputs, battle.scene, battle.error);
+    OA_CHECK(built);
+    if (!built)
+        return;
+    OA_CHECK(battle.scene.unit_detail_active);
+    OA_CHECK(battle.scene.model_count == population);
+    OA_CHECK(battle.scene.unit_ranges.size() + battle.scene.cards.units.size() == population);
+    OA_CHECK(
+        battle.scene.vertices.size() + battle.scene.cards.vertices <=
+        oa::app::renderer_live_gpu::largest_vertex_count
+    );
+    OA_CHECK(
+        battle.scene.cards.cast_indices.size() <= oa::app::renderer_live_gpu::largest_vertex_count
+    );
+    OA_CHECK(!battle.scene.cards.cast_indices.empty());
+    OA_CHECK(!battle.scene.unit_detail.front().marker);
+    OA_CHECK(battle.scene.unit_detail.back().marker);
+    // Sorting prioritises size then canonical identity, not planner order.
+    std::reverse(battle.draws.models.begin(), battle.draws.models.end());
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_detail.front().marker);
+    OA_CHECK(!battle.scene.unit_detail.back().marker);
+    OA_CHECK(battle.scene.unit_ranges.size() + battle.scene.cards.units.size() == population);
+    // Far out, every unit is a cheap marker and no model positions or
+    // surface/shadow indices are expanded at all.
+    battle.inputs.clip_projection[0] *= 0.25F;
+    battle.inputs.clip_projection[5] *= 0.25F;
+    battle.inputs.clip_projection[6] *= 0.25F;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.scene.unit_ranges.size() == population);
+    OA_CHECK(battle.scene.cards.instances.empty() && battle.scene.cards.positions.empty());
+    OA_CHECK(battle.scene.cards.indices.empty() && battle.scene.cards.cast_indices.empty());
+    OA_CHECK(battle.scene.vertices.size() == battle.scene.terrain_vertex_count + population * 6);
+    // Mandatory full features outside the camera must reserve the zero
+    // surface they emit, rather than displacing visible unit markers.
+    oa::Unit feature{};
+    feature.position = {1000 * fixed, 0, 1000 * fixed};
+    battle.draws.stand_ins.push_back(feature);
+    oa::UnitDef feature_type{};
+    feature_type.flags = OA_UNIT_DEF_FLAG_NO_SHADOW;
+    auto feature_draw = battle.draws.models.front();
+    feature_draw.model.unit = nullptr;
+    feature_draw.model.def = &feature_type;
+    feature_draw.stand_in = 0;
+    feature_draw.on_map = true;
+    battle.draws.models.insert(battle.draws.models.end(), population, feature_draw);
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(
+        battle.scene.model_count == population && battle.scene.unit_ranges.size() == population
+    );
+    // An all-hidden feature also takes no surface or shadow allowance.
+    auto hidden = runtime::make_instance(source);
+    hidden.rebuild_transforms({});
+    hidden.pieces()[0].flags = 0;
+    battle.draws.stand_ins[0].position = units[0].position;
+    for (std::size_t index = population; index < battle.draws.models.size(); ++index)
+        battle.draws.models[index].model.instance = &hidden;
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(
+        battle.scene.model_count == population && battle.scene.unit_ranges.size() == population
+    );
+}
+
 /// Twenty thousand translated models share their exact pose without changing a corner.
 void large_shared_model_scene() {
     namespace models = oa::formats::objects3d;
@@ -4933,6 +5161,8 @@ int main() {
     models_on_card();
     shared_model_positions();
     shared_model_coordinate_rounding();
+    projected_unit_detail();
+    crowded_unit_detail();
     large_shared_model_scene();
     shadows_on_card();
     aircraft_shadow_altitude();

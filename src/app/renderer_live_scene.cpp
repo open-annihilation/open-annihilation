@@ -3716,6 +3716,8 @@ void read_shadows(
     if ((in.graphics_flags & model::graphics_shadows) == 0 || in.draws->shadow_level == 0)
         return;
     for (std::size_t index = first; index < last; ++index) {
+        if (index < scene.unit_detail.size() && scene.unit_detail[index].marker)
+            continue;
         const auto& draw = in.draws->models[index];
         const auto shadow = shadow_of_draw(in, draw);
         // A shadow the card casts from its model is not read here.
@@ -4683,6 +4685,338 @@ bool shows_first_frame(
     return !depth_image && draw.plan.linked.unlit;
 }
 
+/// The inverse camera's first two columns: one pixel across and down at
+/// constant depth. A singular or nonfinite projection keeps full models.
+bool marker_axes(const Inputs& in, std::array<float, 3>& across, std::array<float, 3>& down) {
+    const auto& p = in.clip_projection;
+    const std::array a{p[0], p[1], p[2]}, b{p[4], p[5], p[6]}, c{p[8], p[9], p[10]};
+    across = {b[1] * c[2] - b[2] * c[1], b[2] * c[0] - b[0] * c[2], b[0] * c[1] - b[1] * c[0]};
+    down = {c[1] * a[2] - c[2] * a[1], c[2] * a[0] - c[0] * a[2], c[0] * a[1] - c[1] * a[0]};
+    const float determinant = a[0] * across[0] + a[1] * across[1] + a[2] * across[2];
+    if (!std::isfinite(determinant) || std::abs(determinant) < 1e-12F)
+        return false;
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        across[axis] /= determinant;
+        down[axis] /= determinant;
+        if (!std::isfinite(across[axis]) || !std::isfinite(down[axis]))
+            return false;
+    }
+    return true;
+}
+
+/// A conservative body and construction-ribbon allowance, shared by all
+/// draws of a prepared model. No posed vertices or triangle streams are made.
+struct ModelAllowance {
+    std::size_t body{};
+    std::size_t ribbons{};
+};
+
+ModelAllowance model_allowance(const ModelDraw& draw) {
+    ModelAllowance result;
+    const auto& source = draw.model.instance->model();
+    for (const auto& piece : draw.model.instance->pieces()) {
+        const auto& object = source.objects.at(piece.object_index);
+        for (const auto& primitive :
+             draw.model.prepared->objects.at(piece.object_index).primitives) {
+            if (static_cast<int32_t>(primitive.source_index) == object.selection_primitive)
+                continue;
+            const auto corners = object.primitives.at(primitive.source_index).vertex_indices.size();
+            if (corners >= 3) {
+                result.body += (corners - 2) * 3;
+                result.ribbons += corners * 6;
+            }
+        }
+    }
+    return result;
+}
+
+/// A marker must have at least one drawable front face. Hidden pieces,
+/// selection polygons, image-key walls and missing textures cannot reveal
+/// a unit through an owner-coloured marker.
+bool marker_has_face(
+    const Inputs& in, const ModelDraw& draw, const Unit& unit, std::vector<Vertex>& corners
+) {
+    const bool image =
+        draw.plan.model.from_image && draw.model.state && draw.model.state->image.sprite.data;
+    const auto pieces = draw.model.instance->pieces();
+    for (std::size_t index = 0; index < pieces.size(); ++index) {
+        const auto& piece = pieces[index];
+        if ((piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0)
+            continue;
+        const auto& points = index < draw.shown_vertices.size() ? draw.shown_vertices[index]
+                                                                : piece.transformed_vertices;
+        const auto& object = draw.model.instance->model().objects.at(piece.object_index);
+        const bool first = shows_first_frame(
+            draw,
+            unit,
+            (piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0,
+            in.moving_pieces_once_built
+        );
+        for (const auto& primitive :
+             draw.model.prepared->objects.at(piece.object_index).primitives) {
+            if (static_cast<int32_t>(primitive.source_index) == object.selection_primitive)
+                continue;
+            const auto& face = object.primitives.at(primitive.source_index);
+            const bool colored = (primitive.flags & model::primitive_colored) != 0;
+            if (face.vertex_indices.size() < 3 ||
+                (colored && image && primitive.color == model::image_key))
+                continue;
+            if (!colored) {
+                const auto* frame = model::primitive_texture(
+                    primitive, first, in.team_colors[unit.owner_index % in.team_colors.size()]
+                );
+                if (face.vertex_indices.size() != 4 || !frame || !frame->data ||
+                    frame->encoding != OA_SPRITE_RAW)
+                    continue;
+            }
+            corners.clear();
+            for (const auto vertex : face.vertex_indices) {
+                const auto& point = points.at(vertex);
+                corners.push_back(
+                    {point.x / fixed_scale, point.y / fixed_scale, -point.z / fixed_scale}
+                );
+            }
+            if (!back_facing(corners, in.view_direction))
+                return true;
+        }
+    }
+    return false;
+}
+
+/// Classifies from the actual presented vertices, before shadow decoding,
+/// card positions or triangle emission. Static footprint/radius bounds do
+/// not contain arbitrary animated piece translations, so cannot be used.
+void plan_unit_detail(const Inputs& in, Scene& scene) {
+    scene.unit_detail.clear();
+    scene.unit_detail_active = false;
+    scene.detail_water.clear();
+    std::array<float, 3> across{}, down{};
+    if (!(in.unit_marker_pixels > 0) || !std::isfinite(in.unit_marker_pixels) ||
+        in.clip_width == 0 || in.clip_height == 0 ||
+        !std::all_of(
+            in.clip_projection.begin(),
+            in.clip_projection.end(),
+            [](float value) { return std::isfinite(value); }
+        ) ||
+        !marker_axes(in, across, down))
+        return;
+    const auto& draws = in.draws->models;
+    scene.unit_detail.resize(draws.size());
+    std::unordered_map<const model::PreparedModel*, ModelAllowance> allowances;
+    std::vector<Vertex> corners;
+    bool eligible{};
+    for (std::size_t index = 0; index < draws.size(); ++index) {
+        const auto& draw = draws[index];
+        const auto& reference = draw.model;
+        const auto* unit = reference.unit;
+        if (draw.stand_in >= 0 &&
+            static_cast<std::size_t>(draw.stand_in) < in.draws->stand_ins.size())
+            unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
+        auto& detail = scene.unit_detail[index];
+        if (!draw.plan.linked.drawn || !unit || !reference.instance || !reference.prepared)
+            continue;
+        auto [allowance, inserted] = allowances.try_emplace(reference.prepared);
+        if (inserted)
+            allowance->second = model_allowance(draw);
+        detail.surface = allowance->second.body;
+        if (unit->build_remaining > 0)
+            detail.surface += allowance->second.ribbons;
+        const bool reflecting = reference.def &&
+                                (reference.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0 &&
+                                in.water.reflections > 0 && in.water.detail > 0;
+        if (reflecting)
+            detail.surface += 24576;
+        const auto shadow = shadow_of_draw(in, draw);
+        if (shadow_on_card(in, scene, index, shadow))
+            detail.shadow = allowance->second.body * (shadow.building ? 2 : 1);
+        const auto position = draw.shown_position.value_or(unit->position);
+        const std::array origin{
+            position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+        };
+        const auto fog = fog_at(
+            in.sight,
+            static_cast<int32_t>(origin[0]),
+            static_cast<int32_t>(origin[2] - origin[1] * height_lift)
+        );
+        // The ordinary model path casts before testing fog. Only its
+        // surface allowance disappears here; its shadow is still reserved.
+        if (fog == Fog::black) {
+            detail.surface = 0;
+            continue;
+        }
+        detail.brightness = brightness_at(in.sight, origin[0], origin[2] - origin[1] * height_lift);
+        std::array low{
+            std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::infinity()
+        };
+        std::array high{-low[0], -low[1], -low[2]};
+        bool valid = true;
+        const auto pieces = reference.instance->pieces();
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            if ((pieces[piece].flags &
+                 static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0)
+                continue;
+            const auto& points = piece < draw.shown_vertices.size()
+                                     ? draw.shown_vertices[piece]
+                                     : pieces[piece].transformed_vertices;
+            for (const auto& point : points) {
+                const std::array world{
+                    origin[0] + point.x / fixed_scale,
+                    origin[1] + point.y / fixed_scale,
+                    origin[2] - point.z / fixed_scale
+                };
+                for (std::size_t axis = 0; axis < 3; ++axis) {
+                    low[axis] = std::min(low[axis], world[axis]);
+                    high[axis] = std::max(high[axis], world[axis]);
+                }
+            }
+        }
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            valid &= std::isfinite(low[axis]) && std::isfinite(high[axis]);
+            detail.center[axis] = (low[axis] + high[axis]) * 0.5F;
+        }
+        if (!valid) {
+            detail.surface = detail.shadow = 0;
+            continue;
+        }
+        const auto& p = in.clip_projection;
+        // Project the containing box, using all three axes; animated
+        // extended pieces can only increase this conservative diameter.
+        bool outside = false;
+        for (std::size_t row = 0; row < 2; ++row) {
+            float extent{}, center = p[row * 4 + 3], margin{};
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                extent += std::abs(p[row * 4 + axis]) * (high[axis] - low[axis]);
+                center += p[row * 4 + axis] * detail.center[axis];
+                margin += std::abs(p[row * 4 + axis]);
+            }
+            detail.pixels = std::max(detail.pixels, extent);
+            const float edge = row == 0 ? in.clip_width : in.clip_height;
+            outside |=
+                center + extent * 0.5F + margin < 0 || center - extent * 0.5F - margin > edge;
+        }
+        if (outside && !reflecting) {
+            detail.surface = 0;
+            continue;
+        }
+        // Complex/transparent geometry keeps its full path and opacity.
+        // Attachments are kept together with their transported unit.
+        if (draw.on_map || draw.stand_in >= 0 || unit->id == 0 ||
+            (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 || unit->build_remaining != 0 ||
+            (unit->state_flags & model::unit_state_cloaked) != 0 || in.translucent_units ||
+            unit->attach_parent != 0 || unit->attach_first_child != 0 || reflecting ||
+            shadow.digger || fog != Fog::seen ||
+            (origin[1] < in.sea_level && water_depth(in, origin[0], origin[2]) > 0))
+            continue;
+        if (!std::isfinite(detail.pixels))
+            continue;
+        if (!marker_has_face(in, draw, *unit, corners)) {
+            detail.surface = 0;
+            continue;
+        }
+        // A later budget decision must not leave a decoded CPU silhouette
+        // behind. Distant units are decided now, before shadow decoding;
+        // near soft/CPU shadows retain their full model.
+        if (detail.pixels > in.unit_marker_pixels && shadow.casts &&
+            !shadow_on_card(in, scene, index, shadow))
+            continue;
+        detail.eligible = true;
+        detail.marker = detail.pixels <= in.unit_marker_pixels;
+        eligible = true;
+    }
+    scene.unit_detail_active = eligible;
+}
+
+/// Reserves every marker first, then keeps the largest full models that
+/// fit both the remaining surface allowance and the shadow index limit.
+/// Unit ID breaks equal-size ties independently of planning order.
+void budget_unit_detail(const Inputs& in, Scene& scene, std::size_t rest) {
+    std::size_t surface = rest, shadow{};
+    std::vector<std::size_t> near;
+    for (std::size_t index = 0; index < scene.unit_detail.size(); ++index) {
+        auto& detail = scene.unit_detail[index];
+        if (!detail.eligible) {
+            surface += detail.surface;
+            shadow += detail.shadow;
+        } else {
+            surface += 6;
+            if (!detail.marker)
+                near.push_back(index);
+            detail.marker = true;
+        }
+    }
+    std::sort(near.begin(), near.end(), [&](std::size_t a, std::size_t b) {
+        const auto& left = scene.unit_detail[a];
+        const auto& right = scene.unit_detail[b];
+        return left.pixels != right.pixels
+                   ? left.pixels > right.pixels
+                   : in.draws->models[a].model.unit->id < in.draws->models[b].model.unit->id;
+    });
+    if (surface > maximum_vertices || shadow > maximum_vertices)
+        throw GeometryFull();
+    for (const auto index : near) {
+        auto& detail = scene.unit_detail[index];
+        const auto extra = detail.surface > 6 ? detail.surface - 6 : 0;
+        if (extra <= maximum_vertices - surface && detail.shadow <= maximum_vertices - shadow) {
+            detail.marker = false;
+            surface += extra;
+            shadow += detail.shadow;
+        }
+    }
+}
+
+/// Draws a fixed-pixel billboard through the ordinary triangle stream, so
+/// the same visible surface supplies unit picking and HUD bounds.
+void unit_marker(
+    const Inputs& in,
+    Pass& pass,
+    const UnitDetail& detail,
+    const Unit& unit,
+    std::optional<AtlasRect>& white_material,
+    const PaletteBytes& white_palette
+) {
+    std::array<float, 3> across{}, down{};
+    if (!marker_axes(in, across, down))
+        return;
+    const float radius = std::min(64.0F, in.unit_marker_pixels) * 0.5F;
+    auto center = detail.center;
+    // Keep the complete billboard above its anchor, including
+    // at shallow camera angles where its down axis changes world height.
+    center[1] += radius * (std::abs(across[1]) + std::abs(down[1])) + 0.25F;
+    const auto& p = in.clip_projection;
+    const float sx = p[0] * center[0] + p[1] * center[1] + p[2] * center[2] + p[3];
+    const float sy = p[4] * center[0] + p[5] * center[1] + p[6] * center[2] + p[7];
+    if (sx + radius < 0 || sy + radius < 0 || sx - radius > in.clip_width ||
+        sy - radius > in.clip_height)
+        return;
+    if (!white_material) {
+        constexpr std::array<uint8_t, 1> pixel{0};
+        white_material = material(pass, white_palette, 1, 1, pixel, {}, -1, Fog::seen);
+    }
+    const auto rect = *white_material;
+    const auto& color = in.owner_colors[unit.owner_index % in.owner_colors.size()];
+    const auto corner = [&](float x, float y) {
+        Vertex vertex{
+            center[0] + radius * (x * across[0] + y * down[0]),
+            center[1] + radius * (x * across[1] + y * down[1]),
+            center[2] + radius * (x * across[2] + y * down[2]),
+            (rect.x + 0.5F) / pass.scene.texture_width,
+            (rect.y + 0.5F) / pass.scene.texture_height,
+            detail.brightness
+        };
+        vertex.red = color[0] / 255.0F;
+        vertex.green = color[1] / 255.0F;
+        vertex.blue = color[2] / 255.0F;
+        return vertex;
+    };
+    const auto first = pass.list.vertices.size();
+    const std::array corners{corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)};
+    polygon(pass, corners);
+    pass.list.unit_ranges.push_back({unit.id, first, 6});
+    ++pass.list.drawn;
+}
+
 /// The atlas places of the colours and frames the models pass has found
 /// this frame, which its draws on the card and in the vertices share.
 struct ModelMaterials {
@@ -5253,6 +5587,13 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
         if (unit == nullptr || reference.instance == nullptr || reference.prepared == nullptr)
             continue;
+        if (draw_index < pass.scene.unit_detail.size() &&
+            pass.scene.unit_detail[draw_index].marker) {
+            unit_marker(
+                in, pass, pass.scene.unit_detail[draw_index], *unit, white_material, white_palette
+            );
+            continue;
+        }
         // Its type on the card, and the shadow the card casts from it, on
         // screen or not.
         const auto& draw_types = pass.scene.card_types.draw_types;
@@ -7157,6 +7498,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const bool timing = bench_timers::timers.on;
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
+    plan_unit_detail(in, scene);
     for (auto* list :
          {&passes.shadow_packing, &passes.models, &passes.projectiles, &passes.particles})
         clear_list(*list, 0);
@@ -7368,6 +7710,8 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         if (band >= pass_bands) {
             draw_ground_band(ahead_draw, ahead.bands[first_ahead + band - pass_bands], timing);
         } else if (band == 0) {
+            if (scene.unit_detail_active)
+                return;
             run_beside(scene, passes.models, draws.models.size(), timing, [&](Pass& pass) {
                 models(in, pass, 0, draws.models.size());
             });
@@ -7523,42 +7867,74 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         times.foundations += pass_clock(timing) - start;
     }
     const std::size_t models_first = listed;
-    take_list(
-        scene,
-        passes.models,
-        draws.models.size(),
-        listed,
-        timing,
-        [&](Pass& pass, std::size_t from) { models(in, pass, from, draws.models.size()); }
-    );
-    listed += passes.models.cards.vertices;
-    take_list(
-        scene,
-        passes.projectiles,
-        draws.projectiles.size(),
-        listed,
-        timing,
-        [&](Pass& pass, std::size_t from) { projectiles(in, pass, from, draws.projectiles.size()); }
-    );
-    for (std::size_t band = 0; band < card_bands; ++band) {
-        const std::size_t end = card_band_end(band);
+    const auto take_models = [&] {
         take_list(
-            scene, passes.cards[band], end, listed, timing, [&](Pass& pass, std::size_t from) {
-                standing(pass);
-                sprites(in, pass, false, from, end);
+            scene,
+            passes.models,
+            draws.models.size(),
+            listed,
+            timing,
+            [&](Pass& pass, std::size_t from) { models(in, pass, from, draws.models.size()); }
+        );
+        listed += passes.models.cards.vertices;
+    };
+    const auto take_effects = [&] {
+        take_list(
+            scene,
+            passes.projectiles,
+            draws.projectiles.size(),
+            listed,
+            timing,
+            [&](Pass& pass, std::size_t from) {
+                projectiles(in, pass, from, draws.projectiles.size());
             }
         );
-    }
-    take_list(
-        scene,
-        passes.particles,
-        draws.spatial_particles.size(),
-        listed,
-        timing,
-        [&](Pass& pass, std::size_t from) {
-            particles(in, pass, from, draws.spatial_particles.size());
+        for (std::size_t band = 0; band < card_bands; ++band) {
+            const std::size_t end = card_band_end(band);
+            take_list(
+                scene, passes.cards[band], end, listed, timing, [&](Pass& pass, std::size_t from) {
+                    standing(pass);
+                    sprites(in, pass, false, from, end);
+                }
+            );
         }
-    );
+        take_list(
+            scene,
+            passes.particles,
+            draws.spatial_particles.size(),
+            listed,
+            timing,
+            [&](Pass& pass, std::size_t from) {
+                particles(in, pass, from, draws.spatial_particles.size());
+            }
+        );
+    };
+    if (scene.unit_detail_active) {
+        // Finalise each other pass once, then budget from its actual
+        // geometry. Joining below still uses the original draw order.
+        take_effects();
+        // These passes depend only on the ground and frame inputs. Build
+        // them once now to reserve their actual geometry, then place them
+        // after the translucent units as before.
+        const auto before_water = scene.vertices.size();
+        water_surface(in, scene);
+        water_disturbances(in, scene);
+        scene.detail_water.assign(
+            scene.vertices.begin() + static_cast<std::ptrdiff_t>(before_water), scene.vertices.end()
+        );
+        scene.vertices.resize(before_water);
+        budget_unit_detail(in, scene, listed + scene.detail_water.size());
+        run_beside(scene, passes.models, draws.models.size(), timing, [&](Pass& pass) {
+            models(in, pass, 0, draws.models.size());
+        });
+        take_models();
+        if (passes.models.cards.cast_indices.size() > maximum_vertices)
+            throw GeometryFull();
+    } else {
+        // With no eligible units the existing pass schedule is unchanged.
+        take_models();
+        take_effects();
+    }
     // The lists joined after the ground in the passes' order.
     start = pass_clock(timing);
     const auto laid = [plotted](const PassList& list) -> const std::vector<Vertex>& {
@@ -7820,8 +8196,16 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                     scene.translucent_vertices.begin(),
                     scene.translucent_vertices.end()
                 );
-                water_surface(inputs, scene);
-                water_disturbances(inputs, scene);
+                if (scene.unit_detail_active) {
+                    scene.vertices.insert(
+                        scene.vertices.end(), scene.detail_water.begin(), scene.detail_water.end()
+                    );
+                    if (scene.vertices.size() + scene.cards.vertices > maximum_vertices)
+                        throw GeometryFull();
+                } else {
+                    water_surface(inputs, scene);
+                    water_disturbances(inputs, scene);
+                }
                 // Every other material this frame draws was packed into the
                 // emptied atlas, so their area is what they need.
                 if (emptied)

@@ -197,6 +197,19 @@ struct UnitRange {
     std::size_t vertex_count{};
 };
 
+/// A model's conservative geometry allowance and projected size, found
+/// before the passes. Only finished, visible mobile units may become
+/// markers; every other model keeps its ordinary rendering path.
+struct UnitDetail {
+    std::size_t surface{};
+    std::size_t shadow{};
+    float pixels{};
+    float brightness{1};
+    std::array<float, 3> center{};
+    bool eligible{};
+    bool marker{};
+};
+
 /// The bucket a ground triangle is listed in, the one holding its least
 /// place along both axes, and how many buckets further its bounds reach.
 struct GroundBucket {
@@ -498,6 +511,12 @@ struct Scene {
     /// its ModelRun::vertex, which the pick takes too.
     CardTypes card_types{};
     ModelCards cards{};
+    /// Per-draw detail decisions, read by the model and shadow workers.
+    std::vector<UnitDetail> unit_detail{};
+    bool unit_detail_active{};
+    /// Water generated once before the detail budget, then joined in its
+    /// usual place after translucent units. Bounded by the water passes.
+    std::vector<renderer_live_gpu::Vertex> detail_water{};
 };
 
 /// Read-only frame inputs. The planner owns all model and sprite references.
@@ -529,6 +548,12 @@ struct Inputs {
     uint32_t clip_width{};
     uint32_t clip_height{};
     std::array<uint8_t, full::team_colour_players> team_colors{};
+    /// Projected models no larger than this many pixels become owner
+    /// coloured markers. Zero preserves the full-model policy. When
+    /// enabled, the same markers also bound crowded scenes to the GPU's
+    /// existing surface and shadow index limits.
+    float unit_marker_pixels{};
+    std::array<std::array<uint8_t, 3>, full::team_colour_players> owner_colors{};
     /// Painted map rectangle needed by the camera, clipped to the map.
     int32_t left{};
     int32_t top{};

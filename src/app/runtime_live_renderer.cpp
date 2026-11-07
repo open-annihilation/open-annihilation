@@ -22,6 +22,7 @@
 #include "oa/platform/job_pool.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 
 #include <algorithm>
 #include <array>
@@ -880,6 +881,15 @@ bool Runtime::render_live_match_surface() {
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
         inputs.clip_height = match_world_cpu_.height;
+        inputs.unit_marker_pixels = 5;
+        for (uint8_t owner = 0; owner < inputs.owner_colors.size(); ++owner) {
+            const auto index = oa::ui::hud::player_dot_color(match_->state(), owner);
+            std::copy_n(
+                match_palette_.begin() + index * palette_entry_bytes,
+                3,
+                inputs.owner_colors[owner].begin()
+            );
+        }
         inputs.camera_x = models.renderer.camera_x;
         inputs.camera_y = models.renderer.camera_y;
         std::copy_n(
