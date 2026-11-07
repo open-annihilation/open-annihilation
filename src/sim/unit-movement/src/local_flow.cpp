@@ -153,6 +153,11 @@ bool local_flow_head_reached(const Unit& unit, const LocalFlowHead& head) noexce
     return (leg_x != 0 || leg_z != 0) && dx * leg_x + dz * leg_z >= 0;
 }
 
+bool local_flow_completed_last_tick(const LocalFlowHead& head, uint32_t tick) noexcept {
+    return !head.active && head.count == local_flow_completed_count &&
+           uint32_t(tick - head.tick) == 1;
+}
+
 void record_local_flow_block(LocalFlowHead& head, bool blocked) noexcept {
     constexpr uint8_t maximum_blocked_ticks = local_flow_retry_ticks + 1;
     head.blocked_ticks =

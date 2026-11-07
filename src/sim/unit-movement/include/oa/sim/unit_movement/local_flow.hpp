@@ -41,7 +41,7 @@ struct LocalFlowProbe {
     /// Last progress ticks captured before any unit moves this tick, indexed by unit id.
     /// An empty span uses the caller's current movement clock.
     std::span<const uint32_t> progress_at_tick_start{};
-    /// Leg completed on this tick for the same goal; null supplies no history.
+    /// Leg completed on this or the preceding tick for the same goal; null supplies no history.
     const LocalFlowHead* previous_head{};
     /// Whether a mature retry may undo a completed leg to explore a passing place.
     bool allow_reverse{true};
@@ -59,10 +59,11 @@ struct LocalFlowDecision {
 ///
 /// Its three points have the same origin, target and braking-point meaning as
 /// a ground route. The original navigator still owns the mission and arrival.
+/// An inactive head with two points retains a just-completed leg for one tick.
 struct LocalFlowHead {
     std::array<std::array<int16_t, 2>, 3> points{};
     uint64_t goal_key{}; ///< stable identity of the original goal's geometry
-    uint32_t tick{};     ///< tick on which this effective head was used
+    uint32_t tick{};     ///< tick used while active, or the completion tick while inactive
     uint8_t count{};     ///< zero brakes; two or three points steer
     bool active{};
     bool mobile_blocked{};   ///< previous route probe found moving traffic
@@ -75,6 +76,9 @@ inline constexpr size_t local_flow_head_bytes = 27;
 /// Number of consecutive blocked ticks before the navigator retries the route.
 inline constexpr uint8_t local_flow_retry_ticks = 30;
 
+/// Point count marking a completed, inactive local leg for one following tick.
+inline constexpr uint8_t local_flow_completed_count = 2;
+
 /// Tests whether a temporary steering waypoint has been reached or passed.
 ///
 /// A unit within five world units has arrived. Crossing the target's forward
@@ -86,6 +90,17 @@ inline constexpr uint8_t local_flow_retry_ticks = 30;
 /// @param head retained local steering head
 /// @return whether the original route should resume
 [[nodiscard]] bool local_flow_head_reached(const Unit& unit, const LocalFlowHead& head) noexcept;
+
+/// Tests whether an inactive local leg completed on the preceding tick.
+///
+/// The caller must also check the original goal's identity. Replaced or
+/// expired active heads supply no history.
+///
+/// @param head retained local traffic state
+/// @param tick current simulation tick
+/// @return whether the completed leg remains recent enough for local avoidance
+[[nodiscard]] bool
+local_flow_completed_last_tick(const LocalFlowHead& head, uint32_t tick) noexcept;
 
 /// Records an occupancy result independently of subpixel motion within a cell.
 ///

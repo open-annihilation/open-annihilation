@@ -170,10 +170,10 @@ void TickHost::movement_tick(oa::Unit& record) {
             const bool had_head = flow_head->active;
             const auto previous_points = flow_head->points;
             const auto previous_count = flow_head->count;
-            flow_head->tick = match.simulation_.tick;
             if (!g.navigation.goal || g.navigation.count < 2 ||
                 !sim::ground_orders::route_present(g.navigation)) {
                 flow_head->active = false;
+                flow_head->count = 0;
                 flow_head->mobile_blocked = false;
             } else {
                 const auto goal_key = local_flow_goal_key(*g.navigation.goal);
@@ -183,9 +183,19 @@ void TickHost::movement_tick(oa::Unit& record) {
                 const bool completed_head =
                     flow_head->active && flow_head->goal_key == goal_key &&
                     sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head);
+                // One tick on the original route can separate two local choices.
+                const bool recent_completion = flow_head->goal_key == goal_key &&
+                                               sim::unit_movement::local_flow_completed_last_tick(
+                                                   *flow_head, match.simulation_.tick
+                                               );
                 if (flow_head->active &&
-                    (flow_head->goal_key != goal_key || completed_head || recover))
+                    (flow_head->goal_key != goal_key || completed_head || recover)) {
                     flow_head->active = false;
+                    flow_head->count =
+                        completed_head ? sim::unit_movement::local_flow_completed_count : 0;
+                    if (completed_head)
+                        flow_head->tick = match.simulation_.tick;
+                }
                 if (!flow_head->active &&
                     (flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks ||
                      recover)) {
@@ -206,7 +216,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
                     probe.allow_reverse = recover;
-                    if (completed_head)
+                    if (completed_head || recent_completion)
                         probe.previous_head = flow_head;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&
                         match.enhanced_->local_flow_progress_snapshot_tick ==
@@ -315,6 +325,8 @@ void TickHost::movement_tick(oa::Unit& record) {
                     }
                 }
             }
+            if (flow_head->active)
+                flow_head->tick = match.simulation_.tick;
             if (had_head != flow_head->active ||
                 (flow_head->active &&
                  (previous_points != flow_head->points || previous_count != flow_head->count)))

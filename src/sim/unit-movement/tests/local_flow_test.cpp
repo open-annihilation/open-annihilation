@@ -620,6 +620,45 @@ void test_retained_head_save_bytes() {
     }
 }
 
+/// Keeps a completed leg through one tick and the unchanged saved-head format.
+void test_completed_head_history_is_bounded_and_restored() {
+    constexpr uint32_t completion_tick = 120;
+    std::array<LocalFlowHead, 1> heads{};
+    auto& completed = heads[0];
+    completed.points = {{{320, 528}, {320, 512}, {960, 528}}};
+    completed.goal_key = 0x0123456789abcdef;
+    completed.tick = completion_tick;
+    completed.count = local_flow_completed_count;
+    completed.mobile_blocked = true;
+    OA_CHECK(!local_flow_completed_last_tick(completed, completion_tick));
+    OA_CHECK(local_flow_completed_last_tick(completed, completion_tick + 1));
+    OA_CHECK(!local_flow_completed_last_tick(completed, completion_tick + 2));
+    OA_CHECK(!local_flow_completed_last_tick(completed, completion_tick - 1));
+
+    std::array<uint8_t, local_flow_head_bytes> bytes{};
+    OA_CHECK(write_local_flow_heads(heads, bytes));
+    std::array<LocalFlowHead, 1> restored{};
+    OA_CHECK(read_local_flow_heads(restored, bytes));
+    OA_CHECK(restored[0].points == completed.points);
+    OA_CHECK(restored[0].goal_key == completed.goal_key);
+    OA_CHECK(local_flow_completed_last_tick(restored[0], completion_tick + 1));
+    std::array<uint8_t, local_flow_head_bytes> round_trip{};
+    OA_CHECK(write_local_flow_heads(restored, round_trip));
+    OA_CHECK(bytes == round_trip);
+
+    completed.active = true;
+    OA_CHECK(!local_flow_completed_last_tick(completed, completion_tick + 1));
+    completed.active = false;
+    for (const uint8_t count : {uint8_t{0}, uint8_t{3}}) {
+        completed.count = count;
+        OA_CHECK(!local_flow_completed_last_tick(completed, completion_tick + 1));
+    }
+    completed.count = local_flow_completed_count;
+    completed.tick = std::numeric_limits<uint32_t>::max();
+    OA_CHECK(local_flow_completed_last_tick(completed, 0));
+    OA_CHECK(!local_flow_completed_last_tick(completed, 1));
+}
+
 void test_counterflow_crossing_and_choke() {
     for (const auto traffic :
          {Traffic::counterflow, Traffic::crossing, Traffic::choke, Traffic::mixed_footprints}) {
@@ -646,6 +685,7 @@ int main() {
     test_collision_veto_and_last_progress();
     test_blocked_boundary_creep_cannot_defer_forever();
     test_retained_head_save_bytes();
+    test_completed_head_history_is_bounded_and_restored();
     test_counterflow_crossing_and_choke();
     return oa::test::check_exit_status();
 }
