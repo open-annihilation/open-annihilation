@@ -999,7 +999,6 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
     const uint32_t slots = world.record.unit_slot_count;
     if (presentation.units.size() < slots)
         presentation.units.resize(slots);
-    std::vector<int32_t> turns;
     for (uint32_t slot = 1; slot < slots; ++slot) {
         auto& motion = presentation.units[slot];
         const oa::Unit& record = world.record.units[slot];
@@ -1030,9 +1029,17 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
             }
             continue;
         }
-        piece_turn_words(*runtime->instance, turns);
+        if (motion.seen && motion.instance_generation == runtime->instance_generation &&
+            motion.tick == tick)
+            continue;
+        piece_turn_words(*runtime->instance, presentation.piece_turns);
         observe_unit(
-            motion, tick, runtime->instance_generation, record, runtime->instance->model(), turns
+            motion,
+            tick,
+            runtime->instance_generation,
+            record,
+            runtime->instance->model(),
+            presentation.piece_turns
         );
     }
     observe_shots(presentation.shots, tick, match.projectiles());

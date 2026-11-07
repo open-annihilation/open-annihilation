@@ -65,6 +65,8 @@ struct MatchPresentation {
     /// A slot's model instance did not fit its unit (instance_fits_unit) and
     /// the log has said so: it says so once a match.
     bool misfit_logged{};
+    /// Reused while taking each unit's piece turns; three words per piece.
+    std::vector<int32_t> piece_turns;
     ShotFlight shots{};
     /// Each live projectile's pose for the frame being drawn, by pool index.
     std::vector<ShotPose> presented_shots;

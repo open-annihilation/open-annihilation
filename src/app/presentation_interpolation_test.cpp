@@ -236,6 +236,12 @@ void test_unit_motion() {
     CHECK(motion.seen && !motion.continued && motion.state.cache.draws == 0);
     CHECK(motion.instance_generation == 2);
 
+    // Replacing an instance without advancing the tick still takes its first pose.
+    motion.state.cache.draws = 5;
+    oa::app::observe_unit(motion, unseen + 2, 3, unit_at(301, 300, 0), instance);
+    CHECK(motion.seen && !motion.continued && motion.state.cache.draws == 0);
+    CHECK(motion.instance_generation == 3 && motion.current.position.x == 301 * unit_fixed);
+
     motion.instance = instance;
     CHECK(!motion.instance.pieces().empty());
     oa::app::forget_unit(motion);
