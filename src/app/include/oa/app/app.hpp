@@ -371,6 +371,8 @@ struct Options {
     std::size_t benchmark_units{128};
     /// Simulation ticks run before measurements begin.
     std::size_t benchmark_warmup{30};
+    /// Explicit Enhanced rules version for a benchmark; zero uses the selected mode.
+    uint32_t benchmark_rules_version{};
     /// Workload: idle, march or combat.
     std::string benchmark_scenario{"combat"};
     /// Map selected explicitly instead of the remembered skirmish choice.

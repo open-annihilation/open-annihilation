@@ -44,6 +44,35 @@ namespace {
 
 using BenchClock = std::chrono::steady_clock;
 
+/// Charges each existing simulation profile mark to its tick's wall time.
+struct BattleTickProfile {
+    oa::sim::match_runtime::Match::ProfileHook previous{};
+    std::array<uint64_t, OA_PROFILE_CATEGORY_COUNT> elapsed{};
+    BenchClock::time_point last{};
+
+    void begin() {
+        elapsed.fill(0);
+        last = BenchClock::now();
+    }
+
+    void mark(int32_t category) {
+        const auto now = BenchClock::now();
+        if (category >= 0 && category < OA_PROFILE_CATEGORY_COUNT)
+            elapsed[static_cast<std::size_t>(category)] +=
+                static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(now - last).count()
+                );
+        last = now;
+    }
+
+    static void sample(void* context, int32_t category) {
+        auto& self = *static_cast<BattleTickProfile*>(context);
+        self.mark(category);
+        if (self.previous.mark != nullptr)
+            self.previous.mark(self.previous.context, category);
+    }
+};
+
 [[nodiscard]] int64_t elapsed_ns(BenchClock::time_point since) {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(BenchClock::now() - since).count();
 }
@@ -1563,6 +1592,13 @@ void Runtime::run_battle_benchmark() {
         report.projectile_allocation_failures = match_->projectile_usage().allocation_failures;
     };
     try {
+        if (options_.benchmark_rules_version != 0) {
+            if (!report.enhanced_mode)
+                throw std::runtime_error("a benchmark rules version requires Enhanced Mode");
+            if (!hold_enhanced_rules_once(options_.benchmark_rules_version))
+                throw std::runtime_error("the benchmark Enhanced rules version is unsupported");
+            report.enhanced_version = options_.benchmark_rules_version;
+        }
         const auto capacity = report.enhanced_mode
                                   ? oa::data::limits::highest_enhanced_units_per_player
                                   : oa::data::limits::highest_units_per_player;
@@ -1730,15 +1766,33 @@ void Runtime::run_battle_benchmark() {
                      : report.projectile_high_water != 0 || report.damaged_unit_ticks != 0);
         };
         note_activity(false);
+        BattleTickProfile tick_profile;
+        tick_profile.previous = match_->profile;
+        match_->profile = {&tick_profile, BattleTickProfile::sample};
+        struct RestoreProfile {
+            sim::match_runtime::Match& match;
+            BattleTickProfile& profile;
+            ~RestoreProfile() { match.profile = profile.previous; }
+        } restore_profile{*match_, tick_profile};
+        std::array<std::vector<uint64_t>, OA_PROFILE_CATEGORY_COUNT> phase_samples;
+        for (auto& phase : phase_samples)
+            phase.reserve(report.measured_ticks);
         for (std::size_t tick = 0; tick < report.warmup_ticks; ++tick) {
+            tick_profile.begin();
             step_match_simulation();
             ++report.successful_warmup_ticks;
             note_activity(true);
         }
+        std::printf("battle benchmark: measuring %zu units for %zu ticks\n", census(), report.measured_ticks);
+        std::fflush(stdout);
         for (std::size_t tick = 0; tick < report.measured_ticks; ++tick) {
             const auto started = BenchClock::now();
+            tick_profile.begin();
             step_match_simulation();
+            tick_profile.mark(OA_PROFILE_MISC);
             samples.push_back(static_cast<uint64_t>(elapsed_ns(started)));
+            for (std::size_t phase = 0; phase < phase_samples.size(); ++phase)
+                phase_samples[phase].push_back(tick_profile.elapsed[phase]);
             ++report.successful_ticks;
             note_activity(true);
         }
@@ -1752,6 +1806,13 @@ void Runtime::run_battle_benchmark() {
         );
         report.world_digest = digest.data();
         report.ticks = benchmark::summarize(samples);
+        constexpr std::array<std::string_view, OA_PROFILE_CATEGORY_COUNT> phase_names{
+            "sync", "units", "logic", "render_static", "render_stuff", "render_fog", "effects", "projectiles", "misc"
+        };
+        for (std::size_t phase = 0; phase < phase_samples.size(); ++phase)
+            report.simulation_phases.push_back(
+                {std::string(phase_names[phase]), benchmark::summarize(phase_samples[phase])}
+            );
         note_work();
         report.completed = true;
         report.error.clear();
