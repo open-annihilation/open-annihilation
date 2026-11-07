@@ -48,6 +48,7 @@ import check_native_automation as automation
 # layer a cross build runs its tests through; empty runs it directly.
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 ADDRESS = "127.0.0.1"
+HOST_BIND_ADDRESS = "0.0.0.0"
 # Frames a joiner runs before it ends by itself: enough to join and exchange
 # presence many times over.
 JOIN_FRAMES = "900"
@@ -102,9 +103,9 @@ class RoomMutatorsFailure(Exception):
 
 
 def free_port():
-    """Returns a UDP port of 127.0.0.1 that nothing holds now."""
+    """Returns a free UDP port using the native host's wildcard bind."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-        probe.bind((ADDRESS, 0))
+        probe.bind((HOST_BIND_ADDRESS, 0))
         return probe.getsockname()[1]
 
 
