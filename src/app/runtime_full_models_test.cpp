@@ -1434,6 +1434,198 @@ void test_repeated_draw_storage() {
     );
 }
 
+/// Keeps a valid model plan for deferred emission beyond the planner's viewport.
+void retain_planned_body(Scene& scene) {
+    OA_CHECK(scene.list.models.size() == 1);
+    if (scene.list.models.size() == 1)
+        scene.list.models.front().plan.linked.drawn = true;
+}
+
+/// Executes the normal model stages through an explicitly positioned view.
+CardPicture raster_body_view(Card& card, const Scene& scene, const full::SceneView& view) {
+    card.canvas.clear();
+    card.frame.reset();
+    card.stage.emit_frame(scene.inputs(), view, card.executor, card.frame);
+    OA_CHECK(card.stage.upload(card.executor));
+    OA_CHECK(card::check_frame(card.frame).empty());
+    OA_CHECK(card.executor.execute(card.frame, card.canvas.target));
+    return card.canvas.read();
+}
+
+/// Rejects fully offscreen planned bodies before building meshes or body geometry.
+void test_offscreen_body_emission() {
+    constexpr int32_t outside = 32;
+    for (const auto& [x, z] :
+         {std::pair{-outside, unit_z},
+          std::pair{frame_width + outside, unit_z},
+          std::pair{unit_x, -outside},
+          std::pair{unit_x, frame_height + outside}}) {
+        Scene scene;
+        auto& actor = scene.add_unit(square_model(), 1, x, z);
+        Card card(scene);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        retain_planned_body(scene);
+        const auto picture = card.raster(scene);
+        OA_CHECK(card.stage.counts().units == 0);
+        OA_CHECK(card.stage.counts().meshes_built == 0);
+        OA_CHECK(card.frame.vertices.empty() && card.frame.indices.empty());
+        OA_CHECK(pixels_with_alpha(picture, 0) == picture.width * picture.height);
+    }
+}
+
+/// Draws a currently animated piece whose unit anchor and static model are offscreen.
+void test_visible_animated_body_beyond_anchor() {
+    constexpr int32_t anchor_x = frame_width + 64;
+    Scene scene;
+    auto& actor = scene.add_unit(square_model(), 1, anchor_x, unit_z);
+    actor.instance.pieces()[0].translation.x = (unit_x - anchor_x) * unit;
+    actor.instance.pieces()[0].flags &= static_cast<uint16_t>(~piece_cached);
+    actor.instance.rebuild_transforms();
+    Card card(scene);
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(actor);
+    retain_planned_body(scene);
+    const auto picture = card.raster(scene);
+    OA_CHECK(card.stage.counts().units == 1);
+    OA_CHECK(!card.frame.vertices.empty());
+    OA_CHECK(picture.at(unit_x, unit_z)[0] == ink);
+    OA_CHECK(picture.at(unit_x, unit_z)[3] == 255);
+    OA_CHECK(pixels_with_alpha(picture, 255) == 4 * half_side * half_side);
+}
+
+/// Preserves a visible carried body when its carrier's own points leave the view.
+void test_visible_cargo_beyond_carrier() {
+    constexpr int32_t outside_x = -32;
+    constexpr int32_t cargo_height = 6;
+    constexpr int32_t cargo_offset = 4;
+    Scene scene;
+    auto& carrier = scene.add_unit(square_model(), 1, unit_x, unit_z);
+    carrier.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    auto& cargo = scene.add_unit(square_model(second_ink), 2, unit_x + cargo_offset, unit_z);
+    cargo.unit->position.y = cargo_height * unit;
+    cargo.unit->attach_parent = oa::oa_ref_from_index(1);
+    carrier.unit->attach_first_child = oa::oa_ref_from_index(2);
+    Card card(scene);
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(carrier);
+    OA_CHECK(scene.list.models.front().plan.model.carried.size() == 1);
+    carrier.unit->position.x = outside_x * unit;
+    retain_planned_body(scene);
+    const auto picture = card.raster(scene);
+    OA_CHECK(card.stage.counts().units == 1);
+    OA_CHECK(card.stage.counts().carried == 1);
+    OA_CHECK(picture.at(unit_x + cargo_offset, unit_z - cargo_height / 2)[0] == second_ink);
+    OA_CHECK(picture.at(unit_x + cargo_offset, unit_z - cargo_height / 2)[3] == 255);
+}
+
+/// Retains boundary geometry through fractional zoom, view offset and camera movement.
+void test_body_cull_view_boundaries() {
+    constexpr float zoom = 0.5F;
+    constexpr int32_t moved_anchor_x = 240, moved_anchor_z = 180;
+    constexpr int32_t camera_x = 200, camera_z = 100;
+    constexpr float origin_x = 3, origin_y = 4;
+    constexpr uint32_t moved_sample_x = 23, moved_sample_y = 44, edge_sample_y = 40;
+    for (const bool camera_moved : {false, true}) {
+        Scene scene;
+        auto& actor = scene.add_unit(
+            square_model(),
+            1,
+            camera_moved ? moved_anchor_x : -half_side + 2,
+            camera_moved ? moved_anchor_z : unit_z
+        );
+        actor.unit->position.x += unit / 2;
+        Card card(scene, zoom);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        retain_planned_body(scene);
+        full::SceneView view;
+        view.zoom = zoom;
+        view.width = card.canvas.width;
+        view.height = card.canvas.height;
+        view.offset.x = 0.5;
+        view.offset.y = 0.25;
+        if (camera_moved) {
+            view.camera_x = camera_x;
+            view.camera_y = camera_z;
+            view.origin_x = origin_x;
+            view.origin_y = origin_y;
+        }
+        const auto picture = raster_body_view(card, scene, view);
+        OA_CHECK(card.stage.counts().units == 1);
+        OA_CHECK(!card.frame.vertices.empty());
+        const uint32_t sample_x = camera_moved ? moved_sample_x : 0;
+        const uint32_t sample_y = camera_moved ? moved_sample_y : edge_sample_y;
+        OA_CHECK(picture.at(sample_x, sample_y)[0] == ink);
+        OA_CHECK(picture.at(sample_x, sample_y)[3] != 0);
+    }
+}
+
+/// Keeps an offscreen body's ground shadow when its projected silhouette remains visible.
+void test_shadow_from_offscreen_body() {
+    constexpr int32_t elevated = 40;
+    constexpr int32_t near_edge = 4;
+    constexpr uint16_t shadows = draw::graphics_shadows | draw::graphics_vehicle_shadows;
+    for (const bool new_shadows : {false, true}) {
+        Scene scene;
+        scene.new_unit_shadows = new_shadows;
+        auto& actor = scene.add_unit(square_model(), 1, unit_x, unit_z);
+        actor.unit->position.y = elevated * unit;
+        Card card(scene);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, shadows);
+        scene.plan_unit(actor);
+        actor.unit->position.z = near_edge * unit;
+        retain_planned_body(scene);
+        const auto picture = card.raster(scene);
+        OA_CHECK(card.stage.counts().units == 0);
+        OA_CHECK(card.stage.counts().shadows != 0);
+        OA_CHECK(!card.frame.vertices.empty());
+        const auto* shadow = picture.at(unit_x + draw::shadow_offset_x, near_edge);
+        OA_CHECK(shadow[3] >= 126 && shadow[3] <= 129);
+        OA_CHECK(pixels_with_alpha(picture, 255) == 0);
+    }
+}
+
+/// Keeps offscreen floaters' physical heights for reflections and uncertain wet geometry.
+void test_offscreen_reflection_and_shimmer_geometry() {
+    constexpr int32_t elevated = 48;
+    constexpr int32_t near_edge = 4;
+    for (const bool reflection : {false, true}) {
+        Scene scene;
+        auto& actor = scene.add_unit(square_model(), 1, unit_x, near_edge);
+        if (reflection) {
+            actor.unit->position.y = elevated * unit;
+            scene.world->unit_defs[1].flags |= OA_UNIT_DEF_FLAG_FLOATER;
+        } else {
+            actor.unit->position.x = (frame_width + 32) * unit;
+            scene.world->game.sea_level = 10;
+            scene.water_shimmer = 1;
+        }
+        std::vector<float> heights;
+        if (reflection)
+            scene.vertex_heights = &heights;
+        Card card(scene);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        retain_planned_body(scene);
+        std::ignore = card.raster(scene);
+        OA_CHECK(card.stage.counts().units == 1);
+        OA_CHECK(!card.frame.vertices.empty());
+        if (reflection) {
+            OA_CHECK(!heights.empty());
+            OA_CHECK(std::any_of(heights.begin(), heights.end(), [](float height) {
+                return std::isfinite(height) && height == elevated;
+            }));
+        }
+    }
+}
+
 // A square wound away from the camera draws nothing on either side.
 void test_back_face() {
     Scene scene;
@@ -3514,6 +3706,12 @@ int main(int argc, char** argv) {
         test_plane_order_memory_bound();
         test_square();
         test_repeated_draw_storage();
+        test_offscreen_body_emission();
+        test_visible_animated_body_beyond_anchor();
+        test_visible_cargo_beyond_carrier();
+        test_body_cull_view_boundaries();
+        test_shadow_from_offscreen_body();
+        test_offscreen_reflection_and_shimmer_geometry();
         test_back_face();
         test_textured();
         test_textured_trapezoid();
