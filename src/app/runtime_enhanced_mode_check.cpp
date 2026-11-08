@@ -76,7 +76,10 @@ void Runtime::check_enhanced_mode() {
          {mode::capacity_version,
           mode::flow_version,
           mode::regional_flow_version,
-          mode::swept_ground_version}) {
+          mode::swept_ground_version,
+          mode::corridor_flow_version}) {
+        if (previous == mode::current_version)
+            continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
         require(enhanced_mode_version(*this) == previous, "an earlier preset was upgraded");
         require(simulation_hash(*this) != enhanced_hash, "different presets share an identity");
@@ -377,7 +380,10 @@ void Runtime::check_enhanced_mode() {
          {mode::capacity_version,
           mode::flow_version,
           mode::regional_flow_version,
-          mode::swept_ground_version}) {
+          mode::swept_ground_version,
+          mode::corridor_flow_version}) {
+        if (previous == mode::current_version)
+            continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
         bootstrap_match(
             {.units_per_player = 10'000, .place_commanders = false, .seat_roster = true}
