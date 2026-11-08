@@ -1702,6 +1702,18 @@ class Emitter {
         float origin_y{};
     };
 
+    /// Keeps any body whose current placed pieces can reach the canvas.
+    ///
+    /// Shadows are emitted separately; reflecting hulls retain their body
+    /// geometry even when its direct projection lies outside the canvas.
+    /// @param drawn the complete linked draw
+    /// @param model the draw's resolved unit record and current piece transforms
+    /// @param surface the body's target and scissor
+    /// @return true for possible visibility or a context that cannot be bounded here
+    [[nodiscard]] bool body_visible(
+        const ModelDraw& drawn, const draw::ModelRef& model, const Canvas& surface
+    ) const noexcept;
+
     /// Returns the battlefield as the bodies draw into it.
     [[nodiscard]] Canvas battlefield() const noexcept {
         return {view_.target, true, scissor_, origin_x_, origin_y_};
@@ -3407,6 +3419,88 @@ void Emitter::emit_silhouettes(
 // ---------------------------------------------------------------------------
 // The kinds
 
+bool Emitter::body_visible(
+    const ModelDraw& drawn, const draw::ModelRef& model, const Canvas& surface
+) const noexcept {
+    if (!surface.scissored || surface.scissor.width <= 0 || surface.scissor.height <= 0 ||
+        !(scale_ > 0) || !std::isfinite(scale_) ||
+        (in_.vertex_heights && (def_flags(model) & OA_UNIT_DEF_FLAG_FLOATER) != 0))
+        return true;
+    int32_t left = std::numeric_limits<int32_t>::max(), top = left;
+    int32_t right = std::numeric_limits<int32_t>::lowest(), bottom = right;
+    bool any{}, shimmer{};
+    const auto flat = [&](const Unit& unit, int32_t base) {
+        return Placement{
+            true,
+            0,
+            0,
+            0,
+            wrap_sub(unit.position.x, camera_x_),
+            wrap_sub(unit.position.z, camera_z_),
+            unit.position.y,
+            base
+        };
+    };
+    const auto include = [&](const draw::ModelRef& part, const Placement& image) {
+        const auto placed_flat = flat(*part.unit, vertex_depth_base(part));
+        for (const auto& piece : part.instance->pieces()) {
+            if ((piece.flags & piece_visible) == 0)
+                continue;
+            for (const auto& point : piece.transformed_vertices) {
+                if (in_.water_shimmer > 0 &&
+                    point.y / 65536.0F + part.unit->position.y / 65536.0F < in_.water_sea_level)
+                    shimmer = true;
+                // Cached and moving pieces use different whole-pixel
+                // projections. Their union bounds either path and its cuts.
+                for (const auto& placement : {image, placed_flat}) {
+                    const auto placed = place_vertex(point, placement);
+                    left = std::min(left, placed.x);
+                    top = std::min(top, placed.y);
+                    right = std::max(right, placed.x);
+                    bottom = std::max(bottom, placed.y);
+                    any = true;
+                }
+            }
+        }
+    };
+    const auto& unit = *model.unit;
+    const auto x = hi(wrap_sub(unit.position.x, camera_x_));
+    const auto y = hi(wrap_sub(unit.position.z, camera_z_)) - (hi(unit.position.y) >> 1);
+    include(model, {false, x, y, 0, 0, 0, 0, vertex_depth_base(model)});
+    for (const auto& carried : drawn.plan.model.carried) {
+        const auto& child = carried.model;
+        if (!child.instance || !child.unit)
+            continue;
+        const auto dx = wrap_sub(child.unit->position.x, unit.position.x);
+        const auto dy = wrap_sub(child.unit->position.y, unit.position.y);
+        const auto dz = wrap_sub(child.unit->position.z, unit.position.z);
+        include(
+            child,
+            {false,
+             x + hi(dx),
+             y + hi(dz) - (hi(dy) >> 1),
+             hi(dy),
+             0,
+             0,
+             0,
+             vertex_depth_base(child)}
+        );
+    }
+    if (!any || shimmer)
+        return true;
+    // Outlines can extend a game pixel beyond a face, and below zoom one
+    // occupy at least one target pixel. Leave room on both sides of an edge.
+    constexpr float margin_pixels = 2.0F;
+    const float margin = margin_pixels * std::max(1.0F, scale_);
+    const float clip_left = float(surface.scissor.x), clip_top = float(surface.scissor.y);
+    const float clip_right = clip_left + float(surface.scissor.width);
+    const float clip_bottom = clip_top + float(surface.scissor.height);
+    return surface.origin_x + float(right) * scale_ + margin >= clip_left &&
+           surface.origin_y + float(bottom) * scale_ + margin >= clip_top &&
+           surface.origin_x + float(left) * scale_ - margin <= clip_right &&
+           surface.origin_y + float(top) * scale_ - margin <= clip_bottom;
+}
+
 void Emitter::draw_model(const ModelDraw& drawn) {
     // A feature draws only over the map the view shows.
     if (drawn.on_map && !map_shown())
@@ -3420,6 +3514,8 @@ void Emitter::draw_model(const ModelDraw& drawn) {
         return;
     const draw::SupersampledUnitPlan& plan = drawn.plan;
     if (!plan.linked.drawn)
+        return;
+    if (!body_visible(drawn, model, canvas))
         return;
     const gw::ModelMesh* mesh = mesh_of(model);
     if (mesh == nullptr)
