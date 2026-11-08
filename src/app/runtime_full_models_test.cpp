@@ -1534,7 +1534,7 @@ void test_body_cull_view_boundaries() {
         auto& actor = scene.add_unit(
             square_model(),
             1,
-            camera_moved ? moved_anchor_x : -half_side + 2,
+            camera_moved ? moved_anchor_x : -half_side + 4,
             camera_moved ? moved_anchor_z : unit_z
         );
         actor.unit->position.x += unit / 2;
