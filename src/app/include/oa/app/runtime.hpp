@@ -14407,6 +14407,21 @@ class Runtime final : public menu::Host,
         const oa::sim::ground_orders::Point& point
     );
 
+    /// Repairs an already-resolved ground formation under Enhanced rules.
+    /// Selection and stage orders share this repair without translating the
+    /// formation again or resolving the unit's command twice.
+    /// @param actor canonical unit receiving the order
+    /// @param order resolved order for this unit
+    /// @param formation precomputed group destination in signed 16.16 coordinates
+    /// @param point original command point in signed 16.16 coordinates
+    /// @return the repaired point, or the unchanged formation when the policy does not apply
+    oa::sim::ground_orders::Point group_order_destination(
+        const oa::Unit& actor,
+        oa::sim::gameplay_input::UnitOrder order,
+        const oa::FixedVec3& formation,
+        const oa::sim::ground_orders::Point& point
+    );
+
     /// Checks both interface types (Game.interface_type) through SDL input on a skirmish.
     ///
     /// First, one pointer shows at a time: the system's without the focus, the

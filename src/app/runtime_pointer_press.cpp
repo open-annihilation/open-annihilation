@@ -322,6 +322,13 @@ std::string_view Runtime::issue_selection_orders(
     const auto count = input::selection_orders(
         world, command, order_cursor_hooks(), orders.data(), static_cast<uint32_t>(orders.size())
     );
+    const auto& enhanced = match_->rules().setup.enhanced_mode;
+    if (ground && enhanced.enabled &&
+        enhanced.version == oa::data::enhanced_mode::battle_flow_version)
+        for (uint32_t index = 0; index < count; ++index)
+            orders[index].position = fixed_point(group_order_destination(
+                *orders[index].actor, orders[index].order, orders[index].position, *ground
+            ));
     std::optional<oa::sim::ground_orders::Point> target_point;
     if (bound != 0) {
         const auto& slot = match_->world().slots[bound];
@@ -569,31 +576,46 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
     if (!input::order_keeps_group_shape(order))
         return point;
     const auto formation = input::group_order_point(centre, *actor, position);
+    return group_order_destination(*actor, order, formation, point);
+}
+
+oa::sim::ground_orders::Point Runtime::group_order_destination(
+    const oa::Unit& actor,
+    input::UnitOrder order,
+    const oa::FixedVec3& formation,
+    const oa::sim::ground_orders::Point& point
+) {
+    if (!match_)
+        return order_point(formation);
+    const auto& world = match_->state();
+    const auto position = fixed_point(point);
     const auto& enhanced = match_->rules().setup.enhanced_mode;
     const bool ground_order = order == input::UnitOrder::move_ground ||
                               order == input::UnitOrder::patrol ||
                               order == input::UnitOrder::repair_patrol;
     const bool bounded_ground = ground_order && enhanced.enabled &&
                                 enhanced.version == oa::data::enhanced_mode::battle_flow_version;
+    if (!bounded_ground)
+        return order_point(formation);
     const auto bounded = bounded_group_order_point(
         formation,
         position,
-        *actor,
+        actor,
         world.game.map_pixel_width,
         world.game.map_pixel_height,
         bounded_ground
     );
-    if (!bounded_ground || actor->type_index >= offline_type_fields_.size())
+    if (actor.type_index >= offline_type_fields_.size())
         return order_point(bounded);
-    const auto* ground = std::as_const(*match_).ground_runtime(source);
-    const auto& fields = offline_type_fields_[actor->type_index];
+    const auto* ground = std::as_const(*match_).ground_runtime(actor.id);
+    const auto& fields = offline_type_fields_[actor.type_index];
     const auto* metadata = fields.runtime_metadata;
     if (ground == nullptr || metadata == nullptr || !fields.movement_class ||
         *fields.movement_class == 0 || ground->movement_class != *fields.movement_class)
         return order_point(bounded);
     oa::sim::spatial_state::CellClassifier movement{};
-    movement.footprint_x = actor->footprint_x;
-    movement.footprint_z = actor->footprint_z;
+    movement.footprint_x = actor.footprint_x;
+    movement.footprint_z = actor.footprint_z;
     movement.max_water_depth = metadata->max_water_depth;
     movement.min_water_depth = metadata->min_water_depth;
     movement.max_land_slope = metadata->max_slope;
@@ -603,7 +625,7 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
     return order_point(static_group_order_point(
         bounded,
         position,
-        *actor,
+        actor,
         order,
         movement,
         std::as_const(*match_).spatial(),

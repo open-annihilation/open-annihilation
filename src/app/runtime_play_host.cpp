@@ -1030,6 +1030,10 @@ struct PlayHostAccess {
             oa::sim::gameplay_input::GroupCentre centre{};
             const bool shaped =
                 request.kind == PlayOrderKind::move || request.kind == PlayOrderKind::patrol;
+            const auto& enhanced = app.match_->rules().setup.enhanced_mode;
+            const bool repair_formation =
+                enhanced.enabled &&
+                enhanced.version == oa::data::enhanced_mode::battle_flow_version;
             const auto& spawned = app.match_->world();
             if (shaped) {
                 for (uint16_t id : ids)
@@ -1042,6 +1046,20 @@ struct PlayHostAccess {
                         centre, spawned.slots[id].record, asked
                     );
                     destination = point_of(shifted);
+                    if (repair_formation) {
+                        const auto& actor = spawned.slots[id].record;
+                        const auto* definition =
+                            oa::world_unit_def_of(&app.match_->state(), &actor);
+                        if (definition && (definition->flags & OA_UNIT_DEF_FLAG_CAN_FLY) == 0) {
+                            using Order = oa::sim::gameplay_input::UnitOrder;
+                            const auto order =
+                                request.kind == PlayOrderKind::move ? Order::move_ground
+                                : (definition->abilities & OA_UNIT_DEF_ABILITY_CAN_REPAIR) != 0
+                                    ? Order::repair_patrol
+                                    : Order::patrol;
+                            destination = app.group_order_destination(actor, order, shifted, raw);
+                        }
+                    }
                 }
                 if (const std::string why = give_one(app, id, request, destination, product);
                     !why.empty())
