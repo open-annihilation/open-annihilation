@@ -39,6 +39,45 @@ struct TerrainMaterial {
     uint64_t drawn{}; ///< the last terrain pass to draw it (Scene::terrain_passes)
 };
 
+/// One terrain tile a frame draws, and its nearest painted cell's depth.
+struct TileDemand {
+    uint64_t key{};
+    float nearest{};
+};
+
+/// The exact inputs of a terrain tile survey, beside its owned source bytes.
+struct TerrainDemandKey {
+    const formats::tnt::Map* map{};
+    std::array<uint32_t, 4> dimensions{}; ///< height and tile grids, across then down
+    std::array<int32_t, 4> crop{};
+    std::array<uint32_t, 4> depth{}; ///< exact bits of the projection's depth row
+    std::array<uint64_t, 3> float_control{};
+
+    /// Compares the survey's scalar sources exactly.
+    /// @param other the other survey's scalar sources
+    /// @return true when every scalar matches
+    [[nodiscard]] bool operator==(const TerrainDemandKey& other) const = default;
+};
+
+/// Retains one tile survey only while its complete source still matches.
+struct TerrainDemandCache {
+    /// The cache and its owned buffers retain at most four MiB.
+    static constexpr std::size_t storage_limit = 4U * 1024U * 1024U;
+    TerrainDemandKey key{};
+    /// Heights, tile indices, then each tile origin's black-fog classification.
+    std::vector<uint8_t> source{};
+    std::vector<TileDemand> demand{};
+    bool valid{};
+
+    /// Returns the cache and its owned buffer capacities in bytes.
+    /// @return retained bytes, excluding allocator bookkeeping
+    [[nodiscard]] std::size_t storage_bytes() const noexcept {
+        return sizeof(*this) + source.capacity() + demand.capacity() * sizeof(TileDemand);
+    }
+};
+
+static_assert(sizeof(TerrainDemandCache) < TerrainDemandCache::storage_limit);
+
 /// What a frame's ground is drawn from, beside the tiles' art and their
 /// squares in the atlas: the map's heights and tiles, the crop, the
 /// picture, the detail and the fog. Two frames drawn from the same, with
@@ -455,6 +494,10 @@ struct Scene {
     /// them. None (no tiles) once a frame fits in the room it starts with.
     uint64_t terrain_room{};
     std::size_t terrain_room_tiles{};
+    /// A bounded exact survey, reused before any terrain or atlas decisions.
+    TerrainDemandCache terrain_demand_cache{};
+    /// Exact survey reuses during the current build, for focused checks.
+    std::size_t terrain_demand_hits{};
     /// A moving camera (Inputs::tiles_hold_while_moving) has packed the
     /// atlas since it was last emptied: a material that finds no room left
     /// in the rows takes a spare terrain square, or one the frame's ground

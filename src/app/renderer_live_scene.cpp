@@ -24,6 +24,7 @@
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <cmath>
 #include <optional>
 #include <span>
@@ -1430,12 +1431,6 @@ AtlasRect terrain_material(
     return rect;
 }
 
-/// One terrain tile a frame draws, and how near the camera it comes.
-struct TileDemand {
-    uint64_t key{};
-    float nearest{}; ///< the greatest depth of its cells: nearer is greater
-};
-
 /// The tile key of a painted tile position: its tile, and black for
 /// undiscovered ground, as the terrain pass packs it.
 uint64_t terrain_tile_key(const Inputs& in, int32_t tile_x, int32_t tile_y) {
@@ -1633,7 +1628,7 @@ std::optional<TerrainCrop> widened_crop(const Inputs& in, float margin) {
 /// @param in the frame
 /// @param room the atlas area the terrain may take
 /// @return each tile key once, nearest the camera first
-std::vector<TileDemand> terrain_demand(const Inputs& in, uint64_t room) {
+std::vector<TileDemand> measure_terrain_demand(const Inputs& in, uint64_t room) {
     const auto& map = *in.map;
     const auto crop = terrain_crop(in);
     std::vector<TileDemand> demand;
@@ -1693,6 +1688,151 @@ std::vector<TileDemand> terrain_demand(const Inputs& in, uint64_t room) {
         return a.nearest != b.nearest ? a.nearest > b.nearest : a.key < b.key;
     });
     return demand;
+}
+
+/// Returns the bounded bytes needed to retain the survey's exact sources.
+/// @param map the height and tile grids
+/// @return source bytes, or none when they exceed the retained storage limit
+std::optional<std::size_t> terrain_demand_source_bytes(const formats::tnt::Map& map) {
+    constexpr std::size_t room = TerrainDemandCache::storage_limit - sizeof(TerrainDemandCache);
+    const uint64_t heights = uint64_t{map.attribute_width} * map.attribute_height;
+    const uint64_t tiles = uint64_t{map.tile_width} * map.tile_height;
+    constexpr std::size_t tile_bytes = sizeof(uint16_t) + sizeof(uint8_t);
+    if (heights > room || tiles > (room - heights) / tile_bytes)
+        return std::nullopt;
+    return static_cast<std::size_t>(heights + tiles * tile_bytes);
+}
+
+/// Names every scalar that the survey's depth and source reads depend on.
+/// @param in the frame's map and projection
+/// @param crop the painted rectangle surveyed
+/// @return the scalar sources, with exact projection and rounding settings
+TerrainDemandKey terrain_demand_key(const Inputs& in, const TerrainCrop& crop) {
+    const auto& map = *in.map;
+    const auto control = base::float_precision::save_float_control();
+    return {
+        in.map,
+        {map.attribute_width, map.attribute_height, map.tile_width, map.tile_height},
+        {crop.left, crop.top, crop.right, crop.bottom},
+        {std::bit_cast<uint32_t>(in.clip_projection[8]),
+         std::bit_cast<uint32_t>(in.clip_projection[9]),
+         std::bit_cast<uint32_t>(in.clip_projection[10]),
+         std::bit_cast<uint32_t>(in.clip_projection[11])},
+        {control.older_unit, control.vector_unit, control.arm_unit}
+    };
+}
+
+/// Compares every owned height, tile and black-fog byte before a survey reuse.
+/// @param cache the retained survey and source bytes
+/// @param in the frame's current sources
+/// @param key the current scalar sources
+/// @param source_bytes the current source byte count
+/// @return true when the retained survey was measured from these exact sources
+bool terrain_demand_matches(
+    const TerrainDemandCache& cache,
+    const Inputs& in,
+    const TerrainDemandKey& key,
+    std::size_t source_bytes
+) {
+    if (!cache.valid || cache.key != key || cache.source.size() != source_bytes)
+        return false;
+    const auto& map = *in.map;
+    const auto heights = static_cast<std::size_t>(map.attribute_width) * map.attribute_height;
+    for (std::size_t cell = 0; cell < heights; ++cell)
+        if (cache.source[cell] != map.attributes[cell].height)
+            return false;
+    const auto tiles = static_cast<std::size_t>(map.tile_width) * map.tile_height;
+    const auto tile_bytes = tiles * sizeof(uint16_t);
+    if (std::memcmp(cache.source.data() + heights, map.tile_indices.data(), tile_bytes) != 0)
+        return false;
+    const auto* black = cache.source.data() + heights + tile_bytes;
+    if (!in.sight.mapping)
+        return std::all_of(black, black + tiles, [](uint8_t value) { return value == 0; });
+    for (uint32_t row = 0; row < map.tile_height; ++row)
+        for (uint32_t column = 0; column < map.tile_width; ++column) {
+            const auto now = fog_at(in.sight, column * tile_edge, row * tile_edge) == Fog::black;
+            if (black[static_cast<std::size_t>(row) * map.tile_width + column] != uint8_t(now))
+                return false;
+        }
+    return true;
+}
+
+/// Retains one exact survey when its complete owned storage fits the limit.
+/// @param[in,out] cache the bounded survey storage
+/// @param in the frame's current sources
+/// @param key the scalar sources measured
+/// @param source_bytes the current source byte count
+/// @param demand the measured tile keys and depths
+void remember_terrain_demand(
+    TerrainDemandCache& cache,
+    const Inputs& in,
+    const TerrainDemandKey& key,
+    std::size_t source_bytes,
+    std::span<const TileDemand> demand
+) {
+    constexpr std::size_t room = TerrainDemandCache::storage_limit - sizeof(TerrainDemandCache);
+    if (source_bytes > room || demand.size() > (room - source_bytes) / sizeof(TileDemand))
+        return;
+    // Release the old entry before allocating its replacement. The ordinary
+    // measured result stays with the caller even if the optional copy fails.
+    cache = {};
+    try {
+        cache.source.resize(source_bytes);
+        cache.demand.assign(demand.begin(), demand.end());
+        if (cache.storage_bytes() > TerrainDemandCache::storage_limit) {
+            cache = {};
+            return;
+        }
+        const auto& map = *in.map;
+        const auto heights = static_cast<std::size_t>(map.attribute_width) * map.attribute_height;
+        for (std::size_t cell = 0; cell < heights; ++cell)
+            cache.source[cell] = map.attributes[cell].height;
+        const auto tiles = static_cast<std::size_t>(map.tile_width) * map.tile_height;
+        const auto tile_bytes = tiles * sizeof(uint16_t);
+        std::memcpy(cache.source.data() + heights, map.tile_indices.data(), tile_bytes);
+        auto* black = cache.source.data() + heights + tile_bytes;
+        if (!in.sight.mapping)
+            std::fill_n(black, tiles, uint8_t{0});
+        else
+            for (uint32_t row = 0; row < map.tile_height; ++row)
+                for (uint32_t column = 0; column < map.tile_width; ++column)
+                    black[static_cast<std::size_t>(row) * map.tile_width + column] =
+                        fog_at(in.sight, column * tile_edge, row * tile_edge) == Fog::black;
+        cache.key = key;
+        cache.valid = true;
+    } catch (const std::bad_alloc&) {
+        cache = {};
+    }
+}
+
+/// Reuses a survey only after its exact sources have been compared afresh.
+/// @param in the frame's current sources
+/// @param[in,out] scene the retained survey and this build's hit counter
+/// @param room the atlas area available for terrain
+/// @param[out] measured the ordinary result when the retained survey cannot be reused
+/// @return tile keys and depths in the retained cache or measured result
+std::span<const TileDemand>
+terrain_demand(const Inputs& in, Scene& scene, uint64_t room, std::vector<TileDemand>& measured) {
+    const auto crop = terrain_crop(in);
+    if (crop.right <= crop.left || crop.bottom <= crop.top)
+        return {};
+    constexpr uint64_t full_area = uint64_t{full_terrain_square} * full_terrain_square;
+    const auto reach =
+        static_cast<uint64_t>((crop.right - crop.left) / tile_edge + 2) *
+        static_cast<uint64_t>((crop.bottom - crop.top + maximum_terrain_row_shift) / tile_edge + 2);
+    if (reach * full_area <= room)
+        return {};
+    const auto bytes = terrain_demand_source_bytes(*in.map);
+    const auto key = terrain_demand_key(in, crop);
+    auto& cache = scene.terrain_demand_cache;
+    if (bytes && terrain_demand_matches(cache, in, key, *bytes)) {
+        ++scene.terrain_demand_hits;
+        return cache.demand;
+    }
+    measured = measure_terrain_demand(in, room);
+    if (bytes)
+        remember_terrain_demand(cache, in, key, *bytes, measured);
+    return measured;
 }
 
 /// Chooses each surveyed tile's square so that the terrain fits the room:
@@ -8386,6 +8526,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
     update.regions.clear();
     scene.out_of_room = false;
     scene.frame_palette = nullptr;
+    scene.terrain_demand_hits = 0;
     try {
         if (inputs.map == nullptr || inputs.palette == nullptr || inputs.draws == nullptr ||
             inputs.map->attribute_width == 0 || inputs.map->attribute_height == 0)
@@ -8441,7 +8582,8 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             atlas_area -
             std::min(atlas_area, std::max(least_material_room, scene.material_area / 2 * 3));
         bench_timers::Span surveying(bench_timers::Stage::survey);
-        const auto demand = terrain_demand(inputs, starting_room);
+        std::vector<TileDemand> measured_demand;
+        const auto demand = terrain_demand(inputs, scene, starting_room, measured_demand);
         // A view whose terrain last had to halve its room, surveying as many
         // tiles, starts in the room it fitted (Scene::terrain_room) rather
         // than emptying the atlas twice more to find it again.
