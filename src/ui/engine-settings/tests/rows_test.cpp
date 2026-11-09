@@ -136,7 +136,7 @@ constexpr std::array<Expected, 130> kExpected{{
     {Setting::native_density, RowKind::toggle, "Native pixel density", 1, 1, 0, 0, 0, false, Lock::none, &Locks::native_density},
     {Setting::explosion_flash, RowKind::levels, "Explosion flash", 1, 1, 3, 50, 3, false, Lock::none, nullptr},
     {Setting::zoomed_out_units, RowKind::levels, "Zoomed out units", 1, 1, 3, 56, 2, false, Lock::none, nullptr},
-    {Setting::zoomed_out_after, RowKind::choice, "After zoom", 1, 1, 7, 200, 0, false, Lock::none, &Locks::zoomed_out_after},
+    {Setting::zoomed_out_after, RowKind::choice, "After zoom", 1, 1, 9, 200, 0, false, Lock::none, &Locks::zoomed_out_after},
     {Setting::window_frame, RowKind::levels, "Window frame", 1, 1, 2, 85, 2, false, Lock::none, nullptr},
     {Setting::hud_scaling, RowKind::toggle, "HUD scaling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::interface_size, RowKind::choice, "Interface size", 1, 1, 5, 200, 0, false, Lock::none, nullptr},
@@ -657,6 +657,10 @@ void every_row_and_choice_has_an_id_of_one_word() {
     OA_CHECK(
         ids_of(Setting::zoomed_out_units) == (std::vector<std::string>{"rendered", "dots", "icons"})
     );
+    OA_CHECK(
+        ids_of(Setting::zoomed_out_after) ==
+        (std::vector<std::string>{"2", "1", "1-2", "1-3", "1-4", "1-6", "1-8", "1-12", "1-16"})
+    );
     OA_CHECK(ids_of(Setting::fog_of_war) == (std::vector<std::string>{"classic", "smooth"}));
     OA_CHECK(ids_of(Setting::update_channel) == (std::vector<std::string>{"stable", "testing"}));
     OA_CHECK(
@@ -900,6 +904,31 @@ void accessibility_captions_name_both_ends() {
     OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "Choose…");
 }
 
+/// Offers the enlarged thresholds first, with complete hints in normal-size terms.
+void enlarged_zoom_threshold_choices_keep_their_captions_and_hints() {
+    auto dialog = engine_dialog();
+    constexpr std::array<std::string_view, 9> captions = {
+        "2x", "1x", "1/2", "1/3", "1/4", "1/6", "1/8", "1/12", "1/16"
+    };
+    OA_CHECK(geometry::choice_count(dialog, Setting::zoomed_out_after) == captions.size());
+    for (std::size_t index = 0; index < captions.size(); ++index)
+        OA_CHECK(
+            geometry::choice_text(dialog, Setting::zoomed_out_after, index) == captions[index]
+        );
+    dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::normal_size;
+    OA_CHECK(
+        geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 0) ==
+        "Dots farther out than normal size. Closer in, units are drawn as models."
+    );
+    OA_CHECK(geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 1).empty());
+    dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::twice_normal_size;
+    OA_CHECK(
+        geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 0) ==
+        "Dots farther out than twice normal size. Closer in, units are drawn as models."
+    );
+    OA_CHECK(geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 1).empty());
+}
+
 void enhanced_mode_changes_only_the_new_game_rules_choice() {
     settings::Dialog dialog;
     settings::open_dialog(dialog, {}, {}, {}, "v0.9.0", settings::Page::common_tweaks);
@@ -985,6 +1014,7 @@ int main() {
     enhanced_mode_offers_ten_thousand_units_without_developer_mode();
     a_loaded_match_shows_its_mode_without_writing_the_preference();
     enhanced_mode_changes_only_the_new_game_rules_choice();
+    enlarged_zoom_threshold_choices_keep_their_captions_and_hints();
     every_setting_has_its_row();
     accessibility_captions_name_both_ends();
     each_row_reads_its_own_lock();

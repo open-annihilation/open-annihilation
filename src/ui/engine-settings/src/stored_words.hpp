@@ -48,7 +48,9 @@ inline constexpr std::array<ChoiceWord<ZoomedOutUnits>, 2> zoomed_out_units_word
 }};
 static_assert(zoomed_out_units_words.size() == offered_zoomed_out_units);
 /// After zoom's words, in zoomed_out_afters' order.
-inline constexpr std::array<ChoiceWord<ZoomedOutAfter>, 7> zoomed_out_after_words{{
+inline constexpr std::array<ChoiceWord<ZoomedOutAfter>, 9> zoomed_out_after_words{{
+    {ZoomedOutAfter::twice_normal_size, "2"},
+    {ZoomedOutAfter::normal_size, "1"},
     {ZoomedOutAfter::one_half, "1/2"},
     {ZoomedOutAfter::one_third, "1/3"},
     {ZoomedOutAfter::one_quarter, "1/4"},

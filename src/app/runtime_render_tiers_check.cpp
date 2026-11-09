@@ -46,6 +46,8 @@
 #include "oa/present/game_text.hpp"
 #include "oa/present/model/rgb_bridge.hpp"
 #include "oa/sim/feature_runtime.hpp"
+#include "oa/sim/match_runtime/match_trace.hpp"
+#include "oa/sim/trace.hpp"
 #include "oa/sim/unit_spawn/spawn_runtime.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/gadget_render.hpp"
@@ -2705,6 +2707,53 @@ void Runtime::check_full_render_tier(
                       << ", past After zoom 1/4, the card draws the frame and "
                       << frame_draws_.units_drawn << " units are dots\n";
         }
+        // Normal-size and twice-normal thresholds keep the same strict
+        // boundary through the real Full draw: equal zoom already uses models.
+        const auto canonical = [&]() {
+            std::vector<oa::sim::trace::UnitSide> sides(match_->state().unit_slot_count);
+            return oa::sim::match_runtime::match_tick_digest(*match_, sides);
+        };
+        const auto before_thresholds = canonical();
+        whole_map.max_zoom_in = engine::ZoomInLimit::four_times;
+        for (const auto after :
+             {engine::ZoomedOutAfter::normal_size, engine::ZoomedOutAfter::twice_normal_size}) {
+            whole_map.zoomed_out_after = after;
+            const float threshold = engine::zoomed_out_zoom(after);
+            for (const auto units :
+                 {engine::ZoomedOutUnits::rendered, engine::ZoomedOutUnits::dots}) {
+                whole_map.zoomed_out_units = units;
+                apply_engine_settings(whole_map);
+                for (const float zoom :
+                     {std::nextafter(threshold, 0.0F),
+                      threshold,
+                      std::nextafter(threshold, threshold + 1.0F)}) {
+                    at_zoom(zoom);
+                    frame_draws_.units_drawn = 0;
+                    std::ignore = full_frame();
+                    const bool dots = units == engine::ZoomedOutUnits::dots && zoom < threshold;
+                    const bool unit_models = std::any_of(
+                        match_models().draws.models.begin(),
+                        match_models().draws.models.end(),
+                        [](const ModelDraw& model) { return model.stand_in < 0; }
+                    );
+                    if (match_zoom() != zoom || dots_frame() != dots || unit_models == dots ||
+                        frame_draws_.units_drawn == 0)
+                        fail("the normal-size After zoom boundary did not draw the chosen units");
+                }
+            }
+        }
+        const auto after_thresholds = canonical();
+        if (before_thresholds.tick != after_thresholds.tick)
+            fail("the After zoom boundary check advanced the simulation");
+        for (size_t section = 0; section < oa::sim::trace::section_count; ++section)
+            if (before_thresholds.sections[section].value !=
+                    after_thresholds.sections[section].value ||
+                before_thresholds.sections[section].items !=
+                    after_thresholds.sections[section].items)
+                fail("the After zoom boundary check changed canonical state or random streams");
+        std::cout
+            << "render tiers check: full tier: 1x and 2x After zoom boundaries draw dots "
+               "strictly below the choice, with canonical state and random streams unchanged\n";
         at_zoom(kMinFullBattlefieldZoom);
         std::ignore = full_frame();
         apply_engine_settings(saved);

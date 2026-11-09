@@ -59,7 +59,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Explosion flash; a mod's profile may draw the flashes lower still (`ui.explosion-flash`), and the lower of the two is drawn | Off, Reduced, Full | Full | `open-annihilation.explosion-flash` (`off`, `reduced` or `full`) |
 | | Fog of War: how the graphics card draws the fog's edges (Hardware acceleration Full); the processor always draws them Classic | Classic, Smooth | Smooth | `open-annihilation.fog-of-war` (`classic` or `smooth`; any other word reads as Smooth) |
 | | Zoomed out units: how units are drawn farther out than After zoom | Rendered, Dots; Icons shown faded, not offered | Rendered | `open-annihilation.zoomed-out-units` (`rendered` or `dots`; any other word, `icons` among them, reads as Rendered) |
-| | After zoom, a drop-down, locked "Needs Dots" while Zoomed out units is Rendered | 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16 of normal size | 1/6 | `open-annihilation.zoomed-out-after` (`1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`) |
+| | After zoom, a drop-down, locked "Needs Dots" while Zoomed out units is Rendered | 2x, 1x, 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16 of normal size | 1/6 | `open-annihilation.zoomed-out-after` (`2`, `1`, `1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`) |
 | | Allow full 3D mode: whether the camera may turn away from the classic view, with Full hardware acceleration | Off, On | On | `open-annihilation.allow-full-3d` |
 | | Unlocked camera, locked "Needs Allow full 3D mode" while Allow full 3D mode is Off | Off, On | Off | `open-annihilation.unlocked-camera` |
 | | Coloured weapon lighting, in the classic and the rotated view | 0–200%, steps of 10% | 20% with Hardware acceleration Full, else 0%; leaving Full sets 0%, reaching it 20% | `open-annihilation.weapon-lighting.intensity`; without it, an earlier `open-annihilation.weapon-lighting` switch reads as 0% or 100% |
@@ -344,6 +344,9 @@ nothing. After zoom says where Dots begins, so while the dialog shows
 Rendered it is locked, faded with a padlock and "Needs Dots"
 (`Lock::needs_dots`, which the dialog sets itself in
 `Locks::zoomed_out_after`); choosing Dots lifts the lock at once.
+Dots apply below the chosen zoom; at that zoom and closer, units are models.
+The 1x and 2x choices can keep dots visible through normal-size views while
+zooming toward a smaller group of units.
 
 Window frame is never locked, and takes effect at once: the application
 shows or hides the window's title bar and borders each frame

@@ -8961,6 +8961,77 @@ void zoomed_out_units_show_and_change() {
     CHECK(dialog.chosen == dialog.opened);
 }
 
+/// Selects the larger thresholds with keys and keeps their wrapped hints and lock.
+void enlarged_zoom_thresholds_show_select_and_keep_the_dots_lock() {
+    auto dialog = graphics_page();
+    dialog.scroll[static_cast<std::size_t>(Page::graphics)] = zoomed_out_units_in_view;
+    dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::dots;
+    dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::one_half;
+    dialog.focused = settings::first_row_control + 10;
+    CHECK(geometry::choice_count(dialog, Setting::zoomed_out_after) == 9);
+    const auto check_shown = [&](settings::ZoomedOutAfter choice,
+                                 std::size_t index,
+                                 std::string_view caption,
+                                 std::string_view full_hint) {
+        CHECK(dialog.chosen.zoomed_out_after == choice);
+        CHECK(geometry::choice_index(dialog, Setting::zoomed_out_after) == index);
+        const auto parts = settings::dialog_layout(dialog);
+        CHECK(find_part(parts, caption, settings::no_control) != nullptr);
+        CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::none);
+        const auto open = geometry::open_rows(dialog);
+        const auto& row = open.rows.rows[10];
+        CHECK(row.hint_lines == 2);
+        CHECK(row.hints[1].y > row.hints[0].y);
+        std::string shown_hint;
+        std::size_t fragments = 0;
+        for (const auto& part : parts) {
+            if (part.control != settings::no_control || part.text.empty() ||
+                full_hint.find(part.text) == std::string_view::npos)
+                continue;
+            if (!shown_hint.empty())
+                shown_hint += ' ';
+            shown_hint += part.text;
+            ++fragments;
+        }
+        CHECK(fragments == row.hint_lines);
+        CHECK(shown_hint == full_hint);
+    };
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    check_shown(
+        settings::ZoomedOutAfter::normal_size,
+        1,
+        "1x",
+        "Dots farther out than normal size. Closer in, units are drawn as models."
+    );
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    check_shown(
+        settings::ZoomedOutAfter::twice_normal_size,
+        0,
+        "2x",
+        "Dots farther out than twice normal size. Closer in, units are drawn as models."
+    );
+    CHECK(settings::dialog_key(dialog, DialogKey::left) != DialogAction::changed);
+    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::twice_normal_size);
+    for (const auto choice :
+         {settings::ZoomedOutAfter::normal_size, settings::ZoomedOutAfter::twice_normal_size}) {
+        dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::rendered;
+        dialog.chosen.zoomed_out_after = choice;
+        // Keyboard navigation may scroll the badge out of view; show its row
+        // again before checking the lock's drawn text.
+        dialog.scroll[static_cast<std::size_t>(Page::graphics)] = zoomed_out_units_in_view;
+        CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::needs_dots);
+        CHECK(
+            find_part(settings::dialog_layout(dialog), "Needs Dots", settings::no_control) !=
+            nullptr
+        );
+        CHECK(settings::dialog_key(dialog, DialogKey::right) != DialogAction::changed);
+        CHECK(dialog.chosen.zoomed_out_after == choice);
+    }
+    CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+    CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
+    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::one_sixth);
+}
+
 void window_frame_shows_and_changes() {
     CHECK(geometry::kind_of(Setting::window_frame) == geometry::RowKind::levels);
     CHECK(geometry::strip_of(Setting::window_frame).levels == 2);
@@ -12400,6 +12471,7 @@ int main(int argc, char** argv) {
         explosion_flash_shows_and_changes();
         fog_of_war_shows_and_changes();
         zoomed_out_units_show_and_change();
+        enlarged_zoom_thresholds_show_select_and_keep_the_dots_lock();
         window_edge_and_edge_stickiness_show_and_change();
         window_frame_shows_and_changes();
         every_switch_reads_and_sets_through_one_table();

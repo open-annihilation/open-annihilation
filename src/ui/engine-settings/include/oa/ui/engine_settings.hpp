@@ -1010,17 +1010,21 @@ inline constexpr std::array<Look, 2> look_choices{
 /// After zoom: the zoom farther out than which Zoomed out units applies,
 /// as a share of normal size.
 enum class ZoomedOutAfter : uint8_t {
-    one_half,      ///< farther out than 1/2
-    one_third,     ///< than 1/3
-    one_quarter,   ///< than 1/4
-    one_sixth,     ///< than 1/6
-    one_eighth,    ///< than 1/8
-    one_twelfth,   ///< than 1/12
-    one_sixteenth, ///< than 1/16
+    one_half,          ///< farther out than 1/2
+    one_third,         ///< than 1/3
+    one_quarter,       ///< than 1/4
+    one_sixth,         ///< than 1/6
+    one_eighth,        ///< than 1/8
+    one_twelfth,       ///< than 1/12
+    one_sixteenth,     ///< than 1/16
+    normal_size,       ///< than normal size
+    twice_normal_size, ///< than twice normal size
 };
 
 /// The After zoom choices, in the order the dialog offers them.
-inline constexpr std::array<ZoomedOutAfter, 7> zoomed_out_afters{
+inline constexpr std::array<ZoomedOutAfter, 9> zoomed_out_afters{
+    ZoomedOutAfter::twice_normal_size,
+    ZoomedOutAfter::normal_size,
     ZoomedOutAfter::one_half,
     ZoomedOutAfter::one_third,
     ZoomedOutAfter::one_quarter,
@@ -1036,6 +1040,10 @@ inline constexpr std::array<ZoomedOutAfter, 7> zoomed_out_afters{
 /// @return screen pixels per map pixel: Zoomed out units applies below it
 [[nodiscard]] constexpr float zoomed_out_zoom(ZoomedOutAfter after) noexcept {
     switch (after) {
+    case ZoomedOutAfter::normal_size:
+        return 1.0F;
+    case ZoomedOutAfter::twice_normal_size:
+        return 2.0F;
     case ZoomedOutAfter::one_half:
         return 1.0F / 2.0F;
     case ZoomedOutAfter::one_third:

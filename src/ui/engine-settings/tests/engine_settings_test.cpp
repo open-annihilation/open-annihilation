@@ -2300,7 +2300,22 @@ void the_zoomed_out_units_default_read_and_round_trip() {
     CHECK(units("dots") == settings::ZoomedOutUnits::dots);
     for (const char* text : {"", "icons", "Dots", "DOTS", "dot", " dots", "1"})
         CHECK(units(text) == settings::ZoomedOutUnits::rendered);
-    const std::array<std::tuple<settings::ZoomedOutAfter, const char*, float>, 7> after_words{{
+    constexpr std::array old_ordinals{
+        settings::ZoomedOutAfter::one_half,
+        settings::ZoomedOutAfter::one_third,
+        settings::ZoomedOutAfter::one_quarter,
+        settings::ZoomedOutAfter::one_sixth,
+        settings::ZoomedOutAfter::one_eighth,
+        settings::ZoomedOutAfter::one_twelfth,
+        settings::ZoomedOutAfter::one_sixteenth
+    };
+    for (std::size_t ordinal = 0; ordinal < old_ordinals.size(); ++ordinal)
+        CHECK(static_cast<std::size_t>(old_ordinals[ordinal]) == ordinal);
+    CHECK(static_cast<uint8_t>(settings::ZoomedOutAfter::normal_size) == 7);
+    CHECK(static_cast<uint8_t>(settings::ZoomedOutAfter::twice_normal_size) == 8);
+    const std::array<std::tuple<settings::ZoomedOutAfter, const char*, float>, 9> after_words{{
+        {settings::ZoomedOutAfter::twice_normal_size, "2", 2.0F},
+        {settings::ZoomedOutAfter::normal_size, "1", 1.0F},
         {settings::ZoomedOutAfter::one_half, "1/2", 0.5F},
         {settings::ZoomedOutAfter::one_third, "1/3", 1.0F / 3.0F},
         {settings::ZoomedOutAfter::one_quarter, "1/4", 0.25F},
@@ -2309,6 +2324,9 @@ void the_zoomed_out_units_default_read_and_round_trip() {
         {settings::ZoomedOutAfter::one_twelfth, "1/12", 1.0F / 12.0F},
         {settings::ZoomedOutAfter::one_sixteenth, "1/16", 0.0625F},
     }};
+    CHECK(settings::zoomed_out_afters.size() == after_words.size());
+    for (std::size_t index = 0; index < settings::zoomed_out_afters.size(); ++index)
+        CHECK(settings::zoomed_out_afters[index] == std::get<0>(after_words[index]));
     for (const auto& [choice, word, zoom] : after_words) {
         CHECK(after(word) == choice);
         CHECK(settings::zoomed_out_zoom(choice) == zoom);
@@ -2325,12 +2343,13 @@ void the_zoomed_out_units_default_read_and_round_trip() {
     CHECK(values.at(std::string{settings::key::zoomed_out_units}) == "dots");
     CHECK(settings::read_settings(values, players_own_on_linux, false) == dots);
     for (const auto& [choice, word, zoom] : after_words) {
+        auto opened = defaults;
         if (choice == defaults.zoomed_out_after)
-            continue;
+            opened.zoomed_out_after = settings::ZoomedOutAfter::twice_normal_size;
         auto chosen = defaults;
         chosen.zoomed_out_after = choice;
         Values one;
-        settings::write_settings(one, defaults, chosen, defaults, false);
+        settings::write_settings(one, opened, chosen, defaults, false);
         CHECK(one.size() == 1);
         CHECK(one.at(std::string{settings::key::zoomed_out_after}) == word);
         CHECK(settings::read_settings(one, players_own_on_linux, false) == chosen);
