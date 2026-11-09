@@ -471,12 +471,29 @@ and capture work, not gameplay FPS.
 Source `76fbc3b16` requires SDL input focus and ownership of SDL keyboard
 focus on every measured frame, alongside its existing Full-renderer,
 normal-clock and presentation checks. A separate operating-system monitor
-samples whether the game is active and frontmost. This stricter guard refused
-a subsequent attempt because the desktop session did not grant foreground
-focus; the monitor reported the game inactive and not frontmost. That attempt
-produced no FPS result. A verified foreground rerun remains pending until the
-session can grant focus. Version 4 remains current, and ray tracing stays
-deferred while congestion and existing-view costs are addressed.
+samples whether the game is active and frontmost approximately every 100 ms.
+After the session was unlocked, a classic run completed with both SDL focus
+checks passing and active, frontmost OS samples covering the measured window.
+The monitor's largest gap was 107.4 ms; its samples establish no focus state
+between samples. Startup and warmup focus losses preceded measurement.
+
+| Source | Verified view | Presented FPS | 1% low FPS | Simulation ticks/s | Frames | Measured ticks |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `df903e85f` | Classic 2.5D | 5.343 | 4.50 | 24.942 | 193 | 901 |
+
+The 193 presents span 36.12 seconds. Requested game speed was 10, with the
+automatic rate varying from 8 to 9. Both sides moved in every reported
+interval and recorded firing, damage and deaths, with no births; the final
+live counts were 9,773 and 9,922. Rendering remains below 60 FPS and the
+simulation below 30 ticks/s, so this does not establish smooth play or a
+causal improvement over the provisional runs.
+
+Turned 3D has no verified FPS result. One attempt lost input and keyboard
+focus at tick 1,480 during measurement; another, in a locked session, failed
+readiness at tick 934 with both focus checks false. Their partial data are
+rejected. Version 4 remains current, experimental version 5 has not passed
+the flow gate, and ray tracing stays deferred while congestion and
+existing-view costs are addressed.
 
 ## Remaining work
 
