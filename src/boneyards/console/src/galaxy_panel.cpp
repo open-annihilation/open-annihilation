@@ -316,10 +316,10 @@ void step_magnification(MainFrame* frame, int32_t delta) {
 
 /// Moves between planets, chooses one, or changes the magnification.
 ///
-/// Arrows move to the nearest planet only while keyboard travel is on, which
-/// is while the focus ring is showing. Until then they do what every other
-/// control does. Return and Space choose the planet as a press does. Home
-/// goes to the player's capitol. + and − step the magnification slider.
+/// Arrows move to the nearest planet only while the keyboard ring is
+/// showing. Until then they do what every other control does. Return and
+/// Space choose the planet as a press does. Home goes to the player's
+/// capitol. + and − step the magnification slider.
 ///
 /// @param self the planet hotspot
 /// @param msg key_down message; null is not handled
@@ -335,7 +335,7 @@ bool hotspot_key_down(Window* self, const Message* msg) {
                        msg->key == key::down;
     if (arrow) {
         const Desktop* desktop = services().desktop;
-        if (desktop == nullptr || desktop->keyboard_travel == 0)
+        if (desktop == nullptr || desktop->keyboard_ring == 0)
             return window_default_key_down(self, msg);
         const int32_t next = neighbor_planet(frame, index, msg->key);
         if (next >= 0)

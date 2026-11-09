@@ -194,6 +194,16 @@ struct AutomationControl {
     int32_t window_press_y{};
     int32_t window_press_width{};
     int32_t window_press_height{};
+    /// The dialog's title, when the screen lists one. Empty when it lists
+    /// none. The protocol does not write this. A dialog is named from it,
+    /// not from its first label.
+    std::string title;
+    /// Its place in the screen's Tab order, from 1. 0 when that order is
+    /// not known. The protocol does not write this.
+    int32_t tab_index{};
+    /// A press steps this button's value one way. Increment is that press.
+    /// A drop-down leaves this false. The protocol does not write this.
+    bool steps{};
 };
 
 /// Returns the name the protocol gives a screen-reader role.

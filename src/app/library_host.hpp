@@ -88,6 +88,10 @@ struct ReplayShelf;
 /// runtime_library_core_prime.cpp.
 struct CorePrimeShelf;
 
+/// A Core Prime sign-in and the shares it sends. Defined in
+/// runtime_library_share.cpp. The session token stays here for this run.
+struct CoreShareShelf;
+
 /// Finds what the Replays section draws cut short, for the checks that read
 /// text a layout shortens before the kit can see it: a filter, a menu item or
 /// field, a button or a fact's label that is not drawn whole, and any text of
@@ -120,6 +124,12 @@ void destroy_replay_shelf(ReplayShelf* shelf) noexcept;
 ///
 /// @param shelf the shelf; null frees nothing
 void destroy_core_prime_shelf(CorePrimeShelf* shelf) noexcept;
+
+/// Stops the sign-in and share worker, joining it, wipes any password or
+/// token still queued, and frees the shelf.
+///
+/// @param shelf the shelf; null frees nothing
+void destroy_core_share_shelf(CoreShareShelf* shelf) noexcept;
 
 /// Where the Library's inputs come from, and where its downloads go. The
 /// runtime fills it from the content service, the Library's worker and the
@@ -441,6 +451,11 @@ struct Runtime::LibraryHost {
     std::unique_ptr<CorePrimeShelf, void (*)(CorePrimeShelf*) noexcept> core_prime{
         nullptr, destroy_core_prime_shelf
     };
+    /// Sign-in and share. Made at the first sign-in or share. The type lives
+    /// in runtime_library_share.cpp.
+    std::unique_ptr<CoreShareShelf, void (*)(CoreShareShelf*) noexcept> core_share{
+        nullptr, destroy_core_share_shelf
+    };
     /// Each listing's picture's address, by registry and key, as the last
     /// inputs resolved it.
     std::map<std::pair<std::string, std::string>, std::string> picture_urls{};
@@ -540,6 +555,13 @@ struct Runtime::LibraryHost {
     int32_t kept_replay_scroll{};
     /// Compact showed that replay's own page.
     bool kept_replay_page{};
+    /// The share question opens once kept_replay is selected.
+    bool share_kept_replay{};
+    /// A share chosen while signed out. Sign-in success opens that recording's
+    /// share question. Closing the sign-in, signing out, or a plain Sign in
+    /// forgets it. close_sign_in itself does not: success closes the question
+    /// and then opens the share.
+    std::optional<std::string> share_after_sign_in{};
 
     /// Selects kept_selection when it shows, and forgets it then. Until it
     /// shows, the visible mod with the same key is selected, when there is
@@ -578,6 +600,55 @@ struct Runtime::LibraryHost {
     ///
     /// @param runtime the runtime
     void pump_core_prime(Runtime& runtime);
+
+    /// Asks the feed whether Core Prime lists the battle selected on this
+    /// computer, and clears that question when the selection is not one.
+    ///
+    /// @param runtime the runtime
+    /// @param shelf Core Prime's list
+    /// @param[in,out] changed set when the card's claim changes
+    void sync_battle(Runtime& runtime, CorePrimeShelf& shelf, bool& changed);
+
+    /// Returns the sign-in shelf, made at its first use.
+    ///
+    /// @return the shelf
+    CoreShareShelf& core_share_shelf();
+
+    /// Takes a finished sign-in or share and sends the next one. Called on
+    /// the main thread, including while the Core Prime list is not showing.
+    ///
+    /// @param runtime the runtime
+    void pump_core_share(Runtime& runtime);
+
+    /// The signed-in handle. Empty when this run is signed out.
+    ///
+    /// @return the handle
+    [[nodiscard]] std::string signed_handle() const;
+
+    /// How many bytes a share will send. A check sets this below the file
+    /// so the refusal happens before the request.
+    ///
+    /// @param bytes the limit
+    void set_share_byte_limit(uint64_t bytes);
+
+    /// Copies sign-in and the last share onto the Replays inputs.
+    ///
+    /// @param[out] inputs the Replays inputs
+    void publish_account(oa::ui::library::ReplayInputs& inputs);
+
+    /// Sign in, sign out, share and open a shared replay.
+    ///
+    /// @param runtime the runtime
+    /// @param result what the screen asked for
+    /// @return false; these presses leave the Library open
+    bool take_share_action(Runtime& runtime, const oa::ui::library::ScreenResult& result);
+
+    /// Fetches one Core Prime replay by id and shows it, even when no loaded
+    /// page holds it yet.
+    ///
+    /// @param runtime the runtime
+    /// @param id the replay's id
+    void open_core_replay(Runtime& runtime, const std::string& id);
 
     /// Copies Core Prime's list into the Replays inputs. It leaves the rows
     /// from this computer, and a Get that is in flight, as they are.

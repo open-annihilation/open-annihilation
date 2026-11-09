@@ -199,17 +199,23 @@ std::vector<std::string> meeting_controls(const kit::DisplayList& list) {
             const kit::Control& second = list.controls[b];
             if (list_and_row(first, second))
                 continue;
-            // The Export dialog and the use question are drawn over the
-            // Library, and their shade covers the window. A control of the
-            // dialog meets what is behind it, and the shade meets everything.
+            // The Export dialog, the sign-in and share questions and the use
+            // question are drawn over the Library, and their shade covers the
+            // window. A control of the dialog meets what is behind it, and the
+            // shade meets everything. Two controls of the same question still
+            // count when they meet.
             const auto shade = [](const kit::Control& control) {
                 return control.name == "library.export.block" ||
-                       control.name == "library.use.block";
+                       control.name == "library.use.block" ||
+                       control.name == "library.sign-in.block" ||
+                       control.name == "library.share.block";
             };
-            const auto export_control = [](const kit::Control& control) {
-                return starts(control.name, "library.export.");
+            const auto dialog_control = [](const kit::Control& control) {
+                return starts(control.name, "library.export.") ||
+                       starts(control.name, "library.sign-in.") ||
+                       starts(control.name, "library.share.");
             };
-            if (shade(first) || shade(second) || export_control(first) != export_control(second))
+            if (shade(first) || shade(second) || dialog_control(first) != dialog_control(second))
                 continue;
             if (fixture::has_room(
                     kit::intersect(fixture::press_area(first), fixture::press_area(second))
@@ -240,6 +246,10 @@ int declared_place(std::string_view name) {
         name == "library.replays.kind" || name == "library.replays.sort" ||
         name == "library.replays.planet" || starts(name, "library.replays.source."))
         return 3;
+    // Sign in and Sign out sit on the source row, above the kind and sort
+    // menus, so they share that place rather than the card's actions.
+    if (name == "library.action.sign-in" || name == "library.action.sign-out")
+        return 3;
     if (name == "library.action" || starts(name, "library.action.") ||
         name == "library.active.unload" || name == "library.active.search" ||
         name == "library.active.change" || name == "library.active.keys.change" ||
@@ -255,9 +265,10 @@ int declared_place(std::string_view name) {
         return 7;
     if (name == "library.close-x")
         return 8;
-    // The dialog replaces Tab's order, so its controls are one place and
+    // A question replaces Tab's order, so its controls are one place and
     // run top to bottom within it. It never shares an order with the close mark.
-    if (starts(name, "library.export."))
+    if (starts(name, "library.export.") || starts(name, "library.sign-in.") ||
+        starts(name, "library.share."))
         return 8;
     return -1;
 }
@@ -387,11 +398,14 @@ bool designed_name(const std::string& name) {
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
         "check-with-mod|use-by-default|use|edit-keys|uninstall|open-folder|homepage|watch|keep|"
         "turn-on-recording|open-replay-file|download|browse-core-prime|export|delete|"
-        "delete-confirm)|"
+        "delete-confirm|sign-in|sign-out|share|open-shared)|"
         "replays\\.(kind|sort|status|planet)(\\.[a-z0-9-]+)?|"
         "replays\\.source\\.(computer|core-prime)|"
+        "replays\\.sign-in\\.secure|"
+        "sign-in\\.(handle|password|note|submit|cancel|block)|"
+        "share\\.(title|public|unlisted|submit|cancel|note|block)|"
         "replays\\.filter\\.(latest|longest|downloads|planet)|"
-        "details|back|refresh|close-x|close|status|queue|note|from|rules|keys\\.picture|"
+        "details|back|refresh|close-x|close|status|queue|note(-[0-9]+)?|from|rules|keys\\.picture|"
         "fact\\.[a-z0-9-]+|"
         "use\\.(keep|aside|block|moves|saved|helpers|for\\.(game|mod)|helper\\.[a-z0-9.-]+)|"
         "active\\.(mod|language|base|expansions|lock|keys\\.change|keys|unload|change|search|"
@@ -1697,6 +1711,10 @@ void a_move_after_a_click_presses_back() {
     if (library.details_open || state.details_page)
         std::fprintf(stderr, "return after the move did not press Back\n");
     OA_CHECK(!library.details_open && !state.details_page);
+    // The page Back returns to lists the focused control, so a screen reader
+    // hears where the keys now act.
+    list = laid_out(library, state, compact);
+    OA_CHECK(kit::control_of(list, state.interaction.focused) != nullptr);
 }
 
 /// A click, a double click or a tap on a row selects it and gets nothing; at
@@ -7510,6 +7528,48 @@ void core_prime_filters_count_their_own_lists() {
     }
 }
 
+/// The sign-in question's handle and password, and the share question's
+/// title, are fields the host starts the system's text input over while one
+/// has the focus, as it does for the search: without it no typed character
+/// reaches them.
+void account_questions_take_typed_text() {
+    lib::Library library = fixture::replay_library();
+    lib::set_tab(library, lib::Tab::replays);
+    lib::open_sign_in(library);
+    OA_CHECK(library.sign_in.open);
+    lib::ScreenState state;
+    const kit::Frame frame = fixture::frames()[2].frame;
+    kit::DisplayList list = laid_out(library, state, frame);
+    for (const std::string_view name : {"library.sign-in.handle", "library.sign-in.password"}) {
+        const kit::Control* field = fixture::named(list, name);
+        OA_CHECK(field != nullptr);
+        if (field == nullptr)
+            continue;
+        state.interaction.focused = field->id;
+        state.interaction.focus_shown = true;
+        const std::optional<kit::Rect> taken = lib::focused_field(state, list);
+        OA_CHECK(taken.has_value() && taken->x == field->rect.x && taken->y == field->rect.y);
+    }
+    const kit::Control* submit = fixture::named(list, "library.sign-in.submit");
+    OA_CHECK(submit != nullptr);
+    if (submit != nullptr) {
+        state.interaction.focused = submit->id;
+        OA_CHECK(!lib::focused_field(state, list).has_value());
+    }
+
+    lib::open_share_question(library, "default/show-down.oademo", "Show Down");
+    OA_CHECK(library.share_question.open && !library.sign_in.open);
+    state = {};
+    list = laid_out(library, state, frame);
+    const kit::Control* title = fixture::named(list, "library.share.title");
+    OA_CHECK(title != nullptr);
+    if (title != nullptr) {
+        state.interaction.focused = title->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(lib::focused_field(state, list).has_value());
+    }
+}
+
 /// While one Core Prime replay's key waits, another replay whose Download
 /// waits its turn says so and takes no second press.
 void core_prime_queued_download_says_so() {
@@ -8277,6 +8337,584 @@ void export_long_mutator_pages() {
     lib::close_export(library);
 }
 
+/// The card's button captions in one language. The note stays English.
+void fill_card_tongue(ExportTongue& tongue, std::string_view language) {
+    const auto put = [&](std::string_view english, const char* de) {
+        if (language == "de")
+            tongue.words.emplace(std::string(english), de);
+    };
+    put(lib::words::action_watch, "Ansehen");
+    put(lib::words::action_export, "Exportieren");
+    put(lib::words::action_keep, "Behalten");
+    put(lib::words::action_delete_replay, "Replay löschen");
+    put(lib::words::action_open_folder, "Ordner öffnen");
+    put(lib::words::action_open_shared, "Auf Core Prime öffnen");
+    put(lib::words::action_share_own, "Meine eigene Aufnahme teilen");
+    put(lib::words::replay_won, "Gewonnen");
+    put(lib::words::replay_lost, "Verloren");
+    put(lib::words::replay_kills_many, "{kills} Abschüsse");
+    put(lib::words::replay_losses_many, "{losses} Verluste");
+    put(lib::words::replay_fact_length, "Länge");
+    put(lib::words::replay_fact_recorded, "Aufgenommen");
+}
+
+/// The sign-in and share questions' words in one language. Unlisted words stay English.
+void fill_account_tongue(ExportTongue& tongue, std::string_view language) {
+    const auto put = [&](std::string_view english,
+                         const char* de,
+                         const char* fr,
+                         const char* es,
+                         const char* it) {
+        const char* translation = nullptr;
+        if (language == "de")
+            translation = de;
+        else if (language == "fr")
+            translation = fr;
+        else if (language == "es")
+            translation = es;
+        else if (language == "it")
+            translation = it;
+        if (translation != nullptr)
+            tongue.words.emplace(std::string(english), translation);
+    };
+    put(lib::words::action_cancel, "Abbrechen", "Annuler", "Cancelar", "Annulla");
+    put(lib::words::action_sign_in, "Anmelden", "Connexion", "Entrar", "Entra");
+    put(lib::words::sign_in_title,
+        "Bei Core Prime anmelden",
+        "Connexion à Core Prime",
+        "Entrar en Core Prime",
+        "Entra in Core Prime");
+    put(lib::words::sign_in_handle, "Name", "Pseudo", "Usuario", "Nome");
+    put(lib::words::sign_in_password, "Passwort", "Mot de passe", "Contraseña", "Password");
+    put(lib::words::sign_in_forgot,
+        "Vergessen? Setz es auf coreprime.net/forgot zurück",
+        "Oublié ? Réinitialise-le sur coreprime.net/forgot",
+        "¿Lo olvidaste? Restablécelo en coreprime.net/forgot",
+        "Dimenticata? Reimpostala su coreprime.net/forgot");
+    put(lib::words::sign_in_busy, "Anmeldung…", "Connexion…", "Entrando…", "Accesso…");
+    put(lib::words::share_title,
+        "Auf Core Prime teilen",
+        "Partager sur Core Prime",
+        "Compartir en Core Prime",
+        "Condividi su Core Prime");
+    put(lib::words::share_title_label, "Titel", "Titre", "Título", "Titolo");
+    put(lib::words::share_public, "Öffentlich", "Public", "Público", "Pubblico");
+    put(lib::words::share_unlisted,
+        "Nicht gelistet",
+        "Non répertorié",
+        "No listado",
+        "Non in elenco");
+    put(lib::words::share_confirm, "Teilen", "Partager", "Compartir", "Condividi");
+    put(lib::words::share_busy, "Wird geteilt…", "Partage…", "Compartiendo…", "Condivisione…");
+}
+
+/// A card that shows nothing of Core Prime keeps the layout it had before
+/// sharing: full buttons, and Length and Recorded after the players, even
+/// when eight players with their result lines fill the pane and the card
+/// scrolls to its facts. Compact shows the card on a page of its own.
+void a_crowded_card_without_core_prime_keeps_its_layout() {
+    const auto picture = [](const std::string& name, int32_t width, int32_t height) {
+        kit::Viewport viewport;
+        viewport.width = width;
+        viewport.height = height;
+        viewport.scale_percent = 100;
+        return fixture::NamedFrame{name, kit::frame_of(viewport)};
+    };
+    std::vector<fixture::NamedFrame> frames = fixture::frames();
+    frames.push_back(picture("960x540", 960, 540));
+    frames.push_back(picture("1280x720", 1280, 720));
+    const std::array<const char*, 8> names{
+        "Varn", "Bex", "Morrow", "Sato", "Kestrel", "Halvard", "Tamsin", "Quill"
+    };
+    for (const fixture::NamedFrame& named : frames) {
+        if (named.frame.size_class == kit::SizeClass::compact)
+            continue;
+        lib::Library library = fixture::replay_library();
+        lib::Inputs inputs = library.inputs;
+        for (lib::ReplayRow& row : inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.replay.players.clear();
+            row.standings.clear();
+            for (std::size_t place = 0; place < names.size(); ++place) {
+                oa::data::replays::Player player;
+                player.number = static_cast<int32_t>(place + 1);
+                player.name = names[place];
+                player.colour = static_cast<int32_t>(place);
+                player.side = place % 2 == 0 ? "arm" : "core";
+                player.kind = "human";
+                row.replay.players.push_back(std::move(player));
+                lib::PlayerStanding standing;
+                standing.known = true;
+                standing.result = place == 0 ? lib::RecordedResult::won : lib::RecordedResult::lost;
+                standing.kills = 12;
+                standing.losses = 3;
+                row.standings.push_back(standing);
+            }
+            row.length_ticks = 42965;
+            row.recorded = lib::RecordedResult::won;
+        }
+        lib::refresh(library, std::move(inputs));
+        lib::set_tab(library, lib::Tab::replays);
+        lib::select_replay(library, "default/coast.oademo");
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+
+        // The same frame's one-player card, which fits: its buttons are full.
+        lib::Library roomy = fixture::replay_library();
+        lib::select_replay(roomy, "default/campaign.oademo");
+        const kit::DisplayList roomy_list = laid_out(roomy, {}, named.frame);
+
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        const kit::Control* roomy_watch = fixture::named(roomy_list, "library.action.watch");
+        const kit::Control* length = fixture::named(list, "library.fact.length");
+        const kit::Item* last_player = nullptr;
+        for (const kit::Item& item : list.items) {
+            if (item.text == names.back())
+                last_player = &item;
+        }
+        OA_CHECK(watch != nullptr && roomy_watch != nullptr);
+        OA_CHECK(length != nullptr && last_player != nullptr);
+        std::vector<std::string> problems;
+        if (watch != nullptr && roomy_watch != nullptr &&
+            watch->rect.height != roomy_watch->rect.height)
+            problems.push_back(
+                "Watch is " + std::to_string(watch->rect.height) + " high, not " +
+                std::to_string(roomy_watch->rect.height)
+            );
+        if (length != nullptr && last_player != nullptr && length->rect.y <= last_player->rect.y)
+            problems.push_back(
+                "Length at " + std::to_string(length->rect.y) + " is above the last player at " +
+                std::to_string(last_player->rect.y)
+            );
+        OA_EXPECT_NONE(problems, named.name + " eight players, nothing of Core Prime");
+    }
+}
+
+/// A card that shows nothing of Core Prime draws its facts as it did before
+/// sharing: a fact's line that meets the pane's edge is drawn, and the pane
+/// cuts it, so every fact's label is in the display list at every height. A
+/// signed-in card, which offers Share, leaves such a line out instead. The
+/// card of a Regular frame and Compact's page are swept.
+void a_card_without_core_prime_draws_the_lines_it_cuts() {
+    const std::array<const char*, 8> names{
+        "Varn", "Bex", "Morrow", "Sato", "Kestrel", "Halvard", "Tamsin", "Quill"
+    };
+    const auto crowded = [&](bool signed_in) {
+        lib::Library library = fixture::replay_library();
+        lib::Inputs inputs = library.inputs;
+        inputs.replays.core_sign_in_secure = signed_in;
+        inputs.replays.core_sign_in_offered = signed_in;
+        inputs.replays.core_signed_in = signed_in;
+        inputs.replays.core_handle = signed_in ? "nj" : "";
+        for (lib::ReplayRow& row : inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.replay.players.clear();
+            row.standings.clear();
+            for (std::size_t place = 0; place < names.size(); ++place) {
+                oa::data::replays::Player player;
+                player.number = static_cast<int32_t>(place + 1);
+                player.name = names[place];
+                player.colour = static_cast<int32_t>(place);
+                player.side = place % 2 == 0 ? "arm" : "core";
+                player.kind = "human";
+                row.replay.players.push_back(std::move(player));
+            }
+        }
+        lib::refresh(library, std::move(inputs));
+        lib::set_tab(library, lib::Tab::replays);
+        lib::select_replay(library, "default/coast.oademo");
+        return library;
+    };
+    const auto meets_edge = [](const kit::Item& item) {
+        const kit::Rect& line = item.rect;
+        const kit::Rect& clip = item.clip;
+        const bool outside = line.x + line.width <= clip.x || clip.x + clip.width <= line.x ||
+                             line.y + line.height <= clip.y || clip.y + clip.height <= line.y;
+        const bool inside = line.x >= clip.x && line.y >= clip.y &&
+                            line.x + line.width <= clip.x + clip.width &&
+                            line.y + line.height <= clip.y + clip.height;
+        return !outside && !inside;
+    };
+    for (const bool signed_in : {false, true}) {
+        const lib::Library library = crowded(signed_in);
+        const lib::ReplayRow* row = lib::selected_replay(library);
+        OA_CHECK(row != nullptr);
+        if (row == nullptr)
+            continue;
+        const std::vector<lib::ReplayFact> facts = lib::replay_facts(library, *row);
+        OA_CHECK(facts.size() >= 3);
+        bool offers_share = false;
+        for (const lib::ReplayButton& button : lib::replay_buttons(library))
+            offers_share = offers_share || button.action == lib::Action::share_replay;
+        OA_CHECK(offers_share == signed_in);
+        int32_t cut_drawn = 0;
+        std::vector<std::string> problems;
+        for (const bool compact : {false, true}) {
+            lib::ScreenState state;
+            state.replay_page = compact;
+            for (int32_t height = 480; height >= 330; height -= 2) {
+                const kit::Frame frame{
+                    {0, 0, compact ? 640 : 720, height},
+                    compact ? kit::SizeClass::compact : kit::SizeClass::regular,
+                    100
+                };
+                const kit::DisplayList list = laid_out(library, state, frame);
+                const std::string where = std::string(compact ? "compact" : "regular") + " " +
+                                          std::to_string(height) +
+                                          (signed_in ? " signed in" : " signed out");
+                for (const lib::ReplayFact& fact : facts) {
+                    const kit::Item* label = nullptr;
+                    for (const kit::Item& item : list.items) {
+                        if (item.role == kit::Role::text && item.text == fact.label)
+                            label = &item;
+                    }
+                    if (signed_in) {
+                        if (label != nullptr && meets_edge(*label))
+                            problems.push_back(where + ": " + fact.label + " is drawn cut");
+                        continue;
+                    }
+                    if (label == nullptr) {
+                        problems.push_back(where + ": " + fact.label + " is not drawn");
+                        continue;
+                    }
+                    if (meets_edge(*label))
+                        ++cut_drawn;
+                }
+            }
+        }
+        OA_EXPECT_NONE(problems, signed_in ? "signed in" : "signed out");
+        // The sweep reaches heights where the pane's edge cuts a fact's line.
+        if (!signed_in)
+            OA_CHECK(cut_drawn > 0);
+    }
+}
+
+/// Both questions at every frame and language: nothing leaves the window, a
+/// press lands on one control, and the words fit. While one is in flight the
+/// question says so and Cancel still stops it. Sign in sits with the source
+/// switch. A listed two-player battle keeps Length and Recorded whole, above
+/// the first button, at 960×540, 1280×720 and 1920×1080, in English and
+/// German. The header's day and length line is not those facts. 640×480
+/// scrolls to them.
+void account_questions_lay_out() {
+    const auto picture = [](const std::string& name, int32_t width, int32_t height) {
+        kit::Viewport viewport;
+        viewport.width = width;
+        viewport.height = height;
+        viewport.scale_percent = 100;
+        return fixture::NamedFrame{name, kit::frame_of(viewport)};
+    };
+    std::vector<fixture::NamedFrame> frames = fixture::frames();
+    frames.push_back(picture("1280x720", 1280, 720));
+    const auto check =
+        [](const lib::Library& library, const kit::Frame& frame, const std::string& where) {
+            const kit::DisplayList list = laid_out(library, {}, frame);
+            const kit::Point window = lib::window_size(frame);
+            OA_EXPECT_NONE(fixture::outside_window(list, window), where);
+            OA_EXPECT_NONE(meeting_controls(list), where);
+            OA_EXPECT_NONE(order_problems(list), where);
+            OA_EXPECT_NONE(name_problems(list), where);
+            OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), where);
+            return list;
+        };
+    for (const char* language : {"en", "de", "fr", "es", "it"}) {
+        ExportTongue tongue;
+        fill_account_tongue(tongue, language);
+        const bool english = std::string_view(language) == "en";
+        const std::string signing = english
+                                        ? std::string(lib::words::sign_in_busy)
+                                        : tongue.words.at(std::string(lib::words::sign_in_busy));
+        const std::string sharing = english ? std::string(lib::words::share_busy)
+                                            : tongue.words.at(std::string(lib::words::share_busy));
+        for (const fixture::NamedFrame& named : frames) {
+            const std::string where = std::string(language) + " " + named.name;
+            lib::Library library = fixture::replay_library();
+            library.text.context = &tongue;
+            library.text.shown = &ExportTongue::lookup;
+            lib::set_tab(library, lib::Tab::replays);
+            lib::open_sign_in(library);
+            library.sign_in.handle = "nj";
+            library.sign_in.password = "secret";
+            kit::DisplayList list = check(library, named.frame, where + " sign-in");
+            const kit::Control* handle = fixture::named(list, "library.sign-in.handle");
+            const kit::Control* password = fixture::named(list, "library.sign-in.password");
+            const kit::Control* submit = fixture::named(list, "library.sign-in.submit");
+            const kit::Control* cancel = fixture::named(list, "library.sign-in.cancel");
+            const kit::Control* note = fixture::named(list, "library.sign-in.note");
+            OA_CHECK(handle != nullptr && password != nullptr);
+            OA_CHECK(submit != nullptr && submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            OA_CHECK(
+                note != nullptr && note->text.find("coreprime.net/forgot") != std::string::npos
+            );
+            library.sign_in.busy = true;
+            list = check(library, named.frame, where + " signing in");
+            note = fixture::named(list, "library.sign-in.note");
+            submit = fixture::named(list, "library.sign-in.submit");
+            cancel = fixture::named(list, "library.sign-in.cancel");
+            OA_CHECK(note != nullptr && note->text == signing);
+            OA_CHECK(submit != nullptr && !submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            lib::ScreenState state;
+            const lib::ScreenResult stopped = click(library, state, list, "library.sign-in.cancel");
+            OA_CHECK(stopped.action == lib::Action::cancel_sign_in);
+            OA_CHECK(library.sign_in.open);
+
+            lib::open_share_question(library, "default/show-down.oademo", "Show Down");
+            OA_CHECK(library.share_question.open && !library.sign_in.open);
+            list = check(library, named.frame, where + " share");
+            const kit::Control* title = fixture::named(list, "library.share.title");
+            const kit::Control* listed = fixture::named(list, "library.share.public");
+            const kit::Control* unlisted = fixture::named(list, "library.share.unlisted");
+            submit = fixture::named(list, "library.share.submit");
+            cancel = fixture::named(list, "library.share.cancel");
+            OA_CHECK(title != nullptr && listed != nullptr && unlisted != nullptr);
+            OA_CHECK(submit != nullptr && submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            library.share_question.busy = true;
+            list = check(library, named.frame, where + " sharing");
+            note = fixture::named(list, "library.share.note");
+            submit = fixture::named(list, "library.share.submit");
+            cancel = fixture::named(list, "library.share.cancel");
+            OA_CHECK(note != nullptr && note->text == sharing);
+            OA_CHECK(submit != nullptr && !submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            const lib::ScreenResult share_stopped =
+                click(library, state, list, "library.share.cancel");
+            OA_CHECK(share_stopped.action == lib::Action::cancel_share);
+            OA_CHECK(library.share_question.open);
+            lib::close_share_question(library);
+        }
+    }
+
+    const auto with_account = [](bool secure, bool signed_in) {
+        lib::Library library = fixture::replay_library();
+        lib::Inputs inputs = library.inputs;
+        inputs.replays.core_sign_in_secure = secure;
+        inputs.replays.core_sign_in_offered = secure;
+        inputs.replays.core_signed_in = signed_in;
+        inputs.replays.core_handle = signed_in ? "nj" : "";
+        inputs.replays.core_battle = true;
+        inputs.replays.core_listing = lib::CoreListing::listed;
+        inputs.replays.core_listing_path = "default/show-down.oademo";
+        inputs.replays.core_listing_id = "r1";
+        inputs.replays.core_share_path = "default/show-down.oademo";
+        inputs.replays.core_share_note = "Already on Core Prime";
+        for (lib::ReplayRow& row : inputs.replays.rows) {
+            if (row.replay.path != "default/show-down.oademo")
+                continue;
+            row.length_ticks = 42965;
+            row.standings.resize(row.replay.players.size());
+            if (row.standings.size() >= 2) {
+                row.standings[0].result = lib::RecordedResult::won;
+                row.standings[0].known = true;
+                row.standings[0].kills = 41;
+                row.standings[0].losses = 12;
+                row.standings[1].result = lib::RecordedResult::lost;
+                row.standings[1].known = true;
+                row.standings[1].kills = 12;
+                row.standings[1].losses = 41;
+            }
+            row.recorded = lib::RecordedResult::won;
+        }
+        lib::refresh(library, std::move(inputs));
+        lib::set_tab(library, lib::Tab::replays);
+        lib::select_replay(library, "default/show-down.oademo");
+        return library;
+    };
+    for (const fixture::NamedFrame& named : frames) {
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        for (const lib::ReplaySource source :
+             {lib::ReplaySource::computer, lib::ReplaySource::core_prime}) {
+            lib::Library library = with_account(false, false);
+            lib::set_replay_source(library, source);
+            const kit::DisplayList list = check(library, named.frame, named.name + " needs tls");
+            const kit::Control* secure = fixture::named(list, "library.replays.sign-in.secure");
+            OA_CHECK(secure != nullptr && secure->text == lib::words::sign_in_needs_secure);
+            OA_CHECK(fixture::named(list, "library.action.sign-in") == nullptr);
+            OA_CHECK(fixture::named(list, "library.action.sign-out") == nullptr);
+            const kit::Control* card_note = fixture::named(list, "library.note");
+            if (card_note != nullptr)
+                OA_CHECK(card_note->text.find("secure connection") == std::string::npos);
+        }
+        lib::Library offered = with_account(true, false);
+        kit::DisplayList list = check(offered, named.frame, named.name + " sign in offered");
+        const kit::Control* sign_in = fixture::named(list, "library.action.sign-in");
+        const kit::Control* computer = fixture::named(list, "library.replays.source.computer");
+        OA_CHECK(sign_in != nullptr && sign_in->focusable && computer != nullptr);
+        if (sign_in != nullptr && computer != nullptr) {
+            OA_CHECK(sign_in->rect.y >= computer->rect.y);
+            OA_CHECK(sign_in->rect.y <= computer->rect.y + 2 * computer->rect.height);
+            OA_CHECK(
+                std::find(list.tab_order.begin(), list.tab_order.end(), sign_in->id) !=
+                list.tab_order.end()
+            );
+        }
+        OA_CHECK(fixture::named(list, "library.replays.sign-in.secure") == nullptr);
+
+        lib::Library signed_in = with_account(true, true);
+        lib::ScreenState state;
+        state.replay_page = compact;
+        list = laid_out(signed_in, state, named.frame);
+        const kit::Point window = lib::window_size(named.frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " listed card");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " listed card");
+        const kit::Control* sign_out = fixture::named(list, "library.action.sign-out");
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        OA_CHECK(fixture::named(list, "library.action.sign-in") == nullptr);
+        if (!compact) {
+            computer = fixture::named(list, "library.replays.source.computer");
+            OA_CHECK(sign_out != nullptr && computer != nullptr);
+            if (sign_out != nullptr && computer != nullptr)
+                OA_CHECK(sign_out->rect.y <= computer->rect.y + 2 * computer->rect.height);
+            if (sign_out != nullptr && watch != nullptr)
+                OA_CHECK(sign_out->rect.y + sign_out->rect.height <= watch->rect.y);
+        }
+        const kit::Control* note = fixture::named(list, "library.note");
+        OA_CHECK(
+            note != nullptr &&
+            note->text.find("On Core Prime\nAlready on Core Prime") != std::string::npos
+        );
+        for (const kit::Item& item : list.items) {
+            if (item.role != kit::Role::text)
+                continue;
+            OA_CHECK(item.text.find("On Core Prime Already") == std::string::npos);
+        }
+        // 1280×720 is the crowded card: Length and Recorded stay whole, above
+        // the buttons. 640×480 is Compact's replay page, which scrolls; Length
+        // is on screen, and Recorded comes into view at the foot.
+        if (named.name == "1280x720" || named.name == "640x480") {
+            const kit::Control* length = fixture::named(list, "library.fact.length");
+            OA_CHECK(length != nullptr && in_view(*length));
+        }
+        if (named.name == "1280x720") {
+            const kit::Control* recorded = fixture::named(list, "library.fact.recorded");
+            OA_CHECK(recorded != nullptr && in_view(*recorded));
+        }
+        if (named.name == "640x480") {
+            lib::ScreenState scrolled = state;
+            scrolled.details_scroll = 1 << 20;
+            const kit::DisplayList foot = laid_out(signed_in, scrolled, named.frame);
+            OA_EXPECT_NONE(fixture::outside_window(foot, window), named.name + " scrolled facts");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(foot, fonts()), named.name + " scrolled facts"
+            );
+            const kit::Control* recorded = fixture::named(foot, "library.fact.recorded");
+            OA_CHECK(recorded != nullptr && in_view(*recorded));
+        }
+    }
+
+    // The header line is not a substitute: both facts stay whole and above
+    // Watch, with two players and their result lines, in English and German.
+    // The game lays the Library out in the 4:3 frame its window holds, in
+    // the window's class: a 960×540 window is a Regular 720×540 frame, and
+    // 1280×720 a Large 960×720 one.
+    const fixture::NamedFrame card_frames[] = {
+        picture("960x540", 960, 540),
+        picture("1280x720", 1280, 720),
+        picture("1920x1080", 1920, 1080),
+        {"regular 720x540", {{0, 0, 720, 540}, kit::SizeClass::regular, 100}},
+        {"large 960x720", {{0, 0, 960, 720}, kit::SizeClass::large, 100}},
+    };
+    for (const char* language : {"en", "de"}) {
+        ExportTongue tongue;
+        fill_card_tongue(tongue, language);
+        for (const fixture::NamedFrame& named : card_frames) {
+            for (const bool caution : {true, false}) {
+                lib::Library signed_in = with_account(true, true);
+                // A listed battle's caution sits on the card. Length and Recorded
+                // stay whole above Watch with that caution, and without it, as
+                // the launch check's own battle shows only On Core Prime.
+                for (lib::ReplayRow& row : signed_in.inputs.replays.rows) {
+                    if (row.replay.path != "default/show-down.oademo" || !caution)
+                        continue;
+                    oa::data::replays::ContentGap gap;
+                    gap.kind = oa::data::replays::GapKind::mod_missing;
+                    gap.name = "Ridge";
+                    gap.version = "0.4.0";
+                    gap.revision = 1;
+                    row.gaps.push_back(std::move(gap));
+                }
+                if (!caution) {
+                    lib::Inputs inputs = signed_in.inputs;
+                    inputs.replays.core_share_path.clear();
+                    inputs.replays.core_share_note.clear();
+                    lib::refresh(signed_in, std::move(inputs));
+                    lib::select_replay(signed_in, "default/show-down.oademo");
+                }
+                signed_in.text.context = &tongue;
+                signed_in.text.shown = &ExportTongue::lookup;
+                const std::string where = std::string(language) + " " + named.name +
+                                          " two players" + (caution ? " with a caution" : "");
+                const kit::DisplayList list = check(signed_in, named.frame, where);
+                const kit::Control* length = fixture::named(list, "library.fact.length");
+                const kit::Control* recorded = fixture::named(list, "library.fact.recorded");
+                const kit::Control* watch = fixture::named(list, "library.action.watch");
+                OA_CHECK(length != nullptr && in_view(*length) && length->rect.height >= 12);
+                OA_CHECK(recorded != nullptr && in_view(*recorded) && recorded->rect.height >= 12);
+                OA_CHECK(watch != nullptr);
+                if (length != nullptr && watch != nullptr)
+                    OA_CHECK(length->rect.y + length->rect.height <= watch->rect.y);
+                if (recorded != nullptr && watch != nullptr)
+                    OA_CHECK(recorded->rect.y + recorded->rect.height <= watch->rect.y);
+                std::vector<std::string> problems;
+                if (length == nullptr || !in_view(*length))
+                    problems.push_back("Length is not whole in view");
+                if (recorded == nullptr || !in_view(*recorded))
+                    problems.push_back("Recorded is not whole in view");
+                OA_EXPECT_NONE(problems, where);
+            }
+        }
+        lib::Library signed_out = with_account(true, false);
+        signed_out.text.context = &tongue;
+        signed_out.text.shown = &ExportTongue::lookup;
+        const kit::DisplayList out =
+            check(signed_out, card_frames[1].frame, std::string(language) + " signed out listed");
+        OA_CHECK(fixture::named(out, "library.action.open-shared") != nullptr);
+        OA_CHECK(fixture::named(out, "library.action.share") == nullptr);
+    }
+
+    // A card so short that Length and Recorded sit under the title: they take
+    // the place of its day-and-length line, and at some of those heights both
+    // stay whole above Watch.
+    ExportTongue german;
+    fill_card_tongue(german, "de");
+    int32_t under_title = 0;
+    int32_t whole = 0;
+    for (int32_t height = 486; height >= 330; height -= 4) {
+        lib::Library signed_in = with_account(true, true);
+        signed_in.text.context = &german;
+        signed_in.text.shown = &ExportTongue::lookup;
+        const kit::Frame frame{{0, 0, 720, height}, kit::SizeClass::regular, 100};
+        const kit::DisplayList list = laid_out(signed_in, {}, frame);
+        const kit::Control* length = fixture::named(list, "library.fact.length");
+        const kit::Control* recorded = fixture::named(list, "library.fact.recorded");
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        const kit::Control* note = fixture::named(list, "library.note");
+        if (length == nullptr || recorded == nullptr || watch == nullptr || note == nullptr ||
+            length->rect.y > note->rect.y)
+            continue;
+        ++under_title;
+        const lib::ReplayRow* row = lib::find_replay(signed_in, "default/show-down.oademo");
+        OA_CHECK(row != nullptr);
+        if (row == nullptr)
+            continue;
+        const std::string when = lib::replay_when_line(signed_in, *row);
+        std::vector<std::string> problems;
+        for (const kit::Item& item : list.items) {
+            if (item.text == when)
+                problems.push_back("the day-and-length line \"" + when + "\" is still drawn");
+        }
+        OA_EXPECT_NONE(problems, "de 720x" + std::to_string(height) + " facts under the title");
+        if (in_view(*length) && in_view(*recorded) &&
+            recorded->rect.y + recorded->rect.height <= watch->rect.y)
+            ++whole;
+    }
+    OA_CHECK(under_title > 0);
+    OA_CHECK(whole > 0);
+}
+
 /// The Replays switch is one stop, a row whose Left and Right move between
 /// its two sides and stay at either end, and Tab lands on the chosen side.
 /// Core Prime's four filters are one stop, as this computer's are.
@@ -8535,5 +9173,9 @@ int main() {
     core_prime_filters_count_their_own_lists();
     core_prime_card_names_kills_only();
     core_prime_queued_download_says_so();
+    account_questions_lay_out();
+    account_questions_take_typed_text();
+    a_crowded_card_without_core_prime_keeps_its_layout();
+    a_card_without_core_prime_draws_the_lines_it_cuts();
     return oa::test::check_exit_status();
 }

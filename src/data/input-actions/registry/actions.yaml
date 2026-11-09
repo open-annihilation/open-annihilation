@@ -1937,6 +1937,24 @@ actions:
     default: ["Alt+Down"]
     repeatable: true
     words: {name: "Tilt down", description: "Tilts the camera down"}
+  photo.panel:
+    area: photo
+    order: 16
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["H"]
+    words: {name: "Hide panel", description: "Hides and shows the photo panel"}
+  photo.guides:
+    area: photo
+    order: 17
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["G"]
+    words: {name: "Guides", description: "Cycles the guides over the battlefield"}
   debug.keys:
     area: developer
     order: 1
@@ -2252,6 +2270,44 @@ actions:
     source: [OA]
     default: ["?"]
     words: {name: "Shortcut card", description: "Shows the playback keys"}
+  watch.next-player-view:
+    area: watching
+    order: 14
+    context: [watch]
+    when: [replaying]
+    kind: press
+    source: [OA]
+    default: ["Tab"]
+    words: {name: "Next player's view", description: "Shows the next player's view"}
+  watch.previous-player-view:
+    area: watching
+    order: 15
+    context: [watch]
+    when: [replaying]
+    kind: press
+    source: [OA]
+    default: ["Shift+Tab"]
+    words: {name: "Previous player's view", description: "Shows the previous player's view"}
+  watch.whole-view:
+    area: watching
+    order: 16
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Q"]
+    words: {name: "All players' view", description: "Shows the whole map and every unit"}
+  watch.camera-mode:
+    area: watching
+    order: 17
+    context: [watch]
+    when: [replaying]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["C"]
+    words: {name: "Camera mode", description: "Changes how the camera follows the game"}
   ui.settings:
     area: window
     order: 1

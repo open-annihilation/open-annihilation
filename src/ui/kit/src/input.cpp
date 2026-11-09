@@ -618,6 +618,8 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
     entry.checked = control.checked;
     entry.text = control.text;
     entry.focusable = control.focusable;
+    entry.expanded = control.expanded;
+    entry.live = control.live;
     return entry;
 }
 

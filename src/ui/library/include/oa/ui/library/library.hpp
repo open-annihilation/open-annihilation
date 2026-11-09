@@ -13,6 +13,7 @@
 #include "oa/data/replays/replays.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/ui/library/export.hpp"
+#include "oa/ui/library/share.hpp"
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -639,10 +640,19 @@ enum class CorePrimeFilter : uint8_t {
     longest,   ///< the longest game first
     downloads, ///< the most downloaded first
     planet,    ///< one planet
+    mine,      ///< the signed-in player's own battles
 };
 
 /// How many Core Prime filters there are.
-inline constexpr std::size_t core_prime_filter_total = 4;
+inline constexpr std::size_t core_prime_filter_total = 5;
+
+/// Whether Core Prime lists the battle the card is showing.
+enum class CoreListing : uint8_t {
+    unknown, ///< the card has not asked
+    asking,  ///< the feed is being read
+    listed,  ///< the feed names this battle
+    absent,  ///< the feed's page does not name it
+};
 
 /// The kinds of game the engine itself records, in the kind menu's order,
 /// after All kinds and before the kinds extensions register.
@@ -782,6 +792,32 @@ struct ReplayInputs {
     std::optional<int64_t> core_downloads_total{};
     /// The chosen planet's total, once that planet's list has been read.
     std::optional<int64_t> core_planet_total{};
+    /// My battles' total, once that list has been read.
+    std::optional<int64_t> core_mine_total{};
+    /// A player is signed in to Core Prime for this run.
+    bool core_signed_in{};
+    /// The signed-in handle. Empty while signed out.
+    std::string core_handle{};
+    /// This system can send a password over TLS. On, so the source row does
+    /// not grow the sentence that says signing in needs a secure connection.
+    bool core_sign_in_secure{true};
+    /// Sign in is beside the source switch. Off until the app offers it, so
+    /// an unsigned-in list stays as it is.
+    bool core_sign_in_offered{};
+    /// Whether the feed lists the battle on the card.
+    CoreListing core_listing{CoreListing::unknown};
+    /// The replay the listing is about, below Recordings.
+    std::string core_listing_path{};
+    /// The feed's id, when `core_listing` is listed.
+    std::string core_listing_id{};
+    /// A sentence about the last share of `core_share_path`. Empty shows none.
+    std::string core_share_note{};
+    /// The replay that sentence is about.
+    std::string core_share_path{};
+    /// The id a share or a duplicate named, so Open on Core Prime can select it.
+    std::string core_share_id{};
+    /// The selected replay is a battle the feed can be asked about.
+    bool core_battle{};
 };
 
 /// The Replays section's own state, kept as the inputs change.
@@ -1429,6 +1465,10 @@ struct Library {
     KeyUse key_use{};
     /// The Export dialog, over the Library. Empty `open` draws nothing.
     ExportDialog export_dialog{};
+    /// The sign-in question, over the Library. Empty `open` draws nothing.
+    SignInDialog sign_in{};
+    /// The share question, over the Library. Empty `open` draws nothing.
+    ShareQuestion share_question{};
     /// How the question learns what USE would move. Empty lists nothing.
     KeyUseHooks key_hooks{};
     /// A stored note said a mod was cleared because an expansion it needs
@@ -2224,6 +2264,23 @@ enum class Action : uint8_t {
     download_replay,
     /// BROWSE CORE PRIME'S REPLAYS in the empty section. The section shows that list.
     browse_core_prime,
+    /// SIGN IN beside the source switch. The host opens the sign-in question.
+    sign_in,
+    /// SIGN IN in the question. The host sends the handle and the password.
+    submit_sign_in,
+    /// SIGN OUT beside the source switch. The host forgets the session.
+    sign_out,
+    /// SHARE ON CORE PRIME… or SHARE MY OWN RECORDING on the card.
+    /// `ScreenResult::replay` names the replay. The host opens the question.
+    share_replay,
+    /// SHARE in the question. The host sends the replay.
+    submit_share,
+    /// OPEN ON CORE PRIME. The host shows that replay on Core Prime's list.
+    open_shared_replay,
+    /// CANCEL while a sign-in is in flight. The host stops that login.
+    cancel_sign_in,
+    /// CANCEL while a share is in flight. The host stops that upload.
+    cancel_share,
 };
 
 /// Returns the action an expansion's download arrow asks for.

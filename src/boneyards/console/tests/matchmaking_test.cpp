@@ -894,6 +894,93 @@ int main(int argc, char** argv) {
     CHECK(named(dialog, "Yes") != nullptr && named(dialog, "Yes")->visible == 0);
     CHECK(named(dialog, "OfferFace") != nullptr && named(dialog, "OfferFace")->visible == 0);
 
+    // From the chosen radio, Tab visits one stop per group, then Activate,
+    // then Close. Left and Right move along a horizontal row and stop at
+    // its end. Up leaves the row and does not change the other groups.
+    {
+        ScopedServices scope(g_widget);
+        services_desktop_focus(named(dialog, "Duel"));
+    }
+    std::vector<std::string> stops;
+    for (int32_t step = 0; step < 12; ++step) {
+        boneyards_status_widget_event(g_widget, tab);
+        Window* focus = g_widget->desktop.focus;
+        std::string label;
+        if (focus != nullptr && focus->name != nullptr && focus->name[0] != '\0')
+            label = focus->name;
+        stops.push_back(label);
+        if (focus == named(dialog, "Duel") && step > 0)
+            break;
+    }
+    const auto at = [&](const char* name) {
+        for (int32_t i = 0; i < static_cast<int32_t>(stops.size()); ++i) {
+            if (stops[i] == name)
+                return i;
+        }
+        return -1;
+    };
+    CHECK(at("Near mine") >= 0 && at("Core") > at("Near mine"));
+    CHECK(at("This planet") > at("Core") && at("Activate") > at("This planet"));
+    CHECK(at("Close") > at("Activate"));
+    CHECK(at("WinnerTakesAll") < 0 && at("For Fun") < 0 && at("Any") < 0);
+    CHECK(at("Arm") < 0 && at("Either") < 0 && at("Any planet") < 0);
+    Message across{};
+    across.code = MessageCode::key_down;
+    across.key = key::right;
+    {
+        ScopedServices scope(g_widget);
+        services_desktop_focus(named(dialog, "Duel"));
+    }
+    boneyards_status_widget_event(g_widget, across);
+    CHECK(named(dialog, "WinnerTakesAll")->states.current == button_state::pressed);
+    boneyards_status_widget_event(g_widget, across);
+    CHECK(named(dialog, "For Fun")->states.current == button_state::pressed);
+    boneyards_status_widget_event(g_widget, across);
+    CHECK(
+        named(dialog, "For Fun")->states.current == button_state::pressed &&
+        g_widget->desktop.focus == named(dialog, "For Fun")
+    );
+    across.key = key::up;
+    boneyards_status_widget_event(g_widget, across);
+    CHECK(named(dialog, "For Fun")->states.current == button_state::pressed);
+    CHECK(named(dialog, "Core")->states.current == button_state::pressed);
+    CHECK(named(dialog, "Near mine")->states.current == button_state::pressed);
+    CHECK(named(dialog, "This planet")->states.current == button_state::pressed);
+    across.key = key::left;
+    {
+        ScopedServices scope(g_widget);
+        services_desktop_focus(named(dialog, "For Fun"));
+    }
+    boneyards_status_widget_event(g_widget, across);
+    CHECK(named(dialog, "WinnerTakesAll")->states.current == button_state::pressed);
+    boneyards_status_widget_event(g_widget, across);
+    CHECK(named(dialog, "Duel")->states.current == button_state::pressed);
+    // Down the four rows. Core is the chosen side, so the side row does not
+    // stand under the skill row's chosen radio. The next row is still Core.
+    {
+        ScopedServices scope(g_widget);
+        services_desktop_focus(named(dialog, "Duel"));
+    }
+    Message down_row{};
+    down_row.code = MessageCode::key_down;
+    down_row.key = key::down;
+    boneyards_status_widget_event(g_widget, down_row);
+    CHECK(g_widget->desktop.focus == named(dialog, "Near mine"));
+    boneyards_status_widget_event(g_widget, down_row);
+    CHECK(
+        g_widget->desktop.focus == named(dialog, "Core") &&
+        named(dialog, "Core")->states.current == button_state::pressed
+    );
+    boneyards_status_widget_event(g_widget, down_row);
+    CHECK(
+        g_widget->desktop.focus == named(dialog, "This planet") &&
+        named(dialog, "Core")->states.current == button_state::pressed
+    );
+    {
+        ScopedServices scope(g_widget);
+        services_desktop_focus(chat->matchmaking);
+    }
+
     const std::vector<uint8_t> settings = frame_pixels();
     check_pixel(settings, 150, 200, 90);
     check_pixel(settings, 489, 200, 90);
@@ -911,6 +998,10 @@ int main(int argc, char** argv) {
     CHECK(art_at(settings, "Widgets.gaf", "Function_Button_Large", 2, 162, 358, 0, true));
     CHECK(art_at(settings, "Widgets.gaf", "Close_Button", 2, 472, 146, 0, false));
 
+    // The pixel check left the keyboard on the chat button so the dialog
+    // showed no ring. That raise put the chat console over the dialog.
+    // Put the dialog back in front before the clicks.
+    dialog->ops->raise(dialog);
     g_log.sounds.clear();
     g_log.calls.clear();
     click_window(named(dialog, "For Fun"));

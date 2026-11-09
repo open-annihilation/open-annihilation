@@ -1413,11 +1413,29 @@ Space lets it run and − starts Slow 9, then + runs at the match's speed and
 Shift+. move the shutter from 8 to 7 and back to 8, + starts slow motion
 and Space freezes it, Enter writes a PNG, Primary+C offers that photo
 through the clipboard hook, and Page Up zooms. Alt+Left is refused and the
-line says Needs Full acceleration. S, a left click and Ctrl+C change
-neither a unit nor the view. F9 and Escape each leave. Ctrl+F9 writes a PCX
+line says Needs Full acceleration. S, a left click and C with the modifier
+that is not Primary (Ctrl+C on a Mac, the Windows or Super key and C
+elsewhere, since there Ctrl+C is Primary+C) change neither a unit nor the
+view, and copy nothing. F9 and Escape each leave. Ctrl+F9 writes a PCX
 screenshot outside photo mode and, on the default layout, a PNG photo inside
 it. A scratch Keys layout moves Take photo to K: K writes a photo and Enter
 does not. The preferences file is unchanged.
+`native-photo-panel` (`--check-photo panel`, with `--snapshot`) plays the
+same fight at 640×480, 1280×720 and 1920×1080. Take photo writes a photo
+with no panel in it, equal to the battlefield of that frame. H hides the
+panel and shows it again. G cycles the guides, which are in no photo, and
+a 1:1 crop writes a square photo. Tab walks every control and the first Tab
+shows the focus ring. A drag on the battlefield pans and never selects.
+Leaving before a frame, after Take photo in that same visit, says Photo not
+taken and writes nothing. The preferences file is unchanged.
+`ui-photo-panel-layout` lays the panel out at those three sizes in each size
+class and both looks, including Large at 640×480, for a skirmish, a replay
+and a shared match: every control lies inside the panel and the panel inside
+the window, Tab follows the sections, and a locked control carries its
+reason. `ui-photo-panel-draw` and `ui-photo-panel-draw-data` pin the panel
+in those three states at those three sizes in both looks
+(`src/ui/photo-panel/tests/frames.txt`). `--frames` writes
+`photo-panel-<scene>.png`.
 `native-photo-capture-full` also sends F9 and Enter in one batch and requires
 the photo to be the size of the window and to match the next frozen frame.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in

@@ -21,6 +21,7 @@
 
 #include "console_state.hpp"
 #include "oa/boneyards/console/menu_entry.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/message_box.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/boneyards_test/installs.hpp"
@@ -1527,6 +1528,9 @@ int main() {
             );
         }
         g_launches_ended = 0;
+        const int notices = oa::boneyards::screens::after_battle_shown();
+        oa::boneyards::screens::arm_after_battle(0);
+        oa::boneyards::screens::begin_after_battle();
         console::LaunchBridge bridge{};
         bridge.launch_ended = count_launch_ended;
         boneyards_console_set_launch_bridge(bridge);
@@ -1538,6 +1542,10 @@ int main() {
             "the battle no longer counts as launched"
         );
         check(g_launches_ended == 1, "the return ends the launch");
+        check(
+            oa::boneyards::screens::after_battle_shown() == notices,
+            "a failed join offers nothing on Core Prime"
+        );
         by::MessageBox* box = by::message_box_find_open(&widget->desktop);
         by::Window* text = box != nullptr
                                ? window_find_named(&box->base, by::message_box_name::text, nullptr)

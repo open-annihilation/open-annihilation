@@ -46,6 +46,8 @@
 #include "oa/sim/model_runtime/instance.hpp"
 #include "oa/sim/spatial_state/spatial.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/kit/input.hpp"
+#include "oa/ui/photo_panel/layout.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/hud/kill_board.hpp"
 #include "oa/ui/hud/resource_panel.hpp"
@@ -110,6 +112,13 @@ constexpr double kPanStep = 4.0;
 constexpr SDL_Keymod kPrimaryModifier = SDL_KMOD_LGUI;
 #else
 constexpr SDL_Keymod kPrimaryModifier = SDL_KMOD_LCTRL;
+#endif
+/// The modifier that is not Primary on this platform: Ctrl on a Mac, the
+/// Windows or Super key elsewhere. Its C reaches no photo command.
+#ifdef SDL_PLATFORM_MACOS
+constexpr SDL_Keymod kOtherModifier = SDL_KMOD_LCTRL;
+#else
+constexpr SDL_Keymod kOtherModifier = SDL_KMOD_LGUI;
 #endif
 
 /// Offers the check's hook counted, and the type of the latest one.
@@ -607,12 +616,6 @@ std::vector<uint8_t> png_rgb(const fs::path& picture, uint32_t width, uint32_t h
     return std::move(decoded.rows);
 }
 
-/// The photo line's largest rectangle starts 8 points in from the corner and
-/// is 22 points tall, as wide as the picture allows up to 1200.
-constexpr int kPhotoLineX = 8;
-constexpr int kPhotoLineY = 8;
-constexpr int kPhotoLineHeight = 22;
-constexpr int kPhotoLineMaxWidth = 1200;
 /// Photo mode's own words, which a fresh visit's line starts with.
 constexpr std::string_view kFreshPhotoLine = "Photo mode  Esc leaves";
 
@@ -658,20 +661,7 @@ gamma_mapped(const renderer::Surface& world, const std::array<uint8_t, 256>& tab
     return rgb;
 }
 
-/// True when (x, y) lies outside the photo line's largest rectangle.
-///
-/// @param x the column
-/// @param y the row
-/// @param picture_width the picture's width
-/// @return true when the photo line cannot cover that pixel
-bool outside_photo_line(int x, int y, int picture_width) {
-    const int room = std::max(picture_width - 16, 48);
-    const int line_width = std::min(kPhotoLineMaxWidth, room);
-    return x < kPhotoLineX || y < kPhotoLineY || x >= kPhotoLineX + line_width ||
-           y >= kPhotoLineY + kPhotoLineHeight;
-}
-
-/// Requires the photo to equal the presented frame outside the photo line.
+/// Requires the photo to equal the presented frame outside the panel's chrome.
 ///
 /// The presented frame is the whole window, as capture_render_target reads it.
 /// The photo is the battlefield, drawn at `origin_x`, `origin_y` in that
@@ -684,13 +674,17 @@ bool outside_photo_line(int x, int y, int picture_width) {
 /// @param presented the frame the window presented
 /// @param origin_x the battlefield's left edge in the window
 /// @param origin_y the battlefield's top edge in the window
+/// @param layout_width the match layout the panel was drawn in
+/// @param layout_height the match layout the panel was drawn in
 void require_presented_battlefield(
     const std::vector<uint8_t>& photo,
     uint32_t width,
     uint32_t height,
     const renderer::Surface& presented,
     int origin_x,
-    int origin_y
+    int origin_y,
+    int layout_width,
+    int layout_height
 ) {
     const bool fits = origin_x >= 0 && origin_y >= 0 &&
                       static_cast<uint64_t>(origin_x) + width <= presented.width &&
@@ -705,15 +699,16 @@ void require_presented_battlefield(
             std::to_string(origin_y)
         );
     }
-    // The line is laid out on the window. Excluding its largest rectangle
-    // there leaves the battlefield around it to be compared.
-    const int line_picture = static_cast<int>(std::max(presented.width, width));
+    // The panel, the chips, the key line and the toast are drawn on the
+    // Open Annihilation layer after the photo is read. Skip those bands.
     std::size_t compared = 0;
     for (uint32_t y = 0; y < height; ++y) {
         for (uint32_t x = 0; x < width; ++x) {
             const int window_x = origin_x + static_cast<int>(x);
             const int window_y = origin_y + static_cast<int>(y);
-            if (!outside_photo_line(window_x, window_y, line_picture))
+            // The panel is laid out in the match, which can be smaller than
+            // the presented frame. Skip the chrome in that layout.
+            if (oa::ui::photo_panel::covers_chrome(window_x, window_y, layout_width, layout_height))
                 continue;
             const std::size_t photo_at = (static_cast<std::size_t>(y) * width + x) * 3U;
             const std::size_t shown_at = (static_cast<std::size_t>(window_y) * presented.width +
@@ -724,14 +719,19 @@ void require_presented_battlefield(
                 photo[photo_at + 2U] != presented.rgb[shown_at + 2U]) {
                 throw std::runtime_error(
                     "photo capture check: the photo differs from the presented frame at " +
-                    std::to_string(x) + "," + std::to_string(y)
+                    std::to_string(x) + "," + std::to_string(y) + " window " +
+                    std::to_string(window_x) + "," + std::to_string(window_y) + " presented " +
+                    std::to_string(presented.width) + "x" + std::to_string(presented.height) +
+                    " layout " + std::to_string(layout_width) + "x" +
+                    std::to_string(layout_height) + " origin " + std::to_string(origin_x) + "," +
+                    std::to_string(origin_y)
                 );
             }
             ++compared;
         }
     }
     if (compared == 0)
-        throw std::runtime_error("photo capture check: the photo line covers the picture");
+        throw std::runtime_error("photo capture check: the photo panel covers the picture");
 }
 
 /// Points `capture` at `frame` until the end of the scope.
@@ -1145,11 +1145,16 @@ void Runtime::check_photo_keys() {
     const int offers_before_match = clipboard_catch.offers;
     tap(SDL_SCANCODE_S);
     click_left(24.0F, 24.0F);
-    tap(SDL_SCANCODE_C, SDL_KMOD_LCTRL);
+    // Ctrl+C on a Mac, where Primary is Command. Elsewhere Ctrl+C is
+    // Primary+C, which copies (below), so the other modifier is pressed.
+    tap(SDL_SCANCODE_C, kOtherModifier);
     require(read_orders() == orders, "a match key changed a unit");
     require(same_view(quiet, read_view()), "a match key moved the view");
     require(!chat_composing_, "a match key opened the chat line");
-    require(clipboard_catch.offers == offers_before_match, "Ctrl+C copied a photo");
+    require(
+        clipboard_catch.offers == offers_before_match,
+        "C with the modifier other than Primary copied a photo"
+    );
     require(photo_mode(), "a match key left photo mode");
 
     const Shots before_photo = count_shots(pictures);
@@ -1233,6 +1238,407 @@ void Runtime::check_photo_keys() {
     std::cout << "photo keys: ok" << std::endl;
 }
 
+void Runtime::check_photo_panel() {
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& path = host.options_.preferences_file;
+            if (path.has_value())
+                existed = fs::exists(*path);
+            bytes = file_bytes(path);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& path = runtime.options_.preferences_file;
+            if (path.has_value()) {
+                if (!existed) {
+                    std::error_code error;
+                    fs::remove(*path, error);
+                } else {
+                    std::ofstream out(*path, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    const PreferencesHold preferences_hold(*this);
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo panel failed: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    require(sdl_.window != nullptr, "the check has no window");
+    require(
+        options_.user_folder && !options_.user_folder->empty() && !user_folder_.empty(),
+        "the run has no folder of the player's own (--user-folder)"
+    );
+
+    bool running = true;
+    const auto dispatch = [&](SDL_Event& event) {
+        dispatch_event(event, running);
+        require(running, "a key ended the run");
+    };
+    const auto tap = [&](SDL_Scancode scancode) {
+        SDL_Event event{};
+        event.key.windowID = SDL_GetWindowID(sdl_.window);
+        event.key.scancode = scancode;
+        event.key.key = SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, true);
+        event.key.mod = SDL_KMOD_NONE;
+        for (const bool down : {true, false}) {
+            event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            event.key.down = down;
+            event.key.repeat = false;
+            dispatch(event);
+        }
+    };
+    const auto window_point = [&](float frame_x, float frame_y) {
+        float window_x = 0;
+        float window_y = 0;
+        require(
+            frame_to_window(sdl_.renderer, frame_x, frame_y, &window_x, &window_y),
+            "the point is not on the window"
+        );
+        return std::pair<float, float>{window_x, window_y};
+    };
+    const auto click_at = [&](float frame_x, float frame_y) {
+        const auto [window_x, window_y] = window_point(frame_x, frame_y);
+        SDL_Event event{};
+        event.motion.windowID = SDL_GetWindowID(sdl_.window);
+        event.button.windowID = event.motion.windowID;
+        event.type = SDL_EVENT_MOUSE_MOTION;
+        event.motion.x = window_x;
+        event.motion.y = window_y;
+        dispatch(event);
+        for (const bool down : {true, false}) {
+            event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+            event.button.button = SDL_BUTTON_LEFT;
+            event.button.down = down;
+            event.button.clicks = 1;
+            event.button.x = window_x;
+            event.button.y = window_y;
+            dispatch(event);
+        }
+    };
+    const auto drag_at = [&](float from_x, float from_y, float to_x, float to_y) {
+        const auto [start_x, start_y] = window_point(from_x, from_y);
+        const auto [end_x, end_y] = window_point(to_x, to_y);
+        SDL_Event event{};
+        event.motion.windowID = SDL_GetWindowID(sdl_.window);
+        event.button.windowID = event.motion.windowID;
+        event.type = SDL_EVENT_MOUSE_MOTION;
+        event.motion.x = start_x;
+        event.motion.y = start_y;
+        dispatch(event);
+        event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+        event.button.button = SDL_BUTTON_LEFT;
+        event.button.down = true;
+        event.button.clicks = 1;
+        event.button.x = start_x;
+        event.button.y = start_y;
+        dispatch(event);
+        event.type = SDL_EVENT_MOUSE_MOTION;
+        event.motion.x = end_x;
+        event.motion.y = end_y;
+        dispatch(event);
+        event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        event.button.down = false;
+        event.button.x = end_x;
+        event.button.y = end_y;
+        dispatch(event);
+    };
+    const auto show_frame = [&] {
+        render_match_surface();
+        present_match_layers();
+    };
+    const auto size_window = [&](int width, int height) {
+        require(
+            sdl_.window != nullptr && SDL_SetWindowSize(sdl_.window, width, height) &&
+                SDL_SyncWindow(sdl_.window),
+            std::string("the window did not resize: ") + SDL_GetError()
+        );
+        SDL_Event resized{};
+        resized.type = SDL_EVENT_WINDOW_RESIZED;
+        resized.window.windowID = SDL_GetWindowID(sdl_.window);
+        resized.window.data1 = width;
+        resized.window.data2 = height;
+        dispatch(resized);
+    };
+    const auto screen = [&]() -> LayerScreen* {
+        LayerScreen* found = oa_layer().find("photo-mode");
+        require(found != nullptr, "the photo panel is not open");
+        return found;
+    };
+    const auto control_at = [&](std::string_view name) {
+        const oa::ui::kit::DisplayList list = screen()->display_list();
+        for (const oa::ui::kit::Control& control : list.controls) {
+            if (control.name == name) {
+                return std::pair<float, float>{
+                    static_cast<float>(control.rect.x) +
+                        static_cast<float>(control.rect.width) / 2.0F,
+                    static_cast<float>(control.rect.y) +
+                        static_cast<float>(control.rect.height) / 2.0F
+                };
+            }
+        }
+        fail(std::string(name) + " is not on the panel");
+        return std::pair<float, float>{};
+    };
+    const auto has_name = [&](std::string_view name) {
+        const oa::ui::kit::DisplayList list = screen()->display_list();
+        for (const oa::ui::kit::Control& control : list.controls)
+            if (control.name == name)
+                return true;
+        return false;
+    };
+    const auto focused_name = [&] {
+        const LayerScreen* open = screen();
+        const oa::ui::kit::Interaction focus = open->interaction();
+        const oa::ui::kit::DisplayList list = open->display_list();
+        const oa::ui::kit::Control* control = oa::ui::kit::control_of(list, focus.focused);
+        require(control != nullptr, "the panel has no focused control");
+        return control->name;
+    };
+    const auto ring_shown = [&] {
+        const LayerScreen* open = screen();
+        if (!open->interaction().focus_shown)
+            return false;
+        const oa::ui::kit::DisplayList list = open->display_list();
+        for (const oa::ui::kit::Item& item : list.items)
+            if (item.role == oa::ui::kit::Role::focus_ring)
+                return true;
+        return false;
+    };
+    const auto count_png = [&] {
+        int png = 0;
+        std::error_code error;
+        if (!fs::exists(user_folder_, error))
+            return png;
+        const fs::recursive_directory_iterator end;
+        for (fs::recursive_directory_iterator it(
+                 user_folder_, fs::directory_options::skip_permission_denied, error
+             );
+             !error && it != end;
+             it.increment(error)) {
+            if (error || !it->is_regular_file(error))
+                continue;
+            const fs::path ext = it->path().extension();
+            if (ext == ".png" || ext == ".PNG")
+                ++png;
+        }
+        return png;
+    };
+    const auto latest_photo = [&] {
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
+        return decode_png(photo_shots_folder() / oa::platform::path_from_utf8(saved));
+    };
+    const auto take = [&] {
+        const auto [x, y] = control_at("photo.take");
+        click_at(x, y);
+        show_frame();
+        wait_for_photos();
+        return latest_photo();
+    };
+    const auto pixel = [](const DecodedPng& image, uint32_t x, uint32_t y) {
+        const std::size_t at = (static_cast<std::size_t>(y) * image.width + x) * 3U;
+        return std::array<uint8_t, 3>{image.rows[at], image.rows[at + 1U], image.rows[at + 2U]};
+    };
+    const auto shows_status = [](const oa::Game& game) {
+        if (game.text_lines <= 0)
+            return false;
+        if (game.message_filter == 1 || game.message_filter == 2)
+            return true;
+        return game.message_filter == 3 && game.screen_chat != 0;
+    };
+
+    start_benchmark_skirmish();
+    match_layout_ = lay_out_match(options_.match_width, options_.match_height);
+    spawn_combat_armies(kArmy);
+    render_match_surface();
+    const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+
+    const int before_miss = count_png();
+    tap(SDL_SCANCODE_F9);
+    tap(SDL_SCANCODE_RETURN);
+    require(photo_mode(), "F9 did not open photo mode");
+    tap(SDL_SCANCODE_F9);
+    require(!photo_mode(), "leaving before a frame stayed in photo mode");
+    require(match_ != nullptr, "leaving a waiting photo left no match");
+    require(shows_status(match_->state().game), "the message log would not draw Photo not taken");
+    bool said = false;
+    for (const std::string& line : match_message_lines()) {
+        if (line.find("Photo not taken") != std::string::npos)
+            said = true;
+    }
+    require(said, "the message log did not say Photo not taken");
+    require(count_png() == before_miss, "a waiting photo was written");
+
+    const char* names[] = {
+        "photo.leave",
+        "photo.section.camera",
+        "photo.zoom",
+        "photo.turn",
+        "photo.tilt",
+        "photo.classic",
+        "photo.follow",
+        "photo.section.time",
+        "photo.time-mode",
+        "photo.speed",
+        "photo.step",
+        "photo.between",
+        "photo.section.look",
+        "photo.selection",
+        "photo.health",
+        "photo.guides",
+        "photo.section.capture",
+        "photo.copy-to-clipboard",
+        "photo.player-names",
+        "photo.take",
+        "photo.copy",
+    };
+    const int widths[] = {640, 1280, 1920};
+    const int heights[] = {480, 720, 1080};
+    for (int size = 0; size < 3; ++size) {
+        if (photo_mode())
+            leave_photo_mode();
+        size_window(widths[size], heights[size]);
+        const std::string where =
+            std::to_string(widths[size]) + "x" + std::to_string(heights[size]);
+        tap(SDL_SCANCODE_F9);
+        show_frame();
+        require(photo_mode() && photo_frozen(), where + " did not open frozen");
+        require(!ring_shown(), where + " drew a focus ring before Tab");
+        require(focused_name() == "photo.leave", where + " did not open on Leave");
+        std::vector<std::string> seen;
+        seen.push_back(focused_name());
+        tap(SDL_SCANCODE_TAB);
+        require(ring_shown(), where + " did not show the ring on the first Tab");
+        seen.push_back(focused_name());
+        for (int step = 0; step < 40; ++step) {
+            tap(SDL_SCANCODE_TAB);
+            seen.push_back(focused_name());
+        }
+        for (const char* name : names) {
+            const bool found = std::find(seen.begin(), seen.end(), name) != seen.end();
+            require(found, where + " Tab missed " + name);
+        }
+        const oa::ui::kit::DisplayList listed = screen()->display_list();
+        for (const oa::ui::kit::Control& control : listed.controls) {
+            require(!control.name.empty(), where + " has a control with no name");
+            const bool readout = control.name == "photo.clock" || control.name == "photo.size" ||
+                                 control.name == "photo.file";
+            if (readout) {
+                require(
+                    control.kind == oa::ui::kit::ControlKind::area && !control.focusable,
+                    where + " " + control.name + " is still a button"
+                );
+                require(
+                    std::find(seen.begin(), seen.end(), control.name) == seen.end(),
+                    where + " Tab stopped on " + control.name
+                );
+            }
+            if (control.name.rfind("photo.section.", 0) == 0)
+                require(control.expanded, where + " " + control.name + " is not expanded");
+        }
+        bool freeze_lit = false;
+        const std::vector<oa::ui::kit::AutomationEntry> parts =
+            oa::ui::kit::automation_parts(listed, screen()->interaction());
+        for (const oa::ui::kit::AutomationEntry& entry : parts) {
+            if (entry.name == "photo.time-mode.freeze" && entry.chosen)
+                freeze_lit = true;
+        }
+        require(freeze_lit, where + " Freeze is not the lit mode");
+
+        const int32_t camera_before = match_camera_x_;
+        const uint16_t selected_before = selected_match_unit_;
+        const float from_x = static_cast<float>(widths[size]) / 4.0F;
+        const float from_y = static_cast<float>(heights[size]) / 2.0F;
+        drag_at(from_x, from_y, from_x - 80.0F, from_y);
+        require(match_camera_x_ != camera_before, where + " a battlefield drag did not pan");
+        require(selected_match_unit_ == selected_before, where + " a battlefield drag selected");
+
+        tap(SDL_SCANCODE_H);
+        require(has_name("photo.hint"), where + " H did not leave the hint");
+        require(!has_name("photo.take"), where + " H left Take photo showing");
+        renderer::Surface clean;
+        {
+            const CaptureHold hold(capture_frame_, clean);
+            show_frame();
+        }
+        tap(SDL_SCANCODE_H);
+        require(has_name("photo.take"), where + " H did not show the panel");
+        require(!has_name("photo.hint"), where + " H left the hint showing");
+        const DecodedPng plain = take();
+        require(
+            plain.width == clean.width && plain.height == clean.height,
+            where + " photo " + std::to_string(plain.width) + "x" + std::to_string(plain.height) +
+                " presented " + std::to_string(clean.width) + "x" + std::to_string(clean.height)
+        );
+        std::size_t compared = 0;
+        for (uint32_t y = 0; y < plain.height; ++y) {
+            for (uint32_t x = 0; x < plain.width; ++x) {
+                if (oa::ui::photo_panel::covers_chrome(
+                        static_cast<int>(x),
+                        static_cast<int>(y),
+                        static_cast<int>(plain.width),
+                        static_cast<int>(plain.height)
+                    ))
+                    continue;
+                const auto photo_pixel = pixel(plain, x, y);
+                const std::size_t at = (static_cast<std::size_t>(y) * clean.width + x) * 3U;
+                require(
+                    photo_pixel[0] == clean.rgb[at] && photo_pixel[1] == clean.rgb[at + 1U] &&
+                        photo_pixel[2] == clean.rgb[at + 2U],
+                    where + " the photo differs from the battlefield at " + std::to_string(x) +
+                        "," + std::to_string(y)
+                );
+                ++compared;
+            }
+        }
+        require(compared > 0, where + " the chrome covers the photo");
+
+        tap(SDL_SCANCODE_G);
+        const DecodedPng guided = take();
+        require(guided.rows == plain.rows, where + " a guide was in the photo");
+        for (int more = 0; more < 6; ++more)
+            tap(SDL_SCANCODE_G);
+        const DecodedPng square = take();
+        require(
+            square.width == square.height && square.width > 0, where + " a 1:1 crop is not square"
+        );
+        const uint32_t crop_x = (plain.width - square.width) / 2U;
+        const uint32_t crop_y = (plain.height - square.height) / 2U;
+        const uint32_t mid_x = square.width / 2U;
+        const uint32_t mid_y = square.height / 2U;
+        require(
+            pixel(square, mid_x, mid_y) == pixel(plain, crop_x + mid_x, crop_y + mid_y),
+            where + " the cropped centre is not the battlefield's centre"
+        );
+    }
+
+    require(
+        file_bytes(options_.preferences_file) == preferences_settled, "the preferences file changed"
+    );
+    if (photo_mode())
+        leave_photo_mode();
+    if (match_ != nullptr) {
+        leave_match();
+        load(Screen::main_menu);
+    }
+    std::cout << "photo panel: ok" << std::endl;
+}
+
 int Runtime::check_photo() {
     switch (options_.photo_group) {
     case PhotoGroup::mode:
@@ -1251,6 +1657,9 @@ int Runtime::check_photo() {
         return check_photo_live();
     case PhotoGroup::keys:
         check_photo_keys();
+        return 0;
+    case PhotoGroup::panel:
+        check_photo_panel();
         return 0;
     }
     throw std::runtime_error("photo mode check: unknown group");
@@ -2386,6 +2795,239 @@ void Runtime::check_photo_time() {
     std::fflush(stdout);
 }
 
+void Runtime::check_photo_selection_box(bool turned) {
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo selection: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    const auto end_fight = [this] {
+        if (photo_mode())
+            leave_photo_mode();
+        if (match_ != nullptr) {
+            leave_match();
+            load(Screen::main_menu);
+        }
+    };
+    const auto cloud_of = [](const std::vector<uint8_t>& plain,
+                             const std::vector<uint8_t>& boxed,
+                             uint32_t width,
+                             uint32_t height) {
+        struct Cloud {
+            int64_t x = 0;
+            int64_t y = 0;
+            int count = 0;
+        } cloud;
+        if (plain.size() != boxed.size() || width == 0 || height == 0 ||
+            plain.size() != static_cast<std::size_t>(width) * height * 3U)
+            return cloud;
+        for (uint32_t row = 0; row < height; ++row) {
+            for (uint32_t column = 0; column < width; ++column) {
+                const std::size_t at = (static_cast<std::size_t>(row) * width + column) * 3U;
+                if (plain[at] == boxed[at] && plain[at + 1U] == boxed[at + 1U] &&
+                    plain[at + 2U] == boxed[at + 2U])
+                    continue;
+                cloud.x += column;
+                cloud.y += row;
+                ++cloud.count;
+            }
+        }
+        return cloud;
+    };
+    const auto apart = [](double across, double down) {
+        return std::sqrt(across * across + down * down);
+    };
+
+    start_benchmark_skirmish();
+    match_layout_ = lay_out_match(options_.match_width, options_.match_height);
+    match_zoom_ = kPlayZoom;
+    match_zoom_target_ = kPlayZoom;
+    spawn_combat_armies(kArmy);
+    uint16_t commander_id = 0;
+    for (const auto& slot : match_->world().slots) {
+        if (slot.unit_index == 0 || slot.unit == nullptr ||
+            slot.owner_index != match_local_player_ || slot.unit->type_index == 0)
+            continue;
+        commander_id = slot.unit_index;
+        break;
+    }
+    require(commander_id != 0, "the fight has no local commander");
+    oa::Unit* commander = oa::world_unit_at(&match_->state(), commander_id);
+    require(commander != nullptr, "the commander is not in the world");
+    commander->flags |= OA_UNIT_FLAG_SELECTED;
+    selected_match_unit_ = commander_id;
+    oa::Game& game = match_->state().game;
+    console::set_console_flags(
+        game,
+        static_cast<uint16_t>(console::console_flags(game) | console::console_flag::selection_boxes)
+    );
+    require(enter_photo_mode(), "photo mode did not open");
+    set_photo_show_health_bars(false);
+    set_photo_show_selection(false);
+    center_camera_on_unit(commander_id);
+    const float zoomed = std::min(2.0F, photo_zoom_limits()[1]);
+    match_zoom_ = zoomed;
+    match_zoom_target_ = zoomed;
+    if (turned) {
+        bool did_turn = false;
+        try {
+            did_turn = turn_live_camera(20.0F, 12.0F);
+        } catch (const std::exception&) {
+            did_turn = false;
+        }
+        require(
+            did_turn && live_renderer_active() && !live_renderer_failed(), "the view did not turn"
+        );
+    }
+    const int32_t before_pan_x = match_camera_x_;
+    const int32_t before_pan_z = match_camera_z_;
+    scroll_match_view(1, 0, 200.0);
+    render_match_surface();
+    if (match_camera_x_ == before_pan_x && match_camera_z_ == before_pan_z)
+        scroll_match_view(-1, 0, 200.0);
+    render_match_surface();
+    require(
+        match_camera_x_ != static_cast<int32_t>(game.camera_x) ||
+            match_camera_z_ != static_cast<int32_t>(game.camera_y),
+        "the photo camera stayed on the player's camera"
+    );
+    // Full classic keeps the card's picture out of the world layer until the
+    // window is presented. The presented frame is the screen, with the
+    // panel's chrome left out of the comparison. The photo is the battlefield.
+    const auto present_world = [this](renderer::Surface& shown) {
+        const CaptureHold hold(capture_frame_, shown);
+        present_match_layers();
+    };
+    renderer::Surface plain_shown;
+    present_world(plain_shown);
+    require(plain_shown.width > 0 && !plain_shown.rgb.empty(), "the window presented nothing");
+    take_photo();
+    wait_for_photos();
+    const std::string plain_name = saved_photo_name(status_);
+    require(!plain_name.empty(), "status is " + status_);
+    const fs::path plain_file = photo_shots_folder() / oa::platform::path_from_utf8(plain_name);
+    const DecodedPng plain_photo = decode_png(plain_file);
+
+    set_photo_show_selection(true);
+    render_match_surface();
+    renderer::Surface boxed_shown;
+    present_world(boxed_shown);
+    take_photo();
+    wait_for_photos();
+    const std::string boxed_name = saved_photo_name(status_);
+    require(!boxed_name.empty() && boxed_name != plain_name, "status is " + status_);
+    const fs::path boxed_file = photo_shots_folder() / oa::platform::path_from_utf8(boxed_name);
+    const DecodedPng boxed_photo = decode_png(boxed_file);
+
+    const int origin_x = match_layout_.left;
+    const int origin_y = match_layout_.top;
+    const int layout_width = match_layout_.width;
+    const int layout_height = match_layout_.height;
+
+    struct Cloud {
+        int64_t x = 0;
+        int64_t y = 0;
+        int count = 0;
+    } screen_cloud;
+
+    require(
+        plain_shown.width == boxed_shown.width && plain_shown.height == boxed_shown.height &&
+            plain_shown.rgb.size() == boxed_shown.rgb.size(),
+        "the two frames are not the same size"
+    );
+    for (uint32_t row = 0; row < plain_shown.height; ++row) {
+        for (uint32_t column = 0; column < plain_shown.width; ++column) {
+            if (oa::ui::photo_panel::covers_chrome(
+                    static_cast<int>(column), static_cast<int>(row), layout_width, layout_height
+                ))
+                continue;
+            const std::size_t at =
+                (static_cast<std::size_t>(row) * plain_shown.width + column) * 3U;
+            if (plain_shown.rgb[at] == boxed_shown.rgb[at] &&
+                plain_shown.rgb[at + 1U] == boxed_shown.rgb[at + 1U] &&
+                plain_shown.rgb[at + 2U] == boxed_shown.rgb[at + 2U])
+                continue;
+            screen_cloud.x += static_cast<int64_t>(column) - origin_x;
+            screen_cloud.y += static_cast<int64_t>(row) - origin_y;
+            ++screen_cloud.count;
+        }
+    }
+    require(
+        plain_photo.width == boxed_photo.width && plain_photo.height == boxed_photo.height,
+        "the two photos are not the same size"
+    );
+    const auto photo_cloud =
+        cloud_of(plain_photo.rows, boxed_photo.rows, plain_photo.width, plain_photo.height);
+    // Full classic reads the card's picture back into the window. A software
+    // card can leave that read-back without the box while the photo, which
+    // is the battlefield, still has it. Either picture is enough to place
+    // the box, and both are required to agree when each has one.
+    require(screen_cloud.count > 8 || photo_cloud.count > 8, "Show selection drew no box");
+    const bool screen_holds = screen_cloud.count > 8;
+    const double screen_x =
+        screen_holds ? static_cast<double>(screen_cloud.x) / screen_cloud.count : 0.0;
+    const double screen_y =
+        screen_holds ? static_cast<double>(screen_cloud.y) / screen_cloud.count : 0.0;
+    const double photo_x =
+        photo_cloud.count > 0 ? static_cast<double>(photo_cloud.x) / photo_cloud.count : 0.0;
+    const double photo_y =
+        photo_cloud.count > 0 ? static_cast<double>(photo_cloud.y) / photo_cloud.count : 0.0;
+    const double box_x = screen_holds ? screen_x : photo_x;
+    const double box_y = screen_holds ? screen_y : photo_y;
+
+    double anchor_x = 0;
+    double anchor_y = 0;
+    if (live_renderer_active()) {
+        const auto bounds = live_unit_bounds(commander_id);
+        require(bounds.has_value(), "the turned view has no box for the commander");
+        anchor_x = (static_cast<double>(bounds->x1) + bounds->x2) * 0.5 - match_layout_.left;
+        anchor_y = (static_cast<double>(bounds->y1) + bounds->y2) * 0.5 - match_layout_.top;
+    } else {
+        const std::array<uint32_t, 3> position{
+            static_cast<uint32_t>(commander->position.x),
+            static_cast<uint32_t>(commander->position.y),
+            static_cast<uint32_t>(commander->position.z)
+        };
+        const auto seen =
+            project_match_point(live_viewport(match_camera_x_, match_camera_z_), position);
+        const auto stale = project_match_point(
+            live_viewport(static_cast<int32_t>(game.camera_x), static_cast<int32_t>(game.camera_y)),
+            position
+        );
+        anchor_x = static_cast<double>(seen.x) - match_layout_.left;
+        anchor_y = static_cast<double>(seen.y) - match_layout_.top;
+        const double stale_x = static_cast<double>(stale.x) - match_layout_.left;
+        const double stale_y = static_cast<double>(stale.y) - match_layout_.top;
+        require(
+            apart(box_x - anchor_x, box_y - anchor_y) + 24.0 <
+                apart(box_x - stale_x, box_y - stale_y),
+            "the box sits on the player's camera"
+        );
+    }
+    require(apart(box_x - anchor_x, box_y - anchor_y) < 96.0, "the box does not surround the unit");
+    require(photo_cloud.count > 8, "the photo has no selection box");
+    if (screen_holds) {
+        require(
+            apart(photo_x - screen_x, photo_y - screen_y) < 12.0,
+            "the photo's box is not the one on screen"
+        );
+    } else {
+        require(
+            apart(photo_x - anchor_x, photo_y - anchor_y) < 96.0,
+            "the photo's box does not surround the unit"
+        );
+    }
+
+    std::error_code remove_error;
+    fs::remove(plain_file, remove_error);
+    fs::remove(boxed_file, remove_error);
+    end_fight();
+    std::printf("photo selection: on the unit\n");
+    std::fflush(stdout);
+}
+
 void Runtime::check_photo_camera() {
     /// Puts the preferences file back to the bytes the check started with.
     struct PreferencesHold {
@@ -2880,6 +3522,11 @@ void Runtime::check_photo_camera() {
     require(
         file_bytes(options_.preferences_file) == preferences_settled, "the preferences file changed"
     );
+    check_photo_selection_box(false);
+    require(
+        file_bytes(options_.preferences_file) == preferences_settled,
+        "the selection check wrote the preferences"
+    );
     std::printf("photo camera: framed the battlefield\n");
     std::fflush(stdout);
 }
@@ -3158,7 +3805,14 @@ void Runtime::check_photo_capture() {
             const std::vector<uint8_t> rows =
                 picture_rows(saved_name(), photo_shots_folder(), expected, world_w, world_h);
             require_presented_battlefield(
-                rows, world_w, world_h, presented, match_layout_.left, match_layout_.top
+                rows,
+                world_w,
+                world_h,
+                presented,
+                match_layout_.left,
+                match_layout_.top,
+                match_layout_.width,
+                match_layout_.height
             );
         }
         require_no_partials(photo_shots_folder());
@@ -3210,7 +3864,14 @@ void Runtime::check_photo_capture() {
         // shows one pixel for each.
         if (window_one_to_one(sdl_.window))
             require_presented_battlefield(
-                rows, held.width, held.height, presented, match_layout_.left, match_layout_.top
+                rows,
+                held.width,
+                held.height,
+                presented,
+                match_layout_.left,
+                match_layout_.top,
+                match_layout_.width,
+                match_layout_.height
             );
         require(rows == expected, "the photo is not the held picture");
         require(photo_hold_picture() && !photo_picture_held(), "the picture was not let go");
@@ -3368,7 +4029,14 @@ void Runtime::check_photo_capture() {
         require(presented.width > 0 && presented.height > 0, "the window presented nothing");
         const DecodedPng image = decode_png(file);
         require_presented_battlefield(
-            image.rows, image.width, image.height, presented, match_layout_.left, match_layout_.top
+            image.rows,
+            image.width,
+            image.height,
+            presented,
+            match_layout_.left,
+            match_layout_.top,
+            match_layout_.width,
+            match_layout_.height
         );
         require_no_partials(shots);
         require_fresh_line();
@@ -3384,6 +4052,7 @@ void Runtime::check_photo_capture() {
         shoot_basic(1280, 720);
         shoot_held();
         clear_pictures();
+        check_photo_selection_box(false);
         std::printf("photo capture basic: equal\n");
         std::fflush(stdout);
         return;
@@ -3457,7 +4126,14 @@ void Runtime::check_photo_capture() {
                     picture_rows(first_name, shots, expected, width, height);
                 std::ignore = picture_rows(second_name, shots, expected, width, height);
                 require_presented_battlefield(
-                    rows, width, height, presented, match_layout_.left, match_layout_.top
+                    rows,
+                    width,
+                    height,
+                    presented,
+                    match_layout_.left,
+                    match_layout_.top,
+                    match_layout_.width,
+                    match_layout_.height
                 );
                 photo_sha = sha256_hex(rows);
                 require(photo_player_names(), "player names were off");
@@ -3825,7 +4501,14 @@ int Runtime::check_photo_live() {
         const std::vector<uint8_t> rows = png_rgb(file, width, height);
         require(rows == expected, "the photo is not the live picture");
         require_presented_battlefield(
-            rows, width, height, presented, match_layout_.left, match_layout_.top
+            rows,
+            width,
+            height,
+            presented,
+            match_layout_.left,
+            match_layout_.top,
+            match_layout_.width,
+            match_layout_.height
         );
     }
     if (!skip && match_ != nullptr && screen_ == Screen::match) {
@@ -3895,7 +4578,14 @@ int Runtime::check_photo_live() {
         require_held_moment(held_file, held_tick);
         if (window_one_to_one(sdl_.window))
             require_presented_battlefield(
-                rows, held.width, held.height, presented, match_layout_.left, match_layout_.top
+                rows,
+                held.width,
+                held.height,
+                presented,
+                match_layout_.left,
+                match_layout_.top,
+                match_layout_.width,
+                match_layout_.height
             );
         require(rows == expected, "the photo is not the held picture");
         require(photo_hold_picture() && !photo_picture_held(), "the picture was not let go");
@@ -3916,6 +4606,7 @@ int Runtime::check_photo_live() {
     sweep_pictures();
     if (skip)
         return 77;
+    check_photo_selection_box(true);
     std::printf("photo capture live: equal\n");
     std::fflush(stdout);
     return 0;

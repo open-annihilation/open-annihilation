@@ -1172,8 +1172,9 @@ class OaLayer {
     void note_family_return() noexcept;
 
     /// Hides the family's focus ring when the pointer has moved to another
-    /// pixel. The first place, and a move that stays on the same pixel, leave
-    /// it as it is.
+    /// pixel, the one that holds the point as the Boneyards toolkit counts it
+    /// (the coordinate truncated). The first place, and a move that stays on
+    /// the same pixel, leave it as it is.
     ///
     /// @param x the pointer's column, in the coordinates the screen is given
     /// @param y the pointer's row, in the coordinates the screen is given
@@ -1183,6 +1184,20 @@ class OaLayer {
     ///
     /// @return true while the ring shows
     [[nodiscard]] bool family_ring_shown() const noexcept { return family_ring_shown_; }
+
+    /// Names the screen the main menu's cross-family order has landed on.
+    ///
+    /// Empty names none. The update pill and More maps… open on Return only
+    /// while they are the named stop and the family's ring is showing.
+    ///
+    /// @param screen the screen's name, or empty
+    void note_menu_keyboard_stop(std::string_view screen);
+
+    /// Tells whether the cross-family order has landed on this screen.
+    ///
+    /// @param screen the screen's name
+    /// @return true when note_menu_keyboard_stop was given that name
+    [[nodiscard]] bool menu_keyboard_stop_is(std::string_view screen) const noexcept;
 
     /// Tells whether this frame's OA badges are drawn here, at the window's
     /// own pixels, rather than into the 640 by 480 frame.
@@ -1767,6 +1782,8 @@ class OaLayer {
     /// not draw that ring itself. Hidden as a screen opens, unless Always
     /// show focus is on.
     bool family_ring_shown_{};
+    /// The screen the cross-family order has landed on; empty when it has not.
+    std::string menu_keyboard_stop_{};
     /// Tab or Shift+Tab asked for the ring since it was last drawn, so a
     /// screen that opened on that key still shows it.
     bool family_tabbed_{};

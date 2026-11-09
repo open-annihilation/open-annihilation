@@ -38,9 +38,51 @@ registration page hands the keyboard back to the button that opened it; a
 click on Close or Back leaves it where the click put it, as before, so no
 white frame appears.
 
+After the first Tab, Shift+Tab or F6, the arrows and Return follow the
+console. In Chat, Tab visits the frequencies, Create, the players, Minimize
+when it is shown, the log and the entry, each once. The arrows choose a
+frequency or a player. Return on a frequency opens its pane, where GO joins
+it, and Return on a player opens that player's pane.
+There the arrows move between General, Ladder and Awards, and Tab continues
+to Whisper Lock, Muzzle, Page and the page. Recon's description is reached
+the same way. In Help, News and the Ladders, the arrows move through the
+list, Right opens a heading and Left closes it, and Return opens the chosen
+page. Tab reaches a link on that page, and Return follows it and brings the
+keyboard back to the list. The Ladders
+name and SEARCH are reached too. Until that first Tab, Shift+Tab or F6,
+the arrows and Return do what they did before. Return, or moving the
+pointer to a new place, puts them back to that. A move that stays put
+leaves them.
+
 F6 and Shift+F6 move between the main frame, the open console and the war
 map, also while nothing has the keyboard yet (the war map just after
 login). Tab and Shift+Tab stay in the one that has the keyboard. A dialog, the
 side prompt, matchmaking and the registration page keep Tab until they
 close. Escape presses the screen's Escape control, and closes a console
 that has none.
+
+A radio group is one stop: the choice that is showing. The arrows along
+the group's line change that choice, and they stop at the end of the line.
+A row, whose choices share one top, steps with Left and Right, and Up and
+Down leave it. A stack, whose choices share one left edge, steps with Up
+and Down, and Left and Right leave it. For the column order a row stands
+at its first choice, so Up and Down step from one row to the next whichever
+choice is showing.
+
+Any other arrow uses that same column order. It wraps, in the frame and on
+the war map, and an arrow there crosses from one to the other. It never
+lands on a control an open console covers. Inside an open console the arrow
+stays, and at the last stop that way it stays put. A pad leaves the console
+with Back, which is Escape, and the keyboard returns to the control it came
+from.
+
+Once Tab, Shift+Tab or F6 has moved into a console, the stops are these.
+
+| Screen | Stops |
+| --- | --- |
+| Battle | the battle list (Up and Down choose the row once Tab or F6 has shown the ring; with no ring, Down after a click reopens the clicked battle), HOST, the planet intelligence list, then the open pane. A forming battle's pane is its password, when the battle has one, and JOIN |
+| Host | the game name, the password, the game types (Up and Down choose one once Tab or F6 has shown the ring; with no ring, the clicked type stays), one stop for each of Player Skill, Number of Players and On Commander Death, then START. Right on the skill row chooses the next skill. Down from the skill row reaches the players row, and Down again the death row |
+| Profile | the categories (Up and Down choose one once Tab or F6 has shown the ring; with no ring, the clicked category stays), that category's fields, APPLY, then RESET. Escape closes the console |
+| Matchmaking | one stop for the game, the skill, the side and the planets, then Activate, then Close. The first Tab from outside the dialog is still Activate. The game row steps with Left and Right |
+| QuickPlay | the chosen game type, where, skill, and side (Arm, Core or Either), Favorite, then FIND BATTLE. The side row steps with Left and Right. The console still does not take the keyboard when it opens. Escape closes it |
+| Locator | the five find rows, the name, Search, each result, then Relocate and Page. Return in the name still runs the search. Return on a result keeps the keyboard on that result |

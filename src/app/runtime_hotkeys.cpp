@@ -294,6 +294,14 @@ bool Runtime::answer_photo_action(const keys::ActionEvent& action) {
         }
         return true;
     }
+    if (id == "photo.panel") {
+        toggle_photo_panel();
+        return true;
+    }
+    if (id == "photo.guides") {
+        cycle_photo_guides();
+        return true;
+    }
     if (id == "photo.turn-left" || id == "photo.turn-right" || id == "photo.tilt-up" ||
         id == "photo.tilt-down") {
         constexpr float kStep = 5.0F;
@@ -323,7 +331,9 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     const std::string_view id = action.action;
     // A replay's own keys are taken before photo mode and before the match.
     // They answer only while a replay plays. Any other phase is swallowed.
-    if (id.starts_with("watch.replay-")) {
+    if (id.starts_with("watch.replay-") || id == "watch.next-player-view" ||
+        id == "watch.previous-player-view" || id == "watch.whole-view" ||
+        id == "watch.camera-mode") {
         if (action.phase == keys::Phase::pressed)
             static_cast<void>(replay_viewer_command(id));
         return true;
@@ -340,6 +350,11 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (photo_mode() && !photo_match_command(id))
         return true;
     if (id == "game.kill-board" || id == "game.resource-panel") {
+        if ((current_extension_state() & extension_state::replay) != 0) {
+            if (action.phase == keys::Phase::pressed)
+                replay_toggle_player_list();
+            return true;
+        }
         if (resource_panel_f4_key())
             return true;
         if (match_console() == nullptr)
@@ -873,6 +888,18 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
         return handle_match_action(*back);
     if (match_paused_)
         return false;
+    // A replay's view and camera keys win over a match key on the same letter.
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        for (const keys::ActionEvent& fed : events) {
+            if (fed.phase != keys::Phase::pressed)
+                continue;
+            const std::string_view watch_id = fed.action;
+            if (watch_id != "watch.next-player-view" && watch_id != "watch.previous-player-view" &&
+                watch_id != "watch.whole-view" && watch_id != "watch.camera-mode")
+                continue;
+            return handle_match_action(fed);
+        }
+    }
     for (const keys::ActionEvent& fed : events) {
         const bool answers = fed.phase == keys::Phase::pressed ||
                              (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));

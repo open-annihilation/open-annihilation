@@ -9,6 +9,7 @@
 // process over 127.0.0.1, runs the in-game team panels over the session
 // and compares both worlds after a settled run.
 #include "oa/app/asset_files.hpp"
+#include "oa/app/battle_recording.hpp"
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/pack_map_source.hpp"
 #include "oa/app/presence_facts.hpp"
@@ -1740,6 +1741,11 @@ struct NetworkPlay::NetHost {
         const std::string asked = oa::present::decode_game_text(
             state.net->recorder.record_name, runtime.game_text_utf8()
         );
+        // A new game forgets the previous recording before the plan can return.
+        // An unrecorded game then leaves no path, so Share… cannot open the
+        // previous file.
+        state.recording_path.clear();
+        note_battle_recording(runtime, state.recording_path);
         // Which layout the game is written in, and whether it is recorded at all.
         const RecordingPlan plan = plan_recording(recorder, net_record, record_game, by_setting);
         if (plan.layout == RecordingLayout::none)
@@ -1861,11 +1867,14 @@ struct NetworkPlay::NetHost {
         }
         // --record-game's and --net-record's file as it is given, else the mod's folder in
         // Recordings.
-        state.recording_path = recording_file(
-            !record_game.empty() ? record_game : net_record,
-            runtime.user_folder(),
-            runtime.files_mod_id(),
-            path_from_utf8(file_name)
+        state.recording_path = remembered_recording_path(
+            plan.layout,
+            recording_file(
+                !record_game.empty() ? record_game : net_record,
+                runtime.user_folder(),
+                runtime.files_mod_id(),
+                path_from_utf8(file_name)
+            )
         );
         state.recording_is_replay = replay_layout;
         // What the game knows that the recording does not hold: the replay's description.
@@ -1883,6 +1892,8 @@ struct NetworkPlay::NetHost {
         );
         if (state.partial == nullptr) {
             std::cerr << "multiplayer: the recording could not be started: " << problem << '\n';
+            state.recording_path.clear();
+            note_battle_recording(runtime, state.recording_path);
             state.recording_refused = true;
             return;
         }
@@ -1894,6 +1905,8 @@ struct NetworkPlay::NetHost {
                          "be kept\n";
             partial_discard(*state.partial);
             state.partial.reset();
+            state.recording_path.clear();
+            note_battle_recording(runtime, state.recording_path);
             state.recording_refused = true;
             return;
         }
@@ -1905,11 +1918,14 @@ struct NetworkPlay::NetHost {
             state.recording = {};
             partial_discard(*state.partial);
             state.partial.reset();
+            state.recording_path.clear();
+            note_battle_recording(runtime, state.recording_path);
             state.recording_refused = true;
             return;
         }
         if (!partial_write_note(state.partial->files, runtime.content_note_text()))
             std::cerr << "multiplayer: the recording's content note could not be kept\n";
+        note_battle_recording(runtime, state.recording_path);
     }
 
     /// Reads what the installed-package records hold of a package; nothing is known of one
@@ -3278,6 +3294,36 @@ void NetworkPlay::advance_skirmish_recording() {
     send_skirmish_economy_period(*skirmish_);
 }
 
+void NetworkPlay::note_skirmish_departure() {
+    if (skirmish_ == nullptr || !skirmish_->recording.started)
+        return;
+    auto* net = skirmish_->net.get();
+    auto* world = net != nullptr ? net->world : nullptr;
+    if (world == nullptr || net->hooks.record_seen == nullptr)
+        return;
+    const uint8_t local = runtime_.match_local_player_;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const auto& player = world->game.players[slot];
+        if (player.in_use == 0 || player.status != OA_PLAYER_STATUS_COMPUTER)
+            continue;
+        if (slot == local || skirmish_->sender_ids[slot] == 0)
+            continue;
+        oa::netgame::RejectRecord leaving{};
+        leaving.player_id = skirmish_->sender_ids[slot];
+        leaving.reason = static_cast<uint8_t>(oa::netgame::RejectReason::leaving);
+        constexpr auto length =
+            oa::netgame::record_table_length(static_cast<uint8_t>(oa::netgame::RejectRecord::type));
+        std::array<uint8_t, length> bytes{};
+        std::size_t written = 0;
+        if (oa::netgame::encode_record(leaving, bytes.data(), bytes.size(), &written) !=
+            oa::netgame::WireError::ok)
+            return;
+        // The recorder's hook stores the record. It does not enter the live simulation.
+        net->hooks.record_seen(net->hooks.context, player.player_id, bytes.data(), written);
+        return;
+    }
+}
+
 void NetworkPlay::hide_skirmish_live_bit() {
     if (skirmish_ == nullptr)
         return;
@@ -3887,6 +3933,8 @@ void NetworkPlay::net_frame() {
     // A recording finished off this thread is named in the log as soon as it is in place.
     if (net_)
         NetHost::reap_if_finished(*net_);
+    if (net_)
+        note_battle_recording(runtime_, net_->recording_path);
     if (!net_ || !net_->active)
         return;
     auto& state = *net_;
@@ -3897,6 +3945,8 @@ void NetworkPlay::net_frame() {
         } catch (const std::exception& error) {
             NetHost::abort(*this, error.what());
         }
+        if (net_)
+            note_battle_recording(runtime_, net_->recording_path);
         return;
     }
     // A shared match goes on beneath the preferences its menu opens.
@@ -3930,6 +3980,7 @@ void NetworkPlay::net_frame() {
     if (state.net->recorder.record_name[0] != '\0' && !state.recording.started &&
         !state.recording_refused)
         NetHost::start_recording(*this);
+    note_battle_recording(runtime_, state.recording_path);
     nm::net_match_sync_timing(&runtime_.match_->state(), &runtime_.match_timing_);
     NetHost::watch_timeouts(*this);
     step_reporter_frame();

@@ -166,6 +166,14 @@ void the_plan_follows_the_recorder_the_files_and_the_setting() {
     CHECK(plan_recording(false, tad, replay, false).layout == RecordingLayout::replay);
 }
 
+void an_unrecorded_game_forgets_the_previous_file() {
+    const fs::path previous = "Recordings/previous.oademo";
+    CHECK(remembered_recording_path(RecordingLayout::none, previous).empty());
+    const fs::path next = "Recordings/next.oademo";
+    CHECK(remembered_recording_path(RecordingLayout::replay, next) == next);
+    CHECK(remembered_recording_path(RecordingLayout::hack_tad, next) == next);
+}
+
 void the_files_of_a_recording_are_named_together_and_locked() {
     const fs::path scratch = oa::test::make_scratch_directory("netgame-partials");
     const fs::path user = scratch / "user";
@@ -440,6 +448,7 @@ void a_game_still_being_played_is_left_alone() {
 
 int main() {
     the_plan_follows_the_recorder_the_files_and_the_setting();
+    an_unrecorded_game_forgets_the_previous_file();
     the_files_of_a_recording_are_named_together_and_locked();
     a_replay_a_crash_left_is_finished_with_its_note();
     a_layout_is_told_by_the_streams_name();

@@ -89,6 +89,7 @@
 #include "oa/app/content/settings.hpp"
 #include "oa/app/renderer_records.hpp"
 #include "oa/app/brain_seats.hpp"
+#include "oa/app/replay_watch.hpp"
 #include "oa/app/seat_chat.hpp"
 #include "oa/ui/frontend_multiplayer/host_mutators.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
@@ -124,6 +125,10 @@ struct Console;
 struct ConsoleHost;
 enum class CrashTest : uint8_t;
 } // namespace oa::ui::console
+
+namespace oa::platform::screen_reader {
+enum class Preference;
+} // namespace oa::platform::screen_reader
 
 namespace oa::app::renderer_effect_sources {
 struct Source;
@@ -266,6 +271,38 @@ enum class AwayAction : uint8_t;
 /// @param assets game files
 /// @return the palette file's bytes
 PaletteBytes load_active_palette(const AssetStore& assets);
+
+/// Reports whether the game's window is created hidden so the screen reader
+/// can attach before it first shows: under `on`, or under `auto` while the
+/// system says a screen reader is running. A player with no reader gets the
+/// window exactly as before.
+///
+/// @param mode the preference
+/// @return true when the window is to be created hidden
+[[nodiscard]] bool screen_reader_hides_window(oa::platform::screen_reader::Preference mode);
+
+/// Window flags so the screen reader can attach before the window is shown.
+///
+/// On Windows, when `hide_until_attached` is set, the window is created
+/// hidden, and `attach_screen_reader_and_show` attaches and shows it at
+/// once. Other platforms return `flags`. `game_window_flags` itself is
+/// unchanged.
+///
+/// @param flags the flags the window would have been created with
+/// @param hide_until_attached what `screen_reader_hides_window` says
+/// @return the flags to create the window with
+[[nodiscard]] SDL_WindowFlags
+screen_reader_window_flags(SDL_WindowFlags flags, bool hide_until_attached);
+
+/// Attaches the screen reader to a window created hidden for it and shows the
+/// window straight away, before the movies and the loading, so it shows when
+/// it always has. A window that is not hidden is left as it is.
+///
+/// @param window the game's window
+/// @param mode the preference
+void attach_screen_reader_and_show(
+    SDL_Window* window, oa::platform::screen_reader::Preference mode
+);
 
 struct MatchConsole;
 class PhotoWriter;
@@ -2883,6 +2920,12 @@ class Runtime final : public menu::Host,
     /// the skirmish's fight. Throws std::runtime_error when a check fails.
     void check_photo_camera();
 
+    /// With Show selection on, after Home, a pan and a zoom, the selection
+    /// box surrounds the selected unit on the battlefield and in the photo.
+    ///
+    /// @param turned draw the turned view. The classic tiers leave it false.
+    void check_photo_selection_box(bool turned);
+
     /// Runs --check-photo capture: a photo of the fight, in the render mode
     /// in use. Throws std::runtime_error when a check fails.
     void check_photo_capture();
@@ -2898,6 +2941,35 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error when a check fails.
     void check_photo_keys();
+
+    /// Runs --check-photo panel: the panel beside the battlefield, at three
+    /// window sizes. Throws std::runtime_error when a check fails.
+    void check_photo_panel();
+
+    /// Puts the photo panel on the Open Annihilation layer.
+    void open_photo_panel();
+
+    /// Hides the photo panel, or shows it again. Outside photo mode, nothing.
+    void toggle_photo_panel();
+
+    /// The next guide over the battlefield, and back to none after the last crop.
+    void cycle_photo_guides();
+
+    /// Keeps a box-reduced copy of a photo for the toast.
+    ///
+    /// @param rgb packed RGB, three bytes a pixel
+    /// @param width the picture's width
+    /// @param height the picture's height
+    void remember_photo_thumbnail(const std::vector<uint8_t>& rgb, uint32_t width, uint32_t height);
+
+    /// Shows the notice after a photo, with "Copied" when the photo was copied.
+    ///
+    /// @param name the file name, or why the photo was not written
+    /// @param copied true when the photo was copied
+    void show_photo_toast(std::string name, bool copied);
+
+    /// Drops the toast's thumbnail. The notice itself stays until the next one.
+    void clear_photo_thumbnail() noexcept;
 
     /// Runs --generate-script: opens the recording through the extension
     /// that replays it, replays it to its end in director mode without
@@ -2999,6 +3071,15 @@ class Runtime final : public menu::Host,
     ///
     /// @param stage name of the screen in the file name, such as "briefing-1"
     void write_stage_snapshot(std::string_view stage);
+
+    /// Writes the presented window, kit screens included, to
+    /// <snapshot stem>-<stage>.ppm when --snapshot names a file.
+    ///
+    /// The console picture (write_stage_snapshot) does not hold a notice drawn
+    /// over it. This draws the frame again and reads the window.
+    ///
+    /// @param stage name of the screen in the file name, such as "notice-ranked"
+    void write_presented_snapshot(std::string_view stage);
 
     // Marks the unit types a match may use: sets the catalog bit of each
     // header (headers[type_id], by its FBI hash) that stays in the table.
@@ -3264,6 +3345,29 @@ class Runtime final : public menu::Host,
     /// @param runtime the running app
     /// @return the source the multiplayer screens bind
     friend oa::ui::frontend_multiplayer::LobbyMapSource pack_map_source(Runtime& runtime);
+    /// Remembers the battle recording Share… opens (note_battle_recording in
+    /// battle_recording.hpp).
+    ///
+    /// @param runtime the running app
+    /// @param path the recording, as a full path; empty when this game is not recorded
+    friend void note_battle_recording(Runtime& runtime, std::filesystem::path path);
+    /// Makes the slot a replay is watched from the match's local player
+    /// (seat_replay_watcher in replay_watch.hpp).
+    ///
+    /// @param runtime the running app
+    /// @param slot the watcher's slot; 0 when every slot belongs to a recorded player
+    friend void seat_replay_watcher(Runtime& runtime, uint8_t slot);
+    /// Copies what the playback bar's player list shows (note_replay_watch in
+    /// replay_watch.hpp).
+    ///
+    /// @param runtime the running app
+    /// @param slots one entry per live slot
+    /// @param shares_camera the recording has shared a camera
+    friend void note_replay_watch(
+        Runtime& runtime,
+        const std::array<ReplayShownSlot, OA_PLAYER_COUNT>& slots,
+        bool shares_camera
+    );
     /// Hands a chat line from another machine to the computer seats it
     /// reached (hear_remote_seat_chat in extension.hpp).
     ///
@@ -8517,6 +8621,9 @@ class Runtime final : public menu::Host,
     /// (runtime_library_core_prime.cpp).
     friend struct CorePrimeGate;
     friend struct CorePrimeHost;
+    /// Sign-in and share read this runtime's folder and options
+    /// (runtime_library_share.cpp).
+    friend struct CoreShareGate;
 
     /// The Library as a screen of the OA layer, named library.
     struct LibraryScreen;
@@ -8568,6 +8675,11 @@ class Runtime final : public menu::Host,
     ///
     /// @param tab the tab; nothing opens it on Active
     void open_library(std::optional<oa::ui::library::Tab> tab);
+
+    /// Asks the next frames to open the Library's Replays on the battle
+    /// just played, with that recording selected and the share question
+    /// open. The open waits until the main menu can show the Library.
+    void open_replays_to_share_battle();
 
     /// Closes the Library and every screen above it on the OA layer; the
     /// screen under it shows again. Without the Library, nothing.
@@ -8829,8 +8941,8 @@ class Runtime final : public menu::Host,
     /// The keys overlay, a screen of the OA layer named keys-overlay.
     struct KeysOverlayScreen;
 
-    /// The photo screen, a screen of the OA layer named photo-mode: one line
-    /// at the top left. It is not modal.
+    /// The photo screen, a screen of the OA layer named photo-mode: the panel
+    /// beside the battlefield, the chips and the key line. It is not modal.
     struct PhotoScreen;
 
     /// The mutator picker, a screen of the OA layer named mutator-picker.
@@ -9036,6 +9148,31 @@ class Runtime final : public menu::Host,
     /// @param button the button
     /// @return true when the bar took it
     bool replay_viewer_pad(oa::ui::pad_controls::PadButton button);
+
+    /// Shows the next or previous player's view. A negative step goes back.
+    ///
+    /// @param delta +1 or -1
+    void replay_step_player_view(int delta);
+
+    /// Shows the whole map and every unit.
+    void replay_show_whole_view();
+
+    /// Moves to the next camera mode the recording can offer.
+    void replay_step_camera_mode();
+
+    /// Keeps one unit in the middle of the view until the player pans.
+    ///
+    /// @param unit the unit's slot
+    void replay_follow_unit(uint16_t unit);
+
+    /// Leaves follow-a-unit and returns the camera to free.
+    void replay_release_unit_follow();
+
+    /// Folds the player list to colour chips, or opens it.
+    void replay_toggle_player_list();
+
+    /// Shows every player again and leaves the camera free. Tracking stops.
+    void replay_reset_watch();
 
     /// The first marker after a tick, while the bar is showing.
     ///
@@ -12127,6 +12264,22 @@ class Runtime final : public menu::Host,
     /// @param[in,out] running loop flag; cleared when an event ends the loop
     void run_frame(bool& running);
 
+    /// Reads the screen-reader preference and attaches the bridge when the
+    /// preference asks for it. `auto` waits until the system says a screen
+    /// reader is running. `on` attaches even when none is. `off` attaches nothing.
+    /// A failed attach is not tried again until the preference changes. On
+    /// Windows a window created hidden for the attach is shown afterwards.
+    void ensure_screen_reader();
+
+    /// Turns queued screen-reader actions into the keys and presses the game
+    /// already handles, before this frame polls events.
+    void take_screen_reader_actions();
+
+    /// Publishes the control tree when the system says a screen reader is
+    /// running, one has asked for the tree, and the tree has changed. With
+    /// no reader, this builds nothing.
+    void publish_screen_reader();
+
     /// Leaves the end screen: closes the report, tells the extension and releases the finished
     /// match.
     void release_endgame();
@@ -14390,12 +14543,63 @@ class Runtime final : public menu::Host,
 
     /// Marks the focused control the screen names when the family's ring is drawn.
     ///
-    /// The first focused control that is shown gets `focus_shown`. A control of
-    /// an OA screen, whose name starts with oa., keeps the flag its own screen
-    /// wrote. While the family's ring is hidden the controls are left as they were.
+    /// The cross-family stop is written first, when one is landed on. The first
+    /// focused control that is shown then gets `focus_shown`. A control of an OA
+    /// screen, whose name starts with oa., keeps the flag its own screen wrote,
+    /// except the Library, Settings, the update pill and More maps…, which take
+    /// this ring. While the family's ring is hidden the controls are left as they were.
     ///
     /// @param[in,out] controls the screen's controls, windows included
     void stamp_family_focus_shown(std::vector<AutomationControl>& controls);
+
+  public:
+
+    /// Which stop of the main menu or of map selection the cross-family order is on.
+    enum class MenuKeyboardKind : uint8_t {
+        reported,  ///< the first stop, reported, with nothing new drawn
+        gadget,    ///< one of the screen's own controls
+        extension, ///< a button of an extension's window
+        library,   ///< the Library icon
+        settings,  ///< the Settings icon
+        pill,      ///< the update pill
+        more_maps  ///< More maps… on map selection
+    };
+
+  private:
+
+    /// Reaches the cross-family order from the event dispatch. The stop stays private.
+    friend struct MenuKeyboardAccess;
+
+    /// Forgets the cross-family stop, so the next Tab starts from the screen's own focus.
+    ///
+    /// A new screen calls it. Return, while the ring is hidden and the stop is
+    /// not one of the screen's own controls, calls it before the panel takes
+    /// its focus as it does today.
+    void clear_menu_keyboard();
+
+    /// Writes the cross-family stop onto the controls the tree reports.
+    ///
+    /// A reported stop, and a stop on one of the screen's own controls, leave
+    /// the tree as the collector wrote it. Any other stop clears the focus on
+    /// the controls it may, then marks its own control focused. More maps…
+    /// also clears the map list, which is another dialog. A modal screen
+    /// is left alone.
+    ///
+    /// @param[in,out] controls the screen's controls, windows included
+    void apply_menu_keyboard_focus(std::vector<AutomationControl>& controls);
+
+    /// Chooses the focused map, as a double-click on its row does, and hides the ring.
+    ///
+    /// The row is the one the list already shows. The map modal then closes.
+    /// The selected record is cleared afterwards, as a button press clears it,
+    /// once the handlers that read it during the press have run.
+    void choose_focused_map();
+
+    /// Opens the update centre from the main menu's order, as a press on the pill does.
+    void open_update_pill_from_order();
+
+    /// Opens the map browser from map selection's order, as a press on More maps… does.
+    void open_more_maps_from_order();
 
     /// Checks Single Player's GUI keyboard: the focus marker's rings round
     /// NewCamp, its loader's focus, then round the records Tab and Shift+Tab
@@ -14407,8 +14611,10 @@ class Runtime final : public menu::Host,
     void check_frontend_keyboard();
 
     /// Moves the frontend screen's keyboard focus to the nearest record that
-    /// takes it in a direction, as the arrow keys do. The main menu's Tab
-    /// uses it too. Every other built-in screen's Tab uses move_frontend_tab.
+    /// takes it in a direction, as the arrow keys do. The main menu's arrows
+    /// use it while the family's ring is hidden. Its Tab uses the cross-family
+    /// order. Every other built-in screen's Tab uses move_frontend_tab, and
+    /// map selection's Tab inserts More maps… after the list.
     ///
     /// @param direction where the focus goes
     void move_frontend_focus(oa::ui::gui_input::FocusDirection direction);
@@ -14500,10 +14706,12 @@ class Runtime final : public menu::Host,
     /// With no record focused, as the main menu opens, accept gives the panel
     /// its first focus (move_frontend_focus) and presses nothing, while the
     /// family's ring is hidden. While that ring is shown, accept presses that
-    /// first record and hides the ring. A focused record that is no active
-    /// button, and a grayed-out button, press nothing; a text box keeps the
-    /// ring. Press does nothing while no record is focused, and does not hide
-    /// the ring.
+    /// first record and hides the ring. A stop on the Library, Settings, an
+    /// extension's button or the update pill is pressed in its place, and
+    /// while the ring is hidden accept leaves that stop and gives the panel
+    /// its focus instead. A focused record that is no active button, and a
+    /// grayed-out button, press nothing; a text box keeps the ring. Press
+    /// does nothing while no record is focused, and does not hide the ring.
     ///
     /// @param accept true for accept, false for the press action
     /// @return true when the key pressed the focused button or gave the focus
@@ -15971,6 +16179,9 @@ class Runtime final : public menu::Host,
 
     /// Stops following a unit with the camera.
     void stop_match_tracking();
+
+    /// Whether the camera is still following a unit.
+    [[nodiscard]] bool match_tracking() const noexcept { return match_tracking_; }
 
     /// Lists the local player's selected units.
     ///
@@ -18970,6 +19181,14 @@ class Runtime final : public menu::Host,
     ///
     /// @return The state's bytes, which stay valid for the runtime's life.
     [[nodiscard]] std::span<uint8_t> meteor_state_bytes() noexcept;
+
+    /// Whether this battle has a recording on this computer.
+    ///
+    /// Empty after a game that was not recorded, including one that followed
+    /// a recorded game.
+    ///
+    /// @return true when a path is remembered
+    [[nodiscard]] bool battle_has_recording() const noexcept { return !battle_recording_.empty(); }
 
   private:
 
@@ -22221,8 +22440,23 @@ class Runtime final : public menu::Host,
     bool replay_chat_hidden_ = false;
     /// The playback bar, while it is on the OA layer. The screen clears this.
     ReplayViewerScreen* replay_viewer_ = nullptr;
+    /// Display incomes and shared cameras for the player list. Not keyframed.
+    /// Playback replaces them each frame (note_replay_watch in replay_watch.hpp).
+    std::array<ReplayShownSlot, OA_PLAYER_COUNT> replay_shown_{};
+    /// True once the recording on show has shared a camera.
+    bool replay_shares_camera_{};
     /// The recording being watched, as a full path. The bar reads it.
     std::filesystem::path replay_recording_path_{};
+    /// The battle recording on this computer, as a full path. A finish that
+    /// renames the file replaces it (note_battle_recording in
+    /// battle_recording.hpp).
+    std::filesystem::path battle_recording_{};
+    /// Share… was chosen. The Library opens once the main menu can show it.
+    bool battle_share_pending_{false};
+
+    /// Opens the Library's Replays on the battle recording once the main
+    /// menu can show it, and asks to share that recording.
+    void offer_battle_share();
     /// A timeline the Library already holds for that recording. The bar takes
     /// it before it reads the file, and starts no pass. Cleared once the bar
     /// has copied it.
@@ -22269,6 +22503,17 @@ class Runtime final : public menu::Host,
     // The record of the frontend screen's panel holding the keyboard focus,
     // -1 for none (frontend_focus()).
     int32_t frontend_focus_ = -1;
+    /// The cross-family stop. `reported` is the first of the order, with the
+    /// screen's own focus left where it is, so nothing new is drawn.
+    MenuKeyboardKind menu_keyboard_ = MenuKeyboardKind::reported;
+    /// The screen `menu_keyboard_` belongs to. A change of screen forgets the stop.
+    Screen menu_keyboard_screen_ = Screen::main_menu;
+    /// An extension window's name, while the stop is one of its buttons.
+    std::string menu_keyboard_window_{};
+    /// The stop's control, as that window spells it. Empty for a gadget.
+    std::string menu_keyboard_control_{};
+    /// The gadget record, while the stop is one of the screen's own controls.
+    int32_t menu_keyboard_gadget_ = -1;
     // The Mutators button, while that screen exists. The screen sets it as
     // it is made and clears it as it goes. Brain seats hand Tab through it.
     MutatorButtonScreen* mutator_button_screen_ = nullptr;

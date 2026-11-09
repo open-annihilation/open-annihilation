@@ -186,12 +186,71 @@ bool already_walked(const Walk& walk, const Window* window) {
     return false;
 }
 
-// Tries each direction of the pad. A move onto a control already walked is
-// undone, so a column does not hide the controls beside it.
+// A grouped radio's line. The walk must not step along it: that changes the
+// choice, and the next walk then sees other controls. The arrows across the
+// line leave it, so those are the ones the walk tries.
+enum class GroupAxis { none, row, stack };
+
+bool radio_member(const Window* child, const Window* from) {
+    return child != nullptr && child->radio_group == from->radio_group &&
+           is_stop_class(child, class_name::radio_button) && window_is_shown(child) &&
+           child->states.current != button_state::disabled;
+}
+
+GroupAxis group_axis(const Window* from) {
+    if (from == nullptr || from->radio_group == 0 || from->parent == nullptr)
+        return GroupAxis::none;
+    if (!radio_member(from, from))
+        return GroupAxis::none;
+    int32_t count = 0;
+    bool same_top = true;
+    bool same_left = true;
+    for (int32_t i = 0; i < from->parent->children.count; ++i) {
+        const Window* child = from->parent->children.items[i];
+        if (!radio_member(child, from))
+            continue;
+        if (child->y != from->y)
+            same_top = false;
+        if (child->x != from->x)
+            same_left = false;
+        ++count;
+    }
+    if (count < 2)
+        return GroupAxis::none;
+    if (same_top && !same_left)
+        return GroupAxis::row;
+    if (same_left && !same_top)
+        return GroupAxis::stack;
+    return GroupAxis::none;
+}
+
+// Up and Down on a list either choose a row or scroll it. Both leave the
+// next walk on different controls. Left and Right only move the keyboard.
+bool list_vertical(const Window* window) {
+    return is_stop_class(window, class_name::list_box);
+}
+
+bool changes_choice(const Window* focus, PadPress press) {
+    if (list_vertical(focus))
+        return press == PadPress::up || press == PadPress::down;
+    const GroupAxis axis = group_axis(focus);
+    if (axis == GroupAxis::row)
+        return press == PadPress::left || press == PadPress::right;
+    if (axis == GroupAxis::stack)
+        return press == PadPress::up || press == PadPress::down;
+    return false;
+}
+
+// Tries each direction of the pad that does not change a choice. A move onto
+// a control already walked is undone, so a column does not hide the controls
+// beside it. A press that would change a choice is skipped, or the next walk
+// would see a different console.
 Window* step_pad(StatusWidget* widget, const Walk& walk) {
     Window* before = widget->desktop.focus;
     const PadPress presses[] = {PadPress::down, PadPress::right, PadPress::up, PadPress::left};
     for (PadPress press : presses) {
+        if (changes_choice(before, press))
+            continue;
         boneyards_status_widget_pad(widget, press);
         Window* now = widget->desktop.focus;
         if (now == nullptr || now == before)
@@ -203,6 +262,8 @@ Window* step_pad(StatusWidget* widget, const Walk& walk) {
     return before;
 }
 
+// The pad's own presses. Down from nothing, then each direction that does
+// not change a choice. A second walk must see the same controls.
 void walk_focus(StatusWidget* widget, Walk* walk) {
     desktop_set_focus(&widget->desktop, nullptr);
     boneyards_status_widget_pad(widget, PadPress::down);

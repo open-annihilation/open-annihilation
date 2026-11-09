@@ -28,11 +28,6 @@
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/hud/resource_panel.hpp"
 #include "oa/ui/key_editor/overlay.hpp"
-#include "oa/ui/kit/canvas.hpp"
-#include "oa/ui/kit/input.hpp"
-#include "oa/ui/kit/layout.hpp"
-#include "oa/ui/kit/text.hpp"
-#include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
 #include <array>
@@ -53,15 +48,10 @@ namespace {
 
 namespace editor = oa::ui::key_editor;
 namespace hud = oa::ui::hud;
-namespace kit = oa::ui::kit;
 namespace messages = oa::sim::messages;
 
 /// The photo screen's name on the Open Annihilation layer.
 constexpr std::string_view kPhotoScreen = "photo-mode";
-/// The line's height, in the screen's points.
-constexpr int32_t kLineHeight = 22;
-/// Points of panel kept either side of the measured text.
-constexpr int32_t kLinePad = 8;
 
 /// Restores fields a visible-unit collect writes, if the collect throws.
 struct KeptViewRestore {
@@ -80,111 +70,6 @@ struct KeptViewRestore {
 };
 
 } // namespace
-
-/// The photo screen: one line at the top left. It is not modal, so the
-/// match's own keys and the pointer go on past it. Escape leaves photo mode.
-struct Runtime::PhotoScreen final : LayerScreen {
-    explicit PhotoScreen(Runtime& runtime) : runtime_(runtime) {}
-
-    [[nodiscard]] std::string_view name() const override { return kPhotoScreen; }
-
-    [[nodiscard]] LayerPlacement placement(const LayerView& placed_on) const override {
-        if (!placed_on.match)
-            return {};
-        remember();
-        int32_t across = placed_on.picture.width;
-        if (across <= 0)
-            across = placed_on.picture_size.x;
-        if (across <= 0)
-            across = 640;
-        const int32_t room = std::max(across - 16, int32_t{48});
-        const int32_t width = std::min(line_width_, room);
-        return {{8, 8, width, kLineHeight}, width, kLineHeight, 0};
-    }
-
-    [[nodiscard]] bool modal() const override { return false; }
-
-    [[nodiscard]] bool backdrop() const override { return false; }
-
-    [[nodiscard]] bool opaque() const override { return false; }
-
-    [[nodiscard]] bool revision_covers_drawing() const override { return false; }
-
-    void lay_out(const LayerView& placed_on) override {
-        if (!placed_on.match)
-            return;
-        remember();
-    }
-
-    void draw(const kit::Canvas& canvas) const override {
-        remember();
-        const kit::Rect strip{0, 0, line_width_, kLineHeight};
-        // The kit's in-game backdrop, so the line can be read over sand.
-        kit::blend_rect(canvas, strip, kit::colour::panel, kit::ingame_backdrop_opacity);
-        kit::box_text(
-            canvas, kit::FontRole::small, line_, strip, kit::Align::left, kit::colour::text
-        );
-    }
-
-    LayerAnswer pointer(ScreenInputKind, uint8_t, kit::Point, int32_t) override {
-        return LayerAnswer::pass;
-    }
-
-    LayerAnswer key(kit::Key pressed, uint32_t) override {
-        if (pressed != kit::Key::escape)
-            return LayerAnswer::pass;
-        runtime_.leave_photo_mode();
-        return LayerAnswer::none;
-    }
-
-    LayerAnswer wheel(kit::Point, float) override { return LayerAnswer::pass; }
-
-    [[nodiscard]] kit::DisplayList display_list() const override {
-        remember();
-        kit::DisplayList list;
-        kit::Item item;
-        item.role = kit::Role::text;
-        item.rect = {0, 0, line_width_, kLineHeight};
-        item.text = line_;
-        item.font = kit::FontRole::small;
-        item.align = kit::Align::left;
-        item.colour = kit::colour::text;
-        item.opacity = 256;
-        list.items.push_back(std::move(item));
-        return list;
-    }
-
-    [[nodiscard]] kit::Interaction interaction() const override { return {}; }
-
-    LayerAnswer tick() override {
-        const uint64_t before = revision_;
-        remember();
-        return revision_ == before ? LayerAnswer::none : LayerAnswer::redraw;
-    }
-
-    [[nodiscard]] uint64_t revision() const override { return revision_; }
-
-    void close(bool) override { runtime_.leave_photo_mode(); }
-
-  private:
-
-    void remember() const {
-        const std::string next = runtime_.photo_status_line();
-        if (next == line_)
-            return;
-        line_ = next;
-        int32_t measured = 0;
-        if (const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts())
-            measured = kit::text_width(*fonts, kit::FontRole::small, line_);
-        line_width_ = std::clamp(measured + kLinePad * 2, int32_t{48}, int32_t{1200});
-        ++revision_;
-    }
-
-    Runtime& runtime_;
-    mutable std::string line_{};
-    mutable int32_t line_width_{160};
-    mutable uint64_t revision_{1};
-};
 
 namespace {
 
@@ -532,7 +417,7 @@ bool Runtime::enter_photo_mode() {
             oa_layer().close(open);
     }
     try {
-        oa_layer().push(std::make_unique<PhotoScreen>(*this));
+        open_photo_panel();
         refresh_photo_kept_view();
         // Freeze after the screen is up, so a throw still leaves cleanly.
         // A replay keeps its own pause. A shared match is not held.
@@ -556,6 +441,24 @@ bool Runtime::enter_photo_mode() {
 void Runtime::leave_photo_mode(bool match_ending, bool restore_keys_overlay) noexcept {
     if (photo_ == nullptr)
         return;
+    // A photo asked for before a frame, then left in that same visit, is
+    // dropped. Say so, where the line used to stay quiet.
+    if (photo_->capture_waiting) {
+        photo_->capture_waiting = false;
+        try {
+            const std::string missed(oa::data::languages::interface_text("Photo not taken"));
+            status_ = missed;
+            photo_notice_ = missed;
+            // The panel is gone once this returns. The match's message log
+            // is what the player still sees.
+            if (match_ != nullptr) {
+                post_match_message(
+                    missed, oa::sim::messages::kind_status, 0, oa::sim::messages::sender_none
+                );
+            }
+        } catch (...) {
+        }
+    }
     // A feature the photo view put under the pointer stays in the bar.
     clear_match_hover();
     // The time field alone: this function must not ask the extension, whose

@@ -201,6 +201,8 @@ enum class PhotoGroup : uint8_t {
     live,
     /// each photo command on its key, then Take photo moved to K
     keys,
+    /// the panel: its controls, the guides, a crop and a photo with no panel
+    panel,
 };
 
 /// A renderer failure --render-fault forces in --check-renderer-ladder.

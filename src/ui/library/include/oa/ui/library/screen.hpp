@@ -409,7 +409,8 @@ void focus_tab_search(const Library& library, ScreenState& state) noexcept;
 
 /// Returns the search field while it has the focus, over which a host keeps
 /// the system's text input started. On the Active tab that field is the maps
-/// search; on the catalogue tabs it is the catalogue search.
+/// search; on the catalogue tabs it is the catalogue search. The sign-in
+/// question's handle and password and the share question's title count too.
 ///
 /// @param state the focus
 /// @param list the display list

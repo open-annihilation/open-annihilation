@@ -1214,6 +1214,33 @@ void Runtime::write_stage_snapshot(std::string_view stage) {
     write_ppm(path, surface_);
 }
 
+void Runtime::write_presented_snapshot(std::string_view stage) {
+    if (options_.snapshot.empty() || stage.empty() || sdl_.renderer == nullptr)
+        return;
+    // The notice is drawn over the picture, in the window's pixels. Reading
+    // the console's surface misses it. Draw the frame again and read the
+    // window, as the Library's checks do.
+    oa_layer().read_whole_window(true);
+    renderer::Surface presented;
+    renderer::Surface* const previous = capture_frame_;
+    capture_frame_ = &presented;
+    try {
+        render();
+    } catch (...) {
+        capture_frame_ = previous;
+        oa_layer().read_whole_window(false);
+        throw;
+    }
+    capture_frame_ = previous;
+    oa_layer().read_whole_window(false);
+    if (presented.rgb.empty())
+        return;
+    auto path = options_.snapshot;
+    path.replace_extension();
+    path += "-" + std::string(stage) + ".ppm";
+    write_ppm(path, presented);
+}
+
 std::string Runtime::start_headless_campaign_mission() {
     // Game data without the any-mission screen starts its missions from the
     // new-campaign screen, whose lists the check fills the same way.

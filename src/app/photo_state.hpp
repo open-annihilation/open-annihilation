@@ -12,6 +12,7 @@
 #include "oa/sim/messages.hpp"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -108,6 +109,25 @@ struct Runtime::PhotoState {
     float held_live_pitch{};
     bool held_live_unlocked{};
     uint16_t entry_speed{}; ///< a replay's speed on entering, for Run to put back
+
+    /// The panel beside the battlefield. Hiding it leaves the hint.
+    bool panel_shown{true};
+    bool section_camera{true};
+    bool section_time{true};
+    bool section_look{true};
+    bool section_capture{true};
+    /// The guide over the battlefield, as photo_panel::Guide. Off is 0.
+    uint8_t guide{};
+    bool toast_on{}; ///< a photo's notice is showing
+    /// The frame clock (frame_time_ns_) at which the notice hides. 0 until
+    /// the first frame that shows it sets it. A press on the panel hides it
+    /// sooner.
+    uint64_t toast_until_ns{};
+    bool toast_copied{};              ///< that photo was copied
+    std::string toast_name{};         ///< the file name, or why it was not written
+    std::vector<uint8_t> toast_rgb{}; ///< the thumbnail, packed RGB
+    uint32_t toast_width{};
+    uint32_t toast_height{};
 
     /// Tells whether a unit is in the view photo mode kept: listed by the
     /// last collect against the player's camera, not the photo camera.

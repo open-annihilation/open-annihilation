@@ -558,10 +558,10 @@ kit::Question centre_question(const update::Centre& centre, std::vector<update::
 
 /// The update pill on the main menu: the update centre's state in short,
 /// at the main menu's top right, with one small button. A press on the pill
-/// opens the update centre's question. Return and Space do the same while
-/// the pill holds the focus. It does not take a key otherwise, and what it
-/// does not take goes on to the main menu. The main menu's order, which is
-/// where Tab reaches the pill, is another ticket's.
+/// opens the update centre's question. Return and Space go on to the main
+/// menu: the order opens the centre from the bound Accept and Press, through
+/// the same call a press uses. What the pill does not take goes on. Tab is
+/// one of those: the menu moves the order.
 class UpdatePillScreen final : public LayerScreen {
   public:
 
@@ -635,6 +635,15 @@ class UpdatePillScreen final : public LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
+    /// Tells that the family's ring is drawn around the pill, not the kit's.
+    ///
+    /// The pill is drawn in its own canvas. A ring drawn there is clipped to
+    /// that canvas, so the family's ring, which is drawn in the window, is
+    /// the one a player sees.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
     /// Draws the pill, and the focus ring while the pill holds the focus.
     ///
     /// @param canvas where it draws
@@ -700,32 +709,20 @@ class UpdatePillScreen final : public LayerScreen {
         return acted == kit::UpdatePillAction::none ? LayerAnswer::none : LayerAnswer::redraw;
     }
 
-    /// Return and Space open the update centre's question while the pill
-    /// holds the focus. Return hides the ring; Space keeps it. Every other
-    /// key, and every key while the pill does not hold the focus, goes on
-    /// to the main menu. Tab is one of those: this screen does not take the
-    /// focus away from the menu.
+    /// Return and Space go on. The order opens the centre from the bound
+    /// Accept and Press, so a layout that moves those keys still opens it
+    /// and a key that is no longer bound does not. A pointer move hides the
+    /// ring and leaves the stop.
     ///
-    /// @param pressed the key
-    /// @return redraw when the pill answered; pass otherwise
-    LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
-        const bool held = interaction_.focus_shown && interaction_.focused == kit::update_pill_body;
-        if (!held)
-            return LayerAnswer::pass;
-        if (pressed == kit::Key::enter || pressed == kit::Key::space) {
-            if (host_.opened)
-                host_.opened();
-            if (pressed == kit::Key::enter)
-                interaction_.focus_shown = false;
-            ++revision_;
-            return LayerAnswer::redraw;
-        }
-        if (pressed == kit::Key::tab || pressed == kit::Key::back_tab ||
-            pressed == kit::Key::escape) {
-            interaction_.focus_shown = false;
-            ++revision_;
-        }
+    /// @return pass
+    LayerAnswer key(kit::Key /*pressed*/, uint32_t /*sdl_key*/) override {
         return LayerAnswer::pass;
+    }
+
+    /// Opens the update centre, as a press on the pill does.
+    void open_from_order() {
+        if (host_.opened)
+            host_.opened();
     }
 
     /// Lets the wheel go on.
@@ -2692,6 +2689,14 @@ void Runtime::tick_update_install() {
     offer_updated_notice();
     consider_background_download();
     consider_update_and_quit();
+}
+
+void Runtime::open_update_pill_from_order() {
+    if (oa_layer_ == nullptr)
+        return;
+    auto* pill = dynamic_cast<UpdatePillScreen*>(oa_layer_->find(kit::update_pill_word));
+    if (pill != nullptr)
+        pill->open_from_order();
 }
 
 } // namespace oa::app

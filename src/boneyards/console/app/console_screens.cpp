@@ -69,6 +69,7 @@
 #include "oa/boneyards/console/status_widget.hpp"
 #include "oa/boneyards/rover_calls.hpp"
 #include "oa/boneyards/rover_session.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/shown_text.hpp"
 #include "oa/ui/frontend_state/dispatcher.hpp"
 #include "oa/ui/frontend_renderer.hpp"
@@ -488,9 +489,10 @@ void host_battle_launched(
 }
 
 void host_launch_ended(void* user) {
-    const auto& bridge = static_cast<OverlayState*>(user)->bridge;
-    if (bridge.launch_ended != nullptr)
-        bridge.launch_ended(bridge.user);
+    auto* state = static_cast<OverlayState*>(user);
+    if (state->bridge.launch_ended != nullptr)
+        state->bridge.launch_ended(state->bridge.user);
+    oa::boneyards::screens::show_after_battle_notice(state->services, state->host);
 }
 
 void host_run_frontend(void* user) {
@@ -1134,8 +1136,9 @@ bool on_strip(float x, float y) {
 /// pointer were on the strip's own plate, so ENTER shows its press and
 /// answers its release as it does on the strip. A press made on the plate
 /// keeps every pointer input until it is let go, wherever the pointer goes,
-/// so a release away from ENTER presses nothing. Elsewhere the menu has the
-/// pointer. Nothing takes it while the plate is not shown.
+/// so a release away from ENTER presses nothing. Off the plate the menu has
+/// the pointer, including a point under it. Nothing takes it while the plate
+/// is not shown.
 ///
 /// @param ctx screen context of the event
 /// @param state overlay state
@@ -1240,6 +1243,17 @@ int overlay_event(ScreenContext* ctx, void* user) {
         state->held_buttons |= button_bit(input.button);
     Message msg{};
     apply_key_modifiers(state, input);
+    // The host's order owns Tab and Shift+Tab on the main menu, and, while
+    // its ring is showing, the arrows and the bound Accept and Press. The
+    // strip drops its focus and passes those keys on. With no ring the
+    // strip keeps every other key it takes, and a message box keeps its own.
+    if (!boneyards && !modal &&
+        (input.kind == ScreenInputKind::key_down || input.kind == ScreenInputKind::key_up) &&
+        state->services != nullptr && state->services->main_menu_order_owns_key != nullptr &&
+        state->services->main_menu_order_owns_key(state->host, &input) != 0) {
+        console::boneyards_status_widget_clear_focus(state->widget);
+        return 0;
+    }
     bool typing = boneyards;
     if (typing && map_zoom_key(input) &&
         !console::boneyards_status_widget_text_field(
@@ -1540,6 +1554,11 @@ void boneyards_console_set_launch_bridge(const console::LaunchBridge& bridge) {
 void boneyards_console_idle(uint32_t now_ms) {
     console::boneyards_status_widget_idle(g_state.widget, now_ms, !g_state.ticked);
     g_state.ticked = false;
+}
+
+// Leaves the Boneyards for the main menu. A launch already ended is not ended again.
+void boneyards_console_exit_to_menu() {
+    console::boneyards_status_widget_exit_to_menu(g_state.widget);
 }
 
 // Opens a Boneyards message box, shown with the Boneyards screens.

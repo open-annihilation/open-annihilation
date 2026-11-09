@@ -68,6 +68,7 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -3776,8 +3777,9 @@ bool kit_ring_dialog(const OaLayer& layer, std::string_view dialog) {
 ///
 /// A gadget of the original screens does. So does a button of an OA screen
 /// that does not draw the kit's ring and that sits in those screens' order.
-/// A screen that draws the kit's ring, and the OA button that has no dialog,
-/// does not.
+/// A screen that draws the kit's ring does not. The Library and Settings
+/// icons have no dialog: they take the ring only once the cross-family order
+/// has landed on them.
 ///
 /// @param layer the layer
 /// @param control the control
@@ -3786,7 +3788,7 @@ bool takes_family_ring(const OaLayer& layer, const AutomationControl& control) {
     if (!control.name.starts_with(k_family_prefix))
         return true;
     if (!control.dialog.starts_with(k_family_prefix))
-        return false;
+        return control.holds_focus;
     return !kit_ring_dialog(layer, control.dialog);
 }
 
@@ -3988,9 +3990,70 @@ void blend_family_blocks(
 
 } // namespace
 
+void Runtime::apply_menu_keyboard_focus(std::vector<AutomationControl>& controls) {
+    if (oa_layer_ == nullptr)
+        return;
+    if (menu_keyboard_ == MenuKeyboardKind::reported || menu_keyboard_ == MenuKeyboardKind::gadget)
+        return;
+    if (menu_keyboard_screen_ != screen_)
+        return;
+    if (screen_ != Screen::main_menu && screen_ != Screen::map_selection)
+        return;
+    if (oa_layer_->modal_shown(false))
+        return;
+    const std::string library = std::string(kAutomationPrefix) + "button";
+    const std::string pill = std::string(kAutomationPrefix) + "update-pill.open";
+    const std::string more_maps = std::string(kAutomationPrefix) + "more-maps";
+    AutomationControl* hit = nullptr;
+    for (AutomationControl& control : controls) {
+        bool match = false;
+        switch (menu_keyboard_) {
+        case MenuKeyboardKind::extension:
+            match =
+                control.window == menu_keyboard_window_ && control.name == menu_keyboard_control_;
+            break;
+        case MenuKeyboardKind::library:
+            match = control.window.empty() && control.name == library;
+            break;
+        case MenuKeyboardKind::settings:
+            match = control.name == kSettingsButtonName;
+            break;
+        case MenuKeyboardKind::pill:
+            match = control.name == pill;
+            break;
+        case MenuKeyboardKind::more_maps:
+            match = control.name == more_maps;
+            break;
+        case MenuKeyboardKind::reported:
+        case MenuKeyboardKind::gadget:
+            break;
+        }
+        if (match)
+            hit = &control;
+    }
+    if (hit == nullptr)
+        return;
+    for (AutomationControl& control : controls) {
+        if (&control == hit || control.modal)
+            continue;
+        // More maps… is drawn over the map list. That list is another dialog,
+        // and it stays marked focused unless this stop clears it too. The
+        // ring is still drawn only on More maps….
+        if (menu_keyboard_ != MenuKeyboardKind::more_maps && !hit->dialog.empty() &&
+            !control.dialog.empty() && control.dialog != hit->dialog)
+            continue;
+        control.focused = false;
+        control.holds_focus = false;
+        control.focus_shown = false;
+    }
+    hit->focused = true;
+    hit->holds_focus = true;
+}
+
 void Runtime::stamp_family_focus_shown(std::vector<AutomationControl>& controls) {
     if (oa_layer_ == nullptr)
         return;
+    apply_menu_keyboard_focus(controls);
     // A button that joins the original screens' order writes its own flag.
     // The family's rule replaces it, so a hidden ring is not reported shown.
     for (AutomationControl& control : controls) {
@@ -4003,6 +4066,23 @@ void Runtime::stamp_family_focus_shown(std::vector<AutomationControl>& controls)
     if (AutomationControl* target = family_ring_target(*oa_layer_, controls))
         target->focus_shown = true;
 }
+
+namespace {
+
+/// The pixel that holds a pointer coordinate, counted as a screen counts it.
+///
+/// The Boneyards toolkit, whose arrows follow its own record of the ring,
+/// truncates the coordinate. Rounding here instead would let a move of less
+/// than a pixel at a scaled window hide the ring while the toolkit keeps its
+/// ring keys, or keep the ring while the toolkit drops them.
+///
+/// @param coordinate a column or row in the coordinates the screen is given
+/// @return the pixel's column or row
+int32_t family_pixel(float coordinate) noexcept {
+    return static_cast<int32_t>(coordinate);
+}
+
+} // namespace
 
 void OaLayer::present_family_ring() noexcept {
     // Hidden, and nothing this frame asked for it, and Always show focus is
@@ -4086,8 +4166,8 @@ void OaLayer::note_family_opened() noexcept {
     if (!family_tabbed_)
         family_ring_shown_ = always_show_focus();
     family_pointer_known_ = true;
-    family_pointer_x_ = static_cast<int32_t>(std::lround(static_cast<double>(runtime_.pointer_x_)));
-    family_pointer_y_ = static_cast<int32_t>(std::lround(static_cast<double>(runtime_.pointer_y_)));
+    family_pointer_x_ = family_pixel(runtime_.pointer_x_);
+    family_pointer_y_ = family_pixel(runtime_.pointer_y_);
 }
 
 void OaLayer::note_family_tab() noexcept {
@@ -4099,9 +4179,17 @@ void OaLayer::note_family_return() noexcept {
     family_ring_shown_ = false;
 }
 
+void OaLayer::note_menu_keyboard_stop(std::string_view screen) {
+    menu_keyboard_stop_.assign(screen.begin(), screen.end());
+}
+
+bool OaLayer::menu_keyboard_stop_is(std::string_view screen) const noexcept {
+    return menu_keyboard_stop_ == screen;
+}
+
 void OaLayer::note_family_pointer(float x, float y) noexcept {
-    const int32_t column = static_cast<int32_t>(std::lround(static_cast<double>(x)));
-    const int32_t row = static_cast<int32_t>(std::lround(static_cast<double>(y)));
+    const int32_t column = family_pixel(x);
+    const int32_t row = family_pixel(y);
     if (!family_pointer_known_) {
         family_pointer_known_ = true;
         family_pointer_x_ = column;
@@ -5189,6 +5277,55 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
                                                                         std::string(screen.name());
         const kit::DisplayList list = screen.display_list();
         const bool covering = screen.modal();
+        std::string header_title;
+        for (const kit::Item& item : list.items) {
+            if (item.role != kit::Role::header)
+                continue;
+            const auto* header = std::get_if<kit::HeaderLook>(&item.look);
+            if (header == nullptr)
+                continue;
+            // The title the player reads is the header's words and the word
+            // after them: OPEN ANNIHILATION SETTINGS, not OPEN ANNIHILATION.
+            std::string words = header->title;
+            if (!header->second.empty()) {
+                if (!words.empty())
+                    words += ' ';
+                words += header->second;
+            }
+            if (!words.empty()) {
+                header_title = std::move(words);
+                break;
+            }
+        }
+        // A composite is one stop. Its name takes that stop's index, and its
+        // parts take 1, 2, 3 in the order the composite lists them. A part's
+        // dotted name is not in this map, so it is ordered by where it sits.
+        std::map<std::string, int32_t> tab_of;
+        int32_t next_tab = 1;
+        for (const kit::ControlId id : list.tab_order) {
+            const kit::Composite* composite = nullptr;
+            for (const kit::Composite& candidate : list.composites) {
+                if (candidate.id == id)
+                    composite = &candidate;
+            }
+            if (composite != nullptr) {
+                if (!composite->name.empty())
+                    tab_of.emplace(composite->name, next_tab);
+                int32_t part_at = 1;
+                for (const kit::ControlId part : composite->parts) {
+                    const kit::Control* part_control = kit::control_of(list, part);
+                    if (part_control != nullptr && !part_control->name.empty())
+                        tab_of.emplace(part_control->name, part_at);
+                    ++part_at;
+                }
+                ++next_tab;
+                continue;
+            }
+            const kit::Control* ordered = kit::control_of(list, id);
+            if (ordered != nullptr && !ordered->name.empty())
+                tab_of.emplace(ordered->name, next_tab);
+            ++next_tab;
+        }
         for (const kit::AutomationEntry& entry :
              kit::automation_parts(list, screen.interaction())) {
             AutomationControl control;
@@ -5215,8 +5352,16 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
             control.step = entry.step;
             control.place = entry.place;
             control.set_size = entry.set_size;
+            control.title = header_title;
+            if (const auto found = tab_of.find(entry.name); found != tab_of.end())
+                control.tab_index = found->second;
             control.chosen = entry.chosen;
             control.pressed = entry.pressed;
+            control.expanded = entry.expanded;
+            if (entry.live == 1)
+                control.live = AutomationLive::polite;
+            else if (entry.live == 2)
+                control.live = AutomationLive::assertive;
             control.modal = covering;
             // A front-end screen is drawn in the window's own pixels at its
             // place; a match's on its canvas, the in-match Settings at its

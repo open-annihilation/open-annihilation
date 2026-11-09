@@ -10,6 +10,7 @@ add_library(oa-netgame-http
   src/gzip.cpp
   src/lookup.cpp
   src/client.cpp
+  src/form.cpp
   src/tls.cpp)
 add_library(oa::netgame::http ALIAS oa-netgame-http)
 target_include_directories(oa-netgame-http PUBLIC include)
@@ -61,8 +62,15 @@ if(BUILD_TESTING)
   add_test(NAME net-http-response COMMAND oa-netgame-http-response-test)
   set_tests_properties(net-http-response PROPERTIES TIMEOUT 30)
 
+  add_executable(oa-netgame-http-form-test tests/form_test.cpp src/form.cpp)
+  target_include_directories(oa-netgame-http-form-test PRIVATE include)
+  target_link_libraries(oa-netgame-http-form-test PRIVATE oa-test-support oa-options)
+  target_compile_features(oa-netgame-http-form-test PRIVATE cxx_std_20)
+  add_test(NAME net-http-form COMMAND oa-netgame-http-form-test)
+  set_tests_properties(net-http-form PROPERTIES TIMEOUT 30)
+
   if(WIN32)
-    foreach(target oa-netgame-http-test oa-netgame-http-response-test)
+    foreach(target oa-netgame-http-test oa-netgame-http-response-test oa-netgame-http-form-test)
       add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} "-DDLLS=$<TARGET_RUNTIME_DLLS:${target}>"
           "-DDEST=$<TARGET_FILE_DIR:${target}>" -P "${PROJECT_SOURCE_DIR}/tools/copy_runtime.cmake")

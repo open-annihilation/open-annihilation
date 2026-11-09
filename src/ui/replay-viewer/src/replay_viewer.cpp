@@ -7,9 +7,12 @@
 #include "oa/ui/replay_viewer/replay_viewer.hpp"
 
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/ui/kit/text.hpp"
 #include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <string>
 #include <utility>
 
 namespace oa::ui::replay_viewer {
@@ -655,6 +658,329 @@ void draw_end(const kit::Canvas& canvas, const Layout& layout, const Model& mode
     draw_button(canvas, layout.export_button, shown("Export…"), false, model.can_export);
 }
 
+constexpr int32_t kListMargin = 8;
+constexpr int32_t kListHeader = 22;
+constexpr int32_t kListRow = 36;
+constexpr int32_t kChip = 16;
+constexpr int32_t kChipGap = 4;
+
+/// Places the player list at the top right.
+///
+/// @param[in,out] layout the layout
+/// @param model what the bar shows
+/// @param width the window's width
+/// @param compact the window is under 700 points tall
+/// @param left_limit the list's left edge, when the end card needs the space
+///     before it; 0 leaves the list at its own width
+void place_watch(
+    Layout& layout, const Model& model, int32_t width, bool compact, int32_t left_limit = 0
+) {
+    layout.list_folded = model.list_folded;
+    layout.watch_indices.clear();
+    layout.player_rows.clear();
+    layout.player_chips.clear();
+    if (model.watch.empty())
+        return;
+    const int32_t count = static_cast<int32_t>(model.watch.size());
+    // The 640×480 battlefield is 512 points wide. A 240-point list covers
+    // nearly half of it, so that width takes a narrower list. Beside an end
+    // card the list keeps at least that narrower width, or it is not shown.
+    int32_t list_w = width <= 512 ? 168 : (compact ? 240 : 280);
+    int32_t x = std::max(width - kListMargin - list_w, kListMargin);
+    if (left_limit > x) {
+        x = left_limit;
+        list_w = width - kListMargin - x;
+    }
+    if (list_w < 168) {
+        layout.players = {};
+        return;
+    }
+    if (model.list_folded) {
+        const int32_t stride = kChip + kChipGap;
+        const int32_t per = std::max((list_w - 16) / stride, int32_t{1});
+        const int32_t chip_rows = (count + per - 1) / per;
+        const int32_t list_h = kListHeader + chip_rows * stride + 8;
+        layout.players = {x, kListMargin, list_w, list_h};
+        layout.list_scroll = 0;
+        for (int32_t index = 0; index < count; ++index) {
+            const int32_t column = index % per;
+            const int32_t chip_row = index / per;
+            layout.player_chips.push_back(
+                {layout.players.x + 8 + column * stride,
+                 layout.players.y + kListHeader + chip_row * stride,
+                 kChip,
+                 kChip}
+            );
+            layout.watch_indices.push_back(index);
+        }
+        return;
+    }
+    const int32_t visible = std::min(count, watch_visible_rows);
+    const int32_t max_scroll = std::max(count - visible, int32_t{0});
+    int32_t scroll = model.list_scroll;
+    if (scroll < 0)
+        scroll = 0;
+    if (scroll > max_scroll)
+        scroll = max_scroll;
+    layout.list_scroll = scroll;
+    const int32_t list_h = kListHeader + visible * kListRow + 8;
+    layout.players = {x, kListMargin, list_w, list_h};
+    for (int32_t row = 0; row < visible; ++row) {
+        layout.player_rows.push_back(
+            {layout.players.x + 4,
+             layout.players.y + kListHeader + row * kListRow,
+             layout.players.width - 12,
+             kListRow - 2}
+        );
+        layout.watch_indices.push_back(scroll + row);
+    }
+}
+
+/// Places one menu above a button.
+///
+/// @param[out] menu the menu's rectangle
+/// @param[out] items one rectangle per row
+/// @param button the button it opens from
+/// @param rows how many rows
+/// @param width the menu's width
+void place_menu(
+    kit::Rect& menu,
+    std::vector<kit::Rect>& items,
+    const kit::Rect& button,
+    int32_t rows,
+    int32_t width,
+    int32_t window_width
+) {
+    if (rows <= 0)
+        return;
+    constexpr int32_t kItem = 22;
+    const int32_t menu_h = kItem * rows + 4;
+    int32_t menu_y = button.y - menu_h - 4;
+    if (menu_y < 4)
+        menu_y = 4;
+    int32_t menu_x = button.x + button.width - width;
+    if (menu_x < 4)
+        menu_x = 4;
+    if (menu_x + width > window_width - 4)
+        menu_x = std::max(window_width - 4 - width, int32_t{4});
+    menu = {menu_x, menu_y, width, menu_h};
+    items.reserve(static_cast<std::size_t>(rows));
+    for (int32_t index = 0; index < rows; ++index) {
+        items.push_back(
+            {menu.x + 4,
+             menu.y + 2 + index * kItem,
+             std::max(menu.width - 8, int32_t{1}),
+             kItem - 2}
+        );
+    }
+}
+
+/// Draws the mark that opens a menu, at the button's right.
+///
+/// @param canvas where it is drawn
+/// @param rect the button
+/// @param ink its colour
+void draw_menu_mark(const kit::Canvas& canvas, const kit::Rect& rect, kit::Colour ink) {
+    const int32_t cx = rect.x + rect.width - 8;
+    const int32_t cy = rect.y + rect.height / 2;
+    kit::fill_rect(canvas, {cx - 3, cy - 1, 7, 1}, ink);
+    kit::fill_rect(canvas, {cx - 2, cy, 5, 1}, ink);
+    kit::fill_rect(canvas, {cx - 1, cy + 1, 3, 1}, ink);
+    kit::fill_rect(canvas, {cx, cy + 2, 1, 1}, ink);
+}
+
+/// Draws a button whose caption leaves room for a menu mark.
+///
+/// @param canvas where it is drawn
+/// @param rect the button
+/// @param text its caption
+/// @param lit the button is on
+void draw_menu_button(
+    const kit::Canvas& canvas, const kit::Rect& rect, std::string_view text, bool lit
+) {
+    const kit::Colour ink = lit ? kit::hud_colour::ink : kit::hud_colour::label;
+    draw_face(canvas, rect, lit, true);
+    const int32_t room = std::max(rect.width - menu_mark_points, int32_t{1});
+    const kit::Rect words{rect.x, rect.y, room, rect.height};
+    // The control's name keeps the full caption. What is drawn is shortened
+    // when the slot cannot hold it.
+    const kit::Measure measure = [&canvas](std::string_view line) {
+        return kit::measure_text(canvas, kit::FontRole::small, line);
+    };
+    const std::string fitted = kit::fit(text, room, measure);
+    kit::box_text(canvas, kit::FontRole::small, fitted, words, kit::Align::centre, ink);
+    draw_menu_mark(canvas, rect, ink);
+}
+
+/// Draws a colour chip, or a ring for every player.
+///
+/// @param canvas where it is drawn
+/// @param box the chip
+/// @param ink its colour
+/// @param ring a ring, for every player
+void draw_swatch(const kit::Canvas& canvas, const kit::Rect& box, kit::Colour ink, bool ring) {
+    if (ring) {
+        kit::outline_corner_rect(canvas, box, box.width / 2, ink);
+        return;
+    }
+    kit::fill_corner_rect(canvas, box, 2, ink);
+}
+
+/// Draws the mark on the row whose view is on show.
+///
+/// @param canvas where it is drawn
+/// @param x the mark's left
+/// @param y the mark's top
+void draw_eye(const kit::Canvas& canvas, int32_t x, int32_t y) {
+    const kit::Colour sclera = kit::hud_colour::label;
+    const kit::Colour iris = kit::hud_colour::ink;
+    const kit::Colour pupil = kit::hud_colour::panel;
+    // An almond, about 12 by 6, that fits the row's right edge.
+    kit::fill_rect(canvas, {x + 3, y, 6, 1}, sclera);
+    kit::fill_rect(canvas, {x + 1, y + 1, 10, 1}, sclera);
+    kit::fill_rect(canvas, {x, y + 2, 12, 2}, sclera);
+    kit::fill_rect(canvas, {x + 1, y + 4, 10, 1}, sclera);
+    kit::fill_rect(canvas, {x + 3, y + 5, 6, 1}, sclera);
+    kit::fill_rect(canvas, {x + 4, y + 2, 4, 2}, iris);
+    kit::fill_rect(canvas, {x + 5, y + 2, 2, 2}, pupil);
+}
+
+/// Draws the player list.
+///
+/// @param canvas where it is drawn
+/// @param layout the layout
+/// @param model what the bar shows
+void draw_players(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
+    if (!live(layout.players) || model.watch.empty())
+        return;
+    kit::fill_corner_rect(canvas, layout.players, 4, card_fill);
+    kit::outline_corner_rect(canvas, layout.players, 4, kit::hud_colour::edge);
+    kit::box_text(
+        canvas,
+        kit::FontRole::small,
+        shown(words::watching),
+        {layout.players.x + 8, layout.players.y + 2, layout.players.width - 16, kListHeader - 2},
+        kit::Align::left,
+        kit::hud_colour::quiet
+    );
+    if (layout.list_folded) {
+        for (std::size_t index = 0; index < layout.player_chips.size(); ++index) {
+            if (index >= layout.watch_indices.size())
+                break;
+            const int row_index = layout.watch_indices[index];
+            if (row_index < 0 || static_cast<std::size_t>(row_index) >= model.watch.size())
+                continue;
+            const WatchRow& row = model.watch[static_cast<std::size_t>(row_index)];
+            const kit::Rect& chip = layout.player_chips[index];
+            draw_swatch(canvas, chip, row.colour, row.slot < 0);
+            if (row.eye)
+                kit::outline_corner_rect(canvas, chip, 2, kit::hud_colour::ink);
+        }
+        return;
+    }
+    for (std::size_t index = 0; index < layout.player_rows.size(); ++index) {
+        if (index >= layout.watch_indices.size())
+            break;
+        const int row_index = layout.watch_indices[index];
+        if (row_index < 0 || static_cast<std::size_t>(row_index) >= model.watch.size())
+            continue;
+        const WatchRow& row = model.watch[static_cast<std::size_t>(row_index)];
+        const kit::Rect& box = layout.player_rows[index];
+        if (row.eye)
+            kit::outline_corner_rect(canvas, box, 3, kit::hud_colour::ink);
+        const kit::Rect swatch{box.x + 4, box.y + 4, 12, 12};
+        draw_swatch(canvas, swatch, row.colour, row.slot < 0);
+        const int32_t text_x = swatch.x + swatch.width + 6;
+        const int32_t text_w = std::max(box.width - (text_x - box.x) - 16, int32_t{1});
+        kit::box_text(
+            canvas,
+            kit::FontRole::small,
+            row.name,
+            {text_x, box.y, text_w, 16},
+            kit::Align::left,
+            kit::hud_colour::label
+        );
+        if (row.eye)
+            draw_eye(canvas, box.x + box.width - 14, box.y + 4);
+        const std::string detail = watch_detail(row);
+        if (!detail.empty()) {
+            const int32_t detail_w = watch_detail_room(box);
+            const kit::Measure measure = [&canvas](std::string_view line) {
+                return kit::measure_text(canvas, kit::FontRole::small, line);
+            };
+            kit::box_text(
+                canvas,
+                kit::FontRole::small,
+                kit::fit(detail, detail_w, measure),
+                {text_x, box.y + 16, detail_w, 16},
+                kit::Align::left,
+                kit::hud_colour::quiet
+            );
+        }
+    }
+    const int32_t count = static_cast<int32_t>(model.watch.size());
+    if (count <= watch_visible_rows)
+        return;
+    const int32_t track_h = std::max(layout.players.height - kListHeader - 10, int32_t{1});
+    const int32_t thumb = std::max(track_h * watch_visible_rows / count, int32_t{8});
+    const int32_t span = std::max(count - watch_visible_rows, int32_t{1});
+    const int32_t travel = std::max(track_h - thumb, int32_t{0});
+    const int32_t thumb_y = layout.players.y + kListHeader + travel * layout.list_scroll / span;
+    kit::fill_rect(
+        canvas,
+        {layout.players.x + layout.players.width - 6, layout.players.y + kListHeader, 2, track_h},
+        kit::hud_colour::quiet
+    );
+    kit::fill_rect(
+        canvas,
+        {layout.players.x + layout.players.width - 6, thumb_y, 2, thumb},
+        kit::hud_colour::label
+    );
+}
+
+/// Draws the view menu or the camera menu.
+///
+/// @param canvas where it is drawn
+/// @param menu the menu
+/// @param items its rows
+/// @param captions one caption per row
+void draw_choice_menu(
+    const kit::Canvas& canvas,
+    const kit::Rect& menu,
+    const std::vector<kit::Rect>& items,
+    const std::vector<std::string>& captions,
+    int selected
+) {
+    if (!live(menu))
+        return;
+    kit::fill_corner_rect(canvas, menu, 4, card_fill);
+    kit::outline_corner_rect(canvas, menu, 4, kit::hud_colour::edge);
+    for (std::size_t index = 0; index < items.size() && index < captions.size(); ++index) {
+        const bool current = static_cast<int>(index) == selected;
+        if (current)
+            kit::fill_rect(
+                canvas,
+                {items[index].x, items[index].y + items[index].height / 2 - 1, 6, 3},
+                kit::hud_colour::lit
+            );
+        const kit::Rect words = current
+                                    ? kit::Rect{
+                                          items[index].x + 10,
+                                          items[index].y,
+                                          std::max(items[index].width - 10, int32_t{1}),
+                                          items[index].height}
+                                    : items[index];
+        kit::box_text(
+            canvas,
+            kit::FontRole::small,
+            captions[index],
+            words,
+            kit::Align::left,
+            current ? kit::hud_colour::lit : kit::hud_colour::label
+        );
+    }
+}
+
 } // namespace
 
 void BarVisibility::advance(
@@ -817,8 +1143,8 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
     const int32_t icon = compact ? 26 : 30;
     const int32_t play_w = compact ? 30 : 36;
     const int32_t play_h = compact ? 28 : 34;
-    const int32_t view_w = compact ? 96 : 128;
-    const int32_t camera_w = compact ? 64 : 80;
+    int32_t view_w = compact ? 96 : 128;
+    int32_t camera_w = compact ? 64 : 80;
     const int32_t pad = 8;
     const int32_t gap = 4;
     const int32_t top_pad = 6;
@@ -838,6 +1164,14 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
     const int32_t full_need = std::max(padded(need.speed_full, 2), skip_need);
     const int32_t brief_need = padded(need.speed_brief, 2);
     const int32_t asked_need = padded(need.speed_asked, 2);
+    const int32_t view_need = need.view > 0 ? need.view + 4 : 0;
+    const int32_t camera_need = need.camera > 0 ? need.camera + 4 : 0;
+    // The view and camera stay at their asked width until the time has kept
+    // its text and the speed button has taken its form. Growing them first
+    // pushes Keys and Leave off a 640-wide window. The time grows to its
+    // text before anything else gives way.
+    if (time_need > time_w)
+        time_w = time_need;
     if (full_need > speed_w)
         speed_w = full_need;
     const int32_t safe_width = std::max(width, int32_t{1});
@@ -866,9 +1200,22 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
         layout.speed_form = SpeedForm::asked;
         give(speed_w, std::max(int32_t{36}, asked_need));
     }
-    give(time_w, 48);
+    give(time_w, std::max(int32_t{48}, time_need));
     give(speed_w, 36);
-    const int32_t grow = std::max(spare, int32_t{0});
+    // The view and the camera never shrink below the slot they were given.
+    // They grow only into width the row still has, and never past the caption.
+    int32_t room = std::max(spare, int32_t{0});
+    if (view_need > view_w && room > 0) {
+        const int32_t taken = std::min(room, view_need - view_w);
+        view_w += taken;
+        room -= taken;
+    }
+    if (camera_need > camera_w && room > 0) {
+        const int32_t taken = std::min(room, camera_need - camera_w);
+        camera_w += taken;
+        room -= taken;
+    }
+    const int32_t grow = room;
     layout.bar = {0, safe_height - bar_h, safe_width, bar_h};
     const int32_t timeline_y = layout.bar.y + top_pad;
     layout.timeline = {pad, timeline_y, std::max(safe_width - pad * 2, int32_t{1}), timeline_h};
@@ -954,8 +1301,8 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
     if (model.end_card) {
         constexpr int32_t kMargin = 8;
         const int32_t card_w = std::min(int32_t{520}, std::max(safe_width - 32, int32_t{200}));
-        const int32_t room = std::max(layout.bar.y - kMargin * 2, int32_t{80});
-        int32_t card_h = std::min(int32_t{340}, room);
+        const int32_t card_room = std::max(layout.bar.y - kMargin * 2, int32_t{80});
+        int32_t card_h = std::min(int32_t{340}, card_room);
         int32_t card_y = layout.bar.y - card_h - kMargin;
         if (card_y < kMargin) {
             card_y = kMargin;
@@ -967,6 +1314,61 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
         layout.watch_again = {layout.end.x + 16, button_y, button_w, button};
         layout.library = {layout.watch_again.x + button_w + 8, button_y, button_w, button};
         layout.export_button = {layout.library.x + button_w + 8, button_y, button_w, button};
+    }
+    place_watch(layout, model, safe_width, compact);
+    // The card keeps the width its captions need. On a 512-point battlefield
+    // a list that would run under it, chips included, is hidden. On a wider
+    // battlefield the card slides left of the list, and the list takes the
+    // room that remains, so a departed row stays on show.
+    const auto card_hits_list = [&] {
+        return live(layout.end) && live(layout.players) &&
+               layout.end.x < layout.players.x + layout.players.width &&
+               layout.end.x + layout.end.width > layout.players.x &&
+               layout.end.y < layout.players.y + layout.players.height &&
+               layout.players.y < layout.end.y + layout.end.height;
+    };
+    if (card_hits_list()) {
+        if (safe_width <= 512) {
+            layout.players = {};
+            layout.player_rows.clear();
+            layout.player_chips.clear();
+            layout.watch_indices.clear();
+        } else {
+            int32_t card_x = layout.players.x - kListMargin - layout.end.width;
+            if (card_x < kListMargin)
+                card_x = kListMargin;
+            const int32_t moved = card_x - layout.end.x;
+            layout.end.x += moved;
+            layout.watch_again.x += moved;
+            layout.library.x += moved;
+            layout.export_button.x += moved;
+            const int32_t left_limit = layout.end.x + layout.end.width + kListMargin;
+            if (layout.players.x < left_limit)
+                place_watch(layout, model, safe_width, compact, left_limit);
+        }
+    }
+    if (shown && model.view_open) {
+        place_menu(
+            layout.view_menu,
+            layout.view_items,
+            layout.view,
+            static_cast<int32_t>(model.watch.size()),
+            std::max(layout.view.width, int32_t{160}),
+            safe_width
+        );
+    }
+    if (shown && model.camera_open) {
+        layout.camera_modes.push_back(CameraMode::free);
+        if (model.offer_follow_camera)
+            layout.camera_modes.push_back(CameraMode::follow_theirs);
+        place_menu(
+            layout.camera_menu,
+            layout.camera_items,
+            layout.camera,
+            static_cast<int32_t>(layout.camera_modes.size()),
+            std::max(layout.camera.width, int32_t{168}),
+            safe_width
+        );
     }
     return layout;
 }
@@ -1004,6 +1406,10 @@ Control hit_control(const Layout& layout, kit::Point at) {
     if (const Control hit = in(Control::timeline, layout.timeline); hit != Control::none)
         return hit;
     if (const Control hit = in(Control::speed, layout.speed); hit != Control::none)
+        return hit;
+    if (const Control hit = in(Control::view, layout.view); hit != Control::none)
+        return hit;
+    if (const Control hit = in(Control::camera, layout.camera); hit != Control::none)
         return hit;
     if (const Control hit = in(Control::chat, layout.chat); hit != Control::none)
         return hit;
@@ -1108,16 +1514,70 @@ void fill_controls(const Layout& layout, const Model& model, kit::DisplayList& l
             );
         }
     }
-    if (layout.shown && model.keys_open)
+    if (layout.shown && model.keys_open) {
+        std::string chords;
+        for (const KeyChord& row : model.key_chords) {
+            if (row.chord.empty())
+                continue;
+            if (!chords.empty())
+                chords.push_back('\n');
+            chords += row.chord;
+        }
         add_control(
             list,
             Control::keys_card,
             layout.keys_card,
             "keys-card",
             kit::ControlKind::area,
-            {},
+            std::move(chords),
             false
         );
+    }
+    for (std::size_t index = 0; index < layout.watch_indices.size(); ++index) {
+        const int row_index = layout.watch_indices[index];
+        if (row_index < 0 || static_cast<std::size_t>(row_index) >= model.watch.size())
+            continue;
+        const WatchRow& row = model.watch[static_cast<std::size_t>(row_index)];
+        const bool chip = layout.list_folded;
+        const kit::Rect& rect = chip ? layout.player_chips[index] : layout.player_rows[index];
+        const std::string name = (chip ? std::string("watch-chip.") : std::string("watch-row.")) +
+                                 std::to_string(row_index);
+        std::string caption = row.name;
+        if (!row.departed.empty()) {
+            caption.push_back(' ');
+            caption += row.departed;
+        }
+        add_control(list, Control::view, rect, name, kit::ControlKind::button, caption, row.eye);
+    }
+    if (layout.shown && model.view_open) {
+        for (std::size_t index = 0; index < layout.view_items.size() && index < model.watch.size();
+             ++index) {
+            add_control(
+                list,
+                Control::view,
+                layout.view_items[index],
+                "view-item." + std::to_string(index),
+                kit::ControlKind::button,
+                model.watch[index].name,
+                static_cast<int>(index) == model.viewed
+            );
+        }
+    }
+    if (layout.shown && model.camera_open) {
+        for (std::size_t index = 0;
+             index < layout.camera_items.size() && index < layout.camera_modes.size();
+             ++index) {
+            add_control(
+                list,
+                Control::camera,
+                layout.camera_items[index],
+                "camera-item." + std::to_string(index),
+                kit::ControlKind::button,
+                camera_button_caption(layout.camera_modes[index]),
+                layout.camera_modes[index] == model.camera
+            );
+        }
+    }
     if (!layout.shown)
         return;
     add_control(
@@ -1164,6 +1624,24 @@ void fill_controls(const Layout& layout, const Model& model, kit::DisplayList& l
         kit::ControlKind::button,
         speed_caption(model.asked_milli, model.reached_milli, model.reached_lower, model.skipping),
         model.speed_open
+    );
+    add_control(
+        list,
+        Control::view,
+        layout.view,
+        "view",
+        kit::ControlKind::button,
+        view_button_caption(model),
+        model.view_open
+    );
+    add_control(
+        list,
+        Control::camera,
+        layout.camera,
+        "camera",
+        kit::ControlKind::button,
+        camera_button_caption(model.camera),
+        model.camera_open
     );
     add_control(
         list,
@@ -1218,6 +1696,10 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
         draw_button(
             canvas, layout.speed, fitted_speed_caption(model, layout.speed_form), model.speed_open
         );
+        draw_menu_button(canvas, layout.view, view_button_caption(model), model.view_open);
+        draw_menu_button(
+            canvas, layout.camera, camera_button_caption(model.camera), model.camera_open
+        );
         draw_icon_button(canvas, layout.chat, Glyph::chat, model.chat_shown);
         draw_icon_button(canvas, layout.keys, Glyph::keys, model.keys_open);
         draw_icon_button(canvas, layout.leave, Glyph::leave, false);
@@ -1251,11 +1733,168 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
     // The end card sits where the speed menu and the shortcut card open, so
     // those, and the hover, are drawn over it.
     draw_end(canvas, layout, model);
+    draw_players(canvas, layout, model);
     if (layout.shown) {
         draw_hover(canvas, layout, model);
         draw_speed_menu(canvas, layout, model);
         draw_keys(canvas, layout, model);
+        if (model.view_open) {
+            std::vector<std::string> captions;
+            captions.reserve(model.watch.size());
+            for (const WatchRow& row : model.watch)
+                captions.push_back(row.name);
+            draw_choice_menu(canvas, layout.view_menu, layout.view_items, captions, model.viewed);
+        }
+        if (model.camera_open) {
+            std::vector<std::string> captions;
+            captions.reserve(layout.camera_modes.size());
+            int camera_selected = -1;
+            for (std::size_t index = 0; index < layout.camera_modes.size(); ++index) {
+                captions.push_back(camera_button_caption(layout.camera_modes[index]));
+                if (layout.camera_modes[index] == model.camera)
+                    camera_selected = static_cast<int>(index);
+            }
+            draw_choice_menu(
+                canvas, layout.camera_menu, layout.camera_items, captions, camera_selected
+            );
+        }
     }
+}
+
+namespace {
+
+/// A figure of zero or more, with one decimal.
+///
+/// @param value the figure
+/// @return such as "10.0"
+std::string one_decimal(float value) {
+    const double clamped = value > 0.f ? static_cast<double>(value) : 0.0;
+    const long tenths = std::lround(clamped * 10.0);
+    return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10);
+}
+
+/// A whole figure of zero or more.
+///
+/// @param value the figure
+/// @return such as "100"
+std::string whole_number(float value) {
+    const double clamped = value > 0.f ? static_cast<double>(value) : 0.0;
+    return std::to_string(std::lround(clamped));
+}
+
+/// The first rectangle that holds a point.
+///
+/// @param rects the rectangles
+/// @param at the point
+/// @return the rectangle's place, or -1
+int index_in(const std::vector<kit::Rect>& rects, kit::Point at) {
+    for (std::size_t index = 0; index < rects.size(); ++index)
+        if (kit::contains(rects[index], at))
+            return static_cast<int>(index);
+    return -1;
+}
+
+} // namespace
+
+std::string view_button_caption(const Model& model) {
+    if (model.viewed >= 0 && static_cast<std::size_t>(model.viewed) < model.watch.size())
+        return model.watch[static_cast<std::size_t>(model.viewed)].name;
+    return shown(words::all_players);
+}
+
+std::string camera_button_caption(CameraMode mode) {
+    switch (mode) {
+    case CameraMode::follow_theirs:
+        return shown(words::follow_their_camera);
+    case CameraMode::follow_unit:
+        return shown(words::follow_a_unit);
+    case CameraMode::free:
+        break;
+    }
+    return shown(words::free_camera);
+}
+
+std::string income_caption(float metal, float energy) {
+    const std::string metal_text = one_decimal(metal);
+    const std::string energy_text = whole_number(energy);
+    return fill(shown(words::income_rate), {{"metal", metal_text}, {"energy", energy_text}});
+}
+
+std::string team_caption(int team) {
+    const std::string number = std::to_string(team);
+    return fill(shown(words::team_label), {{"team", number}});
+}
+
+std::string departed_caption(bool defeated, std::string_view time) {
+    return fill(shown(defeated ? words::defeated_at : words::left_at), {{"time", time}});
+}
+
+int watch_slot(std::span<const int> numbers, int number, int slot_count) noexcept {
+    if (number < 0 || slot_count <= 0)
+        return -1;
+    for (int place = 0; place < static_cast<int>(numbers.size()); ++place) {
+        if (numbers[static_cast<std::size_t>(place)] != number)
+            continue;
+        if (place < slot_count)
+            return place;
+    }
+    if (number < slot_count)
+        return number;
+    if (number > 0 && number - 1 < slot_count)
+        return number - 1;
+    return -1;
+}
+
+int32_t watch_detail_room(const kit::Rect& row) noexcept {
+    // The swatch sits 4 points in and is 12 wide, then 6 points of gap. The
+    // name keeps 16 for the eye; the detail uses that room as well.
+    const int32_t inset = 4 + 12 + 6;
+    return std::max(row.width - inset, int32_t{1});
+}
+
+std::string watch_detail(const WatchRow& row) {
+    // Every player has no side, no count and no departure. A seat that has
+    // gone still says how it went. The departure leads, so the end of a
+    // narrow row can be cut without losing "Left 1:20".
+    if (row.slot < 0 && row.side.empty() && row.units == 0 && row.departed.empty() && !row.income)
+        return {};
+    std::string line;
+    const auto append = [&line](const std::string& part) {
+        if (part.empty())
+            return;
+        if (!line.empty())
+            line += " · ";
+        line += part;
+    };
+    append(row.departed);
+    append(row.side);
+    if (row.team >= 0)
+        append(team_caption(row.team));
+    const std::string_view count_word = row.units == 1 ? words::unit_count : words::units_count;
+    append(fill(shown(count_word), {{"units", std::to_string(row.units)}}));
+    if (row.income)
+        append(income_caption(row.metal, row.energy));
+    return line;
+}
+
+int watch_index(const Layout& layout, kit::Point at) {
+    const int visual = index_in(layout.list_folded ? layout.player_chips : layout.player_rows, at);
+    if (visual < 0 || static_cast<std::size_t>(visual) >= layout.watch_indices.size())
+        return -1;
+    return layout.watch_indices[static_cast<std::size_t>(visual)];
+}
+
+int view_menu_index(const Layout& layout, kit::Point at) {
+    return index_in(layout.view_items, at);
+}
+
+int camera_menu_index(const Layout& layout, kit::Point at) {
+    return index_in(layout.camera_items, at);
+}
+
+bool over_watch_chrome(const Layout& layout, kit::Point at) {
+    return kit::contains(layout.players, at) || kit::contains(layout.view_menu, at) ||
+           kit::contains(layout.camera_menu, at);
 }
 
 } // namespace oa::ui::replay_viewer

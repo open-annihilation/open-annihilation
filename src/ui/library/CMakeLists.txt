@@ -17,7 +17,7 @@
 add_library(oa-ui-library src/library.cpp src/search.cpp src/text.cpp
   src/content.cpp src/game_icon.cpp src/update_question.cpp src/use_question.cpp
   src/mod_questions.cpp src/uninstall.cpp src/prerequisites.cpp src/replays.cpp
-  src/export.cpp)
+  src/export.cpp src/share.cpp)
 # The Library's screens, made of the UI kit's components: their layout at
 # the three size classes, their drawing and their input (screen.hpp).
 target_sources(oa-ui-library PRIVATE src/layout.cpp src/draw.cpp src/input.cpp)

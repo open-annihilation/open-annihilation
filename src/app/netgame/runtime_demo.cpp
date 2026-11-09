@@ -8,6 +8,7 @@
 #include "oa/app/runtime.hpp"
 #include "network_play.hpp"
 #include "oa/app/check_host.hpp"
+#include "oa/app/replay_watch.hpp"
 #include "demo_state.hpp"
 #include "net_options.hpp"
 #include "wire_rules_binding.hpp"
@@ -327,7 +328,7 @@ void NetworkPlay::start_demo_playback() {
     // ordered and no unit is announced as its own, and with mapping and
     // line of sight off the whole map shows.
     const uint8_t view = slotless ? 0 : session->watcher_slot;
-    runtime_.match_local_player_ = view;
+    seat_replay_watcher(runtime_, view);
     demo_ = std::move(session);
     runtime_.enter_match_view();
     arm_replay_controls();
@@ -366,6 +367,22 @@ void NetworkPlay::step_demo_frame() {
     }
     const auto errors_before = demo_->tick_errors;
     demo::demo_session_frame(demo_.get());
+    {
+        std::array<ReplayShownSlot, OA_PLAYER_COUNT> slots{};
+        for (int slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const auto index = static_cast<std::size_t>(slot);
+            const demo::ShownIncome& income = demo_->shown_income[index];
+            const demo::ShownCamera& camera = demo_->shown_camera[index];
+            slots[index].income = income.taken;
+            slots[index].metal = income.metal;
+            slots[index].energy = income.energy;
+            slots[index].camera_seen = camera.seen;
+            slots[index].camera_shared = camera.shared;
+            slots[index].camera_x = camera.x;
+            slots[index].camera_y = camera.y;
+        }
+        note_replay_watch(runtime_, slots, demo_->recording_shares_camera);
+    }
     runtime_.match_timing_.tick = runtime_.match_->state().game.tick;
     if (demo_->tick_errors != errors_before)
         runtime_.report_match_tick_error(demo_->last_error);

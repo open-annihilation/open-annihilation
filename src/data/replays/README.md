@@ -16,6 +16,13 @@ without a mod, `Imported/` for replays opened from outside, and
 `.replays/`, which holds the index, the kept marks and, under `partial/`,
 the games being recorded. A game being recorded is never listed.
 
+Signing in and sharing a replay are `oa/data/replays/share.hpp`. The login
+body asks only whether the handle and password were accepted, and which
+handle came back. The session cookie is read from `Set-Cookie`. A share's
+answer is one of the sentences Core Prime writes, plus the replay's id when
+the answer names one. A file over 64 MiB is past `share_byte_limit`. Nothing
+here stores a password or a token.
+
 ## Entry points
 
 `oa/data/replays/replays.hpp` (namespace `oa::data::replays`):

@@ -6,11 +6,15 @@
 # feed and its download-key server. The game lists a page, asks for the next
 # one, filters by planet, downloads a replay, reads a release that changed,
 # refuses a file whose digest differs, and watches the replay it saved. A
-# second start reads the list with that server stopped. No request leaves
-# 127.0.0.1.
+# second start reads the list with that server stopped. A share plants an
+# address sector and a chat line; the server reads the uploaded replay and
+# checks the sector is gone and the chat is there. Selecting a recording of
+# a registered kind asks the feed, which answers not listed and then listed.
+# No request leaves 127.0.0.1.
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
@@ -19,6 +23,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -38,6 +43,11 @@ FAKE_SHA = "cd" * 32
 BAD_SHA = "ab" * 32
 BAD_BYTES = b"not-the-replay"
 TAD_SHA = "ee" * 32
+# Planted in the shared recording. The upload must keep the chat and drop the address.
+CHAT_MARK = b"R20CHATMARK says hello"
+ADDRESS_TEXT = b"203.0.113.77"
+LOOKUP_GAME = "lookup-1"
+LOOKUP_ID = "r_lookup0000000000000001"
 
 
 def fail(message):
@@ -93,6 +103,11 @@ class FeedState:
         self.polled = False
         self.beside_bytes = b""
         self.beside_mod_sha = ""
+        self.uploads = []
+        self.upload_auths = []
+        self.logins = []
+        self.battle_queries = []
+        self.lookup_game = LOOKUP_GAME
         self.lock = threading.Lock()
 
 
@@ -195,6 +210,43 @@ def entry_of(state, index, detail):
     return entry
 
 
+def battle_entry(kind, player, game_id):
+    """One feed row for a battle lookup. Its kind is the one the game asked for."""
+    return {
+        "id": LOOKUP_ID,
+        "revision": 1,
+        "title": "Lookup",
+        "source": "capture",
+        "visibility": "public",
+        "recorded_at": "2026-11-04T14:32:10Z",
+        "length_ms": 40,
+        "game": {
+            "kind": kind,
+            "game_id": game_id,
+            "planet": REAL_PLANET,
+            "sector": SECTOR,
+        },
+        "map": {"name": "Lookup"},
+        "players": [
+            {
+                "name": player,
+                "side": "arm",
+                "colour": 0,
+                "team": 1,
+                "result": "won",
+                "kills": 1,
+            }
+        ],
+        "mod": None,
+        "uploader": "",
+        "downloads": 1,
+        "files": {
+            "oademo": {"sha256": "a" * 64, "size": 1},
+            "tad": {"sha256": "b" * 64, "size": 1},
+        },
+    }
+
+
 def index_of(replay):
     """The place of an id, or none."""
     prefix = "r_"
@@ -265,6 +317,32 @@ def make_handler(state):
                 with state.lock:
                     state.queries.append(split.query)
                     state.query_times.append(time.monotonic())
+                    asked_kind = query.get("kind", [""])[0]
+                    asked_player = query.get("player", [""])[0]
+                    # A battle lookup names a kind and a player. The catalogue
+                    # and My battles do not name a kind.
+                    if asked_kind and asked_player and asked_kind != KIND:
+                        state.battle_queries.append(split.query)
+                        if len(state.battle_queries) == 1:
+                            page = {
+                                "replays": 1,
+                                "total": 0,
+                                "next": "",
+                                "items": [],
+                                "beacon": True,
+                            }
+                        else:
+                            page = {
+                                "replays": 1,
+                                "total": 1,
+                                "next": "",
+                                "items": [battle_entry(asked_kind, asked_player, state.lookup_game)],
+                                "beacon": True,
+                            }
+                        # The same address answers twice, first empty and then listed.
+                        # A cached empty page would hide the second answer.
+                        self._json(200, page, cache=False)
+                        return
                     if state.mode == "backoff":
                         self._json(
                             503,
@@ -339,6 +417,85 @@ def make_handler(state):
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length)
             path = urlsplit(self.path).path
+            if path == "/graphql":
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except json.JSONDecodeError:
+                    self._json(400, {"error": "bad_request", "message": "The body is not JSON."})
+                    return
+                variables = payload.get("variables") or {}
+                accepted = (
+                    isinstance(payload.get("query"), str)
+                    and "mutation Login" in payload["query"]
+                    and variables.get("handle") == "nj"
+                    and variables.get("password") == "made-up-secret"
+                )
+                with state.lock:
+                    state.logins.append(accepted)
+                if not accepted:
+                    self._json(
+                        200,
+                        {
+                            "data": {
+                                "login": {
+                                    "ok": False,
+                                    "error": "Invalid handle or password.",
+                                    "account": None,
+                                }
+                            }
+                        },
+                    )
+                    return
+                self._json_headers(
+                    200,
+                    {
+                        "data": {
+                            "login": {
+                                "ok": True,
+                                "error": None,
+                                "account": {"handle": "nj"},
+                            }
+                        }
+                    },
+                    [("Set-Cookie", "cp_session=made-up-token; Path=/; HttpOnly; Secure")],
+                )
+                return
+            if path == "/content/v1/replays":
+                auth = self.headers.get("Authorization", "")
+                with state.lock:
+                    state.uploads.append(raw)
+                    state.upload_auths.append(auth)
+                    count = len(state.uploads)
+                if count == 1:
+                    self._json(
+                        201,
+                        {
+                            "id": "r_0123456789abcdefghijAB",
+                            "revision": 1,
+                            "title": "Show Down",
+                            "source": "upload",
+                            "visibility": "public",
+                            "recorded_at": "2026-11-04T14:32:10Z",
+                            "length_ms": 1,
+                            "game": {"kind": "outpost"},
+                            "map": {"name": "Show Down"},
+                            "players": [],
+                            "downloads": 0,
+                            "files": {
+                                "oademo": {"sha256": "a" * 64, "size": 1},
+                                "tad": {"sha256": "b" * 64, "size": 1},
+                            },
+                        },
+                    )
+                    return
+                if count == 2:
+                    self._json(
+                        401,
+                        {"error": "signed_out", "message": "Sign in to share a replay."},
+                    )
+                    return
+                self._json(500, {"error": "unexpected", "message": "An extra upload arrived."})
+                return
             if path.startswith("/api/v1/downloads/") and path.endswith("/result"):
                 with state.lock:
                     state.results.append(raw.decode("utf-8", errors="replace"))
@@ -498,6 +655,108 @@ def run_game(native, game_dir, work, case_dir, extra, keep_user=False):
     return completed
 
 
+def decompress_zstd(data):
+    """The bytes of one zstd frame. Uses the standard library, then a module, then the zstd tool."""
+    try:
+        from compression import zstd
+        return zstd.decompress(data)
+    except ImportError:
+        pass
+    try:
+        import zstandard
+        return zstandard.ZstdDecompressor().decompress(data)
+    except ImportError:
+        pass
+    completed = subprocess.run(
+        ["zstd", "-d", "-c"], input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    if completed.returncode == 0:
+        return completed.stdout
+    raise RuntimeError("no zstd decoder: compression.zstd, zstandard, or the zstd tool")
+
+
+def tad_sector_types(data):
+    """The sector types of a TA Demo recording, in order."""
+    chunks = []
+    position = 0
+    while position + 2 <= len(data):
+        length = int.from_bytes(data[position:position + 2], "little")
+        if length < 2 or position + length > len(data):
+            break
+        chunks.append(data[position:position + length])
+        position += length
+    if len(chunks) < 2 or len(chunks[1]) < 6:
+        raise RuntimeError("the recording has no sector count")
+    count = int.from_bytes(chunks[1][2:6], "little")
+    types = []
+    for body in chunks[2:2 + count]:
+        if len(body) < 6:
+            raise RuntimeError("the recording has a short sector")
+        types.append(int.from_bytes(body[2:6], "little"))
+    return types
+
+
+def multipart_replay(raw):
+    """The replay part of an upload. The boundary is the first line, and it is not in the file."""
+    if not raw.startswith(b"--"):
+        raise RuntimeError("the upload is not multipart")
+    line_end = raw.find(b"\r\n")
+    if line_end < 4:
+        raise RuntimeError("the upload has no boundary")
+    boundary = raw[2:line_end]
+    for piece in raw.split(b"--" + boundary):
+        if b'name="replay"' not in piece:
+            continue
+        head, marker, body = piece.partition(b"\r\n\r\n")
+        if not marker:
+            raise RuntimeError("the replay part has no body")
+        if body.endswith(b"\r\n"):
+            body = body[:-2]
+        return body
+    raise RuntimeError("the upload has no replay part")
+
+
+def uploaded_recording(raw):
+    """The recording inside an uploaded .oademo."""
+    blob = multipart_replay(raw)
+    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        names = archive.namelist()
+        for name in names:
+            if not name.startswith("recording"):
+                continue
+            stored = archive.read(name)
+            if name.endswith(".zst"):
+                return decompress_zstd(stored)
+            return stored
+    raise RuntimeError(f"the upload holds {names}, not a recording")
+
+
+def recording_game_id(path):
+    """The game id in a replay's description. The kind's name is whatever the file says."""
+    with zipfile.ZipFile(path) as archive:
+        meta = json.loads(archive.read("meta.json"))
+    game = meta.get("game")
+    if not isinstance(game, dict):
+        raise RuntimeError("the battle has no game")
+    kind = game.get("kind")
+    body = game.get(kind) if isinstance(kind, str) else None
+    if not isinstance(body, dict):
+        raise RuntimeError("the battle has no game id")
+    game_id = body.get("game_id")
+    if not isinstance(game_id, str) or not game_id:
+        raise RuntimeError("the battle has no game id")
+    return game_id
+
+
+def battle_lookup(query):
+    """True when a feed query is a battle lookup: a kind, a player and a page of 100."""
+    parsed = parse_qs(query)
+    kind = parsed.get("kind", [""])[0]
+    player = parsed.get("player", [""])[0]
+    first = parsed.get("first", [""])[0]
+    return bool(kind) and kind != KIND and bool(player) and first == "100"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--native", required=True)
@@ -527,6 +786,9 @@ def main():
         return fail("the recorded game was not written")
 
     state = FeedState(source.read_bytes())
+    listed_battle = Path(args.work_dir).parent / "listed-battle.oademo"
+    if listed_battle.is_file():
+        state.lookup_game = recording_game_id(listed_battle)
     server = serve(state)
     facts = work / "core-prime.facts"
     values = {
@@ -543,6 +805,8 @@ def main():
         "mismatch_file": MISMATCH_TITLE + ".oademo",
         "bad_file": BAD_TITLE + ".oademo",
     }
+    if listed_battle.is_file():
+        values["battle_file"] = str(listed_battle)
     try:
         write_facts(facts, values)
         played = run_game(
@@ -609,6 +873,120 @@ def main():
             print(
                 f"play failed: status {played.returncode}, keys {len(state.keys)}, "
                 f"results {len(state.results)}, queries {state.queries}, tad {state.tad}",
+                file=sys.stderr,
+            )
+            return 1
+
+        state.uploads.clear()
+        state.upload_auths.clear()
+        state.logins.clear()
+        state.queries.clear()
+        state.battle_queries.clear()
+        share_values = {
+            "case": "share",
+            "handle": "nj",
+            "password": "made-up-secret",
+            "source": str(source),
+            "share_id": "r_0123456789abcdefghijAB",
+        }
+        if listed_battle.is_file():
+            share_values["battle_file"] = str(listed_battle)
+        write_facts(facts, share_values)
+        shared = run_game(
+            args.native,
+            args.game_dir,
+            work,
+            work / "share",
+            [
+                "--check-replays-core-prime",
+                "--core-prime-api",
+                state.base,
+                "--snapshot",
+                str(pictures / "replays.ppm"),
+            ],
+        )
+
+        def holds_secret(path):
+            """True when a file under path holds the made-up token or password."""
+            if not path.exists():
+                return False
+            paths = [path] if path.is_file() else list(path.rglob("*"))
+            for child in paths:
+                if not child.is_file():
+                    continue
+                data = child.read_bytes()
+                if b"made-up-token" in data or b"made-up-secret" in data:
+                    return True
+            return False
+
+        share_dir = work / "share"
+        leaked = (
+            holds_secret(share_dir / "user")
+            or holds_secret(share_dir / "data")
+            or holds_secret(share_dir / "prefs.conf")
+        )
+        first = state.uploads[0] if state.uploads else b""
+        auths = list(state.upload_auths)
+        mine = any("player=nj" in query and "kind=" not in query for query in state.queries)
+        planted_path = work / "share" / "user" / "Recordings" / "share.tad"
+        planted = planted_path.read_bytes() if planted_path.is_file() else b""
+        uploaded = b""
+        upload_error = ""
+        try:
+            if first:
+                uploaded = uploaded_recording(first)
+        except (OSError, RuntimeError, zipfile.BadZipFile, ValueError) as error:
+            upload_error = str(error)
+        planted_types = tad_sector_types(planted) if planted else []
+        uploaded_types = tad_sector_types(uploaded) if uploaded else []
+        lookups = [query for query in state.battle_queries if battle_lookup(query)]
+        pictures_ok = True
+        for name in (
+            "replays-sign-in.ppm",
+            "replays-card-share.ppm",
+            "replays-share.ppm",
+            "replays-card-listed.ppm",
+        ):
+            picture = pictures / name
+            if not picture.is_file() or picture.stat().st_size < 100000:
+                pictures_ok = False
+        share_ok = (
+            shared.returncode == 0
+            and "core prime: signed in" in shared.stdout
+            and "core prime: signed out" in shared.stdout
+            and "core prime: refused before sending" in shared.stdout
+            and "core prime: my battles" in shared.stdout
+            and "core prime: battle absent" in shared.stdout
+            and "core prime: battle listed" in shared.stdout
+            and len(state.uploads) == 2
+            and len(auths) == 2
+            and auths[0] == "Bearer made-up-token"
+            and auths[1] == "Bearer made-up-token"
+            and b'name="replay"' in first
+            and b'filename="replay.oademo"' in first
+            and b'name="title"' in first
+            and b'name="visibility"' in first
+            and b"public" in first
+            and state.logins == [True, True]
+            and mine
+            and not leaked
+            and not upload_error
+            and 6 in planted_types
+            and CHAT_MARK in planted
+            and ADDRESS_TEXT in planted
+            and 6 not in uploaded_types
+            and CHAT_MARK in uploaded
+            and ADDRESS_TEXT not in uploaded
+            and len(lookups) >= 2
+            and len(state.battle_queries) == len(lookups)
+            and pictures_ok
+        )
+        if not share_ok:
+            print(
+                f"share failed: status {shared.returncode}, uploads {len(state.uploads)}, "
+                f"logins {len(state.logins)}, mine {mine}, leaked {leaked}, "
+                f"planted sectors {planted_types}, uploaded sectors {uploaded_types}, "
+                f"lookups {len(lookups)}, upload {upload_error!r}, pictures {pictures_ok}",
                 file=sys.stderr,
             )
             return 1
@@ -886,6 +1264,10 @@ def main():
             "replays-core-list.ppm",
             "replays-core-planet.ppm",
             "replays-core-offline.ppm",
+            "replays-sign-in.ppm",
+            "replays-share.ppm",
+            "replays-card-share.ppm",
+            "replays-card-listed.ppm",
         )
     )
     if (

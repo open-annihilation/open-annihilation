@@ -18,6 +18,7 @@
 #include "oa/boneyards/console/status_widget.hpp"
 #include "oa/boneyards/message_box.hpp"
 #include "oa/boneyards/rover_replay.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/screens/locator.hpp"
 #include "oa/boneyards/screens/login.hpp"
 #include "oa/boneyards/screens/quickplay.hpp"
@@ -157,6 +158,11 @@ struct LaunchCheck {
     bool ready_pressed{};
     bool reset_modifiers{};
     bool finished{};
+    // Frames the debriefing has been up, so the after-battle notice can be pictured.
+    uint32_t notice_hold{};
+    // The host picks For Fun. The notice is then the share prompt.
+    bool for_fun{};
+    bool notice_shot{};
     // Frames network play's launch was active on, and whether it has once
     // disagreed with the Boneyards' launched battle.
     uint32_t launch_frames{};
@@ -550,25 +556,31 @@ void tick_host_name(by_console::StatusWidget* widget) {
     report("typed the battle's name");
 }
 
-/// Presses the Galactic War row until it is the selected game type.
+/// The game type the host picks. For Fun is the share offer; Galactic War is the ladder notice.
+const char* hosted_type_name() {
+    return g_check.for_fun ? "For Fun" : kHostedType;
+}
+
+/// Presses the hosted type's row until it is the selected game type.
 void tick_host_type(by_console::StatusWidget* widget) {
+    const char* const wanted = hosted_type_name();
     by_console::BattleTypeProbe type{};
     bool found = false;
     for (int32_t i = 0; by_console::boneyards_status_widget_battle_type(widget, i, &type); ++i) {
-        if (std::strcmp(type.name, kHostedType) == 0) {
+        if (std::strcmp(type.name, wanted) == 0) {
             found = true;
             break;
         }
     }
     if (found && type.selected) {
-        report("picked Galactic War");
+        report(std::string("picked ") + wanted);
         advance(Drive::host_start);
         return;
     }
     if (!press_due(found && type.shown))
         return;
     click_canvas(static_cast<float>(type.x), static_cast<float>(type.y));
-    report("pressed Galactic War");
+    report(std::string("pressed ") + wanted);
 }
 
 /// Presses the Host pane's START once it is enabled.
@@ -779,6 +791,8 @@ void tick_end_screen(ScreenContext* ctx) {
 }
 
 /// Waits for the Boneyards' debriefing room, then checks the records and ends the check.
+///
+/// The first frames of that room leave the after-battle notice up so a snapshot can take it.
 void tick_return(ScreenContext* ctx) {
     by_console::StatusWidget* widget = boneyards_console_status_widget();
     const by_console::MainFrameProbe probe = probe_widget();
@@ -787,13 +801,22 @@ void tick_return(ScreenContext* ctx) {
         by_console::boneyards_status_widget_launched_game(widget) ||
         probe.chat_room_id != kLaunchCheckDebriefingRoom)
         return;
-    report("back in the Boneyards, in debriefing room " + std::to_string(probe.chat_room_id));
-    report(
-        "network play's launch was active on " + std::to_string(g_check.launch_frames) +
-        " frames, as the Boneyards' launched battle"
-    );
-    expect(g_check.launch_frames > 0, "network play's launch was never active");
-    check_records(g_check);
+    if (g_check.notice_hold == 0) {
+        report("back in the Boneyards, in debriefing room " + std::to_string(probe.chat_room_id));
+        report(
+            "network play's launch was active on " + std::to_string(g_check.launch_frames) +
+            " frames, as the Boneyards' launched battle"
+        );
+        expect(g_check.launch_frames > 0, "network play's launch was never active");
+        expect(by_screens::after_battle_shown() >= 1, "the after-battle notice was not shown");
+        if (by_screens::after_battle_shown() >= 1)
+            report("after-battle notice shown");
+        check_records(g_check);
+    }
+    ++g_check.notice_hold;
+    // A few frames, so the presented frame can picture the notice before the run ends.
+    if (g_check.notice_hold < 12)
+        return;
     enter(Stage::done);
     finish(
         ctx,
@@ -2341,9 +2364,20 @@ void present_overlay(const CheckHost& host, const Options& options) {
 
 } // namespace
 
-void register_boneyards_launch_check(ScreenRegistry* registry, LaunchCheckRole role) {
+bool boneyards_launch_notice_pending() {
+    // The first frame back can still be promoting the notice. The next one
+    // has it on the presented window.
+    return g_check.notice_hold >= 2 && !g_check.notice_shot && !g_check.finished;
+}
+
+void boneyards_launch_notice_taken() {
+    g_check.notice_shot = true;
+}
+
+void register_boneyards_launch_check(ScreenRegistry* registry, LaunchCheckRole role, bool for_fun) {
     g_check = LaunchCheck{};
     g_check.role = role;
+    g_check.for_fun = for_fun;
     g_check.stage_limit = scaled_stage_limit();
     OverlayDesc desc{};
     desc.name = "boneyards-launch-check";

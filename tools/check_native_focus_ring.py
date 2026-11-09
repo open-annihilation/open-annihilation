@@ -13,9 +13,11 @@ focused:
 - after Tab, the ring's pixels lie on that path around the focused control;
 - after a pointer move, they are gone.
 
-On the main menu, ui.screen names nothing at open and names SINGLE once Tab
-has drawn the ring. Space on Load game, with the ring showing, opens the
-empty folder's message with the ring hidden. With Always show focus off,
+On the main menu, ui.screen names nothing at open. The first Tab leaves
+Single player for the next stop of the main menu's order, Multiplayer (the
+strip's MultiBtn while the strip is drawn), and draws the ring there. Space
+on Load game, with the ring showing, opens the empty folder's message with
+the ring hidden. With Always show focus off,
 Skirmish's Tab order draws the ring around oa.mutators, a pointer move
 hides it, and a skirmish's in-game menu draws it around OK after Tab. O,
 the Options button's quick key, then opens the in-game Options page with
@@ -542,7 +544,7 @@ def check_screen(client, screen, always):
     if screen == "main_menu":
         focused, shown = reported_focus(client)
         require(
-            focused == "SINGLE" and shown,
+            focused in ("MULTI", "MultiBtn") and shown,
             f"the main menu after Tab names {focused!r}, ring {shown}",
         )
     leaf, frame = focus_of(client, screen)

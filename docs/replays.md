@@ -226,6 +226,20 @@ While a replay plays, a bar along the foot of the battlefield shows play
 and pause, the time, a timeline you can press or drag, and the speed. It
 hides after three seconds away from the battlefield's lower edge and comes
 back on a playback key. **B** pins it for this watch; the pin is not saved.
+**View** chooses whose sight you see: every player, the whole map, or one
+player's view. A player who was defeated or who left stays in the list for
+the whole replay, and the row says **Defeated 18:02** or **Left 21:40** once
+that moment has passed. Choosing that row shows the sight the match still
+holds for the seat. When the seat itself is gone, the row stays, the eye
+stays on it, and the view is the whole map: the match no longer holds that
+player's sight. **Camera** is free, that player's own camera when the
+recording already carries camera records, or one unit. **Follow their
+camera** while every player is shown follows the first player who shared a
+camera. Double-click a unit to keep it in the middle until you pan; when
+that unit is gone the camera returns to free. The list at the top right
+names each player. On a 640×480 battlefield it starts folded, and **F4**
+folds it to colour chips or opens it. **Tab** and **Shift+Tab** move through
+the views, **Q** returns to every player, and **C** changes the camera.
 At the end, a card names the winner, the length and each player's kills and
 losses, and offers **Watch again**, **Back to the Library** and **Export…**.
 A damaged recording says so, with the time it failed.
@@ -285,7 +299,17 @@ carries what that read wrote. A timeline the file already holds is kept.
 **Download** writes the `.oademo` into `Recordings/Core Prime`, and **Watch**
 plays that file. The game does not download the `.tad`.
 [The Library](library.md#replays) says how the switch, the filters and the
-empty list behave.
+empty list behave. **Sign in** and **Sign out** sit beside that switch.
+A signed-in player can share a replay from its card. The file that is sent
+keeps the chat and holds no network address. After a ranked battle the game
+says that battle goes on Core Prime by itself, a few minutes after it ends.
+After a recorded For Fun battle it offers **Share…** and **Not now**.
+**Share…** leaves the battle screens and opens the Library on that recording
+with the share question, after Sign in when the player is signed out. A For
+Fun battle that was not recorded says so and does not ask to share. **Open
+on Core Prime** is on a listed battle's card whether or not the player is
+signed in. **Share my own recording** waits until they are. The card does
+the upload.
 
 **Delete replay** on the card, confirmed by the button beside it, moves that
 replay's file to the system's trash and takes it out of the list. If the

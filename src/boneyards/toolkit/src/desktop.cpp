@@ -97,6 +97,9 @@ constexpr int32_t k_focus_stride = 5000;
 constexpr int32_t k_focus_wrap = 25000000;
 constexpr int32_t k_column_slack = 10;
 constexpr int32_t k_focus_cap = 1024;
+// The open console's F6 number, the same one status_widget stamps. The frame
+// is 1 and the war map is 3. Only the console keeps an arrow inside itself.
+constexpr uint8_t k_region_console = 2;
 
 enum class FocusDirection : int32_t { left, right, up, down };
 
@@ -124,8 +127,12 @@ bool has_control_name(const Window* window) {
 /// Disabled ones (their first state) and controls that do not take focus are
 /// skipped. Scroll buttons and buttons that refuse focus are not stops.
 /// Radios that share a group are one stop: the one that is chosen.
-bool is_focus_stop(const Window* window) {
+bool is_focus_stop(const Desktop* desktop, const Window* window) {
     if (window == nullptr || window->focusable == 0 || !window_is_shown(window))
+        return false;
+    // A list or a link that is only a stop once Tab, Shift+Tab or F6 has
+    // been pressed is skipped until then. A click can still focus it.
+    if (window->stop_when_ring != 0 && (desktop == nullptr || desktop->keyboard_ring == 0))
         return false;
     // A stop with neither a name nor a caption is reported as none, and a
     // stop with no area cannot be drawn or pointed at. Both are skipped.
@@ -218,26 +225,80 @@ bool already_listed(Window* const* out, int32_t count, const Window* window) {
     return false;
 }
 
-void collect_stops(Window* window, Window** out, int32_t* count) {
+void collect_stops(const Desktop* desktop, Window* window, Window** out, int32_t* count) {
     if (window == nullptr || !window_is_shown(window) || *count >= k_focus_cap)
         return;
-    if (is_focus_stop(window) && !already_listed(out, *count, window))
+    if (is_focus_stop(desktop, window) && !already_listed(out, *count, window))
         out[(*count)++] = window;
     for (int32_t i = 0; i < window->children.count && *count < k_focus_cap; ++i)
-        collect_stops(window->children.items[i], out, count);
+        collect_stops(desktop, window->children.items[i], out, count);
 }
 
+Window* region_root_of(Window* window);
+
+/// True while the focus sits in the open console. That region keeps an arrow.
+/// The frame and the war map do not.
+bool in_console(Window* window) {
+    Window* root = region_root_of(window);
+    return root != nullptr && root->region == k_region_console;
+}
+
+/// Stops an arrow may reach inside `scope`, in child order. A nested region
+/// is left out. Unlike Tab, every member of a set and a list's scroll bar
+/// count, as they do for an arrow outside a console.
+void collect_region_stops(
+    const Desktop* desktop, Window* window, const Window* scope, Window** out, int32_t* count
+) {
+    if (window == nullptr || !window_is_shown(window) || *count >= k_focus_cap)
+        return;
+    if (window != scope && window->region != 0)
+        return;
+    if (window != scope && is_focus_stop(desktop, window) && !already_listed(out, *count, window))
+        out[(*count)++] = window;
+    for (int32_t i = 0; i < window->children.count && *count < k_focus_cap; ++i)
+        collect_region_stops(desktop, window->children.items[i], scope, out, count);
+}
+
+/// A click at the stop's centre reaches the stop's own region.
+///
+/// A console drawn over a planet or a frame button hides that stop. Two stops
+/// in one region still see each other.
+bool click_reaches(Desktop* desktop, Window* stop) {
+    if (stop == nullptr)
+        return false;
+    const int32_t x = stop->x + stop->width / 2;
+    const int32_t y = stop->y + stop->height / 2;
+    Window* hit = deepest_window_at(desktop, x, y);
+    if (hit == nullptr)
+        return false;
+    return region_root_of(hit) == region_root_of(stop);
+}
+
+/// Stops an arrow may land on.
+///
+/// A dialog keeps the arrow inside itself. An open console does too. The frame
+/// and the war map do not: an arrow there can cross between them. A stop a
+/// click at its centre would miss, because another region covers it, is left
+/// out. With no console and no dialog, the whole desktop is open.
 int32_t collect_candidates(Desktop* desktop, Window** out) {
     int32_t count = 0;
     Window* modal = top_modal(desktop);
     if (modal != nullptr) {
         for (int32_t i = 0; i < modal->children.count && count < k_focus_cap; ++i)
-            collect_stops(modal->children.items[i], out, &count);
-        return count;
+            collect_stops(desktop, modal->children.items[i], out, &count);
+    } else if (desktop->focus != nullptr && in_console(desktop->focus)) {
+        Window* scope = region_root_of(desktop->focus);
+        collect_region_stops(desktop, scope, scope, out, &count);
+    } else {
+        for (int32_t i = 0; i < desktop->windows.count && count < k_focus_cap; ++i)
+            collect_stops(desktop, desktop->windows.items[i], out, &count);
     }
-    for (int32_t i = 0; i < desktop->windows.count && count < k_focus_cap; ++i)
-        collect_stops(desktop->windows.items[i], out, &count);
-    return count;
+    int32_t kept = 0;
+    for (int32_t i = 0; i < count; ++i) {
+        if (click_reaches(desktop, out[i]))
+            out[kept++] = out[i];
+    }
+    return kept;
 }
 
 /// The nearest ancestor, including the window, whose region number is set.
@@ -255,18 +316,82 @@ void remember_region(Desktop* desktop, Window* window) {
         desktop->keyboard_region = region;
 }
 
+/// A member of a set that is neither its chosen one nor the focus. Tab
+/// passes it, so the set is one stop.
+bool passed_in_set(const Desktop* desktop, const Window* window) {
+    return window->access_set != 0 && window->access_chosen == 0 && window != desktop->focus;
+}
+
+/// The scroll bar of Chat rooms, the player list or the contents list.
+///
+/// Those lists scroll it with the arrows, so Tab does not stop on it. The
+/// controller still reaches it, because the arrow walk does not use this.
+/// A page's HTMLSlider, and Recon's description bar, stay stops.
+bool list_arrow_slider(const Window* window) {
+    if (window->name == nullptr || !names_equal(window->name, "slider"))
+        return false;
+    if (!is_class_name(window, class_name::slider))
+        return false;
+    const Window* parent = window->parent;
+    if (parent == nullptr || parent->name == nullptr ||
+        !is_class_name(parent, class_name::list_box))
+        return false;
+    return names_equal(parent->name, "Chat rooms") || names_equal(parent->name, "ChatList") ||
+           names_equal(parent->name, "ContentsList");
+}
+
 /// Stops inside `scope`, in child order. A nested region is left for F6.
 void gather_stops(
-    Window* window, const Window* scope, bool skip_regions, Window** out, int32_t* count
+    const Desktop* desktop,
+    Window* window,
+    const Window* scope,
+    bool skip_regions,
+    Window** out,
+    int32_t* count
 ) {
     if (window == nullptr || !window_is_shown(window) || *count >= k_focus_cap)
         return;
     if (skip_regions && window != scope && window->region != 0)
         return;
-    if (window != scope && is_focus_stop(window) && !already_listed(out, *count, window))
+    if (window != scope && is_focus_stop(desktop, window) && !passed_in_set(desktop, window) &&
+        !list_arrow_slider(window) && !already_listed(out, *count, window))
         out[(*count)++] = window;
     for (int32_t i = 0; i < window->children.count && *count < k_focus_cap; ++i)
-        gather_stops(window->children.items[i], scope, skip_regions, out, count);
+        gather_stops(desktop, window->children.items[i], scope, skip_regions, out, count);
+}
+
+/// The sort key of a Tab stop. A place of 0 follows every numbered place.
+int32_t tab_rank(const Window* window) {
+    return window->tab_place == 0 ? 256 : static_cast<int32_t>(window->tab_place);
+}
+
+/// True when `earlier` stays before `item`.
+///
+/// Numbered places come first. A place of 0 follows them, in the order the
+/// windows were created, which a raise does not change. Equal numbered
+/// places keep the order they were gathered in.
+bool tab_before(const Window* earlier, const Window* item) {
+    const int32_t rank_a = tab_rank(earlier);
+    const int32_t rank_b = tab_rank(item);
+    if (rank_a != rank_b)
+        return rank_a < rank_b;
+    if (earlier->tab_place == 0 && earlier->created != item->created)
+        return earlier->created < item->created;
+    return true;
+}
+
+/// Numbered stops come first, in place order. Unnumbered stops follow, in
+/// the order they were created. Equal numbered places keep gather order.
+void order_tab_places(Window** items, int32_t count) {
+    for (int32_t i = 1; i < count; ++i) {
+        Window* item = items[i];
+        int32_t slot = i;
+        while (slot > 0 && !tab_before(items[slot - 1], item)) {
+            items[slot] = items[slot - 1];
+            --slot;
+        }
+        items[slot] = item;
+    }
 }
 
 /// True when `focus` is outside `modal`, or is the modal's own root.
@@ -280,11 +405,11 @@ bool focus_outside(const Window* modal, const Window* focus) {
 ///
 /// The first Tab, Shift+Tab or arrow lands here while the focus is still
 /// outside the dialog or on its root. A later key moves as usual.
-Window* default_answer(Window* modal) {
+Window* default_answer(const Desktop* desktop, Window* modal) {
     static const char* names[] = {"Choose", "Ok", "OK", "No", "Activate", "Open", "Back"};
     for (const char* name : names) {
         Window* found = window_find_named(modal, name, nullptr);
-        if (is_focus_stop(found))
+        if (is_focus_stop(desktop, found))
             return found;
     }
     return nullptr;
@@ -299,6 +424,9 @@ void land(Desktop* desktop, Window* target) {
 /// keyboard. The first one, while the focus is outside the dialog or on its
 /// root, lands on the dialog's default answer.
 bool move_tab(Desktop* desktop, bool backwards) {
+    // Set before the stops are gathered, so the first Tab can land on a
+    // stop that waits for the ring.
+    desktop->keyboard_ring = 1;
     Window* modal = top_modal(desktop);
     Window* scope = modal;
     bool skip_regions = false;
@@ -310,11 +438,12 @@ bool move_tab(Desktop* desktop, bool backwards) {
         skip_regions = true;
     Window* items[k_focus_cap];
     int32_t count = 0;
-    gather_stops(scope, scope, skip_regions, items, &count);
+    gather_stops(desktop, scope, scope, skip_regions, items, &count);
+    order_tab_places(items, count);
     if (count == 0)
         return true;
     if (modal != nullptr && focus_outside(modal, desktop->focus)) {
-        Window* answer = default_answer(modal);
+        Window* answer = default_answer(desktop, modal);
         land(desktop, answer != nullptr ? answer : (backwards ? items[count - 1] : items[0]));
         return true;
     }
@@ -359,6 +488,7 @@ void sort_regions(Window** regions, int32_t count) {
 /// consumes the key and stays where it is. The landing spot is the first
 /// stop in the region, or the region itself when it has none yet.
 bool move_f6(Desktop* desktop, bool backwards) {
+    desktop->keyboard_ring = 1;
     if (top_modal(desktop) != nullptr)
         return true;
     Window* regions[k_focus_cap];
@@ -392,7 +522,8 @@ bool move_f6(Desktop* desktop, bool backwards) {
         Window* region = regions[cursor];
         Window* stops[k_focus_cap];
         int32_t stop_count = 0;
-        gather_stops(region, region, true, stops, &stop_count);
+        gather_stops(desktop, region, region, true, stops, &stop_count);
+        order_tab_places(stops, stop_count);
         Window* landing = stop_count > 0 ? stops[0] : nullptr;
         if (landing == nullptr && region->focusable != 0)
             landing = region;
@@ -442,6 +573,12 @@ Window* first_in_reading_order(Window** items, int32_t count) {
     return best;
 }
 
+// Where a stop stands for the column order. A radio row stands at its first
+// choice; every other stop stands where it is drawn. Defined with the radio
+// helpers below.
+int32_t column_x(const Window* window);
+int32_t column_y(const Window* window);
+
 // Columns are grouped from left to right, so raising a control (which
 // reorders the window tree) does not move it into a different column.
 void snap_columns(Window** items, int32_t count, int32_t* columns) {
@@ -454,8 +591,10 @@ void snap_columns(Window** items, int32_t count, int32_t* columns) {
         while (slot > 0) {
             const Window* earlier = items[order[slot - 1]];
             const Window* current = items[key];
-            const bool in_place =
-                earlier->x < current->x || (earlier->x == current->x && earlier->y <= current->y);
+            const int32_t earlier_x = column_x(earlier);
+            const int32_t current_x = column_x(current);
+            const bool in_place = earlier_x < current_x || (earlier_x == current_x &&
+                                                            column_y(earlier) <= column_y(current));
             if (in_place)
                 break;
             order[slot] = order[slot - 1];
@@ -465,7 +604,7 @@ void snap_columns(Window** items, int32_t count, int32_t* columns) {
     }
     for (int32_t n = 0; n < count; ++n) {
         const int32_t index = order[n];
-        const int32_t x = items[index]->x;
+        const int32_t x = column_x(items[index]);
         int32_t snapped = x;
         for (int32_t prior = 0; prior < n; ++prior) {
             const int32_t delta = columns[order[prior]] - x;
@@ -483,43 +622,52 @@ int32_t column_of(const Window* from, Window** items, const int32_t* columns, in
         if (items[i] == from)
             return columns[i];
     }
+    const int32_t x = column_x(from);
     for (int32_t i = 0; i < count; ++i) {
-        const int32_t delta = columns[i] - from->x;
+        const int32_t delta = columns[i] - x;
         if (delta < k_column_slack && delta > -k_column_slack)
             return columns[i];
     }
-    return from->x;
+    return x;
 }
 
-/// The next control in `direction`, wrapping past the last back to the first.
+/// The next control in `direction`.
 ///
 /// Left and right order controls by their place on the screen. Up and down
-/// order a column. The focused control stays put when it is the only one.
+/// order a column. With `wrap`, the search past the last continues at the
+/// first. Without it, nothing past the last is chosen. The focused control
+/// stays put when it is the only one.
 Window* nearest_stop(
     Window** items,
     const int32_t* columns,
     int32_t count,
     const Window* from,
-    FocusDirection direction
+    FocusDirection direction,
+    bool wrap
 ) {
     const bool horizontal = direction == FocusDirection::left || direction == FocusDirection::right;
     const bool backward = direction == FocusDirection::left || direction == FocusDirection::up;
-    const int32_t origin = horizontal
-                               ? reading_score(from)
-                               : column_of(from, items, columns, count) * k_focus_stride + from->y;
+    const int32_t origin =
+        horizontal ? reading_score(from)
+                   : column_of(from, items, columns, count) * k_focus_stride + column_y(from);
     int32_t best = backward ? origin - k_focus_wrap : origin + k_focus_wrap;
     Window* chosen = nullptr;
     for (int32_t i = 0; i < count; ++i) {
         int32_t score =
-            horizontal ? reading_score(items[i]) : columns[i] * k_focus_stride + items[i]->y;
+            horizontal ? reading_score(items[i]) : columns[i] * k_focus_stride + column_y(items[i]);
         if (backward) {
-            if (score >= origin)
+            if (score >= origin) {
+                if (!wrap)
+                    continue;
                 score -= k_focus_wrap;
+            }
             if (chosen == nullptr || score > best) {
                 chosen = items[i];
                 best = score;
             }
         } else if (score <= origin) {
+            if (!wrap)
+                continue;
             score += k_focus_wrap;
             if (chosen == nullptr || score < best) {
                 chosen = items[i];
@@ -587,33 +735,107 @@ int32_t nearest_planet(
 
 namespace {
 
-/// The next radio in a group, above or below, wrapping at the ends.
+/// @param a the radio read as earlier
+/// @param b the radio read as later
+/// @return true when `a` is above `b`, or on the same line and to its left
+bool radio_before(const Window* a, const Window* b) {
+    return a->y < b->y || (a->y == b->y && a->x < b->x);
+}
+
+bool radio_member(const Window* child, const Window* from) {
+    return child != nullptr && child->radio_group == from->radio_group &&
+           is_class_name(child, class_name::radio_button) && window_is_shown(child) &&
+           child->states.current != button_state::disabled;
+}
+
+/// How a group's choices are laid out, from the members that can be landed on.
 ///
-/// Left and right leave the group. A disabled radio is not a landing spot.
-Window* radio_step(Window* from, FocusDirection direction) {
+/// One shared top, and not one shared left edge, is a row. One shared left
+/// edge, and not one shared top, is a stack. Anything else is not a line.
+enum class RadioAxis { none, row, stack };
+
+RadioAxis radio_axis(const Window* from) {
     if (from == nullptr || from->radio_group == 0 || from->parent == nullptr)
+        return RadioAxis::none;
+    if (!radio_member(from, from))
+        return RadioAxis::none;
+    int32_t count = 0;
+    bool same_top = true;
+    bool same_left = true;
+    for (int32_t i = 0; i < from->parent->children.count; ++i) {
+        const Window* child = from->parent->children.items[i];
+        if (!radio_member(child, from))
+            continue;
+        if (child->y != from->y)
+            same_top = false;
+        if (child->x != from->x)
+            same_left = false;
+        ++count;
+    }
+    if (count < 2)
+        return RadioAxis::none;
+    if (same_top && !same_left)
+        return RadioAxis::row;
+    if (same_left && !same_top)
+        return RadioAxis::stack;
+    return RadioAxis::none;
+}
+
+/// The window Up and Down measure a stop from.
+///
+/// A radio row stands at its first choice, the leftmost. Down and Up then
+/// step from one row to the next, whichever choice is showing in either.
+/// A stack, and every other stop, stands where it is drawn.
+const Window* radio_row_anchor(const Window* from) {
+    if (radio_axis(from) != RadioAxis::row)
+        return from;
+    const Window* first = from;
+    for (int32_t i = 0; i < from->parent->children.count; ++i) {
+        const Window* child = from->parent->children.items[i];
+        if (!radio_member(child, from))
+            continue;
+        if (radio_before(child, first))
+            first = child;
+    }
+    return first;
+}
+
+int32_t column_x(const Window* window) {
+    return radio_row_anchor(window)->x;
+}
+
+int32_t column_y(const Window* window) {
+    return radio_row_anchor(window)->y;
+}
+
+/// The next radio along a group's line, or `from` when that line ends.
+///
+/// A row steps with Left and Right. A stack steps with Up and Down. Those are
+/// the arrows along the line; the arrows across it leave the group, and this
+/// returns null so the key can move to another stop. The line does not wrap.
+/// A disabled radio is not a landing spot.
+Window* radio_step(Window* from, FocusDirection direction) {
+    const RadioAxis axis = radio_axis(from);
+    const bool row = axis == RadioAxis::row;
+    const bool stack = axis == RadioAxis::stack;
+    const bool along =
+        (row && (direction == FocusDirection::left || direction == FocusDirection::right)) ||
+        (stack && (direction == FocusDirection::up || direction == FocusDirection::down));
+    if (!along)
         return nullptr;
-    if (direction != FocusDirection::up && direction != FocusDirection::down)
-        return nullptr;
-    const bool upward = direction == FocusDirection::up;
+    const bool backward = direction == FocusDirection::left || direction == FocusDirection::up;
     Window* best = nullptr;
-    Window* wrap = nullptr;
     for (int32_t i = 0; i < from->parent->children.count; ++i) {
         Window* child = from->parent->children.items[i];
-        if (child == nullptr || child == from || child->radio_group != from->radio_group)
+        if (child == from || !radio_member(child, from))
             continue;
-        if (!is_class_name(child, class_name::radio_button) || !window_is_shown(child))
+        const bool before = radio_before(child, from);
+        if (before != backward)
             continue;
-        if (child->states.current == button_state::disabled)
-            continue;
-        const bool ahead = upward ? child->y < from->y : child->y > from->y;
-        Window** slot = ahead ? &best : &wrap;
-        if (*slot == nullptr)
-            *slot = child;
-        else if (upward ? child->y > (*slot)->y : child->y < (*slot)->y)
-            *slot = child;
+        if (best == nullptr || (backward ? radio_before(best, child) : radio_before(child, best)))
+            best = child;
     }
-    return best != nullptr ? best : wrap;
+    return best != nullptr ? best : from;
 }
 
 void choose_radio(Window* radio) {
@@ -649,7 +871,7 @@ bool move_focus(Desktop* desktop, const Message* msg) {
     if (arrow && focus_outside(modal, desktop->focus)) {
         Window* items[k_focus_cap];
         const int32_t count = collect_candidates(desktop, items);
-        Window* target = default_answer(modal);
+        Window* target = default_answer(desktop, modal);
         if (target == nullptr && count > 0)
             target = items[0];
         if (target == nullptr)
@@ -657,9 +879,11 @@ bool move_focus(Desktop* desktop, const Message* msg) {
         land(desktop, target);
         return true;
     }
-    if (arrow && desktop->focus != nullptr &&
-        (direction == FocusDirection::up || direction == FocusDirection::down)) {
+    if (arrow && desktop->focus != nullptr) {
         Window* other = radio_step(desktop->focus, direction);
+        // The end of the line stays put. Falling through would leave the group.
+        if (other == desktop->focus)
+            return true;
         if (other != nullptr) {
             choose_radio(other);
             land(desktop, other);
@@ -668,15 +892,22 @@ bool move_focus(Desktop* desktop, const Message* msg) {
     }
     Window* items[k_focus_cap];
     const int32_t count = collect_candidates(desktop, items);
+    // An open console keeps the arrow. At its last stop that way the arrow
+    // stays put, and it does not wrap. The frame and the war map use the
+    // same order and do wrap, so a pad can cross between them.
+    const bool console =
+        modal == nullptr && desktop->focus != nullptr && in_console(desktop->focus);
     if (count == 0)
-        return false;
+        return console;
     Window* target = nullptr;
     if (!arrow || bare) {
         target = first_in_reading_order(items, count);
     } else {
         int32_t columns[k_focus_cap];
         snap_columns(items, count, columns);
-        target = nearest_stop(items, columns, count, desktop->focus, direction);
+        target = nearest_stop(items, columns, count, desktop->focus, direction, !console);
+        if (target == nullptr)
+            return console;
     }
     if (target == nullptr)
         return false;
@@ -740,6 +971,47 @@ void repair_hidden_focus(Desktop* desktop) {
     desktop_set_focus(desktop, nullptr);
     if (back != nullptr)
         desktop_set_focus(desktop, back);
+}
+
+/// Routes one key. Return is handled while the ring is still showing; the
+/// caller hides the ring afterwards.
+bool route_key(Desktop* desktop, const Message* msg) {
+    if (msg->code == MessageCode::key_down) {
+        desktop->pointer_last = 0;
+        repair_hidden_focus(desktop);
+    }
+    // Tab and F6 move the keyboard before a control can swallow them,
+    // and only while a dialog is up or the focus is inside a region.
+    // F6 also starts from nothing while a region is showing, so the war
+    // map is reachable before anything has been clicked. Anywhere else
+    // the focus is given the key, as it was.
+    if (msg->code == MessageCode::key_down) {
+        const bool confined = navigation_confined(desktop);
+        if (msg->key == key::tab && confined)
+            return move_tab(desktop, input_key_down(key::shift));
+        if (msg->key == key::f6 &&
+            (confined || (desktop->focus == nullptr && region_shown(desktop))))
+            return move_f6(desktop, input_key_down(key::shift));
+    }
+    Window* modal = top_modal(desktop);
+    const bool outside = focus_outside(modal, desktop->focus);
+    if (msg->code == MessageCode::key_down && outside && msg->key == key::escape) {
+        window_dispatch(modal, msg);
+        return true;
+    }
+    FocusDirection arrow = FocusDirection::down;
+    if (msg->code == MessageCode::key_down && outside && direction_of(msg->key, &arrow))
+        return move_focus(desktop, msg);
+    if (desktop->focus != nullptr && window_dispatch(desktop->focus, msg))
+        return true;
+    if (msg->code != MessageCode::key_down) {
+        FocusDirection direction = FocusDirection::down;
+        if (!direction_of(msg->key, &direction))
+            return false;
+        Window* items[k_focus_cap];
+        return collect_candidates(desktop, items) > 0;
+    }
+    return move_focus(desktop, msg);
 }
 
 } // namespace
@@ -832,57 +1104,18 @@ bool desktop_route(Desktop* desktop, const Message* msg) {
     if (msg == nullptr) {
         return false;
     }
-    // A taken Tab or F6 starts keyboard travel. Return ends it. A key-up
-    // changes nothing, so the ring stays up while the key is let go.
+    // Return is given to the focused control first, while the ring is still
+    // showing, and then a taken Return hides it. A key-up changes nothing.
+    // Tab and F6 set the ring themselves, before their stops are gathered.
     const auto finish = [&](bool taken) {
-        if (taken && msg->code == MessageCode::key_down) {
-            if (msg->key == key::tab || msg->key == key::f6)
-                desktop->keyboard_travel = 1;
-            else if (msg->key == key::enter)
-                desktop->keyboard_travel = 0;
-        }
+        if (taken && msg->code == MessageCode::key_down && msg->key == key::enter)
+            desktop->keyboard_ring = 0;
         return taken;
     };
-    if (msg->code == MessageCode::key_down || msg->code == MessageCode::key_up) {
-        if (msg->code == MessageCode::key_down) {
-            desktop->pointer_last = 0;
-            repair_hidden_focus(desktop);
-        }
-        // Tab and F6 move the keyboard before a control can swallow them,
-        // and only while a dialog is up or the focus is inside a region.
-        // F6 also starts from nothing while a region is showing, so the war
-        // map is reachable before anything has been clicked. Anywhere else
-        // the focus is given the key, as it was.
-        if (msg->code == MessageCode::key_down) {
-            const bool confined = navigation_confined(desktop);
-            if (msg->key == key::tab && confined)
-                return finish(move_tab(desktop, input_key_down(key::shift)));
-            if (msg->key == key::f6 &&
-                (confined || (desktop->focus == nullptr && region_shown(desktop))))
-                return finish(move_f6(desktop, input_key_down(key::shift)));
-        }
-        Window* modal = top_modal(desktop);
-        const bool outside = focus_outside(modal, desktop->focus);
-        if (msg->code == MessageCode::key_down && outside && msg->key == key::escape) {
-            window_dispatch(modal, msg);
-            return finish(true);
-        }
-        FocusDirection arrow = FocusDirection::down;
-        if (msg->code == MessageCode::key_down && outside && direction_of(msg->key, &arrow))
-            return finish(move_focus(desktop, msg));
-        if (desktop->focus != nullptr && window_dispatch(desktop->focus, msg))
-            return finish(true);
-        if (msg->code != MessageCode::key_down) {
-            FocusDirection direction = FocusDirection::down;
-            if (!direction_of(msg->key, &direction))
-                return false;
-            Window* items[k_focus_cap];
-            return collect_candidates(desktop, items) > 0;
-        }
-        return finish(move_focus(desktop, msg));
-    }
-    // Any move onto a new place ends keyboard travel, whether or not a window
-    // takes it. The first place is only recorded, and a repeat stays put.
+    if (msg->code == MessageCode::key_down || msg->code == MessageCode::key_up)
+        return finish(route_key(desktop, msg));
+    // A move onto a new place hides the ring, whether or not a window takes
+    // it. The first place is only recorded, and a repeat stays put.
     if (is_mouse_move(msg)) {
         if (desktop->pointer_known == 0) {
             desktop->pointer_x = msg->x;
@@ -891,7 +1124,7 @@ bool desktop_route(Desktop* desktop, const Message* msg) {
         } else if (msg->x != desktop->pointer_x || msg->y != desktop->pointer_y) {
             desktop->pointer_x = msg->x;
             desktop->pointer_y = msg->y;
-            desktop->keyboard_travel = 0;
+            desktop->keyboard_ring = 0;
         }
     }
     if (is_pointer_button(msg))

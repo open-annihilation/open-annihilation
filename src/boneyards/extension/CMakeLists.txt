@@ -255,6 +255,24 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
       PASS_REGULAR_EXPRESSION
         "boneyards menu modes: the strip on the base game's art, the ENTER plate on art of the mod's own"
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
+    # The strip's keyboard and the main menu's order, with the Boneyards
+    # installed. Tab reaches the order before the strip, in strip mode and
+    # in button mode, and while the ring shows an arrow and Return press the
+    # stop the arrow ringed. After the services question closes, Tab moves
+    # on, to Credits after Enter. A layout that moves Accept and Press opens
+    # More maps… and the update pill from those keys; Return, unbound, does
+    # not. Each run wipes its own work folder.
+    add_test(NAME native-boneyards-menu-keys COMMAND ${Python3_EXECUTABLE}
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_menu_keys.py"
+      --game "$<TARGET_FILE:oa-game>" --tool "$<TARGET_FILE:oa-tool>"
+      --game-dir "${oa_boneyards_game_dir}"
+      --coreprime "${CMAKE_BINARY_DIR}/coreprime"
+      --work "${oa_boneyards_checks}/boneyards-menu-keys")
+    set_tests_properties(native-boneyards-menu-keys PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      PASS_REGULAR_EXPRESSION
+        "boneyards menu keys: the strip and the plate agree with the order, and a moved Accept opens More maps and the update pill"
+      ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
     add_test(NAME native-boneyards-launch COMMAND ${Python3_EXECUTABLE}
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_launch.py"
       --game "$<TARGET_FILE:oa-game>" --game-dir "${oa_boneyards_game_dir}"
@@ -374,6 +392,33 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
         --match-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/matchmaking.replay"
         --scratch-root "${oa_boneyards_checks}")
       set_tests_properties(native-boneyards-keys-modal PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_boneyards_checks}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Battle, QuickPlay and the Locator by keys. Consoles still open with
+      # a click. JOIN is focused and not pressed. Right on the host form's
+      # skill row chooses Seasoned, and Down from that row reaches the players
+      # row. FIND BATTLE is run and its offer is not accepted, and Return in
+      # the Locator's name searches.
+      add_test(NAME native-boneyards-keys-battle COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_keys_battle.py"
+        --native "$<TARGET_FILE:oa-game>" --game-dir "${oa_launcher_game_dir}"
+        --mod-dir "${CMAKE_BINARY_DIR}/coreprime"
+        --beta-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/alpha_features_beta.replay"
+        --quickplay-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/quickplay.replay"
+        --scratch-root "${oa_boneyards_checks}")
+      set_tests_properties(native-boneyards-keys-battle PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_boneyards_checks}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Help and a page link, then a chat line, by keys. Login and the planet
+      # may still be clicked. Each launch writes its own preferences.
+      add_test(NAME native-boneyards-keys-contents COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_keys_contents.py"
+        --native "$<TARGET_FILE:oa-game>" --game-dir "${oa_launcher_game_dir}"
+        --mod-dir "${CMAKE_BINARY_DIR}/coreprime"
+        --contents-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/alpha_contents.replay"
+        --chat-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/alpha_chat.replay"
+        --scratch-root "${oa_boneyards_checks}")
+      set_tests_properties(native-boneyards-keys-contents PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_boneyards_checks}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Every lobby console, driven through MCP against four replays; an

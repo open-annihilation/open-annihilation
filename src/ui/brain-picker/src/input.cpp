@@ -711,10 +711,14 @@ ScreenResult open_page(const Picker& picker, ScreenState& state) {
     state.menu = Menu::none;
     state.menu_option.clear();
     state.menu_marked = -1;
-    if (state.interaction.focus_shown) {
+    // The page's first control takes the focus whether or not the ring shows,
+    // so the focus never names a control the page no longer lists. The ring
+    // stays as it was: Return hides it, and a player who never pressed Tab
+    // sees none.
+    if (state.interaction.focused != kit::no_control) {
         state.interaction.focused = page_focus(picker);
-        state.interaction.focus_shown = true;
-        state.interaction.pointer_hid_ring = false;
+        if (state.interaction.focus_shown)
+            state.interaction.pointer_hid_ring = false;
     }
     return redrawn();
 }

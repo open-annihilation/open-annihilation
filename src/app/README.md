@@ -270,7 +270,10 @@ latched the closing key and drew a backdrop.
   screen, a dialog, a page of the in-game panel or an extension window
   opens (`note_family_opened` on load and on the in-game menu, and again in
   `present_family_ring` when what is showing has changed), unless Always
-  show focus is on.
+  show focus is on. An arrow, Home, End or page key a screen takes while
+  the ring shows calls `note_family_tab` too, so the ring stays through a
+  window that key opens or closes, such as a battle's pane opened from the
+  battle list.
   `note_family_tab` shows it, for Tab, Shift+Tab and F6. `note_family_return` hides it, and
   `note_family_pointer` hides it when the pointer moves. Where a screen
   focuses nothing, the tree reports a first item (SINGLE on the main menu).
@@ -5598,6 +5601,9 @@ Version 21 also adds the rectangle where an extension window's art takes
 the press (`ExtensionWindow`'s `press_x`, `press_y`, `press_width` and
 `press_height`). A screen button that lies wholly inside it is listed
 hidden, and stays enabled as the screen reported it. It is not a hook.
+Version 21 also adds `ScreenServices::main_menu_order_owns_key`. The
+main-menu overlay calls it, and passes the key on when the host owns it.
+The engine fills it. It is not a hook an extension fills.
 
 Version 9 adds `open_recording`, through which `--generate-script` and
 `--render-script` replay the recording a director script names. The
@@ -5903,7 +5909,18 @@ own: `NetworkPlay` (`netgame/network_play.hpp`), which network play's
 extension creates the first time a hook is called for a runtime, finds
 again for each later hook and frees through `release_runtime`. A replay
 the viewer watches is reached through the replay hooks above, not through
-a member network play adds. Two private flags, `replay_skip_presentation_`
+a member network play adds. The battle's recording, which Share… after a
+battle opens in the Library, reaches the engine through a declared header:
+network play calls `note_battle_recording` (`oa/app/battle_recording.hpp`)
+as the recording starts, when it is refused and when a finished game's file
+is renamed, and with an empty path for a game that is not recorded.
+What a replay tells the engine about the watch reaches it the same way,
+through `oa/app/replay_watch.hpp`: as a replay starts, network play calls
+`seat_replay_watcher` with the slot it is watched from, and after each
+frame it plays, `note_replay_watch` with the income and shared cameras the
+playback bar's player list shows (`ReplayShownSlot`, one per slot) and
+whether the recording has shared a camera.
+Two private flags, `replay_skip_presentation_`
 and `replay_end_requested_`, are the engine's own: `runtime.cpp` sets them
 while a replay frame runs a tick that is not drawn, and when that frame
 asks to leave the match after the hook has returned.

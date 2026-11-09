@@ -458,7 +458,7 @@ void test_f6_from_nothing(Desktop* desktop) {
         press(desktop, key::f6) && desktop->focus == first,
         "F6 from nothing lands on the first region"
     );
-    check(desktop->keyboard_travel == 1, "F6 marks keyboard travel");
+    check(desktop->keyboard_ring == 1, "F6 marks the keyboard ring");
     desktop->keyboard_region = nullptr;
     desktop_set_focus(desktop, nullptr);
     g_keys[key::shift] = 1;
@@ -476,28 +476,307 @@ void test_f6_from_nothing(Desktop* desktop) {
     );
     press(desktop, key::right);
     check(desktop->pointer_last == 0, "a key clears the mark");
-    check(desktop->keyboard_travel == 1, "keyboard travel stays until Return");
+    check(desktop->keyboard_ring == 1, "the keyboard ring stays until Return");
     // Right may leave the region. Return is tested on the planet, which is in one.
     desktop_set_focus(desktop, planet);
     check(
-        press(desktop, key::enter) && desktop->keyboard_travel == 0, "Return ends keyboard travel"
+        press(desktop, key::enter) && desktop->keyboard_ring == 0, "Return ends the keyboard ring"
     );
     check(
-        press(desktop, key::f6) && desktop->keyboard_travel == 1, "F6 marks keyboard travel again"
+        press(desktop, key::f6) && desktop->keyboard_ring == 1, "F6 marks the keyboard ring again"
     );
     Message move{};
     move.code = MessageCode::mouse_move;
     move.x = 12;
     move.y = 12;
     desktop_route(desktop, &move);
-    check(press(desktop, key::f6) && desktop->keyboard_travel == 1, "F6 restores keyboard travel");
+    check(press(desktop, key::f6) && desktop->keyboard_ring == 1, "F6 restores the keyboard ring");
     desktop_route(desktop, &move);
-    check(desktop->keyboard_travel == 1, "a pointer move that stays put keeps keyboard travel");
+    check(desktop->keyboard_ring == 1, "a pointer move that stays put keeps the keyboard ring");
     move.x = 40;
     desktop_route(desktop, &move);
-    check(desktop->keyboard_travel == 0, "a pointer move ends keyboard travel");
+    check(desktop->keyboard_ring == 0, "a pointer move to a new place ends the keyboard ring");
     window_destroy(frame);
     window_destroy(map);
+}
+
+Window* radio_at(Window* parent, const char* name, int32_t x, int32_t y, uint8_t group) {
+    Window* radio = radio_button_create();
+    window_create(radio, name, x, y, 40, 16, parent, true);
+    radio->radio_group = group;
+    return radio;
+}
+
+// A row steps with Left and Right and leaves with Up and Down. A stack is
+// the other way round. An arrow at the open console's edge stays there.
+void test_radio_axes(Desktop* desktop) {
+    Window* console = panel_create();
+    window_create(console, "radio-console", 0, 0, 320, 160, nullptr, true);
+    console->region = 2;
+    Window* above = button_at(console, "above", 20, 8);
+    Window* novice = radio_at(console, "Novice", 20, 40, 1);
+    Window* seasoned = radio_at(console, "Seasoned", 80, 40, 1);
+    Window* expert = radio_at(console, "Expert", 140, 40, 1);
+    Window* below = button_at(console, "below", 20, 120);
+    Window* edge = button_at(console, "edge", 260, 120);
+    Window* guest = radio_at(console, "Guest", 240, 40, 2);
+    Window* registered = radio_at(console, "Registered", 240, 70, 2);
+    window_set_state(novice, button_state::pressed);
+    window_set_state(seasoned, button_state::unpressed);
+    window_set_state(expert, button_state::unpressed);
+    window_set_state(registered, button_state::pressed);
+    window_set_state(guest, button_state::unpressed);
+
+    Window* map = panel_create();
+    window_create(map, "radio-map", 0, 200, 320, 40, nullptr, true);
+    map->region = 5;
+    button_at(map, "planet-below", 20, 208);
+    button_at(map, "planet-right", 400, 120);
+
+    desktop_set_focus(desktop, novice);
+    check(
+        press(desktop, key::right) && desktop->focus == seasoned &&
+            seasoned->states.current == button_state::pressed &&
+            novice->states.current != button_state::pressed,
+        "right steps a row and chooses"
+    );
+    check(
+        press(desktop, key::right) && desktop->focus == expert &&
+            expert->states.current == button_state::pressed,
+        "right steps to the end of a row"
+    );
+    check(
+        press(desktop, key::right) && desktop->focus == expert, "right at the end of a row stays"
+    );
+    check(
+        press(desktop, key::left) && desktop->focus == seasoned &&
+            seasoned->states.current == button_state::pressed,
+        "left steps back along a row"
+    );
+    check(
+        press(desktop, key::up) && desktop->focus == above &&
+            seasoned->states.current == button_state::pressed,
+        "up leaves a row without changing it"
+    );
+    desktop_set_focus(desktop, seasoned);
+    check(
+        press(desktop, key::down) && desktop->focus == below &&
+            seasoned->states.current == button_state::pressed,
+        "down leaves a row without changing it"
+    );
+
+    desktop_set_focus(desktop, registered);
+    check(
+        press(desktop, key::up) && desktop->focus == guest &&
+            guest->states.current == button_state::pressed,
+        "up steps a stack and chooses"
+    );
+    check(press(desktop, key::up) && desktop->focus == guest, "up at the end of a stack stays");
+    check(
+        press(desktop, key::down) && desktop->focus == registered &&
+            registered->states.current == button_state::pressed,
+        "down steps back along a stack"
+    );
+    check(
+        press(desktop, key::left) && desktop->focus != registered &&
+            registered->states.current == button_state::pressed,
+        "left leaves a stack without changing it"
+    );
+
+    // edge is the last stop down and to the right. The arrow stays, and it
+    // does not cross onto the map.
+    desktop_set_focus(desktop, edge);
+    check(press(desktop, key::down) && desktop->focus == edge, "down at the console's edge stays");
+    check(
+        press(desktop, key::right) && desktop->focus == edge, "right at the console's edge stays"
+    );
+
+    window_destroy(console);
+    window_destroy(map);
+}
+
+// Three radio rows. Down from the top lands on the middle, even though a
+// stop further down lines up with the chosen radio of the top row.
+void test_radio_rows(Desktop* desktop) {
+    Window* console = panel_create();
+    window_create(console, "rows", 280, 280, 220, 160, nullptr, true);
+    console->region = 2;
+    Window* left = radio_at(console, "row-left", 300, 300, 1);
+    Window* right = radio_at(console, "row-right", 420, 300, 1);
+    Window* mid = radio_at(console, "row-mid", 300, 340, 2);
+    Window* mid_right = radio_at(console, "row-mid-right", 420, 340, 2);
+    Window* far = button_at(console, "row-far", 420, 400);
+    window_set_state(left, button_state::unpressed);
+    window_set_state(right, button_state::pressed);
+    window_set_state(mid, button_state::pressed);
+    window_set_state(mid_right, button_state::unpressed);
+
+    desktop_set_focus(desktop, right);
+    check(
+        press(desktop, key::down) && desktop->focus == mid &&
+            right->states.current == button_state::pressed,
+        "down from a radio row lands on the next row"
+    );
+    check(
+        press(desktop, key::up) && desktop->focus == right,
+        "up from a radio row lands on the row above"
+    );
+    desktop_set_focus(desktop, mid);
+    check(
+        press(desktop, key::down) && desktop->focus == far,
+        "down from the middle row reaches the stop that lines up below"
+    );
+
+    window_destroy(console);
+}
+
+// A button under a panel of another region is never a landing.
+//
+// The cover is a later child of the same top-level window, as an open console
+// is a later child of the main frame. Focusing a button raises that top-level
+// and leaves the cover in front, so a click at the hidden centre hits the cover.
+void test_covered_stop(Desktop* desktop) {
+    Window* frame = panel_create();
+    window_create(frame, "cover-frame", 340, 180, 280, 180, nullptr, true);
+    frame->region = 1;
+    Window* above = button_at(frame, "cover-above", 450, 200);
+    Window* hidden = button_at(frame, "cover-hidden", 450, 240);
+    Window* below = button_at(frame, "cover-below", 450, 320);
+    Window* left = button_at(frame, "cover-left", 360, 240);
+    Window* right = button_at(frame, "cover-right", 560, 240);
+    Window* cover = panel_create();
+    window_create(cover, "cover", 430, 230, 80, 36, frame, true);
+    cover->region = 2;
+
+    desktop_set_focus(desktop, above);
+    check(press(desktop, key::down) && desktop->focus == below, "down skips a covered control");
+    desktop_set_focus(desktop, below);
+    check(press(desktop, key::up) && desktop->focus == above, "up skips a covered control");
+    desktop_set_focus(desktop, left);
+    check(press(desktop, key::right) && desktop->focus == right, "right skips a covered control");
+    desktop_set_focus(desktop, right);
+    check(press(desktop, key::left) && desktop->focus == left, "left skips a covered control");
+    check(desktop->focus != hidden, "no arrow lands on a covered control");
+
+    window_destroy(cover);
+    window_destroy(frame);
+}
+
+// The frame is not walled off from the war map.
+void test_frame_reaches_map(Desktop* desktop) {
+    Window* frame = panel_create();
+    window_create(frame, "side-frame", 180, 400, 80, 40, nullptr, true);
+    frame->region = 1;
+    Window* frame_button = button_at(frame, "side-frame-button", 200, 408);
+    Window* map = panel_create();
+    window_create(map, "side-map", 360, 400, 80, 40, nullptr, true);
+    map->region = 3;
+    Window* planet = button_at(map, "side-planet", 380, 408);
+
+    desktop_set_focus(desktop, frame_button);
+    check(
+        press(desktop, key::right) && desktop->focus == planet,
+        "an arrow in the frame reaches the map beside it"
+    );
+
+    window_destroy(frame);
+    window_destroy(map);
+}
+
+// Focusing a window raises it to the end of its parent's children. Tab still
+// follows the order the windows were created in.
+void test_tab_keeps_creation_order(Desktop* desktop) {
+    Window* frame = panel_create();
+    window_create(frame, "order-frame", 0, 200, 220, 40, nullptr, true);
+    frame->region = 1;
+    Window* first = button_at(frame, "order-first", 4, 204);
+    Window* second = button_at(frame, "order-second", 50, 204);
+    Window* third = button_at(frame, "order-third", 100, 204);
+    desktop_set_focus(desktop, second);
+    check(
+        press(desktop, key::tab) && desktop->focus == third, "Tab follows creation, not the raise"
+    );
+    check(press(desktop, key::tab) && desktop->focus == first, "Tab wraps in creation order");
+    window_destroy(frame);
+}
+
+// A control moved last, as the Locator moves Relocate and Page after rows
+// that arrive later, is reached by Tab after them.
+void test_moved_child_tabs_last(Desktop* desktop) {
+    Window* frame = panel_create();
+    window_create(frame, "moved-frame", 0, 200, 220, 40, nullptr, true);
+    frame->region = 1;
+    Window* first = button_at(frame, "moved-first", 4, 204);
+    Window* after = button_at(frame, "moved-after", 50, 204);
+    Window* row = button_at(frame, "moved-row", 100, 204);
+    window_move_child_last(frame, after);
+    desktop_set_focus(desktop, first);
+    check(press(desktop, key::tab) && desktop->focus == row, "Tab reaches a later row first");
+    check(press(desktop, key::tab) && desktop->focus == after, "Tab reaches a moved control last");
+    window_destroy(frame);
+}
+
+// Chat rooms, the player list and the contents list scroll their own bars
+// with the arrows, so Tab passes those bars. Recon's bar, and a page's
+// HTMLSlider, stay stops.
+void test_list_slider_is_not_a_tab_stop(Desktop* desktop) {
+    Window* frame = panel_create();
+    window_create(frame, "slider-frame", 0, 260, 360, 80, nullptr, true);
+    frame->region = 1;
+    Window* before = button_at(frame, "slider-before", 4, 264);
+    const char* lists[] = {"Chat rooms", "ChatList", "ContentsList"};
+    Window* boxes[3];
+    for (int32_t i = 0; i < 3; ++i) {
+        ListBox* list = list_box_create();
+        window_create(&list->base, lists[i], 4, 264, 40, 16, frame, true);
+        Slider* bar = slider_create();
+        window_create(&bar->base, "slider", 50, 264, 12, 16, &list->base, true);
+        bar->base.visible = 1;
+        window_set_state(&bar->base, button_state::unpressed);
+        boxes[i] = &list->base;
+    }
+    Window* after = button_at(frame, "slider-after", 80, 264);
+    ListBox* recon = list_box_create();
+    window_create(&recon->base, "ReconList", 140, 264, 40, 16, frame, true);
+    Slider* recon_bar = slider_create();
+    window_create(&recon_bar->base, "slider", 186, 264, 12, 16, &recon->base, true);
+    recon_bar->base.visible = 1;
+    window_set_state(&recon_bar->base, button_state::unpressed);
+    Slider* page = slider_create();
+    window_create(&page->base, "HTMLSlider", 220, 264, 12, 16, frame, true);
+    page->base.visible = 1;
+    window_set_state(&page->base, button_state::unpressed);
+
+    desktop_set_focus(desktop, boxes[0]);
+    check(
+        press(desktop, key::tab) && desktop->focus == boxes[1], "Tab passes Chat rooms' scroll bar"
+    );
+    check(
+        press(desktop, key::tab) && desktop->focus == boxes[2],
+        "Tab passes the player list's scroll bar"
+    );
+    check(
+        press(desktop, key::tab) && desktop->focus == after,
+        "Tab passes the contents list's scroll bar"
+    );
+    check(
+        press(desktop, key::tab) && desktop->focus == &recon->base,
+        "Tab reaches Recon's description"
+    );
+    check(
+        press(desktop, key::tab) && desktop->focus == &recon_bar->base,
+        "Tab still stops on Recon's scroll bar"
+    );
+    check(
+        press(desktop, key::tab) && desktop->focus == &page->base,
+        "Tab still stops on the page's scroll bar"
+    );
+    desktop_set_focus(desktop, before);
+    check(
+        press(desktop, key::tab) && desktop->focus == boxes[0],
+        "Tab reaches Chat rooms ahead of its scroll bar"
+    );
+    window_destroy(frame);
 }
 
 } // namespace
@@ -529,6 +808,13 @@ int main() {
     test_open_and_names(&desktop);
     test_stale_opener(&desktop);
     test_f6_from_nothing(&desktop);
+    test_radio_axes(&desktop);
+    test_radio_rows(&desktop);
+    test_covered_stop(&desktop);
+    test_frame_reaches_map(&desktop);
+    test_tab_keeps_creation_order(&desktop);
+    test_moved_child_tabs_last(&desktop);
+    test_list_slider_is_not_a_tab_stop(&desktop);
 
     window_destroy(host);
     desktop_release(&desktop);

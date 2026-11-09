@@ -38,6 +38,18 @@ namespace oa::session::demo {
 
 inline constexpr std::size_t sender_count = 256; // one entry per recorded player number
 
+/// One recorded camera (record 0xfc), kept out of the game stream.
+///
+/// Playback shows it from `tick` on. Applying it does not change the match:
+/// the record never enters the game stream.
+struct RecordedCamera {
+    uint8_t slot{};  ///< recorded player, in the file's player order
+    uint32_t tick{}; ///< playback tick this camera is current from
+    uint16_t x{};    ///< camera centre, map pixels
+    uint16_t y{};
+    bool shared{}; ///< false once sharing was turned off
+};
+
 struct DemoFrame {
     uint64_t time_ms{};            // recorder wall clock at arrival
     uint32_t due_tick{};           // local tick from which it is delivered
@@ -107,6 +119,8 @@ struct DemoPlayback {
     /// How a recording of ten players is watched (recorder.ten-player-replay);
     /// off refuses one, as the viewer then has no slot of its own.
     netgame::TenPlayerReplay ten_player_replay{};
+    /// Cameras the file recorded, in file order. The game stream leaves these out.
+    std::vector<RecordedCamera> cameras;
 };
 
 /// How a recording's limits sit against the mod the player has.
@@ -171,6 +185,48 @@ struct EconomySample {
 void demo_follow_economy(
     EconomySample* sample, Player* player, const netgame::EconomyRecord& record, uint32_t tick
 ) noexcept;
+
+/// Income a player list shows. It is not a player's stored economy.
+struct ShownIncome {
+    bool taken{};   ///< a rate has been computed from two records
+    float metal{};  ///< metal produced per settlement
+    float energy{}; ///< energy produced per settlement
+};
+
+/// Gives the income figures an economy record implies, for display only.
+///
+/// The arithmetic is demo_follow_economy's, on the produced totals. Nothing
+/// here is written into a player or the world. The first record only marks
+/// the sample. A record at the same tick as the previous one, or an earlier
+/// tick, changes nothing.
+///
+/// @param[in,out] sample The player's previous record, replaced by this one.
+/// @param[in,out] shown The figures the list shows. Untouched until a rate exists.
+/// @param record The economy record.
+/// @param tick The local tick it arrived at.
+void demo_income_for_display(
+    EconomySample* sample, ShownIncome* shown, const netgame::EconomyRecord& record, uint32_t tick
+) noexcept;
+
+/// The last shared camera a recorded player sent, for the camera menu. Not part of the world.
+struct ShownCamera {
+    bool seen{};   ///< a camera record has been stored
+    bool shared{}; ///< the last record was a position, not a stop
+    uint16_t x{};
+    uint16_t y{};
+};
+
+/// Stores one shared-camera record for display.
+///
+/// Five bytes: the type, then x and y as little-endian words. Both words at
+/// the stop value means the player stopped sharing. Any other record is ignored.
+///
+/// @param[in,out] camera The player's last camera.
+/// @param record The record, type byte first.
+/// @param size Its length.
+/// @return True when a camera record was stored.
+[[nodiscard]] bool
+demo_note_shown_camera(ShownCamera* camera, const uint8_t* record, std::size_t size) noexcept;
 
 /// Tells whether a playback watches without a slot of its own: a recording of ten players under the
 /// ten-player rule.
@@ -371,8 +427,17 @@ struct DemoSession {
     uint16_t tracked_unit{};           // first recorded player's first unit
     std::vector<FullRecordSample> tracked;
     // Each slot's last economy record, under recorder.ten-player-replay
-    // watcher-view (demo_follow_economy).
+    // watcher-view (demo_follow_economy). A keyframe carries these.
     std::array<EconomySample, OA_PLAYER_COUNT> economy_samples{};
+    /// Display samples for the player list. Not part of a keyframe: write_session names each
+    /// field it keeps, and these are not among them. A backward restore clears them.
+    std::array<EconomySample, OA_PLAYER_COUNT> shown_samples{};
+    std::array<ShownIncome, OA_PLAYER_COUNT> shown_income{};
+    std::array<ShownCamera, OA_PLAYER_COUNT> shown_camera{};
+    /// True once any recorded player shared a camera. Stays set across a backward restore so the
+    /// camera menu does not lose the offer for records that sit before the keyframe. Cleared
+    /// when a playback begins.
+    bool recording_shares_camera{};
     /// The caller's state a keyframe also carries; none by default.
     KeyframeExtension keyframe_extension{};
     /// The bytes of the first keyframe's fixed sections (docs/replays.md), which every keyframe

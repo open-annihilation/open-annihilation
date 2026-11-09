@@ -2089,6 +2089,20 @@ bool Runtime::draw_match_surface() {
             frame_draws_.probe_z = drawn.position.z;
         }
     };
+    // Photo mode keeps the player's camera on the match. A selection box
+    // drawn from that camera sits where the unit was before the photo camera
+    // moved. With Show selection on, the box uses the camera this frame
+    // draws, which is the photo camera, so it surrounds the unit on screen
+    // and in the photo. Every other frame keeps the match's camera, and makes
+    // no copy of the game.
+    std::optional<oa::Game> photo_selection_game;
+    const oa::Game* selection_game = &world_record.game;
+    if (photo_show_selection()) {
+        auto& photo_game = photo_selection_game.emplace(world_record.game);
+        photo_game.camera_x = static_cast<uint32_t>(renderer.camera_x);
+        photo_game.camera_y = static_cast<uint32_t>(renderer.camera_y);
+        selection_game = &photo_game;
+    }
     // The dots of a frame of dots, drawn over the fog, and the colour of a
     // selected unit's frame: the selection boxes' own.
     std::vector<FarViewDot> far_dots;
@@ -2156,7 +2170,7 @@ bool Runtime::draw_match_surface() {
         if (show_boxes && (shown.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 &&
             !shown.instance->model().objects.empty())
             oa::present::world_renderer::overlay_selection_box(
-                world_record.game,
+                *selection_game,
                 selection_raster,
                 &models.bridge.surface,
                 *shown.unit,

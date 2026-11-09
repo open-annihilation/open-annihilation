@@ -3,14 +3,15 @@
 
 # The screen-reader bridge (include/oa/platform/screen_reader.hpp). AccessKit
 # comes from cmake/OaAccessKit.cmake, which the top-level project includes.
-# macOS, iOS and Linux link the static library normally. A program that calls
-# the bridge pulls that code in. The game does not call it yet, so the game
-# does not carry it. Windows does not link it.
+# macOS, iOS and Linux link the static library normally. The game calls the
+# bridge from src/app/runtime_screen_reader.cpp, which keeps the static
+# library in the link. Windows does not link it: the DLL is loaded beside
+# the program.
 if(NOT TARGET SDL3::SDL3)
   return()
 endif()
 
-add_library(oa-platform-screen-reader src/screen_reader.cpp)
+add_library(oa-platform-screen-reader src/screen_reader.cpp src/tree.cpp)
 add_library(oa::platform::screen_reader ALIAS oa-platform-screen-reader)
 target_include_directories(oa-platform-screen-reader PUBLIC include)
 target_compile_features(oa-platform-screen-reader PUBLIC cxx_std_20)
@@ -26,6 +27,20 @@ else()
     target_compile_options(oa-platform-screen-reader PRIVATE /external:W0)
   endif()
   target_link_libraries(oa-platform-screen-reader PRIVATE SDL3::SDL3)
+  if(APPLE)
+    enable_language(OBJCXX)
+    target_sources(oa-platform-screen-reader PRIVATE src/voice_over.mm)
+    set_target_properties(oa-platform-screen-reader PROPERTIES
+      OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON)
+    if(IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+      target_link_libraries(oa-platform-screen-reader PRIVATE "-framework UIKit")
+    else()
+      target_link_libraries(oa-platform-screen-reader PRIVATE "-framework AppKit")
+    endif()
+  endif()
+  if(CMAKE_DL_LIBS)
+    target_link_libraries(oa-platform-screen-reader PRIVATE ${CMAKE_DL_LIBS})
+  endif()
   if(OA_ACCESSKIT_LIBRARY)
     add_library(oa-platform-screen-reader-accesskit STATIC IMPORTED)
     add_library(oa::platform::screen_reader_accesskit ALIAS oa-platform-screen-reader-accesskit)

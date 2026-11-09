@@ -26502,6 +26502,286 @@
 	it=Modalità foto;
 	}
 
+[{key} or Esc leaves]
+	{
+	de={key} oder Esc beendet;
+	fr={key} ou Esc quitte;
+	es={key} o Esc sale;
+	it={key} o Esc esce;
+	}
+
+[{key} shows the panel]
+	{
+	de={key} zeigt die Leiste;
+	fr={key} affiche le panneau;
+	es={key} muestra el panel;
+	it={key} mostra il pannello;
+	}
+
+[Near]
+	{
+	de=Nah;
+	fr=Près;
+	es=Cerca;
+	it=Vicino;
+	}
+
+[Centre lines]
+	{
+	de=Mittellinien;
+	fr=Lignes centrales;
+	es=Líneas centrales;
+	it=Linee centrali;
+	}
+
+[Expanded]
+	{
+	de=Ausgeklappt;
+	fr=Ouvert;
+	es=Abierto;
+	it=Aperto;
+	}
+
+[Collapsed]
+	{
+	de=Eingeklappt;
+	fr=Fermé;
+	es=Cerrado;
+	it=Chiuso;
+	}
+
+[Photo]
+	{
+	de=Foto;
+	fr=Photo;
+	es=Foto;
+	it=Foto;
+	}
+
+[Photo not taken]
+	{
+	de=Foto nicht aufgenommen;
+	fr=Photo non prise;
+	es=Foto no tomada;
+	it=Foto non scattata;
+	}
+
+[Show selection]
+	{
+	de=Auswahl zeigen;
+	fr=Afficher la sélection;
+	es=Mostrar la selección;
+	it=Mostra la selezione;
+	}
+
+[Show health bars]
+	{
+	de=Lebensbalken zeigen;
+	fr=Afficher les barres de vie;
+	es=Mostrar las barras de vida;
+	it=Mostra le barre di salute;
+	}
+
+[Player names]
+	{
+	de=Spielernamen;
+	fr=Noms des joueurs;
+	es=Nombres de los jugadores;
+	it=Nomi dei giocatori;
+	}
+
+[Shared game]
+	{
+	de=Gemeinsames Spiel;
+	fr=Partie partagée;
+	es=Partida compartida;
+	it=Partita condivisa;
+	}
+
+[Hold picture]
+	{
+	de=Bild halten;
+	fr=Garder l'image;
+	es=Mantener la imagen;
+	it=Tieni l'immagine;
+	}
+
+[Thirds]
+	{
+	de=Drittel;
+	fr=Tiers;
+	es=Tercios;
+	it=Terzi;
+	}
+
+[Safe area]
+	{
+	de=Sicherer Bereich;
+	fr=Zone sûre;
+	es=Zona segura;
+	it=Area sicura;
+	}
+
+[Run]
+	{
+	de=Weiter;
+	fr=Reprendre;
+	es=Reanudar;
+	it=Riprendi;
+	}
+
+[Freeze]
+	{
+	de=Einfrieren;
+	fr=Figer;
+	es=Congelar;
+	it=Congela;
+	}
+
+[Step]
+	{
+	de=Schritt;
+	fr=Pas;
+	es=Paso;
+	it=Passo;
+	}
+
+[Between ticks]
+	{
+	de=Zwischen den Schritten;
+	fr=Entre les temps;
+	es=Entre los instantes;
+	it=Tra un tempo e l'altro;
+	}
+
+[Follow unit]
+	{
+	de=Einheit folgen;
+	fr=Suivre l'unité;
+	es=Seguir la unidad;
+	it=Segui l'unità;
+	}
+
+[Turn]
+	{
+	de=Drehen;
+	fr=Tourner;
+	es=Girar;
+	it=Ruota;
+	}
+
+[Tilt]
+	{
+	de=Neigen;
+	fr=Incliner;
+	es=Inclinar;
+	it=Inclina;
+	}
+
+[Speed]
+	{
+	de=Tempo;
+	fr=Vitesse;
+	es=Velocidad;
+	it=Velocità;
+	}
+
+[Screen]
+	{
+	de=Bildschirm;
+	fr=Écran;
+	es=Pantalla;
+	it=Schermo;
+	}
+
+[Copy to clipboard]
+	{
+	de=In die Zwischenablage kopieren;
+	fr=Copier dans le presse-papiers;
+	es=Copiar al portapapeles;
+	it=Copia negli appunti;
+	}
+
+[Far]
+	{
+	de=Weit;
+	fr=Loin;
+	es=Lejos;
+	it=Lontano;
+	}
+
+[Closest]
+	{
+	de=Am nächsten;
+	fr=Au plus près;
+	es=Lo más cerca;
+	it=Il più vicino;
+	}
+
+[Replay paused]
+	{
+	de=Replay pausiert;
+	fr=Replay en pause;
+	es=Repetición en pausa;
+	it=Replay in pausa;
+	}
+
+[Live]
+	{
+	de=Live;
+	fr=En direct;
+	es=En vivo;
+	it=Dal vivo;
+	}
+
+[Time]
+	{
+	de=Zeit;
+	fr=Temps;
+	es=Tiempo;
+	it=Tempo;
+	}
+
+[Hide panel]
+	{
+	de=Leiste ausblenden;
+	fr=Masquer le panneau;
+	es=Ocultar el panel;
+	it=Nascondi il pannello;
+	}
+
+[Guides]
+	{
+	de=Hilfslinien;
+	fr=Guides;
+	es=Guías;
+	it=Guide;
+	}
+
+[Clock]
+	{
+	de=Uhr;
+	fr=Horloge;
+	es=Reloj;
+	it=Orologio;
+	}
+
+[Hides and shows the photo panel]
+	{
+	de=Blendet die Fotoleiste ein und aus;
+	fr=Affiche et masque le panneau photo;
+	es=Muestra y oculta el panel de la foto;
+	it=Mostra e nasconde il pannello della foto;
+	}
+
+[Cycles the guides over the battlefield]
+	{
+	de=Wechselt die Hilfslinien über dem Schlachtfeld;
+	fr=Fait défiler les guides sur le champ de bataille;
+	es=Recorre las guías sobre el campo de batalla;
+	it=Scorre le guide sul campo di battaglia;
+	}
+
 [Saved {name}]
 	{
 	de=Gespeichert: {name};
@@ -27196,6 +27476,142 @@
 	fr=Revoir;
 	es=Ver de nuevo;
 	it=Guarda di nuovo;
+	}
+
+[{units} units]
+	{
+	de={units} Einheiten;
+	fr={units} unités;
+	es={units} unidades;
+	it={units} unità;
+	}
+
+[{units} unit]
+	{
+	de={units} Einheit;
+	fr={units} unité;
+	es={units} unidad;
+	it={units} unità;
+	}
+
+[All players]
+	{
+	de=Alle Spieler;
+	fr=Tous les joueurs;
+	es=Todos los jugadores;
+	it=Tutti i giocatori;
+	}
+
+[Follow their camera]
+	{
+	de=Ihrer Kamera folgen;
+	fr=Suivre sa caméra;
+	es=Seguir su cámara;
+	it=Segui la sua telecamera;
+	}
+
+[Follow a unit]
+	{
+	de=Einer Einheit folgen;
+	fr=Suivre une unité;
+	es=Seguir una unidad;
+	it=Segui un'unità;
+	}
+
+[Defeated {time}]
+	{
+	de=Besiegt {time};
+	fr=Vaincu {time};
+	es=Derrotado {time};
+	it=Sconfitto {time};
+	}
+
+[Left {time}]
+	{
+	de=Gegangen {time};
+	fr=Parti {time};
+	es=Se fue {time};
+	it=Uscito {time};
+	}
+
+[Team {team}]
+	{
+	de=Team {team};
+	fr=Équipe {team};
+	es=Equipo {team};
+	it=Squadra {team};
+	}
+
+[+{metal} m / +{energy} e]
+	{
+	de=+{metal} M / +{energy} E;
+	fr=+{metal} m / +{energy} e;
+	es=+{metal} m / +{energy} e;
+	it=+{metal} m / +{energy} e;
+	}
+
+[Next player's view]
+	{
+	de=Sicht des nächsten Spielers;
+	fr=Vue du joueur suivant;
+	es=Vista del siguiente jugador;
+	it=Vista del giocatore successivo;
+	}
+
+[Shows the next player's view]
+	{
+	de=Zeigt die Sicht des nächsten Spielers;
+	fr=Montre la vue du joueur suivant;
+	es=Muestra la vista del siguiente jugador;
+	it=Mostra la vista del giocatore successivo;
+	}
+
+[Previous player's view]
+	{
+	de=Sicht des vorherigen Spielers;
+	fr=Vue du joueur précédent;
+	es=Vista del jugador anterior;
+	it=Vista del giocatore precedente;
+	}
+
+[Shows the previous player's view]
+	{
+	de=Zeigt die Sicht des vorherigen Spielers;
+	fr=Montre la vue du joueur précédent;
+	es=Muestra la vista del jugador anterior;
+	it=Mostra la vista del giocatore precedente;
+	}
+
+[All players' view]
+	{
+	de=Sicht aller Spieler;
+	fr=Vue de tous les joueurs;
+	es=Vista de todos los jugadores;
+	it=Vista di tutti i giocatori;
+	}
+
+[Shows the whole map and every unit]
+	{
+	de=Zeigt die ganze Karte und jede Einheit;
+	fr=Montre toute la carte et chaque unité;
+	es=Muestra todo el mapa y cada unidad;
+	it=Mostra tutta la mappa e ogni unità;
+	}
+
+[Camera mode]
+	{
+	de=Kameramodus;
+	fr=Mode de caméra;
+	es=Modo de cámara;
+	it=Modalità della telecamera;
+	}
+
+[Changes how the camera follows the game]
+	{
+	de=Wechselt, wie die Kamera dem Spiel folgt;
+	fr=Change la façon dont la caméra suit la partie;
+	es=Cambia cómo la cámara sigue la partida;
+	it=Cambia come la telecamera segue la partita;
 	}
 
 [Watcher]
@@ -28236,6 +28652,230 @@
 	fr=Ce replay ne peut pas être lu, donc il ne peut pas être exporté.;
 	es=Esta repetición no se puede leer, así que no se puede exportar.;
 	it=Questo replay non si può leggere, quindi non si può esportare.;
+	}
+
+[Sign in]
+	{
+	de=Anmelden;
+	fr=Connexion;
+	es=Entrar;
+	it=Entra;
+	}
+
+[Sign out]
+	{
+	de=Abmelden;
+	fr=Déconnexion;
+	es=Salir;
+	it=Esci;
+	}
+
+[Sign in to Core Prime]
+	{
+	de=Bei Core Prime anmelden;
+	fr=Connexion à Core Prime;
+	es=Entrar en Core Prime;
+	it=Entra in Core Prime;
+	}
+
+[Handle]
+	{
+	de=Name;
+	fr=Pseudo;
+	es=Usuario;
+	it=Nome;
+	}
+
+[Password]
+	{
+	de=Passwort;
+	fr=Mot de passe;
+	es=Contraseña;
+	it=Password;
+	}
+
+[Forgot it? Reset it at coreprime.net/forgot]
+	{
+	de=Vergessen? Setz es auf coreprime.net/forgot zurück;
+	fr=Oublié ? Réinitialise-le sur coreprime.net/forgot;
+	es=¿Lo olvidaste? Restablécelo en coreprime.net/forgot;
+	it=Dimenticata? Reimpostala su coreprime.net/forgot;
+	}
+
+[Signing in needs a secure connection, which this system does not have.]
+	{
+	de=Zum Anmelden braucht es eine sichere Verbindung, und die hat dieses System nicht.;
+	fr=La connexion demande une liaison sécurisée, que ce système n'a pas.;
+	es=Entrar necesita una conexión segura, y este sistema no la tiene.;
+	it=Per entrare serve una connessione sicura, che questo sistema non ha.;
+	}
+
+[Share on Core Prime…]
+	{
+	de=Auf Core Prime teilen…;
+	fr=Partager sur Core Prime…;
+	es=Compartir en Core Prime…;
+	it=Condividi su Core Prime…;
+	}
+
+[Share my own recording]
+	{
+	de=Meine eigene Aufnahme teilen;
+	fr=Partager mon propre enregistrement;
+	es=Compartir mi propia grabación;
+	it=Condividi la mia registrazione;
+	}
+
+[Open on Core Prime]
+	{
+	de=Auf Core Prime öffnen;
+	fr=Ouvrir sur Core Prime;
+	es=Abrir en Core Prime;
+	it=Apri su Core Prime;
+	}
+
+[Share]
+	{
+	de=Teilen;
+	fr=Partager;
+	es=Compartir;
+	it=Condividi;
+	}
+
+[Share on Core Prime]
+	{
+	de=Auf Core Prime teilen;
+	fr=Partager sur Core Prime;
+	es=Compartir en Core Prime;
+	it=Condividi su Core Prime;
+	}
+
+[Title]
+	{
+	de=Titel;
+	fr=Titre;
+	es=Título;
+	it=Titolo;
+	}
+
+[Public]
+	{
+	de=Öffentlich;
+	fr=Public;
+	es=Público;
+	it=Pubblico;
+	}
+
+[Unlisted]
+	{
+	de=Nicht gelistet;
+	fr=Non répertorié;
+	es=No listado;
+	it=Non in elenco;
+	}
+
+[My battles]
+	{
+	de=Meine Schlachten;
+	fr=Mes batailles;
+	es=Mis batallas;
+	it=Le mie battaglie;
+	}
+
+[Shared on Core Prime]
+	{
+	de=Auf Core Prime geteilt;
+	fr=Partagé sur Core Prime;
+	es=Compartido en Core Prime;
+	it=Condiviso su Core Prime;
+	}
+
+[Already on Core Prime]
+	{
+	de=Schon auf Core Prime;
+	fr=Déjà sur Core Prime;
+	es=Ya en Core Prime;
+	it=Già su Core Prime;
+	}
+
+[Sign in to share a replay.]
+	{
+	de=Melde dich an, um ein Replay zu teilen.;
+	fr=Connecte-toi pour partager un replay.;
+	es=Entra para compartir una repetición.;
+	it=Entra per condividere un replay.;
+	}
+
+[This account cannot share replays.]
+	{
+	de=Dieses Konto kann keine Replays teilen.;
+	fr=Ce compte ne peut pas partager de replays.;
+	es=Esta cuenta no puede compartir repeticiones.;
+	it=Questo account non può condividere replay.;
+	}
+
+[Only a player in that battle can replace its replay.]
+	{
+	de=Nur ein Spieler dieser Schlacht kann ihr Replay ersetzen.;
+	fr=Seul un joueur de cette bataille peut remplacer son replay.;
+	es=Solo un jugador de esa batalla puede reemplazar su repetición.;
+	it=Solo un giocatore di quella battaglia può sostituire il suo replay.;
+	}
+
+[The replay is larger than the limit.]
+	{
+	de=Das Replay ist größer als die Grenze.;
+	fr=Le replay dépasse la limite.;
+	es=La repetición supera el límite.;
+	it=Il replay supera il limite.;
+	}
+
+[This account has shared its replays for today.]
+	{
+	de=Dieses Konto hat für heute seine Replays geteilt.;
+	fr=Ce compte a partagé ses replays pour aujourd'hui.;
+	es=Esta cuenta ya ha compartido sus repeticiones de hoy.;
+	it=Questo account ha condiviso i suoi replay per oggi.;
+	}
+
+[Uploads are not available.]
+	{
+	de=Hochladen ist nicht verfügbar.;
+	fr=Les envois ne sont pas disponibles.;
+	es=Las subidas no están disponibles.;
+	it=I caricamenti non sono disponibili.;
+	}
+
+[Core Prime did not start a session.]
+	{
+	de=Core Prime hat keine Sitzung begonnen.;
+	fr=Core Prime n'a pas ouvert de session.;
+	es=Core Prime no inició una sesión.;
+	it=Core Prime non ha avviato una sessione.;
+	}
+
+[Core Prime did not answer.]
+	{
+	de=Core Prime hat nicht geantwortet.;
+	fr=Core Prime n'a pas répondu.;
+	es=Core Prime no respondió.;
+	it=Core Prime non ha risposto.;
+	}
+
+[Signing in…]
+	{
+	de=Anmeldung…;
+	fr=Connexion…;
+	es=Entrando…;
+	it=Accesso…;
+	}
+
+[Sharing…]
+	{
+	de=Wird geteilt…;
+	fr=Partage…;
+	es=Compartiendo…;
+	it=Condivisione…;
 	}
 
 [Opens photo mode]

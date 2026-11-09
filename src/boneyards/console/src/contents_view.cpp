@@ -12,7 +12,8 @@
 // the console last built or opened, and are deleted once read. Built here:
 // the console record, its build, its notifications, locator resolution and the
 // handling of arrived files, the contents rows with the category arrows and
-// the light title of the headline whose page is shown, the ContentsList and
+// the light title of the headline whose page is shown, the light title of the
+// chosen category while the keyboard ring shows, the ContentsList and
 // its scroll bar, the open and close slots that light the console's Main
 // Frame button, and the Ladders console's name search. The console shows the
 // system record's shared contents image: a keyed blank with one column rule.
@@ -474,10 +475,13 @@ void contents_list_on_notify(Window* self, const Notify* notify) {
         window_notify_parent(self, NotifyCode::activated, 0);
 }
 
+bool contents_list_key_down(Window* self, const Message* msg);
+
 WindowOps make_list_ops() {
     WindowOps ops = k_list_box_ops;
     ops.on_bounds = contents_list_create_slider;
     ops.on_notify = contents_list_on_notify;
+    ops.key_down = contents_list_key_down;
     return ops;
 }
 
@@ -628,8 +632,35 @@ void headline_row_unselect(Window* self) {
 }
 
 constexpr screens::ListRowLook k_headline_look{headline_row_select, headline_row_unselect};
-// A category row keeps its title's font whether or not it is selected.
-constexpr screens::ListRowLook k_category_look{};
+
+/// Gives the chosen category the light small font while the keyboard ring
+/// shows. Until that, and after the ring hides, the title keeps the font it
+/// was created with.
+///
+/// @param self the category row
+void category_row_select(Window* self) {
+    ContentsRow* row = as_row(self);
+    if (row->label == nullptr || row->fonts == nullptr)
+        return;
+    const Desktop* desktop = services().desktop;
+    if (desktop != nullptr && desktop->keyboard_ring != 0)
+        window_set_font_handle(row->label, row->fonts->small_light);
+    else if (row->label->font == row->fonts->small_light)
+        window_set_font_handle(row->label, k_no_handle);
+}
+
+/// Clears a light title left on a category from when the ring was showing.
+///
+/// @param self the category row
+void category_row_unselect(Window* self) {
+    ContentsRow* row = as_row(self);
+    if (row->label == nullptr || row->fonts == nullptr)
+        return;
+    if (row->label->font == row->fonts->small_light)
+        window_set_font_handle(row->label, k_no_handle);
+}
+
+constexpr screens::ListRowLook k_category_look{category_row_select, category_row_unselect};
 
 bool headline_row_draw(Window* self) {
     ContentsRow* row = as_row(self);
@@ -876,6 +907,119 @@ void contents_rebuild(ContentsConsole* console, bool select_first) {
     contents_mark_page(console);
 }
 
+bool keyboard_ring_shown() {
+    const Desktop* desktop = services().desktop;
+    return desktop != nullptr && desktop->keyboard_ring != 0;
+}
+
+/// Moves the highlight and reveals the row. It does not tell the parent, so
+/// a category stays as it is and a headline stays closed.
+void choose_contents_index(screens::ByListBox* box, int32_t index) {
+    ListBox* list = &box->list;
+    if (list->count <= 0)
+        return;
+    if (index < 0)
+        index = 0;
+    if (index >= list->count)
+        index = list->count - 1;
+    const int32_t old_top = list->top;
+    int32_t top = list->top;
+    if (index <= top)
+        top = index;
+    if (list->last <= index)
+        top += index - list->last;
+    if (top < 0)
+        top = 0;
+    list->selected = index;
+    box->selected_item = list_box_item(list, index);
+    if (top != old_top)
+        list_box_scroll(list, top - old_top);
+}
+
+void reselect_category(ContentsConsole* console, int32_t category) {
+    screens::ByListBox* box = console->list;
+    for (int32_t i = 0; i < box->list.count; ++i) {
+        ContentsRow* row = as_row(list_box_item(&box->list, i));
+        if (row != nullptr && row->kind == RowKind::category && row->category == category) {
+            choose_contents_index(box, i);
+            return;
+        }
+    }
+}
+
+void set_category_expanded(ContentsConsole* console, int32_t category, bool expand) {
+    console->contents.categories[category].expanded = expand;
+    contents_rebuild(console, false);
+    reselect_category(console, category);
+}
+
+/// Up and Down choose a row. Right opens a category, Left closes it, and
+/// Return opens a headline or a closed category. While the ring is hidden
+/// the list keeps the keys it has today.
+bool contents_list_key_down(Window* self, const Message* msg) {
+    if (msg == nullptr || msg->code != MessageCode::key_down)
+        return false;
+    if (!keyboard_ring_shown())
+        return k_list_box_ops.key_down(self, msg);
+    auto* box = reinterpret_cast<screens::ByListBox*>(self);
+    ListBox* list = &box->list;
+    const int32_t page = list->page > 0 ? list->page : 1;
+    switch (msg->key) {
+    case key::up:
+        choose_contents_index(box, list->selected - 1);
+        return true;
+    case key::down:
+        choose_contents_index(box, list->selected + 1);
+        return true;
+    case key::page_up:
+        choose_contents_index(box, list->selected - page);
+        return true;
+    case key::page_down:
+        choose_contents_index(box, list->selected + page);
+        return true;
+    case key::home:
+        choose_contents_index(box, 0);
+        return true;
+    case key::end:
+        choose_contents_index(box, list->count - 1);
+        return true;
+    case key::left:
+    case key::right:
+    case key::enter:
+        break;
+    default:
+        return window_default_key_down(self, msg);
+    }
+    ContentsConsole* console = self->parent != nullptr ? as_console(self->parent) : nullptr;
+    ContentsRow* row = as_row(list_box_item(list, list_box_selected(list)));
+    if (row == nullptr || console == nullptr)
+        return true;
+    if (msg->key == key::right) {
+        if (row->kind == RowKind::category && row->expanded == 0) {
+            play_list_sound(console);
+            set_category_expanded(console, row->category, true);
+        }
+        return true;
+    }
+    if (msg->key == key::left) {
+        if (row->kind == RowKind::category && row->expanded != 0) {
+            play_list_sound(console);
+            set_category_expanded(console, row->category, false);
+        }
+        return true;
+    }
+    if (row->kind == RowKind::headline) {
+        play_list_sound(console);
+        contents_open_page(console, row->locator);
+        return true;
+    }
+    if (row->kind == RowKind::category && row->expanded == 0) {
+        play_list_sound(console);
+        set_category_expanded(console, row->category, true);
+    }
+    return true;
+}
+
 /// Looks the searched name up in an arrived ladder index and fetches the page listing it.
 ///
 /// The index is a run of words, a name followed by its line in the ladder;
@@ -1016,6 +1160,8 @@ void contents_build(Window* self) {
         self->width - k_view_width_inset,
         self->height - k_view_height_inset
     );
+    // After a followed link the keyboard comes back to the list.
+    console->view->keyboard_home = &list->list.base;
     html_view_set_text(console->view, k_waiting_text);
     console->view->base.visible = 1;
     contents_resolve(console, console->contents_locator, true);

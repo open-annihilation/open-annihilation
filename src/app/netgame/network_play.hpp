@@ -189,6 +189,12 @@ class NetworkPlay {
     /// feature changes are recorded.
     void advance_skirmish_recording();
 
+    /// Records one player leaving, through the skirmish recorder, so a check's
+    /// file carries a real leave. Nothing is sent into the live simulation.
+    /// Nothing without a recording. The first computer player who is not the
+    /// local player, and who has a stored sender id, is the one who leaves.
+    void note_skirmish_departure();
+
     /// Clears the live-game bit when the recording set it.
     ///
     /// A bit something else set, a multiplayer game or a check, is left set.

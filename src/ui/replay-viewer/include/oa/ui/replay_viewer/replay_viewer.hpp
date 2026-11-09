@@ -10,6 +10,7 @@
 #include "oa/ui/kit/layout.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -93,6 +94,30 @@ struct TextWidths {
     int32_t speed_brief{}; ///< the same without its word, such as "16× · 9×"
     int32_t speed_asked{}; ///< the widest asked speed alone, such as "16×"
     int32_t skip{};        ///< the caption a catch-up shows, such as "Skip"
+    int32_t view{};        ///< the view button's caption, plus menu_mark_points
+    int32_t camera{};      ///< the camera button's caption, plus menu_mark_points
+};
+
+/// How the camera follows the game.
+enum class CameraMode : uint8_t {
+    free,          ///< the player moves it
+    follow_theirs, ///< the recorded player's own camera
+    follow_unit,   ///< one unit stays in the middle
+};
+
+/// One row of the player list. The first row is every player.
+struct WatchRow {
+    int slot{-1};       ///< the live slot, -1 for every player, or below -1 when the seat is gone
+    std::string name{}; ///< the name the row shows
+    std::string side{}; ///< the side's name; empty for every player
+    int team{-1};       ///< the team number, or -1 for none
+    int32_t units{};    ///< units on the field
+    bool income{};      ///< metal and energy are a computed rate
+    float metal{};      ///< metal produced per settlement
+    float energy{};     ///< energy produced per settlement
+    std::string departed{};                     ///< "Defeated 18:02" or "Left 21:40", or empty
+    kit::Colour colour{kit::hud_colour::label}; ///< the player's colour
+    bool eye{};                                 ///< this is the view on show
 };
 
 /// What the bar shows for one frame. The app fills it. The module only reads it.
@@ -123,10 +148,23 @@ struct Model {
     std::vector<ReadySpan> ready{};              ///< stretches a keyframe can jump into
     std::vector<uint32_t> heat{};                ///< damage in each stretch, for the heat strip
     uint32_t heat_period{ticks_per_second * 10}; ///< ticks one heat sample covers
-    bool pointer_over{}; ///< the pointer is over the screen, so a hover may show
-    int32_t pointer_x{}; ///< the pointer's column, in the screen's points
-    int32_t pointer_y{}; ///< the pointer's row
+    bool pointer_over{};                 ///< the pointer is over the screen, so a hover may show
+    int32_t pointer_x{};                 ///< the pointer's column, in the screen's points
+    int32_t pointer_y{};                 ///< the pointer's row
+    std::vector<WatchRow> watch{};       ///< the player list, every player first
+    int viewed{};                        ///< which row is on show
+    bool list_folded{};                  ///< colour chips, from the kill-board key
+    int list_scroll{};                   ///< the first row on show
+    bool view_open{};                    ///< the view menu is open
+    bool camera_open{};                  ///< the camera menu is open
+    CameraMode camera{CameraMode::free}; ///< how the camera follows
+    bool offer_follow_camera{};          ///< the recording shares cameras
 };
+
+/// Room the view and camera buttons keep for the menu mark, in points.
+inline constexpr int32_t menu_mark_points = 14;
+/// How many player rows the list shows before it scrolls.
+inline constexpr int32_t watch_visible_rows = 6;
 
 /// A control a point can press. `none` is no control.
 enum class Control : int32_t {
@@ -150,35 +188,48 @@ enum class Control : int32_t {
     export_replay, ///< the export dialog
     keys_card,     ///< the shortcut card's face; a press there is taken and does nothing
     end_card,      ///< the end card's face; a press there is taken and does nothing
+    view,          ///< whose view is on show
+    camera,        ///< how the camera follows
 };
 
 /// Where the bar and its cards sit, in points.
 struct Layout {
-    kit::Rect bar{};                      ///< the bar, along the foot
-    kit::Rect back{};                     ///< back ten seconds
-    kit::Rect play{};                     ///< play or pause
-    kit::Rect forward{};                  ///< forward ten seconds
-    kit::Rect time{};                     ///< the "11:40 / 23:52" text; not a control
-    kit::Rect timeline{};                 ///< the timeline, including its track and heat
-    kit::Rect track{};                    ///< the thin track the colours sit on
-    kit::Rect heat{};                     ///< the heat strip under the track
-    kit::Rect knob{};                     ///< the playhead
-    kit::Rect speed{};                    ///< the speed button
-    kit::Rect view{};                     ///< empty room for the view control; not a control
-    kit::Rect camera{};                   ///< empty room for the camera control; not a control
-    kit::Rect chat{};                     ///< recorded chat
-    kit::Rect keys{};                     ///< the shortcut card's button
-    kit::Rect leave{};                    ///< the in-game menu
-    kit::Rect speed_menu{};               ///< the speed menu; empty while it is closed
-    std::vector<kit::Rect> speed_items{}; ///< one row per offered speed
-    kit::Rect keys_card{};                ///< the shortcut card; empty while it is closed
-    kit::Rect end{};                      ///< the end card; empty while it is closed
-    kit::Rect watch_again{};              ///< the end card's first button
-    kit::Rect library{};                  ///< the end card's second button
-    kit::Rect export_button{};            ///< the end card's third button
-    std::vector<kit::Rect> marker_hits{}; ///< one hit area per marker, same order
-    bool shown{true};                     ///< the bar itself is on show; a card may show without it
-    bool export_enabled{true};            ///< a press on Export opens the dialog
+    kit::Rect bar{};                        ///< the bar, along the foot
+    kit::Rect back{};                       ///< back ten seconds
+    kit::Rect play{};                       ///< play or pause
+    kit::Rect forward{};                    ///< forward ten seconds
+    kit::Rect time{};                       ///< the "11:40 / 23:52" text; not a control
+    kit::Rect timeline{};                   ///< the timeline, including its track and heat
+    kit::Rect track{};                      ///< the thin track the colours sit on
+    kit::Rect heat{};                       ///< the heat strip under the track
+    kit::Rect knob{};                       ///< the playhead
+    kit::Rect speed{};                      ///< the speed button
+    kit::Rect view{};                       ///< whose view is on show
+    kit::Rect camera{};                     ///< how the camera follows
+    kit::Rect chat{};                       ///< recorded chat
+    kit::Rect keys{};                       ///< the shortcut card's button
+    kit::Rect leave{};                      ///< the in-game menu
+    kit::Rect speed_menu{};                 ///< the speed menu; empty while it is closed
+    std::vector<kit::Rect> speed_items{};   ///< one row per offered speed
+    kit::Rect keys_card{};                  ///< the shortcut card; empty while it is closed
+    kit::Rect end{};                        ///< the end card; empty while it is closed
+    kit::Rect watch_again{};                ///< the end card's first button
+    kit::Rect library{};                    ///< the end card's second button
+    kit::Rect export_button{};              ///< the end card's third button
+    std::vector<kit::Rect> marker_hits{};   ///< one hit area per marker, same order
+    kit::Rect players{};                    ///< the player list; empty when there are no rows
+    std::vector<kit::Rect> player_rows{};   ///< the rows on show
+    std::vector<kit::Rect> player_chips{};  ///< one chip per player, while the list is folded
+    std::vector<int> watch_indices{};       ///< the model's row for each row or chip on show
+    int list_scroll{};                      ///< the first row on show, clamped
+    bool list_folded{};                     ///< the list is colour chips
+    kit::Rect view_menu{};                  ///< the view menu; empty while it is closed
+    std::vector<kit::Rect> view_items{};    ///< one row per player
+    kit::Rect camera_menu{};                ///< the camera menu; empty while it is closed
+    std::vector<kit::Rect> camera_items{};  ///< one row per offered mode
+    std::vector<CameraMode> camera_modes{}; ///< the offered modes, in menu order
+    bool shown{true};          ///< the bar itself is on show; a card may show without it
+    bool export_enabled{true}; ///< a press on Export opens the dialog
     SpeedForm speed_form{SpeedForm::full}; ///< how much of the speed caption the button holds
 };
 
@@ -306,16 +357,18 @@ speed_caption(uint32_t asked_milli, uint32_t reached_milli, bool reached_lower, 
 /// Places the bar for a window.
 ///
 /// The timeline is its own row across the bar. Under it, from the left: back,
-/// play, forward, the time, speed, an empty view slot, an empty camera slot,
-/// chat, keys and leave. The view and camera slots are as wide as the view and
-/// camera controls will be, and they are not controls. A hidden bar still has
-/// its rectangles, so the lower edge stays put. The speed menu, the shortcut
-/// card and the end card are placed only while the model asks for them. The
-/// end card sits above the bar. The time keeps the width `widths.time` needs.
+/// play, forward, the time, speed, the view button, the camera button, chat,
+/// keys and leave. A hidden bar still has its rectangles, so the lower edge
+/// stays put, and its view and camera buttons are not controls. The player
+/// list sits at the top right whether or not the bar is shown. The speed menu,
+/// the view menu, the camera menu, the shortcut card and the end card are
+/// placed only while the model asks for them. The end card sits above the bar.
+/// The time keeps the width `widths.time` needs. A measured view or camera
+/// caption wider than the slot grows that slot before the spare is shared.
 /// The speed button grows to the full caption's width from the spare, and
 /// where the row has no room for it, it takes the brief form and then the
-/// asked speed alone (`Layout::speed_form`). Neither gives up the view or
-/// camera slots.
+/// asked speed alone (`Layout::speed_form`). An unmeasured caption leaves the
+/// slot at its own size.
 ///
 /// @param width the window's width, in points
 /// @param height the window's height, in points
@@ -327,7 +380,8 @@ speed_caption(uint32_t asked_milli, uint32_t reached_milli, bool reached_lower, 
 /// Returns the control a point presses.
 ///
 /// A hidden bar has no bar control. A card's buttons come before the card's
-/// face. The view and camera slots are never returned.
+/// face. The view and camera buttons are returned only while the bar is shown.
+/// A player row is named by watch_index, not by this.
 ///
 /// @param layout the layout
 /// @param at the point, in the same points
@@ -360,8 +414,9 @@ speed_caption(uint32_t asked_milli, uint32_t reached_milli, bool reached_lower, 
 
 /// Fills a display list with the controls that are on show, for automation.
 ///
-/// A hidden bar contributes no bar control. The view and camera slots are
-/// never controls. Names start with "replay-viewer.".
+/// A hidden bar contributes no bar control. The view and camera buttons are
+/// controls while the bar is shown. Player rows are controls while the list
+/// has rows, even when the bar is hidden. Names start with "replay-viewer.".
 ///
 /// @param layout the layout
 /// @param model what the bar shows
@@ -379,5 +434,97 @@ void fill_controls(const Layout& layout, const Model& model, kit::DisplayList& l
 /// @param layout the layout
 /// @param model what the bar shows
 void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model);
+
+/// Writes the view button's caption: the row on show, or every player.
+///
+/// @param model what the bar shows
+/// @return the caption, without the menu mark
+[[nodiscard]] std::string view_button_caption(const Model& model);
+
+/// Writes the camera button's caption for one mode.
+///
+/// @param mode how the camera follows
+/// @return the caption, without the menu mark
+[[nodiscard]] std::string camera_button_caption(CameraMode mode);
+
+/// Writes metal and energy produced per settlement.
+///
+/// Metal has one decimal. Energy is the nearest whole number. A negative
+/// figure is shown as zero.
+///
+/// @param metal metal produced per settlement
+/// @param energy energy produced per settlement
+/// @return such as "+10.0 m / +100 e"
+[[nodiscard]] std::string income_caption(float metal, float energy);
+
+/// Writes a team's number.
+///
+/// @param team the team number
+/// @return such as "Team 1"
+[[nodiscard]] std::string team_caption(int team);
+
+/// Writes when a player was defeated or left.
+///
+/// @param defeated true for defeated, false for left
+/// @param time the game time, such as "18:02"
+/// @return the line
+[[nodiscard]] std::string departed_caption(bool defeated, std::string_view time);
+
+/// Writes a player row's second line. The every-player row has none.
+///
+/// A departure comes first, so a narrow row keeps "Left 1:20" when the rest
+/// is cut. One unit uses the singular word.
+///
+/// @param row the row
+/// @return the line, or empty
+[[nodiscard]] std::string watch_detail(const WatchRow& row);
+
+/// The width an open list gives a row's detail line.
+///
+/// @param row the row's rectangle
+/// @return the width, in points
+[[nodiscard]] int32_t watch_detail_room(const kit::Rect& row) noexcept;
+
+/// The live slot for one recorded player.
+///
+/// `numbers` lists each seat's recorded number in the order playback seats
+/// them, so the seat's place in that list is its live slot. Two computers of
+/// one side share a name and do not share a number. When that place is not a
+/// slot, a recorded number that is itself a slot is used, and otherwise the
+/// seat one before a 1-based number.
+///
+/// @param numbers the recorded numbers, one per seat
+/// @param number the seat's recorded number; negative is none
+/// @param slot_count how many live slots there are
+/// @return the live slot, or -1 when none of those names one
+[[nodiscard]] int watch_slot(std::span<const int> numbers, int number, int slot_count) noexcept;
+
+/// Returns the player row a point presses.
+///
+/// @param layout the layout
+/// @param at the point
+/// @return the row's place in the model, or -1
+[[nodiscard]] int watch_index(const Layout& layout, kit::Point at);
+
+/// Returns the view-menu row a point presses.
+///
+/// @param layout the layout
+/// @param at the point
+/// @return the row's place in the model, or -1
+[[nodiscard]] int view_menu_index(const Layout& layout, kit::Point at);
+
+/// Returns the camera-menu row a point presses.
+///
+/// @param layout the layout
+/// @param at the point
+/// @return the row's place in `camera_modes`, or -1
+[[nodiscard]] int camera_menu_index(const Layout& layout, kit::Point at);
+
+/// Tells whether a point is on the player list or an open view or camera menu.
+///
+/// @param layout the layout
+/// @param at the point
+/// @return true when a press there belongs to the list
+[[nodiscard]] bool over_watch_chrome(const Layout& layout, kit::Point at);
 
 } // namespace oa::ui::replay_viewer

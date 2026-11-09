@@ -22,10 +22,14 @@ while photo mode was open, and how many chat lines have arrived since you
 entered.
 
 Selection boxes and health bars stay off. Each can be drawn on its own
-over the bare battlefield. The cursor, the keys overlay and the touch
-controls are hidden. So are the order lines, the build ghost, the
-selection band, and the rest of the interface: message lines, the clock
-on the panel, latch chips and key badges.
+over the bare battlefield. With Show selection on, the box is drawn
+around the selected unit where the photo camera sees it. After Home, a
+pan or a zoom the box still surrounds that unit, on screen and in the
+photo, with any Hardware acceleration and in the turned view. The
+cursor, the keys overlay and the touch controls are hidden. So are the
+order lines, the build ghost, the selection band, and the rest of the
+interface: message lines, the clock on the panel, latch chips and key
+badges.
 
 The notices the battle would have given you from the view you left stay
 the battle's own. Moving the photo camera does not change which of them
@@ -108,6 +112,60 @@ The picture does not roll, and it is not a perspective view.
 
 Leaving puts the zoom and the angles back.
 
+## The panel
+
+The panel sits on the right, about 300 points wide, nearly opaque over the
+battlefield, in the kit's colours. It folds into Camera, Time, Look and
+Photo.
+
+Camera has Zoom, with the value and the scale's name taken from the zoom
+itself (Whole map, Far, Medium, Near, Closest). Whole map and Far are
+below 1.0. The stops are the same steps as zooming with the wheel, and 1.0
+is one of them. A zoom the wheel leaves between two stops shows its own
+value, with the slider on the nearer stop. At the farthest zoom the
+machine can draw, the reason sits on its own line under the slider. Turn
+and Tilt, Classic view and Follow unit follow. Where the turned view
+cannot run, Turn and Tilt stay put and the reason sits under them: Needs
+Full acceleration, Needs Allow full 3D mode, or Not available here. A held
+picture does not turn, tilt, pan or zoom.
+
+Time has Run, Slow and Freeze as one choice, with the mode that is on lit,
+then Speed, Step, Between ticks and the clock. The clock is words, not a
+button. In a shared match the lit choice's third reads Hold picture, and
+Run, or Hold picture pressed again, lets go of the held picture. Slow,
+Speed, Step and Between ticks say Shared game on the next line and do not
+move the battle. A replay keeps its own pause.
+
+Look has Show selection, Show health bars and Guides. Guides cycles thirds,
+the centre, the safe area, and the crops 16:9, 3:2, 4:3, 1:1, 4:5, 9:16
+and 21:9. The lines are drawn over the battlefield and are never in a
+photo. A chosen crop writes the photo centred to that shape.
+
+Photo has Size (Screen, until a later ticket), Copy to clipboard, Player
+names, the file name the next photo will use, Take photo and Copy. Size
+and the file name are words, not buttons. Take photo is the lime button.
+
+Chips at the top left say where you are. A skirmish shows Photo mode,
+Frozen or Slow, and the clock. A replay shows Replay paused and the clock
+while the replay is paused. A shared match shows Live in amber, and the
+under-attack line and the chat count under the chips. The head of the panel
+says which key leaves, with Esc, and pressing it leaves photo mode. The
+line along the bottom gives the keys that leave, take a photo, freeze, hide
+the panel and cycle the guides, as they are bound.
+
+H hides the panel and leaves a small button that names the key bound to
+show it, which brings it back. After a photo, a notice at the bottom left
+shows a small copy of the picture, the file name on up to two lines (a
+longer one ends in an ellipsis), and Copied when the photo was copied. The notice hides after a few
+seconds, and when the panel is pressed. The saved name is a polite live
+region, for a screen reader to say. A photo asked for and then left before
+a frame writes nothing, and the match's message log says Photo not taken.
+
+Tab and Shift+Tab reach every control. The panel opens on its first control
+with no focus ring. The ring appears once Tab or Shift+Tab moves the focus,
+and Return or moving the pointer hides it. Return, the arrows and Space do
+what they do in photo mode whenever that ring is not showing.
+
 ## Keys
 
 Photo mode is its own context in the key editor, titled "Keys in photo
@@ -134,8 +192,8 @@ beside Take photo and Freeze on Enter, Space and Ctrl+F9. The panel is
 not in the photo. EDIT KEYS… leaves photo mode, then opens the editor, as
 Settings does. Leaving puts the panel back as it was on entering, so one
 opened during the visit closes. Stop, a click and Ctrl+C do not reach the
-match. On Windows, Ctrl+C is Primary+C, so it copies the last photo and
-still does not change the match.
+match. On Windows and Linux, Ctrl+C is Primary+C, so it copies the last
+photo and still does not change the match.
 
 The commands and their default keys are listed under Photo mode in
 [Keys](keys.md#photo-mode).

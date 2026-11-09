@@ -34,6 +34,7 @@ import zipfile
 
 HOSTED = "boneyards launch check: the battle room is hosted"
 PASSED = "boneyards launch check: passed"
+NOTICE = "boneyards launch check: after-battle notice shown"
 DIRECT = "boneyards launch check: direct packets "
 # The replay each side records of its battle, in the folder the side works in.
 RECORDED = "battle.oademo"
@@ -72,7 +73,10 @@ def side_command(args, role):
         "--check-boneyards-launch", role,
         "--preferences-file", os.path.join(args.work, role, "%s.conf" % role),
         "--record-game", os.path.join(args.work, role, RECORDED),
+        "--snapshot", os.path.join(args.work, role, "replays.ppm"),
     ]
+    if args.for_fun:
+        command.append("--boneyards-launch-for-fun")
     return command
 
 
@@ -81,6 +85,7 @@ class Side:
         self.role = role
         self.hosted = threading.Event()
         self.passed = False
+        self.notice = False
         self.direct = None
         directory = os.path.join(args.work, role)
         os.makedirs(directory, exist_ok=True)
@@ -98,6 +103,8 @@ class Side:
                 self.hosted.set()
             if line == PASSED:
                 self.passed = True
+            if line == NOTICE:
+                self.notice = True
             if line.startswith(DIRECT):
                 self.direct = line[len(DIRECT):]
 
@@ -227,6 +234,9 @@ def main():
     parser.add_argument("--work", required=True, help="directory the two runs work in")
     parser.add_argument("--timeout", type=float, default=600.0, help="seconds each side may run")
     parser.add_argument("--overlay", action="store_true", help="carry the battle through a relay")
+    parser.add_argument(
+        "--for-fun", action="store_true",
+        help="the host picks For Fun, so the return offers a share")
     parser.add_argument("--relay", default="", help="relay executable; required with --overlay")
     args = parser.parse_args()
     if args.overlay and not args.relay:
@@ -272,7 +282,25 @@ def main():
     game_ids = set()
     for side, code in results:
         print("%s: exit %s%s" % (side.role, code, ", passed" if side.passed else ""), flush=True)
-        ok = ok and code == 0 and side.passed
+        # The host picks For Fun, so its return is the share prompt. The joiner
+        # reads the listed battle's type, which this replay can leave as a
+        # ladder game, so that side's picture keeps the ladder name.
+        if args.for_fun and side.role == "host":
+            notice_name = "replays-notice-share.ppm"
+        elif args.for_fun:
+            share = os.path.join(args.work, side.role, "replays-notice-share.ppm")
+            notice_name = (
+                "replays-notice-share.ppm" if os.path.isfile(share) else "replays-notice-ranked.ppm"
+            )
+        else:
+            notice_name = "replays-notice-ranked.ppm"
+        notice_picture = os.path.join(args.work, side.role, notice_name)
+        print(
+            "%s: after-battle notice %s, picture %s"
+            % (side.role, "shown" if side.notice else "missing", "yes" if os.path.isfile(notice_picture) else "no"),
+            flush=True,
+        )
+        ok = ok and code == 0 and side.passed and side.notice and os.path.isfile(notice_picture)
         facts = battle_facts(os.path.join(args.work, side.role, RECORDED))
         kind, battle = facts if facts is not None else (None, None)
         named = (
@@ -287,6 +315,16 @@ def main():
         ok = ok and named
         if named:
             game_ids.add(battle["game_id"])
+            if side.role == "host":
+                host_recording = os.path.join(args.work, side.role, RECORDED)
+                listed = os.path.join(os.path.dirname(args.work), "listed-battle.oademo")
+                # Written whole under another name, then moved into place: the
+                # replays check that reads it may run beside this one, and the
+                # overlay check writes the same file.
+                partial = "%s.%d.part" % (listed, os.getpid())
+                with open(host_recording, "rb") as source_file, open(partial, "wb") as listed_file:
+                    listed_file.write(source_file.read())
+                os.replace(partial, listed)
         if args.overlay:
             print("%s: direct packets %s" % (side.role, side.direct), flush=True)
             ok = ok and side.direct == "0"

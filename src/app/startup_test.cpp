@@ -2334,6 +2334,11 @@ int main() {
         photo_live.check_photo && photo_live.photo_group == oa::app::PhotoGroup::live,
         "--check-photo live names the live group"
     );
+    const auto photo_panel = parse({"--check-photo", "panel"});
+    expect(
+        photo_panel.check_photo && photo_panel.photo_group == oa::app::PhotoGroup::panel,
+        "--check-photo panel names the panel group"
+    );
     expect(
         parse({"--check-photo", "capture", "--force-capable"}).force_capable,
         "--force-capable goes with --check-photo"

@@ -209,13 +209,12 @@ Runtime::check_console_sing_command(const std::function<void(const char*)>& ente
             throw std::runtime_error(std::string("console sing check: ") + what);
     };
     namespace game_audio = oa::audio::game_audio;
-    const oa::World& world = match_->state();
     // A live unit of the viewed player whose sound category offers a sound
     // for being selected: only the viewed player's units speak.
     const auto speaks_when_selected = [&](const oa::sim::unit_spawn::Slot& slot) {
         const auto type = slot.record.type_index;
         if (slot.unit == nullptr || type == 0 || type > unit_definitions_.size() ||
-            slot.record.owner_index != world.game.viewpoint_player ||
+            slot.record.owner_index != match_view_player() ||
             (slot.record.flags & OA_UNIT_FLAG_LIVE) == 0)
             return false;
         const auto* sounds = unit_sound_catalog_.choices(

@@ -366,6 +366,14 @@ void boneyards_status_widget_destroy(StatusWidget* widget);
 /// @param[in,out] widget status widget; null does nothing
 void boneyards_status_widget_leave_main_menu(StatusWidget* widget);
 
+/// Leaves the Boneyards for the main menu, as the Main Frame's exit does.
+///
+/// A battle that is still counted as launched ends that launch. One that
+/// has already ended does not end it again.
+///
+/// @param[in,out] widget status widget; null does nothing
+void boneyards_status_widget_exit_to_menu(StatusWidget* widget);
+
 /// Shows the overlay again, with no connection pending, as the frontend returns to the main menu.
 ///
 /// Both frontend signal bytes become 1 and the entry path counts as not
@@ -383,6 +391,16 @@ void boneyards_status_widget_return_to_main_menu(StatusWidget* widget);
 /// @param message input message
 /// @return true when a window consumed it
 bool boneyards_status_widget_event(StatusWidget* widget, const Message& message);
+
+/// Drops the keyboard focus the strip's buttons hold.
+///
+/// The host's main-menu order then sees the key. The keyboard goes back to
+/// the overlay itself, as when the main menu opens, so B still enters and a
+/// later Return or Space presses none of the strip's buttons. A message box
+/// is left alone: the caller asks only while none is open.
+///
+/// @param widget status widget; null does nothing
+void boneyards_status_widget_clear_focus(StatusWidget* widget);
 
 /// Gives typed text to the focused edit box.
 ///

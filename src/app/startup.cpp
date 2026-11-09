@@ -444,6 +444,8 @@ void check_game_files_options(Options& options) {
         return PhotoGroup::live;
     if (text == "keys")
         return PhotoGroup::keys;
+    if (text == "panel")
+        return PhotoGroup::panel;
     return std::nullopt;
 }
 

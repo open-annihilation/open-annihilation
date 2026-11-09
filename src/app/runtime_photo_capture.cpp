@@ -21,6 +21,7 @@
 #include "oa/platform/machine.hpp"
 #include "oa/present/photo/photo_file_name.hpp"
 #include "oa/present/photo/photo_texts.hpp"
+#include "oa/ui/photo_panel/crop.hpp"
 #include "oa/sim/simulation_state.hpp"
 #include "oa/ui/console/console.hpp"
 #include "oa/ui/console/game_fields.hpp"
@@ -314,6 +315,8 @@ void Runtime::note_photo_saved(std::string file_name, std::string copy_note_text
     }
     status_ = line;
     photo_notice_ = std::move(line);
+    const bool copied = copy_note_text == oa::data::languages::interface_text(kPhotoCopied);
+    show_photo_toast(file_name, copied);
 }
 
 void Runtime::note_photo_refused(std::string_view reason) {
@@ -322,6 +325,8 @@ void Runtime::note_photo_refused(std::string_view reason) {
         fill_token(oa::data::languages::interface_text(kNotSaved), "{reason}", why);
     status_ = line;
     photo_notice_ = line;
+    clear_photo_thumbnail();
+    show_photo_toast(line, false);
 }
 
 void Runtime::wait_for_photos() {
@@ -563,6 +568,11 @@ void Runtime::take_photo() {
         note_photo_refused(reason);
         return;
     }
+    if (photo_ != nullptr) {
+        const auto guide = static_cast<oa::ui::photo_panel::Guide>(photo_->guide);
+        oa::ui::photo_panel::crop_centred(rgb, width, height, guide);
+    }
+    remember_photo_thumbnail(rgb, width, height);
 
     fs::path folder;
     if (!prepare_photo_folder(folder)) {

@@ -7,6 +7,7 @@
 // finishes, logs in again.
 #include "oa/boneyards/screens/locator.hpp"
 
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/screens/chat.hpp"
 #include "oa/boneyards/screens/chat_room.hpp"
 #include "oa/boneyards/screens/galaxy.hpp"
@@ -568,8 +569,10 @@ void locator_extra(Locator* locator) {
     if (locator->kind == locator_kind::battle) {
         // A password battle opens Battle Intelligence first. Joining with an
         // empty password would be the rejection this screen exists to avoid.
+        // The type is armed only as the join is sent.
         if (!row->password && locator->service != nullptr &&
             locator->service->join_game != nullptr) {
+            arm_after_battle(row->battle_type);
             locator->service->join_game(
                 locator->service->user, row->area_id, row->game_id, nullptr
             );

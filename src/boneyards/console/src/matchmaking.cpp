@@ -494,10 +494,13 @@ void dialog_destroy(Window* self) {
     console_window_free(self);
 }
 
-void link_group(screens::LobbyRadio** radios, int32_t count) {
+// One keyboard stop per set. The id only has to differ from the other sets
+// on this dialog, because the arrows look at siblings.
+void link_group(screens::LobbyRadio** radios, int32_t count, uint8_t group) {
     for (int32_t i = 0; i < count; ++i) {
         if (radios[i] == nullptr)
             continue;
+        radios[i]->base.radio_group = group;
         for (int32_t j = 0; j < count; ++j)
             if (i != j && radios[j] != nullptr)
                 screens::lobby_radio_add_member(radios[i], &radios[j]->base);
@@ -581,10 +584,10 @@ void adopt(MatchmakingDialog* dialog) {
     reparent_children(gui_screen_root(screen), &dialog->base);
     gui_screen_destroy(screen);
 
-    link_group(dialog->game, 3);
-    link_group(dialog->skill, 2);
-    link_group(dialog->side, 3);
-    link_group(dialog->planets, 2);
+    link_group(dialog->game, 3, 1);
+    link_group(dialog->skill, 2, 2);
+    link_group(dialog->side, 3, 3);
+    link_group(dialog->planets, 2, 4);
     choose_one(dialog->game, 3, static_cast<int32_t>(dialog->choices.game));
     choose_one(dialog->skill, 2, static_cast<int32_t>(dialog->choices.skill));
     choose_one(dialog->side, 3, static_cast<int32_t>(dialog->choices.side));

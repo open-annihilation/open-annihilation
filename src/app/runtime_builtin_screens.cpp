@@ -211,6 +211,37 @@ struct BuiltinScreens {
                                   : 0;
     }
 
+    // The main menu's order owns Tab and Shift+Tab, and, while its ring is
+    // showing, the arrows and the bound Accept and Press. A press and its
+    // release both count: the release is what a window would use to take
+    // the key once the press has gone past it. The overlay asks before its
+    // windows see the key.
+    static int main_menu_order_owns_key(void* host, const ScreenInput* input) {
+        if (host == nullptr || input == nullptr)
+            return 0;
+        if (input->kind != ScreenInputKind::key_down && input->kind != ScreenInputKind::key_up)
+            return 0;
+        auto& runtime = *static_cast<Runtime*>(host);
+        if (runtime.screen_ != Screen::main_menu)
+            return 0;
+        const auto owns = [&](const char* id) {
+            for (const auto& fed : runtime.match_action_events()) {
+                if (fed.action == id)
+                    return true;
+            }
+            return false;
+        };
+        if (owns("ui.menu-focus-next") || owns("ui.menu-focus-previous"))
+            return 1;
+        if (runtime.oa_layer_ == nullptr || !runtime.oa_layer_->family_ring_shown())
+            return 0;
+        if (owns("ui.menu-accept") || owns("ui.menu-press") || owns("ui.menu-focus-left") ||
+            owns("ui.menu-focus-right") || owns("ui.menu-focus-up") || owns("ui.menu-focus-down") ||
+            owns("ui.menu-list-up") || owns("ui.menu-list-down"))
+            return 1;
+        return 0;
+    }
+
     static renderer::MainMenuResources load_main_menu(Runtime& runtime) {
         return renderer::load_main_menu(
             runtime.assets_,
@@ -736,7 +767,8 @@ constexpr ScreenServices kRuntimeServices{
     BuiltinScreens::run_frontend,
     BuiltinScreens::open_kit_screen,
     BuiltinScreens::show_notice,
-    BuiltinScreens::ask_prompt
+    BuiltinScreens::ask_prompt,
+    BuiltinScreens::main_menu_order_owns_key
 };
 
 bool overlay_applies(const OverlayDesc& overlay, ScreenId screen) {
@@ -931,6 +963,19 @@ bool Runtime::extension_layer_takes_pointer(float x, float y) {
     return screen_input_taken(input);
 }
 
+namespace {
+
+/// An arrow, Home, End, Page Up or Page Down. Taken while the ring already
+/// shows, one of these keeps the ring through the windows it opens or closes.
+bool ring_place_key(uint32_t key) {
+    return key == static_cast<uint32_t>(SDLK_UP) || key == static_cast<uint32_t>(SDLK_DOWN) ||
+           key == static_cast<uint32_t>(SDLK_LEFT) || key == static_cast<uint32_t>(SDLK_RIGHT) ||
+           key == static_cast<uint32_t>(SDLK_HOME) || key == static_cast<uint32_t>(SDLK_END) ||
+           key == static_cast<uint32_t>(SDLK_PAGEUP) || key == static_cast<uint32_t>(SDLK_PAGEDOWN);
+}
+
+} // namespace
+
 bool Runtime::dispatch_screen_input(const SDL_Event& event) {
     const auto current = screen_id(screen_);
     const auto* desc = screen_find(&screens_, current);
@@ -959,7 +1004,9 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
     }
     // A screen that takes the key still follows the family's rule: Tab shows
     // the ring, Return hides it, and a pointer move hides it. An arrow does
-    // not show it, and Space does not hide it.
+    // not show it, and Space does not hide it. An arrow, Home, End or a page
+    // key that is taken while the ring already shows keeps it through the
+    // windows that key opens or closes, as Tab does.
     if (taken && oa_layer_ != nullptr) {
         if (input.kind == ScreenInputKind::key_down) {
             if (input.key == static_cast<uint32_t>(SDLK_TAB) ||
@@ -970,6 +1017,8 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
                 input.key == static_cast<uint32_t>(SDLK_KP_ENTER)
             )
                 oa_layer_->note_family_return();
+            else if (oa_layer_->family_ring_shown() && ring_place_key(input.key))
+                oa_layer_->note_family_tab();
         } else if (input.kind == ScreenInputKind::pointer_move) {
             oa_layer_->note_family_pointer(input.x, input.y);
         }

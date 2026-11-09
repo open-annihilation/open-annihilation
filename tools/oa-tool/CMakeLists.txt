@@ -29,6 +29,7 @@ target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/ui/game-files/include
   ${PROJECT_SOURCE_DIR}/src/ui/key-bindings/include
   ${PROJECT_SOURCE_DIR}/src/ui/key-editor/include
+  ${PROJECT_SOURCE_DIR}/src/ui/photo-panel/include
   ${PROJECT_SOURCE_DIR}/src/ui/library/include
   ${PROJECT_SOURCE_DIR}/src/ui/map-browser/include
   ${PROJECT_SOURCE_DIR}/src/ui/mutator-picker/include

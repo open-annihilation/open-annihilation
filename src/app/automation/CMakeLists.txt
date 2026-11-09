@@ -143,6 +143,21 @@ if(BUILD_TESTING)
     target_link_libraries(oa-app-automation-tree-test PRIVATE oa-app-automation-core
       oa-app-headers oa-test-support oa-options)
     add_test(NAME automation-tree COMMAND oa-app-automation-tree-test)
+    if(TARGET oa-platform-screen-reader)
+      # The screen-reader tree of one listing: each role, a dialog named from
+      # its label, rows adopted by a container listed after them, and the
+      # nodes read back through AccessKit's C API.
+      add_executable(oa-app-screen-reader-tree-test tests/screen_reader_tree_test.cpp)
+      target_link_libraries(oa-app-screen-reader-tree-test PRIVATE oa-app-automation-core
+        oa-app-screen-reader-tree
+        oa-platform-screen-reader oa-app-headers SDL3::SDL3 oa-test-support oa-options)
+      if(MSVC AND NOT OA_SCREEN_READER_COMPILED_OUT)
+        target_compile_options(oa-app-screen-reader-tree-test PRIVATE /external:W0)
+      endif()
+      oa_copy_accesskit_dll(oa-app-screen-reader-tree-test)
+      add_test(NAME screen-reader-tree COMMAND oa-app-screen-reader-tree-test)
+      set_tests_properties(screen-reader-tree PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+    endif()
     # A chord's keys, and an action id resolved from the registry's defaults.
     add_executable(oa-app-automation-chords-test tests/chords_test.cpp)
     target_link_libraries(oa-app-automation-chords-test PRIVATE oa-app-automation-core

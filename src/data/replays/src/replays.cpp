@@ -27,6 +27,7 @@
 #include <limits>
 #include <new>
 #include <optional>
+#include <ratio>
 #include <span>
 #include <string>
 #include <string_view>
@@ -66,8 +67,13 @@ constexpr std::array<uint16_t, 32> windows_1252_high = {
 
 /// Converts a time of a file clock to whole seconds since 1970.
 ///
-/// A clock with to_sys converts directly, and one without it through UTC, as
-/// file clocks only do.
+/// A clock with to_sys converts directly. The Visual Studio file clock has
+/// none, and its way through UTC, `to_utc` and then `utc_clock::to_sys`,
+/// loads the time zone database for the leap seconds; where that database
+/// is missing the process aborts. That clock counts 100 ns ticks from
+/// 1601-01-01, 11644473600 seconds before 1970, and the leap seconds its
+/// `to_utc` adds `to_sys` takes away again, so the whole seconds are this
+/// difference.
 ///
 /// @param stamp a time of the clock
 /// @return seconds since 1970
@@ -78,11 +84,12 @@ template <typename Clock>
             .time_since_epoch()
             .count();
     } else {
-        const auto utc = Clock::to_utc(stamp);
-        using Utc = typename decltype(utc)::clock;
-        return std::chrono::floor<std::chrono::seconds>(Utc::to_sys(utc))
-            .time_since_epoch()
-            .count();
+        static_assert(std::ratio_equal_v<typename Clock::period, std::ratio<1, 10'000'000>>);
+        using hundred_ns = std::chrono::duration<long long, std::ratio<1, 10'000'000>>;
+        // 11644473600 seconds, in 100 ns ticks: 1601-01-01 to 1970-01-01.
+        constexpr hundred_ns file_epoch_to_unix{0x19DB1DED53E8000LL};
+        const auto since_unix = stamp.time_since_epoch() - file_epoch_to_unix;
+        return static_cast<int64_t>(std::chrono::floor<std::chrono::seconds>(since_unix).count());
     }
 }
 
@@ -377,6 +384,7 @@ void read_oademo(std::span<const uint8_t> bytes, Replay& replay) {
         if (object.has_value() && object->type() == json::JsonType::object) {
             replay.planet = string_member(*object, "planet");
             replay.sector = string_member(*object, "sector");
+            replay.game_id = string_member(*object, "game_id");
             // A campaign's title is the mission name, as the file writes it.
             // The Library trims trailing spaces when it shows the title. The
             // map stem stays in `map` for a search that still names the file.

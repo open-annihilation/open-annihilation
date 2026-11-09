@@ -1,15 +1,19 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// --check-replay-viewer: a skirmish of at least 2,400 ticks is recorded and
-// watched. The bar is drawn at 640x480, 1280x720 and 1920x1080, and in German
-// at 640x480. Each press is checked against the replay: pause, seeks, markers,
-// speed, a timeline drag, the pin, the shortcut card, the controller and a
-// tap. The run ends on the straight playback's digest, twice, then Back to
-// the Library on the same row. Markers come from the recording's index pass.
+// --check-replay-viewer: a skirmish of three players, at least 2,400 ticks, is
+// recorded and watched. Two computers take one side. One computer leaves as
+// the recording ends. The bar is drawn at 640x480, 1280x720 and 1920x1080,
+// and in German at 640x480. Each press is checked against the replay: pause,
+// seeks, markers, speed, a timeline drag, the pin, the shortcut card, the
+// controller and a tap. The camera modes are Free, Follow their camera and
+// Follow a unit. A second play switches view and camera, seeks nowhere after
+// that, and must digest the same as the straight play. Markers come from the
+// recording's index pass.
 
 #include "library_host.hpp"
 #include "net_options.hpp"
+#include "network_play.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 #include "pad_state.hpp"
@@ -31,6 +35,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+
 #ifndef _WIN32
 #include <cerrno>
 #include <sys/resource.h>
@@ -39,6 +45,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -50,6 +57,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -336,7 +344,23 @@ void Runtime::check_replay_viewer() {
     fs::create_directories(recorded.parent_path(), made);
     require(!made, "the recordings folder was not made");
     netgame_context().options.net_record = recorded;
-    start_benchmark_skirmish();
+    // Two computers of one side: the second seat copies the first computer,
+    // then takes a colour of its own. They share a side name and not a number.
+    exercise_click(menu::resource_name(menu::Button::single_player));
+    exercise_click(entry::resource_name(entry::Button::skirmish));
+    state_.player_count = 3;
+    require(map_player_capacity() >= 3, "the skirmish map lacks three start positions");
+    auto& seats = skirmish_settings_.slots;
+    seats[2] = seats[1];
+    seats[2].controller = entry::controller::computer;
+    for (int32_t color = 0; color < 10; ++color) {
+        if (color != seats[0].color && color != seats[1].color) {
+            seats[2].color = color;
+            break;
+        }
+    }
+    skirmish_settings_.slot_count = std::max(skirmish_settings_.slot_count, 3);
+    exercise_click(skirmish::resource_name(skirmish::Button::start));
     require(screen_ == Screen::match && match_ != nullptr, "the skirmish did not start");
     // A check's fixed clock reads the tick it is already on, so the frames
     // below would draw and never step, and the skirmish would write nothing.
@@ -354,6 +378,11 @@ void Runtime::check_replay_viewer() {
         recorded_tick = match_->state().game.tick;
         if (recorded_tick >= 2400)
             break;
+    }
+    {
+        NetworkPlay* play = NetworkPlay::find(*this);
+        require(play != nullptr, "the skirmish has no recorder");
+        play->note_skirmish_departure();
     }
     require(
         recorded_tick >= 2400,
@@ -470,7 +499,10 @@ void Runtime::check_replay_viewer() {
         );
     }
     wait_settled(false);
+    const int32_t straight_camera_x = match_camera_x_;
+    const int32_t straight_camera_z = match_camera_z_;
     const uint64_t straight = match_world_digest();
+    std::cout << "replay viewer straight " << digest_text(straight) << '\n';
     leave_match();
     load(Screen::main_menu);
     wait_menu();
@@ -673,7 +705,11 @@ void Runtime::check_replay_viewer() {
     require(named("oa.replay-viewer.play").has_value(), "a tap did not show the bar");
 
     key(SDLK_SLASH, SDL_KMOD_SHIFT);
-    require(named("oa.replay-viewer.keys-card").has_value(), "? did not open the shortcut card");
+    {
+        const AutomationControl card =
+            require_named("oa.replay-viewer.keys-card", "? did not open the shortcut card");
+        require(card.text.find("F4") != std::string::npos, "the shortcut card does not list F4");
+    }
     key(SDLK_SLASH, SDL_KMOD_SHIFT);
     require(!named("oa.replay-viewer.keys-card"), "? did not close the shortcut card");
 
@@ -686,8 +722,310 @@ void Runtime::check_replay_viewer() {
         index_ready = replay_index_arrived();
     }
     require(index_ready, "the index pass did not arrive");
+    {
+        // A paused frame, then the same frame after Tab. The view is
+        // presentation: the world's bytes, including the recorded viewpoint,
+        // stay as they were.
+        const auto sample_world = [&] {
+            const oa::World& world = match_->state();
+            const oa::Game& game = world.game;
+            struct Sample {
+                uint8_t viewpoint{};
+                bool radar{};
+                uint32_t flags{};
+                uint32_t sight{};
+                std::vector<uint8_t> players{};
+            };
+            Sample taken;
+            taken.viewpoint = game.viewpoint_player;
+            taken.radar = match_->slotless_full_radar();
+            taken.flags = 2166136261u;
+            if (world.units != nullptr) {
+                // The low twelve bits are the unit flags a tick writes.
+                constexpr uint32_t unit_flag_low = 0xfffu;
+                for (uint32_t index = 0; index < world.unit_slot_count; ++index) {
+                    taken.flags ^= world.units[index].flags & unit_flag_low;
+                    taken.flags *= 16777619u;
+                }
+            }
+            taken.sight = 2166136261u;
+            const auto& bits = match_->sight().player_bits;
+            const auto* raw = reinterpret_cast<const uint8_t*>(bits.data());
+            const std::size_t bytes = bits.size() * sizeof(bits[0]);
+            for (std::size_t index = 0; index < bytes; ++index) {
+                taken.sight ^= raw[index];
+                taken.sight *= 16777619u;
+            }
+            taken.players.resize(sizeof game.players);
+            std::memcpy(taken.players.data(), &game.players, sizeof game.players);
+            return taken;
+        };
+        const auto world_change = [](const auto& left, const auto& right) -> std::string {
+            if (left.viewpoint != right.viewpoint)
+                return "viewpoint";
+            if (left.radar != right.radar)
+                return "radar";
+            if (left.flags != right.flags)
+                return "unit flags";
+            if (left.sight != right.sight)
+                return "sight";
+            if (left.players != right.players) {
+                std::size_t at = 0;
+                const std::size_t count = std::min(left.players.size(), right.players.size());
+                while (at < count && left.players[at] == right.players[at])
+                    ++at;
+                return "players at offset " + std::to_string(at);
+            }
+            return {};
+        };
+        const auto held = sample_world();
+        frames(1);
+        {
+            const std::string change = world_change(sample_world(), held);
+            require(change.empty(), "a paused frame changed the replay (" + change + ")");
+        }
+        key(SDLK_TAB);
+        {
+            const std::string change = world_change(sample_world(), held);
+            require(change.empty(), "a view switch changed the replay (" + change + ")");
+        }
+        key(SDLK_Q);
+        {
+            const std::string change = world_change(sample_world(), held);
+            require(
+                change.empty(), "returning to every player changed the replay (" + change + ")"
+            );
+        }
+    }
     key(SDLK_PAUSE);
     require(!playback().paused, "the replay stayed paused after the index");
+
+    const int32_t kept_camera_x = match_camera_x_;
+    const int32_t kept_camera_z = match_camera_z_;
+    if (!named("oa.replay-viewer.view")) {
+        TouchDispatchAccess::battlefield_tap(*this, 640.0F, 200.0F, 1);
+        frames(1);
+    }
+    call_hook_or_report<&Extension::replay_set_speed>(
+        extension_, hook_error_report(), *this, int32_t{16000}
+    );
+    wait_asked(16000);
+    key(SDLK_HOME, SDL_KMOD_CTRL);
+    wait_tick(0, "home before the views");
+    frames(2);
+    key(SDLK_TAB);
+    frames(2);
+    require(
+        require_named("oa.replay-viewer.view", "View is not shown").text != "All players",
+        "Tab stayed on every player"
+    );
+    for (int frame_index = 0; frame_index < 8000 && playback().tick < 1800; ++frame_index)
+        frames(1);
+    require(playback().tick >= 1800, "a simulated minute did not pass");
+    key(SDLK_TAB);
+    frames(2);
+    key(SDLK_Q);
+    frames(2);
+    require(
+        require_named("oa.replay-viewer.view", "View is not shown").text == "All players",
+        "Q did not show every player"
+    );
+    click_named("oa.replay-viewer.camera");
+    frames(1);
+    bool saw_their_camera = false;
+    bool saw_director = false;
+    bool saw_follow_unit = false;
+    for (int item = 0; item < 4; ++item) {
+        const std::optional<AutomationControl> row =
+            named("oa.replay-viewer.camera-item." + std::to_string(item));
+        if (!row)
+            continue;
+        if (row->text == "Follow their camera")
+            saw_their_camera = true;
+        if (row->text == "Director")
+            saw_director = true;
+        if (row->text == "Follow a unit")
+            saw_follow_unit = true;
+    }
+    require(!saw_their_camera, "Follow their camera was offered for a skirmish recording");
+    require(!saw_director, "Director was offered");
+    require(!saw_follow_unit, "Follow a unit was offered in the menu");
+    const auto choose_camera = [&](std::string_view caption) {
+        bool open = false;
+        for (int item = 0; item < 4; ++item) {
+            if (named("oa.replay-viewer.camera-item." + std::to_string(item)))
+                open = true;
+        }
+        if (!open)
+            click_named("oa.replay-viewer.camera");
+        for (int item = 0; item < 4; ++item) {
+            const std::string name = "oa.replay-viewer.camera-item." + std::to_string(item);
+            const std::optional<AutomationControl> row = named(name);
+            if (!row || row->text != caption)
+                continue;
+            click_named(name);
+            frames(2);
+            require(
+                require_named("oa.replay-viewer.camera", "Camera is not shown").text == caption,
+                std::string(caption) + " did not become the camera"
+            );
+            return;
+        }
+        require(false, std::string(caption) + " was not in the camera menu");
+    };
+    choose_camera("Free");
+    key(SDLK_C);
+    frames(2);
+    require(
+        require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Free",
+        "C left Free when the recording shares no camera"
+    );
+    uint16_t followed = 0;
+    if (match_ != nullptr) {
+        const auto& unit_slots = match_->world().slots;
+        for (std::size_t index = 1; index < unit_slots.size(); ++index) {
+            const auto id = static_cast<uint16_t>(index);
+            if (!match_unit_present(id))
+                continue;
+            followed = id;
+            break;
+        }
+    }
+    require(followed != 0, "the replay had no unit to follow");
+    replay_follow_unit(followed);
+    frames(2);
+    require(
+        require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Follow a unit",
+        "the followed unit did not take the camera"
+    );
+    frame_run_clock_ns_ = frame_pacing::steady_now_ns();
+    frame_run_scroll_ = 1;
+    frames(2);
+    frame_run_scroll_ = 0;
+    frames(1);
+    require(
+        require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Free",
+        "panning did not leave the followed unit"
+    );
+    key(SDLK_F4);
+    frames(1);
+    require(named("oa.replay-viewer.watch-chip.0").has_value(), "F4 did not fold the player list");
+    key(SDLK_F4);
+    frames(1);
+    require(named("oa.replay-viewer.watch-row.0").has_value(), "F4 did not open the player list");
+    {
+        // Each row is its own seat. Two computers of one side share a name.
+        // Tab reaches every one of them, and only the row on show has the eye.
+        const auto row_at = [&](int index) {
+            return named("oa.replay-viewer.watch-row." + std::to_string(index));
+        };
+        const auto eyes_of = [&] {
+            int rows = 0;
+            int eyes = 0;
+            for (int index = 0; index < OA_PLAYER_COUNT + 1; ++index) {
+                const std::optional<AutomationControl> row = row_at(index);
+                if (!row)
+                    continue;
+                ++rows;
+                if (row->checked)
+                    ++eyes;
+            }
+            return std::pair<int, int>{rows, eyes};
+        };
+        const auto counted = eyes_of();
+        require(counted.first >= 4, "the list has fewer than four rows");
+        require(counted.second == 1, "the open list does not have one eye");
+
+        struct Seen {
+            std::string name;
+            uint8_t slot{};
+            uint8_t colour{};
+            uint16_t units{};
+            bool watcher{};
+        };
+
+        std::vector<Seen> seen;
+        for (int index = 0; index < counted.first; ++index) {
+            const std::string control = "oa.replay-viewer.watch-row." + std::to_string(index);
+            const AutomationControl before = require_named(control, "a watch row vanished");
+            click_named(control);
+            const std::optional<AutomationControl> after = named(control);
+            require(after.has_value() && after->checked, "the clicked row is not the eye");
+            const auto again = eyes_of();
+            require(again.second == 1, "a row click left more than one eye");
+            const uint8_t slot = match_view_player();
+            require(slot < OA_PLAYER_COUNT, "the view names no player");
+            const oa::World& world = match_->state();
+            const oa::Player& player = world.game.players[slot];
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+            require(info != nullptr, "the viewed player has no setup");
+            Seen one;
+            one.name = before.text;
+            const std::string::size_type left = one.name.find(" Left");
+            const std::string::size_type defeated = one.name.find(" Defeated");
+            const std::string::size_type cut = std::min(left, defeated);
+            if (cut != std::string::npos)
+                one.name.resize(cut);
+            one.slot = slot;
+            one.colour = info->color;
+            one.units = player.unit_count;
+            one.watcher = (info->options & OA_SETUP_OPTION_WATCHER) != 0;
+            seen.push_back(std::move(one));
+        }
+        int seated = 0;
+        for (const Seen& one : seen) {
+            if (one.watcher || one.name == "All players")
+                continue;
+            ++seated;
+            require(one.units >= 1, one.name + " shows no units");
+        }
+        require(seated >= 3, "fewer than three players took a view");
+        bool shared_name = false;
+        for (std::size_t left = 0; left < seen.size(); ++left) {
+            if (seen[left].watcher || seen[left].name == "All players")
+                continue;
+            for (std::size_t right = left + 1; right < seen.size(); ++right) {
+                if (seen[right].watcher || seen[left].name != seen[right].name)
+                    continue;
+                shared_name = true;
+                require(seen[left].slot != seen[right].slot, "two rows of one name share a view");
+                require(
+                    seen[left].colour != seen[right].colour, "two rows of one name share a colour"
+                );
+            }
+        }
+        require(shared_name, "no two computers of one side share a row name");
+        key(SDLK_Q);
+        frames(1);
+        std::array<bool, OA_PLAYER_COUNT> visited{};
+        int visited_seated = 0;
+        for (int step = 0; step < counted.first; ++step) {
+            key(SDLK_TAB);
+            frames(1);
+            require(eyes_of().second == 1, "Tab left more than one eye");
+            const uint8_t slot = match_view_player();
+            if (slot >= OA_PLAYER_COUNT || visited[slot])
+                continue;
+            const oa::World& world = match_->state();
+            const oa::Player& player = world.game.players[slot];
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+            if (info == nullptr || (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+                continue;
+            visited[slot] = true;
+            ++visited_seated;
+        }
+        require(visited_seated >= seated, "Tab did not reach every player");
+    }
+    replay_reset_watch();
+    set_camera_position(kept_camera_x, kept_camera_z, 0);
+    call_hook_or_report<&Extension::replay_set_speed>(
+        extension_, hook_error_report(), *this, int32_t{1000}
+    );
+    wait_asked(1000);
+    key(SDLK_HOME, SDL_KMOD_CTRL);
+    wait_tick(0, "home after the views");
+    set_camera_position(kept_camera_x, kept_camera_z, 0);
+    frames(1);
 
     key(SDLK_HOME, SDL_KMOD_CTRL);
     wait_tick(0, "Ctrl+Home before the markers");
@@ -776,22 +1114,168 @@ void Runtime::check_replay_viewer() {
     click_named("oa.library.export.close");
     frames(1);
 
+    // The compared run starts where the straight one did: every player, Free,
+    // 1x, and that run's camera. Watch again keeps the view, so nothing here
+    // calls replay_reset_watch. The switches below are only on the way
+    // forward. Q and the straight camera go back once the end card has
+    // settled, with no further frame, and the digests must match.
     call_hook_or_report<&Extension::replay_set_speed>(
         extension_, hook_error_report(), *this, int32_t{1000}
     );
     wait_asked(1000);
+    key(SDLK_Q);
+    choose_camera("Free");
+    // The pin toggles. Whichever way it was, one press and a look after the
+    // hide delay leaves it holding the bar for the compared run.
+    require(replay_viewer_command("watch.replay-bar"), "the bar did not answer");
+    SDL_Delay(3200);
+    frames(1);
+    if (!named("oa.replay-viewer.play"))
+        require(replay_viewer_command("watch.replay-bar"), "the bar did not pin");
+    set_camera_position(straight_camera_x, straight_camera_z, 0);
     click_named("oa.replay-viewer.watch-again");
-    wait_settled(true);
+
+    bool tabbed = false;
+    bool shifted = false;
+    bool whole = false;
+    bool stepped_view = false;
+    bool unit_clicked = false;
+    bool tabbed_minute = false;
+    uint32_t next_minute = kLongTicks;
+    int stable = 0;
+    uint32_t last_tick = 0;
+    bool have_tick = false;
+    bool saw_gap = false;
+    for (int frame_index = 0; frame_index < 12000 && stable < 15; ++frame_index) {
+        const ReplayPlaybackView view = playback();
+        const bool card = named("oa.replay-viewer.watch-again").has_value();
+        const bool playing =
+            !view.skipping && view.catch_up_percent < 0 && !card && match_ != nullptr;
+        if (playing) {
+            const uint32_t tick = view.tick;
+            if (!tabbed) {
+                key(SDLK_TAB);
+                tabbed = true;
+                require(
+                    require_named("oa.replay-viewer.view", "View is not shown").text !=
+                        "All players",
+                    "Tab at the start stayed on every player"
+                );
+                continue;
+            }
+            if (!shifted && tick >= 120) {
+                key(SDLK_TAB, SDL_KMOD_SHIFT);
+                shifted = true;
+                continue;
+            }
+            if (!whole && tick >= 240) {
+                key(SDLK_Q);
+                whole = true;
+                require(
+                    require_named("oa.replay-viewer.view", "View is not shown").text ==
+                        "All players",
+                    "Q did not show every player on the compared run"
+                );
+                require(
+                    require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Free",
+                    "Q moved the camera off Free"
+                );
+                continue;
+            }
+            if (!stepped_view && tick >= 400) {
+                pad_down(pad::PadButton::y);
+                stepped_view = true;
+                continue;
+            }
+            if (!unit_clicked && tick >= 1120) {
+                bool clicked = false;
+                const auto& unit_slots = match_->world().slots;
+                for (std::size_t index = 1; index < unit_slots.size(); ++index) {
+                    const auto id = static_cast<uint16_t>(index);
+                    if (!match_unit_present(id) || unit_slots[id].unit == nullptr)
+                        continue;
+                    const auto* unit = unit_slots[id].unit;
+                    const int32_t map_x = static_cast<int32_t>(unit->position[0] >> 16);
+                    const int32_t map_z = static_cast<int32_t>(unit->position[2] >> 16);
+                    set_camera_position(
+                        map_x - visible_map_width() / 2, map_z - visible_map_height() / 2, 0
+                    );
+                    const auto viewport = live_viewport(match_camera_x_, match_camera_z_);
+                    const auto point = project_match_point(viewport, unit->position);
+                    const float pixel_x = static_cast<float>(point.x);
+                    const float pixel_y = static_cast<float>(point.y);
+                    if (!battlefield_contains(pixel_x, pixel_y))
+                        continue;
+                    update_pointer(pixel_x, pixel_y);
+                    if (hovered_match_unit_ != id)
+                        continue;
+                    // A real double-click is the first press, then the second.
+                    handle_match_left_click(pixel_x, pixel_y, 1);
+                    handle_match_left_click(pixel_x, pixel_y, 2);
+                    clicked = true;
+                    break;
+                }
+                require(clicked, "no unit took the double-click");
+                unit_clicked = true;
+                frames(2);
+                require(
+                    require_named("oa.replay-viewer.camera", "Camera is not shown").text ==
+                        "Follow a unit",
+                    "the double-click did not follow a unit"
+                );
+                continue;
+            }
+            if (tick >= next_minute) {
+                key(SDLK_TAB);
+                tabbed_minute = true;
+                next_minute += kLongTicks;
+                continue;
+            }
+        }
+        frames(1);
+        require(match_ != nullptr, "the replay ended before its end card");
+        const bool settled_card = named("oa.replay-viewer.watch-again").has_value();
+        if (!settled_card)
+            saw_gap = true;
+        const uint32_t now_tick = match_->state().game.tick;
+        if (settled_card && saw_gap && have_tick && now_tick == last_tick)
+            ++stable;
+        else
+            stable = 0;
+        last_tick = now_tick;
+        have_tick = true;
+    }
+    require(tabbed, "the compared run did not press Tab at the start");
+    require(shifted, "the compared run did not press Shift+Tab");
+    require(whole, "the compared run did not press Q");
+    require(stepped_view, "the compared run did not press pad Y");
+    require(unit_clicked, "the compared run did not double-click a unit");
+    require(tabbed_minute, "the compared run did not press Tab at a simulated minute");
+    require(stable >= 15, "the switched play did not settle");
     require(
         replay_named_colour(colour_name) == colour_number,
         "watch again lost " + colour_name + "'s colour"
     );
+    require(replay_viewer_command("watch.whole-view"), "Q did not return every player");
+    set_camera_position(straight_camera_x, straight_camera_z, 0);
     const uint64_t again = match_world_digest();
+    std::cout << "replay viewer straight " << digest_text(straight) << '\n';
+    std::cout << "replay viewer switched " << digest_text(again) << '\n';
     require(
         again == straight,
         "the digest changed: " + digest_text(straight) + " then " + digest_text(again)
     );
-    std::cout << "replay viewer digest " << digest_text(straight) << '\n';
+    bool saw_left = false;
+    for (int row = 0; row < OA_PLAYER_COUNT + 1; ++row) {
+        const std::string index_text = std::to_string(row);
+        for (const char* kind : {"watch-row.", "watch-chip."}) {
+            const std::optional<AutomationControl> control =
+                named(std::string("oa.replay-viewer.") + kind + index_text);
+            if (control && control->text.find("Left") != std::string::npos)
+                saw_left = true;
+        }
+    }
+    require(saw_left, "no row says the player left");
 
     leave_match();
     load(Screen::main_menu);

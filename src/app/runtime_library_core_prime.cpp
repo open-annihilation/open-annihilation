@@ -29,6 +29,7 @@
 #include "oa/ui/library/text.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -243,7 +244,7 @@ std::optional<url::Url> download_api_of(Runtime& runtime) {
     return url::parse_http_url(kKnownDownloadApi);
 }
 
-std::string query_key_of(const library::Library& model) {
+std::string query_key_of(const library::Library& model, std::string_view handle) {
     using library::CorePrimeFilter;
     const CorePrimeFilter filter = model.replays.core_filter;
     if (filter == CorePrimeFilter::longest)
@@ -252,6 +253,8 @@ std::string query_key_of(const library::Library& model) {
         return "downloads";
     if (filter == CorePrimeFilter::planet && !model.replays.planet.empty())
         return "newest\n" + model.replays.planet;
+    if (filter == CorePrimeFilter::mine && !handle.empty())
+        return "newest\nplayer=" + std::string(handle);
     return "newest";
 }
 
@@ -263,7 +266,12 @@ replay_data::FeedQuery query_from_key(std::string_view key, std::string_view aft
         query.sort = std::string(key);
     } else {
         query.sort = std::string(key.substr(0, split));
-        query.planet = std::string(key.substr(split + 1));
+        const std::string_view rest = key.substr(split + 1);
+        constexpr std::string_view player = "player=";
+        if (rest.starts_with(player))
+            query.player = std::string(rest.substr(player.size()));
+        else
+            query.planet = std::string(rest);
     }
     query.after = std::string(after);
     return query;
@@ -293,7 +301,7 @@ http::Response fetch_get(
 
 /// One page of one query, and one replay's file coming down on its own worker.
 struct CorePrimeShelf {
-    enum class AskKind : uint8_t { list, entry, file, locate };
+    enum class AskKind : uint8_t { list, entry, file, locate, battle };
     enum class FileHow : uint8_t {
         saved,
         already,
@@ -335,6 +343,12 @@ struct CorePrimeShelf {
         std::optional<std::string> install{};
         /// The file generation this ask was queued at. A newer one cancels it.
         uint64_t generation{};
+        /// A battle lookup's player, kind and game id. The kind is a registered id.
+        std::string player{};
+        std::string kind_id{};
+        std::string game_id{};
+        /// Put the entry into the list on screen when no page holds it yet.
+        bool insert{};
     };
 
     struct Done {
@@ -357,6 +371,9 @@ struct CorePrimeShelf {
         std::string relative{};
         /// The worker stopped because the shelf was closed. Say nothing.
         bool quiet{};
+        /// Copied from the ask: show this entry even when no page held it.
+        bool insert{};
+        std::string game_id{};
     };
 
     struct Cache {
@@ -397,6 +414,10 @@ struct CorePrimeShelf {
     std::atomic<bool> cancel{false};
     /// Bumped to stop the file that is waiting. Queued files take the new value.
     std::atomic<uint64_t> file_generation{1};
+    /// Which of `file_cancel_flag` the file now in flight watches. Flipped per fetch.
+    std::atomic<uint32_t> file_slot{0};
+    /// One flag per fetch. Closing sets both, so a new fetch cannot clear a close.
+    std::array<std::atomic<bool>, 2> file_cancel_flag{};
     bool stop{};
     bool started{};
     bool file_started{};
@@ -453,6 +474,28 @@ struct CorePrimeShelf {
     /// The note the main thread last wrote onto the card.
     std::string noted_id{};
     std::string noted_sentence{};
+
+    /// Whether the selected battle on this computer is listed.
+    struct Battle {
+        bool active{};
+        std::string path{};
+        std::string key{};
+        std::string player{};
+        std::string kind_id{};
+        std::string game_id{};
+        std::string id{};
+        library::CoreListing listing{library::CoreListing::unknown};
+        bool loading{};
+        bool failed{};
+        uint32_t failed_ms{};
+        uint32_t wait_ms{kBackoffMinMs};
+        uint32_t delay_ms{kBackoffMinMs};
+    };
+
+    Battle battle{};
+    /// An entry fetched by id, kept until the list on screen can show it.
+    std::optional<replay_data::FeedEntry> insert_entry{};
+    std::string select_after{};
 };
 
 namespace {
@@ -586,6 +629,19 @@ bool post_ask(CorePrimeShelf& shelf, CorePrimeShelf::Ask ask) {
             }
             shelf.file_waiting.push_back(std::move(ask));
         } else {
+            // A new battle lookup replaces ones still waiting. The player
+            // moved to another row; an answer for a row they left is dropped
+            // before it is sent. One already in flight still finishes, and
+            // its answer is kept only when it is still the selected battle.
+            if (ask.kind == CorePrimeShelf::AskKind::battle) {
+                std::vector<CorePrimeShelf::Ask> kept;
+                kept.reserve(shelf.waiting.size());
+                for (CorePrimeShelf::Ask& held_ask : shelf.waiting) {
+                    if (held_ask.kind != CorePrimeShelf::AskKind::battle)
+                        kept.push_back(std::move(held_ask));
+                }
+                shelf.waiting = std::move(kept);
+            }
             if (queued(shelf, ask))
                 return false;
             shelf.waiting.push_back(std::move(ask));
@@ -703,6 +759,34 @@ fetch_list(http::Client& client, const CorePrimeShelf::Ask& ask, const std::atom
     return done;
 }
 
+CorePrimeShelf::Done fetch_battle(
+    http::Client& client, const CorePrimeShelf::Ask& ask, const std::atomic<bool>* cancel
+) {
+    CorePrimeShelf::Done done;
+    done.kind = CorePrimeShelf::AskKind::battle;
+    done.key = ask.key;
+    done.game_id = ask.game_id;
+    replay_data::FeedQuery query;
+    query.first = replay_data::replay_page_most;
+    query.sort = "newest";
+    query.kind = ask.kind_id;
+    query.player = ask.player;
+    std::vector<uint8_t> body;
+    const http::Response response = fetch_get(
+        client, replay_data::feed_list_url(ask.origin, query), body, kFeedBodyBytes, cancel
+    );
+    note_http(done, response, body);
+    if (response.failure != http::Failure::none || response.status == 0) {
+        done.network = true;
+        return done;
+    }
+    const replay_data::FeedPageResult page = replay_data::parse_replay_page(body_text(body));
+    done.status = page.status;
+    done.page = page.page;
+    done.failure = page.failure;
+    return done;
+}
+
 CorePrimeShelf::Done fetch_entry_done(
     http::Client& client, const CorePrimeShelf::Ask& ask, const std::atomic<bool>* cancel
 ) {
@@ -710,6 +794,7 @@ CorePrimeShelf::Done fetch_entry_done(
     done.kind = CorePrimeShelf::AskKind::entry;
     done.id = ask.id;
     done.watch = ask.watch;
+    done.insert = ask.insert;
     const std::string address = replay_data::feed_entry_url(ask.origin, ask.id);
     if (address.empty()) {
         done.status = replay_data::FeedStatus::refused;
@@ -1282,6 +1367,8 @@ void core_prime_worker(void* argument) {
             done = fetch_entry_done(client, ask, &shelf.cancel);
         else if (ask.kind == CorePrimeShelf::AskKind::locate)
             done = locate_file(ask);
+        else if (ask.kind == CorePrimeShelf::AskKind::battle)
+            done = fetch_battle(client, ask, &shelf.cancel);
         else
             continue;
         {
@@ -1311,14 +1398,27 @@ void core_prime_file_worker(void* argument) {
             shelf.file_running_id = ask.id;
         }
         CorePrimeShelf::Done done;
-        if (shelf.cancel.load() || shelf.file_generation.load() != ask.generation) {
+        const uint64_t generation = ask.generation;
+        if (shelf.file_generation.load() != generation) {
             done.kind = CorePrimeShelf::AskKind::file;
             done.id = ask.id;
             done.watch = ask.watch;
             done.quiet = true;
             clear_live_note(shelf);
         } else {
-            done = fetch_file(client, shelf, ask, &shelf.cancel);
+            const uint32_t slot = shelf.file_slot.fetch_xor(1) & 1U;
+            std::atomic<bool>& flag = shelf.file_cancel_flag[slot];
+            flag.store(false);
+            if (shelf.file_generation.load() != generation) {
+                flag.store(true);
+                done.kind = CorePrimeShelf::AskKind::file;
+                done.id = ask.id;
+                done.watch = ask.watch;
+                done.quiet = true;
+                clear_live_note(shelf);
+            } else {
+                done = fetch_file(client, shelf, ask, &flag);
+            }
         }
         {
             base::threads::LockGuard held(shelf.mutex);
@@ -1340,7 +1440,23 @@ std::string shown_title(const replay_data::FeedEntry& entry) {
     return entry.id;
 }
 
-library::ReplayRow row_from(const replay_data::FeedEntry& entry) {
+bool ascii_same(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        unsigned char a = static_cast<unsigned char>(left[index]);
+        unsigned char b = static_cast<unsigned char>(right[index]);
+        if (a >= 'A' && a <= 'Z')
+            a = static_cast<unsigned char>(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z')
+            b = static_cast<unsigned char>(b - 'A' + 'a');
+        if (a != b)
+            return false;
+    }
+    return true;
+}
+
+library::ReplayRow row_from(const replay_data::FeedEntry& entry, std::string_view mine_handle) {
     library::ReplayRow row;
     row.replay = entry.replay;
     row.replay.map = shown_title(entry);
@@ -1369,6 +1485,12 @@ library::ReplayRow row_from(const replay_data::FeedEntry& entry) {
                 standing.kills_only = true;
                 standing.kills = static_cast<uint32_t>(*player.kills);
             }
+            if (!mine_handle.empty() && ascii_same(player.name, mine_handle)) {
+                if (player.result == "won")
+                    row.recorded = library::RecordedResult::won;
+                else if (player.result == "lost")
+                    row.recorded = library::RecordedResult::lost;
+            }
         }
     }
     return row;
@@ -1387,6 +1509,9 @@ void destroy_core_prime_shelf(CorePrimeShelf* shelf) noexcept {
         join = shelf->started;
         join_file = shelf->file_started;
     }
+    shelf->file_cancel_flag[0].store(true);
+    shelf->file_cancel_flag[1].store(true);
+    shelf->file_generation.fetch_add(1);
     shelf->cancel.store(true);
     shelf->wake.notify_all();
     shelf->file_wake.notify_all();
@@ -1610,6 +1735,50 @@ void CorePrimeHost::apply_done(
         cache.delay_ms = kBackoffMinMs;
         if (first)
             cache.refresh = false;
+        if (shelf.insert_entry) {
+            bool held = false;
+            for (const replay_data::FeedEntry& item : cache.items) {
+                if (item.id == shelf.insert_entry->id)
+                    held = true;
+            }
+            if (!held)
+                cache.items.insert(cache.items.begin(), *shelf.insert_entry);
+        }
+        return;
+    }
+    if (done.kind == CorePrimeShelf::AskKind::battle) {
+        if (done.key != shelf.battle.key)
+            return;
+        shelf.battle.loading = false;
+        const bool page = !done.network && done.status == replay_data::FeedStatus::page;
+        if (!page) {
+            const bool unavailable =
+                done.failure.error == kReplaysUnavailable || done.http_status == 503;
+            const Backoff wait = backoff_for(
+                shelf.battle.wait_ms,
+                done.http_status,
+                done.retry_after_seconds,
+                unavailable || done.http_status == 429
+            );
+            shelf.battle.failed = true;
+            shelf.battle.failed_ms = platform::tick_ms();
+            shelf.battle.delay_ms = wait.delay_ms;
+            shelf.battle.wait_ms = wait.next_wait_ms;
+            shelf.battle.listing = library::CoreListing::asking;
+            return;
+        }
+        shelf.battle.failed = false;
+        shelf.battle.wait_ms = kBackoffMinMs;
+        shelf.battle.delay_ms = kBackoffMinMs;
+        shelf.battle.id.clear();
+        shelf.battle.listing = library::CoreListing::absent;
+        for (const replay_data::FeedEntry& item : done.page.items) {
+            if (item.game_id == shelf.battle.game_id && !item.game_id.empty()) {
+                shelf.battle.listing = library::CoreListing::listed;
+                shelf.battle.id = item.id;
+                break;
+            }
+        }
         return;
     }
     if (done.kind == CorePrimeShelf::AskKind::entry) {
@@ -1641,6 +1810,10 @@ void CorePrimeHost::apply_done(
             return;
         }
         store_entry(shelf, done.entry);
+        if (done.insert && done.have_entry) {
+            shelf.insert_entry = done.entry;
+            shelf.select_after = done.entry.id;
+        }
         if (shelf.watch_after == done.id) {
             const std::string id = done.id;
             const std::string relative = shelf.watch_relative;
@@ -1774,6 +1947,12 @@ void Runtime::LibraryHost::publish_core_prime(library::ReplayInputs& inputs) {
     inputs.core_longest_total.reset();
     inputs.core_downloads_total.reset();
     inputs.core_planet_total.reset();
+    inputs.core_mine_total.reset();
+    inputs.core_battle = shelf.battle.active;
+    inputs.core_listing =
+        shelf.battle.active ? shelf.battle.listing : library::CoreListing::unknown;
+    inputs.core_listing_path = shelf.battle.path;
+    inputs.core_listing_id = shelf.battle.id;
     const auto counted = [&](std::string_view key) -> std::optional<int64_t> {
         const CorePrimeShelf::Cache* found = cache_for(shelf, key);
         if (found != nullptr && found->have)
@@ -1785,6 +1964,9 @@ void Runtime::LibraryHost::publish_core_prime(library::ReplayInputs& inputs) {
     inputs.core_downloads_total = counted("downloads");
     if (!model.replays.planet.empty())
         inputs.core_planet_total = counted("newest\n" + model.replays.planet);
+    const std::string handle = signed_handle();
+    if (!handle.empty())
+        inputs.core_mine_total = counted("newest\nplayer=" + handle);
     inputs.planets = shelf.planets;
     std::sort(inputs.planets.begin(), inputs.planets.end());
     const CorePrimeShelf::Cache* cache = cache_for(shelf, shelf.shown_key);
@@ -1797,8 +1979,12 @@ void Runtime::LibraryHost::publish_core_prime(library::ReplayInputs& inputs) {
     inputs.core_unreadable = cache->unreadable && cache->items.empty();
     inputs.core_unavailable = cache->unavailable && cache->items.empty();
     inputs.core_rows.reserve(cache->items.size());
+    std::string_view mine;
+    constexpr std::string_view mine_key = "newest\nplayer=";
+    if (shelf.shown_key.starts_with(mine_key))
+        mine = std::string_view(shelf.shown_key).substr(mine_key.size());
     for (const replay_data::FeedEntry& entry : cache->items) {
-        library::ReplayRow row = row_from(entry);
+        library::ReplayRow row = row_from(entry, mine);
         if (shelf.gaps && shelf.gaps->id == entry.id)
             row.gaps = shelf.gaps->gaps;
         for (const CorePrimeShelf::SavedHere& saved : shelf.saved) {
@@ -1892,6 +2078,24 @@ void Runtime::LibraryHost::start_core_download(
     ++model_revision;
 }
 
+void Runtime::LibraryHost::open_core_replay(Runtime& runtime, const std::string& id) {
+    if (!replay_data::replay_id_ok(id))
+        return;
+    CorePrimeShelf& shelf = core_prime_shelf();
+    if (!ensure_core_worker(shelf))
+        return;
+    CorePrimeShelf::Ask ask = base_ask(runtime);
+    ask.kind = CorePrimeShelf::AskKind::entry;
+    ask.id = id;
+    ask.insert = true;
+    shelf.detail_id = id;
+    shelf.select_after = id;
+    library::set_replay_source(model, library::ReplaySource::core_prime);
+    if (!post_ask(shelf, std::move(ask)))
+        return;
+    ++model_revision;
+}
+
 void Runtime::LibraryHost::cancel_core_download() {
     if (!core_prime)
         return;
@@ -1899,6 +2103,8 @@ void Runtime::LibraryHost::cancel_core_download() {
     bool running = false;
     {
         base::threads::LockGuard held(shelf.mutex);
+        shelf.file_cancel_flag[0].store(true);
+        shelf.file_cancel_flag[1].store(true);
         const uint64_t next = shelf.file_generation.fetch_add(1) + 1;
         std::vector<CorePrimeShelf::Ask> kept;
         kept.reserve(shelf.file_waiting.size());
@@ -1932,14 +2138,91 @@ void Runtime::LibraryHost::cancel_core_download() {
     ++model_revision;
 }
 
+namespace {
+
+bool registered_kind(const replay_data::Replay& replay, std::string& kind_id) {
+    if (replay.game_id.empty() || replay.kind.empty())
+        return false;
+    for (const replay_data::Kind& kind : replay_data::registered_kinds()) {
+        if (kind.id == replay.kind) {
+            kind_id = kind.id;
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string battle_player(const replay_data::Replay& replay) {
+    for (const replay_data::Player& player : replay.players) {
+        if (player.recorded_here && !player.name.empty())
+            return player.name;
+    }
+    if (!replay.players.empty() && !replay.players.front().name.empty())
+        return replay.players.front().name;
+    return replay.recorded_by;
+}
+
+} // namespace
+
+void Runtime::LibraryHost::sync_battle(Runtime& runtime, CorePrimeShelf& shelf, bool& changed) {
+    const bool open = CorePrimeGate::library_open(runtime);
+    const library::ReplayRow* row = nullptr;
+    if (open && model.replays.source == library::ReplaySource::computer && model.replays.selected)
+        row = library::find_replay(model, *model.replays.selected);
+    std::string kind_id;
+    if (row == nullptr || !registered_kind(row->replay, kind_id)) {
+        if (shelf.battle.active || shelf.battle.loading) {
+            shelf.battle = {};
+            changed = true;
+        }
+        return;
+    }
+    const std::string player = battle_player(row->replay);
+    const std::string key = "battle\n" + player + "\n" + row->replay.game_id;
+    if (!shelf.battle.active || shelf.battle.key != key) {
+        shelf.battle = {};
+        shelf.battle.active = true;
+        shelf.battle.path = row->replay.path;
+        shelf.battle.key = key;
+        shelf.battle.player = player;
+        shelf.battle.kind_id = kind_id;
+        shelf.battle.game_id = row->replay.game_id;
+        shelf.battle.listing = library::CoreListing::asking;
+        changed = true;
+    }
+    if (shelf.battle.loading || shelf.battle.listing != library::CoreListing::asking)
+        return;
+    const uint32_t now = platform::tick_ms();
+    if (shelf.battle.failed && now - shelf.battle.failed_ms < shelf.battle.delay_ms)
+        return;
+    CorePrimeShelf::Ask ask = base_ask(runtime);
+    ask.kind = CorePrimeShelf::AskKind::battle;
+    ask.key = shelf.battle.key;
+    ask.player = shelf.battle.player;
+    ask.kind_id = shelf.battle.kind_id;
+    ask.game_id = shelf.battle.game_id;
+    shelf.battle.loading = true;
+    if (!post_ask(shelf, std::move(ask)))
+        shelf.battle.loading = false;
+    else
+        changed = true;
+}
+
 void Runtime::LibraryHost::pump_core_prime(Runtime& runtime) {
+    // Share keeps running when the Core Prime list is not the one on screen.
+    // A check that holds the rows still lets a share already sent finish.
+    pump_core_share(runtime);
     // A check's rows stay. Publishing the shelf would replace them, and a
     // list ask would read a feed the check did not start.
     if (replays_held)
         return;
     const bool open = CorePrimeGate::library_open(runtime);
     const bool wanted = model.replays.source == library::ReplaySource::core_prime && open;
-    if (!core_prime && !wanted)
+    // A battle on this computer asks the feed whether Core Prime lists it,
+    // even while the Core Prime list itself is not showing.
+    const bool local_card = open && model.replays.source == library::ReplaySource::computer &&
+                            model.replays.selected.has_value();
+    if (!core_prime && !wanted && !local_card)
         return;
     CorePrimeShelf& shelf = core_prime_shelf();
     std::vector<CorePrimeShelf::Done> ready;
@@ -1992,6 +2275,8 @@ void Runtime::LibraryHost::pump_core_prime(Runtime& runtime) {
         if (running || queued_files || !shelf.downloading_id.empty()) {
             {
                 base::threads::LockGuard held(shelf.mutex);
+                shelf.file_cancel_flag[0].store(true);
+                shelf.file_cancel_flag[1].store(true);
                 shelf.file_generation.fetch_add(1);
                 shelf.file_waiting.clear();
                 running = shelf.file_running;
@@ -2011,8 +2296,10 @@ void Runtime::LibraryHost::pump_core_prime(Runtime& runtime) {
         }
     }
 
+    sync_battle(runtime, shelf, changed);
     const bool busy = !shelf.downloading_id.empty() || !shelf.watch_after.empty();
-    if (!wanted && !busy) {
+    const bool battle_busy = shelf.battle.active || shelf.battle.loading;
+    if (!wanted && !busy && !battle_busy) {
         shelf.was_wanted = false;
         if (changed) {
             publish_core_prime(model.inputs.replays);
@@ -2028,7 +2315,8 @@ void Runtime::LibraryHost::pump_core_prime(Runtime& runtime) {
         }
         shelf.was_wanted = wanted;
         if (wanted) {
-            CorePrimeShelf::Cache& cache = ensure_cache(shelf, query_key_of(model));
+            CorePrimeShelf::Cache& cache =
+                ensure_cache(shelf, query_key_of(model, signed_handle()));
             shelf.shown_key = cache.key;
             if (cache.items.empty())
                 cache.offline = true;
@@ -2040,7 +2328,7 @@ void Runtime::LibraryHost::pump_core_prime(Runtime& runtime) {
     }
 
     if (wanted) {
-        const std::string key = query_key_of(model);
+        const std::string key = query_key_of(model, signed_handle());
         const bool shown_again = shelf.shown_key != key || !shelf.was_wanted;
         shelf.shown_key = key;
         CorePrimeShelf::Cache& cache = ensure_cache(shelf, key);
@@ -2146,6 +2434,23 @@ void Runtime::LibraryHost::pump_core_prime(Runtime& runtime) {
         }
     }
     shelf.was_wanted = wanted;
+    if (!shelf.select_after.empty()) {
+        const CorePrimeShelf::Cache* shown = cache_for(shelf, shelf.shown_key);
+        bool there = false;
+        if (shown != nullptr) {
+            for (const replay_data::FeedEntry& item : shown->items) {
+                if (item.id == shelf.select_after)
+                    there = true;
+            }
+        }
+        if (there) {
+            library::set_replay_source(model, library::ReplaySource::core_prime);
+            library::select_replay(model, shelf.select_after);
+            shelf.select_after.clear();
+            shelf.insert_entry.reset();
+            changed = true;
+        }
+    }
 
     if (!changed)
         return;

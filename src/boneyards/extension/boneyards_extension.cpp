@@ -39,6 +39,7 @@
 #include "oa/boneyards/rover_replay.hpp"
 #include "oa/boneyards/rover_session.hpp"
 #include "oa/boneyards/service.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/screens/galaxy.hpp"
 #include "oa/boneyards/screens/lobby_widgets.hpp"
 #include "oa/boneyards/screens/profile.hpp"
@@ -91,8 +92,10 @@
 // post_extension_note and take_extension_notes. Version 21 adds
 // accessibility fields on controls, the replay viewer's eight hooks, and
 // the rectangle where an extension window's art takes the press. The strip
-// states that rectangle while its art is drawn. None of 15 to 21 is a hook
-// this module fills.
+// states that rectangle while its art is drawn. Version 21 also adds
+// ScreenServices::main_menu_order_owns_key. The main-menu overlay calls it
+// and passes the key on when the host owns it. This extension table fills
+// no new hook. None of 15 to 21 is a hook this module fills.
 constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
@@ -126,6 +129,7 @@ oa::boneyards::console::StatusWidget* boneyards_console_status_widget();
 void boneyards_console_set_text_fonts(const oa::boneyards::html::FontService& fonts);
 void boneyards_console_set_analogue_atlas_path(const char* path);
 void boneyards_console_idle(uint32_t now_ms);
+void boneyards_console_exit_to_menu();
 bool boneyards_console_up();
 bool boneyards_console_ask_exit();
 void boneyards_console_release();
@@ -145,6 +149,11 @@ bool boneyards_console_menu_entry(
 );
 void boneyards_entry_install(Runtime& runtime);
 void boneyards_entry_on_frame(Runtime& runtime, FrameStage stage);
+// Runtime is incomplete here. These reach its methods from the files that
+// define them.
+void snapshot_presented_stage(Runtime& runtime, const char* stage);
+void queue_battle_replay_share(Runtime& runtime);
+[[nodiscard]] bool battle_has_recording(const Runtime& runtime);
 
 // The --check-* runs. Defined in boneyards_self_checks.cpp, which a release
 // build does not compile, so this file includes no header of the checks.
@@ -971,7 +980,8 @@ void append_spoken_image(
     std::vector<ExtensionWindow>& windows,
     const char* window_name,
     const oa::boneyards::Window* icon,
-    const std::string& label
+    const std::string& label,
+    const char* description
 ) {
     if (window_name == nullptr || window_name[0] == '\0' || icon == nullptr ||
         icon->name == nullptr)
@@ -998,6 +1008,8 @@ void append_spoken_image(
             added.role_set = true;
             added.role = ExtensionControlRole::image;
             added.label = label;
+            if (description != nullptr && description[0] != '\0')
+                added.description = description;
         }
         break;
     }
@@ -1015,8 +1027,13 @@ void append_player_icons(std::vector<ExtensionWindow>& windows, oa::boneyards::W
     oa::boneyards::screens::PlayerIconWords words;
     if (oa::boneyards::screens::player_icon_words(window, &words)) {
         const std::string label = icon_label(words);
+        const char* player_name = nullptr;
+        const oa::boneyards::Window* row = window->parent;
+        if (row != nullptr && row->ops != nullptr && row->ops->class_name != nullptr &&
+            std::strcmp(row->ops->class_name, oa::boneyards::screens::kByPlayerRowClass) == 0)
+            player_name = reinterpret_cast<const oa::boneyards::screens::ByPlayerRow*>(row)->name;
         if (!label.empty())
-            append_spoken_image(windows, icon_window_name(window), window, label);
+            append_spoken_image(windows, icon_window_name(window), window, label, player_name);
     }
     for (int32_t index = 0; index < window->children.count; ++index) {
         oa::boneyards::Window* child = window->children.items[index];
@@ -1034,6 +1051,91 @@ void append_player_icons(std::vector<ExtensionWindow>& windows, oa::boneyards::W
 bool menu_former(const std::string& name) {
     return name == "SingleFormer" || name == "MultiFormer" || name == "IntroFormer" ||
            name == "ExitFormer";
+}
+
+oa::boneyards::Window* find_named_on_desktop(const char* name) {
+    oa::boneyards::console::StatusWidget* widget = boneyards_console_status_widget();
+    if (widget == nullptr || name == nullptr)
+        return nullptr;
+    for (int32_t i = 0; i < widget->desktop.windows.count; ++i) {
+        oa::boneyards::Window* top = widget->desktop.windows.items[i];
+        if (top == nullptr)
+            continue;
+        oa::boneyards::Window* found = oa::boneyards::window_find_named(top, name, nullptr);
+        if (found != nullptr)
+            return found;
+    }
+    return nullptr;
+}
+
+/// The three player-pane tabs are one set. Their captions share the buttons'
+/// rectangles, so those captions are hidden. The icons stay on Chat players.
+void note_player_tabs(ExtensionWindow& window) {
+    const char* names[3] = {"GeneralTabBtn", "LadderTabBtn", "AwardsTabBtn"};
+    const char* captions[3] = {"General", "Ladder", "Awards"};
+    int index[3] = {-1, -1, -1};
+    for (std::size_t i = 0; i < window.controls.size(); ++i) {
+        for (int tab = 0; tab < 3; ++tab) {
+            if (window.controls[i].name == names[tab])
+                index[tab] = static_cast<int>(i);
+        }
+    }
+    if (index[0] < 0 || index[1] < 0 || index[2] < 0)
+        return;
+    int32_t left = window.controls[static_cast<std::size_t>(index[0])].x;
+    int32_t top = window.controls[static_cast<std::size_t>(index[0])].y;
+    int32_t right = left;
+    int32_t bottom = top;
+    for (int tab = 0; tab < 3; ++tab) {
+        ExtensionControl& control = window.controls[static_cast<std::size_t>(index[tab])];
+        const oa::boneyards::Window* live = find_named_on_desktop(names[tab]);
+        control.place = tab + 1;
+        control.set_size = 3;
+        control.chosen = live != nullptr && live->access_chosen != 0;
+        if (control.x < left)
+            left = control.x;
+        if (control.y < top)
+            top = control.y;
+        if (control.x + control.width > right)
+            right = control.x + control.width;
+        if (control.y + control.height > bottom)
+            bottom = control.y + control.height;
+    }
+    for (ExtensionControl& control : window.controls) {
+        if (control.kind != ExtensionControlKind::label)
+            continue;
+        bool caption = false;
+        for (const char* name : captions) {
+            if (control.name == name)
+                caption = true;
+        }
+        if (!caption)
+            continue;
+        for (int tab = 0; tab < 3; ++tab) {
+            const ExtensionControl& button = window.controls[static_cast<std::size_t>(index[tab])];
+            if (control.x == button.x && control.y == button.y && control.width == button.width &&
+                control.height == button.height)
+                control.hidden = true;
+        }
+    }
+    int earliest = index[0];
+    if (index[1] < earliest)
+        earliest = index[1];
+    if (index[2] < earliest)
+        earliest = index[2];
+    ExtensionControl group;
+    group.name = "PlayerTabs";
+    group.kind = ExtensionControlKind::label;
+    group.role_set = true;
+    group.role = ExtensionControlRole::tab_list;
+    group.enabled = false;
+    group.visible = true;
+    group.label = spoken("Player");
+    group.x = left;
+    group.y = top;
+    group.width = right > left ? right - left : 0;
+    group.height = bottom > top ? bottom - top : 0;
+    window.controls.insert(window.controls.begin() + earliest, std::move(group));
 }
 
 /// Fills the words, roles and shortcuts of the controls just listed.
@@ -1191,6 +1293,7 @@ void fill_access(
             if (!selected.empty())
                 group.value_text = spoken(selected.c_str());
         }
+        note_player_tabs(window);
     }
 }
 
@@ -1216,9 +1319,11 @@ void state_strip_press(std::vector<ExtensionWindow>& windows) {
 /// Keeps the main menu's strip in the listing to what the menu shows.
 ///
 /// With the strip's rows not shown (button and none modes) its buttons take
-/// no click, so they are left out. In button mode ENTER is listed where it
-/// stands on the plate. While the strip is drawn, its window states the
-/// rectangle where that art takes the press.
+/// no click, so they are left out. In button mode only ENTER is listed,
+/// where it stands once the plate's place is applied. Credits is the menu's
+/// own control, at the place it is drawn, and is not listed here. While the
+/// strip is drawn, its window states the rectangle where that art takes the
+/// press.
 ///
 /// @param[in,out] windows the consoles being listed
 void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
@@ -1292,7 +1397,8 @@ void note_region_first_stop(std::vector<ExtensionWindow>& windows) {
 /// nothing, so each planet on the viewer is listed as not taking a click.
 /// Picture buttons, icons and planets carry the words a player hears. Their
 /// window names, and the facts line a planet shows, stay as they are.
-/// On a main menu without the strip only the plate's ENTER is listed.
+/// On a main menu without the strip the plate's ENTER is listed. Credits is
+/// the menu's own control there, not a second button under the plate.
 /// While the strip is drawn, its window states where its art takes the press.
 ///
 /// @param context unused
@@ -1661,7 +1767,9 @@ void register_screens(void* /*context*/, ScreenRegistry* registry) {
     // build does not compile them, so this branch is left out with them.
     if constexpr (self_checks_built) {
         if (boneyards_options().boneyards_launch)
-            register_boneyards_launch_check(registry, *boneyards_options().boneyards_launch);
+            register_boneyards_launch_check(
+                registry, *boneyards_options().boneyards_launch, boneyards_options().launch_for_fun
+            );
         if (boneyards_options().boneyards_features)
             register_boneyards_features_check(registry, *boneyards_options().boneyards_features);
         if (boneyards_options().boneyards_overlay)
@@ -1732,6 +1840,12 @@ void frame(void* /*context*/, Runtime& runtime, FrameStage stage) {
         if constexpr (self_checks_built) {
             if (boneyards_options().boneyards_overlay)
                 present_boneyards_overlay(check_host(runtime), runtime_options(runtime));
+            if (boneyards_launch_notice_pending()) {
+                snapshot_presented_stage(
+                    runtime, oa::boneyards::screens::after_battle_picture_name()
+                );
+                boneyards_launch_notice_taken();
+            }
         }
         return;
     }
@@ -1742,6 +1856,13 @@ void frame(void* /*context*/, Runtime& runtime, FrameStage stage) {
     oa::boneyards::console::chat_set_modern_text(text.modern_fonts, text.text_size);
     exit_prompt_observe(g_exit_prompt, exit_prompt_observation());
     boneyards_console_idle(idle_clock_ms(runtime));
+    // Share… on the For Fun prompt leaves these screens and opens that
+    // battle's recording in the Library, with the share question. The
+    // prompt only records the choice; this frame takes it.
+    if (oa::boneyards::screens::take_after_battle_share()) {
+        boneyards_console_exit_to_menu();
+        queue_battle_replay_share(runtime);
+    }
     note_lobby_frame(runtime);
     boneyards_pump_overlay_route();
     // The idle work pumps the session, so this reads the login, logout or
@@ -1792,14 +1913,15 @@ void app_mode_set(void* /*context*/, Runtime& /*runtime*/, int32_t mode) {
 /// @param game The new match's Game block (unused).
 void match_game(void* /*context*/, oa::Game& /*game*/) {
     exit_prompt_match_started(g_exit_prompt);
+    oa::boneyards::screens::mark_after_battle_played();
 }
 
 /// Notes a match that finished, was left or was torn down, which the Boneyards box follows (Extension::match_event).
 ///
 /// @param context Extension context (unused).
-/// @param runtime The running app (unused).
+/// @param runtime The running app.
 /// @param event What happened to the match.
-void match_event(void* /*context*/, Runtime& /*runtime*/, MatchEvent event) {
+void match_event(void* /*context*/, Runtime& runtime, MatchEvent event) {
     // boneyards_match_event_leaves knows these values. A reorder has to change it.
     static_assert(static_cast<uint8_t>(MatchEvent::finished) == 0);
     static_assert(static_cast<uint8_t>(MatchEvent::torn_down) == 1);
@@ -1811,6 +1933,11 @@ void match_event(void* /*context*/, Runtime& /*runtime*/, MatchEvent event) {
     if (event == MatchEvent::finished || event == MatchEvent::torn_down ||
         event == MatchEvent::left)
         exit_prompt_match_ended(g_exit_prompt);
+    // torn_down also runs when a new battle's setup destroys the previous
+    // match, before that battle starts. The recording is sampled only on the
+    // way out.
+    if (event == MatchEvent::finished || event == MatchEvent::left)
+        oa::boneyards::screens::mark_after_battle_recorded(battle_has_recording(runtime));
     if (boneyards_match_event_leaves(static_cast<uint8_t>(event)))
         boneyards_match_ended();
 }

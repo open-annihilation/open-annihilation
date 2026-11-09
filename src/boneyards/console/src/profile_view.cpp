@@ -221,6 +221,8 @@ void profile_build(Window* self) {
         self,
         true
     );
+    // Focusing the list must not move it past the tab's fields.
+    window_keep_place(&view->list->list.base);
     for (screens::ProfileTab tab : k_row_tabs) {
         const auto index = static_cast<std::size_t>(tab);
         const char* name = templates != nullptr ? templates->category_names[index] : nullptr;
@@ -294,6 +296,14 @@ void profile_on_notify(Window* self, const Notify* notify) {
         return;
     }
     if (notify->source == &view->list->list.base) {
+        // A click has already named its row. An arrow names the row the list
+        // shows only once Tab, Shift+Tab or F6 has shown the keyboard ring.
+        // With no ring, the category the click named stays.
+        Window* chosen = list_box_item(&view->list->list, list_box_selected(&view->list->list));
+        const Desktop* desktop = services().desktop;
+        const bool ring_shown = desktop != nullptr && desktop->keyboard_ring != 0;
+        if (ring_shown && chosen != nullptr)
+            view->list->selected_item = chosen;
         const Window* row = view->list->selected_item;
         if (row == nullptr || !row->ops->is_class(screens::kByCircleRowClass))
             return;

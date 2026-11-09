@@ -12,11 +12,13 @@
 #include "replay_index_pass.hpp"
 
 #include "oa/app/hook_call.hpp"
+#include "oa/app/replay_watch.hpp"
 #include "oa/app/user_folder.hpp"
 #include "oa/base/threads.hpp"
 #include "oa/core/player.h"
 #include "oa/core/world.h"
 #include "oa/data/input_actions/actions.hpp"
+#include "oa/data/defs/layout.hpp"
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/platform/files.hpp"
@@ -105,6 +107,22 @@ struct BuiltIndex {
 
     std::vector<MetaColour> meta_colours{};
 };
+
+/// The game time of a tick, as "18:02". Minutes have no leading zero.
+///
+/// @param tick the game tick
+/// @return the clock
+std::string clock_of(uint32_t tick) {
+    const uint32_t seconds_total = tick / rv::ticks_per_second;
+    const uint32_t minutes = seconds_total / 60;
+    const uint32_t seconds = seconds_total % 60;
+    std::string text = std::to_string(minutes);
+    text.push_back(':');
+    if (seconds < 10)
+        text.push_back('0');
+    text += std::to_string(seconds);
+    return text;
+}
 
 /// Returns a player's name up to the first zero. The slot's text is game text.
 ///
@@ -408,6 +426,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             return;
         points_width_ = points.x;
         points_height_ = points.y;
+        // 640×480's battlefield is 512 points wide. Until the player folds or
+        // opens the list, that width starts folded and a wider one starts open.
+        if (!list_fold_chosen_)
+            list_folded_ = points.x <= 512;
         refresh();
     }
 
@@ -471,6 +493,19 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         if (kind == ScreenInputKind::pointer_down) {
             if (button != 1)
                 return LayerAnswer::pass;
+            const int view_item = model_.view_open ? rv::view_menu_index(layout_, at) : -1;
+            const int camera_item = model_.camera_open ? rv::camera_menu_index(layout_, at) : -1;
+            const int watch_row = rv::watch_index(layout_, at);
+            if (view_item >= 0 || camera_item >= 0 || watch_row >= 0 ||
+                rv::over_watch_chrome(layout_, at)) {
+                held_view_item_ = view_item;
+                held_camera_item_ = camera_item;
+                held_watch_ = watch_row;
+                held_ = rv::Control::none;
+                visibility_.show();
+                ++revision_;
+                return LayerAnswer::redraw;
+            }
             const rv::Control hit = rv::hit_control(layout_, at);
             held_ = hit;
             if (hit == rv::Control::timeline) {
@@ -490,6 +525,26 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             dragging_ = false;
             held_ = rv::Control::none;
             return LayerAnswer::none;
+        }
+        if (held_view_item_ >= 0 || held_camera_item_ >= 0 || held_watch_ >= 0) {
+            const int view_now = model_.view_open ? rv::view_menu_index(layout_, at) : -1;
+            const int camera_now = model_.camera_open ? rv::camera_menu_index(layout_, at) : -1;
+            const int watch_now = rv::watch_index(layout_, at);
+            const int view_was = held_view_item_;
+            const int camera_was = held_camera_item_;
+            const int watch_was = held_watch_;
+            held_view_item_ = -1;
+            held_camera_item_ = -1;
+            held_watch_ = -1;
+            if (view_was >= 0 && view_was == view_now)
+                choose_view_row(view_was);
+            else if (camera_was >= 0 && camera_was == camera_now)
+                choose_camera_row(camera_was);
+            else if (watch_was >= 0 && watch_was == watch_now)
+                choose_watch_row(watch_was);
+            refresh();
+            ++revision_;
+            return LayerAnswer::redraw;
         }
         const rv::Control hit = rv::hit_control(layout_, at);
         const rv::Control pressed = held_;
@@ -513,10 +568,22 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// The wheel goes on to the match.
+    /// The wheel over the player list scrolls it. Anywhere else it goes on.
     ///
-    /// @return pass
-    LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
+    /// @param at the pointer, in the screen's points
+    /// @param notches how far the wheel turned; positive is away from the player
+    /// @return redraw when the list moved; otherwise pass
+    LayerAnswer wheel(kit::Point at, float notches) override {
+        if (notches == 0.0F || !kit::contains(layout_.players, at))
+            return LayerAnswer::pass;
+        if (notches > 0.0F)
+            --list_scroll_;
+        else
+            ++list_scroll_;
+        refresh();
+        ++revision_;
+        return LayerAnswer::redraw;
+    }
 
     /// The pad's own path handles a replay. The screen does not take the action.
     ///
@@ -548,8 +615,13 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         if (pass_wanted() && !pass_started_ && !index_taken_)
             start_index_pass();
         read_playback();
+        if (reset_after_seek_ && !seek_armed_) {
+            reset_after_seek_ = false;
+            reset_watch();
+        }
         advance_visibility();
         refresh();
+        apply_camera();
         pump_export();
         ++revision_;
         return LayerAnswer::redraw;
@@ -601,9 +673,112 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             visibility_.toggle_pin();
         } else if (id == "watch.replay-keys") {
             model_.keys_open = !model_.keys_open;
+        } else if (id == "watch.next-player-view") {
+            step_player_view(1);
+        } else if (id == "watch.previous-player-view") {
+            step_player_view(-1);
+        } else if (id == "watch.whole-view") {
+            show_whole_view();
+        } else if (id == "watch.camera-mode") {
+            step_camera_mode();
         }
         refresh();
         ++revision_;
+    }
+
+    /// Shows the next or previous row of the player list, and scrolls the
+    /// list so that row is on show.
+    ///
+    /// @param delta +1 for the next row, -1 for the previous
+    void step_player_view(int delta) {
+        if (model_.watch.empty())
+            fill_watch();
+        if (model_.watch.empty())
+            return;
+        int index = 0;
+        for (std::size_t place = 0; place < model_.watch.size(); ++place) {
+            if (model_.watch[place].slot == viewed_slot_)
+                index = static_cast<int>(place);
+        }
+        const int count = static_cast<int>(model_.watch.size());
+        int next = index + (delta < 0 ? -1 : 1);
+        if (next < 0)
+            next = count - 1;
+        if (next >= count)
+            next = 0;
+        show_player(model_.watch[static_cast<std::size_t>(next)].slot);
+        keep_row_on_show(next);
+    }
+
+    /// Scrolls the open list so a row is among the rows it shows.
+    ///
+    /// @param row the row, counted from the every-player row
+    void keep_row_on_show(int row) {
+        if (row < list_scroll_)
+            list_scroll_ = row;
+        else if (row >= list_scroll_ + rv::watch_visible_rows)
+            list_scroll_ = row - rv::watch_visible_rows + 1;
+    }
+
+    /// Shows the whole map and every unit.
+    void show_whole_view() {
+        show_player(-1);
+        keep_row_on_show(0);
+    }
+
+    /// Moves to the next camera mode the recording can offer.
+    ///
+    /// Follow a unit is left for Free, and then for the recorded camera when
+    /// the recording shared one. A recording without camera records stays on
+    /// Free.
+    void step_camera_mode() {
+        const rv::CameraMode from =
+            camera_mode_ == rv::CameraMode::follow_unit ? rv::CameraMode::free : camera_mode_;
+        rv::CameraMode next = rv::CameraMode::free;
+        if (from == rv::CameraMode::free && runtime_.replay_shares_camera_)
+            next = rv::CameraMode::follow_theirs;
+        use_camera(next);
+    }
+
+    /// Keeps one unit in the middle until the player pans.
+    ///
+    /// @param unit the unit's slot
+    void follow_unit(uint16_t unit) {
+        if (!runtime_.match_unit_present(unit))
+            return;
+        camera_mode_ = rv::CameraMode::follow_unit;
+        model_.camera = camera_mode_;
+        model_.camera_open = false;
+        runtime_.begin_match_tracking(unit);
+    }
+
+    /// Leaves follow-a-unit. Any other mode stays.
+    void release_unit_follow() {
+        if (camera_mode_ != rv::CameraMode::follow_unit)
+            return;
+        runtime_.stop_match_tracking();
+        camera_mode_ = rv::CameraMode::free;
+        model_.camera = camera_mode_;
+    }
+
+    /// Folds the player list to colour chips, or opens it.
+    void toggle_player_list() {
+        list_fold_chosen_ = true;
+        list_folded_ = !list_folded_;
+        model_.list_folded = list_folded_;
+    }
+
+    /// Shows every player and leaves the camera free. Tracking stops.
+    ///
+    /// The camera stays where it is. A playback that must match an earlier
+    /// picture puts it back itself.
+    void reset_watch() {
+        runtime_.stop_match_tracking();
+        camera_mode_ = rv::CameraMode::free;
+        model_.camera = camera_mode_;
+        model_.view_open = false;
+        model_.camera_open = false;
+        show_player(-1);
     }
 
     /// The bar's thread: it reads the recording and stores a BuiltIndex.
@@ -722,6 +897,9 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     /// Joins the read, drops the bar's pointer and shows chat again.
     void finish() {
         seek_armed_ = false;
+        if (camera_mode_ == rv::CameraMode::follow_unit)
+            runtime_.stop_match_tracking();
+        camera_mode_ = rv::CameraMode::free;
         stop_index_pass();
         oa::base::threads::join_thread(index_thread_);
         release_watched_recording();
@@ -791,11 +969,17 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         if (fonts == nullptr)
             return {};
         const std::string time = rv::time_text(model_.length, model_.length);
+        const std::string view_caption = rv::view_button_caption(model_);
+        const std::string camera_caption = rv::camera_button_caption(model_.camera);
         std::string key = time;
         key += '\n';
         key += rv::speed_caption(16000, 9000, true, false);
         key += '\n';
         key += rv::speed_caption(1000, 1000, false, true);
+        key += '\n';
+        key += view_caption;
+        key += '\n';
+        key += camera_caption;
         if (fonts == widths_fonts_ && key == widths_key_)
             return widths_;
         const auto width = [fonts](const std::string& text) {
@@ -829,6 +1013,8 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             );
         }
         widths.skip = width(rv::speed_caption(1000, 1000, false, true));
+        widths.view = width(view_caption) + rv::menu_mark_points;
+        widths.camera = width(camera_caption) + rv::menu_mark_points;
         widths_fonts_ = fonts;
         widths_key_ = std::move(key);
         widths_ = widths;
@@ -1212,33 +1398,49 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         return -1;
     }
 
+    /// The colour of one live slot.
+    ///
+    /// @param match the match; null has no live colour
+    /// @param slot the live slot; negative is none
+    /// @return the colour number, or -1
+    [[nodiscard]] int live_colour_at(const oa::sim::match_runtime::Match* match, int slot) const {
+        if (match == nullptr || slot < 0 || slot >= OA_PLAYER_COUNT)
+            return -1;
+        const oa::World& world = match->state();
+        const oa::Player& player = world.game.players[slot];
+        if (player.in_use == 0 || player.index >= OA_PLAYER_COUNT)
+            return -1;
+        const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+        return info != nullptr ? static_cast<int>(info->color) : -1;
+    }
+
     /// Returns a player's colour: the match, then a colour it showed before,
     /// then the recording, and only then the number.
+    ///
+    /// The live colour is the slot of the recorded number, never the first
+    /// slot that shares the side's name.
     ///
     /// @param match the match; null has no live colour
     /// @param name the player's name
     /// @param number the player's number; negative is none
+    /// @param slot_known a live slot already chosen; negative looks the number up
     /// @return the colour number, or -1
-    int colour_of(const oa::sim::match_runtime::Match* match, std::string_view name, int number) {
-        int live = -1;
-        if (match != nullptr && !name.empty()) {
-            const oa::World& world = match->state();
-            for (const oa::Player& player : world.game.players) {
-                if (player.in_use == 0 || copied_name(player) != name)
-                    continue;
-                const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
-                if (info != nullptr)
-                    live = info->color;
-                break;
-            }
-        }
+    int colour_of(
+        const oa::sim::match_runtime::Match* match,
+        std::string_view name,
+        int number,
+        int slot_known = -1
+    ) {
+        const int seat =
+            slot_known >= 0 ? slot_known : rv::watch_slot(player_numbers_, number, OA_PLAYER_COUNT);
+        const int live = live_colour_at(match, seat);
         if (live >= 0)
             remember_colour(number, live);
         int remembered = -1;
         if (number >= 0) {
-            const std::size_t slot = static_cast<std::size_t>(number);
-            if (slot < remembered_colours_.size())
-                remembered = remembered_colours_[slot];
+            const std::size_t remembered_at = static_cast<std::size_t>(number);
+            if (remembered_at < remembered_colours_.size())
+                remembered = remembered_colours_[remembered_at];
         }
         return rv::player_colour(live, remembered, recorded_colour(name, number), number);
     }
@@ -1249,14 +1451,17 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         if (match == nullptr)
             return;
         const oa::World& world = match->state();
-        for (rv::PlayerRow& row : model_.players) {
-            for (const oa::Player& player : world.game.players) {
-                if (player.in_use == 0 || copied_name(player) != row.name)
-                    continue;
-                row.kills = player.kills;
-                row.losses = player.losses;
-                break;
-            }
+        for (std::size_t place = 0; place < model_.players.size(); ++place) {
+            rv::PlayerRow& row = model_.players[place];
+            const int number = place < player_numbers_.size() ? player_numbers_[place] : -1;
+            const int slot = rv::watch_slot(player_numbers_, number, OA_PLAYER_COUNT);
+            if (slot < 0)
+                continue;
+            const oa::Player& player = world.game.players[slot];
+            if (player.in_use == 0)
+                continue;
+            row.kills = player.kills;
+            row.losses = player.losses;
         }
     }
 
@@ -1273,11 +1478,14 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     void refresh() {
         points_width_ = std::max(points_width_, int32_t{1});
         points_height_ = std::max(points_height_, int32_t{1});
+        fill_watch();
         model_.can_export = !recording_below(runtime_.user_folder_, watched_path_).empty();
         model_.finding = finding_;
         model_.finding_percent = finding_ ? finding_percent_ : 0;
         model_.widths = measure_widths();
-        static constexpr std::string_view kKeyIds[] = {
+        // F4 folds the list. The resource panel takes that key when it is on,
+        // so the card lists whichever of the two is bound.
+        std::vector<std::string> key_ids{
             "watch.replay-pause",
             "watch.replay-back",
             "watch.replay-forward",
@@ -1289,10 +1497,16 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             "watch.replay-end",
             "watch.replay-bar",
             "watch.replay-keys",
+            "watch.next-player-view",
+            "watch.previous-player-view",
+            "watch.whole-view",
+            "watch.camera-mode",
         };
+        const std::string resource_panel = runtime_.bound_chords_text("game.resource-panel");
+        key_ids.push_back(resource_panel.empty() ? "game.kill-board" : "game.resource-panel");
         model_.key_chords.clear();
-        model_.key_chords.reserve(std::size(kKeyIds));
-        for (const std::string_view id : kKeyIds) {
+        model_.key_chords.reserve(key_ids.size());
+        for (const std::string& id : key_ids) {
             rv::KeyChord row;
             if (const oa::data::input_actions::Action* action = oa::data::input_actions::find(id))
                 row.action = std::string(action->words.name);
@@ -1468,6 +1682,24 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             break;
         case rv::Control::speed:
             model_.speed_open = !model_.speed_open;
+            if (model_.speed_open) {
+                model_.view_open = false;
+                model_.camera_open = false;
+            }
+            break;
+        case rv::Control::view:
+            model_.view_open = !model_.view_open;
+            if (model_.view_open) {
+                model_.camera_open = false;
+                model_.speed_open = false;
+            }
+            break;
+        case rv::Control::camera:
+            model_.camera_open = !model_.camera_open;
+            if (model_.camera_open) {
+                model_.view_open = false;
+                model_.speed_open = false;
+            }
             break;
         case rv::Control::chat:
             runtime_.replay_chat_hidden_ = !runtime_.replay_chat_hidden_;
@@ -1595,6 +1827,256 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         refresh();
     }
 
+    /// Shows one live slot, every player when `slot` is -1, or nothing of a
+    /// seat that is gone when `slot` is below -1.
+    ///
+    /// A gone seat keeps its row. The view is the watcher's own: the match
+    /// no longer holds that player's sight.
+    ///
+    /// @param slot the live slot, -1 for the whole map, or below -1 for a gone seat
+    void show_player(int slot) {
+        model_.view_open = false;
+        model_.camera_open = false;
+        if (slot < -1) {
+            const bool already = viewed_slot_ == slot;
+            viewed_slot_ = slot;
+            if (!already)
+                runtime_.switch_watched_view(oa::ui::hud::ViewSwitch::own_view);
+            return;
+        }
+        if (slot < 0 || slot >= OA_PLAYER_COUNT) {
+            const bool already = viewed_slot_ < 0 && viewed_slot_ >= -1;
+            viewed_slot_ = -1;
+            if (!already)
+                runtime_.switch_watched_view(oa::ui::hud::ViewSwitch::own_view);
+            return;
+        }
+        if (viewed_slot_ == slot)
+            return;
+        runtime_.resource_panel_.viewed_slot = static_cast<uint8_t>(slot);
+        runtime_.switch_watched_view(oa::ui::hud::ViewSwitch::view_player);
+        viewed_slot_ = slot;
+    }
+
+    /// Follows one offered camera mode. Follow a unit is not offered here.
+    ///
+    /// @param mode the mode
+    void use_camera(rv::CameraMode mode) {
+        if (mode == rv::CameraMode::follow_unit)
+            return;
+        if (mode == rv::CameraMode::follow_theirs && !runtime_.replay_shares_camera_)
+            return;
+        if (camera_mode_ == rv::CameraMode::follow_unit)
+            runtime_.stop_match_tracking();
+        camera_mode_ = mode;
+        model_.camera = mode;
+        model_.view_open = false;
+        model_.camera_open = false;
+    }
+
+    /// Shows the player list's row.
+    ///
+    /// @param index the row in the model
+    void choose_watch_row(int index) { choose_view_row(index); }
+
+    /// Shows the view menu's row.
+    ///
+    /// @param index the row
+    void choose_view_row(int index) {
+        if (index < 0 || static_cast<std::size_t>(index) >= model_.watch.size())
+            return;
+        show_player(model_.watch[static_cast<std::size_t>(index)].slot);
+    }
+
+    /// Follows the camera menu's mode.
+    ///
+    /// @param index the row
+    void choose_camera_row(int index) {
+        if (index < 0 || static_cast<std::size_t>(index) >= layout_.camera_modes.size())
+            return;
+        use_camera(layout_.camera_modes[static_cast<std::size_t>(index)]);
+    }
+
+    /// "Defeated 18:02" or "Left 21:40" for a player who has gone by this tick.
+    ///
+    /// The latest such marker at or before the tick on show wins. A dropped
+    /// connection is shown as left. The recorded number picks the marker, so
+    /// two players of one side do not share a departure.
+    ///
+    /// @param name the player's name, used when no number is known
+    /// @param number the player's recorded number; negative matches the name
+    /// @return the line; empty while the player is still in
+    [[nodiscard]] std::string departure_of(std::string_view name, int number) const {
+        const rv::Marker* latest = nullptr;
+        for (const rv::Marker& marker : model_.markers) {
+            const bool same = number >= 0 ? marker.number == number : marker.name == name;
+            if (!same)
+                continue;
+            if (marker.kind != rv::MarkerKind::defeated && marker.kind != rv::MarkerKind::left &&
+                marker.kind != rv::MarkerKind::dropped)
+                continue;
+            if (marker.tick > model_.tick)
+                continue;
+            if (latest == nullptr || marker.tick >= latest->tick)
+                latest = &marker;
+        }
+        if (latest == nullptr)
+            return {};
+        return rv::departed_caption(
+            latest->kind == rv::MarkerKind::defeated, clock_of(latest->tick)
+        );
+    }
+
+    /// One live slot's side, team, units and income, while that slot is playing.
+    ///
+    /// @param world the match
+    /// @param player the slot
+    /// @param slot the slot's index
+    /// @param[out] row the list row
+    void fill_live(const oa::World& world, const oa::Player& player, int slot, rv::WatchRow& row) {
+        const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+        if (info != nullptr && oa::data::defs::side_name(info->side) != nullptr)
+            row.side = oa::data::defs::side_name(info->side);
+        row.team = player.team == OA_PLAYER_NO_TEAM ? -1 : static_cast<int>(player.team);
+        row.units = static_cast<int32_t>(player.unit_count);
+        const ReplayShownSlot& shown = runtime_.replay_shown_[static_cast<std::size_t>(slot)];
+        row.income = shown.income;
+        row.metal = shown.metal;
+        row.energy = shown.energy;
+    }
+
+    /// Rebuilds the player list. Once the index has arrived the rows are its
+    /// players for the whole replay. Before that, only a live computer or a
+    /// mirrored slot is listed. Side, team, units and income are taken only
+    /// while the slot is still playing. The colour stays.
+    void fill_watch() {
+        model_.watch.clear();
+        rv::WatchRow everyone;
+        everyone.slot = -1;
+        everyone.name = rv::view_button_caption(rv::Model{});
+        everyone.colour = kit::hud_colour::label;
+        model_.watch.push_back(std::move(everyone));
+        const oa::sim::match_runtime::Match* match = runtime_.running_match();
+        const bool from_index = index_arrived() && !model_.players.empty();
+        if (from_index) {
+            const oa::World* world = match != nullptr ? &match->state() : nullptr;
+            for (std::size_t place = 0; place < model_.players.size(); ++place) {
+                const rv::PlayerRow& card = model_.players[place];
+                if (card.watcher || card.name.empty())
+                    continue;
+                const int number = place < player_numbers_.size() ? player_numbers_[place] : -1;
+                const int found = world != nullptr
+                                      ? rv::watch_slot(player_numbers_, number, OA_PLAYER_COUNT)
+                                      : -1;
+                const oa::Player* live = nullptr;
+                if (found >= 0) {
+                    const oa::Player& player = world->game.players[found];
+                    if (player.in_use != 0 && player.index < OA_PLAYER_COUNT)
+                        live = &player;
+                }
+                const bool seated = live != nullptr;
+                const bool playing = seated && (live->status == OA_PLAYER_STATUS_COMPUTER ||
+                                                live->status == OA_PLAYER_STATUS_MIRRORED);
+                rv::WatchRow row;
+                row.slot = seated ? found : -2 - static_cast<int>(place);
+                row.name = card.name;
+                if (playing && world != nullptr)
+                    fill_live(*world, *live, found, row);
+                row.departed = departure_of(card.name, number);
+                row.colour = ink_of(colour_of(match, card.name, number, found));
+                model_.watch.push_back(std::move(row));
+            }
+        } else if (match != nullptr) {
+            const oa::World& world = match->state();
+            for (int slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+                const oa::Player& player = world.game.players[slot];
+                if (player.in_use == 0 || player.index >= OA_PLAYER_COUNT)
+                    continue;
+                if (player.status != OA_PLAYER_STATUS_COMPUTER &&
+                    player.status != OA_PLAYER_STATUS_MIRRORED)
+                    continue;
+                const std::string name = copied_name(player);
+                if (name.empty())
+                    continue;
+                const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+                if (info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+                    continue;
+                rv::WatchRow row;
+                row.slot = slot;
+                row.name = name;
+                fill_live(world, player, slot, row);
+                row.departed = departure_of(name, -1);
+                row.colour = ink_of(colour_of(match, name, -1, slot));
+                model_.watch.push_back(std::move(row));
+            }
+        }
+        bool found = false;
+        model_.viewed = 0;
+        for (std::size_t place = 0; place < model_.watch.size(); ++place) {
+            rv::WatchRow& row = model_.watch[place];
+            row.eye = row.slot == viewed_slot_;
+            if (!row.eye)
+                continue;
+            model_.viewed = static_cast<int>(place);
+            found = true;
+        }
+        if (!found && !model_.watch.empty()) {
+            viewed_slot_ = -1;
+            model_.watch[0].eye = true;
+            model_.viewed = 0;
+            runtime_.switch_watched_view(oa::ui::hud::ViewSwitch::own_view);
+        }
+        const int rows = static_cast<int>(model_.watch.size());
+        const int furthest = std::max(rows - rv::watch_visible_rows, 0);
+        if (list_scroll_ > furthest)
+            list_scroll_ = furthest;
+        if (list_scroll_ < 0)
+            list_scroll_ = 0;
+        model_.list_scroll = list_scroll_;
+        model_.list_folded = list_folded_;
+        model_.camera = camera_mode_;
+        model_.offer_follow_camera = runtime_.replay_shares_camera_;
+    }
+
+    /// Moves the camera for the mode on show. Free does not.
+    ///
+    /// A followed unit that has gone returns the camera to Free.
+    void apply_camera() {
+        if (camera_mode_ == rv::CameraMode::follow_unit && !runtime_.match_tracking()) {
+            camera_mode_ = rv::CameraMode::free;
+            model_.camera = camera_mode_;
+            return;
+        }
+        if (camera_mode_ == rv::CameraMode::follow_theirs)
+            apply_recorded_camera();
+    }
+
+    /// Centres the view on a recorded camera.
+    ///
+    /// The player on show is used when one is. While every player is shown,
+    /// the first player who shared a camera is followed. A player whose
+    /// camera was not shared does not move the view.
+    void apply_recorded_camera() {
+        int slot = viewed_slot_;
+        if (slot < 0) {
+            slot = -1;
+            for (int candidate = 0; candidate < OA_PLAYER_COUNT; ++candidate) {
+                if (runtime_.replay_shown_[static_cast<std::size_t>(candidate)].camera_shared) {
+                    slot = candidate;
+                    break;
+                }
+            }
+        }
+        if (slot < 0 || slot >= OA_PLAYER_COUNT)
+            return;
+        const ReplayShownSlot& shown = runtime_.replay_shown_[static_cast<std::size_t>(slot)];
+        if (!shown.camera_shared)
+            return;
+        const int32_t x = static_cast<int32_t>(shown.camera_x) - runtime_.visible_map_width() / 2;
+        const int32_t z = static_cast<int32_t>(shown.camera_y) - runtime_.visible_map_height() / 2;
+        runtime_.set_camera_position(x, z, 0);
+    }
+
     Runtime& runtime_;
     rv::Model model_{};
     rv::Layout layout_{};
@@ -1616,6 +2098,15 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     bool finding_{};
     bool replay_paused_{true};
     bool seek_armed_{};
+    bool reset_after_seek_{};
+    bool list_folded_{};
+    bool list_fold_chosen_{};
+    rv::CameraMode camera_mode_{rv::CameraMode::free};
+    int viewed_slot_{-1};
+    int list_scroll_{};
+    int held_watch_{-1};
+    int held_view_item_{-1};
+    int held_camera_item_{-1};
     int seek_samples_{};
     bool index_length_known_{};
     int32_t pointer_x_{};
@@ -1722,9 +2213,62 @@ bool Runtime::replay_viewer_pad(oa::ui::pad_controls::PadButton button) {
         return replay_viewer_command("watch.replay-next-marker");
     case PadButton::b:
         return replay_viewer_command("watch.replay-bar");
+    case PadButton::y:
+        return replay_viewer_command("watch.next-player-view");
+    case PadButton::x:
+        return replay_viewer_command("watch.camera-mode");
     default:
         return false;
     }
+}
+
+void seat_replay_watcher(Runtime& runtime, uint8_t slot) {
+    runtime.match_local_player_ = slot;
+}
+
+void note_replay_watch(
+    Runtime& runtime, const std::array<ReplayShownSlot, OA_PLAYER_COUNT>& slots, bool shares_camera
+) {
+    runtime.replay_shown_ = slots;
+    runtime.replay_shares_camera_ = shares_camera;
+}
+
+void Runtime::replay_step_player_view(int delta) {
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->step_player_view(delta);
+}
+
+void Runtime::replay_show_whole_view() {
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->show_whole_view();
+}
+
+void Runtime::replay_step_camera_mode() {
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->step_camera_mode();
+}
+
+void Runtime::replay_follow_unit(uint16_t unit) {
+    if ((current_extension_state() & extension_state::replay) == 0)
+        return;
+    ensure_replay_viewer();
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->follow_unit(unit);
+}
+
+void Runtime::replay_release_unit_follow() {
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->release_unit_follow();
+}
+
+void Runtime::replay_toggle_player_list() {
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->toggle_player_list();
+}
+
+void Runtime::replay_reset_watch() {
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->reset_watch();
 }
 
 std::optional<uint32_t> Runtime::replay_marker_after(uint32_t tick) const {

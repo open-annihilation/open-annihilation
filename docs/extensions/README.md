@@ -228,6 +228,11 @@ the press: `press_x`, `press_y`, `press_width` and `press_height` on
 such place. A screen button that lies wholly inside it is listed hidden,
 and stays enabled as the screen reported it. It is not a hook.
 
+Version 21 also adds `ScreenServices::main_menu_order_owns_key`. The
+main-menu overlay calls it before its own windows see a key. Nonzero means
+the host owns that key: the overlay drops its focus and passes the key on.
+The engine fills it. No extension fills it. It is not a hook.
+
 An extension states the version it follows, so that a build against a
 table of another version stops until its author has read the change. The
 automation endpoint's fixture window

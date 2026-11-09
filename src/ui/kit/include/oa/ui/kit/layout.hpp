@@ -767,8 +767,14 @@ struct Control {
     /// Left and Right act on it, as a switch or a slider takes them, instead
     /// of moving the focus.
     bool steps{};
-    int32_t group{-1};  ///< its scroll area's number; -1 when it is in none
-    bool checked{};     ///< a switch that is on, or a chosen row, for automation
+    int32_t group{-1}; ///< its scroll area's number; -1 when it is in none
+    bool checked{};    ///< a switch that is on, or a chosen row, for automation
+    /// A section header is open. Automation writes it as expanded. A control
+    /// that is not a section header leaves it false.
+    bool expanded{};
+    /// How a change of it is announced: 0 is off, 1 is polite, 2 is assertive.
+    /// The screen reader bridge reads the polite and assertive values.
+    uint8_t live{};
     std::string text{}; ///< its caption or its value, for automation
     /// The caption a player hears. Empty on a button, a link, a tab, a list
     /// row or an area means automation uses `text`. On a switch, a strip, a

@@ -9,6 +9,7 @@
 #pragma once
 
 #include "oa/base/sha256.hpp"
+#include "oa/data/replays/share.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/ui/library/library.hpp"
 
@@ -1250,6 +1251,65 @@ inline constexpr std::string_view export_choose = "Choose…";
 inline constexpr std::string_view export_downloads = "Downloads";
 inline constexpr std::string_view export_up = "Up";
 inline constexpr std::string_view export_use_folder = "Use this folder";
+
+/// SIGN IN beside the source switch, and in the question.
+inline constexpr std::string_view action_sign_in = "Sign in";
+/// SIGN OUT beside the source switch.
+inline constexpr std::string_view action_sign_out = "Sign out";
+/// The sign-in question's title.
+inline constexpr std::string_view sign_in_title = "Sign in to Core Prime";
+/// The handle field.
+inline constexpr std::string_view sign_in_handle = "Handle";
+/// The password field.
+inline constexpr std::string_view sign_in_password = "Password";
+/// The line under the fields, until a sentence replaces it.
+inline constexpr std::string_view sign_in_forgot = "Forgot it? Reset it at coreprime.net/forgot";
+/// The line under the source switch when this system cannot send a password over TLS.
+inline constexpr std::string_view sign_in_needs_secure =
+    "Signing in needs a secure connection, which this system does not have.";
+/// SHARE ON CORE PRIME… on the card.
+inline constexpr std::string_view action_share = "Share on Core Prime…";
+/// SHARE MY OWN RECORDING, once Core Prime already lists the battle.
+inline constexpr std::string_view action_share_own = "Share my own recording";
+/// OPEN ON CORE PRIME.
+inline constexpr std::string_view action_open_shared = "Open on Core Prime";
+/// SHARE in the question.
+inline constexpr std::string_view share_confirm = "Share";
+/// The share question's title.
+inline constexpr std::string_view share_title = "Share on Core Prime";
+/// The title field.
+inline constexpr std::string_view share_title_label = "Title";
+/// Who can see a share, offered first.
+inline constexpr std::string_view share_public = "Public";
+/// Who can see a share the player does not list.
+inline constexpr std::string_view share_unlisted = "Unlisted";
+/// My battles, Core Prime's filter for the signed-in player.
+inline constexpr std::string_view core_my_battles = "My battles";
+/// What the player sees when a share is accepted.
+inline constexpr std::string_view share_shared = oa::data::replays::shared_on_core_prime;
+/// What the player sees when that replay is already there.
+inline constexpr std::string_view share_already = oa::data::replays::already_on_core_prime;
+/// What a signed-out share is told.
+inline constexpr std::string_view share_sign_in_again = oa::data::replays::sign_in_to_share;
+/// What an account that cannot share is told.
+inline constexpr std::string_view share_account = oa::data::replays::account_cannot_share;
+/// What a player who was not in the battle is told.
+inline constexpr std::string_view share_not_in_battle =
+    oa::data::replays::only_a_player_can_replace;
+/// What a file past the limit is told.
+inline constexpr std::string_view share_too_large = oa::data::replays::replay_larger_than_the_limit;
+/// What an account that has shared enough for one day is told.
+inline constexpr std::string_view share_today = oa::data::replays::shared_for_today;
+/// What the player sees when uploads are off.
+inline constexpr std::string_view share_uploads_off = oa::data::replays::uploads_not_available;
+/// What the player sees when a login is accepted and names no session.
+inline constexpr std::string_view sign_in_no_session = oa::data::replays::session_not_started;
+/// What the player sees when a share's answer is empty or not the error object.
+inline constexpr std::string_view share_no_answer = oa::data::replays::share_not_answered;
+/// The sign-in question while the login is in flight.
+inline constexpr std::string_view sign_in_busy = "Signing in…";
+/// The share question while the upload is in flight.
+inline constexpr std::string_view share_busy = "Sharing…";
 
 } // namespace words
 

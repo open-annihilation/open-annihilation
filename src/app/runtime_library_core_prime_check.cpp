@@ -12,6 +12,11 @@
 //
 // case=offline opens the same list with that server stopped.
 //
+// case=share signs in, shares the facts' replay after a chat line and an
+// address sector are planted in it, is asked to sign in again, refuses a
+// file past a one-byte limit before sending it, asks for My battles, and
+// looks up a registered-kind recording: absent, then listed.
+//
 // case=beside starts with Ridge 2.9 installed and chosen. The feed's replay
 // needs Ridge 2.8. Watch fetches that release beside the one in use, plays
 // it, and puts 2.9 back.
@@ -31,6 +36,9 @@
 #include "oa/app/user_folder.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/data/replays/replays.hpp"
+#include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/timeline_index.hpp"
+#include "oa/formats/tad.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/library/library.hpp"
@@ -59,7 +67,18 @@ namespace {
 
 namespace fs = std::filesystem;
 namespace library = oa::ui::library;
+namespace oademo = oa::formats::oademo;
 namespace replay_data = oa::data::replays;
+namespace tad = oa::formats::tad;
+
+/// Planted in the shared recording. The upload must still hold this text.
+constexpr std::string_view kChatMark = "R20CHATMARK says hello";
+/// Planted in a sector of network addresses. The upload must not hold it.
+constexpr std::string_view kAddressText = "203.0.113.77";
+/// The made-up battle's id. The feed returns it once the battle is listed.
+constexpr std::string_view kLookupGame = "lookup-1";
+/// The feed id of that listed battle. r_ and 22 body characters.
+constexpr std::string_view kLookupId = "r_lookup0000000000000001";
 
 constexpr std::string_view kFactsName = "core-prime.facts";
 constexpr int kMostFrames = 600;
@@ -227,6 +246,175 @@ install_ridge_29(const fs::path& user, const std::string& registry, std::string_
     return ridge;
 }
 
+std::vector<uint8_t> read_all(const fs::path& file) {
+    std::ifstream input(file, std::ios::binary);
+    require(static_cast<bool>(input), "the source replay is not there");
+    input.seekg(0, std::ios::end);
+    const std::streamoff size = input.tellg();
+    require(size > 0, "the source replay is empty");
+    input.seekg(0, std::ios::beg);
+    std::vector<uint8_t> bytes(static_cast<std::size_t>(size));
+    input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    require(input.gcount() == static_cast<std::streamsize>(bytes.size()), "the source was cut");
+    return bytes;
+}
+
+/// A chat record: type 0x05 and 64 bytes of text, behind the plain-packet marker.
+std::vector<uint8_t> chat_payload() {
+    std::vector<uint8_t> payload;
+    payload.push_back(tad::payload_marker);
+    payload.push_back(0x05);
+    payload.insert(payload.end(), kChatMark.begin(), kChatMark.end());
+    payload.resize(2 + 64, 0);
+    return payload;
+}
+
+/// The facts' replay, plus an address sector and a chat line. Sharing strips the sector.
+std::vector<uint8_t> share_recording(std::span<const uint8_t> archive) {
+    const oademo::ReadResult read = oademo::read(archive);
+    require(read.ok(), "the source replay did not read");
+    const tad::ParseResult parsed = tad::parse(read.replay->recording);
+    require(parsed.ok(), "the source recording did not read");
+    tad::Demo demo = *parsed.demo;
+    std::vector<uint8_t> address(kAddressText.begin(), kAddressText.end());
+    address.push_back(0);
+    demo.sectors.push_back({static_cast<uint32_t>(tad::SectorType::player_address), address});
+    const std::vector<uint8_t> chat = chat_payload();
+    demo.packets.push_back(tad::Packet{0, 0, 0, 1, chat});
+    const tad::WriteResult written = tad::write(demo);
+    require(written.ok(), "the share recording was not written");
+    return written.bytes;
+}
+
+/// A short recording with no address sector, so a replay file can hold it.
+std::vector<uint8_t> plain_recording() {
+    const std::vector<uint8_t> recorder{'o', 'a'};
+    const std::vector<uint8_t> status{0x04};
+    const std::vector<uint8_t> payload{tad::payload_marker, 0xff};
+    tad::Demo demo;
+    demo.version = tad::supported_version;
+    demo.max_units = 250;
+    demo.map_name = "Lookup";
+    demo.sectors = {{static_cast<uint32_t>(tad::SectorType::recorder_version), recorder}};
+    demo.players = {{0, 0, 1, "Pilot"}};
+    demo.statuses = {{1, status}};
+    demo.packets = {{0, 40, 40, 1, payload}};
+    const tad::WriteResult written = tad::write(demo);
+    require(written.ok(), "the battle recording was not written");
+    return written.bytes;
+}
+
+/// A replay whose kind is the one an extension registered, naming kLookupGame.
+///
+/// The source does not spell that kind: the running game already registered it.
+std::vector<uint8_t> battle_replay() {
+    const std::vector<replay_data::Kind> kinds = replay_data::registered_kinds();
+    require(!kinds.empty() && !kinds.front().id.empty(), "no registered kind");
+    const std::string kind_id = kinds.front().id;
+    require(
+        kind_id.find('"') == std::string::npos && kind_id.find('\\') == std::string::npos,
+        "the registered kind cannot be written"
+    );
+    oademo::Replay replay;
+    replay.recording = plain_recording();
+    oademo::set_recording_identity(replay);
+    replay.meta.recording.tad_version = tad::supported_version;
+    replay.meta.recording.packets = 1;
+    replay.meta.recording.addresses_removed = true;
+    replay.meta.recorded.how = "multiplayer";
+    replay.meta.recorded.at = "2026-11-04T14:32:00Z";
+    replay.meta.game.kind = kind_id;
+    replay.meta.game.kind_object = "{\"game_id\":\"" + std::string(kLookupGame) + "\"}";
+    replay.meta.game.length_ms = 40;
+    replay.meta.map.name = "Lookup";
+    replay.meta.content.base.id = "totala";
+    replay.meta.content.base.version = "3.1c";
+    replay.meta.content.limits.weapon_types = 256;
+    replay.meta.content.limits.sides = 5;
+    replay.meta.units.count = 1;
+    replay.meta.units.table_sha256 = std::string(64, 'a');
+    replay.meta.units.index_bits = 1;
+    oademo::PlayerInfo player;
+    player.number = 1;
+    player.name = "Pilot";
+    player.side = "arm";
+    player.colour = 0;
+    player.kind = "human";
+    player.recorded_here = true;
+    replay.meta.players.push_back(std::move(player));
+    oademo::PlayerInfo second;
+    second.number = 2;
+    second.name = "Kestrel";
+    second.side = "core";
+    second.colour = 1;
+    second.kind = "human";
+    replay.meta.players.push_back(std::move(second));
+    replay.manifest.engine.recorded_with = "0.9.0";
+    replay.manifest.engine.needs = ">=0.9.0";
+    oademo::Need base;
+    base.kind = "base";
+    base.id = "totala";
+    base.version = "3.1c";
+    replay.manifest.needs.push_back(std::move(base));
+    const oademo::WriteResult written = oademo::write(replay);
+    if (!written.ok()) {
+        const std::string why = written.error.empty()
+                                    ? std::string("the battle replay was not written")
+                                    : written.error;
+        require(false, why);
+    }
+    return written.bytes;
+}
+
+/// A timeline the card can show. The file's own index is kept when it already
+/// names a length, winners and a player. Otherwise one is written from the
+/// file's players.
+///
+/// @param bytes the replay
+/// @return the timeline text
+std::string timeline_for_card(std::span<const uint8_t> bytes) {
+    const oademo::ReadResult read = oademo::read(bytes);
+    require(read.ok() && read.replay.has_value(), "the battle replay did not read");
+    if (read.replay->timeline.has_value()) {
+        const std::optional<oademo::TimelineIndex> parsed =
+            oademo::parse_timeline_index(*read.replay->timeline);
+        bool played = false;
+        if (parsed.has_value()) {
+            for (const oademo::IndexPlayer& player : parsed->players) {
+                if (!player.watcher)
+                    played = true;
+            }
+        }
+        if (parsed.has_value() && parsed->length_ticks > 0 && !parsed->result.winners.empty() &&
+            played)
+            return *read.replay->timeline;
+    }
+    oademo::TimelineIndex index;
+    index.length_ticks = 900;
+    index.ended = oademo::IndexEnd::finished;
+    index.ended_tick = 900;
+    index.verdict.finished = true;
+    index.verdict.clean = true;
+    index.verdict.paced = true;
+    index.result.by = oademo::ResultBy::commanders;
+    for (const oademo::PlayerInfo& player : read.replay->meta.players) {
+        if (player.kind == "watcher" || player.number <= 0)
+            continue;
+        oademo::IndexPlayer one;
+        one.number = player.number;
+        one.name = player.name;
+        one.final.kills = index.result.winners.empty() ? 4U : 1U;
+        one.final.losses = 2;
+        if (index.result.winners.empty())
+            index.result.winners.push_back(player.number);
+        index.players.push_back(std::move(one));
+    }
+    require(index.players.size() >= 2, "the battle has fewer than two players");
+    std::cout << "core prime: the recording held no timeline; the check wrote one from its "
+                 "players\n";
+    return oademo::timeline_index_text(index);
+}
+
 } // namespace
 
 void Runtime::check_replays_core_prime() {
@@ -236,7 +424,8 @@ void Runtime::check_replays_core_prime() {
     const std::string which = fact(facts, "case");
     require(
         which == "play" || which == "offline" || which == "backoff" || which == "rate" ||
-            which == "challenge" || which == "wait" || which == "restart" || which == "beside",
+            which == "challenge" || which == "wait" || which == "restart" || which == "beside" ||
+            which == "share",
         "the facts name no case this check runs"
     );
 
@@ -618,6 +807,287 @@ void Runtime::check_replays_core_prime() {
             require(running, "a frame ended the run");
         }
         std::cout << "core prime: backed off\n";
+        return;
+    }
+
+    if (which == "share") {
+        const fs::path folder = user_folder_ / std::string(recordings_folder_name);
+        std::error_code copy_error;
+        fs::create_directories(folder, copy_error);
+        require(!copy_error, "Recordings was not created");
+        const std::vector<uint8_t> source = read_all(fs::path(fact(facts, "source")));
+        write_bytes(folder / "share.tad", share_recording(source));
+        open_replays();
+        click_named(row_of("share.tad"));
+        require(named("oa.library.action.sign-in").has_value(), "Sign in is not shown");
+        click_named("oa.library.action.sign-in");
+        until(
+            kListWaitMs,
+            [&] { return named("oa.library.sign-in.handle").has_value(); },
+            "the sign-in question did not open"
+        );
+        snapshot("sign-in");
+        const auto type_into = [&](std::string_view control, std::string_view words) {
+            click_named(control);
+            frames(2);
+            // The system types only into a field the game started text input
+            // over; an event sent straight to the game would hide that.
+            require(SDL_TextInputActive(sdl_.window), "the field did not start text input");
+            for (const char letter : words) {
+                const char text[2] = {letter, '\0'};
+                SDL_Event typed{};
+                typed.type = SDL_EVENT_TEXT_INPUT;
+                typed.text.windowID = SDL_GetWindowID(sdl_.window);
+                typed.text.text = text;
+                bool going = true;
+                dispatch_event(typed, going);
+                require(going, "typed text ended the run");
+            }
+            frames(1);
+        };
+        const auto tap = [&](SDL_Keycode code) {
+            for (const bool down : {true, false}) {
+                SDL_Event event{};
+                event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                event.key.windowID = SDL_GetWindowID(sdl_.window);
+                event.key.key = code;
+                event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
+                event.key.mod = SDL_KMOD_NONE;
+                event.key.down = down;
+                bool going = true;
+                dispatch_event(event, going);
+                require(going, "a key ended the run");
+            }
+        };
+        const auto sign_in = [&] {
+            // A later sign-in keeps the handle already typed. Clear it first.
+            click_named("oa.library.sign-in.handle");
+            for (int step = 0; step < 80; ++step)
+                tap(SDLK_BACKSPACE);
+            type_into("oa.library.sign-in.handle", fact(facts, "handle"));
+            type_into("oa.library.sign-in.password", fact(facts, "password"));
+            click_named("oa.library.sign-in.submit");
+            until(
+                kListWaitMs,
+                [&] { return host.model.inputs.replays.core_signed_in; },
+                "sign-in did not finish"
+            );
+        };
+        sign_in();
+        std::cout << "core prime: signed in\n";
+        require(named("oa.library.action.share").has_value(), "Share is not shown");
+        snapshot("card-share");
+        click_named("oa.library.action.share");
+        until(
+            kListWaitMs,
+            [&] { return named("oa.library.share.title").has_value(); },
+            "the share question did not open"
+        );
+        snapshot("share");
+        click_named("oa.library.share.submit");
+        until(
+            kDownloadWaitMs,
+            [&] {
+                return host.model.inputs.replays.core_share_note.find("Shared on Core Prime") !=
+                           std::string::npos &&
+                       named("oa.library.action.open-shared").has_value();
+            },
+            "the replay was not shared"
+        );
+        std::cout << "core prime: shared\n";
+        click_named("oa.library.action.share");
+        until(
+            kListWaitMs,
+            [&] { return named("oa.library.share.submit").has_value(); },
+            "the second share question did not open"
+        );
+        click_named("oa.library.share.submit");
+        until(
+            kDownloadWaitMs,
+            [&] {
+                const std::optional<AutomationControl> note = named("oa.library.sign-in.note");
+                return host.model.sign_in.open && note.has_value() &&
+                       note->text.find("Sign in to share a replay.") != std::string::npos;
+            },
+            "a signed-out share did not ask to sign in"
+        );
+        std::cout << "core prime: signed out\n";
+        sign_in();
+        host.set_share_byte_limit(1);
+        click_named("oa.library.action.share");
+        until(
+            kListWaitMs,
+            [&] { return named("oa.library.share.submit").has_value(); },
+            "the limited share question did not open"
+        );
+        click_named("oa.library.share.submit");
+        until(
+            kListWaitMs,
+            [&] {
+                const std::optional<AutomationControl> note = named("oa.library.share.note");
+                return note.has_value() &&
+                       note->text.find("The replay is larger than the limit.") != std::string::npos;
+            },
+            "a file past the limit was not refused"
+        );
+        click_named("oa.library.share.cancel");
+        click_named("oa.library.replays.source.core-prime");
+        until(
+            kListWaitMs,
+            [&] {
+                return host.model.replays.source == library::ReplaySource::core_prime &&
+                       !host.model.inputs.replays.core_loading;
+            },
+            "Core Prime's list did not open"
+        );
+        click_named("oa.library.replays.filter.mine");
+        until(
+            kListWaitMs,
+            [&] {
+                return host.model.replays.core_filter == library::CorePrimeFilter::mine &&
+                       !host.model.inputs.replays.core_loading &&
+                       host.model.inputs.replays.core_mine_total.has_value();
+            },
+            "My battles did not load"
+        );
+        std::cout << "core prime: my battles\n";
+        // Written after the share, so opening the Library does not look it up
+        // early. The next open reads the folder again.
+        std::vector<uint8_t> battle_bytes;
+        const auto battle_file = facts.find("battle_file");
+        if (battle_file != facts.end() && !battle_file->second.empty()) {
+            battle_bytes = read_all(platform::path_from_utf8(battle_file->second));
+            std::cout << "core prime: listed card uses the launch recording\n";
+        } else {
+            battle_bytes = battle_replay();
+        }
+        write_bytes(folder / "battle.oademo", battle_bytes);
+        close_library();
+        frames(4);
+        open_replays();
+        // Closing the Library leaves the source where it was. My battles is
+        // Core Prime, and a file in Recordings is listed only on this computer.
+        click_named("oa.library.replays.source.computer");
+        until(
+            kListWaitMs,
+            [&] {
+                return host.model.replays.source == library::ReplaySource::computer &&
+                       !host.replays_reading();
+            },
+            "On this computer did not open"
+        );
+        if (!library::replay_place(host.model, "battle.oademo").has_value()) {
+            std::string seen;
+            for (const library::ReplayRow& row : host.model.inputs.replays.rows) {
+                if (!seen.empty())
+                    seen += ' ';
+                seen += row.replay.path;
+            }
+            std::cout << "core prime check: recordings [" << seen << "]\n";
+        }
+        // The feed answers the first lookup with an empty page, then the same
+        // battle on the next ask. Selecting another row drops the first one.
+        click_named(row_of("battle.oademo"));
+        until(
+            kListWaitMs,
+            [&] {
+                const library::ReplayInputs& inputs = host.model.inputs.replays;
+                return inputs.core_battle && inputs.core_listing_path == "battle.oademo" &&
+                       inputs.core_listing == library::CoreListing::absent;
+            },
+            "the battle was not read as absent"
+        );
+        const library::ReplayRow* absent = library::find_replay(host.model, "battle.oademo");
+        require(absent != nullptr, "the battle replay is not listed");
+        require(
+            library::replay_note(host.model, *absent).find("On Core Prime") == std::string::npos,
+            "On Core Prime is on a battle the feed does not list"
+        );
+        const std::optional<AutomationControl> absent_share = named("oa.library.action.share");
+        require(
+            absent_share.has_value() && absent_share->text == "Share on Core Prime…",
+            "Share on Core Prime… is not shown"
+        );
+        require(
+            !named("oa.library.action.open-shared").has_value(),
+            "Open on Core Prime is shown before the battle is listed"
+        );
+        std::cout << "core prime: battle absent\n";
+        click_named(row_of("share.tad"));
+        frames(2);
+        click_named(row_of("battle.oademo"));
+        until(
+            kListWaitMs,
+            [&] {
+                const library::ReplayInputs& inputs = host.model.inputs.replays;
+                return inputs.core_battle && inputs.core_listing_path == "battle.oademo" &&
+                       inputs.core_listing == library::CoreListing::listed &&
+                       inputs.core_listing_id == kLookupId;
+            },
+            "the battle was not read as listed"
+        );
+        const library::ReplayRow* listed = library::find_replay(host.model, "battle.oademo");
+        require(listed != nullptr, "the battle replay is not listed");
+        require(
+            library::replay_note(host.model, *listed).find("On Core Prime") != std::string::npos,
+            "On Core Prime is not on the card"
+        );
+        const std::optional<AutomationControl> own = named("oa.library.action.share");
+        require(
+            own.has_value() && own->text == "Share my own recording",
+            "Share my own recording is not shown"
+        );
+        require(
+            named("oa.library.action.open-shared").has_value(), "Open on Core Prime is not shown"
+        );
+        host.store_replay_timeline(*this, "battle.oademo", timeline_for_card(battle_bytes));
+        frames(2);
+        const auto facts_above = [&](std::string_view size) {
+            const library::ReplayRow* row = library::find_replay(host.model, "battle.oademo");
+            require(
+                row != nullptr && row->replay.players.size() >= 2,
+                std::string(size) + " has fewer than two players"
+            );
+            bool known = false;
+            for (const library::PlayerStanding& standing : row->standings) {
+                if (standing.known && standing.result != library::RecordedResult::none)
+                    known = true;
+            }
+            require(known, std::string(size) + " has no result line");
+            const std::optional<AutomationControl> length = named("oa.library.fact.length");
+            const std::optional<AutomationControl> recorded_fact =
+                named("oa.library.fact.recorded");
+            const std::optional<AutomationControl> watch = named("oa.library.action.watch");
+            require(length.has_value(), std::string(size) + " is missing Length");
+            require(recorded_fact.has_value(), std::string(size) + " is missing Recorded");
+            require(watch.has_value(), std::string(size) + " is missing Watch");
+            require(
+                length->window_height >= 12 && recorded_fact->window_height >= 12,
+                std::string(size) + " cuts a fact to a sliver"
+            );
+            require(
+                length->window_y + length->window_height <= watch->window_y,
+                std::string(size) + " puts Length under the buttons"
+            );
+            require(
+                recorded_fact->window_y + recorded_fact->window_height <= watch->window_y,
+                std::string(size) + " puts Recorded under the buttons"
+            );
+        };
+        facts_above("1280x720");
+        std::cout << "core prime: battle listed\n";
+        snapshot("card-listed");
+        const auto at_size = [&](int width, int height) {
+            require(
+                SDL_SetWindowSize(sdl_.window, width, height) && SDL_SyncWindow(sdl_.window),
+                "the window did not resize"
+            );
+            apply_output_mode();
+            frames(3);
+            facts_above(std::to_string(width) + "x" + std::to_string(height));
+        };
+        at_size(960, 540);
+        at_size(1920, 1080);
         return;
     }
 

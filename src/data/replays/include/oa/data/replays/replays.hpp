@@ -198,6 +198,8 @@ struct Replay {
     std::string planet{};
     /// The string member `sector` of that object, or empty.
     std::string sector{};
+    /// The string member `game_id` of that object, when the recording names a battle.
+    std::string game_id{};
     /// The players, in the recording's order.
     std::vector<Player> players{};
     /// `game.campaign.mission_name`, when the kind is campaign, as the file

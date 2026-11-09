@@ -148,6 +148,10 @@ void write_replay(json::JsonWriter& writer, const Replay& replay) {
     writer.string(replay.planet);
     writer.key("sector");
     writer.string(replay.sector);
+    if (!replay.game_id.empty()) {
+        writer.key("game_id");
+        writer.string(replay.game_id);
+    }
     writer.key("players");
     writer.begin_array();
     for (const Player& player : replay.players)
@@ -460,6 +464,7 @@ bool read_entry(const json::Json& value, Replay& replay) {
         !take_texts(value, "expansions", replay.expansions) ||
         !take_texts(value, "mutators", replay.mutators) ||
         !take_text(value, "planet", replay.planet) || !take_text(value, "sector", replay.sector) ||
+        !take_text(value, "game_id", replay.game_id) ||
         !take_flag(value, "needs_read", replay.needs_read) ||
         !take_text(value, "engine_recorded", replay.engine_recorded) ||
         !take_text(value, "engine_needs", replay.engine_needs) ||

@@ -7,6 +7,7 @@
 
 #include "oa/boneyards/font_atlases.hpp"
 #include "oa/boneyards/rover_session.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/screens/chat.hpp"
 #include "oa/boneyards/screens/galaxy.hpp"
 #include "oa/boneyards/utf8.hpp"
@@ -652,6 +653,7 @@ void console_enter_post_join(StatusWidget* widget) {
 void on_launch(void* user, const LaunchReport* launch) {
     StatusWidget* widget = event_widget(user);
     if (launch->result != 0) {
+        screens::forget_after_battle();
         const auto index = static_cast<std::size_t>(launch->result) - 1U;
         const char* text = launch->result > 0 && index < std::size(launch_message::refused)
                                ? launch_message::refused[index]
@@ -664,6 +666,7 @@ void on_launch(void* user, const LaunchReport* launch) {
     if (host.launch_permitted != nullptr) {
         const char* refusal = nullptr;
         if (!host.launch_permitted(host.user, &refusal)) {
+            screens::forget_after_battle();
             if (widget->config.service.leave_battles != nullptr)
                 widget->config.service.leave_battles(widget->config.service.user, launch->area_id);
             if (widget->system.gui_ready != 0 && refusal != nullptr && refusal[0] != '\0')
@@ -671,6 +674,7 @@ void on_launch(void* user, const LaunchReport* launch) {
             return;
         }
     }
+    screens::begin_after_battle();
     ConsoleSystem& system = widget->system;
     copy_game_id(system.launched_game_id, launch->game_id);
     system.launched_area_id = launch->area_id;
@@ -1341,6 +1345,13 @@ void boneyards_status_widget_leave_main_menu(StatusWidget* widget) {
         return;
     console_release_gui(widget);
     widget->system.session_started = 0;
+}
+
+void boneyards_status_widget_exit_to_menu(StatusWidget* widget) {
+    if (widget == nullptr)
+        return;
+    ScopedServices scope(widget);
+    console_reset_to_main_menu(widget);
 }
 
 void boneyards_status_widget_return_to_main_menu(StatusWidget* widget) {

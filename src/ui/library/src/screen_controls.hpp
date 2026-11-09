@@ -44,6 +44,9 @@ inline constexpr kit::ControlId replay_planet_menu = 19;
 inline constexpr kit::ControlId replay_source_computer = 20000001;
 /// On Core Prime, above the Replays list.
 inline constexpr kit::ControlId replay_source_core = 20000002;
+/// The line under the source switch when this system cannot sign in.
+/// It takes no press.
+inline constexpr kit::ControlId replay_sign_in_secure = 20000003;
 /// Core Prime's Latest filter; Longest, Most downloaded and By planet follow.
 inline constexpr kit::ControlId first_core_filter = 21000000;
 /// The All chip or nav entry; New, Installed and Updates follow in Filter's order.
@@ -308,6 +311,50 @@ inline constexpr int32_t export_browse_page = 6;
 [[nodiscard]] constexpr bool core_filter_entry(kit::ControlId id) noexcept {
     return id >= first_core_filter &&
            id < first_core_filter + static_cast<kit::ControlId>(core_prime_filter_total);
+}
+
+/// The shade behind the sign-in question.
+inline constexpr kit::ControlId sign_in_blocker = 22000001;
+/// The handle field.
+inline constexpr kit::ControlId sign_in_handle = 22000002;
+/// The password field. Its text is a mask.
+inline constexpr kit::ControlId sign_in_password = 22000003;
+/// SIGN IN. Enter answers it while the handle and the password are filled.
+inline constexpr kit::ControlId sign_in_submit = 22000004;
+/// CANCEL. Escape answers it.
+inline constexpr kit::ControlId sign_in_cancel = 22000005;
+/// The sentence under the fields.
+inline constexpr kit::ControlId sign_in_note = 22000006;
+
+/// The shade behind the share question.
+inline constexpr kit::ControlId share_blocker = 23000001;
+/// The title field.
+inline constexpr kit::ControlId share_title = 23000002;
+/// PUBLIC, offered first.
+inline constexpr kit::ControlId share_public = 23000003;
+/// UNLISTED.
+inline constexpr kit::ControlId share_unlisted = 23000004;
+/// SHARE. Enter answers it.
+inline constexpr kit::ControlId share_submit = 23000005;
+/// CANCEL. Escape answers it.
+inline constexpr kit::ControlId share_cancel = 23000006;
+/// The sentence under the fields.
+inline constexpr kit::ControlId share_note = 23000007;
+
+/// Tells whether a control is one of the sign-in question's.
+///
+/// @param id the control
+/// @return true for the question or the shade behind it
+[[nodiscard]] inline bool sign_in_control(kit::ControlId id) noexcept {
+    return id >= sign_in_blocker && id <= sign_in_note;
+}
+
+/// Tells whether a control is one of the share question's.
+///
+/// @param id the control
+/// @return true for the question or the shade behind it
+[[nodiscard]] inline bool share_control(kit::ControlId id) noexcept {
+    return id >= share_blocker && id <= share_note;
 }
 
 /// Tells whether a control is one of Export's.

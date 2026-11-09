@@ -1580,6 +1580,7 @@ void a_campaign_keeps_its_mission_name(const Scratch& scratch) {
 
 void test_replay_content_rows();
 void test_replay_feed();
+void test_replay_share();
 
 int main() {
     const Scratch scratch;
@@ -1599,6 +1600,7 @@ int main() {
     a_set_aside_kept_file_spares_what_it_may_have_kept(scratch);
     test_replay_content_rows();
     test_replay_feed();
+    test_replay_share();
     a_multibyte_title_is_cut_on_a_character();
     return oa::test::check_exit_status();
 }

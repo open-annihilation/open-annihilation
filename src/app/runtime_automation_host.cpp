@@ -16,7 +16,9 @@
 #include "oa/data/defs/sides.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/formats/fnt.hpp"
 #include "oa/ui/gui_input.hpp"
+#include "oa/ui/gui_input/tab_order.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
 #include "oa/ui/hud/order_panel.hpp"
 
@@ -27,6 +29,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -288,6 +291,34 @@ bool names_equal(std::string_view left, std::string_view right) {
             return false;
     }
     return true;
+}
+
+/// The Tab order of a panel, as a gadget index to its place from 1.
+///
+/// @param gadgets the panel's gadgets
+/// @return the places; a gadget that is not a stop is absent
+std::map<std::size_t, int32_t> tab_stops(std::span<const gui::Gadget> gadgets) {
+    std::map<std::size_t, int32_t> stops;
+    int32_t next_stop = 1;
+    for (const int32_t stop : oa::ui::gui_input::tab_order(gadgets)) {
+        if (stop <= 0)
+            continue;
+        stops.emplace(static_cast<std::size_t>(stop), next_stop);
+        ++next_stop;
+    }
+    return stops;
+}
+
+/// Gives a label authored with no height the height of one line.
+///
+/// @param[in,out] control the label
+/// @param resources the screen's fonts
+void give_label_a_line(AutomationControl& control, const renderer::ScreenResources& resources) {
+    if (control.kind != AutomationControlKind::label || control.height > 0 || control.width <= 0)
+        return;
+    const auto& font = resources.label_font.glyphs[0x49] ? resources.label_font : resources.font;
+    const int32_t line = static_cast<int32_t>(oa::formats::fnt::line_height(font));
+    control.height = line > 0 ? line : 2;
 }
 
 /// The first active, not greyed button that names each letter.
@@ -830,6 +861,9 @@ struct AutomationHostAccess {
         const std::string gui_file = frontend_gui_file(game);
         std::array<int, 26> letters{};
         first_quick_letters(gadgets, {}, letters);
+        const std::map<std::size_t, int32_t> ring_at = tab_stops(gadgets);
+        const std::size_t began = controls.size();
+        std::string titled;
         for (std::size_t index = 1; index < gadgets.size(); ++index) {
             const auto kind = control_kind(gadgets[index]);
             if (!kind)
@@ -868,7 +902,22 @@ struct AutomationHostAccess {
                 }
             }
             speak_gadget(&game, gadgets, index, gui_file, letters, 0, false, false, false, control);
+            if (const auto found = ring_at.find(index); found != ring_at.end())
+                control.tab_index = found->second;
+            // A label authored with no height is still one line, as the
+            // version line on the main menu is. The rectangle is that line.
+            give_label_a_line(control, game.resources_);
+            if (names_equal(control.name, "TITLE")) {
+                if (!control.label.empty())
+                    titled = control.label;
+                else if (!control.text.empty())
+                    titled = control.text;
+            }
             controls.push_back(std::move(control));
+        }
+        if (!titled.empty()) {
+            for (std::size_t index = began; index < controls.size(); ++index)
+                controls[index].title = titled;
         }
     }
 
@@ -986,6 +1035,9 @@ struct AutomationHostAccess {
                 cell_of[cells[at]] = static_cast<int32_t>(at) + 1;
         constexpr uint8_t build_bits =
             oa::ui::hud::kCommonUnitButton | oa::ui::hud::kCommonWeaponButton;
+        const std::map<std::size_t, int32_t> ring_at = tab_stops(gadgets);
+        const std::size_t began = controls.size();
+        std::string titled;
         for (std::size_t index = 1; index < gadgets.size(); ++index) {
             const auto kind = control_kind(gadgets[index]);
             if (!kind)
@@ -1057,7 +1109,20 @@ struct AutomationHostAccess {
                 menu,
                 control
             );
+            if (const auto found = ring_at.find(index); found != ring_at.end())
+                control.tab_index = found->second;
+            give_label_a_line(control, game.resources_);
+            if (names_equal(control.name, "TITLE")) {
+                if (!control.label.empty())
+                    titled = control.label;
+                else if (!control.text.empty())
+                    titled = control.text;
+            }
             controls.push_back(std::move(control));
+        }
+        if (!titled.empty()) {
+            for (std::size_t index = began; index < controls.size(); ++index)
+                controls[index].title = titled;
         }
     }
 

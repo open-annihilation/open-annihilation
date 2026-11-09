@@ -731,6 +731,8 @@ photo mode".
 | Turn right | `Alt+Right` | `photo.turn-right` |
 | Tilt up | `Alt+Up` | `photo.tilt-up` |
 | Tilt down | `Alt+Down` | `photo.tilt-down` |
+| Hide panel | `H` | `photo.panel` |
+| Guides | `G` | `photo.guides` |
 
 ### Replay
 
@@ -749,6 +751,10 @@ These answer while a replay plays, and not while a live game is watched. Slower 
 | Go to the end | `Ctrl+End` | `watch.replay-end` |
 | Pin the bar | `B` | `watch.replay-bar` |
 | Shortcut card | `?` | `watch.replay-keys` |
+| Next player's view | `Tab` | `watch.next-player-view` |
+| Previous player's view | `Shift+Tab` | `watch.previous-player-view` |
+| All players' view | `Q` | `watch.whole-view` |
+| Camera mode | `C` | `watch.camera-mode` |
 
 ### Chat
 

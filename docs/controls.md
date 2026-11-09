@@ -426,10 +426,12 @@ had stays that outline, and it still moves with the focus.
 A screen opens on the control it has always opened on, and no focus ring is
 drawn. Tab moves to the next control in the order below, and Shift+Tab to
 the previous one, and the ring appears on the control they land on. The
-first Tab leaves the control the screen opened on. The main menu and the
-Sound, Visuals, Interface and Music pages open with no control of their own
-focused: there the first Tab puts the ring on the first control. Tab and
-Shift+Tab wrap at the ends of the order.
+first Tab leaves the control the screen opened on. The Sound, Visuals,
+Interface and Music pages open with no control of their own focused: there
+the first Tab puts the ring on the first control. The main menu reports
+Single player as focused and draws nothing new; the first Tab leaves it for
+the next control and the ring appears there. Tab and Shift+Tab wrap at the
+ends of the order.
 
 Until you press Tab, Enter, Space, the arrows and a button's underlined
 letter do what they have always done. Once the ring is showing, the arrows
@@ -440,8 +442,18 @@ control that is not a button, Enter, once the ring is showing, presses the
 button that screen uses for Enter. Escape leaves a screen as it always has.
 On the main menu Escape does nothing.
 
-On the main menu, Tab still walks Single player, Intro, Multiplayer and
-Exit, in that order.
+On the main menu, Tab walks Single player, Multiplayer, Intro and Exit, then
+the Library and Settings. While the update pill shows, it comes after
+Settings. While the menu's strip is drawn, its buttons stand in for those
+four and Enter sits between the columns, with Credits after Enter: Single
+player, Multiplayer, Enter, Credits, Intro and Exit, then the Library,
+Settings and the pill. In button mode the plate's Enter comes after Exit,
+and the menu's own Credits comes after that Enter, ringed where that
+control is drawn. The letter under Enter still enters.
+Tab and Shift+Tab reach that order before an extension's window. Once the
+ring is showing, the arrows move by place and include those stops, and so
+do Enter and Space: they press the stop the ring is on. With the ring
+hidden, the strip keeps the keys it has always taken.
 
 On the other screens Tab reads the screen:
 
@@ -458,7 +470,10 @@ On the other screens Tab reads the screen:
 - **Skirmish.** The rules down their column, then each player row as one
   group (name, side, colour, team, metal, energy, and a computer's brain),
   then Select Map, Mutators, Start and Previous Menu.
-- **Map selection.** The map list, then Load, then Previous Menu.
+- **Map selection.** The map list, then More maps… while that button shows,
+  then Load, then Previous Menu. Enter on the map list, once the ring is
+  showing, chooses the map as a double-click does. With the ring hidden,
+  Enter on the list does nothing.
 - **Options, Sound, Visuals, Speeds and Music.** The section buttons, then
   that page's settings. On Music the track buttons are one row.
 - **Briefing.** Start, then Back, then No Narration. Page Up and Page Down

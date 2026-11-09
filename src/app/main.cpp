@@ -60,6 +60,7 @@
 #include "oa/platform/file_types.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/platform/screen_reader.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
@@ -512,16 +513,34 @@ struct HostDisplay {
                 place_y = restored.y;
             }
         }
+        oa::platform::screen_reader::Preference reader_mode =
+            oa::platform::screen_reader::Preference::automatic;
+        try {
+            const auto stored =
+                oa::platform::preferences::load(preference_file(options.preferences_file));
+            static const std::string reader_key{oa::platform::screen_reader::preference_key};
+            const auto reader = stored.find(reader_key);
+            if (reader != stored.end())
+                reader_mode = oa::platform::screen_reader::preference_of(reader->second);
+        } catch (const std::exception&) {
+            // An unreadable file reads as automatic, as an absent key does.
+        }
+        const bool hide_until_attached = screen_reader_hides_window(reader_mode);
         window = create_game_window(
             "Open Annihilation",
             width,
             height,
-            game_window_flags(create_full, native_density),
+            screen_reader_window_flags(
+                game_window_flags(create_full, native_density), hide_until_attached
+            ),
             place_x,
             place_y
         );
         if (window == nullptr)
             throw std::runtime_error(std::string("SDL_CreateWindow: ") + SDL_GetError());
+        // A window made hidden for the screen reader takes its adapter now and
+        // shows at once, before the movies and the loading.
+        attach_screen_reader_and_show(window, reader_mode);
         // Full screen shows the size through a display mode of it, or draws
         // the match at it and scales it to the screen (run_full_screen_method);
         // the runtime follows the size applied. A remembered window keeps its
@@ -581,6 +600,9 @@ struct HostDisplay {
         release_pointer(window);
         renderer_host.finish_records();
         renderer_host.close();
+        // Drop the screen-reader adapter before the window goes, so a
+        // subclassed window is not destroyed underneath it.
+        oa::platform::screen_reader::detach();
         if (window != nullptr)
             SDL_DestroyWindow(window);
         window = nullptr;

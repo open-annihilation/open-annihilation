@@ -7,6 +7,7 @@
 // list the screen shows, and every rule it applies is the model's.
 #include "oa/ui/library/screen.hpp"
 
+#include "oa/data/replays/share.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/input.hpp"
@@ -121,6 +122,61 @@ ScreenResult redrawn() {
     ScreenResult result;
     result.redraw = true;
     return result;
+}
+
+/// How many bytes a handle may hold.
+constexpr std::size_t kHandleBytes = 80;
+/// How many bytes a password may hold.
+constexpr std::size_t kPasswordBytes = 256;
+
+/// Tells whether a key edits a text field.
+bool editing_key(kit::Key pressed) noexcept {
+    return pressed == kit::Key::left || pressed == kit::Key::right || pressed == kit::Key::home ||
+           pressed == kit::Key::end || pressed == kit::Key::backspace ||
+           pressed == kit::Key::delete_forward;
+}
+
+/// Applies an editing key to a field, and keeps it only while it fits.
+///
+/// A copy that is not kept is wiped, and so is the previous secret when a
+/// password is replaced.
+bool edit_capped(
+    std::string& text, std::size_t& caret, std::size_t most, kit::Key pressed, bool secret
+) {
+    kit::TextField field;
+    field.text = text;
+    field.caret = caret;
+    const bool changed = kit::edit_text(field, pressed);
+    if (!changed || field.text.size() > most) {
+        if (secret)
+            oa::data::replays::wipe_secret(field.text);
+        return false;
+    }
+    if (secret)
+        oa::data::replays::wipe_secret(text);
+    text = std::move(field.text);
+    caret = field.caret;
+    return true;
+}
+
+/// Inserts typed text into a field, and keeps it only while it fits.
+bool type_capped(
+    std::string& text, std::size_t& caret, std::size_t most, std::string_view utf8, bool secret
+) {
+    kit::TextField field;
+    field.text = text;
+    field.caret = caret;
+    const bool changed = kit::insert_text(field, utf8);
+    if (!changed || field.text.size() > most) {
+        if (secret)
+            oa::data::replays::wipe_secret(field.text);
+        return false;
+    }
+    if (secret)
+        oa::data::replays::wipe_secret(text);
+    text = std::move(field.text);
+    caret = field.caret;
+    return true;
 }
 
 /// Returns the height of the list's rows, from a row the list shows.
@@ -705,7 +761,7 @@ ScreenResult close_page(Library& library, ScreenState& state) {
         show_selection(library, state, {});
     }
     state.menu = MenuKind::none;
-    if (state.interaction.focus_shown)
+    if (state.interaction.focused != kit::no_control)
         state.interaction.focused = controls::list;
     return redrawn();
 }
@@ -1241,6 +1297,65 @@ ScreenResult export_press(Library& library, kit::ControlId id) {
     return {};
 }
 
+/// Does what one of the sign-in question's controls does.
+ScreenResult sign_in_press(Library& library, kit::ControlId id) {
+    if (library.sign_in.busy) {
+        if (id != controls::sign_in_cancel)
+            return {};
+        ScreenResult result = redrawn();
+        result.action = Action::cancel_sign_in;
+        return result;
+    }
+    if (id == controls::sign_in_cancel) {
+        close_sign_in(library);
+        return redrawn();
+    }
+    if (id == controls::sign_in_blocker)
+        return {};
+    if (id == controls::sign_in_submit) {
+        if (!sign_in_can_submit(library.sign_in))
+            return {};
+        ScreenResult result = redrawn();
+        result.action = Action::submit_sign_in;
+        return result;
+    }
+    return {};
+}
+
+/// Does what one of the share question's controls does.
+ScreenResult share_press(Library& library, kit::ControlId id) {
+    if (library.share_question.busy) {
+        if (id != controls::share_cancel)
+            return {};
+        ScreenResult result = redrawn();
+        result.action = Action::cancel_share;
+        return result;
+    }
+    if (id == controls::share_cancel) {
+        close_share_question(library);
+        return redrawn();
+    }
+    if (id == controls::share_blocker)
+        return {};
+    if (id == controls::share_public) {
+        set_share_listed(library, true);
+        return redrawn();
+    }
+    if (id == controls::share_unlisted) {
+        set_share_listed(library, false);
+        return redrawn();
+    }
+    if (id == controls::share_submit) {
+        if (!share_can_submit(library.share_question))
+            return {};
+        ScreenResult result = redrawn();
+        result.action = Action::submit_share;
+        result.replay = library.share_question.path;
+        return result;
+    }
+    return {};
+}
+
 /// Does what a control does when it is pressed, or takes Space or Enter.
 ///
 /// No press on a row gets, updates or installs anything: it selects the
@@ -1267,6 +1382,11 @@ ScreenResult activate(
     const kit::Control* control = kit::control_of(list, id);
     if (control == nullptr || !control->enabled)
         return {};
+    // Share is tried before sign-in. The two questions are not open together.
+    if (library.share_question.open)
+        return share_press(library, id);
+    if (library.sign_in.open)
+        return sign_in_press(library, id);
     if (library.export_dialog.open)
         return export_press(library, id);
     if (library.key_use.open)
@@ -1369,6 +1489,15 @@ ScreenResult activate(
         }
         if (action == Action::turn_on_recording || action == Action::open_replay_file)
             return result;
+        if (action == Action::share_replay || action == Action::open_shared_replay ||
+            action == Action::sign_in || action == Action::sign_out) {
+            if (action == Action::share_replay || action == Action::open_shared_replay) {
+                if (!library.replays.selected)
+                    return {};
+                result.replay = *library.replays.selected;
+            }
+            return result;
+        }
         if (action == Action::delete_replays) {
             if (library.replays.marked.empty())
                 return {};
@@ -1776,6 +1905,130 @@ Pane focused_pane(const ScreenState& state, const kit::DisplayList& list) {
     return body_scrolls(list) ? Pane::details : Pane::list;
 }
 
+/// Keys for the sign-in question or the share question. Share is taken first.
+ScreenResult account_question_key(
+    Library& library, ScreenState& state, const kit::DisplayList& list, kit::Key pressed
+) {
+    kit::Interaction& interaction = state.interaction;
+    const bool share = library.share_question.open;
+    const bool busy = share ? library.share_question.busy : library.sign_in.busy;
+    if (pressed == kit::Key::escape) {
+        if (busy) {
+            ScreenResult result = redrawn();
+            result.action = share ? Action::cancel_share : Action::cancel_sign_in;
+            return result;
+        }
+        if (share)
+            close_share_question(library);
+        else
+            close_sign_in(library);
+        return redrawn();
+    }
+    if (pressed == kit::Key::enter) {
+        const kit::ControlId focus =
+            interaction.focus_shown ? interaction.focused : kit::no_control;
+        if (busy) {
+            if ((share && focus == controls::share_cancel) ||
+                (!share && focus == controls::sign_in_cancel))
+                return activate(library, state, list, focus, pressed, std::nullopt);
+            return {};
+        }
+        if (share) {
+            if (focus == controls::share_public || focus == controls::share_unlisted ||
+                focus == controls::share_cancel)
+                return activate(library, state, list, focus, pressed, std::nullopt);
+            if (share_can_submit(library.share_question))
+                return activate(
+                    library, state, list, controls::share_submit, pressed, std::nullopt
+                );
+            return {};
+        }
+        if (focus == controls::sign_in_cancel)
+            return activate(library, state, list, focus, pressed, std::nullopt);
+        if (sign_in_can_submit(library.sign_in))
+            return activate(library, state, list, controls::sign_in_submit, pressed, std::nullopt);
+        return {};
+    }
+    const bool in_question = share ? controls::share_control(interaction.focused)
+                                   : controls::sign_in_control(interaction.focused);
+    if (!in_question && !list.tab_order.empty())
+        interaction.focused = list.tab_order.front();
+    if (!busy && editing_key(pressed)) {
+        const kit::ControlId focus = interaction.focused;
+        bool changed = false;
+        if (share && focus == controls::share_title) {
+            changed = edit_capped(
+                library.share_question.title,
+                library.share_question.title_caret,
+                oa::data::replays::share_title_bytes,
+                pressed,
+                false
+            );
+        } else if (!share && focus == controls::sign_in_handle) {
+            changed = edit_capped(
+                library.sign_in.handle, library.sign_in.handle_caret, kHandleBytes, pressed, false
+            );
+        } else if (!share && focus == controls::sign_in_password) {
+            changed = edit_capped(
+                library.sign_in.password,
+                library.sign_in.password_caret,
+                kPasswordBytes,
+                pressed,
+                true
+            );
+        }
+        if (changed)
+            return redrawn();
+        if (focus == controls::share_title || focus == controls::sign_in_handle ||
+            focus == controls::sign_in_password)
+            return {};
+    }
+    const kit::KeyOutcome outcome = kit::key(interaction, list, pressed);
+    switch (outcome.result) {
+    case kit::KeyResult::none:
+        return {};
+    case kit::KeyResult::redraw:
+        return redrawn();
+    case kit::KeyResult::to_control:
+        return activate(library, state, list, outcome.control, pressed, std::nullopt);
+    case kit::KeyResult::accept:
+    case kit::KeyResult::scroll:
+    case kit::KeyResult::cancel:
+        return {};
+    }
+    return {};
+}
+
+/// Typed text for the focused sign-in or share field.
+ScreenResult
+account_question_text(Library& library, const ScreenState& state, std::string_view utf8) {
+    const bool share = library.share_question.open;
+    const bool busy = share ? library.share_question.busy : library.sign_in.busy;
+    if (busy)
+        return {};
+    const kit::ControlId focus =
+        state.interaction.focus_shown ? state.interaction.focused : kit::no_control;
+    bool changed = false;
+    if (share && focus == controls::share_title) {
+        changed = type_capped(
+            library.share_question.title,
+            library.share_question.title_caret,
+            oa::data::replays::share_title_bytes,
+            utf8,
+            false
+        );
+    } else if (!share && focus == controls::sign_in_handle) {
+        changed = type_capped(
+            library.sign_in.handle, library.sign_in.handle_caret, kHandleBytes, utf8, false
+        );
+    } else if (!share && focus == controls::sign_in_password) {
+        changed = type_capped(
+            library.sign_in.password, library.sign_in.password_caret, kPasswordBytes, utf8, true
+        );
+    }
+    return changed ? redrawn() : ScreenResult{};
+}
+
 } // namespace
 
 void focus_tab_search(const Library& library, ScreenState& state) noexcept {
@@ -1792,7 +2045,11 @@ focused_field(const ScreenState& state, const kit::DisplayList& list) noexcept {
     if (!state.interaction.focus_shown)
         return std::nullopt;
     const kit::ControlId id = state.interaction.focused;
-    if (id != controls::search && id != controls::active_search)
+    // The sign-in question's handle and password, and the share question's
+    // title, take typed text as the search does. The system types nothing
+    // into a field the host has not started text input over.
+    if (id != controls::search && id != controls::active_search && id != controls::sign_in_handle &&
+        id != controls::sign_in_password && id != controls::share_title)
         return std::nullopt;
     const kit::Control* control = kit::control_of(list, id);
     if (control == nullptr)
@@ -1810,9 +2067,10 @@ ScreenResult library_pointer(
     int32_t finger_reach
 ) {
     kit::Interaction& interaction = state.interaction;
-    // The chooser, USE's question and Export cover the Library. A press
-    // reaches their rows and buttons, or the shade, and never the tabs under them.
-    if (library.chooser.open || library.key_use.open || library.export_dialog.open) {
+    // The chooser, USE's question, Export, sign-in and share cover the Library.
+    // A press reaches their rows and buttons, or the shade, and never the tabs under them.
+    if (library.chooser.open || library.key_use.open || library.export_dialog.open ||
+        library.sign_in.open || library.share_question.open) {
         switch (kind) {
         case PointerKind::move: {
             const kit::PointerOutcome outcome = kit::pointer_move(interaction, list, at);
@@ -2005,6 +2263,8 @@ ScreenResult library_pointer(
 ScreenResult
 library_key(Library& library, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
     kit::Interaction& interaction = state.interaction;
+    if (library.share_question.open || library.sign_in.open)
+        return account_question_key(library, state, list, pressed);
     if (library.export_dialog.open) {
         if (pressed == kit::Key::escape) {
             if (library.export_dialog.browsing)
@@ -2340,6 +2600,8 @@ ScreenResult library_text(
 ) {
     if (library.chooser.open || library.key_use.open || library.export_dialog.open)
         return {};
+    if (library.share_question.open || library.sign_in.open)
+        return account_question_text(library, state, utf8);
     if (state.interaction.focus_shown && state.interaction.focused == controls::active_search) {
         if (kit::control_of(list, controls::active_search) == nullptr ||
             !kit::insert_text(state.maps_search, utf8))
@@ -2367,7 +2629,8 @@ ScreenResult library_wheel(
             return {};
         return redrawn();
     }
-    if (library.chooser.open || library.key_use.open)
+    if (library.sign_in.open || library.share_question.open || library.chooser.open ||
+        library.key_use.open)
         return {};
     if (state.menu != MenuKind::none) {
         for (const kit::Item& item : list.items) {
@@ -2412,6 +2675,23 @@ ScreenResult library_wheel(
 ScreenResult library_command(
     Library& library, ScreenState& state, const kit::DisplayList& list, ScreenCommand command
 ) {
+    if (library.share_question.open || library.sign_in.open) {
+        if (command == ScreenCommand::back) {
+            const bool share = library.share_question.open;
+            const bool busy = share ? library.share_question.busy : library.sign_in.busy;
+            if (busy) {
+                ScreenResult result = redrawn();
+                result.action = share ? Action::cancel_share : Action::cancel_sign_in;
+                return result;
+            }
+            if (share)
+                close_share_question(library);
+            else
+                close_sign_in(library);
+            return redrawn();
+        }
+        return {};
+    }
     if (library.export_dialog.open) {
         if (command == ScreenCommand::back) {
             if (library.export_dialog.browsing)
@@ -2497,7 +2777,8 @@ ScreenResult library_command(
 
 ScreenResult
 library_stick(Library& library, ScreenState& state, const kit::DisplayList& list, float notches) {
-    if (library.chooser.open || library.key_use.open || library.export_dialog.open)
+    if (library.chooser.open || library.key_use.open || library.export_dialog.open ||
+        library.sign_in.open || library.share_question.open)
         return {};
     return turn_pane(library, state, list, focused_pane(state, list), notches);
 }

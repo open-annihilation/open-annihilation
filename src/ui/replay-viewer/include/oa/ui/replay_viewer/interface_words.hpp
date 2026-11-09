@@ -67,6 +67,29 @@ inline constexpr std::string_view finding = "No markers yet · finding them, {pe
 inline constexpr std::string_view export_outside = "Only a replay in the Library can be exported";
 /// The end card's title when the index ended and nobody won.
 inline constexpr std::string_view no_result = "No result";
+/// The player list's title.
+inline constexpr std::string_view watching = "Watching";
+/// The view of the whole map and every unit.
+inline constexpr std::string_view all_players = "All players";
+/// The camera stays where the player leaves it.
+inline constexpr std::string_view free_camera = "Free";
+/// The camera follows the recorded player's own camera.
+inline constexpr std::string_view follow_their_camera = "Follow their camera";
+/// The camera keeps one unit in the middle.
+inline constexpr std::string_view follow_a_unit = "Follow a unit";
+/// A player who was defeated, on a list row. `{time}` is the game time.
+inline constexpr std::string_view defeated_at = "Defeated {time}";
+/// A player who left, on a list row. `{time}` is the game time.
+inline constexpr std::string_view left_at = "Left {time}";
+/// A player's team number. `{team}` is that number.
+inline constexpr std::string_view team_label = "Team {team}";
+/// Metal and energy produced per settlement. `{metal}` has one decimal and
+/// `{energy}` is a whole number. Both are zero or more.
+inline constexpr std::string_view income_rate = "+{metal} m / +{energy} e";
+/// How many units a player has. `{units}` is that number, and not one.
+inline constexpr std::string_view units_count = "{units} units";
+/// How many units a player has when that number is one. `{units}` is "1".
+inline constexpr std::string_view unit_count = "{units} unit";
 
 } // namespace oa::ui::replay_viewer::words
 
@@ -101,6 +124,17 @@ inline constexpr std::string_view interface_words[] = {
     words::finding,
     words::export_outside,
     words::no_result,
+    words::watching,
+    words::all_players,
+    words::free_camera,
+    words::follow_their_camera,
+    words::follow_a_unit,
+    words::defeated_at,
+    words::left_at,
+    words::team_label,
+    words::income_rate,
+    words::units_count,
+    words::unit_count,
 };
 
 } // namespace oa::ui::replay_viewer

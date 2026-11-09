@@ -535,6 +535,16 @@ void apply_control_words(AutomationControl& control, const ControlReading& readi
             }
         }
     }
+    // A press steps a cycling button, or a colour, caption, side or alliance,
+    // one way. Increment is that press. A door, a number and a drop-down do not.
+    const bool one_way =
+        control.kind == AutomationControlKind::button && !doors &&
+        (cycling ||
+         (named != nullptr &&
+          (named->value == ControlValue::colour || named->value == ControlValue::caption ||
+           named->value == ControlValue::side || named->value == ControlValue::alliance)));
+    if (one_way)
+        control.steps = true;
     if (!reading.shortcut.empty())
         control.shortcut = reading.shortcut;
     else if (reading.publish_letter) {

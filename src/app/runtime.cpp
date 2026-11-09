@@ -1381,6 +1381,9 @@ void Runtime::run_frame(bool& running) {
     if (!options_.headless_check && director_ == nullptr)
         sync_live_window_size();
     begin_loop_frame();
+    // A screen reader's press or key is queued before this frame's poll, as
+    // ui.click and ui.key are, so this frame takes it.
+    take_screen_reader_actions();
     SDL_Event event{};
     while (SDL_PollEvent(&event))
         if (!bench_ignores_event(event))
@@ -1404,6 +1407,9 @@ void Runtime::run_frame(bool& running) {
         last_stream_sweep_ms_ = now_ms;
     }
     oa::platform::log_files::maintain();
+    // The tree is published after the screens have moved. Nothing is built
+    // unless a screen reader is running, and an unchanged tree is not sent.
+    publish_screen_reader();
 }
 
 void Runtime::dispatch_event(SDL_Event& event, bool& running) {
@@ -2357,6 +2363,9 @@ void Runtime::load(Screen screen) {
     frontend_focus_ = -1;
     if (desc->assets.layout != nullptr)
         frontend_focus_ = frontend_panel_focus(resources_.layout);
+    // A screen opens on its own first stop. A stop landed on the screen just
+    // left must not answer the next Tab.
+    clear_menu_keyboard();
     apply_output_mode();
     // Each new screen has the window system hide the pointer again where
     // the game draws its own.

@@ -32,6 +32,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -443,6 +444,24 @@ void Runtime::set_megamap_open(bool open) {
 bool Runtime::take_megamap_toggle(const SDL_KeyboardEvent& key) {
     if (!megamap_on() || key.repeat || !action_key_matches("megamap.toggle", key))
         return false;
+    // In a replay a chord that is also a view binding is the view's, and a
+    // megamap moved off them still opens. The dispatcher gives a chord one
+    // action, and under the hack that is the megamap's, so the view action
+    // has no event of its own: it is run here.
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        static constexpr std::array<std::string_view, 4> view_actions{
+            "watch.next-player-view",
+            "watch.previous-player-view",
+            "watch.whole-view",
+            "watch.camera-mode",
+        };
+        for (const std::string_view view_action : view_actions) {
+            if (action_key_matches(view_action, key)) {
+                static_cast<void>(replay_viewer_command(view_action));
+                return true;
+            }
+        }
+    }
     set_megamap_open(!megamap_open_);
     return true;
 }

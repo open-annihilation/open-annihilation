@@ -482,6 +482,18 @@ void open_overlay_message(MainMenuOverlay* overlay, const char* text) {
 
 } // namespace
 
+void boneyards_status_widget_clear_focus(StatusWidget* widget) {
+    if (widget == nullptr)
+        return;
+    ScopedServices installed(widget);
+    // The keyboard goes back to the overlay itself, where the main menu
+    // opens with it: B still enters, and Return and Space press none of the
+    // strip's buttons. With no focus at all, the next Return or Space would
+    // land on the strip's first button, and the one after would press it.
+    Window* home = widget->system.main_menu != nullptr ? &widget->system.main_menu->base : nullptr;
+    desktop_set_focus(&widget->desktop, home);
+}
+
 void boneyards_status_widget_open_message(StatusWidget* widget, const char* text) {
     if (widget == nullptr || widget->system.main_menu == nullptr || text == nullptr)
         return;

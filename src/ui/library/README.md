@@ -528,10 +528,30 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
     and no losses, `PlayerStanding::kills_only`) and a strip of the game's
     moments, and the facts
     (each a label, `library.fact.<fact>`; a value
-    wraps to up to three lines), scrolling as the catalogue's details do when
+    wraps to up to three lines). The header's day and length line is not
+    Length or Recorded. On a crowded card that shows Core Prime's buttons
+    or note those two facts sit above the players, and the gap above the
+    facts tightens by one space; a card that has room, or shows nothing of
+    Core Prime, keeps the old gap and layout. When the caution and the note still fill the
+    pane, the two facts sit under the title, in place of its day-and-length
+    line. Open on Core Prime and Share my
+    own recording share a row when both captions fit. On a card that shows
+    Core Prime, a fact line that would be cut to a sliver is not drawn; on
+    any other card the pane's edge cuts it. The parts scroll as the catalogue's details do when
     they are taller than the card, with Watch, Watch from, Export…, Keep,
     Delete replay and Open folder at its foot (`library.action.watch`,
     `.watch-from`, `.export`, `.keep`, `.delete`, `.open-folder`).
+    While a secure connection can carry a password, Sign in
+    (`library.action.sign-in`) sits beside the source switch, or on the next
+    row when the three captions do not fit. Signed in, Sign out
+    (`.sign-out`) takes that place, and the card adds Share on Core Prime…
+    (`.share`). A system that cannot sign in shows
+    `library.replays.sign-in.secure` under the switch and no Sign in. A
+    battle Core Prime lists says On Core Prime on the card and offers Open
+    on Core Prime (`.open-shared`) whether or not the player is signed in.
+    Share my own recording (the same `.share`) waits until they are. The
+    same Open follows a share that named an id. The last
+    share's sentence stays on that card, on its own line.
     **Watched to** sits under the buttons (`library.replays.watched`). At
     Compact, a row's press and Details open the replay's own page
     (`ScreenState::replay_page`) with those buttons and Back. With no row the

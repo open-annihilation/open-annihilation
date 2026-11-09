@@ -284,6 +284,7 @@ add_subdirectory(src/ui/touch-hud)
 add_subdirectory(src/ui/key-bindings)
 # The key editor: the list of every rebindable action.
 add_subdirectory(src/ui/key-editor)
+add_subdirectory(src/ui/photo-panel)
 add_subdirectory(src/ui/game-files)
 # The in-engine game folder chooser's model.
 add_subdirectory(src/ui/folder-chooser)
@@ -445,6 +446,10 @@ if(BUILD_TESTING)
   add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
   target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
   add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
+  add_executable(oa-app-menu-reading-order-test src/app/menu_reading_order_test.cpp
+    src/app/menu_reading_order.cpp)
+  target_link_libraries(oa-app-menu-reading-order-test PRIVATE oa-app-headers oa-test-support)
+  add_test(NAME app-menu-reading-order COMMAND oa-app-menu-reading-order-test)
   add_executable(oa-app-control-names-test src/app/control_names_test.cpp src/app/control_names.cpp)
   target_link_libraries(oa-app-control-names-test PRIVATE oa-app-headers oa-ui-gui-layout
     oa-test-support oa-test-game-data oa-formats-hpi)
@@ -1352,7 +1357,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_console_units.cpp
   src/app/runtime_console_cheats.cpp src/app/runtime_poster.cpp
   src/app/runtime_order_overlays.cpp
-  src/app/runtime_events.cpp src/app/runtime_menu_audio.cpp src/app/runtime_frontend_host.cpp
+  src/app/runtime_events.cpp src/app/menu_reading_order.cpp src/app/runtime_menu_audio.cpp
+  src/app/runtime_frontend_host.cpp
   src/app/runtime_gaf.cpp
   src/app/runtime_hotkeys.cpp src/app/runtime_hud.cpp src/app/runtime_loading.cpp
   src/app/runtime_match_hud.cpp src/app/runtime_match_menus.cpp src/app/runtime_load_game.cpp
@@ -1380,6 +1386,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_kill_board.cpp
   src/app/control_names.cpp
   src/app/runtime_check_host.cpp src/app/check_host_input.cpp src/app/runtime_automation_host.cpp
+  src/app/runtime_screen_reader.cpp
+  src/app/screen_reader_tree.cpp
   src/app/runtime_match_view.cpp
   src/app/runtime_play_host.cpp
   src/app/runtime_notices.cpp src/app/web_link.cpp
@@ -1424,7 +1432,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_team_panels.cpp
   src/app/runtime_scroll_bars.cpp
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
-  src/app/photo_camera.cpp src/app/runtime_photo_mode.cpp
+  src/app/photo_camera.cpp src/app/runtime_photo_mode.cpp src/app/runtime_photo_panel.cpp
   src/app/runtime_photo_capture.cpp src/app/photo_writer.cpp src/app/photo_clipboard.cpp
   src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
@@ -1438,6 +1446,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_library_replays.cpp
   src/app/runtime_library_core_prime.cpp
+  src/app/runtime_library_share.cpp
   src/app/replay_index_pass.cpp
   src/app/runtime_replay_viewer.cpp
   src/app/runtime_map_browser.cpp
@@ -1616,7 +1625,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-brain-match
   oa-app-brain-seats
   oa-app-seat-chat
-  oa-ui-key-bindings oa-ui-key-editor oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
+  oa-ui-key-bindings oa-ui-key-editor oa-ui-photo-panel oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-replay-viewer oa-ui-map-browser oa-ui-mutator-picker
   oa-ui-brain-picker
@@ -3559,6 +3568,21 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         PASS_REGULAR_EXPRESSION "photo keys: ok"
         FAIL_REGULAR_EXPRESSION "photo keys failed:")
+      # The photo panel: every control, hide and show, guides that stay out of
+      # the photo, a square crop, a pan that never selects, and the preferences
+      # file put back. The snapshot is the window after the check.
+      set(oa_photo_panel_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-panel")
+      file(MAKE_DIRECTORY "${oa_photo_panel_dir}/user")
+      add_test(NAME native-photo-panel COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo panel
+        --snapshot "${oa_photo_panel_dir}/photo-panel.ppm"
+        --user-folder "${oa_photo_panel_dir}/user"
+        --preferences-file "${oa_photo_panel_dir}/photo-panel.conf")
+      set_tests_properties(native-photo-panel PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_panel_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo panel: ok"
+        FAIL_REGULAR_EXPRESSION "photo panel failed:")
       # Photo mode's time: freeze, step, the eighths between ticks and slow
       # play, then a shared match and a watcher holding the picture.
       set(oa_photo_time_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-time")
@@ -5855,6 +5879,21 @@ endif()
 if(TARGET oa-app-netgame)
   oa_add_extension(oa-app-netgame INIT oa_extension_init_netgame SWITCHES cehnpty)
 endif()
+# The screen-reader tree as its own library, so the check under
+# src/app/automation can link it without naming a file outside that
+# directory. The game still compiles this source itself: the bridge stays
+# on oa-game's own link line. The check defines canvas_to_window, so this
+# library is not what the game links.
+if(TARGET oa-platform-screen-reader)
+  add_library(oa-app-screen-reader-tree EXCLUDE_FROM_ALL src/app/screen_reader_tree.cpp)
+  add_library(oa::app::screen_reader_tree ALIAS oa-app-screen-reader-tree)
+  target_compile_features(oa-app-screen-reader-tree PRIVATE cxx_std_20)
+  target_link_libraries(oa-app-screen-reader-tree PRIVATE oa-app-headers
+    oa-platform-screen-reader SDL3::SDL3)
+  if(MSVC AND NOT OA_SCREEN_READER_COMPILED_OUT)
+    target_compile_options(oa-app-screen-reader-tree PRIVATE /external:W0)
+  endif()
+endif()
 # The automation endpoint: the automation protocol's codec, and the
 # endpoint a program on this machine drives the game through, oa-game's
 # extension oa-app-automation, which takes --fark, --fark-address and
@@ -5868,6 +5907,11 @@ endif()
 # library privately, so the game links it for the headers and the list.
 if(TARGET oa-game AND TARGET oa-app-automation-core)
   target_link_libraries(oa-game PRIVATE oa-app-automation-core)
+endif()
+# The tree's sources include the automation listing's header. That target
+# exists only after the directory above.
+if(TARGET oa-app-screen-reader-tree AND TARGET oa-app-automation-core)
+  target_link_libraries(oa-app-screen-reader-tree PRIVATE oa-app-automation-core)
 endif()
 # MCP on standard input and output. Registered after the automation
 # endpoint, so the endpoint's option check binds --status-stdout before

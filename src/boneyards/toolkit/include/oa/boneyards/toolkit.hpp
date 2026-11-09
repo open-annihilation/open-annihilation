@@ -233,11 +233,34 @@ struct Window {
     // own region.
     uint8_t region{0};
     // 0 is not one of a set. Radios that share a number are one stop, the
-    // one that is chosen. The arrows move inside the set.
+    // one that is chosen. The arrows along that line move inside the set.
     uint8_t radio_group{0};
     // The window that had the keyboard when this one took it. Closing hands
     // the keyboard back while that window is still shown.
     Window* focus_return{nullptr};
+    // 1 when a raise must leave this window where it sits among its parent's
+    // children, so it is drawn and met by the arrows in the same order after
+    // it takes the keyboard.
+    uint8_t keep_place{0};
+    // Tab order inside one region. 0 keeps the order the window was created
+    // in, after every window whose place is set. A raise moves the window in
+    // the tree and does not change this order. Places are compared only
+    // among the stops Tab or F6 gathers for that region.
+    uint8_t tab_place{0};
+    // Creation order. Unnumbered Tab stops keep this, and a raise does not
+    // change it; window_move_child_last renews it. 0 is unused.
+    uint32_t created{0};
+    // 1 when this stop is reached only after Tab, Shift+Tab or F6. Until
+    // then the direction keys pass it by, and a key that already does
+    // something keeps doing it.
+    uint8_t stop_when_ring{0};
+    // 1 when this control is the chosen one of a set, such as the open tab.
+    // A button is not a check, so the pressed face alone does not say so.
+    uint8_t access_chosen{0};
+    // 1 when this control is one of a set whose chosen member alone is a Tab
+    // stop, such as the player pane's tabs. The arrows and a click still
+    // reach every member, as before.
+    uint8_t access_set{0};
 };
 
 // Class names used by `is_class`.
@@ -535,10 +558,26 @@ Window* window_default_focus_target(Window* self, Window* from, bool backwards);
 /// Raises the window to the top of its parent's children, then raises the
 /// parent in turn (default raise slot).
 ///
+/// A window marked with window_keep_place stays where it is in that list.
 /// A top-level window is raised on the installed desktop instead.
 ///
 /// @param self window to raise
 void window_default_raise(Window* self);
+/// Marks a window so a raise does not move it among its parent's children.
+///
+/// @param window window that keeps its place; null is ignored
+void window_keep_place(Window* window);
+/// Moves `child` to the end of `parent`'s children, and counts it as made
+/// last.
+///
+/// An unnumbered Tab stop is reached in the order the windows were made, so
+/// a control moved here comes after every window made before the call. A row
+/// appended as results arrive is put in its place by moving the controls
+/// that belong after it.
+///
+/// @param parent the parent; null is ignored
+/// @param child a child of `parent`; anything else is ignored
+void window_move_child_last(Window* parent, Window* child);
 /// Tests whether a point lies inside the window (default contains slot).
 ///
 /// @param self window to test
@@ -1609,12 +1648,13 @@ struct Desktop {
     // dialog the pointer closes leaves the keyboard where the click put it;
     // one a key closes hands it back to its opener.
     uint8_t pointer_last{0};
-    // 1 after Tab or F6, until Return or a pointer move. The war map's arrows
-    // stay on the planets only while this is set, which is while the focus
-    // ring is showing.
-    uint8_t keyboard_travel{0};
-    // The last pointer place routed, so a move that stays put does not end
-    // keyboard travel. The first place is only recorded.
+    // 1 after Tab, Shift+Tab or F6, until a taken Return or a pointer move
+    // onto a new place. Set before the stops are gathered. A move that stays
+    // put leaves it. Stops marked stop_when_ring are skipped while this is 0.
+    // The war map's arrows stay on the planets only while this is set.
+    uint8_t keyboard_ring{0};
+    // The last pointer place routed, so a move that stays put does not hide
+    // the ring. The first place is only recorded.
     int32_t pointer_x{0};
     int32_t pointer_y{0};
     uint8_t pointer_known{0};
@@ -1678,8 +1718,13 @@ void desktop_set_capture(Desktop* desktop, Window* window);
 /// the regions that are showing, starting from the region the focus is in; a
 /// dialog consumes F6 and does not leave. Elsewhere Tab is given to the focus,
 /// as it was before a region existed. A direction key the focus does not use
-/// moves the focus to the nearest control in that direction, wrapping around
-/// the screen; controls within ten pixels of a column are stepped vertically.
+/// moves to the nearest control in that direction. Left and right follow
+/// reading order. Up and down follow a column, and controls within ten pixels
+/// share one. A radio row stands at its first choice for that column, so Up
+/// and Down step from row to row. The search wraps, except inside an open
+/// console, where the last stop in that direction stays put. A stop whose
+/// centre is covered by another region is not a landing. The frame and the
+/// war map are not walled, so an arrow crosses between them.
 /// With nothing focused, a direction key or Enter or Space focuses the first
 /// control in reading order and does not press it. While a dialog is showing,
 /// the direction keys and Tab stay inside that dialog. The first Tab,
@@ -1698,9 +1743,9 @@ void desktop_set_capture(Desktop* desktop, Window* window);
 /// window's focus target when it is shown, has a name or a caption, and has
 /// an area. A disabled face does not take the keyboard. A button message
 /// marks the pointer as the last input, and a key clears the mark. Taking Tab
-/// or F6 marks keyboard travel. Return, and a pointer move onto a new place,
-/// clears it. The first pointer place is only recorded, and a move that stays
-/// put does not clear it. Other
+/// or F6 marks the keyboard ring before the stops are gathered. A taken
+/// Return, and a pointer move onto a new place, clears it. The first pointer
+/// place is only recorded, and a move that stays put does not clear it. Other
 /// messages, the wheel included, reach only the capture.
 ///
 /// @param[in,out] desktop desktop routing the message

@@ -942,10 +942,12 @@ void Runtime::pan_match_camera() {
             const auto share = middle_pan::scroll_share(
                 middle_pan_.anchor_x, middle_pan_.anchor_y, match_pointer_x_, match_pointer_y_
             );
-            if (share.x != 0.0F || share.y != 0.0F)
+            if (share.x != 0.0F || share.y != 0.0F) {
+                replay_release_unit_follow();
                 scroll_match_view_by(
                     static_cast<double>(share.x) * step, static_cast<double>(share.y) * step
                 );
+            }
             return;
         }
     }
@@ -1011,6 +1013,7 @@ void Runtime::pan_match_camera() {
     }
     if (dx == 0 && dz == 0)
         return;
+    replay_release_unit_follow();
     scroll_match_view(dx, dz, step);
 }
 

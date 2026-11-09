@@ -45,7 +45,10 @@ game's; the plate is always drawn in the base game's palette.
 
 While the strip is drawn, it takes every pointer event inside its own rows,
 so a button of the menu under its art takes no click. Credits, under the
-strip's credits spot, still opens the credits. A press that began above the
+strip's credits spot, still opens the credits. In button mode the plate
+takes a click on its own art only. A click under the plate reaches the
+menu, and the order's Credits stop is the menu's own Credits, ringed where
+that control is drawn. A press that began above the
 strip keeps its release wherever it lands. A gadget only partly under the
 strip keeps its visible part. A gadget wholly under it takes no keyboard
 focus and no quick key, unless it is one of the menu's own SINGLE, MULTI,

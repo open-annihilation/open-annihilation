@@ -747,6 +747,36 @@ void the_screen_opens_on_its_first_stop(const kit::Frame& frame) {
     OA_CHECK(!shown.state.interaction.focus_shown);
 }
 
+/// At Compact, Return with no ring opens the details page with the page's
+/// first control focused and the ring still hidden. A click on Details also
+/// leaves a control the page lists focused. A screen reader hears the new
+/// page, and a player who never pressed Tab sees no ring.
+///
+/// @param frame the frame
+void the_details_page_keeps_a_listed_focus(const kit::Frame& frame) {
+    if (frame.size_class != kit::SizeClass::compact)
+        return;
+    Session keyed = open_at(frame, opened({}), "details by return");
+    kit::focus_opened(keyed.state.interaction, keyed.list, false);
+    OA_CHECK(!keyed.state.interaction.focus_shown);
+    keyed.key(kit::Key::enter);
+    OA_CHECK(keyed.state.details_page);
+    OA_CHECK(kit::control_of(keyed.list, keyed.state.interaction.focused) != nullptr);
+    OA_CHECK(!keyed.state.interaction.focus_shown);
+
+    Session clicked = open_at(frame, opened({}), "details by click");
+    kit::focus_opened(clicked.state.interaction, clicked.list, false);
+    const bool shown_before = clicked.state.interaction.focus_shown;
+    const kit::Control* details = find_named(clicked.list, picker::name_details);
+    OA_CHECK(details != nullptr);
+    if (details == nullptr)
+        return;
+    clicked.click(centre_of(press_area(*details)), 0);
+    OA_CHECK(clicked.state.details_page);
+    OA_CHECK(kit::control_of(clicked.list, clicked.state.interaction.focused) != nullptr);
+    OA_CHECK(clicked.state.interaction.focus_shown == shown_before);
+}
+
 /// The list is one stop. Rows are not focusable, and the screen has no
 /// filter controls to group.
 ///
@@ -892,6 +922,7 @@ int main() {
         finger(frame);
         keys(frame);
         the_screen_opens_on_its_first_stop(frame);
+        the_details_page_keeps_a_listed_focus(frame);
         the_list_is_one_stop(frame);
         commands(frame);
         wheel_and_stick(frame);

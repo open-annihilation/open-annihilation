@@ -1086,7 +1086,11 @@ void Runtime::draw_resource_readout() {
     if (viewer >= OA_PLAYER_COUNT)
         return;
     auto& game = match_->state().game;
-    auto& player = game.players[viewer];
+    // The readout stores its refresh tick on the player. A replay's player
+    // record is the simulation's, so that tick is kept on a copy.
+    const bool replay = (current_extension_state() & extension_state::replay) != 0;
+    Player shown = game.players[viewer];
+    Player& player = replay ? shown : game.players[viewer];
     auto& readout = game.resource_readout;
     // The readout eases as often a second at any frame rate (take_readout_eases).
     for (uint32_t ease = take_readout_eases(); ease != 0; --ease)

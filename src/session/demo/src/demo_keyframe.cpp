@@ -327,6 +327,11 @@ bool demo_keyframe_restore(
     const std::span<uint8_t> image = scratch_for(session, size.bytes);
     if (!base::zstd::decompress(key.frame, image).ok())
         return fail(error, "a keyframe's frame is damaged");
+    // Display figures are not in the image. A restore that moves backward would otherwise keep
+    // a later rate, because a record from before that rate is ignored. The offer of a shared
+    // camera stays: records before the keyframe are not played again.
+    const uint32_t playing = session->playback.tick;
+    const bool backward = key.tick < playing;
     std::span<uint8_t> fixed(image.data(), key.fixed_bytes);
     if (key.delta) {
         if (session->keyframe_base.size() != fixed.size())
@@ -340,6 +345,11 @@ bool demo_keyframe_restore(
     if (key.net == nullptr)
         return fail(error, "a keyframe holds no network match");
     session->net = *key.net;
+    if (backward) {
+        session->shown_samples = {};
+        session->shown_income = {};
+        session->shown_camera = {};
+    }
     session->lines.clear();
     session->keyframe_faults.clear();
     session->keyframe_expected.reset();

@@ -61,6 +61,19 @@ struct RecordingPlan {
     bool by_setting
 );
 
+/// The path a new game remembers. An unrecorded game remembers none, so a
+/// later share does not open the previous game's file.
+///
+/// @param layout the layout this game is written in
+/// @param path the file this game would record
+/// @return `path` when the game is recorded, otherwise empty
+[[nodiscard]] inline std::filesystem::path
+remembered_recording_path(RecordingLayout layout, std::filesystem::path path) {
+    if (layout == RecordingLayout::none)
+        return {};
+    return path;
+}
+
 /// What a recording's stream file name ends with, after the extension of its layout.
 inline constexpr std::string_view partial_stream_suffix = ".part";
 /// The extension a replay's stream carries before partial_stream_suffix, whatever the file it

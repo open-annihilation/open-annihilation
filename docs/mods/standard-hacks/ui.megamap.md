@@ -46,7 +46,11 @@ hacks:
 #### Opening and closing
 
 Tab opens and closes the megamap, playing the interface's open and close
-sounds. Rolling the wheel toward the player opens it; rolling it away closes
+sounds. While a replay plays, a chord that is also a view binding (the next
+or previous player's view, every player, or the camera mode) does that view
+action instead, and the megamap stays as it was. A megamap chord that is
+not one of those still opens and closes it. Rolling the wheel toward the
+player opens it; rolling it away closes
 it and zooms the battlefield in at the pointer: the map point under the
 pointer on the megamap stays under it on the battlefield, unless the view's
 limits at the map's edges hold the view back, as they hold any jump. Off
@@ -58,8 +62,10 @@ The settings' Mouse wheel zoom (Controls, on by default) zooms the
 battlefield with the wheel, out to the whole map with Maximum zoom out at
 Whole map, which makes the megamap redundant. While it is on, the hack is
 off for this player, as if the profile left it out: Tab and
-the wheel do what they do without it, the wheel zooming the battlefield, no
-megamap opens and the minimap keeps the game's own picture. Turning the
+the wheel do what they do without the hack. In a replay that means Tab
+changes the watched player when it is bound to that, and it does not open
+the megamap; the wheel zooms the battlefield, no megamap opens and the
+minimap keeps the game's own picture. Turning the
 setting on during a match closes an open megamap, without its sound, and
 puts the game's minimap picture back; turning it off brings the megamap and
 the enhanced minimap back.

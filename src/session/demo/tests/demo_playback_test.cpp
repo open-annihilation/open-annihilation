@@ -1634,6 +1634,13 @@ void live_recording_round_trips(bool compress) {
     DemoPlayback playback;
     std::string error;
     CHECK(demo_load(&playback, written.bytes, &error));
+    CHECK(playback.cameras.size() == 1);
+    if (!playback.cameras.empty()) {
+        CHECK(playback.cameras[0].slot == 0);
+        CHECK(playback.cameras[0].shared);
+        CHECK(playback.cameras[0].x == 0x0100);
+        CHECK(playback.cameras[0].y == 0x00d0);
+    }
     CHECK(playback.players.size() == 2 && playback.players[0].from_status);
     CHECK(playback.players[1].info.color == 1 && playback.players[0].info.role == 1);
     CHECK(playback.recorded_definitions == 3);
@@ -2439,6 +2446,193 @@ void economy_records_give_income_figures() {
     CHECK(player.energy_produced == 100.0f && sample.energy_produced_total == 500.0f);
 }
 
+// The same arithmetic, kept beside the world. A patterned player the call
+// never receives stays patterned, and the figures match what the world path
+// would have written for production.
+void economy_records_show_income_without_writing_the_player() {
+    Player untouched{};
+    std::memset(&untouched, 0x5a, sizeof untouched);
+    Player copy{};
+    std::memcpy(&copy, &untouched, sizeof untouched);
+    EconomySample sample{};
+    ShownIncome shown{};
+    EconomyRecord record{};
+    record.energy_produced_total = 100.0f;
+    record.energy_requested_total = 40.0f;
+    record.metal_produced_total = 10.0f;
+    record.metal_requested_total = 4.0f;
+    demo_income_for_display(&sample, &shown, record, 90);
+    CHECK(!shown.taken);
+    CHECK(std::memcmp(&untouched, &copy, sizeof untouched) == 0);
+    record.energy_produced_total = 500.0f;
+    record.energy_requested_total = 240.0f;
+    record.metal_produced_total = 50.0f;
+    record.metal_requested_total = 24.0f;
+    demo_income_for_display(&sample, &shown, record, 210);
+    CHECK(shown.taken);
+    CHECK(shown.energy == 100.0f && shown.metal == 10.0f);
+    CHECK(std::memcmp(&untouched, &copy, sizeof untouched) == 0);
+    Player world{};
+    EconomySample followed{};
+    EconomyRecord first{};
+    first.energy_produced_total = 100.0f;
+    first.metal_produced_total = 10.0f;
+    demo_follow_economy(&followed, &world, first, 90);
+    demo_follow_economy(&followed, &world, record, 210);
+    CHECK(world.energy_produced == shown.energy && world.metal_produced == shown.metal);
+
+    ShownCamera camera{};
+    const uint8_t shared[] = {0xfc, 0x00, 0x01, 0xd0, 0x00};
+    CHECK(demo_note_shown_camera(&camera, shared, sizeof shared));
+    CHECK(camera.seen && camera.shared && camera.x == 0x0100 && camera.y == 0x00d0);
+    const uint8_t stopped[] = {0xfc, 0xff, 0xff, 0xff, 0xff};
+    CHECK(demo_note_shown_camera(&camera, stopped, sizeof stopped));
+    CHECK(camera.seen && !camera.shared);
+    CHECK(!demo_note_shown_camera(&camera, shared, 4));
+}
+
+// Fields a tick or an economy record may rewrite. The four income rates are
+// left as they were, so a write into them still fails the compare.
+void copy_tick_owned(Player* before, const Player& after) {
+    std::memcpy(before->update_count, after.update_count, sizeof before->update_count);
+    before->latency = after.latency;
+    before->last_sim_tick = after.last_sim_tick;
+    before->last_update_time = after.last_update_time;
+    before->load_progress = after.load_progress;
+    before->energy = after.energy;
+    before->metal = after.metal;
+    before->energy_storage = after.energy_storage;
+    before->metal_storage = after.metal_storage;
+    before->energy_produced_total = after.energy_produced_total;
+    before->metal_produced_total = after.metal_produced_total;
+    before->energy_requested_total = after.energy_requested_total;
+    before->metal_requested_total = after.metal_requested_total;
+    before->energy_wasted_total = after.energy_wasted_total;
+    before->metal_wasted_total = after.metal_wasted_total;
+    before->shared_energy_storage = after.shared_energy_storage;
+    before->shared_metal_storage = after.shared_metal_storage;
+    before->next_economy_tick = after.next_economy_tick;
+    before->win_lose_time = after.win_lose_time;
+    before->display_timer = after.display_timer;
+    before->kills = after.kills;
+    before->losses = after.losses;
+    before->commanders_killed = after.commanders_killed;
+    before->commanders_lost = after.commanders_lost;
+    before->units_created = after.units_created;
+    before->unit_count = after.unit_count;
+}
+
+// Two economy records played through a session frame. The list's income
+// follows them. The player's four rates, and the rest of every player once
+// the tick's own fields are set aside, stay as they were on that frame.
+void economy_playback_leaves_the_rates() {
+    auto recording = make_recording(kUnitsPerPlayer, OA_PLAYER_COUNT);
+    const auto economy_at = [](uint32_t tick, float energy, float metal) {
+        std::vector<uint8_t> payload = elided_state_payload(tick, true);
+        EconomyRecord economy{};
+        economy.energy_produced_total = energy;
+        economy.metal_produced_total = metal;
+        append_record(&payload, economy);
+        return payload;
+    };
+    recording.add(3, 33, economy_at(30, 100.0f, 10.0f));
+    recording.add(3, 33, economy_at(150, 500.0f, 50.0f));
+    Machine replay;
+    replay.build(0);
+    std::array<uint8_t, OA_PLAYER_COUNT> allies{};
+    allies[0] = 1;
+    replay.match->configure_outcomes(0, allies, false);
+    std::unique_ptr<DemoSession, void (*)(DemoSession*)> session{
+        new DemoSession(), release_session
+    };
+    std::string error;
+    CHECK(demo_load(&session->playback, recording.bytes(), &error));
+    session->playback.ten_player_replay = TenPlayerReplay::allied_fake_player;
+    CHECK(demo_session_begin(session.get(), replay.match.get(), &error));
+    if (session->match == nullptr) {
+        std::fprintf(stderr, "economy playback: %s\n", error.c_str());
+        return;
+    }
+    bool flipped = false;
+    for (int frame = 0; frame < 400 && !flipped; ++frame) {
+        const bool taken = session->shown_income[2].taken;
+        const uint32_t first_tick = session->shown_samples[2].tick;
+        auto& game = replay.match->state().game;
+        Player before[OA_PLAYER_COUNT];
+        std::memcpy(before, game.players, sizeof before);
+        const float rate_energy = game.players[2].energy_produced;
+        const float rate_energy_asked = game.players[2].energy_requested;
+        const float rate_metal = game.players[2].metal_produced;
+        const float rate_metal_asked = game.players[2].metal_requested;
+        demo_session_frame(session.get());
+        if (taken || !session->shown_income[2].taken)
+            continue;
+        flipped = true;
+        const uint32_t second_tick = session->shown_samples[2].tick;
+        CHECK(second_tick > first_tick);
+        const float per = static_cast<float>(economy_settlement_ticks) /
+                          static_cast<float>(second_tick - first_tick);
+        const float expect_energy = (500.0f - 100.0f) * per;
+        const float expect_metal = (50.0f - 10.0f) * per;
+        CHECK(session->shown_income[2].energy == expect_energy);
+        CHECK(session->shown_income[2].metal == expect_metal);
+        CHECK(game.players[2].energy_produced == rate_energy);
+        CHECK(game.players[2].energy_requested == rate_energy_asked);
+        CHECK(game.players[2].metal_produced == rate_metal);
+        CHECK(game.players[2].metal_requested == rate_metal_asked);
+        CHECK(expect_energy != 0.0f && game.players[2].energy_produced != expect_energy);
+        CHECK(expect_metal != 0.0f && game.players[2].metal_produced != expect_metal);
+        for (int player = 0; player < OA_PLAYER_COUNT; ++player)
+            copy_tick_owned(&before[player], game.players[player]);
+        if (std::memcmp(before, game.players, sizeof before) != 0) {
+            const auto* left = reinterpret_cast<const uint8_t*>(before);
+            const auto* right = reinterpret_cast<const uint8_t*>(game.players);
+            for (std::size_t index = 0; index < sizeof before; ++index) {
+                if (left[index] == right[index])
+                    continue;
+                std::fprintf(
+                    stderr,
+                    "economy playback player %zu offset 0x%zx\n",
+                    index / sizeof(Player),
+                    index % sizeof(Player)
+                );
+                break;
+            }
+        }
+        CHECK(std::memcmp(before, game.players, sizeof before) == 0);
+    }
+    CHECK(flipped);
+}
+
+// A file that carries a shared-camera record offers that camera. One that
+// does not leaves the offer off. The session is begun, not only the bytes.
+void recording_shares_camera_follows_the_file(bool with_camera) {
+    auto recording = make_recording(kUnitsPerPlayer, 2);
+    std::vector<uint8_t> payload = elided_state_payload(5, true);
+    if (with_camera) {
+        const uint8_t camera[] = {0xfc, 0x00, 0x01, 0xd0, 0x00};
+        payload.insert(payload.end(), camera, camera + sizeof camera);
+    }
+    recording.add(1, 33, std::move(payload));
+    Machine replay;
+    replay.build(0);
+    std::array<uint8_t, OA_PLAYER_COUNT> allies{};
+    allies[0] = 1;
+    replay.match->configure_outcomes(0, allies, false);
+    std::unique_ptr<DemoSession, void (*)(DemoSession*)> session{
+        new DemoSession(), release_session
+    };
+    std::string error;
+    CHECK(demo_load(&session->playback, recording.bytes(), &error));
+    CHECK(session->playback.cameras.empty() != with_camera);
+    CHECK(demo_session_begin(session.get(), replay.match.get(), &error));
+    if (session->match == nullptr) {
+        std::fprintf(stderr, "camera offer: %s\n", error.c_str());
+        return;
+    }
+    CHECK(session->recording_shares_camera == with_camera);
+}
+
 // The limits sector is written after the brains sector and read back. A
 // setup that does not carry limits writes no such sector, and the same
 // sector list as a recording that never had the field.
@@ -2883,6 +3077,10 @@ int main() {
     recorded_alliance_line_reads_in_the_language_shown();
     recorded_speed_reads_in_the_language_shown();
     economy_records_give_income_figures();
+    economy_records_show_income_without_writing_the_player();
+    economy_playback_leaves_the_rates();
+    recording_shares_camera_follows_the_file(true);
+    recording_shares_camera_follows_the_file(false);
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

@@ -75,6 +75,7 @@
 #include "oa/ui/library/export.hpp"
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/replays.hpp"
+#include "oa/ui/library/share.hpp"
 #include "oa/ui/library/screen.hpp"
 #include "oa/ui/library/text.hpp"
 #include "oa/ui/map_previews/map_previews.hpp"
@@ -3173,6 +3174,29 @@ bool advance_replay_index(
 
 } // namespace
 
+/// Wraps a raw `.tad` the way Export does, so a share sends the engine line,
+/// the mod and the content note beside the file. `export_tad` with its
+/// defaults would send the base game only and an empty engine line.
+///
+/// @param bytes the `.tad`
+/// @param file the recording, so the note beside it can be read
+/// @param user_folder the player's folder, parent of Recordings
+/// @return the `.oademo`, or the sentence when it cannot be written
+oademo::WriteResult
+wrap_shared_tad(std::span<const uint8_t> bytes, const fs::path& file, const fs::path& user_folder) {
+    demo::ImportedRecording described = demo::describe_imported_recording(bytes, OA_ENGINE_VERSION);
+    if (!described.ok()) {
+        oademo::WriteResult failed;
+        failed.error = described.error.empty() ? "the file could not be read" : described.error;
+        return failed;
+    }
+    ReplayShelf::HeldExport held;
+    overlay_tad_note(described.replay, content_note_beside(file), held, user_folder);
+    oademo::WriteOptions options;
+    options.level = oademo::level_on_export;
+    return oademo::write(described.replay, options);
+}
+
 /// How the Replays section reads what is installed and puts expansions back.
 struct ReplayContentAccess {
     /// Remembers the stock maps' stems and mission names once.
@@ -5121,7 +5145,23 @@ void Runtime::LibraryHost::select_kept_replay() {
         state.replay_page =
             kept_replay_page && model.replays.selected && *model.replays.selected == path;
     }
+    const bool share = share_kept_replay;
     kept_replay.reset();
+    if (share) {
+        share_kept_replay = false;
+        if (signed_handle().empty()) {
+            library::open_sign_in(model);
+            if (model.sign_in.open)
+                share_after_sign_in = path;
+            else
+                share_after_sign_in.reset();
+        } else {
+            share_after_sign_in.reset();
+            const library::ReplayRow* row = library::find_replay(model, path);
+            const std::string title = row == nullptr ? std::string{} : row->replay.map;
+            library::open_share_question(model, path, title);
+        }
+    }
     ++model_revision;
 }
 
@@ -5159,6 +5199,7 @@ void Runtime::LibraryHost::fill_replay_inputs(Runtime& runtime, library::Inputs&
         shown.keep_days = *days;
     if (!replays) {
         publish_core_prime(shown);
+        publish_account(shown);
         return;
     }
     ReplayShelf& shelf = *replays;
@@ -5222,6 +5263,7 @@ void Runtime::LibraryHost::fill_replay_inputs(Runtime& runtime, library::Inputs&
         shown.fetch_sentence = shelf.fetch_sentence;
     }
     publish_core_prime(shown);
+    publish_account(shown);
 }
 
 std::vector<replay_data::ContentGap>
@@ -6172,6 +6214,15 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
         library::set_replay_source(model, library::ReplaySource::core_prime);
         ++model_revision;
         return false;
+    case library::Action::sign_in:
+    case library::Action::submit_sign_in:
+    case library::Action::sign_out:
+    case library::Action::share_replay:
+    case library::Action::submit_share:
+    case library::Action::open_shared_replay:
+    case library::Action::cancel_sign_in:
+    case library::Action::cancel_share:
+        return take_share_action(runtime, result);
     default:
         return false;
     }
@@ -6830,7 +6881,8 @@ void Runtime::LibraryHost::note_watched_replay(Runtime& runtime) {
     if (!shelf.watching && shelf.left_path.empty()) {
         if (playing_switched) {
             std::string path;
-            if (runtime.library_return_ && runtime.library_return_->replay.has_value())
+            if (runtime.library_return_ && runtime.library_return_->replay.has_value() &&
+                runtime.library_return_->replay_source != library::ReplaySource::core_prime)
                 path = *runtime.library_return_->replay;
             if (path.empty() && !runtime.pending_demo_path().empty() &&
                 !runtime.user_folder_.empty()) {

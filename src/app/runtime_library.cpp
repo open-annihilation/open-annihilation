@@ -18,6 +18,7 @@
 #include "oa_layer.hpp"
 #include "package_paths.hpp"
 
+#include "oa/app/battle_recording.hpp"
 #include "oa/app/brain_seats.hpp"
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/pictures.hpp"
@@ -136,6 +137,24 @@ constexpr std::string_view kUnknownAuthor = "unknown";
 /// @return its translation, or the English
 std::string_view shown_word(void* /*context*/, std::string_view english) {
     return oa::data::languages::interface_text(english);
+}
+
+/// The path of a recording below Recordings, with slashes. Empty when it is not below.
+///
+/// @param user the player's folder
+/// @param recording the recording
+/// @return the relative path; empty when it leaves Recordings
+std::string recording_below_recordings(const fs::path& user, const fs::path& recording) {
+    if (user.empty() || recording.empty())
+        return {};
+    const fs::path root = (user / std::string(recordings_folder_name)).lexically_normal();
+    const fs::path relative = recording.lexically_normal().lexically_relative(root);
+    if (relative.empty() || relative.is_absolute())
+        return {};
+    const std::string text = path_to_generic_utf8(relative);
+    if (text.empty() || text == "." || text.starts_with("../") || text.starts_with(".."))
+        return {};
+    return text;
 }
 
 /// Returns the Library's kind for a catalogue's kind.
@@ -4456,6 +4475,14 @@ struct Runtime::LibraryScreen final : LayerScreen {
         case library::Action::export_browse_up:
         case library::Action::export_browse_open:
         case library::Action::export_browse_use:
+        case library::Action::sign_in:
+        case library::Action::submit_sign_in:
+        case library::Action::sign_out:
+        case library::Action::share_replay:
+        case library::Action::submit_share:
+        case library::Action::open_shared_replay:
+        case library::Action::cancel_sign_in:
+        case library::Action::cancel_share:
             return host.replay_action(runtime_, result);
         case library::Action::edit_keys:
             runtime_.open_key_editor({});
@@ -4528,6 +4555,46 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
     button.button_hovered = false;
     button.button_pressed = false;
     play_ui_sound(kOpenSound, 0);
+}
+
+void Runtime::open_replays_to_share_battle() {
+    battle_share_pending_ = true;
+}
+
+void note_battle_recording(Runtime& runtime, std::filesystem::path path) {
+    if (path == runtime.battle_recording_)
+        return;
+    const std::string previous =
+        recording_below_recordings(runtime.user_folder(), runtime.battle_recording_);
+    runtime.battle_recording_ = std::move(path);
+    if (runtime.library_ == nullptr || previous.empty())
+        return;
+    if (!runtime.library_->kept_replay || *runtime.library_->kept_replay != previous)
+        return;
+    const std::string next =
+        recording_below_recordings(runtime.user_folder(), runtime.battle_recording_);
+    if (next.empty())
+        runtime.library_->kept_replay.reset();
+    else
+        runtime.library_->kept_replay = next;
+}
+
+void Runtime::offer_battle_share() {
+    if (!battle_share_pending_ || !library_can_open())
+        return;
+    const std::string relative = recording_below_recordings(user_folder(), battle_recording_);
+    open_library(library::Tab::replays);
+    if (oa_layer().find(library_screen_name) == nullptr)
+        return;
+    battle_share_pending_ = false;
+    LibraryHost& host = library_host();
+    library::set_replay_source(host.model, library::ReplaySource::computer);
+    host.share_kept_replay = false;
+    if (!relative.empty()) {
+        host.kept_replay = relative;
+        host.share_kept_replay = true;
+    }
+    ++host.model_revision;
 }
 
 void Runtime::close_library() {
@@ -4707,6 +4774,7 @@ void Runtime::reopen_kept_library() {
 }
 
 void Runtime::tick_library() {
+    offer_battle_share();
     LibraryHost& host = library_host();
     const bool in_match = screen_ == Screen::match || match_ != nullptr;
     // Where a watched replay is, sampled while its match runs, and the index

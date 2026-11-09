@@ -521,6 +521,10 @@ struct AutomationEntry {
     int32_t set_size{};                 ///< how many share the set; 0 when it has none
     bool chosen{};                      ///< it is the chosen part
     bool pressed{};                     ///< a switch is on
+    /// A section header is open. Copied from the control. False otherwise.
+    bool expanded{};
+    /// How a change is announced: 0 off, 1 polite, 2 assertive.
+    uint8_t live{};
 };
 
 /// Returns the named controls, in list order.

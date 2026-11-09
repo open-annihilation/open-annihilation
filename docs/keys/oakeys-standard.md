@@ -196,7 +196,7 @@ Lower-case kebab-case words joined by dots, at most 96 bytes:
 | `pointer` | The mouse's roles | `pointer.select`, `pointer.command` |
 | `panel` | The order panel's tabs | `panel.orders-tab` |
 | `ui` | Open Annihilation's own screens and the window | `ui.settings`, `ui.full-screen`, `ui.keys-overlay` |
-| `watch` | Spectating and replays | `watch.player-view`, `watch.replay-pause` |
+| `watch` | Spectating and replays | `watch.player-view`, `watch.replay-pause`, `watch.next-player-view` |
 | `megamap`, `whiteboard` | The keys of those standard hacks | `megamap.toggle`, `whiteboard.draw` |
 | `debug` | Developer Mode and 3.1c's debug keys | `debug.keys` |
 | `gui` | A 3.1c menu's quick key, from the mod's GUI files | `gui.ridge.ridge-pad` |

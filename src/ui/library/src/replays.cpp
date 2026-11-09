@@ -475,6 +475,8 @@ std::optional<std::size_t> core_filter_count(const Library& library, CorePrimeFi
         if (library.replays.planet.empty())
             return std::nullopt;
         return counted(inputs.core_planet_total);
+    case CorePrimeFilter::mine:
+        return counted(inputs.core_mine_total);
     }
     return std::nullopt;
 }
@@ -489,6 +491,8 @@ std::string core_filter_title(const Library& library, CorePrimeFilter filter) {
         return std::string(shown(library.text, words::core_most_downloaded));
     case CorePrimeFilter::planet:
         return std::string(shown(library.text, words::core_by_planet));
+    case CorePrimeFilter::mine:
+        return std::string(shown(library.text, words::core_my_battles));
     }
     return {};
 }
@@ -726,7 +730,8 @@ std::vector<ReplayDay> replay_days(const Library& library) {
     if (view.visible.empty())
         return days;
     const bool by_day = view.source == ReplaySource::core_prime
-                            ? view.core_filter == CorePrimeFilter::latest
+                            ? view.core_filter == CorePrimeFilter::latest ||
+                                  view.core_filter == CorePrimeFilter::mine
                             : view.sort == ReplaySort::newest;
     if (!by_day) {
         days.push_back({{}, 0, view.visible.size()});
@@ -1140,6 +1145,22 @@ std::string replay_note(const Library& library, const ReplayRow& row) {
     // A failed Delete is said first, then what the replay still needs.
     std::string note = failure;
     add_sentence(note, needs_note(library, row));
+    const ReplayInputs& inputs = library.inputs.replays;
+    const bool on_prime = inputs.core_battle && inputs.core_listing_path == row.replay.path &&
+                          inputs.core_listing == CoreListing::listed;
+    const bool shared =
+        inputs.core_share_path == row.replay.path && !inputs.core_share_note.empty();
+    if (on_prime)
+        add_sentence(note, std::string(shown(library.text, words::core_on_prime)));
+    // The share's sentence is its own line, a refusal included. The secure
+    // connection sentence sits under the source switch, not on this card.
+    if (shared) {
+        if (on_prime && !note.empty())
+            note.push_back('\n');
+        else if (!note.empty())
+            note.push_back(' ');
+        note += inputs.core_share_note;
+    }
     return note;
 }
 
@@ -1487,6 +1508,40 @@ std::vector<ReplayButton> replay_buttons(const Library& library) {
         {Action::open_replay_folder,
          true,
          std::string(shown(library.text, words::action_open_folder))}
+    );
+    // Open on a listed battle needs no account. Share waits until the player
+    // is signed in. Sign in and Sign out sit beside the source switch.
+    const ReplayInputs& share_inputs = library.inputs.replays;
+    const bool battle =
+        share_inputs.core_battle && share_inputs.core_listing_path == row->replay.path;
+    if (battle && share_inputs.core_listing == CoreListing::asking)
+        return buttons;
+    const bool shared_here =
+        share_inputs.core_share_path == row->replay.path && !share_inputs.core_share_id.empty();
+    if (battle && share_inputs.core_listing == CoreListing::listed) {
+        buttons.push_back(
+            {Action::open_shared_replay,
+             true,
+             std::string(shown(library.text, words::action_open_shared))}
+        );
+        if (!share_inputs.core_signed_in)
+            return buttons;
+        buttons.push_back(
+            {Action::share_replay, true, std::string(shown(library.text, words::action_share_own))}
+        );
+        return buttons;
+    }
+    if (!share_inputs.core_signed_in)
+        return buttons;
+    if (shared_here) {
+        buttons.push_back(
+            {Action::open_shared_replay,
+             true,
+             std::string(shown(library.text, words::action_open_shared))}
+        );
+    }
+    buttons.push_back(
+        {Action::share_replay, true, std::string(shown(library.text, words::action_share))}
     );
     return buttons;
 }

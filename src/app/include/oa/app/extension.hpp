@@ -259,6 +259,10 @@
 /// such place. A screen button that lies wholly inside it is listed hidden
 /// and stays enabled as the screen reported it. It is not a hook: the
 /// engine does not call it.
+/// Version 21 also adds ScreenServices::main_menu_order_owns_key. The
+/// main-menu overlay calls it. While it answers, the host owns that key:
+/// the overlay drops its focus and passes the key on. The engine fills it.
+/// No extension fills it. It is not a hook.
 #define OA_EXTENSION_API_VERSION 21
 
 namespace oa {

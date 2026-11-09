@@ -445,6 +445,10 @@ uint8_t Runtime::match_view_player() const noexcept {
 void Runtime::switch_watched_view(oa::ui::hud::ViewSwitch change) {
     if (!match_)
         return;
+    // A replay keeps the recorded viewpoint for the simulation. The view on
+    // show is presentation: watched_player_ and watched_sight_. A player who
+    // has left is still seated, and the view is the sight the match still holds.
+    const bool replay = (current_extension_state() & extension_state::replay) != 0;
     auto& world = match_->state();
     switch (change) {
     case hud::ViewSwitch::none:
@@ -455,31 +459,35 @@ void Runtime::switch_watched_view(oa::ui::hud::ViewSwitch change) {
         // The watcher's own view shows the whole map.
         watched_player_ = OA_PLAYER_COUNT;
         watched_sight_ = WatchedSight::whole_map;
-        world.game.viewpoint_player = match_local_player_;
+        if (!replay)
+            world.game.viewpoint_player = match_local_player_;
         break;
     case hud::ViewSwitch::view_player: {
         // A slot not in the game leaves the view as it was, but the sight
         // shows the whole map.
         const auto slot = resource_panel_.viewed_slot;
         const auto& player = world.game.players[slot < OA_PLAYER_COUNT ? slot : 0];
-        const bool active = slot < OA_PLAYER_COUNT && player.in_use != 0 &&
-                            player.index != OA_PLAYER_COUNT && player.status >= 1 &&
-                            player.status <= 4;
+        const bool seated =
+            slot < OA_PLAYER_COUNT && player.in_use != 0 && player.index != OA_PLAYER_COUNT;
+        const bool active = seated && player.status >= 1 && player.status <= 4;
         watched_sight_ = WatchedSight::whole_map;
-        if (active) {
+        if (replay ? seated : active) {
             watched_player_ = slot;
             watched_sight_ = WatchedSight::player;
-            world.game.viewpoint_player = slot;
+            if (!replay)
+                world.game.viewpoint_player = slot;
         }
         break;
     }
     }
     // A replay viewer without a slot watches with full radar in its own view
-    // only.
-    match_->set_slotless_view_switched(watched_player_ < OA_PLAYER_COUNT);
-    // The selection is dropped and the panels and sight drawn again.
-    clear_local_selection();
-    apply_match_hud_for_selection();
+    // only. Switching the view during a replay does not change that, and does
+    // not clear a selection the simulation hashed.
+    if (!replay) {
+        match_->set_slotless_view_switched(watched_player_ < OA_PLAYER_COUNT);
+        clear_local_selection();
+        apply_match_hud_for_selection();
+    }
     reset_sight_presentation();
 }
 

@@ -320,6 +320,25 @@ computer** or **On Core Prime**. On Core Prime the filters are **Latest**,
 **Longest**, **Popular** and **By planet**. The planet menu lists every planet
 the pages loaded this run have named, and the chosen one stays checked. The
 list is paged as it scrolls, and the pages stay while that list is showing.
+While you are signed in, **My battles** is a fifth filter and lists your own.
+
+**Sign in**, beside **On this computer** and **On Core Prime**, asks for your
+Core Prime handle and password. A forgotten password is reset at
+coreprime.net/forgot. The session stays in memory for this run: **Sign out**,
+beside that same switch, and leaving the game, forget it, and it is never
+written down. A system without a secure connection does not offer sign in.
+It says so on that row, and a password is never sent in the clear. **Share
+on Core Prime…** sends that replay. The question proposes the Library's title
+and offers **Public** or **Unlisted**. The file keeps the chat and holds no network
+address. A file over 64 MiB is refused before anything is sent. When the
+share is accepted the card says **Shared on Core Prime** and offers **Open
+on Core Prime**. A battle Core Prime already lists says **On Core Prime**
+and offers **Open on Core Prime** whether or not you are signed in. Opening
+a public replay needs no account. **Share my own recording** waits until you
+are signed in, so one of that battle's players can replace the replay Core
+Prime published. Share… after a battle does the same: Sign in first when you
+are signed out, then the share question for that recording.
+
 **Download** saves the `.oademo` into `Recordings/Core Prime`. The file takes
 the map's name, then that name with the time it was recorded, then the
 replay's id, and the card says **Downloaded**, at the next start too while
@@ -387,7 +406,8 @@ to the ends.
 own at Compact (**Details**, or a press on a row; **Back** returns): the
 map's picture and name, the kind (and the battle's planet and sector), the
 day, time and length (the length is left out when the replay does not say
-it), the players (colour, name and side), then **Length**, **Recorded**
+it). That header line is not a substitute for the facts. The players
+(colour, name and side) come next, then **Length**, **Recorded**
 (when, and the program that recorded it: "Open Annihilation 0.8.14"; a
 `.tad` shows its recorder as it was recorded), **Mod**, **Expansions**,
 **Mutators**, **File** (size and name), and **Kept until** the day the
@@ -398,7 +418,16 @@ downloaded or exported replay say **Kept** ("Until you delete it", or that
 downloaded and exported replays are kept). Exported is a replay you exported, marked beside the
 kept marks, not a folder. An imported replay says imported replays are kept. A
 fact's value wraps to a second or a
-third line instead of being cut. The card's parts scroll, with the wheel,
+third line instead of being cut. On a crowded card that shows Core Prime's
+buttons or note, **Length** and **Recorded** sit above the players so both
+stay whole above the buttons. Any other card keeps its layout and scrolls
+to them.
+When the caution and the note still leave no room, as at 960×540 with a
+listed battle's caution, those two facts sit under the title, in place of
+its day and length line, above the caution. **Open on Core Prime** and **Share my own recording** share one
+row when both captions fit on it. The header's day and length line is not
+a substitute for either fact. A card that has room keeps the wider gap
+above the facts. A card that shows Core Prime does not show a cut line. The card's parts scroll, with the wheel,
 a finger, the scroll bar or the keys, when a ten-player replay's players
 and facts are taller than the card, and the buttons stay at its foot. A
 file with no map is titled by its file name, and a damaged file says "This

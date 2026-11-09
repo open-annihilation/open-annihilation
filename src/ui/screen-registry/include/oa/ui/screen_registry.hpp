@@ -177,6 +177,20 @@ struct ScreenServices {
     ///         z, 0 to 9 and hyphens, or a cancel or primary button that is
     ///         neither -1 nor one of the buttons
     uint32_t (*ask_prompt)(void* host, const PromptRequest* request){};
+    /// Tells whether the host's main-menu order owns this key.
+    ///
+    /// The main-menu overlay calls it before its own windows see a key.
+    /// Nonzero means the host owns it: the overlay drops its focus and
+    /// passes the key on. Zero, and a null function, leave the key with
+    /// the overlay. The host owns the order's next and previous keys on
+    /// the main menu, and, while its ring is showing on a landed stop,
+    /// the arrows and the bound Accept and Press as well. A message box
+    /// the overlay is showing does not ask.
+    ///
+    /// @param host ScreenContext::host
+    /// @param input the key; read at once
+    /// @return nonzero when the host owns the key
+    int (*main_menu_order_owns_key)(void* host, const ScreenInput* input){};
 };
 
 // What screens, overlays and dispatcher steps are called with. host and

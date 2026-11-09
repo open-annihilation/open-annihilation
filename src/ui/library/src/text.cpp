@@ -493,6 +493,20 @@ std::string_view action_text(Action action, const TextHooks& text) {
         return shown(text, words::fact_download);
     case Action::browse_core_prime:
         return shown(text, words::core_browse);
+    case Action::sign_in:
+    case Action::submit_sign_in:
+        return shown(text, words::action_sign_in);
+    case Action::sign_out:
+        return shown(text, words::action_sign_out);
+    case Action::share_replay:
+        return shown(text, words::action_share);
+    case Action::submit_share:
+        return shown(text, words::share_confirm);
+    case Action::open_shared_replay:
+        return shown(text, words::action_open_shared);
+    case Action::cancel_sign_in:
+    case Action::cancel_share:
+        return shown(text, words::action_cancel);
     }
     return {};
 }

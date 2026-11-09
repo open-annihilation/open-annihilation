@@ -7,6 +7,7 @@
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/window_surface.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/platform/screen_reader.hpp"
 #include "photo_state.hpp"
 #include "oa/app/game_directory.hpp"
 #include "graphics_report.hpp"
@@ -380,14 +381,26 @@ void Runtime::initialize_sdl() {
         watch_opened_files();
         // A window the runtime makes itself has no renderer host, and opens
         // at the window system's density.
+        oa::platform::screen_reader::Preference reader_mode =
+            oa::platform::screen_reader::Preference::automatic;
+        {
+            static const std::string reader_key{oa::platform::screen_reader::preference_key};
+            const auto reader = preference_values_.find(reader_key);
+            if (reader != preference_values_.end())
+                reader_mode = oa::platform::screen_reader::preference_of(reader->second);
+        }
         sdl_.window = SDL_CreateWindow(
             "Open Annihilation",
             kDefaultWindowWidth,
             kDefaultWindowHeight,
-            game_window_flags(options_.start_full_screen, false)
+            screen_reader_window_flags(
+                game_window_flags(options_.start_full_screen, false),
+                screen_reader_hides_window(reader_mode)
+            )
         );
         if (sdl_.window == nullptr)
             throw std::runtime_error(std::string("SDL_CreateWindow: ") + SDL_GetError());
+        attach_screen_reader_and_show(sdl_.window, reader_mode);
         sdl_.renderer = SDL_CreateRenderer(sdl_.window, nullptr);
         if (sdl_.renderer == nullptr)
             throw std::runtime_error(std::string("SDL_CreateRenderer: ") + SDL_GetError());
@@ -1483,6 +1496,35 @@ bool Runtime::frame_pixelart_works() {
 }
 
 void Runtime::render() {
+    // Drawing reads Game.viewpoint_player. A replay's watched player is
+    // presentation, so the recorded viewpoint is put back before this returns
+    // and before the next tick. Keyframes are taken with the step, earlier.
+    struct ShownViewpoint {
+        oa::Game* game = nullptr;
+        uint8_t recorded = 0;
+
+        explicit ShownViewpoint(Runtime& runtime) {
+            if ((runtime.current_extension_state() & extension_state::replay) == 0 ||
+                runtime.match_ == nullptr)
+                return;
+            const uint8_t shown = runtime.match_view_player();
+            oa::Game& live = runtime.match_->state().game;
+            if (shown >= OA_PLAYER_COUNT || shown == live.viewpoint_player)
+                return;
+            recorded = live.viewpoint_player;
+            live.viewpoint_player = shown;
+            game = &live;
+        }
+
+        ShownViewpoint(const ShownViewpoint&) = delete;
+        ShownViewpoint& operator=(const ShownViewpoint&) = delete;
+
+        ~ShownViewpoint() {
+            if (game != nullptr)
+                game->viewpoint_player = recorded;
+        }
+    } shown_viewpoint{*this};
+
     // The frame is drawn at the window's size, including a size that changed
     // with no resize. A headless check and a director lay the match out at a
     // size of their own; the window must not replace it.

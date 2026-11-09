@@ -1973,6 +1973,60 @@
 	zh-Hans=指挥官阵亡时：;
 	}
 
+[Core Prime]
+	{
+	de=Core Prime;
+	fr=Core Prime;
+	it=Core Prime;
+	es=Core Prime;
+	zh-Hans=Core Prime;
+	}
+
+[This battle goes on Core Prime by itself, a few minutes after it ends.]
+	{
+	de=Diese Schlacht kommt von selbst auf Core Prime, ein paar Minuten nach dem Ende.;
+	fr=Cette bataille arrive sur Core Prime toute seule, quelques minutes après la fin.;
+	it=Questa battaglia va su Core Prime da sola, qualche minuto dopo la fine.;
+	es=Esta batalla llega sola a Core Prime, unos minutos después de acabar.;
+	zh-Hans=这场战斗会在结束后几分钟自己出现在 Core Prime。;
+	}
+
+[Share this battle on Core Prime?]
+	{
+	de=Diese Schlacht auf Core Prime teilen?;
+	fr=Partager cette bataille sur Core Prime ?;
+	it=Condividere questa battaglia su Core Prime?;
+	es=¿Compartir esta batalla en Core Prime?;
+	zh-Hans=把这场战斗分享到 Core Prime？;
+	}
+
+[Share…]
+	{
+	de=Teilen…;
+	fr=Partager…;
+	it=Condividi…;
+	es=Compartir…;
+	zh-Hans=分享…;
+	}
+
+[Not now]
+	{
+	de=Nicht jetzt;
+	fr=Pas maintenant;
+	it=Non ora;
+	es=Ahora no;
+	zh-Hans=以后再说;
+	}
+
+[This battle was not recorded, so it is not shared.]
+	{
+	de=Diese Schlacht wurde nicht aufgezeichnet und wird deshalb nicht geteilt.;
+	fr=Cette bataille n'a pas été enregistrée, elle n'est donc pas partagée.;
+	it=Questa battaglia non è stata registrata, quindi non è condivisa.;
+	es=Esta batalla no se grabó, así que no se comparte.;
+	zh-Hans=这场战斗没有录像，所以不会分享。;
+	}
+
 [SYS]
 	{
 	de=[SYS];
