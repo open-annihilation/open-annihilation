@@ -145,6 +145,9 @@ constexpr int32_t unit_x = 80;
 constexpr int32_t unit_z = 80;
 /// Half the side of the square model, in world units.
 constexpr int32_t half_side = 8;
+/// The existing texture-strip quality transition in a crowded Full frame.
+constexpr size_t body_cull_vertex_prefix = size_t{1} << 19;
+constexpr size_t body_cull_index_prefix = size_t{1} << 21;
 /// The textured trapezoid's half widths at its narrow and wide ends and its
 /// half depth, in world units: its sides slope half a pixel a row.
 constexpr int32_t trapezoid_narrow_half = 5;
@@ -1116,8 +1119,13 @@ struct Card {
 
     /// Builds the frame of models from the scene's list, runs it and reads
     /// the target back.
-    [[nodiscard]] CardPicture
-    raster(const Scene& scene, float zoom = 1.0F, bool with_shadow_sprite = true) {
+    [[nodiscard]] CardPicture raster(
+        const Scene& scene,
+        float zoom = 1.0F,
+        bool with_shadow_sprite = true,
+        size_t initial_vertices = 0,
+        size_t initial_indices = 0
+    ) {
         full::SceneView view;
         view.zoom = zoom;
         view.camera_x = 0;
@@ -1126,6 +1134,8 @@ struct Card {
         view.height = canvas.height;
         canvas.clear();
         frame.reset();
+        frame.vertices.resize(initial_vertices);
+        frame.indices.resize(initial_indices);
         const auto inputs = scene.inputs(with_shadow_sprite);
         stage.emit_shadows(inputs, view, executor, frame);
         for (const auto& entry : scene.list.draws)
@@ -1445,6 +1455,7 @@ void retain_planned_body(Scene& scene) {
 CardPicture raster_body_view(Card& card, const Scene& scene, const full::SceneView& view) {
     card.canvas.clear();
     card.frame.reset();
+    card.frame.vertices.resize(body_cull_vertex_prefix);
     card.stage.emit_frame(scene.inputs(), view, card.executor, card.frame);
     OA_CHECK(card.stage.upload(card.executor));
     OA_CHECK(card::check_frame(card.frame).empty());
@@ -1452,7 +1463,7 @@ CardPicture raster_body_view(Card& card, const Scene& scene, const full::SceneVi
     return card.canvas.read();
 }
 
-/// Rejects fully offscreen planned bodies before building meshes or body geometry.
+/// Rejects fully offscreen bodies after the frame's strip-quality transition.
 void test_offscreen_body_emission() {
     constexpr int32_t outside = 32;
     for (const auto& [x, z] :
@@ -1467,10 +1478,12 @@ void test_offscreen_body_emission() {
         scene.begin_frame(processor, 0);
         scene.plan_unit(actor);
         retain_planned_body(scene);
-        const auto picture = card.raster(scene);
+        const auto picture = card.raster(scene, 1.0F, true, body_cull_vertex_prefix);
         OA_CHECK(card.stage.counts().units == 0);
         OA_CHECK(card.stage.counts().meshes_built == 0);
-        OA_CHECK(card.frame.vertices.empty() && card.frame.indices.empty());
+        OA_CHECK(
+            card.frame.vertices.size() == body_cull_vertex_prefix && card.frame.indices.empty()
+        );
         OA_CHECK(pixels_with_alpha(picture, 0) == picture.width * picture.height);
     }
 }
@@ -1488,9 +1501,9 @@ void test_visible_animated_body_beyond_anchor() {
     scene.begin_frame(processor, 0);
     scene.plan_unit(actor);
     retain_planned_body(scene);
-    const auto picture = card.raster(scene);
+    const auto picture = card.raster(scene, 1.0F, true, body_cull_vertex_prefix);
     OA_CHECK(card.stage.counts().units == 1);
-    OA_CHECK(!card.frame.vertices.empty());
+    OA_CHECK(card.frame.vertices.size() > body_cull_vertex_prefix);
     OA_CHECK(picture.at(unit_x, unit_z)[0] == ink);
     OA_CHECK(picture.at(unit_x, unit_z)[3] == 255);
     OA_CHECK(pixels_with_alpha(picture, 255) == 4 * half_side * half_side);
@@ -1515,7 +1528,7 @@ void test_visible_cargo_beyond_carrier() {
     OA_CHECK(scene.list.models.front().plan.model.carried.size() == 1);
     carrier.unit->position.x = outside_x * unit;
     retain_planned_body(scene);
-    const auto picture = card.raster(scene);
+    const auto picture = card.raster(scene, 1.0F, true, body_cull_vertex_prefix);
     OA_CHECK(card.stage.counts().units == 1);
     OA_CHECK(card.stage.counts().carried == 1);
     OA_CHECK(picture.at(unit_x + cargo_offset, unit_z - cargo_height / 2)[0] == second_ink);
@@ -1557,7 +1570,7 @@ void test_body_cull_view_boundaries() {
         }
         const auto picture = raster_body_view(card, scene, view);
         OA_CHECK(card.stage.counts().units == 1);
-        OA_CHECK(!card.frame.vertices.empty());
+        OA_CHECK(card.frame.vertices.size() > body_cull_vertex_prefix);
         const uint32_t sample_x = camera_moved ? moved_sample_x : 0;
         const uint32_t sample_y = camera_moved ? moved_sample_y : edge_sample_y;
         OA_CHECK(picture.at(sample_x, sample_y)[0] == ink);
@@ -1581,10 +1594,10 @@ void test_shadow_from_offscreen_body() {
         scene.plan_unit(actor);
         actor.unit->position.z = near_edge * unit;
         retain_planned_body(scene);
-        const auto picture = card.raster(scene);
+        const auto picture = card.raster(scene, 1.0F, true, body_cull_vertex_prefix);
         OA_CHECK(card.stage.counts().units == 0);
         OA_CHECK(card.stage.counts().shadows != 0);
-        OA_CHECK(!card.frame.vertices.empty());
+        OA_CHECK(card.frame.vertices.size() > body_cull_vertex_prefix);
         const auto* shadow = picture.at(unit_x + draw::shadow_offset_x, near_edge);
         OA_CHECK(shadow[3] >= 126 && shadow[3] <= 129);
         OA_CHECK(pixels_with_alpha(picture, 255) == 0);
@@ -1614,9 +1627,9 @@ void test_offscreen_reflection_and_shimmer_geometry() {
         scene.begin_frame(processor, 0);
         scene.plan_unit(actor);
         retain_planned_body(scene);
-        std::ignore = card.raster(scene);
+        std::ignore = card.raster(scene, 1.0F, true, body_cull_vertex_prefix);
         OA_CHECK(card.stage.counts().units == 1);
-        OA_CHECK(!card.frame.vertices.empty());
+        OA_CHECK(card.frame.vertices.size() > body_cull_vertex_prefix);
         if (reflection) {
             OA_CHECK(!heights.empty());
             OA_CHECK(std::any_of(heights.begin(), heights.end(), [](float height) {
@@ -1624,6 +1637,81 @@ void test_offscreen_reflection_and_shimmer_geometry() {
             }));
         }
     }
+}
+
+/// Keeps the visible quad's existing quality transition when an earlier body crosses it.
+void test_offscreen_body_preserves_strip_transition() {
+    constexpr int32_t outside_x = -64;
+    constexpr size_t quad_vertices = 4, quad_indices = 6;
+    for (const bool index_limit : {false, true}) {
+        TextureFixture textures;
+        Scene scene(gray_palette(), std::move(textures.library));
+        scene.world->unit_defs[1].flags |= OA_UNIT_DEF_FLAG_FLOATER;
+        auto& primer = scene.add_unit(square_model(), 1, outside_x, unit_z);
+        auto& visible = scene.add_unit(trapezoid_model(), 2, unit_x, unit_z);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(primer);
+        retain_planned_body(scene);
+        scene.plan_unit(visible);
+        const size_t vertices = index_limit ? 1 : body_cull_vertex_prefix - quad_vertices;
+        const size_t indices = index_limit ? body_cull_index_prefix - quad_indices : 0;
+        // Collecting physical heights exempts the dry floater from culling,
+        // leaving the ordinary offscreen emission as the reference.
+        std::vector<float> heights;
+        scene.vertex_heights = &heights;
+        Card reference(scene);
+        const auto ordinary = reference.raster(scene, 1.0F, true, vertices, indices);
+        OA_CHECK(reference.stage.counts().units == 2);
+        OA_CHECK(reference.stage.counts().strip_quads == 0);
+        scene.vertex_heights = nullptr;
+        Card candidate(scene);
+        const auto culled = candidate.raster(scene, 1.0F, true, vertices, indices);
+        OA_CHECK(candidate.stage.counts().units == 2);
+        OA_CHECK(candidate.stage.counts().strip_quads == 0);
+        OA_CHECK(culled.rgba == ordinary.rgba);
+        OA_CHECK(pixels_with_alpha(culled, 255) > 0);
+        OA_CHECK(candidate.frame.vertices.size() == reference.frame.vertices.size());
+        OA_CHECK(candidate.frame.indices.size() == reference.frame.indices.size());
+    }
+}
+
+/// Skipped bodies leave later visible textures unchanged after the quality transition.
+void test_offscreen_body_preserves_later_material_pixels() {
+    constexpr int32_t outside_x = -64;
+    constexpr uint16_t primer_width = 32, primer_height = 16;
+    auto primer_model = std::make_shared<Model>();
+    primer_model->objects.push_back(square_object(0, third_ink, "primer"));
+    add_sloped_quad(primer_model->objects.front(), 12, 24, -8, 8, {0, 0, 0, 0}, fourth_ink);
+    auto visible_model = trapezoid_model();
+    add_sloped_quad(visible_model->objects.front(), 20, 32, -8, 8, {0, 0, 0, 0}, ink);
+    for (const float zoom : {0.25F, 1.5F})
+        for (const bool shared_materials : {false, true}) {
+            TextureFixture textures;
+            textures.add("primer", 1, primer_width, primer_height, false);
+            Scene scene(gray_palette(), std::move(textures.library));
+            scene.share_solid_materials = shared_materials;
+            scene.world->unit_defs[1].flags |= OA_UNIT_DEF_FLAG_FLOATER;
+            auto& primer = scene.add_unit(primer_model, 1, outside_x, unit_z);
+            auto& visible = scene.add_unit(visible_model, 2, unit_x, unit_z);
+            ProcessorPicture processor;
+            scene.begin_frame(processor, 0);
+            scene.plan_unit(primer);
+            retain_planned_body(scene);
+            scene.plan_unit(visible);
+            std::vector<float> heights;
+            scene.vertex_heights = &heights;
+            Card reference(scene, zoom);
+            const auto ordinary = reference.raster(scene, zoom, true, body_cull_vertex_prefix);
+            OA_CHECK(reference.stage.counts().units == 2);
+            scene.vertex_heights = nullptr;
+            Card candidate(scene, zoom);
+            const auto culled = candidate.raster(scene, zoom, true, body_cull_vertex_prefix);
+            OA_CHECK(candidate.stage.counts().units == 1);
+            OA_CHECK(candidate.stage.counts().strip_quads == 0);
+            OA_CHECK(culled.rgba == ordinary.rgba);
+            OA_CHECK(pixels_with_alpha(culled, 255) > 0);
+        }
 }
 
 // A square wound away from the camera draws nothing on either side.
@@ -3712,6 +3800,8 @@ int main(int argc, char** argv) {
         test_body_cull_view_boundaries();
         test_shadow_from_offscreen_body();
         test_offscreen_reflection_and_shimmer_geometry();
+        test_offscreen_body_preserves_strip_transition();
+        test_offscreen_body_preserves_later_material_pixels();
         test_back_face();
         test_textured();
         test_textured_trapezoid();
