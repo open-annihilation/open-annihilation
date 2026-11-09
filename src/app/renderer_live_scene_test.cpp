@@ -3,6 +3,7 @@
 
 // Live terrain preserves painted coordinates, visibility and bounded atlas reuse.
 #include "renderer_live_scene.hpp"
+#include "renderer_live_camera.hpp"
 #include "renderer_water_surface.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
@@ -3541,6 +3542,244 @@ bool same_on_card(const live::Scene& on_card, const live::Scene& vertices, const
            on_card.materials.size() == vertices.materials.size();
 }
 
+/// Strategic markers use presented positions and fixed screen bounds without
+/// any model instances, including above water and through a turned camera.
+void strategic_unit_markers_without_models() {
+    namespace camera = oa::app::renderer_live_camera;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    constexpr float marker_side = 5;
+    Fixture fixture;
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 128;
+    fixture.inputs.unit_marker_pixels = marker_side;
+    fixture.inputs.owner_colors[1] = {20, 120, 240};
+    fixture.inputs.sea_level = 6;
+    for (auto& cell : fixture.map.attributes)
+        cell.height = 4;
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.owner_index = 1;
+    unit.flags = OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_SELECTED;
+    unit.state_flags = OA_UNIT_STATE_CLOAKED;
+    unit.build_remaining = 0.5F;
+    unit.position = {24 * fixed, -12 * fixed, 24 * fixed};
+    const auto canonical = unit;
+    for (const auto angles :
+         {camera::State{},
+          camera::State{20, -53, true},
+          camera::State{-90, 20, true},
+          camera::State{145, -50, true}}) {
+        for (const int32_t altitude : {-8, 0, 20}) {
+            const int32_t anchor = std::max(altitude, int32_t{6});
+            OA_CHECK(
+                camera::projection(
+                    angles,
+                    {8, static_cast<float>(anchor), 16, 64, 64, 0.25F},
+                    fixture.inputs.clip_projection
+                )
+            );
+            fixture.draws.unit_markers = {{&unit, {8 * fixed, altitude * fixed, 16 * fixed}}};
+            OA_CHECK(fixture.draws.models.empty());
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.scene.cards.units.empty());
+            OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+            OA_CHECK(fixture.scene.shadow_count == 0);
+            if (fixture.scene.unit_ranges.size() != 1)
+                continue;
+            const auto range = fixture.scene.unit_ranges[0];
+            OA_CHECK(range.unit_id == unit.id && range.vertex_count == 6);
+            OA_CHECK(range.first_vertex + range.vertex_count <= fixture.scene.vertices.size());
+            if (range.first_vertex + range.vertex_count > fixture.scene.vertices.size())
+                continue;
+            std::array<float, 4> bounds{
+                std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::infinity(),
+                -std::numeric_limits<float>::infinity(),
+                -std::numeric_limits<float>::infinity()
+            };
+            std::array<std::array<float, 3>, 6> projected{};
+            std::array<float, 3> center{};
+            const auto& projection = fixture.inputs.clip_projection;
+            for (std::size_t corner = 0; corner < range.vertex_count; ++corner) {
+                const auto& vertex = fixture.scene.vertices[range.first_vertex + corner];
+                OA_CHECK(
+                    std::isfinite(vertex.x) && std::isfinite(vertex.height) &&
+                    std::isfinite(vertex.z)
+                );
+                OA_CHECK(vertex.height > anchor);
+                OA_CHECK(
+                    vertex.red == 20 / 255.0F && vertex.green == 120 / 255.0F &&
+                    vertex.blue == 240 / 255.0F && vertex.opacity == 1
+                );
+                center[0] += vertex.x / 6;
+                center[1] += vertex.height / 6;
+                center[2] += vertex.z / 6;
+                auto& point = projected[corner];
+                for (std::size_t row = 0; row < point.size(); ++row)
+                    point[row] = projection[row * 4] * vertex.x +
+                                 projection[row * 4 + 1] * vertex.height +
+                                 projection[row * 4 + 2] * vertex.z + projection[row * 4 + 3];
+                bounds = {
+                    std::min(bounds[0], point[0]),
+                    std::min(bounds[1], point[1]),
+                    std::max(bounds[2], point[0]),
+                    std::max(bounds[3], point[1])
+                };
+            }
+            OA_CHECK(std::abs(center[0] - 8) < tolerance);
+            OA_CHECK(std::abs(center[2] - 16) < tolerance);
+            OA_CHECK(std::abs(bounds[2] - bounds[0] - marker_side) < tolerance);
+            OA_CHECK(std::abs(bounds[3] - bounds[1] - marker_side) < tolerance);
+            const float across = (bounds[0] + bounds[2]) * 0.5F;
+            const float down = (bounds[1] + bounds[3]) * 0.5F;
+            std::array<float, 3> weights{};
+            float depth{};
+            OA_CHECK(
+                camera::triangle_hit(
+                    {projected[0], projected[1], projected[2]}, across, down, weights, depth
+                ) ||
+                camera::triangle_hit(
+                    {projected[3], projected[4], projected[5]}, across, down, weights, depth
+                )
+            );
+            OA_CHECK(std::isfinite(depth));
+            OA_CHECK(std::memcmp(&canonical, &unit, sizeof(unit)) == 0);
+        }
+    }
+    // Ground above the sea wins over an underwater unit's altitude.
+    fixture.inputs.sea_level = 2;
+    for (auto& cell : fixture.map.attributes)
+        cell.height = 12;
+    OA_CHECK(camera::projection({}, {8, 12, 16, 64, 64, 0.25F}, fixture.inputs.clip_projection));
+    fixture.draws.unit_markers = {{&unit, {8 * fixed, -8 * fixed, 16 * fixed}}};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    for (const auto& range : fixture.scene.unit_ranges)
+        for (std::size_t corner = 0; corner < range.vertex_count; ++corner)
+            OA_CHECK(fixture.scene.vertices[range.first_vertex + corner].height > 12);
+    OA_CHECK(std::memcmp(&canonical, &unit, sizeof(unit)) == 0);
+}
+
+/// Visibility, invalid identities, attachments and the viewport bound the
+/// explicit marker list before any triangle can become a picking target.
+void strategic_unit_marker_visibility() {
+    namespace camera = oa::app::renderer_live_camera;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    Fixture fixture;
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 128;
+    fixture.inputs.unit_marker_pixels = 5;
+    OA_CHECK(camera::projection({}, {16, 0, 16, 64, 64, 1}, fixture.inputs.clip_projection));
+    fixture.inputs.owner_colors[0] = {255, 80, 20};
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.position = {16 * fixed, 0, 16 * fixed};
+    oa::Unit child = unit;
+    child.id = 8;
+    child.attach_parent = unit.id;
+    oa::Unit unnamed = unit;
+    unnamed.id = 0;
+    fixture.draws.unit_markers = {
+        {nullptr, unit.position},
+        {&unnamed, unit.position},
+        {&child, child.position},
+        {&unit, {30000 * fixed, 0, 30000 * fixed}},
+        {&unit, unit.position}
+    };
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    if (fixture.scene.unit_ranges.empty())
+        return;
+    const auto first = fixture.scene.unit_ranges[0].first_vertex;
+    const float seen = fixture.scene.vertices[first].brightness;
+    fixture.coverage[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    if (!fixture.scene.unit_ranges.empty()) {
+        const float grey =
+            fixture.scene.vertices[fixture.scene.unit_ranges[0].first_vertex].brightness;
+        OA_CHECK(grey > 0 && grey < seen);
+    }
+    fixture.mapped[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.empty());
+    fixture.mapped[0] = viewer_bit;
+    fixture.coverage[0] = viewer_bit;
+    fixture.inputs.clip_projection[0] = std::numeric_limits<float>::quiet_NaN();
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.empty());
+}
+
+/// Twenty thousand canonical units need only bounded billboard geometry,
+/// retain every picking identity and leave no markers after the list clears.
+void strategic_unit_marker_population() {
+    namespace camera = oa::app::renderer_live_camera;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    constexpr uint32_t population = 20000;
+    Fixture fixture;
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 128;
+    fixture.inputs.unit_marker_pixels = 5;
+    OA_CHECK(
+        camera::projection(
+            {20, -53, true}, {16, 0, 16, 64, 64, 0.25F}, fixture.inputs.clip_projection
+        )
+    );
+    std::vector<oa::Unit> units(population);
+    fixture.draws.unit_markers.reserve(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = static_cast<uint8_t>(index % fixture.inputs.owner_colors.size());
+        unit.position = {
+            static_cast<int32_t>(8 + index % 16) * fixed,
+            0,
+            static_cast<int32_t>(8 + (index / 16) % 16) * fixed
+        };
+        fixture.draws.unit_markers.push_back({&unit, unit.position});
+    }
+    for (const bool on_card : {false, true}) {
+        fixture.inputs.models_on_card = on_card;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.draws.models.empty() && fixture.scene.cards.units.empty());
+        OA_CHECK(fixture.scene.unit_ranges.size() == population);
+        OA_CHECK(fixture.scene.shadow_count == 0);
+        OA_CHECK(
+            fixture.scene.vertices.size() ==
+            fixture.scene.terrain_vertex_count + std::size_t{population} * 6
+        );
+        OA_CHECK(fixture.scene.vertices.size() < oa::app::renderer_live_gpu::largest_vertex_count);
+        for (std::size_t index = 0; index < fixture.scene.unit_ranges.size(); ++index) {
+            const auto& range = fixture.scene.unit_ranges[index];
+            OA_CHECK(range.unit_id == units[index].id && range.vertex_count == 6);
+            OA_CHECK(range.first_vertex == fixture.scene.terrain_vertex_count + index * 6);
+        }
+    }
+    const auto vertices = fixture.scene.vertices;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(vertices.size() == fixture.scene.vertices.size());
+    if (vertices.size() == fixture.scene.vertices.size())
+        OA_CHECK(
+            std::memcmp(
+                vertices.data(),
+                fixture.scene.vertices.data(),
+                vertices.size() * sizeof(vertices[0])
+            ) == 0
+        );
+    fixture.draws.unit_markers.clear();
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.empty());
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    const auto empty = fixture.scene.vertices;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(empty.size() == fixture.scene.vertices.size());
+    if (empty.size() == fixture.scene.vertices.size())
+        OA_CHECK(
+            std::memcmp(
+                empty.data(), fixture.scene.vertices.data(), empty.size() * sizeof(empty[0])
+            ) == 0
+        );
+}
+
 /// Shared posed vertices preserve exact source values, retries and bounded memory.
 void shared_model_positions() {
     namespace models = oa::formats::objects3d;
@@ -6199,6 +6438,9 @@ int main() {
     shared_model_coordinate_rounding();
     indexed_model_vertex_projection();
     high_indexed_model_vertex_projection();
+    strategic_unit_markers_without_models();
+    strategic_unit_marker_visibility();
+    strategic_unit_marker_population();
     projected_unit_detail();
     shared_unit_detail_bounds();
     shared_unit_detail_texture_visibility();
