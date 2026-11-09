@@ -8,7 +8,7 @@ The game starts on the dummy video and sound drivers with the bench's own
 preferences (tools/bench/preferences.conf) and a short view file that plays
 the bench's battle stage (tools/bench/battle.stage) on Lava Highground: a
 warm-up of WARMUP_TICKS ticks and a measured span of MEASURE_SECONDS
-seconds, the camera turned. The run must print, in order, WARMUP,
+seconds, the camera turned. The run must print, in order, INITIAL, WARMUP,
 MEASURING, a SEC line for each second, SHOT, RESULT, the five MEASURE
 spreads with the tick's mean, a STAGE line for every stage timer under its
 name, COUNTS, GROUND, ATLAS, the SLOW lines of the slowest 1% of frames, a
@@ -21,6 +21,8 @@ placed its armies and queued its factories. tools/bench/summarise.py must
 read the run. A second run with the stage timers off prints no STAGE or
 SLOW line, and a view file with a key the bench does not know stops the
 bench with a FAILED line naming the file's line, and the game with status 1.
+Short paused runs also check default and explicit Enhanced presets without
+making a running-gameplay or frame-rate claim.
 """
 import argparse
 import os
@@ -41,6 +43,8 @@ BENCH = Path(__file__).resolve().parent / "bench"
 RUN_TIMEOUT = 300
 WARMUP_TICKS = 30
 MEASURE_SECONDS = 3
+CURRENT_RULES_VERSION = 4
+SUPPORTED_RULES_VERSIONS = frozenset(range(7))
 VIEW = """label check
 stage {stage}
 menu_seconds 0
@@ -99,13 +103,15 @@ QUEUED = re.compile(r"^stage: unit \d+ queues (\d+) (\S+)$", re.M)
 # The battle's armies, factories, builders and economies, placed at its
 # start: at least this many live units once it has begun.
 LEAST_UNITS = 400
+INITIAL = re.compile(
+    r"^bench: INITIAL enhanced_mode ([01]) rules_version (\d+) requested_rules_version (\d+)$")
 
 
 class BenchFailure(Exception):
     """A bench run that did not print what it should."""
 
 
-def run_bench(native, game_dir, workdir, name, view_text):
+def run_bench(native, game_dir, workdir, name, view_text, enhanced=False):
     """Runs the game with --bench on a view file and returns its result."""
     folder = workdir / name
     (folder / "data").mkdir(parents=True)
@@ -114,10 +120,11 @@ def run_bench(native, game_dir, workdir, name, view_text):
     view = folder / f"{name}.bench"
     view.write_text(view_text, encoding="utf-8")
     environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy")
+    mode = ["--enhanced-mode"] if enhanced else []
     return subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
          "--bench", str(view), "--preferences-file", str(preferences), "--data-dir",
-         str(folder / "data"), "--resolution", "640x480"],
+         str(folder / "data"), "--resolution", "640x480", *mode],
         cwd=folder, env=environment, timeout=RUN_TIMEOUT, check=False, capture_output=True,
         text=True, errors="replace")
 
@@ -131,10 +138,28 @@ def ordered(values):
     return all(left <= right for left, right in zip(values, values[1:]))
 
 
-def check_lines(result, timers):
+def check_initial(result, rules_version=0, requested_rules_version=0):
+    """Checks the one INITIAL receipt against the run's actual and requested presets."""
+    initial = [line for line in result.stdout.splitlines() if line.startswith("bench: INITIAL")]
+    if len(initial) != 1:
+        fail(result, f"the bench printed {len(initial)} INITIAL receipts, not one")
+    match = INITIAL.fullmatch(initial[0])
+    if not match:
+        fail(result, f"the INITIAL line does not read: {initial[0]}")
+    enhanced, actual, requested = (int(value) for value in match.groups())
+    if actual not in SUPPORTED_RULES_VERSIONS or requested not in SUPPORTED_RULES_VERSIONS or \
+            enhanced != int(actual != 0) or (requested != 0 and requested != actual):
+        fail(result, f"the INITIAL rules are inconsistent: {initial[0]}")
+    if actual != rules_version or requested != requested_rules_version:
+        fail(result, f"the INITIAL rules are {actual}/{requested}, "
+             f"not {rules_version}/{requested_rules_version}")
+
+
+def check_lines(result, timers, rules_version=0, requested_rules_version=0):
     """Checks a finished run's lines and returns them."""
     if result.returncode != 0:
         fail(result, f"the bench exited with {result.returncode}")
+    check_initial(result, rules_version, requested_rules_version)
     lines = [line for line in result.stdout.splitlines() if line.startswith("bench: ")]
     # A window the dummy driver leaves away is noted after RESULT.
     away = [line for line in lines if line.startswith("bench: AWAY")]
@@ -144,7 +169,7 @@ def check_lines(result, timers):
     kinds = [line.split()[1] for line in lines]
     # The lines come in their order, each kind once but SEC, MEASURE, STAGE,
     # ATLAS, SLOW and FRAME.
-    order = ["WARMUP", "MEASURING", "SEC", "SHOT", "RESULT", "MEASURE", "STAGE", "COUNTS",
+    order = ["INITIAL", "WARMUP", "MEASURING", "SEC", "SHOT", "RESULT", "MEASURE", "STAGE", "COUNTS",
              "GROUND", "ATLAS", "SLOW", "FRAME", "DONE"]
     if not timers:
         for kind in ("STAGE", "SLOW", "FRAME"):
@@ -267,6 +292,7 @@ def main():
                 fail(untimed, "the bench printed its stage timers with them off")
             if untimed.returncode != 0 or "bench: DONE label=check" not in untimed.stdout:
                 fail(untimed, "the bench with its timers off did not finish")
+            check_initial(untimed)
             refused = run_bench(arguments.native, arguments.game_dir, workdir, "refused",
                                 "label refused\nspeed 3\n")
             view = workdir / "refused" / "refused.bench"
@@ -286,6 +312,7 @@ def main():
             )
             paused = run_bench(arguments.native, arguments.game_dir, workdir,
                                "paused", paused_view)
+            check_initial(paused)
             if paused.returncode != 0 or not re.search(
                     r"^bench: STATIC tick \d+ units 2 world [0-9a-f]{16} "
                     r"warmup_frames 2 verified_frames 3$", paused.stdout, re.M):
@@ -305,6 +332,31 @@ def main():
                     "bench: FAILED the live unit roster differs from expected_live_units" \
                     not in wrong_population.stdout:
                 fail(wrong_population, "a wrong rendering population was not refused")
+            for version in (0, 4, 6):
+                rules_view = paused_view + (f"rules_version {version}\n" if version else "")
+                selected = run_bench(
+                    arguments.native, arguments.game_dir, workdir, f"rules-{version}",
+                    rules_view, enhanced=True)
+                if selected.returncode != 0 or not re.search(
+                        r"^bench: STATIC tick \d+ units 2 world [0-9a-f]{16} "
+                        r"warmup_frames 2 verified_frames 3$", selected.stdout, re.M):
+                    fail(selected, "the Enhanced paused span did not finish")
+                check_initial(selected, version or CURRENT_RULES_VERSION, version)
+            mode_off = run_bench(
+                arguments.native, arguments.game_dir, workdir, "rules-off",
+                "label rules-off\nrules_version 6\n")
+            if mode_off.returncode != 1 or \
+                    "bench: FAILED rules_version requires Enhanced Mode" \
+                    not in mode_off.stdout.splitlines():
+                fail(mode_off, "explicit rules without Enhanced Mode were not refused")
+            unsupported = run_bench(
+                arguments.native, arguments.game_dir, workdir, "rules-unsupported",
+                "label rules-unsupported\nrules_version 7\n", enhanced=True)
+            view = workdir / "rules-unsupported" / "rules-unsupported.bench"
+            expected = (f"bench: FAILED {view}: line 2: rules_version takes 0 or a supported "
+                        "Enhanced Mode rules version")
+            if unsupported.returncode != 1 or expected not in unsupported.stdout.splitlines():
+                fail(unsupported, "an unsupported rules version was not refused at its line")
     except BenchFailure as failure:
         raise SystemExit(f"bench check: {failure}")
     print(f"bench check: the battle played, measured and reported {len(lines)} well-formed lines")
