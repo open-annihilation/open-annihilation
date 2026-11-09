@@ -72,22 +72,21 @@ void Runtime::draw_live_unit_overlays() {
         if (marker.unit == nullptr)
             continue;
         const auto id = marker.unit->id;
-        if (id == 0 || id >= slots.size() || painted[id] || !live_unit_bounds(id))
+        if (id == 0 || id >= slots.size() || painted[id])
+            continue;
+        const auto bounds = live_unit_bounds(id);
+        if (!bounds)
             continue;
         const auto count = match_->self_destruct_remaining(id);
         if (count == 0)
             continue;
-        const auto& position = marker.shown_position;
-        const auto frame = live_project_world(
-            position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
-        );
-        const int x = frame.x - match_layout_.left;
-        const int y = frame.y - match_layout_.top + size.below_unit;
+        // The glyph can be raised above water or terrain, so its emitted
+        // bounds place the label in the same picture, at every camera angle.
+        const int x = bounds->x1 + (bounds->x2 - bounds->x1) / 2 - match_layout_.left;
+        const int y = bounds->y1 - match_layout_.top;
         painted[id] = true;
         const PanelText labels(*this);
-        draw_match_label(
-            x - label_left, y - size.half_height - countdown_gap, std::to_string(count), 1
-        );
+        draw_match_label(x - label_left, y - countdown_gap, std::to_string(count), 1);
     }
 }
 
