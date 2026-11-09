@@ -600,11 +600,11 @@ pitch, and the pointer rests over the battlefield's middle. The bench
 takes no input from the keyboard, the pointer, a finger, a pad or a pen,
 so that a key pressed by mistake changes nothing it measures; closing the
 window still ends it. The match plays
-on to the warm-up tick, and then the bench measures: for `measure_ticks`
-match ticks, however long they take, so that every build measures the same
-part of the battle, or for `measure_seconds`. The match plays on while the
-window is away, whatever Settings › Controls › When the window loses focus
-says. A bench is seeded as a showcase is, so every run plays the same
+on to the warm-up tick, and then the bench measures up to `measure_ticks`
+match ticks, bounded by `measure_seconds`, or for `measure_seconds` alone.
+Outside gameplay mode, the match plays on while the window is away, whatever
+Settings › Controls › When the window loses focus says. A bench is seeded
+as a showcase is, so every run plays the same
 battle; `--seed` changes it. The
 bench cannot be used with the checks, `--headless-check`, `--benchmark`,
 `--showcase` or `--capture-video`.
@@ -626,7 +626,12 @@ a comment. Every key may be left out:
 | `measure_seconds S` | The longest the span lasts. | 25 |
 | `measure_ticks N` | The span's match ticks, within `measure_seconds`; 0 measures for `measure_seconds`. | 0 |
 | `measure_frames N` | Require this many measured frames within the time and tick limits; stop with an error if a limit ends the run first. | 0, unchecked |
-| `expected_live_units N` | Require this live population before warm-up and throughout measurement. | 0, unchecked |
+| `expected_live_units N` | Require this live population after the tick warm-up and throughout the frame warm-up and measurement. | 0, unchecked |
+| `expected_initial_units N` | Require this live population immediately after staging; later births and deaths are allowed. | 0, unchecked |
+| `expected_initial_per_side N` | Require this initial population in each of player slots 0 and 1. | 0, unchecked |
+| `expected_output_width W`, `expected_output_height H` | In gameplay mode, require the renderer output and window's physical pixels to have this size; give both keys together. | 0, unchecked |
+| `display_number N` | Centre the window on SDL's Nth real display, numbered from 1; with output dimensions, also request that window size. | 0, keep its place |
+| `require_gameplay 1` | Require active, unpaused, normally clocked Full presentation with a fixed camera. | 0, off |
 | `require_paused 1` | Require a paused, unchanged world and fixed camera. Needs `warmup_ticks`, `measure_ticks` and `turn_rate` set to 0. | 0, off |
 | `shot_at S`, `shot_ticks N` | When in the span the SHOT line is printed, in seconds, or in ticks when `shot_ticks` is above 0. | 12 seconds |
 | `centre_x X`, `centre_z Z` | The map pixel the view is centred on. | 2048, 2048 |
@@ -659,6 +664,26 @@ Paused benchmark scenes also hold presentation animation time and hide the
 live frame-statistics panel, whose changing numbers would contaminate the
 software image comparison. The benchmark's timing clock remains real time.
 
+For running combat, use `require_gameplay 1`, a nonzero `measure_ticks` and
+an explicit `--seed`. Use the initial population keys so deaths can change
+the live counts; `expected_live_units`, `require_paused` and a nonzero
+`turn_rate` are refused. This mode requires a real foreground window and
+the requested Full path throughout, with no fixed clock, scripted frame
+clock or capture. Turned frames must remain on the graphics card without
+readback. A lost focus, fallback renderer, changed camera or mismatch with
+the requested output size ends the run with an error.
+
+The `GAMEPLAY` rate counts successful presentations separately from loop
+iterations. It also reports achieved simulation ticks per wall second and
+the minimum and final actual game-speed settings alongside the requested
+setting. If the time or frame limit ends before the tick target,
+`complete 0` identifies a partial run. `ACTIVITY_BASELINE` records the
+post-warm-up counters; `COMBAT_DELTA` reports only measured activity.
+Per-second `ACTIVITY` counters remain cumulative since staging completed.
+Its `moving_xz` counts still-live original units whose X/Z position changed
+since the previous sample; `sample_ticks` and `sample_seconds` give that
+sample's actual interval.
+
 The bench prints its lines on standard output, which the game writes into
 its log (or into the folder `--log-dir` names), each beginning `bench:`:
 
@@ -667,10 +692,17 @@ its log (or into the folder `--log-dir` names), each beginning `bench:`:
 | `WARMUP label=NAME to tick N` | The warm-up has begun. |
 | `MEASURING label=NAME tick=N seconds=S` | The span begins at match tick N. |
 | `SEC N frames F frame MS sim MS draw MS units A+B vertices V tick T` | Each second of the span: its frames, their mean frame, simulation and drawing times, the live units of the local player and of the others, the turned view's vertices in the last frame and the match tick. |
-| `SHOT label=NAME` | The moment for a screenshot of the window, which `tools/bench/run.sh` takes. |
+| `INITIAL units N owner0 A owner1 B seed S controller0 C controller1 C setup_clock_reanchored 1` | Gameplay's staged population, seed and controller statuses; synchronous setup is excluded from the game clock. |
+| `REAL_WINDOW output WxH pixels WxH display D refresh R density S vsync V max_fps N warmup_complete B` | Gameplay's actual renderer output, physical window pixels, display, refresh rate, density, pacing choices and warm-up status. |
+| `ACTIVITY_BASELINE tick T shots A+B damage A+B deaths A+B births A+B` | Gameplay counters after warm-up, before measurement. Counts refer to player slots 0 and 1; damage is positive weapon damage received. |
+| `ACTIVITY tick T moved A+B ... moving_xz A+B sample_ticks N sample_seconds S` | Original units observed changing position since staging, cumulative combat counters, current projectiles, and still-live original units displaced in X/Z over the stated sample interval. |
+| `COMBAT_DELTA tick T shots A+B damage A+B deaths A+B births A+B` | Gameplay activity during the measured span, excluding warm-up; damage is received, not inflicted. |
+| `GAMEPLAY presented N loops N fps R ticks N target_ticks N achieved_tps R complete B ...` | Successful presentation rate and achieved tick rate, completion, minimum/final/requested game-speed settings, frame-sampled peak projectiles, final live counts, and presentation intervals exceeding 16.67, 33.33, 50 and 100 ms. These four stall counts overlap. |
+| `SHOT label=NAME` | Outside gameplay mode, the moment for a screenshot of the window, which `tools/bench/run.sh` takes. |
 | `RESULT label=NAME seconds S frames F fps R low1_fps L ticks T (R/s) game speed A of B` | The span: its length, its frames, its frame rate, the frame rate of its slowest 1% of frames, its match ticks and their rate, and the game speed it ended at. |
 | `AWAY label=NAME frames N of F: ...` | Printed only when the window was away (without the focus, minimised or in the background) for N of the span's frames: another window may have covered it, or the system slowed it, so the run may not measure what a player sees. |
 | `MEASURE NAME min M avg A p50 P p95 P p99 P low1 L max X` | The spread of a time over the span's frames, in milliseconds: the least, the mean, the median, the 95th and 99th percentiles, the mean of the slowest 1% of frames (at least one) and the most. `frame` is from the end of one frame to the end of the next, `work` the loop's pass without its wait, `sim(per frame)` the match ticks the frame ran, `draw` composing the frame and `present` uploading and presenting it. `MEASURE tick(per tick) avg MS` is the mean time of a match tick. |
+| `MEASURE presented interval ...` | Gameplay's intervals between successful presentation timestamps. Classic Full also reports `classic Full stage+upload` and `classic Full first execute`; these are wall spans, not isolated GPU execution time. |
 | `STAGE NAME MS` | Each stage timer's mean milliseconds a frame, in a fixed order, the parts of a stage indented under it: the match frame (`frame(render_match_surface)`), the turned view (`live_total`) and its scene (`scene_build`: the terrain's survey and plan, the terrain, the effect cards on the ground, the units' shadows, the foundations, the models, the projectiles, the effect cards, the particles, and the water and the rest; the passes after the terrain run at once on the drawing threads, so each of their lines is the time the pass took on the threads it ran on, and together they come to more than `scene_build`), the graphics card's frame (`gpu_total`: the vertices' check, the upload, the submission and the waits, the download), the picture's copy, the pick's triangles, the effects with the depth they test against (the processor's part: where the graphics card adds the lights, which its frame then includes, the lights' projection alone, and no depth), the overlays, the parts of the match frame one after another (`ds_setup`, `ds_hud`, `ds_plan`, `ds_post`, `ds_live`, `ds_after`), the pointer's pick, and the overlay of a turned frame the graphics card keeps, sent for the card to add (`overlay_on_card`; the card's frame is then submitted and not waited for, so `submit+wait` holds no wait and nothing is downloaded or copied). Left out with `stage_timers 0`. The names stay the same from one release to the next, so that runs of different builds compare. |
 | `COUNTS units N (player0 A, others B) drawn N vertices N terrain N ...` | The live units at the end and the last frame's scene: the units drawn, the turned view's vertices, the ground's, its models, cards, particles and shadows, the terrain cells it surveyed, the projectiles, the match tick, the card's supersampling and its samples a pixel before it (4 multisampled, else 1), the battlefield's size, the atlas rows sent a frame, the frames that sent the whole atlas, and the models the graphics card drew from the models it keeps (`card_models`; the frame's other models are among its vertices). |
 | `GROUND revisions N in F frames` | The frames whose kept ground changed. |
