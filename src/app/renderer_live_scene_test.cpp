@@ -15,6 +15,7 @@
 #include <array>
 #include <algorithm>
 #include <bit>
+#include <cfenv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -3021,6 +3022,255 @@ bool same_frame(const live::Scene& a, const live::Scene& b) {
            update.frame_end_row == other.frame_end_row &&
            update.regions.size() == other.regions.size() && a.frame_rows == b.frame_rows &&
            a.frame.order == b.frame.order && a.materials.size() == b.materials.size();
+}
+
+/// Builds matching scene histories while the reference surveys afresh on every frame.
+struct TerrainDemandPair {
+    Fixture fixture{};
+    live::Scene ordinary{};
+    std::vector<uint16_t> coverage{};
+    std::vector<uint16_t> mapped{};
+    oa::Unit marker{};
+
+    /// Prepares a wide view whose tiles require the full terrain survey.
+    TerrainDemandPair() {
+        constexpr uint32_t tiles = 80;
+        constexpr uint32_t pixels = 512;
+        constexpr int32_t center = static_cast<int32_t>(tiles) * tile_edge / 2;
+        constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+        wide_terrain(fixture, tiles, tiles);
+        coverage.assign(tiles * tiles, viewer_bit);
+        mapped.assign(coverage.size(), viewer_bit);
+        fixture.inputs.sight.coverage = coverage;
+        fixture.inputs.sight.player_bits = mapped;
+        fixture.inputs.sight.width = fixture.inputs.sight.height = tiles;
+        fixture.inputs.sight.mapping = true;
+        fixture.inputs.sight.line_of_sight = true;
+        fixture.inputs.clip_width = fixture.inputs.clip_height = pixels;
+        fixture.inputs.unit_marker_pixels = 5;
+        fixture.inputs.owner_colors[0] = {255, 80, 20};
+        OA_CHECK(
+            oa::app::renderer_live_camera::projection(
+                {}, {center, 0, center, pixels, pixels, 0.15F}, fixture.inputs.clip_projection
+            )
+        );
+        marker.id = 17;
+        marker.position = {center * fixed, 0, center * fixed};
+        fixture.draws.unit_markers = {{&marker, marker.position}};
+    }
+
+    /// Compares all emitted geometry, texels, picking ranges and upload rectangles.
+    std::size_t build() {
+        ordinary.terrain_demand_cache = {};
+        std::string ordinary_error;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(live::build(fixture.inputs, ordinary, ordinary_error));
+        OA_CHECK(fixture.error.empty() && ordinary_error.empty());
+        OA_CHECK(same_frame(fixture.scene, ordinary));
+        OA_CHECK(
+            std::equal(
+                fixture.scene.atlas_update.regions.begin(),
+                fixture.scene.atlas_update.regions.end(),
+                ordinary.atlas_update.regions.begin(),
+                ordinary.atlas_update.regions.end(),
+                [](const auto& a, const auto& b) {
+                    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+                }
+            )
+        );
+        OA_CHECK(ordinary.terrain_demand_hits == 0);
+        OA_CHECK(
+            fixture.scene.terrain_demand_cache.storage_bytes() <=
+            live::TerrainDemandCache::storage_limit
+        );
+        return fixture.scene.terrain_demand_hits;
+    }
+};
+
+/// Repeated surveys reuse only exact source bytes, including edits to the same map.
+void terrain_demand_exact_sources() {
+    TerrainDemandPair pair;
+    auto& fixture = pair.fixture;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(fixture.scene.terrain_demand_cache.valid);
+    OA_CHECK(!fixture.scene.terrain_demand_cache.demand.empty());
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    OA_CHECK(pair.build() == 1);
+
+    const auto height_cell = fixture.map.attribute_width * 80 + 80;
+    fixture.map.attributes[height_cell].height = 28;
+    OA_CHECK(pair.build() == 0);
+    fixture.map.attributes[height_cell].height = 0;
+    OA_CHECK(pair.build() == 0);
+    const auto tile = fixture.map.tile_width * 40 + 40;
+    fixture.map.tile_indices[tile] = static_cast<uint16_t>(tile + 1);
+    OA_CHECK(pair.build() == 0);
+    fixture.map.tile_indices[tile] = static_cast<uint16_t>(tile);
+    OA_CHECK(pair.build() == 0);
+
+    fixture.inputs.clip_projection[8] += 0.125F;
+    OA_CHECK(pair.build() == 0);
+    fixture.inputs.left = cell_edge;
+    fixture.inputs.right -= cell_edge + 1;
+    OA_CHECK(pair.build() == 0);
+
+    // The memo owns its source bytes; a replacement map does not borrow the old map's buffers.
+    {
+        auto replacement = fixture.map;
+        fixture.inputs.map = &replacement;
+        OA_CHECK(pair.build() == 0);
+        replacement.attributes[height_cell].height = 31;
+        OA_CHECK(pair.build() == 0);
+    }
+    fixture.inputs.map = &fixture.map;
+    OA_CHECK(pair.build() == 0);
+    fixture.scene = {};
+    pair.ordinary = {};
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(pair.build() == 1);
+}
+
+/// Only a change between black and known fog changes the survey's tile keys.
+void terrain_demand_fog_sources() {
+    TerrainDemandPair pair;
+    auto& fixture = pair.fixture;
+    const auto tile = fixture.map.tile_width * 40 + 40;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(pair.build() == 1);
+    std::fill(pair.coverage.begin(), pair.coverage.end(), 0);
+    OA_CHECK(pair.build() == 1);
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    if (!fixture.scene.unit_ranges.empty())
+        OA_CHECK(fixture.scene.vertices[fixture.scene.unit_ranges[0].first_vertex].brightness < 1);
+    std::fill(pair.coverage.begin(), pair.coverage.end(), viewer_bit);
+    OA_CHECK(pair.build() == 1);
+
+    pair.mapped[tile] = 0;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(fixture.scene.unit_ranges.empty());
+    OA_CHECK(pair.build() == 1);
+    constexpr uint16_t ally_bit = 2;
+    pair.mapped[tile] = ally_bit;
+    OA_CHECK(pair.build() == 1);
+    fixture.inputs.sight.shared_bits = ally_bit;
+    fixture.inputs.sight.mapped_bits = viewer_bit | ally_bit;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    OA_CHECK(pair.build() == 1);
+    pair.mapped[tile] = viewer_bit;
+    fixture.inputs.sight.shared_bits = 0;
+    fixture.inputs.sight.mapped_bits = viewer_bit;
+    OA_CHECK(pair.build() == 1);
+
+    --fixture.inputs.sight.width;
+    OA_CHECK(pair.build() == 0);
+    ++fixture.inputs.sight.width;
+    OA_CHECK(pair.build() == 0);
+    pair.mapped[tile] = 0;
+    OA_CHECK(pair.build() == 0);
+    fixture.inputs.sight.mapping = false;
+    OA_CHECK(pair.build() == 0);
+    fixture.inputs.sight.mapping = true;
+    OA_CHECK(pair.build() == 0);
+}
+
+/// Palette, art, water and screen-only camera changes still build their current frame.
+void terrain_demand_other_frame_inputs() {
+    TerrainDemandPair pair;
+    auto& fixture = pair.fixture;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(pair.build() == 1);
+    fixture.palette[wide_first_colour * oa::palette_entry_bytes] = 99;
+    OA_CHECK(pair.build() == 1);
+    fixture.map.tile_palette_indices[0] = alternate_index;
+    OA_CHECK(pair.build() == 1);
+    fixture.inputs.sea_level = 6;
+    fixture.inputs.water.seconds = 3;
+    OA_CHECK(pair.build() == 1);
+    fixture.inputs.water.seconds = 5;
+    OA_CHECK(pair.build() == 1);
+
+    fixture.inputs.tiles_hold_while_moving = true;
+    fixture.inputs.clip_projection[3] += 5;
+    OA_CHECK(pair.build() == 1);
+    // The last held frame and the settled frame use the same exact source survey.
+    fixture.scene.camera_settling_frames = pair.ordinary.camera_settling_frames = 1;
+    OA_CHECK(pair.build() == 1);
+    OA_CHECK(fixture.scene.camera_settling_frames == 0);
+    OA_CHECK(pair.build() == 1);
+}
+
+/// A different rounding mode cannot reuse a survey completed under the old mode.
+void terrain_demand_rounding_control() {
+    const int saved = std::fegetround();
+    OA_CHECK(saved != -1);
+    if (saved == -1)
+        return;
+
+    struct RestoreRounding {
+        int mode{};
+
+        ~RestoreRounding() { std::fesetround(mode); }
+    } restore{saved};
+
+    const bool nearest = std::fesetround(FE_TONEAREST) == 0;
+    OA_CHECK(nearest);
+    if (!nearest)
+        return;
+    TerrainDemandPair pair;
+    OA_CHECK(pair.build() == 0);
+    const bool upward = std::fesetround(FE_UPWARD) == 0;
+    OA_CHECK(upward);
+    if (!upward)
+        return;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(pair.build() == 1);
+    OA_CHECK(std::fesetround(FE_TONEAREST) == 0);
+    OA_CHECK(pair.build() == 0);
+}
+
+/// Fast empty surveys and atlas-room changes retain the ordinary planning decisions.
+void terrain_demand_room_and_empty_views() {
+    TerrainDemandPair pair;
+    auto& fixture = pair.fixture;
+    const auto whole_right = fixture.inputs.right;
+    const auto whole_bottom = fixture.inputs.bottom;
+    fixture.inputs.right = fixture.inputs.bottom = 40 * tile_edge;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(!fixture.scene.terrain_demand_cache.valid);
+    // Full squares no longer fit in the room left by the other materials.
+    constexpr uint64_t material_area = 8U * 1024U * 1024U;
+    fixture.scene.material_area = pair.ordinary.material_area = material_area;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(fixture.scene.terrain_demand_cache.valid);
+    fixture.scene.material_area = pair.ordinary.material_area = 0;
+    OA_CHECK(pair.build() == 0);
+    fixture.scene.material_area = pair.ordinary.material_area = material_area;
+    OA_CHECK(pair.build() == 1);
+    fixture.scene.material_area = pair.ordinary.material_area = 0;
+    fixture.inputs.right = whole_right;
+    fixture.inputs.bottom = whole_bottom;
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(pair.build() == 1);
+    fixture.inputs.left = fixture.inputs.right;
+    OA_CHECK(pair.build() == 0);
+    fixture.inputs.left = 0;
+    OA_CHECK(pair.build() == 1);
+}
+
+/// A declared tile grid beyond the memo's fixed storage keeps the ordinary survey path.
+void terrain_demand_storage_fallback() {
+    TerrainDemandPair pair;
+    auto& map = pair.fixture.map;
+    constexpr uint32_t declared_tiles = 1280;
+    map.tile_width = map.tile_height = declared_tiles;
+    map.tile_count = 1;
+    map.tile_indices.assign(static_cast<std::size_t>(declared_tiles) * declared_tiles, 0);
+    map.tile_palette_indices.assign(tile_edge * tile_edge, ground_index);
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(!pair.fixture.scene.terrain_demand_cache.valid);
+    OA_CHECK(pair.build() == 0);
+    OA_CHECK(!pair.fixture.scene.terrain_demand_cache.valid);
 }
 
 /// A battle's passes build the same frames on any number of drawing threads
@@ -6399,6 +6649,12 @@ int main() {
     fog_materials();
     terrain_mip_colours();
     terrain_wider_than_atlas();
+    terrain_demand_exact_sources();
+    terrain_demand_fog_sources();
+    terrain_demand_other_frame_inputs();
+    terrain_demand_rounding_control();
+    terrain_demand_room_and_empty_views();
+    terrain_demand_storage_fallback();
     terrain_room_remembered();
     terrain_held_while_moving();
     terrain_square_given_back();
