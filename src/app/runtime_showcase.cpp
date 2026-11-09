@@ -10,6 +10,7 @@
 #include "renderer_effect_sources.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
+#include "oa/ui/console/game_fields.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -101,6 +102,12 @@ void Runtime::run_battle_showcase() {
     bool stage_ready{};
     bool require_turned_view{};
     bool reported_presentation{};
+    const auto check_staged_clock = [&] {
+        if (!match_clock_steps() ||
+            (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0 ||
+            match_timing_.requested_rate != oa::base::game_loop::normal_game_speed)
+            fail("the staged battle needs an unheld, unpaused clock at normal game speed");
+    };
     const auto now = [] { return static_cast<double>(SDL_GetTicksNS()) / kNanosecondsPerSecond; };
     // One pass of the application loop, paced as run() paces it; the time it
     // worked, without the wait, is added to `work`.
@@ -114,6 +121,7 @@ void Runtime::run_battle_showcase() {
         if (stage_ready) {
             if (screen_ != Screen::match || !match_)
                 fail("the staged battle lost its match");
+            check_staged_clock();
             if (!last_tick_error_.empty())
                 fail("the staged battle reported a simulation error: " + last_tick_error_);
             if (require_turned_view &&
@@ -192,8 +200,7 @@ void Runtime::run_battle_showcase() {
             fail("the staged battle needs exactly 20000 live units, 10000 for each side");
         if (const char* fault = match_->fault())
             fail("the staged battle's setup reported a match fault: " + std::string(fault));
-        if (!match_clock_steps())
-            fail("the staged battle's clock is held");
+        check_staged_clock();
         const auto angles = live_camera_angles();
         require_turned_view = angles[0] != 0 || angles[1] != 0;
         report(
