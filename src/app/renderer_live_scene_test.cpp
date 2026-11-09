@@ -4602,6 +4602,202 @@ void shared_unit_detail_texture_visibility() {
     OA_CHECK(battle.scene.unit_ranges.size() == population);
 }
 
+/// Detail workers retain serial decisions, drawing order and pick bounds across frames.
+void unit_detail_on_threads() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr uint32_t population = 1536;
+    Fixture battle;
+    auto& map = battle.map;
+    map.attribute_width = map.attribute_height = 16;
+    map.tile_width = map.tile_height = 8;
+    map.attributes.resize(256);
+    map.tile_indices.assign(64, 0);
+    auto& in = battle.inputs;
+    in.right = in.bottom = 256;
+    in.clip_width = in.clip_height = 256;
+    in.clip_projection = {1, 0, 0.05F, 0, 0, -0.5F, 1, 0, 0, -0.001F, 0, 0.5F};
+    in.unit_marker_pixels = 5;
+    in.team_colors[1] = 1;
+    in.owner_colors[0] = {255, 128, 32};
+    in.owner_colors[1] = {32, 128, 255};
+    std::vector<uint16_t> coverage(64), mapped(64);
+    for (std::size_t cell = 0; cell < coverage.size(); ++cell) {
+        coverage[cell] = cell % 5 == 0 ? 0 : 1;
+        mapped[cell] = cell % 7 == 0 ? 0 : viewer_bit;
+    }
+    in.sight.coverage = coverage;
+    in.sight.player_bits = mapped;
+    in.sight.width = in.sight.height = 8;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {
+        {0, 0, 0}, {4 * fixed, 0, 0}, {4 * fixed, 0, 4 * fixed}, {0, 0, 4 * fixed}
+    };
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2, 3};
+    drawing::TextureSequence texture;
+    texture.frames.resize(2);
+    std::array<uint8_t, 2> pixels{ground_index, alternate_index};
+    for (auto& frame : texture.frames) {
+        frame.width = frame.height = 1;
+        frame.encoding = OA_SPRITE_RAW;
+    }
+    texture.frames[0].data = &pixels[0];
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.push_back({});
+    prepared.objects[0].primitives[0].flags = drawing::primitive_animated | drawing::primitive_team;
+    prepared.objects[0].primitives[0].texture = &texture;
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    auto hidden = runtime::make_instance(source);
+    hidden.rebuild_transforms({});
+    hidden.pieces()[0].flags = 0;
+    const auto& posed = instance.pieces()[0].transformed_vertices;
+    const float normal =
+        (posed[0].z - posed[1].z) / float{fixed} * ((posed[0].x + posed[1].x) / float{fixed}) +
+        (posed[1].z - posed[2].z) / float{fixed} * ((posed[1].x + posed[2].x) / float{fixed}) +
+        (posed[2].z - posed[0].z) / float{fixed} * ((posed[2].x + posed[0].x) / float{fixed});
+    // The scene negates local z on the way into world coordinates.
+    const float toward_front = normal > 0 ? 1.0F : -1.0F;
+    std::vector<oa::Unit> units(population);
+    battle.draws.models.resize(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = static_cast<uint8_t>(index % 2);
+        unit.position = {
+            int32_t(8 + index % 48 * 5) * fixed,
+            int32_t(index % 3) * (fixed / 4),
+            int32_t(8 + index / 48 * 7) * fixed
+        };
+        if (index % 8 == 1)
+            unit.state_flags = OA_UNIT_STATE_CLOAKED;
+        else if (index % 8 == 2)
+            unit.build_remaining = 0.4F;
+        else if (index % 8 == 3)
+            unit.flags = OA_UNIT_FLAG_BUILDING;
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &unit;
+        draw.model.instance = index % 13 == 0 ? &hidden : &instance;
+        draw.model.prepared = &prepared;
+        draw.plan.linked.drawn = true;
+    }
+    oa::platform::job_pool::Pool two(2), four(4);
+    std::array<live::Scene, 3> scenes;
+    for (uint32_t frame = 0; frame < 2; ++frame) {
+        in.view_direction = {0, frame == 0 ? toward_front : -toward_front, 0};
+        if (frame != 0) {
+            instance.pieces()[0].translation.x += fixed / 13;
+            instance.rebuild_transforms({});
+            in.clip_projection[0] = 0.875F;
+            in.clip_projection[3] = 2.5F;
+            in.clip_projection[6] = 0.9375F;
+            in.clip_projection[7] = -1.25F;
+            texture.frames[1].data = &pixels[1];
+            pixels[0] = alternate_index;
+        }
+        for (uint32_t index = 0; index < population; ++index) {
+            auto& draw = battle.draws.models[index];
+            units[index].position.x += fixed / 17;
+            if (index % 19 == 0)
+                draw.shown_position = oa::FixedVec3{
+                    units[index].position.x + fixed / 7,
+                    units[index].position.y,
+                    units[index].position.z - fixed / 11
+                };
+            draw.shown_vertices.clear();
+            if (index % 7 == 0 || index % 11 == 0 || index % 17 == 0) {
+                draw.shown_vertices = {draw.model.instance->pieces()[0].transformed_vertices};
+                if (index % 7 == 0)
+                    draw.shown_vertices[0][1].x += int32_t(index);
+                if (index % 17 == 0)
+                    draw.shown_vertices[0][1].x += 10 * fixed;
+                if (index % 11 == 0)
+                    std::swap(draw.shown_vertices[0][1], draw.shown_vertices[0][3]);
+            }
+        }
+        in.models_on_card = true;
+        for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
+            in.pool = scene == 0 ? nullptr : scene == 1 ? &two : &four;
+            OA_CHECK(live::build(in, scenes[scene], battle.error));
+            OA_CHECK(scenes[scene].unit_detail.size() == population);
+        }
+        OA_CHECK(scenes[0].unit_detail_active);
+        OA_CHECK(!scenes[0].cards.units.empty());
+        OA_CHECK(
+            std::any_of(
+                scenes[0].unit_detail.begin(),
+                scenes[0].unit_detail.end(),
+                [](const live::UnitDetail& detail) { return detail.marker; }
+            )
+        );
+        OA_CHECK(
+            std::any_of(
+                scenes[0].unit_detail.begin(),
+                scenes[0].unit_detail.end(),
+                [](const live::UnitDetail& detail) { return !detail.eligible; }
+            )
+        );
+        const auto serial = card_frame(scenes[0]);
+        for (std::size_t scene = 1; scene < scenes.size(); ++scene) {
+            OA_CHECK(same_frame(scenes[scene], scenes[0]));
+            OA_CHECK(scenes[scene].unit_detail_active == scenes[0].unit_detail_active);
+            for (std::size_t draw = 0;
+                 draw < std::min(scenes[scene].unit_detail.size(), scenes[0].unit_detail.size());
+                 ++draw) {
+                const auto& actual = scenes[scene].unit_detail[draw];
+                const auto& expected = scenes[0].unit_detail[draw];
+                OA_CHECK(actual.surface == expected.surface && actual.shadow == expected.shadow);
+                OA_CHECK(
+                    std::bit_cast<uint32_t>(actual.pixels) ==
+                    std::bit_cast<uint32_t>(expected.pixels)
+                );
+                OA_CHECK(
+                    std::bit_cast<uint32_t>(actual.brightness) ==
+                    std::bit_cast<uint32_t>(expected.brightness)
+                );
+                OA_CHECK(
+                    (std::bit_cast<std::array<uint32_t, 3>>(actual.center) ==
+                     std::bit_cast<std::array<uint32_t, 3>>(expected.center))
+                );
+                OA_CHECK(actual.eligible == expected.eligible && actual.marker == expected.marker);
+            }
+            const auto parallel = card_frame(scenes[scene]);
+            OA_CHECK(parallel.units == serial.units);
+            OA_CHECK(parallel.vertices.size() == serial.vertices.size());
+            if (!parallel.vertices.empty() && parallel.vertices.size() == serial.vertices.size())
+                OA_CHECK(
+                    std::memcmp(
+                        parallel.vertices.data(),
+                        serial.vertices.data(),
+                        parallel.vertices.size() * sizeof(parallel.vertices[0])
+                    ) == 0
+                );
+            const auto& actual = scenes[scene].cards.units;
+            const auto& expected = scenes[0].cards.units;
+            OA_CHECK(
+                std::equal(
+                    actual.begin(),
+                    actual.end(),
+                    expected.begin(),
+                    expected.end(),
+                    [](const live::CardUnit& a, const live::CardUnit& b) {
+                        return a.unit_id == b.unit_id && a.vertex == b.vertex &&
+                               a.instance == b.instance && a.type == b.type &&
+                               a.first_index == b.first_index && a.index_count == b.index_count &&
+                               a.left == b.left && a.top == b.top && a.right == b.right &&
+                               a.bottom == b.bottom && a.bounded == b.bounded;
+                    }
+                )
+            );
+        }
+    }
+}
+
 /// Twenty thousand visible, otherwise over-budget models retain a
 /// representation and canonical pick ID without increasing either cap.
 void crowded_unit_detail() {
@@ -5808,6 +6004,7 @@ int main() {
     projected_unit_detail();
     shared_unit_detail_bounds();
     shared_unit_detail_texture_visibility();
+    unit_detail_on_threads();
     crowded_unit_detail();
     large_shared_model_scene();
     shadows_on_card();
