@@ -711,6 +711,10 @@ void Runtime::destroy_match_layer_textures() {
     // The touch layer's texture goes with them; the next present makes it again.
     TouchDrawAccess::forget_textures(*this);
     match_dialog_side_tex_w_ = match_dialog_side_tex_h_ = 0;
+    if (radar_state_.display_texture != nullptr)
+        SDL_DestroyTexture(radar_state_.display_texture);
+    radar_state_.display_texture = nullptr;
+    radar_state_.display_texture_w = radar_state_.display_texture_h = 0;
     match_hud_tex_w_ = match_hud_tex_h_ = 0;
     match_cursor_tex_w_ = match_cursor_tex_h_ = 0;
 }
@@ -831,6 +835,18 @@ void Runtime::compose_match_layers(renderer::Surface& frame) {
     );
     if (placed)
         PhoneHudAccess::blit_regions(*this, frame);
+    if (!radar_state_.display_image.rgb.empty() &&
+        !(director_ != nullptr && !director_->presentation.show_interface))
+        blit_rect(
+            frame,
+            radar_state_.display_image,
+            radar_state_.display_rect.x,
+            radar_state_.display_rect.y,
+            0,
+            0,
+            static_cast<int>(radar_state_.display_image.width),
+            static_cast<int>(radar_state_.display_image.height)
+        );
     if (!match_dialog_side_.rgb.empty() && placed_panel_area())
         blit_rect(
             frame,
@@ -1023,6 +1039,7 @@ void Runtime::finish_match_layers(
     // native density: NEAREST, but in the accelerated tier at a density
     // that is not a whole number.
     const SDL_ScaleMode one_to_one = one_to_one_scale_mode();
+    present_minimap_display();
     // The touch controls go over the world and the HUD, under the dialogs;
     // the placed regions over the touch controls' sheets.
     present_touch_layer();
@@ -1062,6 +1079,29 @@ void Runtime::finish_match_layers(
     const auto present_ns = static_cast<uint64_t>(elapsed_since(upload_start));
     frame_pacing::note_frame_measure(frame_stats_, frame_pacing::FrameMeasure::present, present_ns);
     note_present_time(present_ns);
+}
+
+void Runtime::present_minimap_display() {
+    auto& radar = radar_state_;
+    if (!match_ || radar.display_image.rgb.empty() || match_hud_cpu_.rgb.empty() ||
+        (director_ != nullptr && !director_->presentation.show_interface))
+        return;
+    ensure_streaming_texture(
+        radar.display_texture,
+        opaque_layer_format(),
+        static_cast<int>(radar.display_image.width),
+        static_cast<int>(radar.display_image.height),
+        radar.display_texture_w,
+        radar.display_texture_h
+    );
+    upload_rgb24_frame(radar.display_texture, radar.display_image);
+    const SDL_FRect destination{
+        static_cast<float>(radar.display_rect.x),
+        static_cast<float>(radar.display_rect.y),
+        static_cast<float>(radar.display_rect.width),
+        static_cast<float>(radar.display_rect.height)
+    };
+    draw_one_to_one(sdl_.renderer, radar.display_texture, &destination, one_to_one_scale_mode());
 }
 
 void Runtime::capture_render_target() {

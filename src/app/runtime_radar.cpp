@@ -62,6 +62,14 @@ void Runtime::RadarState::release() {
     built_for = nullptr;
     hot_unit_count = 0;
     game_picture.clear();
+    display_indices.clear();
+    display_owners.clear();
+    display_image = {};
+    display_rect = {};
+    if (display_texture != nullptr)
+        SDL_DestroyTexture(display_texture);
+    display_texture = nullptr;
+    display_texture_w = display_texture_h = 0;
 }
 
 Runtime::RadarState::~RadarState() {

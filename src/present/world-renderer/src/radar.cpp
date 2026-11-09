@@ -10,6 +10,7 @@
 #include "oa/present/world_renderer/world_camera.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -143,6 +144,131 @@ bool shown_as_own(const World& world, const Unit& unit, uint8_t viewer, bool all
         return unit.owner_index == viewer;
     const Player* owner = world_unit_owner(&world, &unit);
     return owner != nullptr && viewer < sizeof owner->alliance && owner->alliance[viewer] != 0;
+}
+
+/// Projects a map column into a displayed minimap before any radar rounding.
+int32_t display_column(const Game& game, const FixedVec3& position, int32_t width) noexcept {
+    return static_cast<int32_t>(int64_t{width} * high_word(position.x) / game.map_pixel_width);
+}
+
+/// Projects the battlefield's map row into a displayed minimap.
+int32_t display_row(const Game& game, const FixedVec3& position, int32_t height) noexcept {
+    return static_cast<int32_t>(
+        int64_t{high_word(position.z) - (high_word(position.y) >> 1)} * height /
+        game.map_pixel_height
+    );
+}
+
+/// Tests the ordinary contact rules without changing the unit or its flags.
+bool contact_shown(const World& world, const Unit& unit, const RadarContactHost& host) noexcept {
+    const auto& game = world.game;
+    return (game.console_flags & console_flag_full_radar) != 0 ||
+           (game.visibility_flags & visibility_flags_radar_limited) == 0 ||
+           (unit.flags & radar_contact_flags) != 0 ||
+           shown_as_own(world, unit, game.viewpoint_player, host.allied_units_shown);
+}
+
+/// The owner bits in a displayed contact cell; the remaining bit reserves a hint pixel.
+constexpr uint16_t display_owner_bits = (uint16_t{1} << OA_PLAYER_COUNT) - 1;
+constexpr uint16_t display_hint_pixel = uint16_t{1} << 15;
+constexpr uint8_t display_edge_color = 0;
+
+/// Returns an owner in a contact cell, cycling over its owners in slot order.
+uint8_t display_owner(uint16_t mask, uint32_t choice) noexcept {
+    std::array<uint8_t, OA_PLAYER_COUNT> owners{};
+    uint32_t count{};
+    for (uint8_t owner = 0; owner < OA_PLAYER_COUNT; ++owner)
+        if ((mask & (uint16_t{1} << owner)) != 0)
+            owners[count++] = owner;
+    return count != 0 ? owners[choice % count] : uint8_t{0};
+}
+
+/// Draws range rings in the displayed minimap's pixel scale.
+void display_rings(
+    const World& world, const Unit& unit, ::oa::Surface& target, int32_t x, int32_t y
+) noexcept {
+    const auto* def = world_unit_def_of(&world, &unit);
+    if ((unit.flags & OA_UNIT_FLAG_SELECTED) == 0 || def == nullptr)
+        return;
+    const auto& game = world.game;
+    const auto radius = [&](int32_t distance) {
+        return static_cast<int32_t>(int64_t{target.width} * distance / game.map_pixel_width);
+    };
+    if ((unit.state_flags & OA_UNIT_STATE_ACTIVE) != 0 ||
+        (def->abilities & OA_UNIT_DEF_ABILITY_ON_OFFABLE) == 0) {
+        for (const auto distance : {def->radar_distance, def->sonar_distance})
+            if (distance != 0)
+                ::oa::present::draw_range_ring(
+                    &target, x, y, radius(distance), game_ui_color(game, ui_color_sensor_range)
+                );
+        for (const auto distance : {def->radar_distance_jam, def->sonar_distance_jam})
+            if (distance != 0)
+                ::oa::present::draw_range_ring(
+                    &target, x, y, radius(distance), game_ui_color(game, ui_color_jammer_range)
+                );
+    }
+    if ((def->flags & OA_UNIT_DEF_FLAG_ANTI_WEAPONS) == 0)
+        return;
+    const auto color = game_ui_color(game, ui_color_interceptor_range);
+    for (const auto& slot : unit.weapons) {
+        const auto* weapon = world_weapon_def(&world, slot.def);
+        if (weapon == nullptr || (weapon->flags & OA_WEAPON_FLAG_INTERCEPTOR) == 0)
+            continue;
+        const auto reach = radius(weapon->coverage - interceptor_ring_inset);
+        if (slot.stockpile == 0)
+            ::oa::present::draw_range_ring(&target, x, y, reach, color);
+        else
+            ::oa::present::draw_dashed_range_ring(
+                &target,
+                x,
+                y,
+                reach,
+                color,
+                interceptor_ring_segments,
+                game.radar_blink_flags & radar_flag_blink
+            );
+    }
+}
+
+/// Draws the same visible projectiles as the ordinary radar at the displayed scale.
+void display_projectiles(
+    const World& world,
+    ::oa::Surface& target,
+    const RadarSprites& sprites,
+    const RadarContactHost& host
+) noexcept {
+    if (world.projectiles == nullptr)
+        return;
+    const auto& game = world.game;
+    const auto count =
+        std::min(game.projectile_count, static_cast<int32_t>(world_projectile_capacity(&world)));
+    for (int32_t index = 0; index < count; ++index) {
+        const auto& shot = world.projectiles[index];
+        const auto* weapon = world_weapon_def(&world, shot.def);
+        if (weapon == nullptr ||
+            (host.projectile_hidden != nullptr && host.projectile_hidden(host.user, shot)))
+            continue;
+        const auto x = display_column(game, shot.position, target.width);
+        const auto y = display_row(game, shot.position, target.height);
+        const bool seen =
+            host.point_visible != nullptr && host.point_visible(host.user, shot.position);
+        if ((weapon->flags & radar_icon_weapon_flags) == 0) {
+            if ((weapon->flags & OA_WEAPON_FLAG_NO_RADAR) == 0 &&
+                (seen || shot.owner_index == game.viewpoint_player))
+                ::oa::present::draw_point(&target, x, y, game_ui_color(game, ui_color_radar_marks));
+            continue;
+        }
+        const auto* source = world_unit(&world, shot.source);
+        if (seen || (source != nullptr && source->owner_index == game.viewpoint_player))
+            ::oa::present::draw_sprite(
+                &target,
+                ::oa::present::gaf_frame(
+                    sprites.weapon_logos, player_color(world, shot.owner_index)
+                ),
+                x,
+                y
+            );
+    }
 }
 
 } // namespace
@@ -383,6 +509,140 @@ uint32_t radar_compose_final(
     draw_projectiles(world, target, sprites, host);
     game.radar_blink_flags = static_cast<uint16_t>(game.radar_blink_flags | radar_flag_redraw);
     return listed;
+}
+
+uint32_t radar_compose_display(
+    const World& world,
+    const ::oa::Surface& terrain,
+    ::oa::Surface& target,
+    const RadarSprites& sprites,
+    const RadarContactHost& host,
+    std::span<const uint8_t> player_colors,
+    std::span<uint16_t> owners,
+    std::span<const RadarOutline> outlines
+) noexcept {
+    const auto& game = world.game;
+    if (game.map_pixel_width <= 0 || game.map_pixel_height <= 0 ||
+        (world.units == nullptr && world.unit_slot_count != 0) || terrain.pixels == nullptr ||
+        target.pixels == nullptr || terrain.width <= 0 || terrain.height <= 0 ||
+        terrain.pitch < terrain.width || target.width <= 0 || target.height <= 0 ||
+        target.width > radar_display_edge_limit || target.height > radar_display_edge_limit ||
+        target.pitch < target.width || player_colors.size() < OA_PLAYER_COUNT)
+        return 0;
+    const auto cells = static_cast<std::size_t>(target.width) * target.height;
+    if (owners.size() < cells)
+        return 0;
+    owners = owners.first(cells);
+    std::fill(owners.begin(), owners.end(), uint16_t{0});
+    for (int32_t y = 0; y < target.height; ++y) {
+        const auto* source =
+            terrain.pixels + int64_t{y} * terrain.height / target.height * terrain.pitch;
+        auto* row = target.pixels + y * target.pitch;
+        for (int32_t x = 0; x < target.width; ++x)
+            row[x] = source[int64_t{x} * terrain.width / target.width];
+    }
+    const auto eligible = [&](const Unit& unit) {
+        return unit.type_index != 0 && unit_is_live_target(unit.flags) &&
+               unit.owner_index < OA_PLAYER_COUNT && contact_shown(world, unit, host);
+    };
+    const auto in_picture = [&](int32_t x, int32_t y) {
+        return x >= 0 && y >= 0 && x < target.width && y < target.height;
+    };
+    uint32_t shown{};
+    const Unit* hovered{};
+    for (uint32_t slot = 0; slot < world.unit_slot_count; ++slot) {
+        const auto& unit = world.units[slot];
+        if (!eligible(unit))
+            continue;
+        const auto x = display_column(game, unit.position, target.width);
+        const auto y = display_row(game, unit.position, target.height);
+        display_rings(world, unit, target, x, y);
+        if (!in_picture(x, y))
+            continue;
+        owners[static_cast<std::size_t>(y) * target.width + x] |= uint16_t{1} << unit.owner_index;
+        ++shown;
+        if (unit.id == game.cursor_unit_id)
+            hovered = &unit;
+    }
+    display_projectiles(world, target, sprites, host);
+    constexpr std::array<std::array<int32_t, 2>, 8> neighbours{
+        {{{1, 0}}, {{0, 1}}, {{-1, 0}}, {{0, -1}}, {{1, 1}}, {{-1, 1}}, {{-1, -1}}, {{1, -1}}}
+    };
+    // A dark contour remains behind every occupied core. Drawing all
+    // contours before the cores keeps a neighbour's unit visible too.
+    for (int32_t y = 0; y < target.height; ++y)
+        for (int32_t x = 0; x < target.width; ++x) {
+            if (owners[static_cast<std::size_t>(y) * target.width + x] == 0)
+                continue;
+            for (const auto& offset : neighbours) {
+                const auto nx = x + offset[0], ny = y + offset[1];
+                if (in_picture(nx, ny) &&
+                    owners[static_cast<std::size_t>(ny) * target.width + nx] == 0)
+                    ::oa::present::draw_point(&target, nx, ny, display_edge_color);
+            }
+        }
+    for (int32_t y = 0; y < target.height; ++y)
+        for (int32_t x = 0; x < target.width; ++x) {
+            const auto mask = owners[static_cast<std::size_t>(y) * target.width + x];
+            if (mask != 0)
+                ::oa::present::draw_point(
+                    &target, x, y, player_colors[display_owner(mask, static_cast<uint32_t>(x + y))]
+                );
+        }
+    // Contacts which still share a display pixel use spatially alternating
+    // owner colours, with adjacent colour hints where a free pixel exists.
+    for (int32_t y = 0; y < target.height; ++y)
+        for (int32_t x = 0; x < target.width; ++x) {
+            const auto mask =
+                owners[static_cast<std::size_t>(y) * target.width + x] & display_owner_bits;
+            if (mask == 0 || (mask & (mask - 1)) == 0)
+                continue;
+            const auto core = display_owner(mask, static_cast<uint32_t>(x + y));
+            std::size_t next{};
+            for (uint8_t owner = 0; owner < OA_PLAYER_COUNT; ++owner) {
+                if (owner == core || (mask & (uint16_t{1} << owner)) == 0)
+                    continue;
+                while (next < neighbours.size()) {
+                    const auto offset = neighbours[next++];
+                    const auto nx = x + offset[0], ny = y + offset[1];
+                    if (!in_picture(nx, ny))
+                        continue;
+                    auto& cell = owners[static_cast<std::size_t>(ny) * target.width + nx];
+                    if (cell != 0)
+                        continue;
+                    cell = display_hint_pixel;
+                    ::oa::present::draw_point(&target, nx, ny, player_colors[owner]);
+                    break;
+                }
+            }
+        }
+    const bool blink = (game.radar_blink_flags & radar_flag_blink) != 0;
+    const auto bright = game_ui_color(game, ui_color_radar_marks);
+    for (uint32_t slot = 0; slot < world.unit_slot_count; ++slot) {
+        const auto& unit = world.units[slot];
+        if (!eligible(unit) ||
+            ((unit.flags & OA_UNIT_FLAG_SELECTED) == 0 && (unit.damage_countdown == 0 || !blink)))
+            continue;
+        const auto x = display_column(game, unit.position, target.width);
+        const auto y = display_row(game, unit.position, target.height);
+        for (const auto& offset : neighbours) {
+            const auto nx = x + offset[0], ny = y + offset[1];
+            if (in_picture(nx, ny) && owners[static_cast<std::size_t>(ny) * target.width + nx] == 0)
+                ::oa::present::draw_point(&target, nx, ny, bright);
+        }
+    }
+    for (const auto& outline : outlines)
+        ::oa::present::draw_rect_outline(&target, outline.rectangle, outline.color);
+    if (hovered != nullptr) {
+        const auto x = display_column(game, hovered->position, target.width);
+        const auto y = display_row(game, hovered->position, target.height);
+        const auto* icon = ::oa::present::gaf_frame(sprites.cursor_logo, 0);
+        if (icon != nullptr)
+            ::oa::present::draw_sprite(&target, icon, x, y);
+        else
+            ::oa::present::draw_rect_outline(&target, {x - 2, y - 2, x + 2, y + 2}, bright);
+    }
+    return shown;
 }
 
 void radar_draw(Game& game, const RadarSurfaces& surfaces, ::oa::Surface& target) noexcept {

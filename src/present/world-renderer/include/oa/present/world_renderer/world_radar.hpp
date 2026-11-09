@@ -240,6 +240,44 @@ uint32_t radar_compose_final(
     std::span<RadarHotUnit> hot_units
 ) noexcept;
 
+/// The largest edge of a minimap composed at its displayed resolution.
+inline constexpr int32_t radar_display_edge_limit = 1024;
+
+/// A camera outline over the displayed minimap, in its local pixels.
+struct RadarOutline {
+    Rect32 rectangle{};
+    uint8_t color{};
+};
+
+/// Draws compact contacts directly at the minimap's displayed resolution.
+///
+/// The terrain is enlarged first; unit positions are then projected from
+/// their world coordinates, without first rounding to the small radar
+/// picture. Live contacts retain their coloured core while taking damage.
+/// Contact eligibility follows the ordinary radar, including allied and
+/// full-radar rules. The caller keeps the ordinary radar's hot-unit list
+/// and coordinates for input. No game or unit field is changed.
+///
+/// @param world the units, viewpoint and radar rules
+/// @param terrain the mapped terrain without coarse contact logos
+/// @param[in,out] target the displayed paletted minimap, at most radar_display_edge_limit per edge
+/// @param sprites projectile and cursor icons
+/// @param host sight and projectile filters
+/// @param player_colors one palette index per player slot
+/// @param[in,out] owners scratch storage, at least target.width times target.height entries
+/// @param outlines camera outlines in target pixels, drawn over contacts
+/// @return the number of live eligible unit records projected into the target
+uint32_t radar_compose_display(
+    const World& world,
+    const ::oa::Surface& terrain,
+    ::oa::Surface& target,
+    const RadarSprites& sprites,
+    const RadarContactHost& host,
+    std::span<const uint8_t> player_colors,
+    std::span<uint16_t> owners,
+    std::span<const RadarOutline> outlines = {}
+) noexcept;
+
 /// Blits the final image and outlines the camera rectangle while the redraw bit is set, then clears the bit.
 ///
 /// The rectangle is outlined within the radar's picture: a view past the
