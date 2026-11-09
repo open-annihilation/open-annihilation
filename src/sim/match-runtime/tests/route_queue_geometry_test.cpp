@@ -64,19 +64,34 @@ void physical_headings_never_replace_route_identity() {
     queue.leader_route.points[2] = {160, 0};
     OA_CHECK(!queue.follows());
     queue.leader_route.points[2] = queue.route.points[2];
+    OA_CHECK(queue.follows());
+}
+
+void different_destinations_share_only_the_current_prefix() {
+    Queue queue;
     queue.leader_goal.cell[0] += 1;
-    OA_CHECK(!queue.follows());
-    queue.leader_goal.cell = queue.goal.cell;
+    OA_CHECK(queue.follows());
     queue.leader_goal.tolerance = 1;
-    OA_CHECK(!queue.follows());
-    queue.leader_goal = queue.goal;
+    OA_CHECK(queue.follows());
     queue.leader_goal.shape = ground::GoalShape::ring;
-    OA_CHECK(!queue.follows());
-    queue.leader_goal = queue.goal;
+    OA_CHECK(queue.follows());
     queue.leader_goal.inner_range = 1;
-    OA_CHECK(!queue.follows());
-    queue.leader_goal = queue.goal;
     queue.leader_goal.bottom = 1;
+    OA_CHECK(queue.follows());
+    queue.leader_route.points[2] = {160, 0};
+    OA_CHECK(!queue.follows());
+    queue.leader_route.points[2] = queue.route.points[2];
+    queue.leader_route.goal = nullptr;
+    OA_CHECK(!queue.follows());
+}
+
+void a_leader_beyond_the_shared_corner_is_not_admitted() {
+    Queue queue;
+    queue.follower.position = {144 * pixel, 0, 48 * pixel};
+    queue.leader.position = {160 * pixel, 0, 64 * pixel};
+    queue.leader_route.points = {{{160, 48}, {160, 160}, {256, 160}}};
+    OA_CHECK(queue.leader_route.points[0] == queue.route.points[1]);
+    OA_CHECK(queue.leader_route.points[1] == queue.route.points[2]);
     OA_CHECK(!queue.follows());
 }
 
@@ -112,6 +127,8 @@ void direct_routes_repeat_their_destination() {
 int main() {
     shared_native_route_requires_a_leader_ahead();
     physical_headings_never_replace_route_identity();
+    different_destinations_share_only_the_current_prefix();
+    a_leader_beyond_the_shared_corner_is_not_admitted();
     incomplete_routes_and_extreme_vectors_do_not_form_queues();
     direct_routes_repeat_their_destination();
     return oa::test::check_exit_status();

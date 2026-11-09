@@ -15,19 +15,6 @@ namespace route_queue_detail {
 
 inline constexpr int64_t one_pixel = 65536;
 
-/// Checks every part of the goals' geometry without comparing their order owners.
-/// @param first first active native goal
-/// @param second second active native goal
-/// @return whether both goals describe the same destination and arrival region
-[[nodiscard]] inline bool
-same_goal(const ground_orders::Goal& first, const ground_orders::Goal& second) noexcept {
-    return first.shape == second.shape && first.cell == second.cell &&
-           first.tolerance == second.tolerance && first.radius_squared == second.radius_squared &&
-           first.inner_range == second.inner_range &&
-           first.inner_radius_squared == second.inner_radius_squared && first.left == second.left &&
-           first.right == second.right && first.top == second.top && first.bottom == second.bottom;
-}
-
 /// Bounds vector components so two products and their sum fit signed 64 bits.
 /// @param vector fixed-point vector
 /// @return whether each component lies between negative and positive INT32_MAX
@@ -38,7 +25,7 @@ same_goal(const ground_orders::Goal& first, const ground_orders::Goal& second) n
 
 } // namespace route_queue_detail
 
-/// Recognizes a leader ahead on the same directed native route and goal.
+/// Recognizes a leader ahead on a shared directed native route prefix.
 /// The caller separately checks ownership, local ground eligibility and the
 /// existing traffic grace period. This predicate changes no route or physics.
 /// @param follower following unit's current native geometry
@@ -56,8 +43,7 @@ same_goal(const ground_orders::Goal& first, const ground_orders::Goal& second) n
     if (!route.goal || !leader_route.goal || !ground_orders::route_present(route) ||
         !ground_orders::route_present(leader_route) || route.count < 2 || leader_route.count < 2 ||
         route.count > route.points.size() || leader_route.count > leader_route.points.size() ||
-        follower.footprint != leader.footprint || !same_goal(*route.goal, *leader_route.goal) ||
-        route.points[1] != leader_route.points[1])
+        follower.footprint != leader.footprint || route.points[1] != leader_route.points[1])
         return false;
     const auto& next = route.points[route.count > 2 ? 2 : 1];
     const auto& leader_next = leader_route.points[leader_route.count > 2 ? 2 : 1];

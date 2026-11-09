@@ -49,12 +49,12 @@ struct Scene {
     Fixture fixture{options()};
     std::array<uint8_t, 4> yard{4, 4, 4, 4};
     uint32_t width{};
-    bool wide{}, flat{};
+    bool wide{}, flat{}, double_turn{};
     uint16_t gate{};
     std::vector<uint16_t> queue;
 
-    explicit Scene(uint32_t version, bool wide = false, bool flat = false)
-        : wide(wide), flat(flat) {
+    explicit Scene(uint32_t version, bool wide = false, bool flat = false, bool double_turn = false)
+        : wide(wide), flat(flat), double_turn(double_turn) {
         fixture.match.reset();
         width = wide ? 48 : 24;
         fixture.map.attribute_width = width;
@@ -149,7 +149,8 @@ struct Scene {
         const auto end = wide ? 44u : 19u;
         return (x >= 2 && x < mouth && z >= 6 && z <= 11) ||
                (x >= mouth && x <= end && z >= 8 && z <= 9) ||
-               (x >= turn && x <= turn + 4 && z >= 2 && z <= 9) ||
+               (x >= turn && x <= turn + 4 && z >= (double_turn ? 4u : 2u) && z <= 9) ||
+               (double_turn && x >= 10 && x <= 22 && z >= 4 && z <= 5) ||
                (wide && x >= 30 && x <= 43 && z >= 2 && z <= 3);
     }
 
@@ -157,7 +158,7 @@ struct Scene {
 
     int32_t turn_x() const { return wide ? 592 : 208; }
 
-    int32_t parking_x() const { return wide ? 672 : 224; }
+    int32_t parking_x() const { return wide ? 672 : double_turn ? 288 : 224; }
 
     runtime::Match& match() { return *fixture.match; }
 
@@ -178,13 +179,22 @@ struct Scene {
         // These are ordinary idle ticks, allowing a newly issued route to
         // reach the native retry cadence before its first movement wave.
         run(60);
-        for (const auto id : queue)
+        for (size_t index = 0; index < queue.size(); ++index) {
+            const auto id = queue[index];
+            const ground::RoutePoint destination =
+                double_turn ? ground::RoutePoint{static_cast<int16_t>(index == 0 ? 336 : 304), 80}
+                            : ground::RoutePoint{static_cast<int16_t>(turn_x()), 48};
             CHECK(!match().order_refused(
-                match().issue_ground_move(id, {turn_x() * pixel, 0, 48 * pixel}, false)
+                match().issue_ground_move(
+                    id, {destination[0] * pixel, 0, destination[1] * pixel}, false
+                )
             ));
+            if (double_turn)
+                audit_destination(id, destination, {static_cast<int16_t>(index == 0 ? 20 : 18), 4});
+        }
         if (wide) {
-            // Declare all egress orders before the wave. Native arrival at
-            // the shared first goal frees it for the next queued actor.
+            // Declare every egress order before the wave. Normal mission
+            // handling advances the prequeued orders.
             constexpr std::array<ground::RoutePoint, 8> parking{
                 {{688, 48},
                  {656, 48},
@@ -199,29 +209,7 @@ struct Scene {
                 {{42, 2}, {40, 2}, {38, 2}, {30, 2}, {32, 2}, {34, 2}, {34, 4}, {36, 4}}
             };
             for (size_t index = 0; index < queue.size(); ++index) {
-                const auto& body = ground(queue[index]).geometry;
-                auto* primary = match().spawn_slot(queue[index]).unit->primary;
-                CHECK(primary != nullptr);
-                const auto goal = ground::make_goal(
-                    *primary, body, {parking[index][0] * pixel, 0, parking[index][1] * pixel}, 4
-                );
-                CHECK(goal.cell == parking_cells[index]);
-                const oa::sim::spatial_state::CellClassifier classifier{
-                    body.footprint[0],
-                    body.footprint[1],
-                    static_cast<int16_t>(fixture.metadata.max_water_depth),
-                    static_cast<int16_t>(fixture.metadata.min_water_depth),
-                    fixture.metadata.max_slope,
-                    fixture.metadata.bad_slope,
-                    fixture.metadata.max_water_slope,
-                    fixture.metadata.bad_water_slope,
-                    0
-                };
-                CHECK(
-                    ground::static_flow_passable(
-                        classifier, goal.cell[0], goal.cell[1], match().spatial()
-                    )
-                );
+                audit_destination(queue[index], parking[index], parking_cells[index]);
                 CHECK(!match().order_refused(
                     match().issue_ground_move(
                         queue[index],
@@ -233,10 +221,35 @@ struct Scene {
         }
     }
 
+    void audit_destination(uint16_t id, ground::RoutePoint point, std::array<int16_t, 2> expected) {
+        const auto& body = ground(id).geometry;
+        auto* primary = match().spawn_slot(id).unit->primary;
+        CHECK(primary != nullptr);
+        const auto goal =
+            ground::make_goal(*primary, body, {point[0] * pixel, 0, point[1] * pixel}, 4);
+        CHECK(goal.cell == expected);
+        const oa::sim::spatial_state::CellClassifier classifier{
+            body.footprint[0],
+            body.footprint[1],
+            static_cast<int16_t>(fixture.metadata.max_water_depth),
+            static_cast<int16_t>(fixture.metadata.min_water_depth),
+            fixture.metadata.max_slope,
+            fixture.metadata.bad_slope,
+            fixture.metadata.max_water_slope,
+            fixture.metadata.bad_water_slope,
+            0
+        };
+        CHECK(
+            ground::static_flow_passable(classifier, goal.cell[0], goal.cell[1], match().spatial())
+        );
+    }
+
     void release_gate() {
         CHECK(!match().order_refused(
             match().issue_ground_move(gate, {parking_x() * pixel, 0, 144 * pixel}, false)
         ));
+        if (double_turn)
+            audit_destination(gate, {288, 144}, {17, 8});
     }
 
     void run(uint32_t ticks = 1) {
@@ -285,13 +298,17 @@ bool same_goal(const ground::Goal& left, const ground::Goal& right) {
            left.right == right.right && left.top == right.top && left.bottom == right.bottom;
 }
 
-bool genuine_contact(Scene& scene) {
+bool genuine_contact(Scene& scene, bool distinct_goals = false) {
     auto& leader = scene.ground(scene.queue[0]);
     auto& follower = scene.ground(scene.queue[1]);
     const auto& a = leader.navigation;
     const auto& b = follower.navigation;
-    if (!a.goal || !b.goal || a.count < 3 || b.count < 3 || !same_goal(*a.goal, *b.goal) ||
-        a.points[1] != b.points[1] || a.points[2] != b.points[2])
+    if (!a.goal || !b.goal || a.count < 3 || b.count < 3 ||
+        same_goal(*a.goal, *b.goal) == distinct_goals || a.points[1] != b.points[1] ||
+        a.points[2] != b.points[2])
+        return false;
+    if (a.goal->order != scene.match().spawn_slot(scene.queue[0]).unit->primary ||
+        b.goal->order != scene.match().spawn_slot(scene.queue[1]).unit->primary)
         return false;
     const auto* flow = scene.match().local_flow_head(scene.queue[1]);
     if (!flow || !flow->mobile_blocked || flow->blocked_ticks >= movement::local_flow_retry_ticks ||
@@ -307,17 +324,54 @@ bool genuine_contact(Scene& scene) {
 }
 
 struct WaveResult {
-    bool contact{}, bypass{}, crossed{};
+    bool contact{}, bypass{}, crossed{}, arrived{};
     uint32_t contact_tick{}, crossing_tick{};
 };
 
-WaveResult native_wave(uint32_t version, bool wide = false) {
-    Scene scene(version, wide);
+void observe_advanced_prefix(Scene& scene, bool& observed) {
+    if (observed || scene.wide || scene.double_turn)
+        return;
+    const auto& leader = scene.ground(scene.queue[0]);
+    const auto& follower = scene.ground(scene.queue[1]);
+    const auto& a = leader.navigation;
+    const auto& b = follower.navigation;
+    if (a.count < 2 || b.count < 3 || a.points[0] != b.points[1] || a.points[1] != b.points[2])
+        return;
+    observed = true;
+    const auto* front = scene.match().local_flow_head(scene.queue[0]);
+    const auto* back = scene.match().local_flow_head(scene.queue[1]);
+    std::cout << "Observed native prefix candidate: version="
+              << scene.match().rules().setup.enhanced_mode.version
+              << ", tick=" << scene.match().simulation().tick << ", leader=" << scene.queue[0]
+              << ", follower=" << scene.queue[1] << ", leader raw=" << leader.geometry.position[0]
+              << ',' << leader.geometry.position[2]
+              << ", follower raw=" << follower.geometry.position[0] << ','
+              << follower.geometry.position[2] << ", headings=" << leader.geometry.heading << '/'
+              << follower.geometry.heading << ", leader P0=" << a.points[0][0] << ','
+              << a.points[0][1] << ", leader P1=" << a.points[1][0] << ',' << a.points[1][1]
+              << ", follower P1=" << b.points[1][0] << ',' << b.points[1][1]
+              << ", follower P2=" << b.points[2][0] << ',' << b.points[2][1]
+              << ", goal owns primary="
+              << (a.goal && a.goal->order == scene.match().spawn_slot(scene.queue[0]).unit->primary)
+              << '/'
+              << (b.goal && b.goal->order == scene.match().spawn_slot(scene.queue[1]).unit->primary)
+              << ", search stamps=" << a.last_search_tick << '/' << b.last_search_tick
+              << ", local head active=" << (front && front->active) << '/' << (back && back->active)
+              << ", head targets=" << (front ? front->points[1][0] : 0) << ','
+              << (front ? front->points[1][1] : 0) << '/' << (back ? back->points[1][0] : 0) << ','
+              << (back ? back->points[1][1] : 0) << '\n';
+}
+
+WaveResult native_wave(uint32_t version, bool wide = false, bool distinct_goals = false) {
+    Scene scene(version, wide, false, distinct_goals);
     scene.begin();
     WaveResult result;
-    for (uint32_t tick = 0; tick < 600 && !genuine_contact(scene); ++tick)
+    bool advanced_observed{};
+    for (uint32_t tick = 0; tick < 600 && !genuine_contact(scene, distinct_goals); ++tick) {
         scene.run();
-    CHECK(genuine_contact(scene));
+        observe_advanced_prefix(scene, advanced_observed);
+    }
+    CHECK(genuine_contact(scene, distinct_goals));
     result.contact = true;
     result.contact_tick = scene.match().simulation().tick;
     const auto& navigation = scene.ground(scene.queue[1]).navigation;
@@ -327,24 +381,45 @@ WaveResult native_wave(uint32_t version, bool wide = false) {
               << navigation.goal->cell[1] << ", P1=" << navigation.points[1][0] << ','
               << navigation.points[1][1] << ", P2=" << navigation.points[2][0] << ','
               << navigation.points[2][1] << '\n';
+    std::vector<ground::Goal> goals;
+    if (distinct_goals) {
+        for (const auto id : scene.queue)
+            goals.push_back(*scene.ground(id).navigation.goal);
+        CHECK(goals[0].cell == (std::array<int16_t, 2>{20, 4}));
+        CHECK(goals[1].cell == (std::array<int16_t, 2>{18, 4}));
+        CHECK(navigation.points[1] == (ground::RoutePoint{208, 144}));
+        CHECK(navigation.points[2] == (ground::RoutePoint{208, 80}));
+        std::cout << "Distinct native goals: leader=" << goals[0].cell[0] << ',' << goals[0].cell[1]
+                  << ", follower=" << goals[1].cell[0] << ',' << goals[1].cell[1] << '\n';
+    }
     for (uint32_t tick = 0; tick < 10; ++tick) {
         const auto* head = scene.match().local_flow_head(scene.queue[1]);
         CHECK(head != nullptr);
         if (head->blocked_ticks < movement::local_flow_retry_ticks)
             result.bypass |= head->active;
         scene.run();
+        observe_advanced_prefix(scene, advanced_observed);
     }
     scene.release_gate();
     std::vector<bool> crossed(scene.queue.size());
+    std::vector<bool> arrived(scene.queue.size());
     for (uint32_t tick = 0; tick < 900; ++tick) {
         scene.run();
+        observe_advanced_prefix(scene, advanced_observed);
         for (size_t index = 0; index < scene.queue.size(); ++index) {
             const auto& cell = scene.ground(scene.queue[index]).geometry.cell;
             crossed[index] = crossed[index] || (cell[0] >= (wide ? 34 : 10) && cell[1] < 6);
+            if (distinct_goals)
+                arrived[index] =
+                    arrived[index] || ground::goal_contains_unit(
+                                          goals[index], scene.ground(scene.queue[index]).geometry
+                                      );
         }
         result.crossed =
             std::all_of(crossed.begin(), crossed.end(), [](bool value) { return value; });
-        if (result.crossed) {
+        result.arrived =
+            std::all_of(arrived.begin(), arrived.end(), [](bool value) { return value; });
+        if (result.crossed && (!distinct_goals || result.arrived)) {
             result.crossing_tick = scene.match().simulation().tick;
             break;
         }
@@ -383,9 +458,13 @@ WaveResult native_wave(uint32_t version, bool wide = false) {
     if (version == battle_version) {
         CHECK(!result.bypass);
         CHECK(result.crossed);
+        if (distinct_goals)
+            CHECK(result.arrived);
     }
     std::cout << "Native queue release: version=" << version << ", bypass=" << result.bypass
-              << ", crossed=" << result.crossed << ", tick=" << result.crossing_tick << '\n';
+              << ", crossed=" << result.crossed
+              << ", arrived=" << (distinct_goals ? (result.arrived ? "1" : "0") : "NOT_CHECKED")
+              << ", tick=" << result.crossing_tick << '\n';
     return result;
 }
 
@@ -399,6 +478,13 @@ void a_real_native_wave_waits_then_crosses_the_mouth() {
 void eight_real_units_cross_after_the_ordinary_gate_leaves() {
     const auto result = native_wave(battle_version, true);
     CHECK(result.contact && !result.bypass && result.crossed);
+}
+
+void distinct_native_goals_share_the_two_corner_queue() {
+    const auto legacy = native_wave(legacy_version, false, true);
+    const auto enhanced = native_wave(battle_version, false, true);
+    CHECK(legacy.contact && legacy.bypass);
+    CHECK(enhanced.contact && !enhanced.bypass && enhanced.crossed && enhanced.arrived);
 }
 
 void a_permanent_native_gate_releases_mature_recovery() {
@@ -536,8 +622,7 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
         ));
         break;
     case Pipeline::incompatible_blocker:
-        CHECK(scene.ground(scene.gate).navigation.goal != nullptr);
-        ++scene.ground(scene.gate).navigation.goal->cell[0];
+        scene.ground(scene.gate).navigation.points[2] = {224, 48};
         break;
     case Pipeline::dying_leader:
         match.spawn_slot(leader).record.flags |= OA_UNIT_FLAG_DEATH_PENDING;
@@ -601,10 +686,11 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
 void actual_pipeline_rejects_incompatible_or_unowned_routes() {
     const auto matched = pipeline(battle_version, Pipeline::matched);
     CHECK(matched.mobile && !matched.active);
+    const auto different_goal = pipeline(battle_version, Pipeline::different_goal);
+    CHECK(different_goal.mobile && !different_goal.active);
     CHECK(pipeline(legacy_version, Pipeline::matched).active);
     for (const auto control :
-         {Pipeline::different_goal,
-          Pipeline::opposing_leg,
+         {Pipeline::opposing_leg,
           Pipeline::different_next_leg,
           Pipeline::idle_leader,
           Pipeline::cancelled_leader,
@@ -682,6 +768,8 @@ int main(int argc, char** argv) {
     };
     run("native two-unit queue", a_real_native_wave_waits_then_crosses_the_mouth);
     run("native eight-unit queue", eight_real_units_cross_after_the_ordinary_gate_leaves);
+    run("distinct native goals on shared corners",
+        distinct_native_goals_share_the_two_corner_queue);
     run("permanent native gate", a_permanent_native_gate_releases_mature_recovery);
     run("actual pipeline coherence", actual_pipeline_rejects_incompatible_or_unowned_routes);
     run("dying or nonpositive queue actors", dying_or_nonpositive_units_do_not_hold_the_queue);
