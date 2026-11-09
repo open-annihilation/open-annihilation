@@ -1838,8 +1838,25 @@ class Emitter {
         std::span<const card::Index> indices,
         std::optional<card::Sampling> sampling = std::nullopt
     );
+    /// Records appended indices, joining the preceding batch when its draw state agrees.
+    void append_batch(
+        const Canvas& surface,
+        card::PageHandle page,
+        card::Blend blend,
+        card::Index first,
+        uint32_t count,
+        std::optional<card::Sampling> sampling = std::nullopt
+    );
     void emit_polygons(const Canvas& surface);
     void emit_polygon(const Canvas& surface, const Polygon& polygon);
+    /// Appends a dry face directly once the frame can no longer use texture strips.
+    /// @return true when the face was emitted without intermediate geometry
+    [[nodiscard]] bool append_dry_polygon(
+        const Canvas& surface,
+        const Polygon& polygon,
+        const PlacedFrame& placed,
+        std::span<const Corner> corners
+    );
     /// Splits the finished face geometry at sea level before shading its wet part.
     void append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page);
     void emit_cut_polygon(const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed);
@@ -2668,14 +2685,25 @@ void Emitter::append(
     std::span<const card::Index> indices,
     std::optional<card::Sampling> asked_sampling
 ) {
-    const card::Sampling sampling =
-        asked_sampling.value_or(whole_scale_ ? card::Sampling::nearest : card::Sampling::linear);
     const auto base = static_cast<card::Index>(frame_.vertices.size());
     const auto first = static_cast<card::Index>(frame_.indices.size());
     frame_.vertices.insert(frame_.vertices.end(), vertices.begin(), vertices.end());
     for (const card::Index index : indices)
         frame_.indices.push_back(base + index);
     const auto count = static_cast<uint32_t>(indices.size());
+    append_batch(surface, page, blend, first, count, asked_sampling);
+}
+
+void Emitter::append_batch(
+    const Canvas& surface,
+    card::PageHandle page,
+    card::Blend blend,
+    card::Index first,
+    uint32_t count,
+    std::optional<card::Sampling> asked_sampling
+) {
+    const card::Sampling sampling =
+        asked_sampling.value_or(whole_scale_ ? card::Sampling::nearest : card::Sampling::linear);
     if (!frame_.batches.empty()) {
         card::Batch& last = frame_.batches.back();
         if (last.operation == card::Operation::draw && last.target == surface.target &&
@@ -3151,6 +3179,53 @@ void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::P
     }
 }
 
+bool Emitter::append_dry_polygon(
+    const Canvas& surface,
+    const Polygon& polygon,
+    const PlacedFrame& placed,
+    std::span<const Corner> corners
+) {
+    if (polygon.cut || polygon.hole_count != 0 || polygon.underwater || polygon.water_geometry ||
+        in_.water_shimmer > 0 || in_.vertex_heights != nullptr ||
+        (frame_.vertices.size() < most_strip_frame_vertices &&
+         frame_.indices.size() < most_strip_frame_indices))
+        return false;
+    const gw::MeshPrimitive* run = nullptr;
+    if (polygon.mesh != nullptr && polygon.primitive < polygon.mesh->primitives.size()) {
+        run = &polygon.mesh->primitives[polygon.primitive];
+        const auto end = uint64_t{run->first_index} + run->index_count;
+        // Unusual or incomplete runs retain the ordinary index filtering and
+        // triangle truncation before any frame geometry is changed.
+        if (run->index_count < 3 || run->index_count % 3 != 0 || end > polygon.mesh->indices.size())
+            return false;
+        for (uint64_t at = run->first_index; at < end; ++at)
+            if (polygon.mesh->indices[at] - run->first_vertex >= polygon.corner_count)
+                return false;
+    }
+    const auto base = static_cast<card::Index>(frame_.vertices.size());
+    const auto first_index = frame_.indices.size();
+    const auto first = static_cast<card::Index>(first_index);
+    for (const Corner& corner : corners)
+        frame_.vertices.push_back(body_vertex(
+            surface, polygon, placed, corner.x, corner.y, corner.u, corner.v, corner.colour
+        ));
+    if (run != nullptr) {
+        const auto end = uint64_t{run->first_index} + run->index_count;
+        for (uint64_t at = run->first_index; at < end; ++at)
+            frame_.indices.push_back(base + polygon.mesh->indices[at] - run->first_vertex);
+    } else {
+        for (uint32_t k = 1; k + 1 < polygon.corner_count; ++k) {
+            frame_.indices.push_back(base);
+            frame_.indices.push_back(base + k);
+            frame_.indices.push_back(base + k + 1);
+        }
+    }
+    const auto count = static_cast<uint32_t>(frame_.indices.size() - first_index);
+    append_batch(surface, placed.page, card::Blend::alpha, first, count);
+    ++counts_.polygons;
+    return true;
+}
+
 void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
     if (polygon.corner_count < 3)
         return;
@@ -3175,6 +3250,8 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
         emit_cut_polygon(surface, polygon, placed);
         return;
     }
+    if (append_dry_polygon(surface, polygon, placed, corners))
+        return;
     vertices_.clear();
     for (const Corner& corner : corners)
         vertices_.push_back(body_vertex(
