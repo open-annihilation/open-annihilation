@@ -435,13 +435,14 @@ includes mandatory readback. They do not establish gameplay frame rate;
 Full preparation still exceeds the target budget. Ray tracing remains
 future work while congestion and existing-view costs are addressed.
 
-## Live 20,000-unit baseline
+## Live 20,000-unit rendering checkpoint
 
-Source `7e95c8d92` measures the normal game window on the M5 in a Check build
-(`-O2`, assertions enabled). Core Prime Industrial Area, seed 7, starts with
-exactly 10,000 units per side. Matching ARM and CORE commanders and troops
-occupy their own banks, with ordinary patrol orders, stock weapons and health,
-and a normal ARM computer player. The clock runs normally throughout.
+Sources `7e95c8d92` and `391f4e5da` measure the normal game window on the M5
+in Check builds (`-O2`, assertions enabled). Core Prime Industrial Area,
+seed 7, starts with exactly 10,000 units per side. Matching ARM and CORE
+commanders and troops occupy their own banks, with ordinary patrol orders,
+stock weapons and health, and a normal ARM computer player. The clock runs
+normally throughout.
 
 Both views use Full rendering, anti-aliasing setting 4 and a physical
 1920×1018 output. The camera centres on `(5120, 5120)` at zoom 0.25;
@@ -449,21 +450,28 @@ classic yaw/pitch are 0/0 and turned yaw/pitch are 20/-53. Each run requests
 900 warmup and 900 measured simulation ticks. Measurement ends at a frame
 boundary, yielding the tick spans below. Every measured loop presents a frame.
 
-| View | Presented FPS | 1% low FPS | Simulation ticks/s | Frames | Measured ticks |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Classic 2.5D | 2.910 | 1.98 | 12.853 | 204 | 901 |
-| Turned 3D | 5.464 | 2.58 | 25.434 | 194 | 903 |
+| Source | View | Presented FPS | 1% low FPS | Simulation ticks/s | Frames | Measured ticks |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `7e95c8d92` baseline | Classic 2.5D | 2.910 | 1.98 | 12.853 | 204 | 901 |
+| `391f4e5da` | Classic 2.5D | 5.510 | 4.36 | 24.632 | 202 | 903 |
+| `7e95c8d92` baseline | Turned 3D | 5.464 | 2.58 | 25.434 | 194 | 903 |
+| `391f4e5da` | Turned 3D | 9.878 | 7.56 | 30.000 | 297 | 902 |
 
 Both sides show movement in every reported interval and record firing,
-damage and deaths during each measured window. Classic records 21,814 shots
-and 302 deaths; turned records 21,838 shots and 303 deaths. Neither has births.
-The requested game speed is 10; classic finishes at 5 and turned at 10.
-Neither view meets the combined 60 FPS and 30 Hz target.
+damage and death events during each measured window. The `391f4e5da` runs
+record 21,813 classic and 21,827 turned shots, with 302 death events each
+and no births. The requested game speed is 10; classic finishes at 9 and
+turned at 10. Rendering remains well below 60 FPS and the battle is not
+fully smooth, despite the turned run sustaining approximately 30 ticks/s.
 
-Other game checks ran in the background, reaching sampled per-process CPU
-peaks of 46.4% during classic and 48.5% during turned. These are observed
-desktop results, not isolated measurements. The paused readback profiles
-above measure preparation and capture work, not gameplay FPS.
+Observed mean classic Full staging/upload changes from 238.50 to 93.03 ms
+and first execution from 14.11 to 5.56 ms. Turned draw-list planning changes
+from 52.39 to 22.43 ms and Scene construction from 48.86 to 28.75 ms.
+Other game checks reached sampled per-process CPU peaks of 46.4% and 48.5%
+during the baseline classic and turned runs. None was sampled during the
+`391f4e5da` runs; finite sampling does not prove an idle host. These are
+observed desktop results, not an isolated causal speedup estimate. The paused
+readback profiles above measure preparation and capture work, not gameplay FPS.
 
 ## Remaining work
 
