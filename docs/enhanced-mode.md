@@ -128,6 +128,8 @@ The desktop minimap draws visible contacts at the scaled HUD's layout
 resolution instead of enlarging contacts already merged in the original
 126-pixel radar. Compact owner-colored cores retain nearby contacts, with
 contrast edges and stable hints for opposing owners sharing a pixel.
+The original logos' opaque grey borders can erase a nearby owner's color;
+the displayed layer paints every contour before any contact core.
 Fog and radar visibility and the original input coordinates remain in use.
 Low-resolution, phone and modal displays retain the ordinary radar path.
 This presentation change is independent of Enhanced Mode. It does not
