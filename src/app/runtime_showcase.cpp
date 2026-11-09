@@ -132,10 +132,21 @@ void Runtime::run_battle_showcase() {
                 auto* device = turned_view_device();
                 const char* driver = device ? SDL_GetGPUDeviceDriver(device) : nullptr;
                 const char* renderer = SDL_GetRendererName(sdl_.renderer);
+                int window_x{}, window_y{}, pixels_width{}, pixels_height{};
+                const bool position_known =
+                    SDL_GetWindowPosition(sdl_.window, &window_x, &window_y);
+                const bool pixels_known =
+                    SDL_GetWindowSizeInPixels(sdl_.window, &pixels_width, &pixels_height);
                 report(
                     "STAGED_PRESENT full " + std::to_string(full_presentation()) + " turned " +
                     std::to_string(live_renderer_active()) + " gpu " + (driver ? driver : "none") +
-                    " renderer " + (renderer ? renderer : "unknown")
+                    " renderer " + (renderer ? renderer : "unknown") + " window_position " +
+                    std::to_string(window_x) + "," + std::to_string(window_y) + " pixels " +
+                    std::to_string(pixels_width) + "x" + std::to_string(pixels_height) +
+                    " display " + std::to_string(SDL_GetDisplayForWindow(sdl_.window)) +
+                    " display_scale " + std::to_string(SDL_GetWindowDisplayScale(sdl_.window)) +
+                    " position_known " + std::to_string(position_known) + " pixels_known " +
+                    std::to_string(pixels_known)
                 );
                 reported_presentation = true;
             }
