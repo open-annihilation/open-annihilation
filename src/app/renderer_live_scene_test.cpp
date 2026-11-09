@@ -4796,6 +4796,76 @@ void unit_detail_on_threads() {
             );
         }
     }
+    // Every worker has now seen this source, view and texture state. A
+    // malformed face must fail again, rather than borrowing a cached face
+    // result, and a repaired source must draw the exact prior frame.
+    const auto before_failure = card_frame(scenes[0]);
+    const auto before_details = scenes[0].unit_detail;
+    const auto before_picks = scenes[0].cards.units;
+    const auto before_atlas = scenes[0].texture_rgba;
+    auto& broken_index = source->objects[0].primitives[0].vertex_indices[1];
+    const auto original_index = broken_index;
+    broken_index = std::numeric_limits<uint16_t>::max();
+    std::array<std::string, 3> errors;
+    for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
+        in.pool = scene == 0 ? nullptr : scene == 1 ? &two : &four;
+        OA_CHECK(!live::build(in, scenes[scene], errors[scene]));
+    }
+    OA_CHECK(!errors[0].empty() && errors[1] == errors[0] && errors[2] == errors[0]);
+    broken_index = original_index;
+    const auto same_details = [](const auto& actual, const auto& expected) {
+        return std::equal(
+            actual.begin(),
+            actual.end(),
+            expected.begin(),
+            expected.end(),
+            [](const live::UnitDetail& a, const live::UnitDetail& b) {
+                return a.surface == b.surface && a.shadow == b.shadow &&
+                       std::bit_cast<uint32_t>(a.pixels) == std::bit_cast<uint32_t>(b.pixels) &&
+                       std::bit_cast<uint32_t>(a.brightness) ==
+                           std::bit_cast<uint32_t>(b.brightness) &&
+                       std::bit_cast<std::array<uint32_t, 3>>(a.center) ==
+                           std::bit_cast<std::array<uint32_t, 3>>(b.center) &&
+                       a.eligible == b.eligible && a.marker == b.marker;
+            }
+        );
+    };
+    const auto same_picks = [](const auto& actual, const auto& expected) {
+        return std::equal(
+            actual.begin(),
+            actual.end(),
+            expected.begin(),
+            expected.end(),
+            [](const live::CardUnit& a, const live::CardUnit& b) {
+                return a.unit_id == b.unit_id && a.vertex == b.vertex && a.instance == b.instance &&
+                       a.type == b.type && a.first_index == b.first_index &&
+                       a.index_count == b.index_count && a.left == b.left && a.top == b.top &&
+                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded;
+            }
+        );
+    };
+    for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
+        in.pool = scene == 0 ? nullptr : scene == 1 ? &two : &four;
+        OA_CHECK(live::build(in, scenes[scene], errors[scene]));
+        OA_CHECK(errors[scene].empty());
+        OA_CHECK(same_details(scenes[scene].unit_detail, before_details));
+        OA_CHECK(same_picks(scenes[scene].cards.units, before_picks));
+        OA_CHECK(scenes[scene].texture_rgba == before_atlas);
+        const auto recovered = card_frame(scenes[scene]);
+        OA_CHECK(recovered.units == before_failure.units);
+        OA_CHECK(recovered.vertices.size() == before_failure.vertices.size());
+        if (!recovered.vertices.empty() &&
+            recovered.vertices.size() == before_failure.vertices.size())
+            OA_CHECK(
+                std::memcmp(
+                    recovered.vertices.data(),
+                    before_failure.vertices.data(),
+                    recovered.vertices.size() * sizeof(recovered.vertices[0])
+                ) == 0
+            );
+        if (scene != 0)
+            OA_CHECK(same_frame(scenes[scene], scenes[0]));
+    }
 }
 
 /// Twenty thousand visible, otherwise over-budget models retain a
