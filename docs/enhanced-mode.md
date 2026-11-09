@@ -101,6 +101,14 @@ The limit counts task dispatches across that Match. Its save-only 424-byte
 state retains target bindings, retry deadlines and native strike clocks,
 and stays outside shared simulation hashes.
 
+Version 6 also keeps a fixed index of squad membership positions. Transfers
+preserve the existing swap-and-pop member order while avoiding repeated
+linear searches in fresh matches. If restored or changed membership makes
+the index uncertain, that Match permanently uses the existing searches.
+The index is derived state and adds no saved fields. Recruitment decisions
+and immediate order dispatch keep their existing timing; this does not cap
+the work of a whole AI task.
+
 The current conservative queue predicate keeps a unit behind a live,
 same-owner leader with the same footprint and directed next two route
 points. Their final destinations may differ. The leader must own its active
@@ -559,6 +567,15 @@ Full preparation still exceeds the target budget. Ray tracing remains
 future work while congestion and existing-view costs are addressed.
 
 ## Live 20,000-unit rendering checkpoint
+
+The ordinary turned renderer now retains one exact terrain tile survey,
+bounded to four MiB including its owned source buffers. Heights, tile
+indices, black fog, crop, projection depth and floating-point controls are
+checked before reuse. Atlas planning and terrain validation still run.
+Scene tests compare the cached result with an uncached renderer across
+source mutations and camera changes. This cache is independent of Enhanced
+Mode. The foreground measurements below precede it and do not measure its
+performance benefit.
 
 The native game window is measured on the M5 in Check builds (`-O2`,
 assertions enabled). Core Prime Industrial Area, seed 7, starts with exactly
