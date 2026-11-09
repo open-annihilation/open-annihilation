@@ -435,6 +435,36 @@ includes mandatory readback. They do not establish gameplay frame rate;
 Full preparation still exceeds the target budget. Ray tracing remains
 future work while congestion and existing-view costs are addressed.
 
+## Live 20,000-unit baseline
+
+Source `7e95c8d92` measures the normal game window on the M5 in a Check build
+(`-O2`, assertions enabled). Core Prime Industrial Area, seed 7, starts with
+exactly 10,000 units per side. Matching ARM and CORE commanders and troops
+occupy their own banks, with ordinary patrol orders, stock weapons and health,
+and a normal ARM computer player. The clock runs normally throughout.
+
+Both views use Full rendering, anti-aliasing setting 4 and a physical
+1920×1018 output. The camera centres on `(5120, 5120)` at zoom 0.25;
+classic yaw/pitch are 0/0 and turned yaw/pitch are 20/-53. Each run requests
+900 warmup and 900 measured simulation ticks. Measurement ends at a frame
+boundary, yielding the tick spans below. Every measured loop presents a frame.
+
+| View | Presented FPS | 1% low FPS | Simulation ticks/s | Frames | Measured ticks |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Classic 2.5D | 2.910 | 1.98 | 12.853 | 204 | 901 |
+| Turned 3D | 5.464 | 2.58 | 25.434 | 194 | 903 |
+
+Both sides show movement in every reported interval and record firing,
+damage and deaths during each measured window. Classic records 21,814 shots
+and 302 deaths; turned records 21,838 shots and 303 deaths. Neither has births.
+The requested game speed is 10; classic finishes at 5 and turned at 10.
+Neither view meets the combined 60 FPS and 30 Hz target.
+
+Other game checks ran in the background, reaching sampled per-process CPU
+peaks of 46.4% during classic and 48.5% during turned. These are observed
+desktop results, not isolated measurements. The paused readback profiles
+above measure preparation and capture work, not gameplay FPS.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
