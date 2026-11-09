@@ -455,16 +455,20 @@ void Runtime::play_bench() {
         check_paused();
         check_population();
     }
+    const auto has_input_focus = [&] {
+        return (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_INPUT_FOCUS) != 0 &&
+               SDL_GetKeyboardFocus() == sdl_.window;
+    };
     if (view.require_gameplay) {
         // Raising the normal SDL window may need another application frame
         // before its real focus event arrives. Keep this grace outside the
         // measured span; measured frames still fail immediately when away.
         const double readiness_start = now();
         const uint32_t readiness_tick = match_timing_.tick;
-        const bool was_away = window_away();
+        const bool was_away = window_away() || !has_input_focus();
         const bool raised = was_away && SDL_RaiseWindow(sdl_.window);
         uint32_t readiness_frames{};
-        while (window_away() && now() - readiness_start < 1.0) {
+        while ((window_away() || !has_input_focus()) && now() - readiness_start < 1.0) {
             aim(view.yaw);
             frame();
             ++readiness_frames;
@@ -473,16 +477,19 @@ void Runtime::play_bench() {
         }
         std::printf(
             "bench: READINESS away_before %u raised %u away_after %u frames %u "
-            "extra_ticks %u seconds %.6f tick %u application_active %u window_flags %llu\n",
+            "extra_ticks %u seconds %.6f tick %u application_active %u window_flags %llu "
+            "input_focus %u keyboard_focus %u\n",
             unsigned(was_away),
             unsigned(raised),
-            unsigned(window_away()),
+            unsigned(window_away() || !has_input_focus()),
             readiness_frames,
             match_timing_.tick - readiness_tick,
             now() - readiness_start,
             match_timing_.tick,
             unsigned(application_active_),
-            static_cast<unsigned long long>(SDL_GetWindowFlags(sdl_.window))
+            static_cast<unsigned long long>(SDL_GetWindowFlags(sdl_.window)),
+            unsigned((SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_INPUT_FOCUS) != 0),
+            unsigned(SDL_GetKeyboardFocus() == sdl_.window)
         );
         std::fflush(stdout);
     }
@@ -495,7 +502,8 @@ void Runtime::play_bench() {
         if (!view.require_gameplay)
             return;
         if (!render_run_ || render_run_->device_lost || render_run_->present_false_logged ||
-            window_away() || options_.fixed_clock || capture_frame_ || video_capture_ ||
+            window_away() || !has_input_focus() || options_.fixed_clock || capture_frame_ ||
+            video_capture_ ||
             (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0 ||
             match_timing_.requested_rate != oa::base::game_loop::normal_game_speed) {
             const auto flags = SDL_GetWindowFlags(sdl_.window);
