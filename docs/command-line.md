@@ -366,6 +366,8 @@ input, or `--list-content`.
 |---|---|
 | `--capture-video PATH.mp4` | Records what the window shows to an MP4 video; it needs the `ffmpeg` program ([capturing video](capture.md)). |
 | `--showcase arm-first-mission\|skirmish-battle\|base-construction` | Plays a scripted run for a showcase video, in place of a player ([capturing video](capture.md)). |
+| `--showcase-seconds SECONDS` | Sets an explicitly staged skirmish battle's duration from 1 through 600 wall-clock seconds; the default is 60. Requires `--showcase skirmish-battle --stage FILE` in the normal game window ([camera tours](capture.md#camera-tours)). |
+| `--showcase-tour FILE` | Samples a camera tour on elapsed presentation time during an explicitly staged skirmish battle, without advancing the simulation. Requires `--showcase skirmish-battle --stage FILE` in the normal game window ([camera tours](capture.md#camera-tours)). |
 | `--generate-script RECORDING` | Plans a director script's camera shots from a recorded game ([director scripts](director.md)). |
 | `--render-script PATH.oascript\|PATH.oamovie` | Renders a director script, or a bundle of one and its recording, to video with its sound ([director scripts](director.md)). With `--hardware-acceleration=full` its frames are drawn by the graphics card's Full tier, with no window ([drawing on the graphics card](director.md#drawing-on-the-graphics-card)). |
 | `--output PATH` | Where `--generate-script` writes its script or bundle, or the folder `--render-script` renders into. |
