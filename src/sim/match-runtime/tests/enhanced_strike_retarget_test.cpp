@@ -47,9 +47,9 @@ constexpr uint32_t strike_squad = static_cast<uint32_t>(ai::Squad::land_strike);
 constexpr uint32_t naval_squad = static_cast<uint32_t>(ai::Squad::naval_strike);
 constexpr int32_t merge_radius = 20000;
 constexpr uint32_t state_magic = 0x47545241u;
-constexpr uint32_t state_schema = 1;
+constexpr uint32_t state_schema = 2;
 constexpr std::size_t state_header_bytes = 24;
-constexpr std::size_t target_record_bytes = 12;
+constexpr std::size_t target_record_bytes = 20;
 constexpr std::size_t tracked_strikes = OA_PLAYER_COUNT * 2;
 constexpr std::size_t state_byte_count = state_header_bytes + tracked_strikes * target_record_bytes;
 constexpr std::size_t magic_offset = 0;
@@ -64,6 +64,10 @@ constexpr std::size_t target_owner_offset = 2;
 constexpr std::size_t target_binding_offset = 3;
 constexpr std::size_t target_issue_offset = 4;
 constexpr std::size_t target_retry_offset = 8;
+constexpr std::size_t native_next_tick_offset = 12;
+constexpr std::size_t native_clock_valid_offset = 16;
+constexpr std::size_t native_attacking_offset = 17;
+constexpr std::size_t target_reserved_offset = 18;
 constexpr uint8_t empty_binding = 0;
 constexpr uint8_t bound_binding = 1;
 constexpr uint8_t lost_binding = 2;
@@ -373,6 +377,12 @@ void malformed_rule_state_is_rejected_transactionally() {
     CHECK(read_integer(original, schema_offset) == state_schema);
     CHECK(read_integer(original, land_target_record, 2) == battle.target);
     CHECK(original[land_target_record + target_binding_offset] == bound_binding);
+    CHECK(
+        read_integer(original, land_target_record + native_next_tick_offset) ==
+        battle.strike().next_tick
+    );
+    CHECK(original[land_target_record + native_clock_valid_offset] == 1);
+    CHECK(original[land_target_record + native_attacking_offset] == 1);
     const auto& table = retarget_table(battle.fixture);
     const auto reject = [&](const std::vector<uint8_t>& malformed) {
         CHECK(!table.restore(table.context, malformed));
@@ -393,6 +403,7 @@ void malformed_rule_state_is_rejected_transactionally() {
     };
     reject_integer(magic_offset, state_magic + 1);
     reject_integer(schema_offset, state_schema + 1);
+    reject_integer(schema_offset, state_schema - 1);
     reject_integer(unit_count_offset, read_integer(original, unit_count_offset) + 1);
     reject_integer(builtin_players_offset, 1u << OA_PLAYER_COUNT, 2);
     reject_integer(cursor_offset, tracked_strikes, 1);
@@ -402,11 +413,18 @@ void malformed_rule_state_is_rejected_transactionally() {
     reject_integer(land_target_record + target_owner_offset, OA_PLAYER_COUNT, 1);
     reject_integer(land_target_record + target_binding_offset, lost_binding + 1, 1);
     reject_integer(land_target_record + target_binding_offset, empty_binding, 1);
+    reject_integer(land_target_record + native_clock_valid_offset, 2, 1);
+    reject_integer(land_target_record + native_attacking_offset, 2, 1);
+    reject_integer(land_target_record + target_reserved_offset, 1, 1);
+    reject_integer(land_target_record + target_reserved_offset + 1, 1, 1);
+    reject_integer(land_target_record + native_clock_valid_offset, 0, 1);
     // Player zero's unused land record must remain completely empty.
     reject_integer(state_header_bytes, battle.target, 2);
     reject_integer(state_header_bytes + target_owner_offset, computer_player, 1);
     reject_integer(state_header_bytes + target_issue_offset, 1);
     reject_integer(state_header_bytes + target_retry_offset, 1);
+    reject_integer(state_header_bytes + native_next_tick_offset, 1);
+    reject_integer(state_header_bytes + native_attacking_offset, 1, 1);
     auto unprepared = original;
     unprepared[prepared_valid_offset] = 0;
     write_integer(unprepared, prepared_tick_offset, 1);
@@ -440,9 +458,14 @@ void owner_local_retarget_state_does_not_change_the_shared_digest() {
 void compare_continuation_state(StrikeFixture& first, StrikeFixture& restored) {
     CHECK(first.fixture.match->simulation().tick == restored.fixture.match->simulation().tick);
     CHECK(first.strike().next_tick == restored.strike().next_tick);
+    CHECK(first.strike().attacking == restored.strike().attacking);
     CHECK(
         first.controller->tasks[naval_squad].next_tick ==
         restored.controller->tasks[naval_squad].next_tick
+    );
+    CHECK(
+        first.controller->tasks[naval_squad].attacking ==
+        restored.controller->tasks[naval_squad].attacking
     );
     const auto compare_members = [&](std::span<const uint16_t> left_members,
                                      std::span<const uint16_t> right_members) {
@@ -536,6 +559,148 @@ void rule_state_continues_during_retarget_cooldown() {
         first.fixture.match->simulation().tick
     );
     restore_and_compare_continuation(first, restored);
+}
+
+/// Recreates the built-in AI heap while leaving native task clocks uninitialized.
+void recreate_ai_without_task_clocks(StrikeFixture& battle) {
+    battle.fixture.match->computer_player_state().reset();
+    ai::prepare_match_computer_players(*battle.fixture.match);
+    auto* players = ai::match_computer_players(*battle.fixture.match);
+    CHECK(players != nullptr);
+    battle.controller = &players->players[computer_player];
+    CHECK(battle.controller->present != 0);
+    battle.controller->sort_countdown = static_cast<int32_t>(strike_refresh_ticks * 10);
+    for (auto& task : battle.controller->tasks)
+        task.kind = ai::TaskKind::none;
+    auto& task = battle.strike();
+    task.kind = ai::TaskKind::strike;
+    task.squad = ai::Squad::land_strike;
+    task.min_size = static_cast<int32_t>(strike_members - 1);
+    task.launch_size = static_cast<int32_t>(strike_members);
+    task.merge_radius = merge_radius;
+    task.source_squad = ai::Squad::land_army;
+    task.next_tick = 0;
+    task.attacking = 0;
+}
+
+/// Distinguishes the lifetime and cooldown states restored into a new AI heap.
+enum class FreshAiSavePoint { target_loss, slot_reuse, retry_cooldown };
+
+/// Restores native strike clocks before a freshly initialized AI takes its first turn.
+void fresh_ai_heap_continues_saved_strike_clocks() {
+    constexpr std::array save_points = {
+        FreshAiSavePoint::target_loss,
+        FreshAiSavePoint::slot_reuse,
+        FreshAiSavePoint::retry_cooldown
+    };
+    for (const auto save_point : save_points) {
+        StrikeFixture first(retarget_version);
+        StrikeFixture restored(retarget_version);
+        first.run_until(target_loss_tick);
+        restored.run_until(target_loss_tick);
+        first.kill_target(first.target);
+        restored.kill_target(restored.target);
+        if (save_point == FreshAiSavePoint::slot_reuse) {
+            first.reuse_target_slot();
+            restored.reuse_target_slot();
+        } else if (save_point == FreshAiSavePoint::retry_cooldown) {
+            const auto first_issued = first.wait_for_retarget(
+                first.replacement, target_loss_tick + retarget_interval_ticks
+            );
+            const auto restored_issued = restored.wait_for_retarget(
+                restored.replacement, target_loss_tick + retarget_interval_ticks
+            );
+            CHECK(first_issued == restored_issued);
+            first.kill_target(first.replacement);
+            restored.kill_target(restored.replacement);
+        }
+        compare_continuation_state(first, restored);
+        const auto saved = retarget_bytes(first.fixture);
+        CHECK(saved[land_target_record + target_binding_offset] == lost_binding);
+        CHECK(saved[land_target_record + native_clock_valid_offset] == 1);
+        CHECK(saved[land_target_record + native_attacking_offset] == 1);
+        CHECK(
+            read_integer(saved, land_target_record + native_next_tick_offset) ==
+            first.strike().next_tick
+        );
+        if (save_point == FreshAiSavePoint::retry_cooldown)
+            CHECK(read_integer(saved, next_early_offset) > first.fixture.match->simulation().tick);
+
+        Fixture fresh(options_for(retarget_version));
+        restore_retarget(restored.fixture, retarget_bytes(fresh));
+        recreate_ai_without_task_clocks(restored);
+        CHECK(restored.strike().next_tick == 0 && restored.strike().attacking == 0);
+        restore_retarget(restored.fixture, saved);
+        CHECK(retarget_bytes(restored.fixture) == saved);
+        // The restore applies its clocks at the next built-in controller call,
+        // after the application has initialized the new AI heap.
+        for (uint32_t elapsed = 0; elapsed < retry_observation_ticks; ++elapsed) {
+            first.fixture.run(1);
+            restored.fixture.run(1);
+            compare_continuation_state(first, restored);
+        }
+    }
+}
+
+/// Applies saved task clocks before the saved tick's load-pass controller turn.
+void load_pass_keeps_an_unexpired_retarget_cooldown() {
+    StrikeFixture first(retarget_version);
+    StrikeFixture restored(retarget_version);
+    first.run_until(target_loss_tick);
+    restored.run_until(target_loss_tick);
+    first.kill_target(first.target);
+    restored.kill_target(restored.target);
+    const auto first_issued =
+        first.wait_for_retarget(first.replacement, target_loss_tick + retarget_interval_ticks);
+    const auto restored_issued = restored.wait_for_retarget(
+        restored.replacement, target_loss_tick + retarget_interval_ticks
+    );
+    CHECK(first_issued == restored_issued);
+    first.kill_target(first.replacement);
+    restored.kill_target(restored.replacement);
+    // A third enemy is available, but the second loss must observe the
+    // cooldown rather than issue another attack at the saved tick.
+    first.reuse_target_slot();
+    restored.reuse_target_slot();
+    constexpr uint32_t cooldown_elapsed_ticks = 7;
+    const uint32_t saved_tick = first.fixture.match->simulation().tick + cooldown_elapsed_ticks;
+    first.run_until(saved_tick);
+    restored.run_until(saved_tick);
+    compare_continuation_state(first, restored);
+    const auto saved = retarget_bytes(first.fixture);
+    const uint32_t next_early_tick = read_integer(saved, next_early_offset);
+    CHECK(next_early_tick > saved_tick);
+    CHECK(saved[land_target_record + target_binding_offset] == lost_binding);
+    CHECK(!first.all_retargeted(first.target));
+    const uint32_t native_deadline = first.strike().next_tick;
+    CHECK(native_deadline != saved_tick + strike_refresh_ticks);
+
+    Fixture fresh(options_for(retarget_version));
+    restore_retarget(restored.fixture, retarget_bytes(fresh));
+    recreate_ai_without_task_clocks(restored);
+    CHECK(restored.strike().next_tick == 0 && restored.strike().attacking == 0);
+    restore_retarget(restored.fixture, saved);
+    restored.fixture.match->finish_load();
+    restored.fixture.match->run_load_pass();
+    CHECK(restored.fixture.match->fault() == nullptr);
+    CHECK(restored.fixture.match->simulation().tick == saved_tick);
+    CHECK(restored.strike().next_tick == native_deadline);
+    CHECK(restored.strike().attacking == first.strike().attacking);
+    CHECK(!restored.all_retargeted(restored.target));
+    const auto after_load = retarget_bytes(restored.fixture);
+    CHECK(read_integer(after_load, next_early_offset) == next_early_tick);
+    CHECK(after_load[cursor_offset] == saved[cursor_offset]);
+    compare_continuation_state(first, restored);
+
+    while (first.fixture.match->simulation().tick <= next_early_tick) {
+        first.fixture.run(1);
+        restored.fixture.run(1);
+        compare_continuation_state(first, restored);
+    }
+    CHECK(first.all_retargeted(first.target));
+    CHECK(restored.all_retargeted(restored.target));
+    first.check_attack(first.target, next_early_tick);
+    restored.check_attack(restored.target, next_early_tick);
 }
 
 /// Shares early retries fairly between two strikes that keep losing their targets.
@@ -700,6 +865,9 @@ int main() {
     failures += run_case("saved target loss", rule_state_continues_after_target_loss);
     failures += run_case("saved slot reuse", rule_state_continues_after_immediate_slot_reuse);
     failures += run_case("saved retry cooldown", rule_state_continues_during_retarget_cooldown);
+    failures += run_case("fresh AI task clocks", fresh_ai_heap_continues_saved_strike_clocks);
+    failures +=
+        run_case("load-pass retry cooldown", load_pass_keeps_an_unexpired_retarget_cooldown);
     failures += run_case(
         "land and naval retry fairness", repeated_failed_retries_serve_land_and_naval_strikes_fairly
     );

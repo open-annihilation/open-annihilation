@@ -199,6 +199,8 @@ void Match::run_player_controller(uint8_t player) {
                 retarget->builtin_player = player;
             }
             sim::ai::tick_match_computer_orders(*this, player);
+            if (retarget != nullptr)
+                enhanced_->capture_ai_retarget(*this, player);
         }
     }
     sweep_weapon_targets(player, computer);

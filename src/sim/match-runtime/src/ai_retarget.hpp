@@ -16,7 +16,7 @@ inline constexpr size_t ai_strike_tasks_per_player = 2;
 inline constexpr size_t ai_strike_target_count = OA_PLAYER_COUNT * ai_strike_tasks_per_player;
 inline constexpr uint32_t ai_retarget_cooldown_ticks = 30;
 inline constexpr size_t ai_retarget_header_bytes = 24;
-inline constexpr size_t ai_retarget_target_bytes = 12;
+inline constexpr size_t ai_retarget_target_bytes = 20;
 inline constexpr size_t ai_retarget_state_bytes =
     ai_retarget_header_bytes + ai_strike_target_count * ai_retarget_target_bytes;
 
@@ -30,9 +30,15 @@ struct AiStrikeTarget {
     AiStrikeBinding binding{};
     uint32_t last_issue_tick{};
     uint32_t retry_not_before{};
+    uint32_t native_next_tick{};
+    bool native_clock_valid{};
+    bool native_attacking{};
 };
 
-/// Limits early strike refreshes and retains target loss across saves.
+/// Limits early strike refreshes on the owning machine and retains target loss.
+///
+/// The save-only state includes native strike clocks. A restored clock applies
+/// after the controller is initialized, before its first built-in dispatch.
 struct AiRetargetState {
     std::array<AiStrikeTarget, ai_strike_target_count> targets{};
     uint32_t next_early_tick{};
@@ -43,6 +49,7 @@ struct AiRetargetState {
     // A controller call owns this scope; it is never part of saved state.
     bool builtin_dispatch{};
     uint8_t builtin_player{};
+    std::array<bool, ai_strike_target_count> restore_native_clock{};
     std::array<uint8_t, ai_retarget_state_bytes> encoded{};
 
     /// Marks every binding to a disappearing target before its slot can be reused.

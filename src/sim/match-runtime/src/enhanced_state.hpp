@@ -32,6 +32,12 @@ struct Match::EnhancedState {
     /// @param target the live enemy target slot
     void remember_ai_attack(Match& match, uint16_t source, uint16_t target);
 
+    /// Retains native strike deadlines after the built-in controller dispatches.
+    ///
+    /// @param match the match containing the computer tasks
+    /// @param player the built-in controller that finished
+    void capture_ai_retarget(Match& match, uint8_t player);
+
     EnhancedCounters counters{};
     sim::unit_movement::LocalFlowCounters local_flow_counters{};
     std::unique_ptr<sim::unit_movement::LocalFlowHead[]> local_flow_heads{};

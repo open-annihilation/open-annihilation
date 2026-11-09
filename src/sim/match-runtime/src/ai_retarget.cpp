@@ -14,13 +14,15 @@
 namespace oa::sim::match_runtime {
 namespace {
 constexpr uint32_t state_magic = 0x47545241u;
-constexpr uint32_t state_version = 1;
+constexpr uint32_t state_version = 2;
 constexpr size_t magic_offset = 0, version_offset = 4, unit_count_offset = 8;
 constexpr size_t next_early_offset = 12, prepared_tick_offset = 16;
 constexpr size_t cursor_offset = 20, prepared_valid_offset = 21, builtin_players_offset = 22;
 constexpr uint16_t builtin_player_mask = (uint16_t(1) << OA_PLAYER_COUNT) - 1;
 constexpr size_t slot_offset = 0, owner_offset = 2, binding_offset = 3;
 constexpr size_t issue_tick_offset = 4, retry_tick_offset = 8;
+constexpr size_t native_next_offset = 12, native_clock_offset = 16, native_attacking_offset = 17;
+constexpr size_t target_reserved_offset = 18;
 
 /// Writes the low bytes of an integer in little-endian order.
 void put(std::span<uint8_t> bytes, size_t at, uint32_t value, size_t count = 4) noexcept {
@@ -68,6 +70,9 @@ std::span<const uint8_t> AiRetargetState::state_bytes(size_t unit_count) noexcep
         encoded[at + binding_offset] = static_cast<uint8_t>(target.binding);
         put(encoded, at + issue_tick_offset, target.last_issue_tick);
         put(encoded, at + retry_tick_offset, target.retry_not_before);
+        put(encoded, at + native_next_offset, target.native_next_tick);
+        encoded[at + native_clock_offset] = target.native_clock_valid;
+        encoded[at + native_attacking_offset] = target.native_attacking;
     }
     return encoded;
 }
@@ -98,6 +103,15 @@ bool AiRetargetState::restore(std::span<const uint8_t> bytes, size_t unit_count)
         target.binding = static_cast<AiStrikeBinding>(binding);
         target.last_issue_tick = get(bytes, at + issue_tick_offset);
         target.retry_not_before = get(bytes, at + retry_tick_offset);
+        target.native_next_tick = get(bytes, at + native_next_offset);
+        if (bytes[at + native_clock_offset] > 1 || bytes[at + native_attacking_offset] > 1 ||
+            bytes[at + target_reserved_offset] != 0 || bytes[at + target_reserved_offset + 1] != 0)
+            return false;
+        target.native_clock_valid = bytes[at + native_clock_offset] != 0;
+        target.native_attacking = bytes[at + native_attacking_offset] != 0;
+        if (!target.native_clock_valid && (target.native_next_tick != 0 || target.native_attacking))
+            return false;
+        restored.restore_native_clock[index] = target.native_clock_valid;
         if (target.binding == AiStrikeBinding::empty) {
             if (target.slot != 0 || target.owner != 0 || target.last_issue_tick != 0 ||
                 target.retry_not_before != 0)
@@ -113,6 +127,8 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
     auto* computers = static_cast<sim::ai::ComputerPlayers*>(match.computer_player_state().get());
     if (computers == nullptr)
         return;
+    if (!computers->players[player].present)
+        sim::ai::computer_players_adopt(computers, sim::ai::match_computer_host(match), player);
     auto& state = ai_retarget;
     const uint32_t tick = match.simulation_.tick;
     const auto computer_player = [&](size_t owner) {
@@ -127,6 +143,20 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
         return computers->players[index / ai_strike_tasks_per_player]
             .tasks[strike_squad(index % ai_strike_tasks_per_player)];
     };
+    // The native controller is rebuilt on load. Its retained strike clocks
+    // apply after initialization and before either periodic or early dispatch.
+    for (size_t task_index = 0; task_index < ai_strike_tasks_per_player; ++task_index) {
+        const size_t index = size_t(player) * ai_strike_tasks_per_player + task_index;
+        if (!state.restore_native_clock[index])
+            continue;
+        state.restore_native_clock[index] = false;
+        const auto& target = state.targets[index];
+        auto& task = task_for(index);
+        if (target.native_clock_valid && task.kind == sim::ai::TaskKind::strike) {
+            task.next_tick = target.native_next_tick;
+            task.attacking = target.native_attacking;
+        }
+    }
     if (!state.prepared_valid || state.prepared_tick != tick) {
         state.prepared_valid = true;
         state.prepared_tick = tick;
@@ -199,13 +229,29 @@ void Match::EnhancedState::remember_ai_attack(Match& match, uint16_t source, uin
     else
         return;
     const size_t index = size_t(from.owner_index) * ai_strike_tasks_per_player + task_index;
-    state.targets[index] = {
-        target,
-        aimed.owner_index,
-        AiStrikeBinding::bound,
-        match.simulation_.tick,
-        match.simulation_.tick + ai_retarget_cooldown_ticks
-    };
+    auto& retained = state.targets[index];
+    retained.slot = target;
+    retained.owner = aimed.owner_index;
+    retained.binding = AiStrikeBinding::bound;
+    retained.last_issue_tick = match.simulation_.tick;
+    retained.retry_not_before = match.simulation_.tick + ai_retarget_cooldown_ticks;
+}
+
+void Match::EnhancedState::capture_ai_retarget(Match& match, uint8_t player) {
+    const auto* computers =
+        static_cast<const sim::ai::ComputerPlayers*>(match.computer_player_state().get());
+    if (computers == nullptr || !computers->players[player].present)
+        return;
+    for (size_t task_index = 0; task_index < ai_strike_tasks_per_player; ++task_index) {
+        const auto& task = computers->players[player].tasks[strike_squad(task_index)];
+        auto& target =
+            ai_retarget.targets[size_t(player) * ai_strike_tasks_per_player + task_index];
+        if (task.kind != sim::ai::TaskKind::strike)
+            continue;
+        target.native_clock_valid = true;
+        target.native_next_tick = task.next_tick;
+        target.native_attacking = task.attacking != 0;
+    }
 }
 
 } // namespace oa::sim::match_runtime
