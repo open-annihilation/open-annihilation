@@ -93,6 +93,11 @@ native arrival footprint and the click has one. Moving units do not
 invalidate a destination. These corrections do not establish that traffic
 can reach a destination promptly.
 
+Selection orders, including radar and megamap clicks, share this repair
+with stage and camera orders. Queued-order cancellation compares the
+repaired destination. Game-host move and patrol requests use the same
+repair while retaining their existing order acceptance and append behavior.
+
 The built-in computer player can refresh a lost strike target early. Its
 strike selector rejects dying targets and targets without positive health.
 Each Match permits at most one early AI task dispatch per six simulation
