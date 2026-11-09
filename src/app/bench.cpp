@@ -158,6 +158,16 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
                 error = where + "expected_live_units takes a whole number of units";
                 return false;
             }
+        } else if (key == "expected_initial_units") {
+            read = frames(view.expected_initial_units);
+        } else if (key == "expected_initial_per_side") {
+            read = frames(view.expected_initial_per_side);
+        } else if (key == "expected_output_width") {
+            read = frames(view.expected_output_width);
+        } else if (key == "expected_output_height") {
+            read = frames(view.expected_output_height);
+        } else if (key == "display_number") {
+            read = frames(view.display_number);
         } else if (key == "shot_at") {
             read = seconds(view.shot_at);
         } else if (key == "shot_ticks") {
@@ -180,14 +190,18 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
             read = number(view.turn_rate);
         } else if (key == "hold_after") {
             read = seconds(view.hold_after);
-        } else if (key == "stage_timers" || key == "frame_log" || key == "require_paused") {
+        } else if (
+            key == "stage_timers" || key == "frame_log" || key == "require_paused" ||
+            key == "require_gameplay"
+        ) {
             if (value != "0" && value != "1") {
                 error = where + std::string(key) + " takes 0 or 1";
                 return false;
             }
-            (key == "stage_timers" ? view.stage_timers
-             : key == "frame_log"  ? view.frame_log
-                                   : view.require_paused) = value == "1";
+            (key == "stage_timers"       ? view.stage_timers
+             : key == "frame_log"        ? view.frame_log
+             : key == "require_gameplay" ? view.require_gameplay
+                                         : view.require_paused) = value == "1";
         } else {
             error = where + "the bench has no key " + std::string(key);
             return false;
@@ -198,6 +212,16 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
     if (view.require_paused &&
         (view.warmup_ticks != 0 || view.measure_ticks != 0 || view.turn_rate != 0)) {
         error = "require_paused needs warmup_ticks, measure_ticks and turn_rate set to 0";
+        return false;
+    }
+    if (view.require_gameplay && (view.require_paused || view.expected_live_units != 0 ||
+                                  view.measure_ticks == 0 || view.turn_rate != 0)) {
+        error =
+            "require_gameplay needs an unpaused tick span, fixed camera and initial-only counts";
+        return false;
+    }
+    if ((view.expected_output_width == 0) != (view.expected_output_height == 0)) {
+        error = "expected_output_width and expected_output_height must both be given";
         return false;
     }
     return true;

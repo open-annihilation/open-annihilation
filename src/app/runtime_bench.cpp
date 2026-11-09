@@ -9,6 +9,8 @@
 #include "oa/app/runtime.hpp"
 #include "bench.hpp"
 #include "bench_timers.hpp"
+#include "render_run.hpp"
+#include "full_presentation.hpp"
 #include "oa/app/frame_coordinates.hpp"
 
 #include "oa/core/unit.h"
@@ -26,6 +28,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -51,11 +54,13 @@ constexpr std::size_t kCountedPlayers = 2;
 
 /// The times one frame of the measured span took, in milliseconds.
 struct FrameSample {
-    double frame{};   ///< from the end of the frame before to the end of this one
-    double work{};    ///< the loop's pass, without the wait for the frame's time
-    double sim{};     ///< the match ticks the frame ran
-    double draw{};    ///< composing the frame
-    double present{}; ///< uploading and presenting it
+    double frame{};        ///< from the end of the frame before to the end of this one
+    double work{};         ///< the loop's pass, without the wait for the frame's time
+    double sim{};          ///< the match ticks the frame ran
+    double draw{};         ///< composing the frame
+    double present{};      ///< uploading and presenting it
+    double full_stage{};   ///< classic Full model/sprite construction and uploads
+    double full_execute{}; ///< classic Full's first executor call
 };
 
 /// Room for one stage's milliseconds in a FRAME line.
@@ -183,6 +188,33 @@ void Runtime::play_bench() {
     bench::View view;
     if (std::string error; !bench::read_view(options_.bench_file, view, error))
         fail(error);
+    if (view.require_gameplay &&
+        (options_.fixed_clock || options_.frame_rate || options_.frame_clock_ms ||
+         options_.headless_check || director_ || video_capture_ || capture_frame_ ||
+         !options_.snapshot.empty() || !options_.capture_video.empty() || !options_.seed))
+        fail("require_gameplay needs a real window, wall clock, explicit seed and no captures");
+    if (view.display_number != 0) {
+        int displays_count{};
+        SDL_DisplayID* displays = SDL_GetDisplays(&displays_count);
+        if (!displays || view.display_number > uint32_t(displays_count)) {
+            SDL_free(displays);
+            fail("display_number is outside SDL's real displays");
+        }
+        const auto display = displays[view.display_number - 1];
+        SDL_free(displays);
+        if (!SDL_SetWindowPosition(
+                sdl_.window,
+                SDL_WINDOWPOS_CENTERED_DISPLAY(display),
+                SDL_WINDOWPOS_CENTERED_DISPLAY(display)
+            ))
+            fail("could not place the benchmark on its real display");
+        if (view.expected_output_width &&
+            !SDL_SetWindowSize(
+                sdl_.window, int(view.expected_output_width), int(view.expected_output_height)
+            ))
+            fail("could not size the benchmark window");
+        std::ignore = SDL_RaiseWindow(sdl_.window);
+    }
     // A paused rendering workload keeps wall-driven presentation animation
     // fixed as well as its simulation. Bench timing still uses SDL's clock.
     if (view.require_paused)
@@ -218,7 +250,100 @@ void Runtime::play_bench() {
     }
     // Live timings are painted into the software battlefield itself; they
     // would make identical paused scenes produce different image receipts.
-    show_frame_stats(!view.require_paused);
+    show_frame_stats(!view.require_paused && !view.require_gameplay);
+    // Staging is synchronous setup, not elapsed game time to catch up with.
+    const auto initial_census = [&] {
+        std::array<uint32_t, OA_PLAYER_COUNT> result{};
+        for (const auto& slot : match_->world().slots)
+            if (slot.unit && slot.record.type_index != 0 &&
+                oa::unit_is_live_target(slot.record.flags))
+                ++result[slot.record.owner_index];
+        return result;
+    }();
+    uint32_t initial_total{};
+    for (const auto count : initial_census)
+        initial_total += count;
+    if (view.expected_initial_units && initial_total != view.expected_initial_units)
+        fail("the staged initial roster differs from expected_initial_units");
+    if (view.expected_initial_per_side && (initial_census[0] != view.expected_initial_per_side ||
+                                           initial_census[1] != view.expected_initial_per_side))
+        fail("the staged initial sides differ from expected_initial_per_side");
+
+    struct CombatCounts {
+        std::array<uint64_t, OA_PLAYER_COUNT> shots{}, damage{}, deaths{}, births{};
+    } combat;
+
+    sim::match_runtime::EventHooks events{};
+    events.context = &combat;
+    events.unit_created = [](void* context, const oa::World& world, uint16_t id) {
+        ++static_cast<CombatCounts*>(context)->births[world.units[id].owner_index];
+    };
+    events.shot_placed = [](void* context,
+                            const oa::World&,
+                            const oa::Projectile& shot,
+                            sim::match_runtime::ShotSource,
+                            const oa::FixedVec3*,
+                            uint16_t) {
+        if (shot.owner_index < OA_PLAYER_COUNT)
+            ++static_cast<CombatCounts*>(context)->shots[shot.owner_index];
+    };
+    events.unit_damaged = [](void* context,
+                             const oa::World& world,
+                             uint16_t target,
+                             uint16_t,
+                             int16_t amount,
+                             uint8_t kind) {
+        constexpr uint8_t weapon_damage_kind = 1;
+        if (kind == weapon_damage_kind && amount > 0)
+            static_cast<CombatCounts*>(context)->damage[world.units[target].owner_index] +=
+                uint16_t(amount);
+    };
+    events.unit_died = [](void* context,
+                          const oa::World& world,
+                          uint16_t id,
+                          const sim::match_runtime::KillOutcome&,
+                          bool) {
+        ++static_cast<CombatCounts*>(context)->deaths[world.units[id].owner_index];
+    };
+    const auto listener = view.require_gameplay ? match_->add_event_listener(events) : 0;
+    if (view.require_gameplay && listener == 0)
+        fail("could not install gameplay counters");
+
+    struct ListenerGuard {
+        decltype(match_)& current;
+        sim::match_runtime::Match* original;
+        sim::match_runtime::EventListenerId id;
+
+        ~ListenerGuard() {
+            if (id && current.get() == original)
+                std::ignore = current->remove_event_listener(id);
+        }
+    } listener_guard{match_, match_.get(), listener};
+
+    const auto slots = match_->world().slots.size();
+    std::vector<oa::FixedVec3> initial_positions(view.require_gameplay ? slots : 0);
+    std::vector<uint32_t> initial_generations(view.require_gameplay ? slots : 0);
+    std::vector<uint8_t> moved(view.require_gameplay ? slots : 0);
+    std::array<uint32_t, OA_PLAYER_COUNT> moved_units{};
+    if (view.require_gameplay) {
+        for (const auto& slot : match_->world().slots)
+            if (slot.unit && slot.record.type_index) {
+                initial_positions[slot.unit_index] = slot.record.position;
+                initial_generations[slot.unit_index] =
+                    match_->runtime_state(slot.unit_index).instance_generation;
+            }
+        snap_held_clock();
+        std::printf(
+            "bench: INITIAL units %u owner0 %u owner1 %u seed %u controller0 %u "
+            "controller1 %u setup_clock_reanchored 1\n",
+            initial_total,
+            initial_census[0],
+            initial_census[1],
+            *options_.seed,
+            unsigned(match_->state().game.players[0].status),
+            unsigned(match_->state().game.players[1].status)
+        );
+    }
     // The warm-up's frames are timed too, so that the kept ground's
     // revision the span starts from is the frame before's.
     bench_timers::reset(view.stage_timers);
@@ -242,7 +367,7 @@ void Runtime::play_bench() {
         const bool turned = yaw != 0 || view.pitch != 0;
         if (turned && (yaw != applied_yaw || !live_renderer_active())) {
             if (!turn_live_camera(static_cast<float>(yaw), static_cast<float>(view.pitch)) &&
-                view.require_paused)
+                (view.require_paused || view.require_gameplay))
                 fail("the requested turned camera is unavailable");
             applied_yaw = yaw;
         }
@@ -270,11 +395,18 @@ void Runtime::play_bench() {
     std::fflush(stdout);
     aim(view.yaw);
     point_at_battle();
+    const double warmup_end = now() + view.measure_seconds;
     while (match_timing_.tick < view.warmup_ticks) {
+        if (view.require_gameplay && now() >= warmup_end)
+            break;
         aim(view.yaw);
         frame();
         if (screen_ != Screen::match)
             fail("the match ended in the warm-up");
+        if (view.require_gameplay &&
+            ((match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0 ||
+             match_timing_.requested_rate != oa::base::game_loop::normal_game_speed))
+            fail("gameplay was paused or intentionally slowed in warm-up");
     }
     point_at_battle();
     // The live units of the local player and of the others.
@@ -326,9 +458,51 @@ void Runtime::play_bench() {
     const auto held_angles = live_camera_angles();
     const bool held_acceleration = accelerated_presentation();
     const bool held_full = full_presentation();
+    const auto check_gameplay = [&] {
+        if (!view.require_gameplay)
+            return;
+        if (!render_run_ || render_run_->device_lost || render_run_->present_false_logged ||
+            window_away() || options_.fixed_clock || capture_frame_ || video_capture_ ||
+            (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0 ||
+            match_timing_.requested_rate != oa::base::game_loop::normal_game_speed)
+            fail("gameplay lost its active, unpaused real-time presentation");
+        if (!accelerated_presentation() || !full_presentation() ||
+            live_renderer_active() != (view.yaw != 0 || view.pitch != 0) ||
+            live_renderer_failed() || live_renderer_unavailable() ||
+            held_camera != std::array<int32_t, 2>{match_camera_x_, match_camera_z_} ||
+            held_zoom != match_zoom_ || held_angles != live_camera_angles())
+            fail("gameplay changed its requested Full renderer or camera");
+        if (!live_renderer_active() && !full_frame_drawn())
+            fail("gameplay's classic Full frame fell back to Basic");
+        if (live_renderer_active() &&
+            (!render_run_->host || !render_run_->host->presenting_on_card() ||
+             bench_timers::timers.totals.milliseconds[size_t(bench_timers::Stage::gpu_download)] !=
+                 0))
+            fail("gameplay's turned frame was read back instead of presented on the card");
+        int width{}, height{}, pixel_width{}, pixel_height{};
+        if (!SDL_GetRenderOutputSize(sdl_.renderer, &width, &height) ||
+            !SDL_GetWindowSizeInPixels(sdl_.window, &pixel_width, &pixel_height) ||
+            (view.expected_output_width && (width != int(view.expected_output_width) ||
+                                            height != int(view.expected_output_height) ||
+                                            pixel_width != width || pixel_height != height))) {
+            std::printf(
+                "bench: OUTPUT_MISMATCH actual_output %dx%d actual_pixels %dx%d "
+                "expected %ux%u display %u\n",
+                width,
+                height,
+                pixel_width,
+                pixel_height,
+                view.expected_output_width,
+                view.expected_output_height,
+                SDL_GetDisplayForWindow(sdl_.window)
+            );
+            fail("gameplay's real window/output pixels differ from the requested size");
+        }
+    };
     const auto check_frame = [&] {
         check_population();
         check_paused();
+        check_gameplay();
         if (view.require_paused &&
             (held_camera != std::array<int32_t, 2>{match_camera_x_, match_camera_z_} ||
              held_zoom != match_zoom_ || held_angles != live_camera_angles() ||
@@ -350,6 +524,38 @@ void Runtime::play_bench() {
     frame_totals.reserve(kExpectedFrames);
     bench_timers::reset(view.stage_timers);
     const uint32_t first_tick = match_timing_.tick;
+    check_gameplay();
+    const uint64_t first_presented = render_run_ ? render_run_->presented : 0;
+    uint64_t previous_presented = first_presented;
+    uint64_t previous_present_ns = render_run_ ? render_run_->last_present_ns : 0;
+    std::vector<double> presented_intervals;
+    presented_intervals.reserve(kExpectedFrames);
+    uint16_t minimum_actual_rate = match_timing_.actual_rate;
+    size_t peak_projectiles = match_->projectiles().size();
+    std::array<uint64_t, 4> stalls{};
+    constexpr std::array<double, 4> stall_milliseconds{1000.0 / 60.0, 1000.0 / 30.0, 50.0, 100.0};
+    if (view.require_gameplay) {
+        int width{}, height{}, pixels_width{}, pixels_height{}, vsync{};
+        std::ignore = SDL_GetRenderOutputSize(sdl_.renderer, &width, &height);
+        std::ignore = SDL_GetWindowSizeInPixels(sdl_.window, &pixels_width, &pixels_height);
+        std::ignore = SDL_GetRenderVSync(sdl_.renderer, &vsync);
+        const auto display = SDL_GetDisplayForWindow(sdl_.window);
+        const auto* mode = SDL_GetCurrentDisplayMode(display);
+        std::printf(
+            "bench: REAL_WINDOW output %dx%d pixels %dx%d display %u refresh %.3f "
+            "density %.3f vsync %d max_fps %u warmup_complete %u\n",
+            width,
+            height,
+            pixels_width,
+            pixels_height,
+            display,
+            mode ? double(mode->refresh_rate) : 0.0,
+            double(SDL_GetWindowPixelDensity(sdl_.window)),
+            vsync,
+            options_.max_frames_per_second,
+            unsigned(first_tick >= view.warmup_ticks)
+        );
+    }
     std::printf(
         "bench: MEASURING label=%s tick=%u seconds=%.0f\n", label, first_tick, view.measure_seconds
     );
@@ -374,7 +580,7 @@ void Runtime::play_bench() {
         frame();
         const double finished = now();
         if (screen_ != Screen::match || !match_) {
-            if (view.require_paused || view.expected_live_units != 0)
+            if (view.require_paused || view.require_gameplay || view.expected_live_units != 0)
                 fail("the benchmark lost its match");
         } else {
             check_frame();
@@ -393,16 +599,52 @@ void Runtime::play_bench() {
              ms((phase_times_.upload - phases.upload) + (phase_times_.present - phases.present))}
         );
         previous = finished;
+        minimum_actual_rate = std::min(minimum_actual_rate, match_timing_.actual_rate);
+        if (view.require_gameplay && match_)
+            peak_projectiles = std::max(peak_projectiles, match_->projectiles().size());
+        if (view.require_gameplay) {
+            if (render_run_->presented != previous_presented + 1 ||
+                render_run_->last_present_ns <= previous_present_ns)
+                fail("gameplay did not present exactly one new frame in its loop");
+            presented_intervals.push_back(
+                double(render_run_->last_present_ns - previous_present_ns) / 1e6
+            );
+            previous_presented = render_run_->presented;
+            previous_present_ns = render_run_->last_present_ns;
+        }
+        for (size_t index = 0; index < stalls.size(); ++index)
+            stalls[index] +=
+                (view.require_gameplay ? presented_intervals.back() : samples.back().frame) >
+                stall_milliseconds[index];
+        if (view.require_gameplay && full_ && !live_renderer_active()) {
+            samples.back().full_stage = ms(int64_t(full_->stage_ns));
+            samples.back().full_execute = ms(int64_t(full_->execute_ns));
+        }
         if (window_away())
             ++away_frames;
         const uint32_t span_ticks = match_timing_.tick - first_tick;
-        if (!shot && (view.shot_ticks != 0 ? span_ticks >= view.shot_ticks
-                                           : finished - start >= view.shot_at)) {
+        if (!view.require_gameplay && !shot &&
+            (view.shot_ticks != 0 ? span_ticks >= view.shot_ticks
+                                  : finished - start >= view.shot_at)) {
             std::printf("bench: SHOT label=%s\n", label);
             std::fflush(stdout);
             shot = true;
         }
         if (finished - start >= second + 1) {
+            if (view.require_gameplay)
+                for (const auto& slot : match_->world().slots) {
+                    const auto id = slot.unit_index;
+                    if (!slot.unit || !slot.record.type_index || moved[id] ||
+                        initial_generations[id] != match_->runtime_state(id).instance_generation)
+                        continue;
+                    const auto& initial = initial_positions[id];
+                    if (slot.record.position.x != initial.x ||
+                        slot.record.position.y != initial.y ||
+                        slot.record.position.z != initial.z) {
+                        moved[id] = 1;
+                        ++moved_units[slot.record.owner_index];
+                    }
+                }
             double frame_total = 0, sim_total = 0, draw_total = 0;
             const std::size_t frames = samples.size() - second_first;
             for (std::size_t index = second_first; index < samples.size(); ++index) {
@@ -428,6 +670,23 @@ void Runtime::play_bench() {
                 match_timing_.tick
             );
             std::fflush(stdout);
+            if (view.require_gameplay)
+                std::printf(
+                    "bench: ACTIVITY tick %u moved %u+%u shots %llu+%llu damage %llu+%llu "
+                    "deaths %llu+%llu births %llu+%llu projectiles %zu\n",
+                    match_timing_.tick,
+                    moved_units[0],
+                    moved_units[1],
+                    static_cast<unsigned long long>(combat.shots[0]),
+                    static_cast<unsigned long long>(combat.shots[1]),
+                    static_cast<unsigned long long>(combat.damage[0]),
+                    static_cast<unsigned long long>(combat.damage[1]),
+                    static_cast<unsigned long long>(combat.deaths[0]),
+                    static_cast<unsigned long long>(combat.deaths[1]),
+                    static_cast<unsigned long long>(combat.births[0]),
+                    static_cast<unsigned long long>(combat.births[1]),
+                    match_->projectiles().size()
+                );
             ++second;
             second_first = samples.size();
         }
@@ -472,6 +731,47 @@ void Runtime::play_bench() {
         );
     }
     const uint32_t ticks = match_timing_.tick - first_tick;
+    if (view.require_gameplay) {
+        const auto presented = render_run_->presented - first_presented;
+        const auto final_units = count_units();
+        std::printf(
+            "bench: GAMEPLAY presented %llu loops %zu fps %.3f ticks %u target_ticks %u "
+            "achieved_tps %.3f complete %u actual_rate_min %u actual_rate_final %u "
+            "requested_rate %u peak_projectiles %zu final_units %d+%d "
+            "stalls_gt_16_67_33_33_50_100 %llu %llu %llu %llu\n",
+            static_cast<unsigned long long>(presented),
+            frames,
+            seconds > 0 ? double(presented) / seconds : 0,
+            ticks,
+            view.measure_ticks,
+            seconds > 0 ? ticks / seconds : 0,
+            unsigned(ticks >= view.measure_ticks),
+            unsigned(minimum_actual_rate),
+            unsigned(match_timing_.actual_rate),
+            unsigned(match_timing_.requested_rate),
+            peak_projectiles,
+            final_units[0],
+            final_units[1],
+            static_cast<unsigned long long>(stalls[0]),
+            static_cast<unsigned long long>(stalls[1]),
+            static_cast<unsigned long long>(stalls[2]),
+            static_cast<unsigned long long>(stalls[3])
+        );
+        std::printf(
+            "%s\n",
+            bench::measure_line("presented interval", bench::spread(presented_intervals)).c_str()
+        );
+        for (const auto& [name, field] :
+             std::array<std::pair<const char*, double FrameSample::*>, 2>{
+                 {{"classic Full stage+upload", &FrameSample::full_stage},
+                  {"classic Full first execute", &FrameSample::full_execute}}
+             })
+            if (!live_renderer_active())
+                std::printf(
+                    "%s\n",
+                    bench::measure_line(name, bench::spread(measure_values(samples, field))).c_str()
+                );
+    }
     const auto frame_spread = bench::spread(measure_values(samples, &FrameSample::frame));
     const auto per_frame = [&](double total) {
         return frames == 0 ? 0.0 : total / static_cast<double>(frames);

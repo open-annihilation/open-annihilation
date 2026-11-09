@@ -35,18 +35,25 @@ struct View {
     uint32_t measure_ticks{};
     uint32_t measure_frames{};      ///< measured frame limit; 0 uses the time and tick limits
     uint32_t expected_live_units{}; ///< required live population; 0 leaves it unchecked
-    bool require_paused{};    ///< require a fixed paused world and camera throughout measurement
-    double shot_at = 12;      ///< seconds into the span of the SHOT line
-    uint32_t shot_ticks{};    ///< ticks into the span of the SHOT line; 0 for shot_at
-    double centre_x = 2048;   ///< the map pixel the view centres on, across
-    double centre_z = 2048;   ///< and down
-    double yaw{};             ///< the camera's turn at the start, in degrees
-    double pitch{};           ///< its tilt, in degrees; yaw and pitch 0 is the classic view
-    double zoom = 1;          ///< the battlefield's zoom; 0 for the farthest out
-    double turn_rate{};       ///< degrees of yaw a second through the span
-    double hold_after{};      ///< seconds the match plays on after the span
-    bool stage_timers = true; ///< whether the stage timers measure
-    bool frame_log{};         ///< whether a FRAME line is printed for each frame of the span
+    uint32_t
+        expected_initial_units{}; ///< live population immediately after staging; deaths may follow
+    uint32_t expected_initial_per_side{}; ///< initial population of each of the two players
+    uint32_t expected_output_width{};  ///< required renderer output pixels; 0 leaves size unchecked
+    uint32_t expected_output_height{}; ///< required renderer output rows
+    uint32_t display_number{}; ///< one-based SDL display to centre the window on; 0 keeps its place
+    bool require_gameplay{};   ///< measure a real unpaused, normally clocked Full presentation
+    bool require_paused{};     ///< require a fixed paused world and camera throughout measurement
+    double shot_at = 12;       ///< seconds into the span of the SHOT line
+    uint32_t shot_ticks{};     ///< ticks into the span of the SHOT line; 0 for shot_at
+    double centre_x = 2048;    ///< the map pixel the view centres on, across
+    double centre_z = 2048;    ///< and down
+    double yaw{};              ///< the camera's turn at the start, in degrees
+    double pitch{};            ///< its tilt, in degrees; yaw and pitch 0 is the classic view
+    double zoom = 1;           ///< the battlefield's zoom; 0 for the farthest out
+    double turn_rate{};        ///< degrees of yaw a second through the span
+    double hold_after{};       ///< seconds the match plays on after the span
+    bool stage_timers = true;  ///< whether the stage timers measure
+    bool frame_log{};          ///< whether a FRAME line is printed for each frame of the span
 };
 
 /// Reads a view file's text: one "KEY VALUE" a line; blank lines and lines
