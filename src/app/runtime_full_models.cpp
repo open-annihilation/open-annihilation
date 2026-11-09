@@ -3515,7 +3515,12 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     const draw::SupersampledUnitPlan& plan = drawn.plan;
     if (!plan.linked.drawn)
         return;
-    if (!body_visible(drawn, model, canvas))
+    // Earlier bodies also advance the frame's texture-strip budget. Keep
+    // that crossover unchanged: omitting them before it would give later
+    // visible quads strips where the ordinary frame uses two triangles.
+    const bool strip_budget_exhausted = frame_.vertices.size() >= most_strip_frame_vertices ||
+                                        frame_.indices.size() >= most_strip_frame_indices;
+    if (strip_budget_exhausted && !body_visible(drawn, model, canvas))
         return;
     const gw::ModelMesh* mesh = mesh_of(model);
     if (mesh == nullptr)
