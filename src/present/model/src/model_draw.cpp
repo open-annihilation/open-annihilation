@@ -102,6 +102,14 @@ bool has_image(const ModelState& state) noexcept {
     return state.image.sprite.data != nullptr;
 }
 
+bool has_planned_image(const ModelState& state) noexcept {
+    return has_image(state) || state.deferred_image.has_value();
+}
+
+bool planned_image_depth(const ModelState& state) noexcept {
+    return has_image(state) ? state.image.sprite.aux != nullptr : state.deferred_image_depth;
+}
+
 uint32_t first_primitive(const PreparedObject& prepared) noexcept {
     return prepared.skips_first ? 1U : 0U;
 }
@@ -852,14 +860,21 @@ bool build_image_into(
     const ModelRef& model,
     bool attached,
     int32_t pass,
-    present::SpriteBuffer& image
+    present::SpriteBuffer& image,
+    const ImageFrame* retained_frame = nullptr,
+    std::optional<bool> retained_depth = std::nullopt
 ) {
     const Unit& unit = *model.unit;
-    const ImageFrame frame = measure_bounds_at(*model.instance, nullptr, renderer.samples);
-    if (!attached && (unit.flags2 & OA_UNIT_FLAG2_Z_BUFFER) == 0 && unit.build_remaining == 0.0F)
-        allocate_image(image, frame.width, frame.height);
-    else
+    const ImageFrame frame = retained_frame != nullptr
+                                 ? *retained_frame
+                                 : measure_bounds_at(*model.instance, nullptr, renderer.samples);
+    const bool depth = retained_depth.value_or(
+        attached || (unit.flags2 & OA_UNIT_FLAG2_Z_BUFFER) != 0 || unit.build_remaining != 0.0F
+    );
+    if (depth)
         allocate_depth_image(image, frame.width, frame.height);
+    else
+        allocate_image(image, frame.width, frame.height);
     if (image.sprite.data == nullptr)
         return false;
     image.sprite.origin_x = static_cast<int16_t>(frame.origin_x);
@@ -869,6 +884,20 @@ bool build_image_into(
     else
         build_shaded_model_image(renderer, image.sprite, model, unit.owner_index, pass);
     return true;
+}
+
+// Builds the pixels of an existing logical image without measuring a new
+// frame: moving, uncached pieces may have extended the current model's bounds
+// since the cached pieces were captured. Its logical build revision stays.
+bool materialize_model_image(ModelRenderer& renderer, const ModelRef& model) {
+    ModelState& state = *model.state;
+    if (!state.deferred_image)
+        return has_image(state);
+    const ImageFrame frame = *state.deferred_image;
+    const bool depth = state.deferred_image_depth;
+    state.deferred_image.reset();
+    state.deferred_image_depth = false;
+    return build_image_into(renderer, model, false, pass_cached_pieces, state.image, &frame, depth);
 }
 
 // Tells whether a model's image build goes through the renderer's composite
@@ -892,11 +921,31 @@ void copy_image(const present::SpriteBuffer& from, present::SpriteBuffer& to) {
 } // namespace
 
 bool prepare_model_image(
-    ModelRenderer& renderer, const ModelRef& model, bool attached, int32_t pass
+    ModelRenderer& renderer,
+    const ModelRef& model,
+    bool attached,
+    int32_t pass,
+    ModelImagePlan image_plan
 ) {
     ModelState& state = *model.state;
-    if (!build_image_into(renderer, model, attached, pass, state.image))
-        return false;
+    if (image_plan == ModelImagePlan::metadata) {
+        const ImageFrame frame = measure_bounds_at(*model.instance, nullptr, renderer.samples);
+        state.image = {};
+        state.deferred_image.reset();
+        state.deferred_image_depth = false;
+        if (frame.width < 0 || frame.height < 0 ||
+            static_cast<int64_t>(frame.width) * frame.height > image_max_pixels)
+            return false;
+        state.deferred_image = frame;
+        state.deferred_image_depth = attached ||
+                                     (model.unit->flags2 & OA_UNIT_FLAG2_Z_BUFFER) != 0 ||
+                                     model.unit->build_remaining != 0.0F;
+    } else {
+        state.deferred_image.reset();
+        state.deferred_image_depth = false;
+        if (!build_image_into(renderer, model, attached, pass, state.image))
+            return false;
+    }
     state.image_unfinished = model.unit->build_remaining != 0.0F;
     ++state.image_builds;
     return true;
@@ -1356,12 +1405,36 @@ void draw_unit_model(
     );
 }
 
-void plan_model_draw(ModelRenderer& renderer, const ModelRef& model, ModelDrawPlan& plan) {
-    plan.from_image = has_image(*model.state);
+void plan_model_draw(
+    ModelRenderer& renderer, const ModelRef& model, ModelDrawPlan& plan, ModelImagePlan image_plan
+) {
+    plan.from_image = has_planned_image(*model.state);
     plan.ground = 0;
     plan.carried.clear();
-    if (plan.from_image)
-        unit_model_pass(renderer, nullptr, model, 0, 0, false, Pass::plan, &plan, nullptr);
+    if (!plan.from_image)
+        return;
+    if (image_plan == ModelImagePlan::pixels) {
+        if (model.state->deferred_image)
+            materialize_model_image(renderer, model);
+        plan.from_image = has_image(*model.state);
+        if (plan.from_image)
+            unit_model_pass(renderer, nullptr, model, 0, 0, false, Pass::plan, &plan, nullptr);
+        return;
+    }
+    if (renderer.ground_height != nullptr)
+        plan.ground = renderer.ground_height(renderer.user, model.unit->position);
+    for (const Unit* child = world_unit(renderer.world, model.unit->attach_first_child);
+         child != nullptr;
+         child = world_unit(renderer.world, child->attach_next)) {
+        if ((child->flags & unit_flag_attached_without_piece) != 0 || renderer.model_of == nullptr)
+            continue;
+        const ModelRef carried = renderer.model_of(renderer.user, *child);
+        plan.carried.emplace_back();
+        plan.carried.back().unit = child;
+        plan.carried.back().model = carried;
+        if (carried.instance != nullptr && planned_image_depth(*model.state))
+            prepare_model_image(renderer, carried, true, pass_all_pieces, image_plan);
+    }
 }
 
 void draw_planned_model(
@@ -1741,8 +1814,11 @@ void note_piece_changes(const ModelRef& model) {
         const uint16_t changed = static_cast<uint16_t>(piece.flags ^ seen.flags);
         if ((moved || (changed & piece_visible) != 0) && (piece.flags & piece_cached) != 0)
             state.cache.draws = 0;
-        if ((changed & piece_cached) != 0)
+        if ((changed & piece_cached) != 0) {
             state.image = {};
+            state.deferred_image.reset();
+            state.deferred_image_depth = false;
+        }
         seen = {piece.translation, piece.rotation, piece.flags};
     }
 }
@@ -1760,7 +1836,9 @@ void update_linked_transforms(const ModelRenderer& renderer, const ModelRef& mod
     }
 }
 
-LinkedDraw prepare_linked_draw(ModelRenderer& renderer, const ModelRef& model, bool movement_idle) {
+LinkedDraw prepare_linked_draw(
+    ModelRenderer& renderer, const ModelRef& model, bool movement_idle, ModelImagePlan image_plan
+) {
     const Unit& unit = *model.unit;
     if (unit.attach_parent != 0)
         return {};
@@ -1770,17 +1848,21 @@ LinkedDraw prepare_linked_draw(ModelRenderer& renderer, const ModelRef& model, b
     // build's end drops it.
     if (state.image_unfinished && unit.build_remaining == 0.0F) {
         state.image = {};
+        state.deferred_image.reset();
+        state.deferred_image_depth = false;
         state.image_unfinished = false;
     }
-    state.cache.has_image = has_image(state);
-    state.cache.image_has_mask = state.image.sprite.aux != nullptr;
+    state.cache.has_image = has_planned_image(state);
+    state.cache.image_has_mask = planned_image_depth(state);
     const UnitSpriteDraw draw = prepare_unit_sprite(unit, state.cache, movement_idle);
     if (!state.cache.has_image || draw.rebuild)
         state.shadow = {};
     if (draw.rebuild)
-        prepare_model_image(renderer, model, false, pass_cached_pieces);
-    state.cache.has_image = has_image(state);
-    state.cache.image_has_mask = state.image.sprite.aux != nullptr;
+        prepare_model_image(renderer, model, false, pass_cached_pieces, image_plan);
+    else if (image_plan == ModelImagePlan::pixels && state.deferred_image)
+        materialize_model_image(renderer, model);
+    state.cache.has_image = has_planned_image(state);
+    state.cache.image_has_mask = planned_image_depth(state);
     return {true, draw.unlit};
 }
 

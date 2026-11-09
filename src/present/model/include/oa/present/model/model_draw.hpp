@@ -98,6 +98,11 @@ struct ModelBounds {
     int32_t bottom{};
 };
 
+/// Whether planning needs the cached image's pixels or only its frame and depth kind.
+/// Native world frames use metadata for completed, unlinked units when
+/// their shadows are disabled.
+enum class ModelImagePlan : uint8_t { pixels, metadata };
+
 struct FinerModel;
 
 /// A build effect drawn in place of the one a unit's build progress and
@@ -120,6 +125,10 @@ struct ModelState {
     UnitSpriteCache cache{}; // draw count and image presence
     bool transforms_dirty{true};
     present::SpriteBuffer image{}; // cached model image
+    /// The frame of an image whose pixels a native world plan has deferred.
+    /// A later pixel plan builds a genuine image before any raster or shadow reads it.
+    std::optional<ImageFrame> deferred_image{};
+    bool deferred_image_depth{}; ///< the deferred image has a depth plane
     // The cached image was built while the unit was unfinished, so it holds
     // every visible piece, the ones drawn per frame among them.
     bool image_unfinished{};
@@ -135,8 +144,8 @@ struct ModelState {
     };
 
     std::vector<PieceSnapshot> pieces;
-    /// Counts the builds of `image`, so that the image a finer draw keeps
-    /// (FinerModel) is built again exactly when this one is.
+    /// Counts cached image builds, including deferred ones, so that the
+    /// image a finer draw keeps (FinerModel) follows every logical rebuild.
     uint32_t image_builds{};
     /// The model drawn finer than the game's pixels (enhanced
     /// anti-aliasing); null until it first is.
@@ -355,7 +364,13 @@ struct ModelDrawPlan {
 /// @param[in,out] renderer drawing context; its composite is used as scratch
 /// @param model model to plan the draw of
 /// @param[out] plan what draw_planned_model needs; its buffers are reused
-void plan_model_draw(ModelRenderer& renderer, const ModelRef& model, ModelDrawPlan& plan);
+/// @param image_plan whether cached pixels are needed
+void plan_model_draw(
+    ModelRenderer& renderer,
+    const ModelRef& model,
+    ModelDrawPlan& plan,
+    ModelImagePlan image_plan = ModelImagePlan::pixels
+);
 
 /// Draws a model as draw_model does, from what plan_model_draw built and noted.
 ///
@@ -418,9 +433,14 @@ void draw_piece_flat(
 /// @param model model whose state receives the image
 /// @param attached true for a carried unit's image
 /// @param pass pieces to draw: pass_all_pieces, pass_moving_pieces or pass_cached_pieces
-/// @return false when the image cannot be allocated
+/// @param image_plan whether to build pixels or retain their frame and depth kind
+/// @return false when the image dimensions exceed the allocation bound
 bool prepare_model_image(
-    ModelRenderer& renderer, const ModelRef& model, bool attached, int32_t pass
+    ModelRenderer& renderer,
+    const ModelRef& model,
+    bool attached,
+    int32_t pass,
+    ModelImagePlan image_plan = ModelImagePlan::pixels
 );
 
 /// Copies the depth plane of a double-size image, taking every other byte of every other row.
@@ -717,8 +737,15 @@ void note_piece_changes(const ModelRef& model);
 /// @param[in,out] renderer drawing context
 /// @param model model to draw
 /// @param movement_idle the movement object's idle flag, for mobile units
+/// @param image_plan whether the frame requires cached pixels; a pixel plan
+///     materializes an image a previous metadata plan deferred
 /// @return whether the unit draws, and whether unlit
-LinkedDraw prepare_linked_draw(ModelRenderer& renderer, const ModelRef& model, bool movement_idle);
+LinkedDraw prepare_linked_draw(
+    ModelRenderer& renderer,
+    const ModelRef& model,
+    bool movement_idle,
+    ModelImagePlan image_plan = ModelImagePlan::pixels
+);
 
 /// Draws a unit and its carried units.
 ///

@@ -95,7 +95,8 @@ struct SupersampledUnitPlan {
 /// draw_unit_supersampled does, without drawing.
 ///
 /// The draw states change as draw_unit_supersampled changes them, the finer
-/// image built again when the game's was.
+/// image built again when the game's was. A metadata plan belongs to a native
+/// world frame; before a processor draw, plan again with pixels required.
 ///
 /// @param[in,out] renderer drawing context
 /// @param bridge the frame's model bridge, set up by bridge_begin; nothing
@@ -106,6 +107,8 @@ struct SupersampledUnitPlan {
 /// @param movement_idle the movement object's idle flag, for mobile units
 /// @param level the level
 /// @param[out] plan what draw_planned_unit needs; its buffers are reused
+/// @param image_plan whether cached pixels are needed; metadata is used only
+///     at UnitSupersampling::off with model shadows disabled
 void plan_unit_supersampled(
     ModelRenderer& renderer,
     const RgbBridge& bridge,
@@ -113,7 +116,8 @@ void plan_unit_supersampled(
     const Rect32& region,
     bool movement_idle,
     UnitSupersampling level,
-    SupersampledUnitPlan& plan
+    SupersampledUnitPlan& plan,
+    ModelImagePlan image_plan = ModelImagePlan::pixels
 );
 
 /// Draws a unit planned by plan_unit_supersampled, as draw_unit_supersampled

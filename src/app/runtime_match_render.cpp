@@ -538,6 +538,8 @@ struct UnitPlanFrame {
     bool live_renderer{};
     /// Captures exclusive unit instances for a reference drawing too.
     bool snapshot_unlinked_vertices{};
+    /// A native world frame with every model shadow disabled needs image metadata only.
+    model_render::ModelImagePlan image_plan{model_render::ModelImagePlan::pixels};
 };
 
 // The units a drawing thread takes at a time to plan: few enough that the
@@ -627,7 +629,16 @@ void plan_model(
     drawn.model = model;
     drawn.stand_in = stand_in;
     carried.clear();
-    model_render::plan_unit_supersampled(renderer, bridge, model, region, idle, level, drawn.plan);
+    // Unfinished images can retain moving pieces from an earlier build;
+    // linked models compose their cargo. Keep those cached pixels ready.
+    const auto image_plan = stand_in < 0 && model.unit->build_remaining == 0.0F &&
+                                    model.unit->attach_parent == 0 &&
+                                    model.unit->attach_first_child == 0
+                                ? frame.image_plan
+                                : model_render::ModelImagePlan::pixels;
+    model_render::plan_unit_supersampled(
+        renderer, bridge, model, region, idle, level, drawn.plan, image_plan
+    );
     if (frame.live_renderer && drawn.plan.linked.drawn) {
         drawn.shown_position = model.unit->position;
         if (snapshot_vertices) {
@@ -1179,16 +1190,22 @@ void Runtime::release_model_images() {
     // Images drawn finer (enhanced anti-aliasing) go with the game's.
     for (auto& tracked : match_models_->units) {
         tracked.state.image = {};
+        tracked.state.deferred_image.reset();
+        tracked.state.deferred_image_depth = false;
         tracked.state.shadow = {};
         tracked.state.finer.reset();
     }
     for (auto& motion : match_models_->presentation.units) {
         motion.state.image = {};
+        motion.state.deferred_image.reset();
+        motion.state.deferred_image_depth = false;
         motion.state.shadow = {};
         motion.state.finer.reset();
     }
     for (auto& feature : match_features_) {
         feature.state.image = {};
+        feature.state.deferred_image.reset();
+        feature.state.deferred_image_depth = false;
         feature.state.shadow = {};
     }
 }
@@ -1964,8 +1981,17 @@ bool Runtime::draw_match_surface() {
     const auto unit_level = directed || full_presentation() || far
                                 ? model_render::UnitSupersampling::off
                                 : unit_supersampling_;
+    const bool metadata_images = live_world && !models.unit_plans.snapshot_unlinked_vertices &&
+                                 unit_level == model_render::UnitSupersampling::off &&
+                                 draw_list.shadow_level == 0 &&
+                                 (renderer.graphics_flags & model_render::graphics_shadows) == 0;
     const UnitPlanFrame plan_frame{
-        unit_level, live_world, live_renderer_active(), models.unit_plans.snapshot_unlinked_vertices
+        unit_level,
+        live_world,
+        live_renderer_active(),
+        models.unit_plans.snapshot_unlinked_vertices,
+        metadata_images ? model_render::ModelImagePlan::metadata
+                        : model_render::ModelImagePlan::pixels
     };
     // A model's draw adds the units it carries after it (plan_model).
     std::vector<ModelDraw> carried_draws;
