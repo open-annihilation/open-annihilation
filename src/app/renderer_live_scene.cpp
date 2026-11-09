@@ -13,6 +13,7 @@
 #include "oa/sim/visibility_state.hpp"
 #include "oa/present/rle.hpp"
 #include "oa/present/gpu_world/model_meshes.hpp"
+#include "oa/base/float_precision.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -4803,7 +4804,8 @@ detail_points(const ModelDraw& draw, std::size_t piece) {
 }
 
 /// Clears the bounded lookup while retaining its storage between frames.
-void clear_detail_poses(Scene& scene) {
+template <typename Memo>
+void clear_detail_poses(Memo& scene) {
     scene.detail_poses.clear();
     scene.detail_pose_points.clear();
     scene.detail_pose_pieces.clear();
@@ -4815,8 +4817,9 @@ void clear_detail_poses(Scene& scene) {
 /// Finds exact local geometry already measured in this build, or measures it.
 /// Source points, piece visibility and texture context are compared exactly;
 /// a full lookup falls back to the caller's summary without retaining it.
+template <typename Memo>
 DetailPose& detail_pose(
-    const Inputs& in, Scene& scene, const ModelDraw& draw, const Unit& unit, DetailPose& unshared
+    const Inputs& in, Memo& scene, const ModelDraw& draw, const Unit& unit, DetailPose& unshared
 ) {
     const auto& reference = draw.model;
     const auto pieces = reference.instance->pieces();
@@ -4947,37 +4950,29 @@ DetailPose& detail_pose(
     return scene.detail_poses.back();
 }
 
-/// Classifies from the actual presented vertices, before shadow decoding,
-/// card positions or triangle emission. Static footprint/radius bounds do
-/// not contain arbitrary animated piece translations, so cannot be used.
-void plan_unit_detail(const Inputs& in, Scene& scene) {
-    scene.unit_detail.clear();
-    scene.unit_detail_active = false;
-    scene.detail_water.clear();
-    scene.detail_poses.clear();
-    scene.detail_pose_points.clear();
-    scene.detail_pose_pieces.clear();
-    scene.detail_pose_hits = 0;
-    std::array<float, 3> across{}, down{};
-    if (!(in.unit_marker_pixels > 0) || !std::isfinite(in.unit_marker_pixels) ||
-        in.clip_width == 0 || in.clip_height == 0 ||
-        !std::all_of(
-            in.clip_projection.begin(),
-            in.clip_projection.end(),
-            [](float value) { return std::isfinite(value); }
-        ) ||
-        !marker_axes(in, across, down))
-        return;
-    clear_detail_poses(scene);
-    scene.unit_marker_across = across;
-    scene.unit_marker_down = down;
-    scene.unit_marker_radius = std::min(64.0F, in.unit_marker_pixels) * 0.5F;
+/// Bounded pose scratch retained separately by each drawing thread. No
+/// borrowed source pointer is used again before the next invocation clears it.
+struct DetailPoseMemo {
+    std::vector<DetailPose> detail_poses{};
+    std::vector<formats::objects3d::FixedVector3> detail_pose_points{};
+    std::vector<DetailPosePiece> detail_pose_pieces{};
+    std::vector<DetailPoseSlot> detail_pose_slots{};
+    std::vector<uint32_t> detail_pose_recent{};
+    std::size_t detail_pose_hits{};
+};
+
+/// Classifies a disjoint range without changing materials, model types or
+/// canonical state. Each range owns its pose memo and corner scratch.
+template <typename Memo>
+bool plan_unit_details(
+    const Inputs& in, Scene& scene, Memo& memo, std::size_t first, std::size_t last
+) {
+    clear_detail_poses(memo);
     const auto& draws = in.draws->models;
-    scene.unit_detail.resize(draws.size());
     std::unordered_map<const model::PreparedModel*, ModelAllowance> allowances;
     std::vector<Vertex> corners;
     bool eligible{};
-    for (std::size_t index = 0; index < draws.size(); ++index) {
+    for (std::size_t index = first; index < last; ++index) {
         const auto& draw = draws[index];
         const auto& reference = draw.model;
         const auto* unit = reference.unit;
@@ -5018,7 +5013,7 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
         }
         detail.brightness = brightness_at(in.sight, origin[0], origin[2] - origin[1] * height_lift);
         DetailPose unshared;
-        auto& pose = detail_pose(in, scene, draw, *unit, unshared);
+        auto& pose = detail_pose(in, memo, draw, *unit, unshared);
         // Translate the extrema before finding their centre or extent. This
         // keeps the same rounding as translating every vertex separately.
         const std::array low{
@@ -5089,7 +5084,73 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
         detail.marker = detail.pixels <= in.unit_marker_pixels;
         eligible = true;
     }
-    scene.unit_detail_active = eligible;
+    return eligible;
+}
+
+/// Classifies from the actual presented vertices, before shadow decoding,
+/// card positions or triangle emission. Static footprint/radius bounds do
+/// not contain arbitrary animated piece translations, so cannot be used.
+void plan_unit_detail(const Inputs& in, Scene& scene) {
+    scene.unit_detail.clear();
+    scene.unit_detail_active = false;
+    scene.detail_water.clear();
+    scene.detail_poses.clear();
+    scene.detail_pose_points.clear();
+    scene.detail_pose_pieces.clear();
+    scene.detail_pose_hits = 0;
+    std::array<float, 3> across{}, down{};
+    if (!(in.unit_marker_pixels > 0) || !std::isfinite(in.unit_marker_pixels) ||
+        in.clip_width == 0 || in.clip_height == 0 ||
+        !std::all_of(
+            in.clip_projection.begin(),
+            in.clip_projection.end(),
+            [](float value) { return std::isfinite(value); }
+        ) ||
+        !marker_axes(in, across, down))
+        return;
+    scene.unit_marker_across = across;
+    scene.unit_marker_down = down;
+    scene.unit_marker_radius = std::min(64.0F, in.unit_marker_pixels) * 0.5F;
+    const auto& draws = in.draws->models;
+    scene.unit_detail.resize(draws.size());
+    constexpr std::size_t draws_per_detail_band = 512;
+    const auto threads =
+        in.pool ? std::min(in.pool->threads(), platform::job_pool::max_threads) : uint32_t{1};
+    const auto bands = static_cast<uint32_t>(std::max<std::size_t>(
+        1, std::min<std::size_t>(threads, draws.size() / draws_per_detail_band)
+    ));
+    if (bands == 1) {
+        scene.unit_detail_active = plan_unit_details(in, scene, scene, 0, draws.size());
+        return;
+    }
+    std::array<bool, platform::job_pool::max_threads> eligible{};
+    std::array<std::size_t, platform::job_pool::max_threads> hits{};
+    std::array<std::exception_ptr, platform::job_pool::max_threads> failures{};
+    const auto control = base::float_precision::save_float_control();
+    platform::job_pool::run_bands(in.pool, bands, [&](uint32_t band) noexcept {
+        // A pool can hand successive ranges to one thread; clear before
+        // each one, so no pose or texture context survives an invocation.
+        thread_local DetailPoseMemo memo;
+        const auto previous = base::float_precision::save_float_control();
+        base::float_precision::restore_float_control(control);
+        try {
+            const auto first = draws.size() * band / bands;
+            const auto last = draws.size() * (band + 1) / bands;
+            eligible[band] = plan_unit_details(in, scene, memo, first, last);
+            hits[band] = memo.detail_pose_hits;
+        } catch (...) {
+            failures[band] = std::current_exception();
+        }
+        base::float_precision::restore_float_control(previous);
+    });
+    // Ranges cover consecutive draw indices; report the same first
+    // failing range and retain the original serial budget and draw order.
+    for (uint32_t band = 0; band < bands; ++band) {
+        if (failures[band])
+            std::rethrow_exception(failures[band]);
+        scene.unit_detail_active |= eligible[band];
+        scene.detail_pose_hits += hits[band];
+    }
 }
 
 /// Reserves every marker first, then keeps the largest full models that
