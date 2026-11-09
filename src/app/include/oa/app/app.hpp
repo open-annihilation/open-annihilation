@@ -1100,6 +1100,10 @@ struct Options {
     fs::path capture_video;
     // The scripted showcase the run plays in place of a player.
     Showcase showcase = Showcase::none;
+    /// Overrides the wall-clock length of an explicitly staged battle showcase, in seconds.
+    std::optional<uint32_t> showcase_seconds{};
+    /// Camera keyframes sampled on the staged showcase's normal presentation clock.
+    fs::path showcase_tour{};
     // --bench FILE: the view file of a measured run of a staged skirmish in
     // the game's window, played in place of a player (runtime_bench.cpp);
     // empty for none.
