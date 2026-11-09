@@ -529,6 +529,60 @@ void test_failed_replacement_preserves_accounting_and_active_entry() {
     OA_CHECK(cache.storage_bytes() <= ModelTransformCache::storage_limit);
 }
 
+void test_heading_and_pitch_families_keep_exact_repeats() {
+    constexpr size_t family_size = 32;
+    constexpr int16_t root_step = 256;
+    const auto model = model_with();
+    for (const bool pitch : std::array<bool, 2>{false, true}) {
+        ModelTransformCache cache;
+        cache.begin_frame();
+        auto source = make_instance(model, 61);
+        pose(source, 117);
+        std::array<bool, family_size> admitted{};
+        const auto root_at = [&](size_t index) {
+            const auto angle = static_cast<int16_t>(index * root_step);
+            return pitch ? RotationWords{17, 0, angle} : RotationWords{17, angle, 0};
+        };
+        for (size_t index = 0; index < family_size; ++index) {
+            const auto root = root_at(index);
+            source.rebuild_transforms(root);
+            const auto stored = cache.counts().stores;
+            cache.remember(source, root);
+            admitted[index] = cache.counts().stores != stored;
+        }
+        // A small family of distinct headings or pitches can coexist while
+        // entries remain free. Probe collisions may still refuse a pose.
+        const auto stored = cache.counts().stores;
+        OA_CHECK(stored > 8 && stored <= family_size);
+        OA_CHECK(stored < ModelTransformCache::entry_capacity);
+        OA_CHECK(cache.counts().overflows == family_size - stored);
+        OA_CHECK(cache.storage_bytes() <= ModelTransformCache::storage_limit);
+
+        auto receiver = make_instance(model, 73);
+        pose(receiver, 117);
+        receiver.rebuild_transforms();
+        for (size_t index = 0; index < family_size; ++index) {
+            const auto root = root_at(index);
+            const auto oracle = rebuilt_afresh(receiver, root);
+            const auto before = receiver;
+            const bool reused = cache.reuse(receiver, root);
+            OA_CHECK(reused == admitted[index]);
+            if (!reused) {
+                check_unchanged(receiver, before);
+                receiver.rebuild_transforms(root);
+            }
+            OA_CHECK(same_transforms(receiver, oracle));
+            OA_CHECK(receiver.owner_token() == 73);
+        }
+        OA_CHECK(cache.counts().hits == stored);
+        OA_CHECK(cache.counts().misses == family_size - stored);
+        const auto unretained_root = root_at(family_size);
+        check_miss(cache, receiver, unretained_root);
+        receiver.rebuild_transforms(unretained_root);
+        OA_CHECK(same_transforms(receiver, rebuilt_afresh(receiver, unretained_root)));
+    }
+}
+
 } // namespace
 
 int main() {
@@ -539,5 +593,6 @@ int main() {
     test_unbuilt_and_stale_sources_fall_back();
     test_admission_limits_and_many_unique_poses();
     test_failed_replacement_preserves_accounting_and_active_entry();
+    test_heading_and_pitch_families_keep_exact_repeats();
     return oa::test::check_exit_status();
 }
