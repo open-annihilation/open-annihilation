@@ -647,6 +647,45 @@ completed turned run is verified separately. Version 4 remains current,
 experimental version 5 has not passed its older march flow gate, and ray
 tracing stays deferred while congestion and existing-view costs are addressed.
 
+## Foreground strategic dots checkpoint
+
+Three completed native-window runs use the same executable from a Check build at
+`23e12bf71` on the M5 and the same Core Prime Industrial Area scene: 10,000
+stock units per side, seed 7, 900 warmup and 900 measured ticks. Full
+presentation uses AA4, the existing strategic dots choice after zoom 1/3,
+zoom 0.25 and a 1920-by-1018 output. Rules 4 and 6 are selected explicitly
+in the normal benchmark view file; graphics selection remains independent.
+
+| View | Rules | Presented FPS | Ticks/s | Frame 1% low FPS | Final CORE / ARM |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Classic 2.5D dots | 4 | 74.048 | 30.006 | 38.32 | 9,774 / 9,922 |
+| Classic 2.5D dots | 6 | 67.358 | 29.996 | 34.13 | 9,937 / 9,987 |
+| Turned 3D dots | 4 | 49.329 | 29.997 | 30.14 | 9,774 / 9,922 |
+
+Every measured frame passed the SDL input and keyboard focus checks and
+the guards for normal timing and the requested Full presentation. OS focus
+sampling has a terminal qualification for classic v6: one final sample is
+unknown. The last sample known to be valid is 0.112 seconds before the
+process receipt ends; exact alignment with the final measured frame is
+unverified. The 3D v4 run coincided with external ffmpeg load reaching
+777.3% CPU, so its timing is externally contended. The 3D v6 attempt failed
+readiness at tick 930 when the Mac locked; it supplies no FPS result.
+
+No births occurred. Cumulative deaths were 226 / 78 under v4 and 63 / 13
+under v6, exactly reconciling all final counts with the initial armies.
+The classic v6 workload had more original units moving between samples:
+the minimum ARM X/Z-motion count was 8,920, versus 130 under classic v4.
+This is sampled movement, not proof of forward flow or bridge clearance.
+Different motion and combat workloads and sampled host activity prevent an
+isolated comparison of renderer speed. These runs precede terrain-demand
+caching and establish no gain from that change.
+
+The display refreshes at 60 Hz, so more than 60 presents/s cannot show more
+than 60 distinct refreshes/s. The frame tails remain above the 16.7 ms
+budget, and smooth bridge/rear flow remains unresolved. These observations
+do not establish smooth 60 FPS play or full-model rendering at this scale;
+version 4 remains current and ray tracing remains deferred.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
