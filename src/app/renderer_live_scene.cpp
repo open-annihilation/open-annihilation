@@ -4660,6 +4660,21 @@ void naval_reflection(
     }
 }
 
+/// Whether the classic draw uses a cached image, including one whose pixels
+/// wait until a renderer needs them.
+bool uses_model_image(const ModelDraw& draw) {
+    const auto* state = draw.model.state;
+    return draw.plan.model.from_image && state != nullptr &&
+           (state->image.sprite.data != nullptr || state->deferred_image.has_value());
+}
+
+/// Whether an image draw keeps depth for construction, water and attachments.
+bool model_image_has_depth(const ModelDraw& draw) {
+    const auto& state = *draw.model.state;
+    return state.image.sprite.data != nullptr ? state.image.sprite.aux != nullptr
+                                              : state.deferred_image_depth;
+}
+
 /// Tells whether a piece's animated textures show their first frame, as the
 /// classic tiers draw the piece (the processor's cached image, and the Full
 /// tier's model stage): a piece the unit's image holds always does, and an
@@ -4676,12 +4691,10 @@ void naval_reflection(
 bool shows_first_frame(
     const ModelDraw& draw, const Unit& unit, bool cached, bool moving_pieces_once_built
 ) {
-    const auto* state = draw.model.state;
-    const bool image =
-        draw.plan.model.from_image && state != nullptr && state->image.sprite.data != nullptr;
+    const bool image = uses_model_image(draw);
     if (!image)
         return draw.plan.linked.unlit;
-    const bool depth_image = state->image.sprite.aux != nullptr;
+    const bool depth_image = model_image_has_depth(draw);
     if (depth_image && unit.build_remaining != 0.0F)
         return (unit.flags & OA_UNIT_FLAG_BUILDING) != 0 || moving_pieces_once_built;
     if (cached)
@@ -4740,8 +4753,7 @@ ModelAllowance model_allowance(const ModelDraw& draw) {
 bool marker_has_face(
     const Inputs& in, const ModelDraw& draw, const Unit& unit, std::vector<Vertex>& corners
 ) {
-    const bool image =
-        draw.plan.model.from_image && draw.model.state && draw.model.state->image.sprite.data;
+    const bool image = uses_model_image(draw);
     const auto pieces = draw.model.instance->pieces();
     for (std::size_t index = 0; index < pieces.size(); ++index) {
         const auto& piece = pieces[index];
@@ -4823,12 +4835,11 @@ DetailPose& detail_pose(
 ) {
     const auto& reference = draw.model;
     const auto pieces = reference.instance->pieces();
-    const bool image =
-        draw.plan.model.from_image && reference.state && reference.state->image.sprite.data;
+    const bool image = uses_model_image(draw);
     const DetailPoseContext context{
         in.team_colors[unit.owner_index % in.team_colors.size()],
         image,
-        image && reference.state->image.sprite.aux != nullptr,
+        image && model_image_has_depth(draw),
         draw.plan.linked.unlit,
         unit.build_remaining != 0,
         (unit.flags & OA_UNIT_FLAG_BUILDING) != 0,
@@ -5989,8 +6000,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
         // unlit by its build and unshaded, from its type's model.
         if (in.models_on_card && !translucent && !reflects &&
             std::clamp(unit->build_remaining, 0.0F, 1.0F) == 0) {
-            const bool image =
-                draw.plan.model.from_image && reference.state && reference.state->image.sprite.data;
+            const bool image = uses_model_image(draw);
             const bool shaded = shade_ready && image &&
                                 (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 &&
                                 (in.graphics_flags & model::graphics_shading) != 0;
@@ -6028,8 +6038,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                 continue;
             const auto& object = reference.instance->model().objects.at(piece.object_index);
             const auto& prepared = reference.prepared->objects.at(piece.object_index);
-            const bool image =
-                draw.plan.model.from_image && reference.state && reference.state->image.sprite.data;
+            const bool image = uses_model_image(draw);
             const bool rows =
                 shade_ready && image && (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 &&
                 (in.graphics_flags & model::graphics_shading) != 0 &&

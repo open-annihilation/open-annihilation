@@ -82,6 +82,95 @@ struct Fixture {
     }
 };
 
+/// Deferred image metadata preserves geometry, materials, detail decisions
+/// and emitted-face picking bounds on both model drawing paths.
+void check_deferred_image_draw(const live::Inputs& inputs, oa::present::model::ModelState& state) {
+    const auto prior_deferred = state.deferred_image;
+    const bool prior_depth = state.deferred_image_depth;
+    for (const bool on_card : {false, true}) {
+        auto in = inputs;
+        in.models_on_card = on_card;
+        std::array<live::Scene, 2> scenes;
+        std::string error;
+        OA_CHECK(live::build(in, scenes[0], error));
+        auto image = std::move(state.image);
+        state.image = {};
+        const auto& sprite = image.sprite;
+        state.deferred_image = oa::present::model::ImageFrame{
+            sprite.width, sprite.height, sprite.origin_x, sprite.origin_y
+        };
+        state.deferred_image_depth = sprite.aux != nullptr;
+        OA_CHECK(live::build(in, scenes[1], error));
+        OA_CHECK(state.image.sprite.data == nullptr && state.image.pixels.empty());
+        state.image = std::move(image);
+        state.deferred_image = prior_deferred;
+        state.deferred_image_depth = prior_depth;
+        const auto& expected = scenes[0];
+        const auto& actual = scenes[1];
+        OA_CHECK(expected.shadow_count == 0 && actual.shadow_count == 0);
+        OA_CHECK(expected.model_count == actual.model_count);
+        OA_CHECK(expected.terrain_vertex_count == actual.terrain_vertex_count);
+        OA_CHECK(expected.vertices.size() == actual.vertices.size());
+        if (expected.vertices.size() == actual.vertices.size() && !expected.vertices.empty())
+            OA_CHECK(
+                std::memcmp(
+                    expected.vertices.data(),
+                    actual.vertices.data(),
+                    expected.vertices.size() * sizeof(expected.vertices[0])
+                ) == 0
+            );
+        OA_CHECK(expected.texture_rgba == actual.texture_rgba);
+        OA_CHECK(expected.cards.positions == actual.cards.positions);
+        OA_CHECK(expected.cards.indices == actual.cards.indices);
+        OA_CHECK(expected.cards.piece_frames == actual.cards.piece_frames);
+        OA_CHECK(expected.cards.textures == actual.cards.textures);
+        OA_CHECK(
+            std::equal(
+                expected.unit_ranges.begin(),
+                expected.unit_ranges.end(),
+                actual.unit_ranges.begin(),
+                actual.unit_ranges.end(),
+                [](const live::UnitRange& a, const live::UnitRange& b) {
+                    return a.unit_id == b.unit_id && a.first_vertex == b.first_vertex &&
+                           a.vertex_count == b.vertex_count;
+                }
+            )
+        );
+        OA_CHECK(
+            std::equal(
+                expected.cards.units.begin(),
+                expected.cards.units.end(),
+                actual.cards.units.begin(),
+                actual.cards.units.end(),
+                [](const live::CardUnit& a, const live::CardUnit& b) {
+                    return a.unit_id == b.unit_id && a.vertex == b.vertex &&
+                           a.instance == b.instance && a.type == b.type &&
+                           a.first_index == b.first_index && a.index_count == b.index_count &&
+                           a.left == b.left && a.top == b.top && a.right == b.right &&
+                           a.bottom == b.bottom && a.bounded == b.bounded;
+                }
+            )
+        );
+        OA_CHECK(
+            std::equal(
+                expected.unit_detail.begin(),
+                expected.unit_detail.end(),
+                actual.unit_detail.begin(),
+                actual.unit_detail.end(),
+                [](const live::UnitDetail& a, const live::UnitDetail& b) {
+                    return a.surface == b.surface && a.shadow == b.shadow &&
+                           std::bit_cast<uint32_t>(a.pixels) == std::bit_cast<uint32_t>(b.pixels) &&
+                           std::bit_cast<uint32_t>(a.brightness) ==
+                               std::bit_cast<uint32_t>(b.brightness) &&
+                           std::bit_cast<std::array<uint32_t, 3>>(a.center) ==
+                               std::bit_cast<std::array<uint32_t, 3>>(b.center) &&
+                           a.eligible == b.eligible && a.marker == b.marker;
+                }
+            )
+        );
+    }
+}
+
 /// Samples a triangle's interpolated centre from its material atlas.
 std::array<uint8_t, 4> triangle_color(const live::Scene& scene, std::size_t first) {
     const auto& a = scene.vertices.at(first);
@@ -357,6 +446,7 @@ void animated_frames_follow_classic_tiers() {
     draw.plan.model.from_image = true;
     const auto shown = [&] {
         OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        check_deferred_image_draw(fixture.inputs, state);
         OA_CHECK(!fixture.scene.unit_ranges.empty());
         if (fixture.scene.unit_ranges.empty())
             return std::array<uint8_t, 4>{};
@@ -375,6 +465,19 @@ void animated_frames_follow_classic_tiers() {
     // Over an image with a depth plane a moving piece always runs.
     state.image.sprite.aux = image.data();
     OA_CHECK(shown()[0] == alternate_color[0]);
+    // Construction keeps the same cached/moving frame choices for both
+    // kinds of unit and for the moving-piece presentation setting.
+    unit.build_remaining = 0.5F;
+    for (const bool building : {false, true}) {
+        unit.flags = building ? OA_UNIT_FLAG_BUILDING : 0;
+        for (const bool moving_once_built : {false, true}) {
+            fixture.inputs.moving_pieces_once_built = moving_once_built;
+            check_deferred_image_draw(fixture.inputs, state);
+        }
+    }
+    unit.build_remaining = 0;
+    unit.flags = 0;
+    fixture.inputs.moving_pieces_once_built = false;
     // Without an image every piece runs unless the unit is idle.
     piece.flags = static_cast<uint16_t>(piece.flags | cached);
     draw.plan.model.from_image = false;
@@ -1587,10 +1690,17 @@ void model_key_walls_and_cloak() {
     draw.plan.linked.drawn = true;
     draw.plan.model.from_image = true;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(fixture.scene.model_count == 1);
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    auto detailed = fixture.inputs;
+    detailed.unit_marker_pixels = 5;
+    detailed.clip_width = detailed.clip_height = 128;
+    detailed.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, -0.001F, 0, 0.5F};
+    check_deferred_image_draw(detailed, state);
     draw.plan.model.from_image = false;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count + 3);
 
     // A cloaked unit first in the plan, an opaque one after it.
@@ -1605,6 +1715,7 @@ void model_key_walls_and_cloak() {
     fixture.draws.models.push_back(draw);
     fixture.draws.models[1].model.unit = &other;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(fixture.scene.unit_ranges.size() == 2);
     const auto range_of = [&](uint16_t id) {
         for (const auto& range : fixture.scene.unit_ranges)
@@ -1621,6 +1732,7 @@ void model_key_walls_and_cloak() {
     OA_CHECK(std::abs(fixture.scene.vertices[cloaked.first_vertex].x - 8) < tolerance);
     fixture.inputs.translucent_units = true;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(std::abs(fixture.scene.vertices[range_of(8).first_vertex].opacity - 0.5F) < tolerance);
 }
 
@@ -4181,6 +4293,7 @@ void models_on_card() {
                 }
             )
         );
+        check_deferred_image_draw(in, pictured);
         for (std::size_t scene = 1; scene < scenes.size(); ++scene)
             OA_CHECK(same_on_card(scenes[scene], scenes[0], in));
     }
@@ -5590,6 +5703,14 @@ void naval_reflection_visibility() {
     draw.plan.linked.drawn = false;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    draw.plan.linked.drawn = true;
+    drawing::ModelState state;
+    state.image = oa::present::create_sprite(8, 8);
+    draw.model.state = &state;
+    draw.plan.model.from_image = true;
+    for (auto& primitive : prepared.objects[0].primitives)
+        primitive.color = alternate_index;
+    check_deferred_image_draw(fixture.inputs, state);
 }
 
 /// Building shade rows match classic bright textures and indexed palette remaps.
@@ -5639,6 +5760,7 @@ void model_shade_parity() {
     shades.fill(alternate_index);
     fixture.inputs.shade_table = shades;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(!fixture.scene.unit_ranges.empty());
     if (fixture.scene.unit_ranges.empty())
         return;
@@ -5648,15 +5770,18 @@ void model_shade_parity() {
     // Camera orientation changes visibility, never the baked model light direction.
     fixture.inputs.view_direction = {0, 0, 1};
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(std::abs(fixture.scene.vertices[first].brightness - 20 * 0.06875F / 2) < tolerance);
     fixture.inputs.view_direction = {};
     unit.flags = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(triangle_color(fixture.scene, first)[0] == 120);
     OA_CHECK(fixture.scene.vertices[first].brightness == 1);
     unit.flags = OA_UNIT_FLAG_BUILDING;
     fixture.inputs.graphics_flags = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(triangle_color(fixture.scene, first)[0] == 120);
     fixture.inputs.graphics_flags = drawing::graphics_shading;
     // The ground's colour at an index other than the image key, which a
@@ -5670,6 +5795,7 @@ void model_shade_parity() {
     prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
     prepared.objects[0].primitives[0].color = model_index;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     const auto& vertex = fixture.scene.vertices[first];
     OA_CHECK(triangle_color(fixture.scene, first)[0] == 30);
     OA_CHECK(std::abs(vertex.red - 30 / 255.0F) < tolerance);
@@ -5678,11 +5804,13 @@ void model_shade_parity() {
     // Standalone callers without a complete classic lighting bundle keep source art.
     fixture.inputs.shade_table = {};
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(triangle_color(fixture.scene, first)[0] == ground_color[0]);
     fixture.inputs.shade_table = shades;
     fixture.inputs.light_scale = 0;
     prepared.objects[0].primitives[0].flags = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    check_deferred_image_draw(fixture.inputs, state);
     OA_CHECK(triangle_color(fixture.scene, first)[0] == ground_color[0]);
 }
 
