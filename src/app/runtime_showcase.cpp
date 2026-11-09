@@ -6,7 +6,9 @@
 // loop's frames and clock, so that a video capture shows them as a player
 // sees them (docs/capture.md).
 #include "oa/app/runtime.hpp"
+#include "battle_counts.hpp"
 #include "renderer_effect_sources.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 
 #include <SDL3/SDL.h>
@@ -22,6 +24,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -59,6 +62,10 @@ constexpr std::string_view kArmCampaign = "Arm Campaign";
 // stand, and the units each side brings without --combat.
 constexpr double kBattleSeconds = 60.0;
 constexpr std::size_t kBattleUnitsPerSide = 50;
+/// Units each side brings to an externally staged battle showcase.
+constexpr uint32_t staged_battle_units_per_side = 10000;
+/// Rules selected before the staged showcase's match is created.
+constexpr uint32_t staged_battle_rules_version = oa::data::enhanced_mode::battle_flow_version;
 // A battle frame longer than five ticks at normal speed, the most a frame
 // catches up, costs the match ticks; the showcase lists the first few.
 constexpr double kSlowFrameSeconds = 5.0 / 30.0;
@@ -87,7 +94,13 @@ uint32_t move_order(const oa::Unit& unit) {
 } // namespace
 
 void Runtime::run_battle_showcase() {
+    const bool staged = !options_.stage_file.empty();
+    if (staged && (options_.headless_check || options_.fixed_clock))
+        fail("a staged battle showcase needs the normal window and wall clock");
     bool running = true;
+    bool stage_ready{};
+    bool require_turned_view{};
+    bool reported_presentation{};
     const auto now = [] { return static_cast<double>(SDL_GetTicksNS()) / kNanosecondsPerSecond; };
     // One pass of the application loop, paced as run() paces it; the time it
     // worked, without the wait, is added to `work`.
@@ -98,11 +111,49 @@ void Runtime::run_battle_showcase() {
         work += now() - start;
         if (!running || exit_requested_)
             fail("the game was closed");
+        if (stage_ready) {
+            if (screen_ != Screen::match || !match_)
+                fail("the staged battle lost its match");
+            if (!last_tick_error_.empty())
+                fail("the staged battle reported a simulation error: " + last_tick_error_);
+            if (require_turned_view &&
+                (!full_presentation() || !live_renderer_active() || live_renderer_failed() ||
+                 live_renderer_unavailable() || turned_view_device() == nullptr))
+                fail("the staged turned view is not being presented by Full 3D");
+            if (!reported_presentation) {
+                auto* device = turned_view_device();
+                const char* driver = device ? SDL_GetGPUDeviceDriver(device) : nullptr;
+                const char* renderer = SDL_GetRendererName(sdl_.renderer);
+                report(
+                    "STAGED_PRESENT full " + std::to_string(full_presentation()) + " turned " +
+                    std::to_string(live_renderer_active()) + " gpu " + (driver ? driver : "none") +
+                    " renderer " + (renderer ? renderer : "unknown")
+                );
+                reported_presentation = true;
+            }
+        }
         pace_next_frame(running);
     };
     const double menu_end = now() + kMenuSeconds;
     while (now() < menu_end)
         frame();
+    bool held_rules{};
+    const auto restore_rules = [&] {
+        if (held_rules)
+            release_enhanced_rules_once(true);
+    };
+
+    struct RestoreRules {
+        const decltype(restore_rules)& restore;
+
+        ~RestoreRules() { restore(); }
+    } restore{restore_rules};
+
+    if (staged) {
+        if (!hold_enhanced_rules_once(staged_battle_rules_version))
+            fail("the staged battle's Enhanced Mode rules could not be selected");
+        held_rules = true;
+    }
     // The battle plays on when a commander falls: the skirmish screen reads
     // the game continuing after a commander's death, and the player's own
     // choice is put back once the skirmish has started.
@@ -122,22 +173,104 @@ void Runtime::run_battle_showcase() {
     preferences_dirty_ = true;
     flush_preferences();
     const auto units = options_.combat_units != 0 ? options_.combat_units : kBattleUnitsPerSide;
-    // The busy combat's units, away from the armies, keep the player in the
-    // game when the army beside the commander falls.
-    options_.busy_combat = true;
-    spawn_combat_armies(units);
+    if (staged) {
+        if (multiplayer_session() ||
+            match_session_kind() != oa::data::campaign::SessionKind::skirmish)
+            fail("a staged battle showcase needs an offline skirmish");
+        apply_stage();
+        if (screen_ != Screen::match || !match_)
+            fail("the stage did not leave a running match");
+        if (oa::data::enhanced_mode::rules_version(match_->rules()) != staged_battle_rules_version)
+            fail("the staged battle did not start with its required Enhanced Mode rules");
+        const auto initial = battle_counts::count_live_units(match_->state());
+        uint32_t total{};
+        for (const auto count : initial)
+            total += count;
+        if (total != staged_battle_units_per_side * 2 ||
+            initial[0] != staged_battle_units_per_side ||
+            initial[1] != staged_battle_units_per_side)
+            fail("the staged battle needs exactly 20000 live units, 10000 for each side");
+        if (const char* fault = match_->fault())
+            fail("the staged battle's setup reported a match fault: " + std::string(fault));
+        if (!match_clock_steps())
+            fail("the staged battle's clock is held");
+        const auto angles = live_camera_angles();
+        require_turned_view = angles[0] != 0 || angles[1] != 0;
+        report(
+            "STAGED_INITIAL tick " + std::to_string(match_timing_.tick) + " seed " +
+            std::to_string(match_->random_seed()) + " rules " +
+            std::to_string(oa::data::enhanced_mode::rules_version(match_->rules())) + " alive " +
+            std::to_string(initial[0]) + "+" + std::to_string(initial[1]) + " total " +
+            std::to_string(total) + " census_pass 1 setup_fault none"
+        );
+        stage_ready = true;
+    } else {
+        // The busy combat's units, away from the armies, keep the player in
+        // the game when the army beside the commander falls.
+        options_.busy_combat = true;
+        spawn_combat_armies(units);
+    }
+
+    struct CombatCounts {
+        std::array<uint64_t, OA_PLAYER_COUNT> births{}, deaths{};
+    } combat;
+
+    sim::match_runtime::EventHooks events{};
+    events.context = &combat;
+    events.unit_created = [](void* context, const oa::World& world, uint16_t id) {
+        const auto owner = world.units[id].owner_index;
+        if (owner < OA_PLAYER_COUNT)
+            ++static_cast<CombatCounts*>(context)->births[owner];
+    };
+    events.unit_died = [](void* context,
+                          const oa::World& world,
+                          uint16_t id,
+                          const sim::match_runtime::KillOutcome&,
+                          bool) {
+        const auto owner = world.units[id].owner_index;
+        if (owner < OA_PLAYER_COUNT)
+            ++static_cast<CombatCounts*>(context)->deaths[owner];
+    };
+    const auto listener = staged ? match_->add_event_listener(events) : 0;
+    if (staged && listener == 0)
+        fail("could not install the staged battle's native event counters");
+
+    struct ListenerGuard {
+        decltype(match_)& current;
+        sim::match_runtime::Match* original{};
+        sim::match_runtime::EventListenerId id{};
+
+        ~ListenerGuard() {
+            if (id && current.get() == original)
+                std::ignore = current->remove_event_listener(id);
+        }
+    } listener_guard{match_, match_.get(), listener};
+
     const uint32_t drawing_threads = draw_pool_ ? draw_pool_->threads() : 1U;
     report(
         "the battle started at " + std::to_string(match_layout_.width) + "x" +
-        std::to_string(match_layout_.height) + " with " + std::to_string(units) +
-        " units a side and the busy combat's, at most " +
+        std::to_string(match_layout_.height) + " with " +
+        (staged ? std::to_string(staged_battle_units_per_side) + " staged units a side, at most "
+                : std::to_string(units) + " units a side and the busy combat's, at most ") +
         std::to_string(options_.max_frames_per_second) + " frames a second, on " +
         std::to_string(drawing_threads) + " drawing thread" + (drawing_threads > 1 ? "s" : "")
     );
     phase_times_ = {};
     work = 0.0;
+    if (staged) {
+        // Synchronous stage setup is not elapsed game time to catch up with.
+        frame_time_ns_ = frame_clock_ns();
+        snap_held_clock();
+    }
     const uint32_t first_tick = match_timing_.tick;
-    const double start = now();
+    const uint64_t battle_start_ns = SDL_GetTicksNS();
+    const double start = static_cast<double>(battle_start_ns) / kNanosecondsPerSecond;
+    if (staged)
+        report(
+            "STAGED_BATTLE_START sdl_ticks_ns " + std::to_string(battle_start_ns) + " tick " +
+            std::to_string(first_tick) + " duration_seconds " + std::to_string(kBattleSeconds) +
+            " capture " + std::to_string(video_capture_ != nullptr)
+        );
     double previous = start;
     double longest = 0.0;
     // The longest frame's ticks and the time they, its drawing and its
@@ -233,6 +366,20 @@ void Runtime::run_battle_showcase() {
         per_frame_ms(ns_to_seconds(phase_times_.upload + phase_times_.present))
     );
     report(line);
+    if (staged) {
+        const auto final = battle_counts::count_live_units(match_->state());
+        uint32_t total{};
+        for (const auto count : final)
+            total += count;
+        report(
+            "STAGED_FINAL tick " + std::to_string(match_timing_.tick) + " alive " +
+            std::to_string(final[0]) + "+" + std::to_string(final[1]) + " total " +
+            std::to_string(total) + " birth_events " + std::to_string(combat.births[0]) + "+" +
+            std::to_string(combat.births[1]) + " death_events " + std::to_string(combat.deaths[0]) +
+            "+" + std::to_string(combat.deaths[1]) + " sdl_ticks_ns " +
+            std::to_string(SDL_GetTicksNS()) + " simulation_errors none"
+        );
+    }
     print_memory_status();
 }
 
