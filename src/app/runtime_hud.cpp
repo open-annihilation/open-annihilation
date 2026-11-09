@@ -23,6 +23,7 @@
 #include "oa/sim/weapon_execution/weapon_keys.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
+#include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/hud/build_page_fit.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/order_panel.hpp"
@@ -1499,6 +1500,7 @@ void Runtime::prepare_minimap_display() {
     auto& radar = radar_state_;
     if (!match_ || radar.surfaces.mapped == nullptr || match_hud_cpu_.rgb.empty() ||
         oa::ui::display_layout::placed_mode(match_layout_) ||
+        oa::ui::frontend_dialogs::dialog_count() != 0 ||
         (director_ != nullptr && !director_->presentation.show_interface))
         return;
     const auto& world = match_->state();

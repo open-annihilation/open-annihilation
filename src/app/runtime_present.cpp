@@ -835,7 +835,7 @@ void Runtime::compose_match_layers(renderer::Surface& frame) {
     );
     if (placed)
         PhoneHudAccess::blit_regions(*this, frame);
-    if (!radar_state_.display_image.rgb.empty() &&
+    if (!radar_state_.display_image.rgb.empty() && oa::ui::frontend_dialogs::dialog_count() == 0 &&
         !(director_ != nullptr && !director_->presentation.show_interface))
         blit_rect(
             frame,
@@ -1084,6 +1084,7 @@ void Runtime::finish_match_layers(
 void Runtime::present_minimap_display() {
     auto& radar = radar_state_;
     if (!match_ || radar.display_image.rgb.empty() || match_hud_cpu_.rgb.empty() ||
+        oa::ui::frontend_dialogs::dialog_count() != 0 ||
         (director_ != nullptr && !director_->presentation.show_interface))
         return;
     ensure_streaming_texture(
