@@ -37,7 +37,7 @@ int32_t low32(int64_t value) noexcept {
 }
 
 void rotate_pair(int32_t& a, int32_t& b, int16_t angle) {
-    if (angle == 0)
+    if (angle == 0 || (a == 0 && b == 0))
         return;
     const auto rotated = base::game_math::rotate_pair(a, b, angle);
     // Each coordinate rounds to the nearest integer, ties to even.
