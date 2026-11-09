@@ -1869,141 +1869,141 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // the list to the stage of its kind, the sprite stage's batches never
         // joining the model stage's; the pages' texels the stages changed go
         // up before the frame runs.
-        const auto emit_stages =
-            [&](float origin_x, float origin_y, float view_scale, card::TargetHandle target) {
-                const auto stage_start = std::chrono::steady_clock::now();
-                full::SceneView scene;
-                scene.origin_x = origin_x;
-                scene.origin_y = origin_y;
-                scene.scale = view_scale;
-                scene.zoom = zoom;
-                scene.offset = accelerated_.frame_offset;
-                scene.width = static_cast<int32_t>(bf_w);
-                scene.height = static_cast<int32_t>(bf_h);
-                scene.camera_x = static_cast<int32_t>(full.frame_camera_x);
-                scene.camera_y = static_cast<int32_t>(full.frame_camera_y);
-                scene.target = target;
-                sprite_inputs.view = scene;
-                renderer_water_classic::Inputs water;
-                water.map = &*selected_tnt_;
-                water.view = scene;
-                water.seconds = double(match_->simulation().tick) / 30.0;
-                // The sliders' strengths, which a lava sea leaves at none.
-                const auto levels = water_levels();
-                water.ripples = levels.ripples;
-                water.coast = levels.coast;
-                water.shimmer = levels.shimmer;
-                water.reflections = levels.reflections;
-                water.water_surface = water_surface();
-                // The water's effects end where the terrain does.
-                const auto shown_map = shown_map_size();
-                water.shown = {float(shown_map[0]), float(shown_map[1])};
-                water.disturbances = water_disturbances();
-                water.wind = water_wind();
-                water.art = &water_art;
-                vertex_heights.clear();
-                model_inputs.vertex_heights = nullptr;
-                model_inputs.water_shimmer =
-                    selected_tnt_->sea_level > 0
-                        ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
-                        : 0;
-                model_inputs.water_sea_level = static_cast<float>(selected_tnt_->sea_level);
-                model_inputs.water_seconds = water.seconds;
-                const auto water_coverage = match_->player_coverage(match_view_player());
-                const auto& water_sight = match_->sight();
-                const auto water_own = uint16_t(1U << (match_view_player() & 0x1fU));
-                const present::world_renderer::FogOptions water_rules{
-                    match_line_of_sight_on(), match_mapping_on(), allied_mapped_bits()
-                };
-                const auto water_bit = uint16_t(water_own | water_rules.shared_mapped);
-                const bool water_mapping = water_rules.mapping;
-                water.visible = [&](float x, float y) {
-                    constexpr float edge = present::world_renderer::fog_cell_pixels;
-                    const int column = int(std::floor(x / edge));
-                    const int row = int(std::floor(y / edge));
-                    if (column < 0 || row < 0 || column >= water_sight.width ||
-                        row >= water_sight.height)
-                        return false;
-                    const auto index = std::size_t(row) * water_sight.width + column;
-                    if (water_mapping && (index >= water_sight.player_bits.size() ||
-                                          (water_sight.player_bits[index] & water_bit) == 0))
-                        return false;
-                    return present::world_renderer::cell_shown_in_sight(
-                        index < water_coverage.size() ? water_coverage[index] : uint16_t{0},
-                        index < water_sight.player_bits.size() ? water_sight.player_bits[index]
-                                                               : uint16_t{0},
-                        water_own,
-                        water_rules
-                    );
-                };
-                {
-                    full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
-                    std::size_t before = frame.vertices.size();
-                    full.models.emit_shadows(model_inputs, scene, full.executor, frame);
-                    full.frame_vertices.shadows += frame.vertices.size() - before;
-                    const auto emit_draw = [&](const WorldDraw& draw) {
-                        before = frame.vertices.size();
-                        const auto first_water_index = frame.indices.size();
-                        if (full::sprite_kind(draw.kind)) {
-                            sprites.emit(draw);
-                            full.frame_vertices.sprites += frame.vertices.size() - before;
-                        } else if (full::model_kind(draw.kind)) {
-                            // Only finished naval hulls consume model heights for reflections.
-                            // Underwater shimmer keeps its own per-corner height calculation.
-                            model_inputs.vertex_heights =
-                                renderer_water_classic::needs_vertex_heights(
-                                    water, models.draws, draw
-                                )
-                                    ? &vertex_heights
-                                    : nullptr;
-                            full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
-                            model_inputs.vertex_heights = nullptr;
-                            full.frame_vertices.models += frame.vertices.size() - before;
-                        }
-                        water.vertex_heights = vertex_heights;
-                        renderer_water_classic::objects(
-                            frame, water, models.draws, draw, before, first_water_index
-                        );
-                    };
-                    // What lies on the sea bed first, under the water's foam,
-                    // rings and splashes, then everything else in the list's
-                    // order over them.
-                    const bool water_surface_drawn = renderer_water_classic::surface_drawn(water);
-                    const auto lies_on_sea_bed = [&](const WorldDraw& draw) {
-                        return water_surface_drawn &&
-                               renderer_water_classic::on_sea_bed(water, models.draws, draw);
-                    };
-                    for (const WorldDraw& draw : models.draws.draws)
-                        if (lies_on_sea_bed(draw))
-                            emit_draw(draw);
-                    renderer_water_classic::surface(frame, water);
-                    for (const WorldDraw& draw : models.draws.draws)
-                        if (!lies_on_sea_bed(draw))
-                            emit_draw(draw);
-                    full.sprites = sprites.finish();
-                }
-                if (full.sprites.pages_overflowed && !full.overflow_logged) {
-                    full.overflow_logged = true;
-                    std::cout << graphics_log_prefix
-                              << "the frame's sprites do not fit the sprite pages; the card draws "
-                                 "none of them this frame\n"
-                              << std::flush;
-                }
-                if (!full.models.error().empty() && !full.stage_error_logged) {
-                    full.stage_error_logged = true;
-                    std::cout << graphics_log_prefix
-                              << "the full tier's model stage: " << full.models.error()
-                              << "; it draws on without what it could not make\n"
-                              << std::flush;
-                }
-                full.note_page_memory();
-                full.upload_sprite_pages();
-                if (!full.models.upload(full.executor))
-                    throw FullCardError(
-                        "the model stage's pages could not be uploaded: " + full.models.error()
-                    );
-                full.stage_ns += nanoseconds_since(stage_start);
+        const auto emit_stages = [&](float origin_x,
+                                     float origin_y,
+                                     float view_scale,
+                                     card::TargetHandle target) {
+            const auto stage_start = std::chrono::steady_clock::now();
+            full::SceneView scene;
+            scene.origin_x = origin_x;
+            scene.origin_y = origin_y;
+            scene.scale = view_scale;
+            scene.zoom = zoom;
+            scene.offset = accelerated_.frame_offset;
+            scene.width = static_cast<int32_t>(bf_w);
+            scene.height = static_cast<int32_t>(bf_h);
+            scene.camera_x = static_cast<int32_t>(full.frame_camera_x);
+            scene.camera_y = static_cast<int32_t>(full.frame_camera_y);
+            scene.target = target;
+            sprite_inputs.view = scene;
+            renderer_water_classic::Inputs water;
+            water.map = &*selected_tnt_;
+            water.view = scene;
+            water.seconds = double(match_->simulation().tick) / 30.0;
+            // The sliders' strengths, which a lava sea leaves at none.
+            const auto levels = water_levels();
+            water.ripples = levels.ripples;
+            water.coast = levels.coast;
+            water.shimmer = levels.shimmer;
+            water.reflections = levels.reflections;
+            water.water_surface = water_surface();
+            // The water's effects end where the terrain does.
+            const auto shown_map = shown_map_size();
+            water.shown = {float(shown_map[0]), float(shown_map[1])};
+            water.disturbances = water_disturbances();
+            water.wind = water_wind();
+            water.art = &water_art;
+            vertex_heights.clear();
+            model_inputs.vertex_heights = nullptr;
+            model_inputs.water_shimmer =
+                selected_tnt_->sea_level > 0
+                    ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+                    : 0;
+            model_inputs.water_sea_level = static_cast<float>(selected_tnt_->sea_level);
+            model_inputs.water_seconds = water.seconds;
+            const auto water_coverage = match_->player_coverage(match_view_player());
+            const auto& water_sight = match_->sight();
+            const auto water_own = uint16_t(1U << (match_view_player() & 0x1fU));
+            const present::world_renderer::FogOptions water_rules{
+                match_line_of_sight_on(), match_mapping_on(), allied_mapped_bits()
             };
+            const auto water_bit = uint16_t(water_own | water_rules.shared_mapped);
+            const bool water_mapping = water_rules.mapping;
+            water.visible = [&](float x, float y) {
+                constexpr float edge = present::world_renderer::fog_cell_pixels;
+                const int column = int(std::floor(x / edge));
+                const int row = int(std::floor(y / edge));
+                if (column < 0 || row < 0 || column >= water_sight.width ||
+                    row >= water_sight.height)
+                    return false;
+                const auto index = std::size_t(row) * water_sight.width + column;
+                if (water_mapping && (index >= water_sight.player_bits.size() ||
+                                      (water_sight.player_bits[index] & water_bit) == 0))
+                    return false;
+                return present::world_renderer::cell_shown_in_sight(
+                    index < water_coverage.size() ? water_coverage[index] : uint16_t{0},
+                    index < water_sight.player_bits.size() ? water_sight.player_bits[index]
+                                                           : uint16_t{0},
+                    water_own,
+                    water_rules
+                );
+            };
+            {
+                full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
+                std::size_t before = frame.vertices.size();
+                full.models.emit_shadows(model_inputs, scene, full.executor, frame);
+                full.frame_vertices.shadows += frame.vertices.size() - before;
+                const auto emit_draw = [&](const WorldDraw& draw) {
+                    before = frame.vertices.size();
+                    const auto first_water_index = frame.indices.size();
+                    if (full::sprite_kind(draw.kind)) {
+                        sprites.emit(draw);
+                        full.frame_vertices.sprites += frame.vertices.size() - before;
+                    } else if (full::model_kind(draw.kind)) {
+                        // Only finished naval hulls consume model heights for reflections.
+                        // Underwater shimmer keeps its own per-corner height calculation.
+                        model_inputs.vertex_heights =
+                            renderer_water_classic::needs_vertex_heights(water, models.draws, draw)
+                                ? &vertex_heights
+                                : nullptr;
+                        full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
+                        model_inputs.vertex_heights = nullptr;
+                        full.frame_vertices.models += frame.vertices.size() - before;
+                    }
+                    water.vertex_heights = vertex_heights;
+                    renderer_water_classic::objects(
+                        frame, water, models.draws, draw, before, first_water_index
+                    );
+                };
+                // What lies on the sea bed first, under the water's foam,
+                // rings and splashes, then everything else in the list's
+                // order over them.
+                const bool water_surface_drawn = renderer_water_classic::surface_drawn(water);
+                const auto lies_on_sea_bed = [&](const WorldDraw& draw) {
+                    return water_surface_drawn &&
+                           renderer_water_classic::on_sea_bed(water, models.draws, draw);
+                };
+                for (const WorldDraw& draw : models.draws.draws)
+                    if (lies_on_sea_bed(draw))
+                        emit_draw(draw);
+                renderer_water_classic::surface(frame, water);
+                for (const WorldDraw& draw : models.draws.draws)
+                    if (!lies_on_sea_bed(draw))
+                        emit_draw(draw);
+                full.sprites = sprites.finish();
+            }
+            if (full.sprites.pages_overflowed && !full.overflow_logged) {
+                full.overflow_logged = true;
+                std::cout << graphics_log_prefix
+                          << "the frame's sprites do not fit the sprite pages; the card draws "
+                             "none of them this frame\n"
+                          << std::flush;
+            }
+            if (!full.models.error().empty() && !full.stage_error_logged) {
+                full.stage_error_logged = true;
+                std::cout << graphics_log_prefix
+                          << "the full tier's model stage: " << full.models.error()
+                          << "; it draws on without what it could not make\n"
+                          << std::flush;
+            }
+            full.note_page_memory();
+            full.upload_sprite_pages();
+            if (!full.models.upload(full.executor))
+                throw FullCardError(
+                    "the model stage's pages could not be uploaded: " + full.models.error()
+                );
+            full.stage_ns += nanoseconds_since(stage_start);
+        };
         // The Classic dither's page, made and filled the first time it is
         // drawn; false where the card would not make it.
         const auto ensure_dither_page = [&]() {
