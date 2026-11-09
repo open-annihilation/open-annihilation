@@ -124,6 +124,15 @@ The installed-map results below remain mixed and do not establish smooth flow.
 These changes do not yet establish smooth frame rates at that population.
 Ray tracing remains future work and will be a separate graphics choice.
 
+The desktop minimap draws visible contacts at the scaled HUD's layout
+resolution instead of enlarging contacts already merged in the original
+126-pixel radar. Compact owner-colored cores retain nearby contacts, with
+contrast edges and stable hints for opposing owners sharing a pixel.
+Fog and radar visibility and the original input coordinates remain in use.
+Low-resolution, phone and modal displays retain the ordinary radar path.
+This presentation change is independent of Enhanced Mode. It does not
+guarantee a separate display pixel for every unit at arbitrary densities.
+
 The engine resolves the preset over the selected game's profile before
 building the world. Its version enters the simulation hash. With the mode
 Off, existing profiles keep their canonical rules and hashes.

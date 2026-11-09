@@ -3610,6 +3610,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   describes both. Benchmarks, `--frame-rate` runs, headless saved-game runs
   and the battle end with the memory report, its peaks the largest the
   system saw (`oa/platform/memory_status.hpp`).
+  With `--stage FILE`, the skirmish-battle showcase instead applies that
+  stage under experimental Enhanced rules 6, requires 10,000 live units
+  per side, and plays for a minute on the normal window loop. A stage's
+  `view X Z ZOOM YAW PITCH` line sets its presentation in the normal
+  window; it is refused in headless runs. `console +stats 1` shows actual
+  frame statistics, and `console +BattleCounts 1` adds canonical live
+  counts only in this explicitly staged offline showcase.
 - `runtime_bench.cpp`, `bench.hpp`, `bench.cpp`, `bench_timers.hpp`: the
   frame bench, `--bench FILE`
   ([docs/command-line.md](../../docs/command-line.md#--bench)), which plays

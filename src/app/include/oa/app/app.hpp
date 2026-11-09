@@ -423,7 +423,8 @@ struct Options {
     // that the run's frames draw every kind of battlefield draw.
     bool busy_combat = false;
     // --stage FILE: after the headless skirmish starts (and any --combat
-    // armies), the actions the file lists, one a line: "unit PLAYER TYPE DX
+    // armies), or in the normal skirmish-battle showcase, the actions the
+    // file lists, one a line: "unit PLAYER TYPE DX
     // DZ [FROM]" places a finished unit of a player DX, DZ map pixels from
     // where the first unit of player FROM (the owner by default) stood when
     // the stage began, "build TYPE DX DZ" queues the last unit placed to
@@ -436,7 +437,8 @@ struct Options {
     // GUARDED" order a group's live units, "patrol-all PLAYER X Z
     // [KEPT_GROUP]" sends every live unit of a player on patrol, "queue TYPE
     // COUNT" adds to the last placed factory's build queue, and "at TICK"
-    // before any action runs it before that match tick instead
+    // before any action runs it before that match tick instead. In the normal
+    // window, "view X Z ZOOM YAW PITCH" changes only the presentation
     // (src/app/README.md).
     fs::path stage_file;
     bool reclaim_check = false;

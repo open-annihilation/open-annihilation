@@ -130,6 +130,46 @@ tick 1.32 ms mean; draw 16.3 ms and present 4.9 ms a frame
 (one line in the output), then the memory report, with the largest working
 set the system saw. 30 ticks a second at game speed 10 is the full rate.
 
+### Staged 20,000-unit battles
+
+`--showcase skirmish-battle --stage FILE --enhanced-mode` uses the stage's
+placements and orders instead of the generic armies. It selects experimental
+rules 6 before creating the match, requires 10,000 live units on each side,
+and runs the same normal window loop for a minute. Pausing, a fixed clock,
+an engine error or a change from normal requested game speed ends the run
+with an error. Staging time is excluded from the gameplay clock.
+
+In this normal-window stage, these presentation lines set a camera and
+enable the live readouts:
+
+```text
+view 5120 5120 0.25 20 -53
+console +stats 1
+console +BattleCounts 1
+```
+
+`view` takes map X/Z, positive zoom, yaw and pitch in degrees. It changes no
+unit orders and is refused in headless runs. The unit banner counts current
+typed, live, positive-health units from the canonical records on each draw;
+births, deaths and ownership changes therefore update the totals. These are
+army totals, separate from the drawn-unit count in `+stats`. The banner is
+restricted to an explicitly staged offline skirmish showcase.
+
+Use a preferences file selecting the stage's map, participants and graphics.
+For an optimized build with assertions enabled:
+
+```sh
+OA_BUILD_TYPE=Check ./run.sh --game-dir /path/to/TotalAnnihilation \
+  --preferences-file recording.conf --enhanced-mode --seed 7 \
+  --hardware-acceleration=full --showcase skirmish-battle \
+  --stage battle-20000.stage --capture-video battle-20000.mp4
+```
+
+Window readback, sound capture and encoding add work. The video preserves
+the actual live statistics; its fixed 30 FPS output is not a gameplay FPS
+measurement. The showcase logs the initial and final counts, combat events,
+state digests and actual display/backend for provenance.
+
 ## Construction in the constrained 3D view
 
 `--showcase base-construction --content totala:core-contingency
