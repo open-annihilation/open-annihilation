@@ -5,6 +5,7 @@
 // radar scrolls, mouse look, and the orders the pointer gives the selection
 // with the queued-order cancel.
 #include "group_order_bounds.hpp"
+#include "group_order_static.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mission_types.hpp"
@@ -18,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -571,14 +573,43 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
     const bool ground_order = order == input::UnitOrder::move_ground ||
                               order == input::UnitOrder::patrol ||
                               order == input::UnitOrder::repair_patrol;
-    return order_point(bounded_group_order_point(
+    const bool bounded_ground = ground_order && enhanced.enabled &&
+                                enhanced.version == oa::data::enhanced_mode::battle_flow_version;
+    const auto bounded = bounded_group_order_point(
         formation,
         position,
         *actor,
         world.game.map_pixel_width,
         world.game.map_pixel_height,
-        ground_order && enhanced.enabled &&
-            enhanced.version == oa::data::enhanced_mode::battle_flow_version
+        bounded_ground
+    );
+    if (!bounded_ground || actor->type_index >= offline_type_fields_.size())
+        return order_point(bounded);
+    const auto* ground = std::as_const(*match_).ground_runtime(source);
+    const auto& fields = offline_type_fields_[actor->type_index];
+    const auto* metadata = fields.runtime_metadata;
+    if (ground == nullptr || metadata == nullptr || !fields.movement_class ||
+        *fields.movement_class == 0 || ground->movement_class != *fields.movement_class)
+        return order_point(bounded);
+    oa::sim::spatial_state::CellClassifier movement{};
+    movement.footprint_x = actor->footprint_x;
+    movement.footprint_z = actor->footprint_z;
+    movement.max_water_depth = metadata->max_water_depth;
+    movement.min_water_depth = metadata->min_water_depth;
+    movement.max_land_slope = metadata->max_slope;
+    movement.bad_land_slope = metadata->bad_slope;
+    movement.max_water_slope = metadata->max_water_slope;
+    movement.bad_water_slope = metadata->bad_water_slope;
+    return order_point(static_group_order_point(
+        bounded,
+        position,
+        *actor,
+        order,
+        movement,
+        std::as_const(*match_).spatial(),
+        world.game.map_pixel_width,
+        world.game.map_pixel_height,
+        true
     ));
 }
 
