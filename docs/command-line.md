@@ -620,6 +620,7 @@ a comment. Every key may be left out:
 | `label NAME` | The run's name in its lines. | the file's name without its extension |
 | `stage FILE` | A stage played into the match once it starts; a path that is not absolute is taken from the view file's folder. | none |
 | `players N` | The skirmish's players, from 2 to 10. | 2 |
+| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 6; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
 | `menu_seconds S` | Seconds on the main menu first. | 1 |
 | `warmup_ticks N` | The match tick the measured span starts at. | 600 |
 | `warmup_frames N` | Additional rendered warm-up frames after staging and the tick warm-up. | 0 |
@@ -647,6 +648,16 @@ twice stop the bench with the file and line, and so do a skirmish that
 does not start, a match that ends in the warm-up and a closed window: the
 bench prints `bench: FAILED` and what went wrong, and the game ends with
 status 1.
+
+To compare Enhanced presets, put `rules_version 4` or `rules_version 6` in
+the view file while Enhanced Mode is On. The selection applies to this
+benchmark session and is released when it finishes or fails; preferences
+keep their normal setting. Leaving the key out, or giving 0, keeps the
+normal rules, including Enhanced Mode Off when that is selected. The
+benchmark checks the started match's actual preset before measuring it
+and reports the actual and requested versions in `INITIAL`. Renderer and
+graphics choices remain independent; selecting rules leaves the gameplay
+mode's real-window, clock, focus and presentation requirements in force.
 
 For a fixed rendering workload, pause in the stage, set `warmup_ticks 0`,
 and use `warmup_frames` to prepare the actual rendering caches. Set
@@ -692,7 +703,7 @@ its log (or into the folder `--log-dir` names), each beginning `bench:`:
 | `WARMUP label=NAME to tick N` | The warm-up has begun. |
 | `MEASURING label=NAME tick=N seconds=S` | The span begins at match tick N. |
 | `SEC N frames F frame MS sim MS draw MS units A+B vertices V tick T` | Each second of the span: its frames, their mean frame, simulation and drawing times, the live units of the local player and of the others, the turned view's vertices in the last frame and the match tick. |
-| `INITIAL units N owner0 A owner1 B seed S controller0 C controller1 C setup_clock_reanchored 1` | Gameplay's staged population, seed and controller statuses; synchronous setup is excluded from the game clock. |
+| `INITIAL ... enhanced_mode B rules_version V requested_rules_version R` | Every run's actual Enhanced Mode state and preset, plus the view file's request (0 keeps normal settings). Gameplay also reports `units`, `owner0`, `owner1`, `seed`, `controller0`, `controller1` and `setup_clock_reanchored 1`: its staged population, seed and controller statuses, with synchronous setup excluded from the game clock. |
 | `REAL_WINDOW output WxH pixels WxH display D refresh R density S vsync V max_fps N warmup_complete B` | Gameplay's actual renderer output, physical window pixels, display, refresh rate, density, pacing choices and warm-up status. |
 | `ACTIVITY_BASELINE tick T shots A+B damage A+B deaths A+B births A+B` | Gameplay counters after warm-up, before measurement. Counts refer to player slots 0 and 1; damage is positive weapon damage received. |
 | `ACTIVITY tick T moved A+B ... moving_xz A+B sample_ticks N sample_seconds S` | Original units observed changing position since staging, cumulative combat counters, current projectiles, and still-live original units displaced in X/Z over the stated sample interval. |
