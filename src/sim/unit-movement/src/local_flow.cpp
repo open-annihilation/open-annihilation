@@ -262,6 +262,8 @@ LocalFlowDecision choose_local_flow(
         return result;
     ++counters.moving_blockers;
     result.mobile_blocked = true;
+    if (!probe.recovery_yield && blocker.same_route_queue)
+        return result;
     // Traffic turning together still follows the same direction even while
     // its current headings differ from the route ahead.
     const int difference = std::bit_cast<int16_t>(uint16_t(unit.heading - blocker.heading));

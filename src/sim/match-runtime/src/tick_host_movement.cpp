@@ -4,6 +4,7 @@
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
 #include "live_route_corner.hpp"
+#include "route_queue.hpp"
 
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/air/flight.hpp"
@@ -261,10 +262,16 @@ void TickHost::movement_tick(oa::Unit& record) {
                         sim::spatial_state::CellClassifier movement{};
                         uint32_t player{};
                         bool have_movement{};
+                        bool same_route_queue{};
                     } context;
 
                     context.match = &match;
                     context.player = s.record.owner_index;
+                    context.same_route_queue =
+                        match.rules().setup.enhanced_mode.version ==
+                            static_cast<int32_t>(data::enhanced_mode::battle_flow_version) &&
+                        flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks &&
+                        sim::simulation_state::locally_simulated(u);
                     if (const auto* klass = match.movement_class_map(g.movement_class)) {
                         context.movement = klass->record;
                         context.movement.occupancy_before_tick = 0;
@@ -297,6 +304,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                         using sim::unit_movement::LocalFlowBlocker;
                         using sim::unit_movement::LocalFlowObstacle;
                         LocalFlowBlocker result{};
+                        bool all_share_route = probe_context.same_route_queue;
                         if (occupancy != 1 || cell[0] < 0 || cell[1] < 0 ||
                             uint32_t(cell[0]) + uint32_t(moving.footprint[0]) >=
                                 m.spatial_.terrain_width ||
@@ -338,6 +346,49 @@ void TickHost::movement_tick(oa::Unit& record) {
                                     other->geometry.type.maximum_speed <= 0 ||
                                     link_parent(m.slots_[occupant].record))
                                     return LocalFlowBlocker{LocalFlowObstacle::stationary};
+                                if (all_share_route) {
+                                    const auto follower_id = static_cast<uint16_t>(moving.id);
+                                    const auto* follower = m.ground_runtime(follower_id);
+                                    const auto owns_route = [&m](uint16_t id, const auto& ground) {
+                                        const auto& slot = m.slots_[id];
+                                        const auto* goal = ground.navigation.goal;
+                                        if (!slot.unit || !goal || !goal->order ||
+                                            !oa::unit_is_live_target(slot.record.flags) ||
+                                            slot.record.health <= 0 ||
+                                            slot.record.attach_parent != 0 ||
+                                            slot.unit->primary != goal->order ||
+                                            !sim::simulation_state::locally_simulated(*slot.unit))
+                                            return false;
+                                        const auto* own = m.runtime_order(goal->order);
+                                        constexpr uint32_t cancel_event = 2;
+                                        constexpr uint32_t terminal_events =
+                                            sim::ground_orders::arrived_event |
+                                            sim::ground_orders::path_failed_event |
+                                            sim::ground_orders::goal_replaced_event | cancel_event;
+                                        return own && own->unit == slot.unit &&
+                                               own->extra.goal.get() == goal &&
+                                               (goal->order->raised_events & terminal_events) ==
+                                                   0 &&
+                                               !sim::ground_orders::goal_contains_unit(
+                                                   *goal, ground.geometry
+                                               );
+                                    };
+                                    all_share_route =
+                                        follower &&
+                                        m.slots_[occupant].record.owner_index ==
+                                            probe_context.player &&
+                                        !other->mirrored_driver &&
+                                        (other->movement.flags &
+                                         sim::unit_movement::occupancy_mask) == ground_occupancy &&
+                                        same_forward_route(
+                                            moving,
+                                            follower->navigation,
+                                            other->geometry,
+                                            other->navigation
+                                        ) &&
+                                        owns_route(follower_id, *follower) &&
+                                        owns_route(occupant, *other);
+                                }
                                 const bool have_snapshot =
                                     m.enhanced_->local_flow_progress_snapshot_valid &&
                                     m.enhanced_->local_flow_progress_snapshot_tick ==
@@ -357,6 +408,8 @@ void TickHost::movement_tick(oa::Unit& record) {
                                         waiting
                                     };
                             }
+                        result.same_route_queue =
+                            result.obstacle == LocalFlowObstacle::moving && all_share_route;
                         return result;
                     };
                     const auto points = sim::ground_orders::steering_points(advisory_navigation);
