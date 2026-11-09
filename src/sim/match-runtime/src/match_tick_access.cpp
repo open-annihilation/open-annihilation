@@ -13,6 +13,10 @@ namespace oa::sim::match_runtime {
 
 static_assert(MatchTickAccess::building_flag == order_building_flag);
 
+sim::ground_orders::SearchRecord MatchTickAccess::active_path_search(const Match& match) {
+    return match.search_.controller.active();
+}
+
 MatchTickAccess::AdvisoryLaneInspection
 MatchTickAccess::advisory_lane(const Match& match, uint16_t unit) {
     AdvisoryLaneInspection result;

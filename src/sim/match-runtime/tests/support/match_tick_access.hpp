@@ -55,6 +55,12 @@ class MatchTickAccess {
     /// Runs one full native tick with new queries exhausted and the retained reserve available.
     static void tick_without_advisory_queries(Match& match);
 
+    /// Returns the active native path job without advancing or cancelling it.
+    ///
+    /// @param match match whose path controller is inspected
+    /// @return the active job, with null pointers when no job is active
+    static sim::ground_orders::SearchRecord active_path_search(const Match& match);
+
     /// The order flags' bit StartBuilding sets and StopBuilding clears.
     static constexpr uint8_t building_flag = 0x40;
 
