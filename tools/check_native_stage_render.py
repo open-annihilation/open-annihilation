@@ -49,6 +49,9 @@ place 1 CORAK 700 1700
 place 1 CORAK 740 1700
 group radar
 place 0 ARMRAD 260 1700
+group commander
+group-add 1
+guard commander guards
 group
 at 20 move guards 420 1500
 at 30 patrol scouts 560 1840
@@ -125,7 +128,8 @@ def check_play(native, game_dir, workdir):
             ("CORAK", 1, 700, 1700), ("CORAK", 1, 740, 1700), ("ARMRAD", 0, 260, 1700),
             ("ARMPW", 0, 380, 1780)]:
         fail(result, f"the stage placed {placed}")
-    expected = ["stage: tick 20", "stage: move guards: 2 units to 420,1500", "stage: tick 30",
+    expected = ["stage: group-add commander: unit 1", "stage: guard commander: 1 units on guards",
+                "stage: tick 20", "stage: move guards: 2 units to 420,1500", "stage: tick 30",
                 "stage: patrol scouts: 1 units to 560,1840", "stage: tick 40", "stage: group late",
                 "stage: tick 50", "stage: deactivate radar: 1 units", "stage: tick 60",
                 "stage: attack late: 1 units on raiders", "stage: tick 80",
@@ -167,6 +171,12 @@ def check_refusals(native, game_dir, workdir):
              "facing.stage:1: a place line faces south, east, north or west, not up"),
             ("nogroup", "place 0 ARMPW 420 1660\nmove nobody 400 400\n",
              "nogroup.stage:2: no unit joined the group nobody"),
+            ("ungrouped", "group-add 1\n",
+             "ungrouped.stage:1: group-add takes UNIT after a named group"),
+            ("emptyunit", "group existing\ngroup-add 0\n",
+             "emptyunit.stage:2: group-add needs a live unit"),
+            ("missingunit", "group existing\ngroup-add 65535\n",
+             "missingunit.stage:2: group-add needs a live unit"),
             ("noaction", "at 0\n", "noaction.stage:1: at takes TICK ACTION"),
             ("noswitch", "activate\n", "noswitch.stage:1: activate takes GROUP")):
         result = staged(native, game_dir, workdir, name, text)

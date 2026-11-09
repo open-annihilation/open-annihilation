@@ -3010,7 +3010,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   unit at map pixel X, Z, turned a quarter (`east`), half (`north`) or
   three quarters (`west`) from the way its type is built facing (`south`,
   the default); `group NAME` gathers the units the stage places after it,
-  by `unit` or `place`, into a group, and `group` alone stops gathering;
+  by `unit` or `place`, into a group, and `group` alone stops gathering.
+  `group-add UNIT` adds an existing live unit's slot to the current named group,
+  removing its earlier group membership; it refuses an absent group or
+  a slot without a live unit.
   `move GROUP X Z` and `patrol GROUP X Z` give a group's live units that
   order to map pixel X, Z as a player's order gives a selection of them
   (each unit near the group's centre keeps its place around the point, and

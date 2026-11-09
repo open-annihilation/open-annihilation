@@ -214,6 +214,21 @@ bool Runtime::run_stage_direction(
         std::printf("stage: group %s\n", name.empty() ? "(none)" : name.c_str());
         return true;
     }
+    if (action == "group-add") {
+        uint32_t unit{};
+        if (stage_->group.empty() || !(line >> unit))
+            throw std::runtime_error(where + ": group-add takes UNIT after a named group");
+        const auto& slots = match_->world().slots;
+        if (unit == 0 || unit >= slots.size() || slots[unit].unit == nullptr ||
+            slots[unit].record.type_index == 0 ||
+            !oa::unit_is_live_target(slots[unit].record.flags))
+            throw std::runtime_error(where + ": group-add needs a live unit");
+        const auto last = stage_->last_unit;
+        join_stage_group(static_cast<uint16_t>(unit));
+        stage_->last_unit = last;
+        std::printf("stage: group-add %s: unit %u\n", stage_->group.c_str(), unsigned(unit));
+        return true;
+    }
     if (action == "place") {
         int32_t player = -1;
         std::string name;
