@@ -10,6 +10,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace oa::sim::model_runtime {
 namespace {
@@ -378,6 +379,74 @@ void Instance::rebuild_transforms(RotationWords root_rotation) {
     transforms_built_ = true;
     built_root_ = root_rotation;
     transforms_dirty_ = false;
+}
+
+bool Instance::reuse_transforms(const Instance& from, RotationWords root_rotation) noexcept {
+    if (this == &from || !model_ || model_ != from.model_ || root_piece_ != from.root_piece_ ||
+        root_piece_ >= pieces_.size() || pieces_.size() != from.pieces_.size() ||
+        pieces_.size() != model_->objects.size() || !from.transforms_built_ ||
+        from.transforms_dirty_ || !same_words(from.built_root_, root_rotation) ||
+        pieces_[root_piece_].object_index != 0)
+        return false;
+    const auto linked_object = [&](uint32_t piece, uint32_t object) {
+        return object == kNoPiece
+                   ? piece == kNoPiece
+                   : piece < from.pieces_.size() && from.pieces_[piece].object_index == object;
+    };
+    for (size_t index = 0; index < pieces_.size(); ++index) {
+        const auto& mine = pieces_[index];
+        const auto& theirs = from.pieces_[index];
+        if (mine.object_index != theirs.object_index || mine.parent != theirs.parent ||
+            mine.first_child != theirs.first_child || mine.next_sibling != theirs.next_sibling ||
+            theirs.object_index >= model_->objects.size() ||
+            !same_vector(theirs.translation, theirs.built_translation) ||
+            !same_words(theirs.rotation, theirs.built_rotation) ||
+            !same_vector(mine.translation, theirs.built_translation) ||
+            !same_words(mine.rotation, theirs.built_rotation))
+            return false;
+        const auto& object = model_->objects[theirs.object_index];
+        if (!linked_object(theirs.parent, object.parent) ||
+            !linked_object(theirs.first_child, object.first_child) ||
+            !linked_object(theirs.next_sibling, object.next_sibling) ||
+            theirs.transformed_vertices.size() != object.vertices.size() ||
+            mine.transformed_vertices.capacity() < theirs.transformed_vertices.size())
+            return false;
+    }
+    for (size_t index = 0; index < pieces_.size(); ++index) {
+        auto& mine = pieces_[index];
+        const auto& theirs = from.pieces_[index];
+        mine.transformed_origin = theirs.transformed_origin;
+        mine.transformed_vertices.resize(theirs.transformed_vertices.size());
+        std::copy(
+            theirs.transformed_vertices.begin(),
+            theirs.transformed_vertices.end(),
+            mine.transformed_vertices.begin()
+        );
+        mine.transform_marker = 0;
+        mine.built_translation = mine.translation;
+        mine.built_rotation = mine.rotation;
+    }
+    transforms_built_ = true;
+    built_root_ = root_rotation;
+    transforms_dirty_ = false;
+    return true;
+}
+
+size_t Instance::transform_storage_bytes() const noexcept {
+    constexpr size_t maximum = std::numeric_limits<size_t>::max();
+    if (pieces_.capacity() > maximum / sizeof(PieceState))
+        return maximum;
+    size_t bytes = pieces_.capacity() * sizeof(PieceState);
+    const auto append = [&](size_t vertices) {
+        if (vertices > (maximum - bytes) / sizeof(oa::formats::objects3d::FixedVector3))
+            return false;
+        bytes += vertices * sizeof(oa::formats::objects3d::FixedVector3);
+        return true;
+    };
+    for (const auto& piece : pieces_)
+        if (!append(piece.transformed_vertices.capacity()))
+            return maximum;
+    return append(spare_piece_.transformed_vertices.capacity()) ? bytes : maximum;
 }
 
 void Instance::take_pose(const Instance& from) {

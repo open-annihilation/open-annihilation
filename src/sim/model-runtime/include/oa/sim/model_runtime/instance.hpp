@@ -6,6 +6,7 @@
 #include "oa/formats/objects3d.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -174,6 +175,33 @@ class Instance {
     /// @param root_rotation angle words added to the root piece's rotation
     /// @quirk Root-level siblings of the root piece are reset but not transformed, as in 3.1c.
     void rebuild_transforms(RotationWords root_rotation = {});
+
+    /// Reuses another instance's completed transforms for the same model and pose.
+    ///
+    /// The source must have completed a rebuild under the same floating-point
+    /// control, and its model and transformed buffers must remain unmodified
+    /// since that rebuild. Both instances must keep the same object mapping,
+    /// links, local translations and rotations, and the source's root rotation
+    /// must equal root_rotation. The receiver keeps its model, pose, piece flags,
+    /// owner association and spare piece. A successful reuse clears transform
+    /// markers and records the receiver's current pose as built.
+    ///
+    /// Every condition and destination capacity is checked before any change.
+    /// A refusal changes nothing, and neither outcome allocates storage.
+    ///
+    /// @param from completed instance whose transforms to reuse; must not be this one
+    /// @param root_rotation angle words added to the root piece's rotation
+    /// @return true when the completed transforms were reused
+    [[nodiscard]] bool
+    reuse_transforms(const Instance& from, RotationWords root_rotation = {}) noexcept;
+
+    /// Returns the dynamically allocated piece and transformed-vertex storage.
+    ///
+    /// Counts vector capacities, including the spare piece's vertices. The
+    /// instance itself and its shared immutable model are not included.
+    ///
+    /// @return owned dynamic bytes, saturated at the largest size_t value
+    [[nodiscard]] size_t transform_storage_bytes() const noexcept;
 
     /// Takes another instance's pose, as a copy of it would: its model, its
     /// pieces with their translations, rotations, flags and transform
