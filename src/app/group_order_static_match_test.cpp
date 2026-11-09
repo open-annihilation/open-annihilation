@@ -7,6 +7,7 @@
 
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/match_runtime.hpp"
+#include "oa/sim/match_runtime/match_trace.hpp"
 #include "oa/sim/script_vm.hpp"
 #include "oa/test/check.hpp"
 #include "oa/test/match_services.hpp"
@@ -16,8 +17,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -365,6 +368,55 @@ void corrected_group_destinations_reach_the_original_click() {
     }
 }
 
+/// Keeps native trace digests, fog and random streams unchanged by endpoint queries.
+void endpoint_queries_leave_native_match_state_unchanged() {
+    constexpr uint32_t query_batches = 2;
+    const std::array formations = {point(288, lane_z), point(160, lane_z)};
+    const auto click = point(176, lane_z);
+    for (uint32_t version = 0; version <= battle_version; ++version)
+        for (const auto order : orders) {
+            Scene scene(version, 2, 2, true);
+            auto& match = scene.match();
+            std::vector<oa::sim::trace::UnitSide> sides(match.state().unit_slot_count);
+            const auto before = runtime::match_tick_digest(match, sides);
+            const std::vector<uint16_t> fog_before(
+                match.sight().player_bits.begin(), match.sight().player_bits.end()
+            );
+            const auto random_before = match.random_state();
+            const auto lcg_before = match.lcg_state();
+            for (uint32_t batch = 0; batch < query_batches; ++batch)
+                for (const auto& formation : formations)
+                    (void)oa::app::static_group_order_point(
+                        formation,
+                        click,
+                        scene.unit(),
+                        order,
+                        scene.classifier(),
+                        std::as_const(match).spatial(),
+                        map_pixels,
+                        map_pixels,
+                        version == battle_version
+                    );
+            const auto after = runtime::match_tick_digest(match, sides);
+            OA_CHECK(after.tick == before.tick);
+            for (size_t section = 0; section < std::size(before.sections); ++section) {
+                OA_CHECK(after.sections[section].value == before.sections[section].value);
+                OA_CHECK(after.sections[section].items == before.sections[section].items);
+            }
+            OA_CHECK(match.sight().player_bits.size() == fog_before.size());
+            OA_CHECK(
+                std::equal(
+                    fog_before.begin(),
+                    fog_before.end(),
+                    match.sight().player_bits.begin(),
+                    match.sight().player_bits.end()
+                )
+            );
+            OA_CHECK(match.random_state() == random_before);
+            OA_CHECK(match.lcg_state() == lcg_before);
+        }
+}
+
 /// Runs every native case even when another case reports an exception.
 template <typename Function>
 void run_case(const char* name, Function function) {
@@ -382,5 +434,6 @@ int main() {
     run_case("native arrival geometry", arrival_geometry_matches_all_native_ground_commands);
     run_case("earlier formation goals", earlier_presets_keep_the_original_native_formation_goal);
     run_case("corrected native movement", corrected_group_destinations_reach_the_original_click);
+    run_case("native endpoint query guards", endpoint_queries_leave_native_match_state_unchanged);
     return oa::test::check_exit_status();
 }
