@@ -184,7 +184,7 @@ void rebuild_advisory_membership(AdvisoryFlowData& state) noexcept {
 
 void Match::initialize_advisory_flow() {
     if (!enhanced_ || !rules().setup.enhanced_mode.enabled ||
-        rules().setup.enhanced_mode.version <
+        rules().setup.enhanced_mode.version !=
             static_cast<int32_t>(data::enhanced_mode::corridor_flow_version))
         return;
     auto state = std::make_unique<AdvisoryFlowData>();
