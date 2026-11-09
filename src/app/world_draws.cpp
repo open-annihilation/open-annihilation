@@ -597,6 +597,7 @@ void clear_world_draws(WorldDrawList& list) {
     list.sprites.clear();
     list.lines.clear();
     list.models.clear();
+    list.unit_markers.clear();
     list.stand_ins.clear();
     list.projectiles.clear();
     list.debris.clear();

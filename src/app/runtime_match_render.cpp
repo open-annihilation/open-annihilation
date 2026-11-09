@@ -1512,7 +1512,14 @@ bool Runtime::draw_match_surface() {
     // zoom where the models would take too much memory, each unit is a dot
     // of its owner's colour and no model is drawn at all. A director's frame
     // stays rendered until its picture cannot be allocated.
-    bool dots = !directed && !live_renderer_active() && dots_frame();
+    // The live view's dots follow the explicit graphics choice; its unit
+    // geometry does not need the processor's model bridge memory fallback.
+    const auto& graphics = engine_settings();
+    const bool live_dots =
+        !directed && live_renderer_active() &&
+        graphics.zoomed_out_units == oa::ui::engine_settings::ZoomedOutUnits::dots &&
+        match_zoom() < oa::ui::engine_settings::zoomed_out_zoom(graphics.zoomed_out_after);
+    bool dots = !directed && (live_dots || (!live_renderer_active() && dots_frame()));
     // The map the view shows: the fill below draws nothing beyond it. The
     // player's camera is held within the view's limits, which let it go
     // past the map's edges (view_camera), and the limits then hold the next
@@ -1993,6 +2000,9 @@ bool Runtime::draw_match_surface() {
         metadata_images ? model_render::ModelImagePlan::metadata
                         : model_render::ModelImagePlan::pixels
     };
+    if (live_world && dots)
+        for (auto& cache : models.transform_caches)
+            cache.begin_frame();
     // A model's draw adds the units it carries after it (plan_model).
     std::vector<ModelDraw> carried_draws;
     // A model readied and planned for the frame's draws on this thread.
@@ -2501,6 +2511,25 @@ bool Runtime::draw_match_surface() {
         );
         if (!on_battlefield(unit_screen.x, unit_screen.y))
             continue;
+        if (live_world && dots) {
+            // Strategic dots use record interpolation alone: no model image,
+            // piece pose, transform or carried model is prepared for them.
+            if (!match_->runtime_state(slot.unit_index).instance)
+                continue;
+            const bool shown_elsewhere = between_ticks || pose.has_value();
+            const auto shown = shown_elsewhere
+                                   ? shown_unit_position(models, world_record, slot.unit_index)
+                                   : slot.record.position;
+            note_unit_drawn(slot.unit_index, slot.record, shown_elsewhere);
+            if (slot.unit_index == frame_draws_.probe_unit) {
+                frame_draws_.probe_x = shown.x;
+                frame_draws_.probe_z = shown.z;
+            }
+            // Attached children share their carrier's dot, as in the classic view.
+            if (slot.record.attach_parent == 0)
+                draw_list.unit_markers.push_back({&slot.record, shown});
+            continue;
+        }
         const auto model = unit_model(models, slot.unit_index);
         if (model.instance == nullptr)
             continue;
@@ -2789,7 +2818,7 @@ bool Runtime::draw_match_surface() {
     if (!live_world && !covered)
         fog_pass(FogPasses::both);
     // The dots over the fog, as the minimap shows its units over its own.
-    if (dots)
+    if (dots && !live_world)
         draw_far_view_dots(
             world_surface.rgb.data(),
             static_cast<int32_t>(world_surface.width),

@@ -5109,9 +5109,14 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
     scene.detail_pose_points.clear();
     scene.detail_pose_pieces.clear();
     scene.detail_pose_hits = 0;
+    scene.unit_marker_radius = 0;
     std::array<float, 3> across{}, down{};
-    if (!(in.unit_marker_pixels > 0) || !std::isfinite(in.unit_marker_pixels) ||
-        in.clip_width == 0 || in.clip_height == 0 ||
+    constexpr float strategic_marker_pixels = 5;
+    const bool adaptive = in.unit_marker_pixels > 0 && std::isfinite(in.unit_marker_pixels);
+    const float marker_pixels =
+        adaptive ? in.unit_marker_pixels
+                 : (in.draws->unit_markers.empty() ? 0 : strategic_marker_pixels);
+    if (!(marker_pixels > 0) || in.clip_width == 0 || in.clip_height == 0 ||
         !std::all_of(
             in.clip_projection.begin(),
             in.clip_projection.end(),
@@ -5121,7 +5126,9 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
         return;
     scene.unit_marker_across = across;
     scene.unit_marker_down = down;
-    scene.unit_marker_radius = std::min(64.0F, in.unit_marker_pixels) * 0.5F;
+    scene.unit_marker_radius = std::min(64.0F, marker_pixels) * 0.5F;
+    if (!adaptive)
+        return;
     const auto& draws = in.draws->models;
     scene.unit_detail.resize(draws.size());
     constexpr std::size_t draws_per_detail_band = 512;
@@ -5813,7 +5820,7 @@ bool draw_on_card(
 ///
 /// @param in the frame
 /// @param[in,out] pass the models pass
-/// @param first the first draw listed, in WorldDrawList::models
+/// @param first the first draw, models followed by strategic unit markers
 /// @param last the draw after the last
 void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     auto& list = pass.list;
@@ -5874,6 +5881,36 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     }
     for (std::size_t draw_index = first; draw_index < last; ++draw_index) {
         begin_draw(pass, draw_index);
+        if (draw_index >= in.draws->models.size()) {
+            const auto& marker = in.draws->unit_markers[draw_index - in.draws->models.size()];
+            const auto* unit = marker.unit;
+            if (unit == nullptr || unit->id == 0 || unit->attach_parent != 0 ||
+                !(pass.scene.unit_marker_radius > 0))
+                continue;
+            const auto& position = marker.shown_position;
+            const float x = position.x / fixed_scale;
+            const float y = position.y / fixed_scale;
+            const float z = position.z / fixed_scale;
+            const float fog_z = z - y * height_lift;
+            if (fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(fog_z)) ==
+                Fog::black)
+                continue;
+            UnitDetail detail{};
+            // Strategic dots sit above their terrain or water receiver;
+            // an aircraft retains its displayed altitude. No record moves.
+            detail.center = {
+                x,
+                std::max(
+                    {y,
+                     float(in.sea_level),
+                     height_at(*in.map, static_cast<int32_t>(x), static_cast<int32_t>(z))}
+                ),
+                z
+            };
+            detail.brightness = brightness_at(in.sight, x, fog_z);
+            unit_marker(in, pass, detail, *unit, white_material, white_palette);
+            continue;
+        }
         const auto& draw = in.draws->models[draw_index];
         if (!draw.plan.linked.drawn)
             continue;
@@ -7792,6 +7829,7 @@ void write_frame_materials(const Inputs& in, Scene& scene) {
 void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ahead_bands) {
     auto& passes = scene.passes;
     const auto& draws = *in.draws;
+    const std::size_t model_draws = draws.models.size() + draws.unit_markers.size();
     const bool timing = bench_timers::timers.on;
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
@@ -8009,8 +8047,8 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         } else if (band == 0) {
             if (scene.unit_detail_active)
                 return;
-            run_beside(scene, passes.models, draws.models.size(), timing, [&](Pass& pass) {
-                models(in, pass, 0, draws.models.size());
+            run_beside(scene, passes.models, model_draws, timing, [&](Pass& pass) {
+                models(in, pass, 0, model_draws);
             });
         } else if (band == 1 || band >= first_standing_band) {
             const std::size_t index = band == 1 ? 0 : band - first_standing_band + 1;
@@ -8166,12 +8204,9 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const std::size_t models_first = listed;
     const auto take_models = [&] {
         take_list(
-            scene,
-            passes.models,
-            draws.models.size(),
-            listed,
-            timing,
-            [&](Pass& pass, std::size_t from) { models(in, pass, from, draws.models.size()); }
+            scene, passes.models, model_draws, listed, timing, [&](Pass& pass, std::size_t from) {
+                models(in, pass, from, model_draws);
+            }
         );
         listed += passes.models.cards.vertices;
     };
@@ -8220,9 +8255,16 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             scene.vertices.begin() + static_cast<std::ptrdiff_t>(before_water), scene.vertices.end()
         );
         scene.vertices.resize(before_water);
-        budget_unit_detail(in, scene, listed + scene.detail_water.size());
-        run_beside(scene, passes.models, draws.models.size(), timing, [&](Pass& pass) {
-            models(in, pass, 0, draws.models.size());
+        constexpr std::size_t marker_vertices = 6;
+        if (draws.unit_markers.size() > maximum_vertices / marker_vertices)
+            throw GeometryFull();
+        budget_unit_detail(
+            in,
+            scene,
+            listed + scene.detail_water.size() + draws.unit_markers.size() * marker_vertices
+        );
+        run_beside(scene, passes.models, model_draws, timing, [&](Pass& pass) {
+            models(in, pass, 0, model_draws);
         });
         take_models();
         if (passes.models.cards.cast_indices.size() > maximum_vertices)

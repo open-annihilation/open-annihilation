@@ -496,6 +496,14 @@ struct FragmentDraw {
 /// times what the frames of FX.GAF take.
 inline constexpr std::size_t decoded_frames_kept_bytes = 32U * 1024U * 1024U;
 
+/// A strategic dot in the live view, positioned without preparing a model.
+/// The canonical unit supplies its identity and owner; its displayed position
+/// may be between ticks or on another player's playout.
+struct UnitMarkerDraw {
+    const oa::Unit* unit{};
+    oa::FixedVec3 shown_position{};
+};
+
 /// The battlefield's draws of one frame, in order, and what they draw from.
 struct WorldDrawList {
     /// How dark the frame's shadows are drawn, from 0 to
@@ -517,6 +525,8 @@ struct WorldDrawList {
     std::vector<SpriteDraw> sprites;
     std::vector<LineDraw> lines;
     std::vector<ModelDraw> models;
+    /// Units drawn as strategic dots by the live view, with no model plan.
+    std::vector<UnitMarkerDraw> unit_markers{};
     std::vector<SpatialParticle> spatial_particles;
     std::vector<oa::Unit> stand_ins; ///< 3D features' stand-in records
     std::vector<ProjectileDraw> projectiles;
