@@ -409,8 +409,6 @@ void terminal_events_restart_even_after_the_sweep_consumes_them() {
          {ground::arrived_event,
           ground::path_failed_event,
           ground::goal_replaced_event,
-          ground::search_goal_contact_flag,
-          ground::search_seed_unresolved_flag,
           uint32_t(cancel_event)})
         for (const bool pending : {false, true}) {
             Scene scene;
@@ -423,6 +421,38 @@ void terminal_events_restart_even_after_the_sweep_consumes_them() {
             CHECK(scene.movement().navigation.goal != previous);
             CHECK(scene.movement().navigation.last_search_tick == 0);
         }
+}
+
+void search_seed_observations_do_not_restart_an_unchanged_patrol() {
+    for (const uint32_t event :
+         {ground::search_goal_contact_flag,
+          ground::search_seed_unresolved_flag,
+          ground::search_goal_contact_flag | ground::search_seed_unresolved_flag})
+        for (const bool pending : {false, true})
+            for (const auto version : {legacy_version, battle_version}) {
+                Scene scene({version});
+                scene.begin();
+                scene.match().simulation().tick = 120;
+                seed_navigation(scene);
+                const auto* previous = scene.movement().navigation.goal;
+                const auto expected_goal = goal_state(*previous);
+                const auto expected_nav = nav_state(scene.movement().navigation);
+                const auto expected_head = rule_bytes(scene.match(), "local-flow");
+                auto* order = scene.unit().unit->primary;
+                order->raised_events = pending ? event : 0;
+                CHECK(refresh(scene, pending ? 0 : event) == next_phase);
+                CHECK(goal_state(*scene.movement().navigation.goal) == expected_goal);
+                if (version >= battle_version) {
+                    CHECK(scene.movement().navigation.goal == previous);
+                    CHECK(nav_state(scene.movement().navigation) == expected_nav);
+                    CHECK(rule_bytes(scene.match(), "local-flow") == expected_head);
+                    CHECK(order->raised_events == (pending ? event : 0));
+                } else {
+                    CHECK(scene.movement().navigation.goal != previous);
+                    CHECK(scene.movement().navigation.last_search_tick == 0);
+                    CHECK((order->raised_events & event) == 0);
+                }
+            }
 }
 
 void foreign_goal_and_foreign_order_are_not_retained() {
@@ -518,6 +548,8 @@ int main() {
     run("changed goal fields", changed_goal_fields_restart_the_native_goal);
     run("pending and consumed terminal events",
         terminal_events_restart_even_after_the_sweep_consumes_them);
+    run("pending and consumed search observations",
+        search_seed_observations_do_not_restart_an_unchanged_patrol);
     run("foreign goal ownership", foreign_goal_and_foreign_order_are_not_retained);
     run("excluded drivers and layers", excluded_ground_states_use_the_previous_refresh);
     run("new leg and cancellation", new_leg_and_cancellation_keep_normal_order_lifecycle);
