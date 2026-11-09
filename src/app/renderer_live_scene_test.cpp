@@ -3589,6 +3589,352 @@ void shared_model_coordinate_rounding() {
     }
 }
 
+/// Shared local indices retain exact world corners and emitted-face pick bounds.
+void indexed_model_vertex_projection() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr float fixed_scale = static_cast<float>(fixed);
+    constexpr uint32_t population = 2;
+    constexpr double minimum_relative_area = 1e-9;
+    Fixture battle;
+    auto& in = battle.inputs;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.clip_width = in.clip_height = 128;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(3);
+    auto& body = source->objects[0];
+    body.first_child = 1;
+    body.vertices = {
+        {0, 0, 0},
+        {4 * fixed + 1, 0, 0},
+        {4 * fixed, 0, 4 * fixed - 1},
+        {0, 0, 4 * fixed},
+        {100 * fixed, 0, 100 * fixed},
+        {-100 * fixed, 0, -80 * fixed}
+    };
+    body.primitives.resize(4);
+    body.primitives[0].vertex_indices = {0, 1, 2, 3};
+    body.primitives[1].vertex_indices = {0, 2, 3};
+    body.primitives[2].vertex_indices = {0, 3, 4};
+    body.primitives[3].vertex_indices = {0, 5, 1, 2};
+    auto& child = source->objects[1];
+    child.parent = 0;
+    child.next_sibling = 2;
+    child.offset_from_parent = {2 * fixed, fixed / 3, fixed};
+    child.vertices = {{0, 0, 0}, {2 * fixed, 0, 0}, {2 * fixed, 0, 2 * fixed}, {0, 0, 2 * fixed}};
+    child.primitives.resize(2);
+    child.primitives[0].vertex_indices = {0, 1, 2, 3};
+    child.primitives[1].vertex_indices = {0, 2, 3};
+    auto& hidden = source->objects[2];
+    hidden.parent = 0;
+    hidden.vertices = {
+        {-200 * fixed, 0, -200 * fixed},
+        {200 * fixed, 0, -200 * fixed},
+        {200 * fixed, 0, 200 * fixed}
+    };
+    hidden.primitives.resize(1);
+    hidden.primitives[0].vertex_indices = {0, 1, 2};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(source->objects.size());
+    for (uint32_t object = 0; object < source->objects.size(); ++object)
+        for (uint32_t polygon = 0; polygon < source->objects[object].primitives.size(); ++polygon) {
+            drawing::PreparedPrimitive primitive;
+            primitive.source_index = polygon;
+            primitive.flags = drawing::primitive_colored;
+            primitive.color = static_cast<uint8_t>(40 + object * 4 + polygon);
+            prepared.objects[object].primitives.push_back(primitive);
+        }
+    // This quad has valid indices but no readable texture. Its distant
+    // corner must not enlarge the pick's bounds.
+    prepared.objects[0].primitives[3].flags = 0;
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    for (auto& piece : instance.pieces())
+        if (piece.object_index == 2)
+            piece.flags = 0;
+    const auto& posed_body = instance.pieces()[0].transformed_vertices;
+    const std::array first{
+        std::array{posed_body[0].x / fixed_scale, 0.0F, -posed_body[0].z / fixed_scale},
+        std::array{posed_body[1].x / fixed_scale, 0.0F, -posed_body[1].z / fixed_scale},
+        std::array{posed_body[2].x / fixed_scale, 0.0F, -posed_body[2].z / fixed_scale}
+    };
+    const float normal_y = (first[0][2] - first[1][2]) * (first[0][0] + first[1][0]) +
+                           (first[1][2] - first[2][2]) * (first[1][0] + first[2][0]) +
+                           (first[2][2] - first[0][2]) * (first[2][0] + first[0][0]);
+    OA_CHECK(normal_y != 0);
+    in.view_direction = {0, normal_y < 0 ? 1.0F : -1.0F, 0};
+    std::array<oa::Unit, population> units{};
+    battle.draws.models.resize(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        units[index].id = static_cast<uint16_t>(index + 1);
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &units[index];
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.plan.linked.drawn = true;
+    }
+    constexpr std::array<models::FixedVector3, 4> origins{
+        {{8 * fixed + 1, fixed / 7, 8 * fixed - 1},
+         {8 * fixed + fixed / 3, -fixed / 9, 9 * fixed + fixed / 13},
+         {30000 * fixed + 1, -20000 * fixed + 17, 25000 * fixed - 1},
+         {-30000 * fixed - 1, 20000 * fixed - 17, -25000 * fixed + 1}}
+    };
+    std::array<live::Scene, 2> scenes;
+    bool saw_bounded{}, saw_unbounded{};
+    for (const auto& origin : origins)
+        for (const bool sliver : {false, true}) {
+            units[0].position = {origin.x, origin.y, origin.z};
+            units[1].position = {origin.x + fixed / 3, origin.y - fixed / 7, origin.z + fixed / 5};
+            const float x = origin.x / fixed_scale;
+            const float y = origin.y / fixed_scale;
+            const float z = origin.z / fixed_scale;
+            in.clip_projection = {
+                1, 0, 0, 32 - x, 0, -0.5F, 1, 32 - (z - y * 0.5F), 0, -0.001F, 0, 0.5F
+            };
+            if (sliver)
+                std::copy_n(in.clip_projection.begin(), 4, in.clip_projection.begin() + 4);
+            auto& changed = battle.draws.models[1];
+            changed.shown_vertices.clear();
+            if (sliver) {
+                for (const auto& piece : instance.pieces())
+                    changed.shown_vertices.push_back(piece.transformed_vertices);
+                changed.shown_vertices[1][1].x += fixed / 11;
+            }
+            in.models_on_card = false;
+            OA_CHECK(live::build(in, scenes[0], battle.error));
+            in.models_on_card = true;
+            OA_CHECK(live::build(in, scenes[1], battle.error));
+            OA_CHECK(scenes[1].cards.units.size() == population);
+            OA_CHECK(same_on_card(scenes[1], scenes[0], in));
+            for (const auto& drawn : scenes[1].cards.units) {
+                OA_CHECK(drawn.unit_id > 0 && drawn.unit_id <= population);
+                if (drawn.unit_id == 0 || drawn.unit_id > population)
+                    continue;
+                const auto& draw = battle.draws.models[drawn.unit_id - 1];
+                const auto position = draw.shown_position.value_or(draw.model.unit->position);
+                const std::array place{
+                    position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+                };
+                std::vector<std::array<float, 3>> expected;
+                std::array bounds{
+                    std::numeric_limits<float>::infinity(),
+                    std::numeric_limits<float>::infinity(),
+                    -std::numeric_limits<float>::infinity(),
+                    -std::numeric_limits<float>::infinity()
+                };
+                bool bounded = true;
+                uint32_t back_faces{}, missing_frames{}, hidden_pieces{};
+                const auto pieces = draw.model.instance->pieces();
+                for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+                    if ((pieces[piece].flags &
+                         static_cast<uint16_t>(runtime::PieceFlag::visible)) == 0) {
+                        ++hidden_pieces;
+                        continue;
+                    }
+                    const auto& points = piece < draw.shown_vertices.size()
+                                             ? draw.shown_vertices[piece]
+                                             : pieces[piece].transformed_vertices;
+                    const auto object = pieces[piece].object_index;
+                    for (const auto& primitive : prepared.objects[object].primitives) {
+                        if ((primitive.flags & drawing::primitive_colored) == 0 &&
+                            primitive.frame == nullptr) {
+                            ++missing_frames;
+                            continue;
+                        }
+                        const auto& indices = source->objects[object]
+                                                  .primitives[primitive.source_index]
+                                                  .vertex_indices;
+                        std::vector<std::array<float, 3>> corners;
+                        for (const auto index : indices) {
+                            const auto& point = points[index];
+                            corners.push_back(
+                                {place[0] + point.x / fixed_scale,
+                                 place[1] + point.y / fixed_scale,
+                                 place[2] - point.z / fixed_scale}
+                            );
+                        }
+                        std::array<float, 3> normal{};
+                        for (std::size_t index = 0; index < corners.size(); ++index) {
+                            const auto& a = corners[index];
+                            const auto& b = corners[(index + 1) % corners.size()];
+                            normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
+                            normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
+                            normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
+                        }
+                        if (normal[0] * in.view_direction[0] + normal[1] * in.view_direction[1] +
+                                normal[2] * in.view_direction[2] >=
+                            0) {
+                            ++back_faces;
+                            continue;
+                        }
+                        std::vector<std::array<float, 2>> projected;
+                        const auto& p = in.clip_projection;
+                        for (const auto& corner : corners) {
+                            const float across =
+                                p[0] * corner[0] + p[1] * corner[1] + p[2] * corner[2] + p[3];
+                            const float down =
+                                p[4] * corner[0] + p[5] * corner[1] + p[6] * corner[2] + p[7];
+                            bounds = {
+                                std::min(bounds[0], across),
+                                std::min(bounds[1], down),
+                                std::max(bounds[2], across),
+                                std::max(bounds[3], down)
+                            };
+                            projected.push_back({across, down});
+                        }
+                        for (std::size_t fan = 1; fan + 1 < corners.size(); ++fan) {
+                            for (const auto corner : {std::size_t{0}, fan, fan + 1})
+                                expected.push_back(corners[corner]);
+                            const auto& a = projected[0];
+                            const auto& b = projected[fan];
+                            const auto& c = projected[fan + 1];
+                            const double first_area = (double(b[1]) - c[1]) * (double(a[0]) - c[0]);
+                            const double second_area =
+                                (double(c[0]) - b[0]) * (double(a[1]) - c[1]);
+                            bounded &= std::abs(first_area + second_area) >
+                                       (std::abs(first_area) + std::abs(second_area)) *
+                                           minimum_relative_area;
+                        }
+                    }
+                }
+                OA_CHECK(back_faces > 0 && missing_frames == 1 && hidden_pieces == 1);
+                OA_CHECK(expected.size() == drawn.index_count);
+                OA_CHECK(drawn.left == bounds[0] && drawn.top == bounds[1]);
+                OA_CHECK(drawn.right == bounds[2] && drawn.bottom == bounds[3]);
+                OA_CHECK(drawn.bounded == bounded);
+                saw_bounded |= bounded;
+                saw_unbounded |= !bounded;
+                for (std::size_t corner = 0;
+                     corner < std::min(expected.size(), std::size_t{drawn.index_count});
+                     ++corner) {
+                    const auto actual = live::card_corner(
+                        scenes[1].card_types,
+                        scenes[1].cards,
+                        drawn,
+                        scenes[1].cards.indices[drawn.first_index + corner]
+                    );
+                    const std::array position{actual.x, actual.height, actual.z};
+                    for (std::size_t axis = 0; axis < position.size(); ++axis)
+                        OA_CHECK(
+                            std::bit_cast<uint32_t>(position[axis]) ==
+                            std::bit_cast<uint32_t>(expected[corner][axis])
+                        );
+                }
+            }
+        }
+    OA_CHECK(saw_bounded && saw_unbounded);
+}
+
+/// A high indexed vertex retains exact geometry outside the reusable prefix.
+void high_indexed_model_vertex_projection() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr float fixed_scale = static_cast<float>(fixed);
+    constexpr uint16_t high_vertex = 33000;
+    Fixture battle;
+    auto& in = battle.inputs;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.clip_width = in.clip_height = 128;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    auto& object = source->objects[0];
+    object.vertices.resize(high_vertex + 1);
+    object.vertices[1].x = 4 * fixed + 1;
+    object.vertices[high_vertex].z = 4 * fixed - 1;
+    object.primitives.resize(2);
+    object.primitives[0].vertex_indices = {0, 1, high_vertex};
+    object.primitives[1].vertex_indices = {0, high_vertex, 1};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    for (uint32_t polygon = 0; polygon < object.primitives.size(); ++polygon) {
+        drawing::PreparedPrimitive primitive;
+        primitive.source_index = polygon;
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = static_cast<uint8_t>(40 + polygon);
+        prepared.objects[0].primitives.push_back(primitive);
+    }
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms({});
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.position = {30000 * fixed + 1, -fixed / 3, -25000 * fixed + 1};
+    const std::array origin{
+        unit.position.x / fixed_scale, unit.position.y / fixed_scale, unit.position.z / fixed_scale
+    };
+    in.clip_projection = {
+        1,
+        0,
+        0,
+        32 - origin[0],
+        0,
+        -0.5F,
+        1,
+        32 - (origin[2] - origin[1] * 0.5F),
+        0,
+        -0.001F,
+        0,
+        0.5F
+    };
+    battle.draws.models.resize(1);
+    auto& draw = battle.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.plan.linked.drawn = true;
+    live::Scene expanded;
+    OA_CHECK(live::build(in, expanded, battle.error));
+    in.models_on_card = true;
+    OA_CHECK(live::build(in, battle.scene, battle.error));
+    OA_CHECK(same_on_card(battle.scene, expanded, in));
+    OA_CHECK(battle.scene.cards.units.size() == 1);
+    if (battle.scene.cards.units.empty())
+        return;
+    const auto& drawn = battle.scene.cards.units[0];
+    constexpr std::array<uint16_t, 6> indices{0, 1, high_vertex, 0, high_vertex, 1};
+    OA_CHECK(drawn.index_count == indices.size() && drawn.bounded);
+    std::array bounds{
+        std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity()
+    };
+    for (std::size_t index = 0; index < std::min(indices.size(), std::size_t{drawn.index_count});
+         ++index) {
+        const auto& point = instance.pieces()[0].transformed_vertices[indices[index]];
+        const std::array expected{
+            origin[0] + point.x / fixed_scale,
+            origin[1] + point.y / fixed_scale,
+            origin[2] - point.z / fixed_scale
+        };
+        const auto corner = live::card_corner(
+            battle.scene.card_types,
+            battle.scene.cards,
+            drawn,
+            battle.scene.cards.indices[drawn.first_index + index]
+        );
+        const std::array actual{corner.x, corner.height, corner.z};
+        for (std::size_t axis = 0; axis < actual.size(); ++axis)
+            OA_CHECK(
+                std::bit_cast<uint32_t>(actual[axis]) == std::bit_cast<uint32_t>(expected[axis])
+            );
+        const auto& p = in.clip_projection;
+        const float x = p[0] * expected[0] + p[1] * expected[1] + p[2] * expected[2] + p[3];
+        const float y = p[4] * expected[0] + p[5] * expected[1] + p[6] * expected[2] + p[7];
+        bounds = {
+            std::min(bounds[0], x),
+            std::min(bounds[1], y),
+            std::max(bounds[2], x),
+            std::max(bounds[3], y)
+        };
+    }
+    OA_CHECK(drawn.left == bounds[0] && drawn.top == bounds[1]);
+    OA_CHECK(drawn.right == bounds[2] && drawn.bottom == bounds[3]);
+}
+
 /// A battle with its models on the card draws what its vertices draw,
 /// frame after frame, on any number of drawing threads: each card draw's
 /// triangles, where they fall among the frame's vertices, are the
@@ -5457,6 +5803,8 @@ int main() {
     models_on_card();
     shared_model_positions();
     shared_model_coordinate_rounding();
+    indexed_model_vertex_projection();
+    high_indexed_model_vertex_projection();
     projected_unit_detail();
     shared_unit_detail_bounds();
     shared_unit_detail_texture_visibility();
