@@ -708,6 +708,23 @@ budget, and smooth bridge/rear flow remains unresolved. These observations
 do not establish smooth 60 FPS play or full-model rendering at this scale;
 version 4 remains current and ray tracing remains deferred.
 
+A later foreground run at `8cfc42dd6` measures experimental version 6 in
+the turned view, with the same Full/AA4 strategic dots and initial 20,000
+units. It completes 901 measured ticks at a frame boundary in 30.07 seconds:
+1,014 presented frames, 33.722 FPS, 29.964 ticks/s and an 8.84 FPS frame
+1% low. The final CORE/ARM counts are 9,937/9,987, matching 63/13 deaths
+and no births. Every measured frame passes the native focus guards;
+587 valid OS samples follow startup, with no invalid terminal sample.
+
+The terrain survey and plan average 0.18 ms. All 25 atlas-reset frames also
+change ground geometry, and those frames include the 11 slowest frame
+spans. This associates the slow tail with atlas and ground rebuild work;
+it does not identify which material exhausted the atlas. Sprite work is
+also substantial. Sampled host activity and the different version-6
+movement and combat workload prevent a causal comparison with the earlier
+version-4 timing. A previous attempt lost focus at tick 1,205 and is
+excluded. These measurements precede the later minimap and recording changes.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
