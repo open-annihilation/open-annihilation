@@ -14,7 +14,10 @@ namespace oa::sim::match_runtime {
 
 inline constexpr size_t ai_strike_tasks_per_player = 2;
 inline constexpr size_t ai_strike_target_count = OA_PLAYER_COUNT * ai_strike_tasks_per_player;
-inline constexpr uint32_t ai_retarget_cooldown_ticks = 30;
+/// Minimum gap between early native strike dispatches on the owning machine.
+/// Six simulation ticks are 200 ms at 30 ticks per second. This bounds dispatch
+/// frequency; a dispatch may still order every member of a large squad.
+inline constexpr uint32_t ai_retarget_cooldown_ticks = 6;
 inline constexpr size_t ai_retarget_header_bytes = 24;
 inline constexpr size_t ai_retarget_target_bytes = 20;
 inline constexpr size_t ai_retarget_state_bytes =

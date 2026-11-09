@@ -29,9 +29,9 @@ constexpr uint8_t computer_player = 1;
 constexpr uint8_t enemy_player = 0;
 constexpr uint32_t retarget_version = 6;
 constexpr uint32_t strike_refresh_ticks = 300;
-constexpr uint32_t retarget_interval_ticks = 30;
+constexpr uint32_t retarget_interval_ticks = 6;
 constexpr uint32_t target_loss_tick = 55;
-constexpr uint32_t retry_observation_ticks = retarget_interval_ticks * 3;
+constexpr uint32_t retry_observation_ticks = 90;
 constexpr uint16_t slots_per_player = 8;
 constexpr std::size_t strike_members = 4;
 constexpr uint32_t durable_health = 30000;
@@ -42,6 +42,11 @@ constexpr uint32_t replacement_x = 232;
 constexpr uint32_t replacement_z = 200;
 constexpr uint32_t member_x = 24;
 constexpr uint32_t naval_member_x = 56;
+constexpr uint16_t fixture_gun = 1;
+constexpr uint16_t fixture_unit_type = 1;
+constexpr int32_t movement_gun_range = 32;
+constexpr uint16_t east_heading = 0x4000;
+constexpr std::size_t leading_member = 2;
 constexpr std::array<uint32_t, strike_members> member_z = {48, 80, 112, 144};
 constexpr uint32_t strike_squad = static_cast<uint32_t>(ai::Squad::land_strike);
 constexpr uint32_t naval_squad = static_cast<uint32_t>(ai::Squad::naval_strike);
@@ -155,17 +160,28 @@ struct StrikeFixture {
     uint32_t regular_refresh_tick{};
 
     /// Starts the ordinary strike through the full match controller tick.
-    explicit StrikeFixture(uint32_t version) : fixture(options_for(version)) {
+    explicit StrikeFixture(uint32_t version, bool short_range_weapon = false)
+        : fixture(options_for(version)) {
+        if (short_range_weapon) {
+            auto gun = fixture.weapons.records()[fixture_gun];
+            gun.range = movement_gun_range;
+            fixture.weapons.install(gun, {});
+            fixture.match->state().game.weapon_defs[fixture_gun] = gun;
+        }
         for (std::size_t i = 0; i < members.size(); ++i) {
             auto& member = fixture.spawn(computer_player, member_x, member_z[i]);
             hold_fire(member);
+            if (short_range_weapon)
+                member.record.heading = east_heading;
             members[i] = member.unit_index;
             fixture.match->set_unit_squad(member.unit_index, strike_squad);
         }
         auto& first = fixture.spawn(enemy_player, target_x, target_z);
         hold_fire(first);
         target = first.unit_index;
-        auto& second = fixture.spawn(enemy_player, replacement_x, replacement_z);
+        auto& second = fixture.spawn(
+            enemy_player, replacement_x, short_range_weapon ? target_z : replacement_z
+        );
         hold_fire(second);
         replacement = second.unit_index;
 
@@ -309,6 +325,107 @@ void dead_target_refreshes_the_squad_before_the_regular_deadline() {
     CHECK(issued < battle.regular_refresh_tick);
 }
 
+/// Checks that the new attack produces a real Goal and forward movement next tick.
+void check_goal_and_motion_after_issue(StrikeFixture& battle, uint16_t aimed, uint32_t issued) {
+    CHECK(battle.fixture.match->simulation().tick == issued);
+    const auto& leader = battle.fixture.match->spawn_slot(battle.members[leading_member]);
+    const int32_t previous_x = leader.record.position.x;
+    const int32_t previous_z = leader.record.position.z;
+    battle.fixture.run(1);
+    CHECK(battle.fixture.match->simulation().tick == issued + 1);
+    battle.check_attack(aimed, issued);
+    for (const auto member : battle.members) {
+        const auto* ground = battle.fixture.match->ground_runtime(member);
+        CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+        CHECK(
+            ground->navigation.goal->order == battle.fixture.match->spawn_slot(member).unit->primary
+        );
+    }
+    CHECK(leader.record.position.x != previous_x || leader.record.position.z != previous_z);
+    CHECK(battle.strike().next_tick == issued + strike_refresh_ticks);
+}
+
+/// Restores a healthy replacement in an exact free slot on the leader's open lane.
+void create_healthy_replacement(StrikeFixture& battle, uint16_t slot, uint32_t x) {
+    auto* created = battle.fixture.match->create(
+        {enemy_player,
+         fixture_unit_type,
+         {x * fixed_one, 32u * fixed_one, target_z * fixed_one},
+         true,
+         1,
+         slot}
+    );
+    CHECK(created != nullptr && created->unit != nullptr);
+    CHECK(created->unit_index == slot && created->record.health > 0);
+    hold_fire(*created);
+}
+
+/// Waits for the remaining short cooldown when a target dies just after its issue.
+void early_target_loss_respects_the_short_cooldown_then_moves() {
+    StrikeFixture battle(retarget_version, true);
+    const uint32_t died = battle.initial_issue_tick + 1;
+    const uint32_t next_allowed = battle.initial_issue_tick + retarget_interval_ticks;
+    battle.run_until(died);
+    battle.kill_target(battle.target);
+    while (battle.fixture.match->simulation().tick < next_allowed - 1) {
+        battle.fixture.run(1);
+        CHECK(!battle.all_retargeted(battle.replacement));
+        CHECK(battle.strike().next_tick == battle.regular_refresh_tick);
+    }
+    battle.fixture.run(1);
+    battle.check_attack(battle.replacement, next_allowed);
+    CHECK(next_allowed - died <= retarget_interval_ticks);
+    std::array<sim::simulation_state::Order*, strike_members> issued_heads{};
+    for (std::size_t i = 0; i < battle.members.size(); ++i)
+        issued_heads[i] = battle.fixture.match->spawn_slot(battle.members[i]).unit->primary;
+    check_goal_and_motion_after_issue(battle, battle.replacement, next_allowed);
+    while (battle.fixture.match->simulation().tick < next_allowed + retarget_interval_ticks - 1) {
+        battle.fixture.run(1);
+        battle.check_attack(battle.replacement, next_allowed);
+        CHECK(battle.strike().next_tick == next_allowed + strike_refresh_ticks);
+        for (std::size_t i = 0; i < battle.members.size(); ++i)
+            CHECK(
+                battle.fixture.match->spawn_slot(battle.members[i]).unit->primary == issued_heads[i]
+            );
+    }
+}
+
+/// Keeps goals and movement returning as healthy replacement targets die repeatedly.
+void short_lived_healthy_targets_resume_goals_and_motion() {
+    StrikeFixture battle(retarget_version, true);
+    constexpr uint32_t first_target_lifetime = 4;
+    battle.run_until(battle.initial_issue_tick + first_target_lifetime);
+    const uint32_t first_death = battle.fixture.match->simulation().tick;
+    battle.kill_target(battle.target);
+    uint16_t current = battle.replacement;
+    uint16_t free_slot = battle.target;
+    uint32_t issued = battle.wait_for_retarget(current, first_death + retarget_interval_ticks);
+    CHECK(issued - first_death <= retarget_interval_ticks);
+    check_goal_and_motion_after_issue(battle, current, issued);
+    constexpr std::array<uint32_t, 3> target_lifetimes = {4, 5, 6};
+    for (const auto lifetime : target_lifetimes) {
+        const uint32_t next_x = free_slot == battle.target ? target_x : replacement_x;
+        create_healthy_replacement(battle, free_slot, next_x);
+        const uint32_t died = issued + lifetime;
+        while (battle.fixture.match->simulation().tick < died) {
+            battle.fixture.run(1);
+            battle.check_attack(current, issued);
+            CHECK(battle.strike().next_tick == issued + strike_refresh_ticks);
+        }
+        const auto& dying = battle.fixture.match->spawn_slot(current).record;
+        CHECK(dying.health > 0 && oa::unit_is_live_target(dying.flags));
+        battle.kill_target(current);
+        const uint32_t next_issue =
+            battle.wait_for_retarget(free_slot, died + retarget_interval_ticks);
+        CHECK(next_issue - issued >= retarget_interval_ticks);
+        CHECK(next_issue - died <= retarget_interval_ticks);
+        check_goal_and_motion_after_issue(battle, free_slot, next_issue);
+        CHECK(battle.fixture.match->simulation().tick - died <= retarget_interval_ticks + 1);
+        std::swap(current, free_slot);
+        issued = next_issue;
+    }
+}
+
 /// Leaves a live target's orders alone until the regular refresh comes due.
 void live_target_does_not_add_command_refreshes() {
     StrikeFixture battle(retarget_version);
@@ -442,7 +559,10 @@ void all_pending_targets_keep_retries_bounded_without_new_attacks() {
         );
         CHECK(read_integer(bytes, land_target_record + native_next_tick_offset) == deadline);
     }
-    CHECK(attempts == retry_observation_ticks / retarget_interval_ticks);
+    CHECK(
+        attempts ==
+        (retry_observation_ticks + retarget_interval_ticks - 1) / retarget_interval_ticks
+    );
 }
 
 /// Bounds unsuccessful retarget attempts when no enemy remains.
@@ -786,7 +906,7 @@ void load_pass_keeps_an_unexpired_retarget_cooldown() {
     // cooldown rather than issue another attack at the saved tick.
     first.reuse_target_slot();
     restored.reuse_target_slot();
-    constexpr uint32_t cooldown_elapsed_ticks = 7;
+    constexpr uint32_t cooldown_elapsed_ticks = 1;
     const uint32_t saved_tick = first.fixture.match->simulation().tick + cooldown_elapsed_ticks;
     first.run_until(saved_tick);
     restored.run_until(saved_tick);
@@ -976,6 +1096,12 @@ int main() {
     failures += run_case("earlier presets", old_presets_keep_the_regular_refresh);
     failures +=
         run_case("dead target", dead_target_refreshes_the_squad_before_the_regular_deadline);
+    failures += run_case(
+        "short cooldown before movement", early_target_loss_respects_the_short_cooldown_then_moves
+    );
+    failures += run_case(
+        "short-lived targets keep moving", short_lived_healthy_targets_resume_goals_and_motion
+    );
     failures += run_case("live target", live_target_does_not_add_command_refreshes);
     failures += run_case(
         "earlier pending-target selection", earlier_presets_keep_the_pending_target_selection
