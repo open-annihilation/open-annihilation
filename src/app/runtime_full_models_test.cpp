@@ -50,6 +50,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <climits>
 #include <cmath>
 #include <cstddef>
@@ -1712,6 +1713,209 @@ void test_offscreen_body_preserves_later_material_pixels() {
             OA_CHECK(culled.rgba == ordinary.rgba);
             OA_CHECK(pixels_with_alpha(culled, 255) > 0);
         }
+}
+
+/// Returns every named colour word without reading structure padding.
+std::array<uint32_t, 4> colour_words(const card::Colour& colour) {
+    return {
+        std::bit_cast<uint32_t>(colour.red),
+        std::bit_cast<uint32_t>(colour.green),
+        std::bit_cast<uint32_t>(colour.blue),
+        std::bit_cast<uint32_t>(colour.alpha)
+    };
+}
+
+/// Returns every named vertex word as the graphics card receives it.
+std::array<uint32_t, 8> vertex_words(const card::Vertex& vertex) {
+    const auto colour = colour_words(vertex.colour);
+    return {
+        std::bit_cast<uint32_t>(vertex.x),
+        std::bit_cast<uint32_t>(vertex.y),
+        colour[0],
+        colour[1],
+        colour[2],
+        colour[3],
+        std::bit_cast<uint32_t>(vertex.u),
+        std::bit_cast<uint32_t>(vertex.v)
+    };
+}
+
+/// Returns the rectangle's named coordinates and extent.
+auto rect_words(const card::Rect& rect) {
+    return std::tuple{rect.x, rect.y, rect.width, rect.height};
+}
+
+/// Returns all command fields, including defaults of fields a draw does not use.
+auto batch_words(const card::Batch& batch) {
+    return std::tuple{
+        batch.operation,
+        batch.target,
+        batch.page,
+        batch.level,
+        batch.blend,
+        batch.sampling,
+        batch.scissored,
+        rect_words(batch.scissor),
+        batch.first_index,
+        batch.index_count,
+        batch.source,
+        rect_words(batch.destination),
+        std::bit_cast<uint32_t>(batch.shift_x),
+        std::bit_cast<uint32_t>(batch.shift_y),
+        rect_words(batch.source_part),
+        colour_words(batch.colour)
+    };
+}
+
+/// Compares the real geometry suffix and every command against ordinary emission.
+void check_body_frame_suffix(
+    const card::CardFrame& candidate,
+    const card::CardFrame& reference,
+    size_t prefix_vertices,
+    size_t prefix_indices
+) {
+    OA_CHECK(candidate.vertices.size() == reference.vertices.size());
+    OA_CHECK(candidate.indices.size() == reference.indices.size());
+    OA_CHECK(candidate.batches.size() == reference.batches.size());
+    OA_CHECK(candidate.vertices.size() > prefix_vertices);
+    OA_CHECK(candidate.indices.size() > prefix_indices);
+    if (candidate.vertices.size() < prefix_vertices ||
+        reference.vertices.size() < prefix_vertices || candidate.indices.size() < prefix_indices ||
+        reference.indices.size() < prefix_indices)
+        return;
+    if (candidate.vertices.size() == reference.vertices.size())
+        for (size_t at = prefix_vertices; at < candidate.vertices.size(); ++at)
+            OA_CHECK(vertex_words(candidate.vertices[at]) == vertex_words(reference.vertices[at]));
+    if (candidate.indices.size() == reference.indices.size())
+        OA_CHECK(
+            std::equal(
+                candidate.indices.begin() + static_cast<std::ptrdiff_t>(prefix_indices),
+                candidate.indices.end(),
+                reference.indices.begin() + static_cast<std::ptrdiff_t>(prefix_indices)
+            )
+        );
+    if (candidate.batches.size() == reference.batches.size())
+        for (size_t at = 0; at < candidate.batches.size(); ++at)
+            OA_CHECK(batch_words(candidate.batches[at]) == batch_words(reference.batches[at]));
+}
+
+/// Draws a seeded frame through an explicit view, optionally recording physical heights.
+CardPicture raster_seeded_body_view(
+    Card& card,
+    const Scene& scene,
+    const full::SceneView& view,
+    size_t prefix_vertices,
+    size_t prefix_indices,
+    bool record_heights
+) {
+    std::vector<float> heights;
+    auto inputs = scene.inputs();
+    inputs.vertex_heights = record_heights ? &heights : nullptr;
+    card.canvas.clear();
+    card.frame.reset();
+    card.frame.vertices.resize(prefix_vertices);
+    card.frame.indices.resize(prefix_indices);
+    card.stage.emit_frame(inputs, view, card.executor, card.frame);
+    OA_CHECK(card.stage.upload(card.executor));
+    OA_CHECK(card::check_frame(card.frame).empty());
+    OA_CHECK(card.executor.execute(card.frame, card.canvas.target));
+    return card.canvas.read();
+}
+
+/// Supplies alternating materials and a quad whose stored triangles start at corner one.
+std::shared_ptr<Model> direct_append_model() {
+    constexpr std::array<std::array<int32_t, 2>, 4> kite{{{8, 0}, {20, 4}, {14, 16}, {0, 8}}};
+    constexpr std::array<uint16_t, 4> order{0, 3, 2, 1};
+    auto model = std::make_shared<Model>();
+    Object object;
+    object.vertices.resize(order.size());
+    for (size_t at = 0; at < order.size(); ++at)
+        object.vertices[order[at]] = {-kite[at][0] * unit, 0, kite[at][1] * unit};
+    object.primitives.push_back(primitive({0, 3, 2, 1}, 0, "plain"));
+    add_sloped_quad(object, 20, 32, -8, 8, {0, 0, 0, 0}, ink);
+    const auto first = static_cast<uint16_t>(object.vertices.size());
+    object.vertices.insert(
+        object.vertices.end(),
+        {{-48 * unit, 0, -8 * unit},
+         {-32 * unit, 0, -8 * unit},
+         {-32 * unit, 0, 8 * unit},
+         {-48 * unit, 0, 8 * unit}}
+    );
+    object.primitives.push_back(primitive(
+        {first, uint16_t(first + 3), uint16_t(first + 2), uint16_t(first + 1)}, 0, "blink"
+    ));
+    model->objects.push_back(std::move(object));
+    return model;
+}
+
+/// Keeps direct body writes identical to the ordinary scratch path at both strip limits.
+void test_direct_body_frame_append() {
+    constexpr float zoom = 0.75F;
+    constexpr std::array<card::Index, 6> kite_indices{1, 2, 3, 1, 3, 0};
+    for (const bool index_limit : {false, true})
+        for (const bool shared_materials : {false, true}) {
+            TextureFixture textures;
+            Scene scene(gray_palette(), std::move(textures.library));
+            scene.share_solid_materials = shared_materials;
+            auto& actor = scene.add_unit(direct_append_model(), 1, unit_x, unit_z);
+            ProcessorPicture processor;
+            scene.begin_frame(processor, 0);
+            scene.plan_unit(actor);
+            const size_t vertices = index_limit ? 1 : body_cull_vertex_prefix;
+            const size_t indices = index_limit ? body_cull_index_prefix : 0;
+            Card reference(scene, zoom), candidate(scene, zoom);
+            full::SceneView view;
+            view.zoom = zoom;
+            view.width = candidate.canvas.width;
+            view.height = candidate.canvas.height;
+            view.origin_x = 3.25F;
+            view.origin_y = 4.5F;
+            view.offset.x = 0.5;
+            view.offset.y = 0.25;
+            const auto ordinary =
+                raster_seeded_body_view(reference, scene, view, vertices, indices, true);
+            const auto direct =
+                raster_seeded_body_view(candidate, scene, view, vertices, indices, false);
+            OA_CHECK(reference.stage.counts().strip_quads == 0);
+            OA_CHECK(candidate.stage.counts().strip_quads == 0);
+            check_body_frame_suffix(candidate.frame, reference.frame, vertices, indices);
+            OA_CHECK(direct.rgba == ordinary.rgba);
+            OA_CHECK(pixels_with_alpha(direct, 255) > 0);
+            OA_CHECK(reference.frame.indices.size() >= indices + kite_indices.size());
+            if (reference.frame.indices.size() >= indices + kite_indices.size())
+                for (size_t at = 0; at < kite_indices.size(); ++at)
+                    OA_CHECK(reference.frame.indices[indices + at] == vertices + kite_indices[at]);
+        }
+}
+
+/// Preserves cut, hole and wet paths beside the post-limit direct-body path.
+void test_direct_body_cut_and_hole_fallbacks() {
+    const std::array<std::shared_ptr<Model>, 3> models{
+        cleared_model(), crossed_model(), crossed_model()
+    };
+    for (size_t at = 0; at < models.size(); ++at) {
+        Scene scene;
+        if (at == models.size() - 1) {
+            scene.water_shimmer = 1;
+            scene.world->game.sea_level = 4;
+        }
+        auto& actor = scene.add_unit(models[at], 1, unit_x, unit_z);
+        actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        Card reference(scene), candidate(scene);
+        full::SceneView view;
+        view.width = candidate.canvas.width;
+        view.height = candidate.canvas.height;
+        const auto ordinary =
+            raster_seeded_body_view(reference, scene, view, body_cull_vertex_prefix, 0, true);
+        const auto direct =
+            raster_seeded_body_view(candidate, scene, view, body_cull_vertex_prefix, 0, false);
+        check_body_frame_suffix(candidate.frame, reference.frame, body_cull_vertex_prefix, 0);
+        OA_CHECK(direct.rgba == ordinary.rgba);
+        OA_CHECK(pixels_with_alpha(direct, 255) > 0);
+    }
 }
 
 // A square wound away from the camera draws nothing on either side.
@@ -3802,6 +4006,8 @@ int main(int argc, char** argv) {
         test_offscreen_reflection_and_shimmer_geometry();
         test_offscreen_body_preserves_strip_transition();
         test_offscreen_body_preserves_later_material_pixels();
+        test_direct_body_frame_append();
+        test_direct_body_cut_and_hole_fallbacks();
         test_back_face();
         test_textured();
         test_textured_trapezoid();
