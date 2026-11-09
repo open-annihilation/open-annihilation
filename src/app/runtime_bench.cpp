@@ -472,7 +472,7 @@ void Runtime::play_bench() {
             held_camera != std::array<int32_t, 2>{match_camera_x_, match_camera_z_} ||
             held_zoom != match_zoom_ || held_angles != live_camera_angles())
             fail("gameplay changed its requested Full renderer or camera");
-        if (!live_renderer_active() && !full_frame_drawn())
+        if (!live_renderer_active() && (!full_ || !full_->drawn))
             fail("gameplay's classic Full frame fell back to Basic");
         if (live_renderer_active() &&
             (!render_run_->host || !render_run_->host->presenting_on_card() ||
