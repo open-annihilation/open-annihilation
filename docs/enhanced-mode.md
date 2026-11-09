@@ -408,8 +408,11 @@ routes but remain blocked by mobile traffic.
 This older fixture uses individual mirrored goals and hold fire, without
 the normal ARM computer player; its commander-bank assignment also differs
 from the aligned patrol workload below. Its bridge and rear metrics do not
-diagnose that later battle. Further pathing work needs a current-version
-baseline using the aligned patrol setup and evolving combat orders.
+diagnose that later battle. A separate version-4 headless diagnostic now
+loads the exact aligned patrol setup and records 1,800 native ticks with
+normal ARM AI and combat. Further pathing work must use its evolving orders
+and goal epochs; it is a diagnostic baseline, not a replay of presented
+frames or a gameplay-performance measurement.
 
 ## Current-view rendering checkpoint
 
@@ -480,7 +483,7 @@ normal-clock and presentation checks. A separate operating-system monitor
 samples whether the game is active and frontmost approximately every 100 ms.
 The completed runs below pass both SDL checks on every measured frame, with
 active, frontmost OS samples covering measurement. The largest sampled gap
-was 107.4 ms for the first classic run and 181.4 ms across the later three
+was 107.4 ms for the first classic run and 181.4 ms across the later four
 runs. Samples establish no focus state between observations. Any startup or
 warmup focus losses preceded measurement.
 
@@ -490,9 +493,11 @@ warmup focus losses preceded measurement.
 | `0a0d20bb2` | Classic 2.5D, models | 5.465 | 4.38 | 25.225 | 195 | 900 |
 | `0a0d20bb2` | Turned 3D, models | 8.568 | 5.94 | 30.036 | 257 | 901 |
 | `0a0d20bb2` | Classic 2.5D, strategic dots | 70.173 | 36.53 | 30.003 | 2,105 | 900 |
+| `4c8e9744a` | Turned 3D, strategic dots | 35.134 | 25.41 | 30.000 | 1,054 | 900 |
 
 The first classic run spans 36.12 seconds. The three `0a0d20bb2` runs use
 the same executable and span 35.68, 30.00 and 30.00 seconds respectively.
+The later turned-dots run spans 30.00 seconds on its recorded executable.
 Requested game speed is 10; classic models adapt between 8 and 9, while
 turned models and dots retain 10. Both sides move in every reported interval
 and record firing, damage and deaths, with no births. Final live counts are
@@ -503,17 +508,23 @@ No other game, compiler or profiler appears in the retained resource samples;
 finite sampling does not establish an idle host or a causal speedup.
 
 Dots uses the existing graphics-menu choices: units as dots, after zoom
-1/3. At zoom 0.25 it omits unit and feature models and reduces effects and
-overlays; Full rendering and anti-aliasing setting 4 remain enabled. This
-is a separate quality result. The display refreshes at 60 Hz, so 70.173
+1/3. Source `4c8e9744a` makes the turned view respect these choices too,
+independently of Enhanced Mode. At zoom 0.25 it omits unit and feature
+models and reduces effects and overlays; Full rendering and anti-aliasing
+setting 4 remain enabled. These are separate quality results. Marker
+visibility and picking need separate correctness checks: zero planned models
+in a timing log does not establish either. The display refreshes at 60 Hz, so 70.173
 presents/s cannot show more than 60 distinct refreshes/s. The table's 1% low
-uses frame spans; dots' presented-interval 1% low is 34.01 FPS. Its tail
+uses frame spans; classic dots' presented-interval 1% low is 34.01 FPS. Its tail
 latency and unit congestion still prevent a whole-battle smoothness claim.
 
 Classic model staging and upload average 91.49 ms per frame; dots reduces
 that work to 0.07 ms. Turned model views still spend 30.90 ms building the
 Scene and 25.15 ms planning the draw list. These CPU wall spans contain
-nested work and are not GPU timings. Full model views remain below 60 FPS.
+nested work and are not GPU timings. Turned dots reduces Scene construction
+to 5.43 ms and draw-list planning to 1.49 ms, but still spends 12.02 ms on
+simulation and 15.58 ms drawing per frame on the shared application thread.
+Both turned quality levels remain below 60 FPS.
 
 Earlier turned attempts remain rejected: one lost input and keyboard focus
 at tick 1,480 during measurement; another, in a locked session, failed
