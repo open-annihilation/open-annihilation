@@ -322,6 +322,7 @@ void Runtime::play_bench() {
 
     const auto slots = match_->world().slots.size();
     std::vector<oa::FixedVec3> initial_positions(view.require_gameplay ? slots : 0);
+    std::vector<oa::FixedVec3> sampled_positions(view.require_gameplay ? slots : 0);
     std::vector<uint32_t> initial_generations(view.require_gameplay ? slots : 0);
     std::vector<uint8_t> moved(view.require_gameplay ? slots : 0);
     std::array<uint32_t, OA_PLAYER_COUNT> moved_units{};
@@ -525,6 +526,29 @@ void Runtime::play_bench() {
     bench_timers::reset(view.stage_timers);
     const uint32_t first_tick = match_timing_.tick;
     check_gameplay();
+    const CombatCounts combat_at_measure = combat;
+    const auto print_combat = [&](const char* line, const CombatCounts& baseline) {
+        std::printf(
+            "bench: %s tick %u shots %llu+%llu damage %llu+%llu deaths %llu+%llu births "
+            "%llu+%llu\n",
+            line,
+            match_timing_.tick,
+            static_cast<unsigned long long>(combat.shots[0] - baseline.shots[0]),
+            static_cast<unsigned long long>(combat.shots[1] - baseline.shots[1]),
+            static_cast<unsigned long long>(combat.damage[0] - baseline.damage[0]),
+            static_cast<unsigned long long>(combat.damage[1] - baseline.damage[1]),
+            static_cast<unsigned long long>(combat.deaths[0] - baseline.deaths[0]),
+            static_cast<unsigned long long>(combat.deaths[1] - baseline.deaths[1]),
+            static_cast<unsigned long long>(combat.births[0] - baseline.births[0]),
+            static_cast<unsigned long long>(combat.births[1] - baseline.births[1])
+        );
+    };
+    if (view.require_gameplay) {
+        for (const auto& slot : match_->world().slots)
+            if (slot.unit && slot.record.type_index)
+                sampled_positions[slot.unit_index] = slot.record.position;
+        print_combat("ACTIVITY_BASELINE", {});
+    }
     const uint64_t first_presented = render_run_ ? render_run_->presented : 0;
     uint64_t previous_presented = first_presented;
     uint64_t previous_present_ns = render_run_ ? render_run_->last_present_ns : 0;
@@ -562,6 +586,8 @@ void Runtime::play_bench() {
     std::fflush(stdout);
     const double start = now();
     double previous = start;
+    double last_activity = start;
+    uint32_t last_activity_tick = first_tick;
     bool shot = false;
     int second = 0;
     // Frames drawn while the window was away, which another window may have
@@ -631,16 +657,22 @@ void Runtime::play_bench() {
             shot = true;
         }
         if (finished - start >= second + 1) {
+            std::array<uint32_t, OA_PLAYER_COUNT> moving_units{};
             if (view.require_gameplay)
                 for (const auto& slot : match_->world().slots) {
                     const auto id = slot.unit_index;
-                    if (!slot.unit || !slot.record.type_index || moved[id] ||
+                    if (!slot.unit || !slot.record.type_index ||
+                        !oa::unit_is_live_target(slot.record.flags) ||
                         initial_generations[id] != match_->runtime_state(id).instance_generation)
                         continue;
+                    const auto& sampled = sampled_positions[id];
+                    if (slot.record.position.x != sampled.x || slot.record.position.z != sampled.z)
+                        ++moving_units[slot.record.owner_index];
+                    sampled_positions[id] = slot.record.position;
                     const auto& initial = initial_positions[id];
-                    if (slot.record.position.x != initial.x ||
-                        slot.record.position.y != initial.y ||
-                        slot.record.position.z != initial.z) {
+                    if (!moved[id] && (slot.record.position.x != initial.x ||
+                                       slot.record.position.y != initial.y ||
+                                       slot.record.position.z != initial.z)) {
                         moved[id] = 1;
                         ++moved_units[slot.record.owner_index];
                     }
@@ -673,7 +705,8 @@ void Runtime::play_bench() {
             if (view.require_gameplay)
                 std::printf(
                     "bench: ACTIVITY tick %u moved %u+%u shots %llu+%llu damage %llu+%llu "
-                    "deaths %llu+%llu births %llu+%llu projectiles %zu\n",
+                    "deaths %llu+%llu births %llu+%llu projectiles %zu "
+                    "moving_xz %u+%u sample_ticks %u sample_seconds %.3f\n",
                     match_timing_.tick,
                     moved_units[0],
                     moved_units[1],
@@ -685,8 +718,14 @@ void Runtime::play_bench() {
                     static_cast<unsigned long long>(combat.deaths[1]),
                     static_cast<unsigned long long>(combat.births[0]),
                     static_cast<unsigned long long>(combat.births[1]),
-                    match_->projectiles().size()
+                    match_->projectiles().size(),
+                    moving_units[0],
+                    moving_units[1],
+                    match_timing_.tick - last_activity_tick,
+                    finished - last_activity
                 );
+            last_activity = finished;
+            last_activity_tick = match_timing_.tick;
             ++second;
             second_first = samples.size();
         }
@@ -732,6 +771,7 @@ void Runtime::play_bench() {
     }
     const uint32_t ticks = match_timing_.tick - first_tick;
     if (view.require_gameplay) {
+        print_combat("COMBAT_DELTA", combat_at_measure);
         const auto presented = render_run_->presented - first_presented;
         const auto final_units = count_units();
         std::printf(
