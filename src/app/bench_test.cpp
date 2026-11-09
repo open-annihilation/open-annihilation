@@ -3,7 +3,8 @@
 
 // The parts of --bench that hold no game: a view file's keys and defaults,
 // the keys and values it refuses, a stage taken from the file's folder and
-// the label from its name; the spread of a measure, its percentiles and its
+// the label from its name; requested and started Enhanced Mode rules; the
+// spread of a measure, its percentiles and its
 // slowest 1% and which frames those are; the MEASURE, STAGE and SLOW STAGE
 // lines; and the stage timers, which sum nothing while off, and time stages,
 // parts and the atlas's counts while on, frame by frame.
@@ -15,6 +16,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -65,12 +67,14 @@ void view_reads_every_key() {
     OA_CHECK(defaults.expected_initial_units == 0 && defaults.expected_initial_per_side == 0);
     OA_CHECK(defaults.expected_output_width == 0 && defaults.expected_output_height == 0);
     OA_CHECK(defaults.display_number == 0 && !defaults.require_gameplay);
+    OA_CHECK(defaults.rules_version == 0);
 
     bench::View view;
     const char* text = "# the low view\n"
                        "label low-across\r\n"
                        "stage battle.stage\n"
                        "players 3\n"
+                       "rules_version 6\n"
                        "menu_seconds 0.5\n"
                        "warmup_ticks 60\n"
                        "measure_seconds 150\n"
@@ -90,6 +94,7 @@ void view_reads_every_key() {
     OA_CHECK(view.label == "low-across");
     OA_CHECK(oa::platform::path_to_generic_utf8(view.stage) == "battle.stage");
     OA_CHECK(view.players == 3 && near(view.menu_seconds, 0.5));
+    OA_CHECK(view.rules_version == 6);
     OA_CHECK(view.warmup_ticks == 60 && view.measure_ticks == 750 && view.shot_ticks == 360);
     OA_CHECK(near(view.measure_seconds, 150) && near(view.shot_at, 12));
     OA_CHECK(near(view.centre_x, 1980) && near(view.centre_z, 2080));
@@ -108,6 +113,81 @@ void view_reads_every_key() {
     );
     OA_CHECK(paused.warmup_frames == 30 && paused.measure_frames == 60);
     OA_CHECK(paused.expected_live_units == 20000 && paused.require_paused);
+}
+
+/// An absent or zero rules request keeps the version selected by the match;
+/// an explicit supported preset requires Enhanced Mode before startup.
+void rules_requests_preserve_defaults_and_require_enhanced_mode() {
+    bench::View defaults;
+    std::string error;
+    OA_CHECK(bench::parse_view("", defaults, error));
+    OA_CHECK(defaults.rules_version == 0);
+    OA_CHECK(bench::validate_rules_request(defaults, false, error));
+    OA_CHECK(bench::validate_rules_request(defaults, true, error));
+    OA_CHECK(bench::validate_started_rules(defaults, 0, error));
+    OA_CHECK(bench::validate_started_rules(defaults, 4, error));
+    OA_CHECK(defaults.rules_version == 0);
+
+    for (const uint32_t version : std::array<uint32_t, 3>{0, 4, 6}) {
+        bench::View view;
+        OA_CHECK(bench::parse_view("rules_version " + std::to_string(version), view, error));
+        OA_CHECK(view.rules_version == version);
+        OA_CHECK(bench::validate_rules_request(view, true, error));
+        OA_CHECK(bench::validate_rules_request(view, false, error) == (version == 0));
+        if (version != 0)
+            OA_CHECK(error == "rules_version requires Enhanced Mode");
+        OA_CHECK(bench::validate_started_rules(view, version, error));
+        OA_CHECK(view.rules_version == version);
+    }
+
+    bench::View explicit_zero;
+    OA_CHECK(bench::parse_view("rules_version 0", explicit_zero, error));
+    OA_CHECK(bench::validate_started_rules(explicit_zero, 0, error));
+    OA_CHECK(bench::validate_started_rules(explicit_zero, 4, error));
+    OA_CHECK(bench::validate_started_rules(explicit_zero, 6, error));
+    OA_CHECK(explicit_zero.rules_version == 0);
+}
+
+/// An explicit version must equal the rules of the started match. Unsupported
+/// requests and unsupported actual rules are refused independently.
+void started_rules_must_match_explicit_requests() {
+    std::string error;
+    for (const uint32_t requested : std::array<uint32_t, 2>{4, 6}) {
+        bench::View view;
+        view.rules_version = requested;
+        for (const uint32_t actual : std::array<uint32_t, 3>{0, 4, 6}) {
+            OA_CHECK(bench::validate_started_rules(view, actual, error) == (requested == actual));
+            if (requested != actual)
+                OA_CHECK(error == "the skirmish's Enhanced Mode rules differ from rules_version");
+            OA_CHECK(view.rules_version == requested);
+        }
+    }
+
+    bench::View unsupported;
+    unsupported.rules_version = 7;
+    OA_CHECK(!bench::validate_rules_request(unsupported, true, error));
+    OA_CHECK(error == "rules_version is unsupported");
+    OA_CHECK(!bench::validate_rules_request(unsupported, false, error));
+    OA_CHECK(error == "rules_version is unsupported");
+    for (const uint32_t requested : std::array<uint32_t, 3>{0, 4, 6}) {
+        bench::View view;
+        view.rules_version = requested;
+        OA_CHECK(!bench::validate_started_rules(view, 7, error));
+        OA_CHECK(error == "the skirmish's Enhanced Mode rules version is unsupported");
+        OA_CHECK(view.rules_version == requested);
+    }
+}
+
+/// A rules version is a supported nonnegative whole number and may be named
+/// only once, with the refusal attached to its input line.
+void view_refuses_invalid_rules_versions() {
+    for (const std::string_view value :
+         std::array<std::string_view, 4>{"7", "-1", "4.5", "4294967296"})
+        OA_CHECK(
+            refusal("rules_version " + std::string(value)) ==
+            "line 1: rules_version takes 0 or a supported Enhanced Mode rules version"
+        );
+    OA_CHECK(refusal("rules_version 4\nrules_version 6") == "line 2: rules_version is given twice");
 }
 
 /// A combat run verifies its starting armies without requiring casualties
@@ -448,6 +528,9 @@ void totals_of_a_frame_add_up() {
 
 int main() {
     view_reads_every_key();
+    rules_requests_preserve_defaults_and_require_enhanced_mode();
+    started_rules_must_match_explicit_requests();
+    view_refuses_invalid_rules_versions();
     gameplay_view_checks_only_the_starting_population();
     view_refuses_what_it_cannot_read();
     view_file_takes_its_folder();
