@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <initializer_list>
 #include <memory>
 #include <span>
@@ -553,6 +554,304 @@ void draw_final_image() {
     OA_CHECK(screen[13 * 126 + 50] == 0);
 }
 
+// A displayed minimap keeps more contact positions than the small terrain
+// picture. Padding beside each row also checks that drawing obeys its pitch.
+struct DisplayRadarScene {
+    WorldPtr world{oa::world_create()};
+    std::vector<uint8_t> terrain_pixels = std::vector<uint8_t>(126 * 126, mapped_fill);
+    std::vector<uint8_t> pixels = std::vector<uint8_t>(378 * 383, 0xed);
+    std::vector<uint16_t> owners = std::vector<uint16_t>(378 * 378);
+    std::array<uint8_t, OA_PLAYER_COUNT> colors{
+        0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9
+    };
+    oa::Surface terrain{};
+    oa::Surface target{};
+    bool point_seen{};
+    const oa::Projectile* hidden{};
+    bool allied_units_shown{};
+
+    explicit DisplayRadarScene(uint32_t capacity = 16) {
+        const oa::WorldCapacity tables{capacity, 3, 0};
+        const auto allocated = oa::world_alloc_tables(world.get(), &tables);
+        OA_CHECK(allocated != 0);
+        auto& game = world->game;
+        game.map_pixel_width = 10240;
+        game.map_pixel_height = 10240;
+        game.radar_width = 126;
+        game.radar_height = 126;
+        game.viewpoint_player = 0;
+        game.ui_colors[wr::ui_color_sensor_range] = ui_sensor;
+        game.ui_colors[wr::ui_color_jammer_range] = ui_jammer;
+        game.ui_colors[wr::ui_color_radar_marks] = ui_marks;
+        game.ui_colors[wr::ui_color_interceptor_range] = ui_interceptor;
+        for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+            game.players[player].index = player;
+            game.players[player].in_use = 1;
+            game.players[player].status = OA_PLAYER_STATUS_LOCAL;
+            game.players[player].alliance[player] = 1;
+            game.players[player].info = oa::oa_ref_from_index(player);
+            world->player_info[player].color = player == 1 ? 3 : 0;
+        }
+        oa::present::init_surface(terrain, 126, 126, 126, terrain_pixels.data());
+        oa::present::init_surface(target, 378, 378, 383, pixels.data());
+    }
+
+    oa::Unit& unit(uint32_t slot, uint8_t owner, int32_t x, int32_t y, int32_t z) {
+        auto& record = world->units[slot];
+        record.type_index = 1;
+        record.id = static_cast<uint16_t>(slot);
+        record.owner_index = owner;
+        record.owner = oa::oa_ref_from_index(owner);
+        record.def = oa::oa_ref_from_index(1);
+        record.flags = OA_UNIT_FLAG_LIVE;
+        record.health = 100;
+        record.position = {x * 65536, y * 65536, z * 65536};
+        return record;
+    }
+
+    wr::RadarContactHost host() {
+        wr::RadarContactHost result{};
+        result.user = this;
+        result.allied_units_shown = allied_units_shown;
+        result.point_visible = [](void* user, const oa::FixedVec3&) {
+            return static_cast<DisplayRadarScene*>(user)->point_seen;
+        };
+        result.projectile_hidden = [](void* user, const oa::Projectile& shot) {
+            return static_cast<DisplayRadarScene*>(user)->hidden == &shot;
+        };
+        return result;
+    }
+
+    uint32_t compose(const Blips& blips, std::span<const wr::RadarOutline> outlines = {}) {
+        return wr::radar_compose_display(
+            *world, terrain, target, blips.sprites(), host(), colors, owners, outlines
+        );
+    }
+
+    uint8_t at(int32_t x, int32_t y) const { return pixels[y * 383 + x]; }
+
+    std::size_t count(uint8_t color) const {
+        std::size_t found{};
+        for (int32_t y = 0; y < 378; ++y)
+            for (int32_t x = 0; x < 378; ++x)
+                found += at(x, y) == color;
+        return found;
+    }
+
+    bool padding_untouched() const {
+        for (int32_t y = 0; y < 378; ++y)
+            for (int32_t x = 378; x < 383; ++x)
+                if (pixels[y * 383 + x] != 0xed)
+                    return false;
+        return true;
+    }
+};
+
+void display_contacts_keep_native_positions() {
+    DisplayRadarScene scene;
+    Blips blips;
+    scene.terrain_pixels[60 * 126 + 60] = 0x31;
+    scene.terrain_pixels[60 * 126 + 61] = 0x07;
+    // Both positions used to round to column 12 on the 126-pixel terrain
+    // picture. At the displayed resolution they have distinct centres.
+    scene.unit(1, 0, 1000, 0, 5000);
+    scene.unit(2, 1, 1032, 0, 5000);
+    OA_CHECK(scene.compose(blips) == 2);
+    OA_CHECK(scene.at(36, 184) == scene.colors[0]);
+    OA_CHECK(scene.at(38, 184) == scene.colors[1]);
+    OA_CHECK(scene.at(37, 184) == 0);
+    OA_CHECK(scene.at(180, 180) == 0x31 && scene.at(182, 182) == 0x31);
+    OA_CHECK(scene.at(183, 180) == 0x07 && scene.at(185, 182) == 0x07);
+    OA_CHECK(scene.at(200, 200) == mapped_fill);
+    OA_CHECK(scene.padding_untouched());
+}
+
+void display_contacts_keep_twenty_thousand() {
+    DisplayRadarScene scene(20001);
+    Blips blips;
+    uint32_t slot = 1;
+    for (uint8_t owner = 0; owner < 2; ++owner)
+        for (int32_t row = 0; row < 100; ++row)
+            for (int32_t column = 0; column < 100; ++column)
+                scene.unit(
+                    slot++, owner, (owner == 0 ? 128 : 6816) + column * 32, 0, 128 + row * 96
+                );
+    std::vector<uint8_t> world_before(sizeof(oa::World));
+    std::memcpy(world_before.data(), scene.world.get(), world_before.size());
+    const auto unit_bytes = std::size_t{scene.world->unit_slot_count} * sizeof(oa::Unit);
+    std::vector<uint8_t> units_before(unit_bytes);
+    std::memcpy(units_before.data(), scene.world->units, unit_bytes);
+    const auto terrain_before = scene.terrain_pixels;
+    OA_CHECK(slot == 20001);
+    OA_CHECK(scene.compose(blips) == 20000);
+    OA_CHECK(scene.count(scene.colors[0]) == 10000);
+    OA_CHECK(scene.count(scene.colors[1]) == 10000);
+    OA_CHECK(scene.padding_untouched());
+    OA_CHECK(std::memcmp(world_before.data(), scene.world.get(), world_before.size()) == 0);
+    OA_CHECK(std::memcmp(units_before.data(), scene.world->units, unit_bytes) == 0);
+    OA_CHECK(scene.terrain_pixels == terrain_before);
+}
+
+void display_contacts_share_colors_without_slot_bias() {
+    DisplayRadarScene scene;
+    Blips blips;
+    scene.unit(1, 0, 5120, 0, 5120);
+    scene.unit(2, 1, 5120, 0, 5120);
+    OA_CHECK(scene.compose(blips) == 2);
+    OA_CHECK(scene.count(scene.colors[0]) != 0 && scene.count(scene.colors[1]) != 0);
+    const auto first = scene.pixels;
+    scene.unit(1, 1, 5120, 0, 5120);
+    scene.unit(2, 0, 5120, 0, 5120);
+    OA_CHECK(scene.compose(blips) == 2);
+    OA_CHECK(scene.pixels == first);
+}
+
+void display_contacts_preserve_detection_and_live_filters() {
+    DisplayRadarScene scene;
+    Blips blips;
+    auto& game = scene.world->game;
+    game.visibility_flags = wr::visibility_flags_radar_limited;
+    scene.unit(1, 0, 1000, 0, 1000);
+    auto& enemy = scene.unit(2, 1, 3000, 0, 1000);
+    scene.unit(3, 2, 5000, 0, 1000);
+    scene.unit(4, 0, 7000, 0, 1000).type_index = 0;
+    scene.unit(5, 0, 9000, 0, 1000).flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    scene.unit(6, 0, 1000, 0, 3000).flags = 0;
+    OA_CHECK(scene.compose(blips) == 1);
+    OA_CHECK(scene.at(36, 36) == scene.colors[0]);
+    OA_CHECK(scene.at(110, 36) == mapped_fill && scene.at(184, 36) == mapped_fill);
+    enemy.flags |= OA_UNIT_FLAG_RADAR_CONTACT;
+    // Radar contacts remain visible even when the sight callback says no.
+    OA_CHECK(!scene.point_seen && scene.compose(blips) == 2);
+    OA_CHECK(scene.at(110, 36) == scene.colors[1]);
+    game.players[2].alliance[0] = 1;
+    OA_CHECK(scene.compose(blips) == 2);
+    scene.allied_units_shown = true;
+    OA_CHECK(scene.compose(blips) == 3);
+    OA_CHECK(scene.at(184, 36) == scene.colors[2]);
+    scene.allied_units_shown = false;
+    enemy.flags &= ~OA_UNIT_FLAG_RADAR_CONTACT;
+    game.console_flags = wr::console_flag_full_radar;
+    OA_CHECK(scene.compose(blips) == 3);
+    game.console_flags = 0;
+    game.visibility_flags = 0;
+    OA_CHECK(scene.compose(blips) == 3);
+    OA_CHECK(scene.count(scene.colors[0]) == 1);
+}
+
+void display_contacts_keep_damage_cores_and_cursor() {
+    DisplayRadarScene scene;
+    Blips blips;
+    auto& unit = scene.unit(1, 0, 5120, 0, 5120);
+    unit.damage_countdown = 5;
+    OA_CHECK(scene.compose(blips) == 1);
+    OA_CHECK(scene.at(189, 189) == scene.colors[0]);
+    OA_CHECK(scene.at(188, 189) == 0);
+    scene.world->game.radar_blink_flags = wr::radar_flag_blink;
+    OA_CHECK(scene.compose(blips) == 1);
+    OA_CHECK(scene.at(189, 189) == scene.colors[0]);
+    OA_CHECK(scene.at(188, 189) == ui_marks);
+    unit.damage_countdown = 0;
+    unit.flags |= OA_UNIT_FLAG_SELECTED;
+    scene.world->game.radar_blink_flags = 0;
+    OA_CHECK(scene.compose(blips) == 1 && scene.at(188, 189) == ui_marks);
+
+    scene.unit(2, 1, 5120, 0, 5120);
+    scene.unit(3, 1, 5152, 0, 5120);
+    auto& shot = scene.world->projectiles[0];
+    shot.def = oa::oa_ref_from_index(1);
+    shot.owner_index = 0;
+    shot.position = unit.position;
+    scene.world->game.projectile_count = 1;
+    scene.world->game.cursor_unit_id = 1;
+    const std::array<wr::RadarOutline, 1> outlines{{{{189, 185, 193, 189}, ui_jammer}}};
+    OA_CHECK(scene.compose(blips, outlines) == 3);
+    OA_CHECK(scene.at(189, 189) == 0xb0);
+    OA_CHECK(scene.at(193, 185) == ui_jammer);
+    // A missing cursor GAF still leaves a visible last-pass outline.
+    auto sprites = blips.sprites();
+    sprites.cursor_logo = nullptr;
+    OA_CHECK(
+        wr::radar_compose_display(
+            *scene.world,
+            scene.terrain,
+            scene.target,
+            sprites,
+            scene.host(),
+            scene.colors,
+            scene.owners
+        ) == 3
+    );
+    OA_CHECK(scene.at(187, 187) == ui_marks && scene.at(191, 191) == ui_marks);
+}
+
+void display_contacts_project_height_and_clip_edges() {
+    DisplayRadarScene scene;
+    Blips blips;
+    scene.unit(1, 0, 0, 0, 0);
+    scene.unit(2, 0, 10239, 0, 10239);
+    scene.unit(3, 1, 10240, 0, 128);
+    scene.unit(4, 1, 128, 0, 10240);
+    scene.unit(5, 1, 1000, 64, 1000);
+    scene.unit(6, 1, 1000, 256, 64);
+    scene.unit(7, 1, -128, 0, 5120);
+    OA_CHECK(scene.compose(blips) == 3);
+    OA_CHECK(scene.at(0, 0) == scene.colors[0]);
+    OA_CHECK(scene.at(377, 377) == scene.colors[0]);
+    OA_CHECK(scene.at(36, 35) == scene.colors[1]);
+    OA_CHECK(scene.at(36, 36) != scene.colors[1]);
+    OA_CHECK(scene.padding_untouched());
+}
+
+void display_contacts_reject_invalid_storage_without_writes() {
+    DisplayRadarScene scene;
+    Blips blips;
+    scene.unit(1, 0, 5120, 0, 5120);
+    std::fill(scene.owners.begin(), scene.owners.end(), uint16_t{0x1234});
+    const auto before = scene.pixels;
+    const auto scratch_before = scene.owners;
+    OA_CHECK(
+        wr::radar_compose_display(
+            *scene.world,
+            scene.terrain,
+            scene.target,
+            blips.sprites(),
+            scene.host(),
+            scene.colors,
+            std::span<uint16_t>(scene.owners).first(scene.owners.size() - 1)
+        ) == 0
+    );
+    OA_CHECK(scene.pixels == before && scene.owners == scratch_before);
+    auto oversized = scene.target;
+    oversized.width = wr::radar_display_edge_limit + 1;
+    oversized.height = 2;
+    oversized.pitch = oversized.width;
+    OA_CHECK(
+        wr::radar_compose_display(
+            *scene.world,
+            scene.terrain,
+            oversized,
+            blips.sprites(),
+            scene.host(),
+            scene.colors,
+            scene.owners
+        ) == 0
+    );
+    OA_CHECK(scene.pixels == before && scene.owners == scratch_before);
+    OA_CHECK(
+        wr::radar_compose_display(
+            *scene.world,
+            scene.terrain,
+            scene.target,
+            blips.sprites(),
+            scene.host(),
+            std::span<const uint8_t>(scene.colors).first(OA_PLAYER_COUNT - 1),
+            scene.owners
+        ) == 0
+    );
+    OA_CHECK(scene.pixels == before && scene.owners == scratch_before);
+}
+
 namespace vs = oa::sim::visibility_state;
 
 constexpr int32_t sight_side = 16; // sight cells across and down
@@ -924,6 +1223,13 @@ int main(int argc, char** argv) {
     compose_rings();
     compose_projectiles();
     draw_final_image();
+    display_contacts_keep_native_positions();
+    display_contacts_keep_twenty_thousand();
+    display_contacts_share_colors_without_slot_bias();
+    display_contacts_preserve_detection_and_live_filters();
+    display_contacts_keep_damage_cores_and_cursor();
+    display_contacts_project_height_and_clip_edges();
+    display_contacts_reject_invalid_storage_without_writes();
     allied_exploration_agrees();
     return oa::test::check_exit_status();
 }
