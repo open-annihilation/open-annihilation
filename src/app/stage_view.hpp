@@ -14,7 +14,7 @@ namespace oa::app {
 /// Places a stage's view around a ground point, without changing its orders.
 struct StageView {
     double centre_x{}; ///< map pixels across
-    double centre_z{}; ///< ground map pixels down
+    double centre_z{}; ///< map-image row, before the terrain height lift
     double zoom{};     ///< positive view scale
     double yaw{};      ///< degrees around the ground
     double pitch{};    ///< degrees above or below the ground
