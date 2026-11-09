@@ -151,6 +151,9 @@ class ModelTransformCache {
     static constexpr size_t table_capacity = entry_capacity * 2;
     static constexpr size_t probe_limit = 8;
     static constexpr uint64_t digest_prime = 0x9e3779b185ebca87ULL;
+    static constexpr unsigned digest_fold_bits = 33;
+    static constexpr uint64_t digest_mix_first = 0xff51afd7ed558ccdULL;
+    static constexpr uint64_t digest_mix_second = 0xc4ceb9fe1a85ec53ULL;
 
     struct Entry {
         sim::model_runtime::Instance instance{};
@@ -233,6 +236,12 @@ class ModelTransformCache {
             add(pair(piece.object_index, piece.parent));
             add(pair(piece.first_child, piece.next_sibling));
         }
+        // Every packed input contributes to the table's low bucket bits.
+        result ^= result >> digest_fold_bits;
+        result *= digest_mix_first;
+        result ^= result >> digest_fold_bits;
+        result *= digest_mix_second;
+        result ^= result >> digest_fold_bits;
         return result;
     }
 
