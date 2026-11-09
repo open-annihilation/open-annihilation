@@ -602,6 +602,10 @@ const std::vector<ValueCase>& value_cases() {
         {"--trace-units", "run.units", {"--trace-digest", "run.trace"}},
         {"--capture-video", "game.mp4", {}},
         {"--showcase", "arm-first-mission", {}},
+        {"--showcase-seconds", "150", {"--showcase", "skirmish-battle", "--stage", "battle.stage"}},
+        {"--showcase-tour",
+         "tour.txt",
+         {"--showcase", "skirmish-battle", "--stage", "battle.stage"}},
         {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json", {}},
         {"--update-key",
          "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
@@ -698,6 +702,109 @@ void options_by_name() {
         rejection({"--a.oamod"}) == "unknown option: --a.oamod",
         "an argument that starts with -- is an option, whatever its extension"
     );
+}
+
+/// Checks the optional duration and camera file of a staged battle showcase.
+void showcase_tour_options() {
+    const std::vector<const char*> staged{
+        "--showcase", "skirmish-battle", "--stage", "battle.stage"
+    };
+    const auto with = [&](const std::vector<const char*>& extra) {
+        auto arguments = staged;
+        arguments.insert(arguments.end(), extra.begin(), extra.end());
+        return parse(arguments);
+    };
+    const auto plain = parse({});
+    const auto defaults = parse(staged);
+    expect(
+        !plain.showcase_seconds && plain.showcase_tour.empty() && !defaults.showcase_seconds &&
+            defaults.showcase_tour.empty() && !defaults.fixed_clock,
+        "a normal launch and a staged battle leave duration and camera tour unspecified"
+    );
+    const char* tour_path = "tour camera/橋.txt";
+    const auto chosen = parse(
+        {"--showcase-tour",
+         tour_path,
+         "--showcase-seconds",
+         "150",
+         "--capture-video",
+         "battle.mp4",
+         "--stage",
+         "battle.stage",
+         "--showcase",
+         "skirmish-battle"}
+    );
+    expect(
+        chosen.showcase_seconds == 150u &&
+            chosen.showcase_tour == oa::app::path_from_utf8(tour_path) &&
+            chosen.capture_video == oa::app::path_from_utf8("battle.mp4") &&
+            chosen.stage_file == defaults.stage_file && chosen.showcase == defaults.showcase &&
+            chosen.unattended && !chosen.fixed_clock && !chosen.headless_check &&
+            !chosen.match_ticks,
+        "duration and an opaque UTF-8 tour path accompany a captured normal staged battle"
+    );
+    const auto tour_only = with({"--showcase-tour", tour_path});
+    expect(
+        tour_only.showcase_tour == chosen.showcase_tour && !tour_only.showcase_seconds,
+        "a camera tour does not require an explicit duration"
+    );
+    for (const auto& [text, seconds] :
+         std::vector<std::pair<const char*, uint32_t>>{{"1", 1}, {"600", 600}}) {
+        const auto bounded = with({"--showcase-seconds", text});
+        expect(
+            bounded.showcase_seconds == seconds && bounded.showcase_tour.empty() &&
+                !bounded.fixed_clock,
+            "the staged duration accepts both whole-second limits without requiring a tour"
+        );
+    }
+    for (const char* seconds : {"0", "601", "-1", "+1", "1.5", "60x", "4294967296"}) {
+        auto arguments = staged;
+        arguments.insert(arguments.end(), {"--showcase-seconds", seconds});
+        expect(
+            rejection(arguments) == "--showcase-seconds expects whole seconds from 1 through 600",
+            "a staged duration rejects zero, out-of-range and non-whole values"
+        );
+    }
+    const std::vector<std::vector<const char*>> companions{
+        {},
+        {"--showcase", "skirmish-battle"},
+        {"--showcase", "arm-first-mission"},
+        {"--showcase", "base-construction"},
+        {"--match-ticks", "60", "--stage", "battle.stage"},
+        {"--headless-check", "--match-ticks", "60", "--stage", "battle.stage"},
+        {"--bench", "low.bench"},
+    };
+    for (const auto& option : std::vector<std::vector<const char*>>{
+             {"--showcase-seconds", "150"}, {"--showcase-tour", tour_path}
+         }) {
+        for (const auto& companion : companions) {
+            auto arguments = companion;
+            arguments.insert(arguments.end(), option.begin(), option.end());
+            expect(
+                rejection(arguments) ==
+                    "--showcase-seconds and --showcase-tour need --showcase skirmish-battle "
+                    "--stage in the normal game window",
+                "duration and tour options require the explicit normal staged battle showcase"
+            );
+        }
+        for (const auto& conflict : std::vector<std::vector<const char*>>{
+                 {"--headless-check"},
+                 {"--check-navigation"},
+                 {"--check-engine-feed"},
+                 {"--bench", "low.bench"},
+                 {"--print-profile"},
+                 {"--check-content-copy", "copy"},
+                 {"--check-installer", "installer"},
+             }) {
+            auto arguments = staged;
+            arguments.insert(arguments.end(), option.begin(), option.end());
+            arguments.insert(arguments.end(), conflict.begin(), conflict.end());
+            expect(
+                !rejection(arguments).empty(),
+                "duration and tour options refuse checks and other application run modes"
+            );
+        }
+    }
 }
 
 // Enhanced rules are independent of graphics; battle benchmarks choose a
@@ -1454,6 +1561,7 @@ int main() {
     update_channel_option();
     update_feed_options();
     value_options();
+    showcase_tour_options();
     enhanced_benchmark_options();
     mutator_options();
     key_layout_options();

@@ -461,6 +461,21 @@ void check_game_files_options(Options& options) {
     );
 }
 
+/// Returns the real-time duration a staged battle showcase requests.
+///
+/// @param text the option's whole-second value
+/// @return a duration from 1 through 600 seconds
+[[nodiscard]] uint32_t parse_showcase_seconds(std::string_view text) {
+    constexpr uint32_t minimum_seconds = 1;
+    constexpr uint32_t maximum_seconds = 600;
+    uint32_t seconds{};
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), seconds);
+    if (text.empty() || result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+        seconds < minimum_seconds || seconds > maximum_seconds)
+        throw std::runtime_error("--showcase-seconds expects whole seconds from 1 through 600");
+    return seconds;
+}
+
 /// Returns the chunks a --chunks value names: A-B, both included, or A alone.
 ///
 /// Throws std::runtime_error for any other value.
@@ -1669,6 +1684,14 @@ take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options
         options.showcase = parse_showcase(option_value(cursor));
         return true;
     }
+    if (argument == "--showcase-seconds") {
+        options.showcase_seconds = parse_showcase_seconds(option_value(cursor));
+        return true;
+    }
+    if (argument == "--showcase-tour") {
+        options.showcase_tour = path_from_utf8(option_value(cursor));
+        return true;
+    }
     return false;
 }
 
@@ -1958,6 +1981,7 @@ void write_startup_line(std::string_view text) {
                      "[--draw-threads N] "
                      "[--capture-video PATH.mp4] [--showcase "
                      "arm-first-mission|skirmish-battle|base-construction] "
+                     "[--showcase-seconds SECONDS] [--showcase-tour FILE] "
                      "[--open FILE]... [--install-mod FILE]... "
                      "[--generate-script RECORDING [--output PATH.oascript|PATH.oamovie] "
                      "[--resolution WxH]] "
@@ -2356,6 +2380,15 @@ void write_startup_line(std::string_view text) {
         if (!result.seed)
             result.seed = kFixedRandomSeed;
     }
+    if ((result.showcase_seconds || !result.showcase_tour.empty()) &&
+        (result.showcase != Showcase::skirmish_battle || result.stage_file.empty() ||
+         result.headless_check || result.fixed_clock || result.match_ticks ||
+         result.print_profile || !result.check_content_copy.empty() ||
+         !result.check_installer.empty()))
+        throw std::runtime_error(
+            "--showcase-seconds and --showcase-tour need --showcase skirmish-battle --stage "
+            "in the normal game window"
+        );
     // A showcase plays its mission from the same random state on every run.
     if (result.showcase != Showcase::none && !result.seed)
         result.seed = kFixedRandomSeed;
