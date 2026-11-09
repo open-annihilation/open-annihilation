@@ -405,12 +405,375 @@ void off_band_draw_preserves_workspaces_and_flushes() {
     }
 }
 
+/// A draw whose cached pixels wait keeps the same image state and carried units.
+void metadata_plans_keep_cache_and_cargo() {
+    for (const bool depth_image : {false, true}) {
+        for (const bool anti_alias : {false, true}) {
+            Scene pixels(depth_image, anti_alias);
+            Scene metadata(depth_image, anti_alias);
+            for (int32_t frame = 0; frame < frames; ++frame) {
+                for (Scene* scene : {&pixels, &metadata}) {
+                    scene->world->units[carrier_slot].build_remaining = frame == 0 ? 0.25F : 0;
+                    const auto cached =
+                        static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+                    const auto visible =
+                        static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
+                    if (frame == 2)
+                        scene->instances[0].pieces()[1].flags &= static_cast<uint16_t>(~cached);
+                    if (frame == frames - 1)
+                        scene->instances[0].pieces()[0].flags &= static_cast<uint16_t>(~visible);
+                    if (frame == frames - 1)
+                        scene->world->units[building_slot].flags |=
+                            unit_flag_attached_without_piece;
+                    scene->step(frame);
+                    scene->begin();
+                }
+                SupersampledUnitPlan reference;
+                SupersampledUnitPlan planned;
+                plan_unit_supersampled(
+                    pixels.renderer,
+                    pixels.bridge,
+                    pixels.carrier(),
+                    whole_frame,
+                    false,
+                    UnitSupersampling::off,
+                    reference
+                );
+                plan_unit_supersampled(
+                    metadata.renderer,
+                    metadata.bridge,
+                    metadata.carrier(),
+                    whole_frame,
+                    false,
+                    UnitSupersampling::off,
+                    planned,
+                    ModelImagePlan::metadata
+                );
+                CHECK(planned.linked.drawn == reference.linked.drawn);
+                CHECK(planned.linked.unlit == reference.linked.unlit);
+                CHECK(planned.model.from_image == reference.model.from_image);
+                CHECK(planned.model.ground == reference.model.ground);
+                CHECK(planned.model.carried.size() == reference.model.carried.size());
+                for (std::size_t index = 0; index < reference.model.carried.size(); ++index) {
+                    if (index >= planned.model.carried.size())
+                        break;
+                    CHECK(
+                        reference.model.carried[index].unit - pixels.world->units ==
+                        planned.model.carried[index].unit - metadata.world->units
+                    );
+                    CHECK(planned.model.carried[index].image.pixels.empty());
+                    CHECK(planned.model.carried[index].image.sprite.data == nullptr);
+                }
+                const auto& original = pixels.states[0];
+                const auto& deferred = metadata.states[0];
+                CHECK(deferred.cache.draws == original.cache.draws);
+                CHECK(deferred.cache.has_image == original.cache.has_image);
+                CHECK(deferred.cache.image_has_mask == original.cache.image_has_mask);
+                CHECK(deferred.image_builds == original.image_builds);
+                CHECK(deferred.image_unfinished == original.image_unfinished);
+                CHECK(deferred.image.pixels.empty());
+                CHECK(deferred.image.sprite.data == nullptr);
+                CHECK(deferred.shadow.sprite.data == nullptr);
+                CHECK(
+                    deferred.deferred_image.has_value() == (original.image.sprite.data != nullptr)
+                );
+                if (deferred.deferred_image) {
+                    const auto& image = original.image.sprite;
+                    CHECK(deferred.deferred_image->width == image.width);
+                    CHECK(deferred.deferred_image->height == image.height);
+                    CHECK(deferred.deferred_image->origin_x == image.origin_x);
+                    CHECK(deferred.deferred_image->origin_y == image.origin_y);
+                    CHECK(deferred.deferred_image_depth == (image.aux != nullptr));
+                }
+                for (std::size_t index = 1; index < pixels.states.size(); ++index) {
+                    const auto& child = pixels.states[index];
+                    const auto& deferred_child = metadata.states[index];
+                    CHECK(deferred_child.image_builds == child.image_builds);
+                    CHECK(deferred_child.image_unfinished == child.image_unfinished);
+                    CHECK(deferred_child.image.pixels.empty());
+                    CHECK(deferred_child.image.sprite.data == nullptr);
+                    CHECK(
+                        deferred_child.deferred_image.has_value() ==
+                        (child.image.sprite.data != nullptr)
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// An ordinary pass after a metadata pass fills its pixels before drawing, including shadows.
+void deferred_pixels_materialize_before_an_ordinary_draw() {
+    alignas(4) constexpr oa::Rect32 outside_frame{
+        frame_side, frame_side, 2 * frame_side, 2 * frame_side
+    };
+    for (const bool depth_image : {false, true}) {
+        for (const bool anti_alias : {false, true}) {
+            for (const bool shadows : {false, true}) {
+                Scene pixels(depth_image, anti_alias);
+                Scene metadata(depth_image, anti_alias);
+                pixels.begin();
+                metadata.begin();
+                SupersampledUnitPlan reference;
+                SupersampledUnitPlan deferred;
+                plan_unit_supersampled(
+                    pixels.renderer,
+                    pixels.bridge,
+                    pixels.carrier(),
+                    outside_frame,
+                    false,
+                    UnitSupersampling::off,
+                    reference
+                );
+                plan_unit_supersampled(
+                    metadata.renderer,
+                    metadata.bridge,
+                    metadata.carrier(),
+                    outside_frame,
+                    false,
+                    UnitSupersampling::off,
+                    deferred,
+                    ModelImagePlan::metadata
+                );
+                CHECK(metadata.states[0].deferred_image.has_value());
+                CHECK(metadata.states[0].image.sprite.data == nullptr);
+                // A failed backend repeats the frame's planning in the ordinary mode.
+                // Enabling shadows also requires the same pixels before any draw reads them.
+                if (shadows) {
+                    pixels.renderer.graphics_flags |= graphics_shadows | graphics_vehicle_shadows;
+                    metadata.renderer.graphics_flags |= graphics_shadows | graphics_vehicle_shadows;
+                }
+                plan_unit_supersampled(
+                    pixels.renderer,
+                    pixels.bridge,
+                    pixels.carrier(),
+                    whole_frame,
+                    false,
+                    UnitSupersampling::off,
+                    reference
+                );
+                plan_unit_supersampled(
+                    metadata.renderer,
+                    metadata.bridge,
+                    metadata.carrier(),
+                    whole_frame,
+                    false,
+                    UnitSupersampling::off,
+                    deferred
+                );
+                CHECK(!metadata.states[0].deferred_image.has_value());
+                CHECK(metadata.states[0].image.sprite.data != nullptr);
+                CHECK(
+                    (metadata.states[0].image.sprite.aux != nullptr) ==
+                    (pixels.states[0].image.sprite.aux != nullptr)
+                );
+                CHECK(metadata.states[0].cache.draws == pixels.states[0].cache.draws);
+                bool holds = false;
+                draw_planned_unit(
+                    pixels.renderer,
+                    pixels.bridge,
+                    nullptr,
+                    pixels.scratch,
+                    pixels.carrier(),
+                    reference,
+                    holds
+                );
+                bridge_end(pixels.bridge);
+                holds = false;
+                draw_planned_unit(
+                    metadata.renderer,
+                    metadata.bridge,
+                    nullptr,
+                    metadata.scratch,
+                    metadata.carrier(),
+                    deferred,
+                    holds
+                );
+                bridge_end(metadata.bridge);
+                CHECK(metadata.rgb == pixels.rgb);
+                CHECK(std::any_of(metadata.rgb.begin(), metadata.rgb.end(), [](uint8_t byte) {
+                    return byte != ground;
+                }));
+            }
+        }
+    }
+}
+
+/// Moving pieces cannot change the old cached frame when its deferred pixels are filled.
+void deferred_pixels_keep_the_cached_frame() {
+    constexpr int32_t moving_piece_offset = 64 * unit_fixed;
+    const auto cached = static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+    for (const bool depth_image : {false, true}) {
+        Scene pixels(depth_image, false);
+        Scene metadata(depth_image, false);
+        for (Scene* scene : {&pixels, &metadata}) {
+            scene->world->units[carrier_slot].attach_first_child = 0;
+            scene->instances[0].pieces()[1].flags &= static_cast<uint16_t>(~cached);
+            note_piece_changes(scene->carrier());
+            scene->begin();
+        }
+        SupersampledUnitPlan reference;
+        SupersampledUnitPlan deferred;
+        plan_unit_supersampled(
+            pixels.renderer,
+            pixels.bridge,
+            pixels.carrier(),
+            whole_frame,
+            false,
+            UnitSupersampling::off,
+            reference
+        );
+        plan_unit_supersampled(
+            metadata.renderer,
+            metadata.bridge,
+            metadata.carrier(),
+            whole_frame,
+            false,
+            UnitSupersampling::off,
+            deferred,
+            ModelImagePlan::metadata
+        );
+        const auto original_frame = pixels.states[0].image.sprite;
+        const auto original_pixels = pixels.states[0].image.pixels;
+        for (Scene* scene : {&pixels, &metadata}) {
+            scene->instances[0].pieces()[1].translation.x = moving_piece_offset;
+            scene->states[0].transforms_dirty = true;
+            note_piece_changes(scene->carrier());
+        }
+        plan_unit_supersampled(
+            pixels.renderer,
+            pixels.bridge,
+            pixels.carrier(),
+            whole_frame,
+            false,
+            UnitSupersampling::off,
+            reference
+        );
+        plan_unit_supersampled(
+            metadata.renderer,
+            metadata.bridge,
+            metadata.carrier(),
+            whole_frame,
+            false,
+            UnitSupersampling::off,
+            deferred
+        );
+        const auto current_frame = measure_model_bounds(pixels.instances[0], nullptr);
+        CHECK(current_frame.width > original_frame.width);
+        CHECK(pixels.states[0].image.pixels == original_pixels);
+        const auto& image = metadata.states[0].image.sprite;
+        CHECK(image.data != nullptr);
+        CHECK(!metadata.states[0].deferred_image.has_value());
+        CHECK(image.width == original_frame.width);
+        CHECK(image.height == original_frame.height);
+        CHECK(image.origin_x == original_frame.origin_x);
+        CHECK(image.origin_y == original_frame.origin_y);
+        CHECK((image.aux != nullptr) == depth_image);
+        CHECK(metadata.states[0].image.pixels == original_pixels);
+        bool holds = false;
+        draw_planned_unit(
+            pixels.renderer,
+            pixels.bridge,
+            nullptr,
+            pixels.scratch,
+            pixels.carrier(),
+            reference,
+            holds
+        );
+        bridge_end(pixels.bridge);
+        holds = false;
+        draw_planned_unit(
+            metadata.renderer,
+            metadata.bridge,
+            nullptr,
+            metadata.scratch,
+            metadata.carrier(),
+            deferred,
+            holds
+        );
+        bridge_end(metadata.bridge);
+        CHECK(metadata.rgb == pixels.rgb);
+        CHECK(std::any_of(metadata.rgb.begin(), metadata.rgb.end(), [](uint8_t byte) {
+            return byte != ground;
+        }));
+    }
+}
+
+/// An image above the ordinary allocation bound has no logical image either.
+void metadata_rejects_an_oversized_image() {
+    constexpr int32_t oversized_side = 8192;
+    for (const auto mode : {ModelImagePlan::pixels, ModelImagePlan::metadata}) {
+        Scene scene(true, false);
+        scene.models[0] = two_piece_model(oversized_side, 0, 64, 72);
+        scene.instances[0] = oa::sim::model_runtime::make_instance(scene.models[0]);
+        scene.begin();
+        SupersampledUnitPlan plan;
+        plan_unit_supersampled(
+            scene.renderer,
+            scene.bridge,
+            scene.carrier(),
+            whole_frame,
+            false,
+            UnitSupersampling::off,
+            plan,
+            mode
+        );
+        CHECK(plan.linked.drawn);
+        CHECK(!plan.model.from_image);
+        CHECK(plan.model.carried.empty());
+        CHECK(!scene.states[0].cache.has_image);
+        CHECK(!scene.states[0].deferred_image.has_value());
+        CHECK(scene.states[0].image.sprite.data == nullptr);
+        CHECK(scene.states[0].image_builds == 0);
+    }
+}
+
+/// An all-hidden model still owns the ordinary four-pixel-margin image.
+void metadata_keeps_an_all_hidden_image() {
+    constexpr int32_t empty_image_side = 4;
+    for (const auto mode : {ModelImagePlan::pixels, ModelImagePlan::metadata}) {
+        Scene scene(false, false);
+        scene.world->units[carrier_slot].attach_first_child = 0;
+        for (auto& piece : scene.instances[0].pieces())
+            piece.flags = 0;
+        scene.begin();
+        SupersampledUnitPlan plan;
+        plan_unit_supersampled(
+            scene.renderer,
+            scene.bridge,
+            scene.carrier(),
+            whole_frame,
+            false,
+            UnitSupersampling::off,
+            plan,
+            mode
+        );
+        CHECK(plan.model.from_image);
+        CHECK(scene.states[0].cache.has_image);
+        if (mode == ModelImagePlan::metadata) {
+            CHECK(scene.states[0].deferred_image.has_value());
+            if (scene.states[0].deferred_image) {
+                CHECK(scene.states[0].deferred_image->width == empty_image_side);
+                CHECK(scene.states[0].deferred_image->height == empty_image_side);
+            }
+        } else {
+            CHECK(scene.states[0].image.sprite.width == empty_image_side);
+            CHECK(scene.states[0].image.sprite.height == empty_image_side);
+        }
+    }
+}
+
 } // namespace
 
 int main() {
     planned_bands_draw_as_whole();
     tight_plans_draw_as_whole();
     off_band_draw_preserves_workspaces_and_flushes();
+    metadata_plans_keep_cache_and_cargo();
+    deferred_pixels_materialize_before_an_ordinary_draw();
+    deferred_pixels_keep_the_cached_frame();
+    metadata_rejects_an_oversized_image();
+    metadata_keeps_an_all_hidden_image();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return EXIT_FAILURE;
