@@ -19,6 +19,7 @@
 #include "oa/ui/kit/layout.hpp"
 #include "match_models.hpp"
 #include "stage_state.hpp"
+#include "stage_view.hpp"
 #include "oa/sim/selection.hpp"
 #include "oa/sim/match_runtime/enhanced_counters.hpp"
 #include "oa/platform/files.hpp"
@@ -575,6 +576,38 @@ void Runtime::run_stage_lines(std::span<const StageLine> lines) {
                 name.c_str(),
                 x,
                 z
+            );
+        } else if (action == "view") {
+            StageView view;
+            if (!read_stage_view(line, view))
+                throw std::runtime_error(
+                    where + ": view takes X Z ZOOM YAW PITCH with finite values and positive zoom"
+                );
+            if (options_.headless_check || options_.match_ticks || sdl_.window == nullptr)
+                throw std::runtime_error(where + ": view needs the normal game window");
+            const float zoom =
+                std::clamp(static_cast<float>(view.zoom), least_match_zoom(), most_match_zoom());
+            match_zoom_ = match_zoom_target_ = zoom;
+            place_match_view(
+                view.centre_x - match_layout_.battlefield_width() / (2.0 * zoom),
+                view.centre_z - match_layout_.battlefield_height() / (2.0 * zoom)
+            );
+            const bool turned = view.yaw != 0 || view.pitch != 0;
+            if (turned || live_renderer_active()) {
+                const bool changed =
+                    turn_live_camera(static_cast<float>(view.yaw), static_cast<float>(view.pitch));
+                if (turned && !changed)
+                    throw std::runtime_error(
+                        where + ": the requested turned camera is unavailable"
+                    );
+            }
+            std::printf(
+                "stage: view %.3f %.3f %.6f %.3f %.3f\n",
+                view.centre_x,
+                view.centre_z,
+                static_cast<double>(zoom),
+                view.yaw,
+                view.pitch
             );
         } else if (action == "console") {
             std::string rest;

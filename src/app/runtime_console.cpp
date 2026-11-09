@@ -449,6 +449,26 @@ console::Console* Runtime::match_console() {
                 console::command_class::option | console::command_class::private_echo
             ))
             throw std::runtime_error("the console's command table refused Stats");
+        // These global counts are for an explicitly staged offline showcase;
+        // ordinary games retain their own visibility and intelligence rules.
+        if (!oa::ui::services::command_table_set(
+                &console_->state.commands,
+                "BattleCounts",
+                [](oa::ui::services::TokenLine* line) {
+                    const console::Console* active = console::console_active();
+                    if (active == nullptr || active->host == nullptr)
+                        return;
+                    auto* runtime = runtime_of(active->host->context);
+                    const int32_t asked = oa::ui::services::token_line_get_int(line, 1, 1);
+                    const bool allowed =
+                        runtime->options_.showcase == Showcase::skirmish_battle &&
+                        !runtime->options_.stage_file.empty() && !runtime->multiplayer_session() &&
+                        runtime->match_session_kind() == oa::data::campaign::SessionKind::skirmish;
+                    runtime->battle_counts_shown_ = asked != 0 && allowed;
+                },
+                console::command_class::option | console::command_class::private_echo
+            ))
+            throw std::runtime_error("the console's command table refused BattleCounts");
         // A mod's rules move commands between classes and change ATM and
         // the console keys.
         console::console_apply_rules(

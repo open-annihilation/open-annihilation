@@ -221,6 +221,7 @@ void Runtime::run_battle_showcase() {
             std::to_string(initial[0]) + "+" + std::to_string(initial[1]) + " total " +
             std::to_string(total) + " census_pass 1 setup_fault none"
         );
+        report("STAGED_WORLD initial decimal " + std::to_string(director_world_digest()));
         stage_ready = true;
     } else {
         // The busy combat's units, away from the armies, keep the player in
@@ -397,6 +398,7 @@ void Runtime::run_battle_showcase() {
             "+" + std::to_string(combat.deaths[1]) + " sdl_ticks_ns " +
             std::to_string(SDL_GetTicksNS()) + " simulation_errors none"
         );
+        report("STAGED_WORLD final decimal " + std::to_string(director_world_digest()));
     }
     print_memory_status();
 }

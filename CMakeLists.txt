@@ -520,6 +520,12 @@ add_library(oa::app::bench ALIAS oa-app-bench)
 target_include_directories(oa-app-bench PUBLIC src/app)
 target_link_libraries(oa-app-bench PRIVATE oa-data-enhanced-mode oa-platform-shims oa-options)
 if(BUILD_TESTING)
+  add_executable(oa-app-stage-view-test src/app/stage_view_test.cpp)
+  target_link_libraries(oa-app-stage-view-test PRIVATE oa-test-support oa-options)
+  add_test(NAME app-stage-view COMMAND oa-app-stage-view-test)
+  add_executable(oa-app-battle-counts-test src/app/battle_counts_test.cpp)
+  target_link_libraries(oa-app-battle-counts-test PRIVATE oa-core-types oa-test-support oa-options)
+  add_test(NAME app-battle-counts COMMAND oa-app-battle-counts-test)
   # A view file's keys, its refusals and its stage taken from its folder;
   # the spread of a measure, its percentiles and slowest 1%; the MEASURE
   # and STAGE lines; and the stage timers, which sum nothing while off.
@@ -1399,6 +1405,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/match_clock.cpp
   src/app/world_scaling.cpp src/app/far_view.cpp
   src/app/frame_pacing.cpp src/app/frame_stats_panel.cpp src/app/runtime_frame_stats.cpp
+  src/app/runtime_battle_overlay.cpp
   src/app/runtime_team_panels.cpp
   src/app/runtime_scroll_bars.cpp
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
