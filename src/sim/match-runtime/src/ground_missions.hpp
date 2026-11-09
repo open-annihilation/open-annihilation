@@ -452,10 +452,14 @@ class TickHost::GroundMissions {
     }
 
     /// Retains an unchanged patrol leg's owned ground goal and navigation.
+    /// Search-seed status stays on a continued goal; completion and cancellation do not continue it.
     ///
     /// @param point signed 16.16 patrol destination
     /// @param tolerance arrival radius in world units
     void refresh_patrol_goal(const sim::ground_orders::Point& point, int32_t tolerance) {
+        constexpr uint32_t interrupted_goal_events =
+            sim::ground_orders::arrived_event | sim::ground_orders::path_failed_event |
+            sim::ground_orders::goal_replaced_event | ground::cancel_event;
         const auto& enhanced = rules().setup.enhanced_mode;
         auto* movement = host.match.ground_runtime(s.unit_index);
         if (enhanced.enabled &&
@@ -467,13 +471,13 @@ class TickHost::GroundMissions {
             order.kind == ground::patrol_kind && record.extra.goal &&
             movement->navigation.goal == record.extra.goal.get() &&
             record.extra.goal->order == &order &&
-            ((order.raised_events | events) &
-             (sim::ground_orders::goal_event_mask | ground::cancel_event)) == 0) {
+            ((order.raised_events | events) & interrupted_goal_events) == 0) {
             movement->project_slot();
             const auto expected =
                 sim::ground_orders::make_goal(order, movement->geometry, point, tolerance);
             const auto& existing = *record.extra.goal;
-            if (existing.shape == expected.shape && existing.cell == expected.cell &&
+            if (!sim::ground_orders::goal_contains_unit(existing, movement->geometry) &&
+                existing.shape == expected.shape && existing.cell == expected.cell &&
                 existing.tolerance == expected.tolerance &&
                 existing.radius_squared == expected.radius_squared &&
                 existing.inner_range == expected.inner_range &&
