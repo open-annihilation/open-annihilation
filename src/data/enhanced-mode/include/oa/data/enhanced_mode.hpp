@@ -26,6 +26,8 @@ inline constexpr uint32_t regional_flow_version = 3;
 inline constexpr uint32_t swept_ground_version = 4;
 /// The preset reserved for advisory corridor lanes.
 inline constexpr uint32_t corridor_flow_version = 5;
+/// The preset retaining patrol progress and responding to lost AI strike targets.
+inline constexpr uint32_t battle_flow_version = 6;
 /// The Enhanced Mode preset supplied by this build.
 inline constexpr uint32_t current_version = swept_ground_version;
 
@@ -51,6 +53,7 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// those capacities. Version 3 selects regional shared-route construction.
 /// Version 4 adds bounded obstacle checks along each ground step.
 /// Version 5 reserves a separate identity for corridor flow when integrated.
+/// Version 6 selects persistent patrol goals and bounded AI strike retargeting.
 /// Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes
