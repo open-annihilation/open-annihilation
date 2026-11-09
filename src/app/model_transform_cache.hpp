@@ -116,7 +116,15 @@ class ModelTransformCache {
         stored_bytes_ -= entry.bytes;
         if (!same_shape)
             entry.instance = {};
-        entry.instance = instance;
+        try {
+            entry.instance = instance;
+        } catch (...) {
+            // Assignment may already have replaced some owned buffers.
+            // The slot is not registered in this frame's lookup yet.
+            entry.instance = {};
+            entry.bytes = 0;
+            throw;
+        }
         entry.bytes = entry.instance.transform_storage_bytes();
         stored_bytes_ += entry.bytes;
         if (!fit(entry.bytes, used_)) {
