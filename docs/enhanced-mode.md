@@ -405,6 +405,12 @@ These measurements cover this scripted march, not strategic AI, rendered
 combat or gaming-desktop performance. Rear units retain their orders and
 routes but remain blocked by mobile traffic.
 
+This older fixture uses individual mirrored goals and hold fire, without
+the normal ARM computer player; its commander-bank assignment also differs
+from the aligned patrol workload below. Its bridge and rear metrics do not
+diagnose that later battle. Further pathing work needs a current-version
+baseline using the aligned patrol setup and evolving combat orders.
+
 ## Current-view rendering checkpoint
 
 Graphics remain independent of Enhanced Mode. Repeated poses share exact
@@ -472,28 +478,49 @@ Source `76fbc3b16` requires SDL input focus and ownership of SDL keyboard
 focus on every measured frame, alongside its existing Full-renderer,
 normal-clock and presentation checks. A separate operating-system monitor
 samples whether the game is active and frontmost approximately every 100 ms.
-After the session was unlocked, a classic run completed with both SDL focus
-checks passing and active, frontmost OS samples covering the measured window.
-The monitor's largest gap was 107.4 ms; its samples establish no focus state
-between samples. Startup and warmup focus losses preceded measurement.
+The completed runs below pass both SDL checks on every measured frame, with
+active, frontmost OS samples covering measurement. The largest sampled gap
+was 107.4 ms for the first classic run and 181.4 ms across the later three
+runs. Samples establish no focus state between observations. Any startup or
+warmup focus losses preceded measurement.
 
 | Source | Verified view | Presented FPS | 1% low FPS | Simulation ticks/s | Frames | Measured ticks |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | `df903e85f` | Classic 2.5D | 5.343 | 4.50 | 24.942 | 193 | 901 |
+| `0a0d20bb2` | Classic 2.5D, models | 5.465 | 4.38 | 25.225 | 195 | 900 |
+| `0a0d20bb2` | Turned 3D, models | 8.568 | 5.94 | 30.036 | 257 | 901 |
+| `0a0d20bb2` | Classic 2.5D, strategic dots | 70.173 | 36.53 | 30.003 | 2,105 | 900 |
 
-The 193 presents span 36.12 seconds. Requested game speed was 10, with the
-automatic rate varying from 8 to 9. Both sides moved in every reported
-interval and recorded firing, damage and deaths, with no births; the final
-live counts were 9,773 and 9,922. Rendering remains below 60 FPS and the
-simulation below 30 ticks/s, so this does not establish smooth play or a
-causal improvement over the provisional runs.
+The first classic run spans 36.12 seconds. The three `0a0d20bb2` runs use
+the same executable and span 35.68, 30.00 and 30.00 seconds respectively.
+Requested game speed is 10; classic models adapt between 8 and 9, while
+turned models and dots retain 10. Both sides move in every reported interval
+and record firing, damage and deaths, with no births. Final live counts are
+9,773/9,922 for the model views and 9,774/9,922 for dots. The model views
+have one fewer live CORE unit than completed death events explain; pending
+death before cleanup is consistent with this difference but was not counted.
+No other game, compiler or profiler appears in the retained resource samples;
+finite sampling does not establish an idle host or a causal speedup.
 
-Turned 3D has no verified FPS result. One attempt lost input and keyboard
-focus at tick 1,480 during measurement; another, in a locked session, failed
-readiness at tick 934 with both focus checks false. Their partial data are
-rejected. Version 4 remains current, experimental version 5 has not passed
-the flow gate, and ray tracing stays deferred while congestion and
-existing-view costs are addressed.
+Dots uses the existing graphics-menu choices: units as dots, after zoom
+1/3. At zoom 0.25 it omits unit and feature models and reduces effects and
+overlays; Full rendering and anti-aliasing setting 4 remain enabled. This
+is a separate quality result. The display refreshes at 60 Hz, so 70.173
+presents/s cannot show more than 60 distinct refreshes/s. The table's 1% low
+uses frame spans; dots' presented-interval 1% low is 34.01 FPS. Its tail
+latency and unit congestion still prevent a whole-battle smoothness claim.
+
+Classic model staging and upload average 91.49 ms per frame; dots reduces
+that work to 0.07 ms. Turned model views still spend 30.90 ms building the
+Scene and 25.15 ms planning the draw list. These CPU wall spans contain
+nested work and are not GPU timings. Full model views remain below 60 FPS.
+
+Earlier turned attempts remain rejected: one lost input and keyboard focus
+at tick 1,480 during measurement; another, in a locked session, failed
+readiness at tick 934. Their partial data supply no FPS result. The later
+completed turned run is verified separately. Version 4 remains current,
+experimental version 5 has not passed its older march flow gate, and ray
+tracing stays deferred while congestion and existing-view costs are addressed.
 
 ## Remaining work
 
