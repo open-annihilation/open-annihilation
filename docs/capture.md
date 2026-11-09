@@ -185,8 +185,8 @@ then pans north:
 ```text
 0 cut 5120 5120 0.25 20 -53
 60 cut 5120 7291 0.25 20 -32
-72 move 5120 7291 0.9 20 -32
-96 move 5120 2827 0.9 20 -32
+72 move 5120 7291 2.25 20 -32
+96 move 5120 4835 2.25 20 -32
 ```
 
 The first time must be zero. Times strictly increase and fit within the
@@ -197,6 +197,13 @@ of text. `cut` holds the previous pose until its time, then jumps.
 logarithmically and taking the shortest yaw turn. These transitions change
 only the camera. Models and their animations use normal rendering detail
 when the camera moves above the configured strategic-dot threshold.
+
+For a dense army, choose Dots for Zoomed out units and set After zoom to 2x
+in Graphics. This keeps the overview light until the camera reaches a close
+model view. This is an ordinary graphics preference, independent of
+Enhanced Mode. The renderer can retain its previous view if a requested
+frame exceeds its capacity. Check the tour's requested and presented camera
+values and the recorded frames before treating a pan as complete.
 
 Append `--showcase-seconds 150 --showcase-tour battle.tour` to the staged
 capture command above. A normal `--max-fps 30` render cap can match the
