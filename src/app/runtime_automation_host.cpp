@@ -1475,6 +1475,15 @@ void copy_note(char* into, std::size_t capacity, const char* from) {
 void post_extension_note(Runtime& runtime, const char* kind, const char* text) {
     if (kind == nullptr || kind[0] == '\0')
         return;
+    // The feed takes the ring during the frame, before spoken updates run.
+    // The inbox keeps the note until then. An announcement is not copied:
+    // speaking it again would loop. line, room, place, muzzle and hear are
+    // speech only. The feed never reads them, so they stay out of the ring.
+    remember_spoken_note(kind, text);
+    const std::string_view spoken_only(kind);
+    if (spoken_only == "line" || spoken_only == "room" || spoken_only == "place" ||
+        spoken_only == "muzzle" || spoken_only == "hear")
+        return;
     if (runtime.extension_note_count_ == Runtime::k_extension_note_cap) {
         runtime.extension_note_read_ =
             (runtime.extension_note_read_ + 1) % Runtime::k_extension_note_cap;

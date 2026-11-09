@@ -18,7 +18,7 @@ namespace actions = oa::data::input_actions;
 
 // The catalogue's ranges, written out. select.category-<x> and select.tag-<word>
 // are families, and watch.player-view-<n> is the one action watch.player-view.
-constexpr size_t catalogue_count = 262;
+constexpr size_t catalogue_count = 268;
 
 /// Compares a chord list with the chords the test names.
 ///

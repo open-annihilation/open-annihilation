@@ -203,6 +203,14 @@ enum class PhotoGroup : uint8_t {
     keys,
     /// the panel: its controls, the guides, a crop and a photo with no panel
     panel,
+    /// Screen, smooth edges and photos larger than the window
+    sizes,
+    /// a controller and a phone: enter, frame, take, freeze, hide and leave
+    pad_touch,
+    /// a colour grade, a vignette, grain and a frame on the capture check's fight
+    looks,
+    /// a photo of a replay: stepping, the framed view, and the recording in the file
+    replay,
 };
 
 /// A renderer failure --render-fault forces in --check-renderer-ladder.

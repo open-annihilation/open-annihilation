@@ -7,6 +7,7 @@
 // dispatch_event as a mouse's do, so hover, clicks, boxes, placement and
 // the screen's edges behave as with a mouse.
 #include "oa/app/runtime.hpp"
+#include "engine_settings_state.hpp"
 #include "pad_state.hpp"
 #include "touch_state.hpp"
 #include "oa/app/frame_pacing.hpp"
@@ -41,6 +42,8 @@ constexpr float kPointerAdoptPixels = 0.5F;
 /// The zoom's fastest change with the right stick held or the D-pad's zoom held: doublings a
 /// second.
 constexpr float kZoomDoublingsPerSecond = 1.0F;
+/// How fast a full right-stick push turns the photo view, degrees a second.
+constexpr float kPhotoTurnDegreesPerSecond = 90.0F;
 /// The stick deflection past which a direction counts in menus and over the side panel.
 constexpr float kStepDeflection = 0.5F;
 /// How long after the pad last moved the pointer a change of what lies under it gives a detent,
@@ -553,7 +556,41 @@ void PadAccess::tick_pointer(
             runtime.track_match_drag();
         }
     };
-    if (on_match) {
+    if (runtime.photo_mode()) {
+        // The sticks frame the shot and never select, order or turn a build
+        // page. A held picture stays where it is.
+        if (!runtime.photo_camera_locked() && elapsed_ns > 0) {
+            if (const float deflection = pc::stick_deflection(pan_stick); deflection > 0.0F) {
+                const float length = std::hypot(pan_stick.x, pan_stick.y);
+                const auto step =
+                    static_cast<float>(frame_pacing::scroll_distance(speed, elapsed_ns)) *
+                    deflection * deflection;
+                runtime.pan_match_camera_by(
+                    pan_stick.x / length * step, pan_stick.y / length * step
+                );
+            }
+            const float y_deflection = pc::stick_deflection({0.0F, point_stick.y});
+            if (y_deflection > 0.0F) {
+                const float aimed = runtime.match_zoom_target_ > 0.0F ? runtime.match_zoom_target_
+                                                                      : runtime.match_zoom_;
+                const float sign = point_stick.y < 0.0F ? 1.0F : -1.0F;
+                Runtime::EngineSettingsState::ease_zoom_about_centre(
+                    runtime,
+                    aimed * std::exp2(
+                                sign * y_deflection * static_cast<float>(seconds) *
+                                kZoomDoublingsPerSecond
+                            )
+                );
+            }
+            const float x_deflection = pc::stick_deflection({point_stick.x, 0.0F});
+            if (x_deflection > 0.0F) {
+                const float sign = point_stick.x < 0.0F ? -1.0F : 1.0F;
+                std::ignore = runtime.photo_turn(
+                    sign * x_deflection * kPhotoTurnDegreesPerSecond * static_cast<float>(seconds)
+                );
+            }
+        }
+    } else if (on_match) {
         // The left stick pans: the keyboard's scroll rate at full deflection,
         // growing with the square of the deflection; the pan divides by the
         // zoom, as the keys' scroll does.

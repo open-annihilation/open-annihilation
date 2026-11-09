@@ -437,6 +437,53 @@ void the_writer_wakes_once_for_each_photo() {
     std::filesystem::remove_all(folder, remove_error);
 }
 
+/// The remembered picture is counted with copying on, still held when a
+/// later offer has copying off, and gone once cleared.
+void the_remembered_picture_is_counted() {
+    reset_offer();
+    OA_CHECK(oa::app::remembered_photo_bytes() == 0);
+    PhotoClipboardImage copied;
+    copied.bytes = {1, 2, 3, 4, 5};
+    copied.mime = "image/png";
+    const PhotoCopyReport on =
+        oa::app::offer_photo_clipboard("Shot.png", std::move(copied), true, false, true);
+    OA_CHECK(on.result == PhotoCopyResult::copied);
+    OA_CHECK(oa::app::remembered_photo_bytes() == 5);
+    PhotoClipboardImage held;
+    held.bytes = {9, 9, 9};
+    held.mime = "image/png";
+    const PhotoCopyReport off =
+        oa::app::offer_photo_clipboard("Later.png", std::move(held), false, false, true);
+    OA_CHECK(off.result == PhotoCopyResult::skipped);
+    OA_CHECK(oa::app::remembered_photo_bytes() == 3);
+    oa::app::clear_remembered_photo();
+    OA_CHECK(oa::app::remembered_photo_bytes() == 0);
+}
+
+/// Queued bytes rise when a picture is accepted and return to zero once written.
+void the_writer_counts_queued_bytes() {
+    const std::filesystem::path folder = oa::test::make_scratch_directory("oa-p09-photo-queued");
+    std::error_code remove_error;
+    {
+        oa::app::PhotoWriter writer;
+        OA_CHECK(writer.queued_bytes() == 0);
+        oa::app::PhotoWriter::Picture picture;
+        picture.width = 2048;
+        picture.height = 2048;
+        picture.rgb.resize(static_cast<std::size_t>(picture.width) * picture.height * 3U);
+        for (std::size_t index = 0; index < picture.rgb.size(); ++index)
+            picture.rgb[index] = static_cast<uint8_t>(index * 17U + index / 3U);
+        const std::size_t bytes = picture.rgb.size();
+        picture.file_name = "Queued.png";
+        picture.path = folder / picture.file_name;
+        OA_CHECK(writer.enqueue(std::move(picture)));
+        OA_CHECK(writer.queued_bytes() == bytes);
+        writer.finish();
+        OA_CHECK(writer.queued_bytes() == 0);
+    }
+    std::filesystem::remove_all(folder, remove_error);
+}
+
 } // namespace
 
 int main() {
@@ -456,6 +503,8 @@ int main() {
     copying_again_with_nothing_remembered();
     an_oversized_photo_is_skipped_before_it_is_refused();
     the_writer_wakes_once_for_each_photo();
+    the_remembered_picture_is_counted();
+    the_writer_counts_queued_bytes();
     oa::app::set_photo_clipboard_hook(nullptr);
     oa::app::clear_remembered_photo();
     SDL_Quit();

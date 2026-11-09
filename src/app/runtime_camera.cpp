@@ -3,6 +3,7 @@
 
 // Radar interaction, zoom, camera panning and move/patrol orders.
 #include "oa/app/runtime.hpp"
+#include "oa_layer.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/full_screen.hpp"
@@ -404,6 +405,8 @@ void Runtime::place_match_view(double x, double z) {
     match_camera_x_ = exact_view_.camera_x;
     match_camera_z_ = exact_view_.camera_z;
     camera_moved_ = true;
+    // A pan during a photo seek keeps the place the player just set.
+    note_photo_replay_camera();
 }
 
 oa::present::world_renderer::ViewOffset Runtime::view_offset() const {
@@ -522,6 +525,8 @@ void Runtime::set_camera_position(int32_t x, int32_t z, uint32_t flags) {
     match_camera_flags_ = flags;
     // A camera put in place shows its own map pixel.
     exact_view_.held = false;
+    // A pan during a photo seek keeps the place the player just set.
+    note_photo_replay_camera();
 }
 
 void Runtime::centre_view_on(int32_t x, int32_t z) {
@@ -957,14 +962,18 @@ void Runtime::pan_match_camera() {
         dx += frame_run_scroll_;
     // Only the pan actions scroll, as in 3.1c: the letter keys stay the
     // game's own commands (A attack, S stop and so on). A modifier never
-    // stops an arrow that is held.
-    if (action_key_held("camera.pan-left"))
+    // stops an arrow that is held. While the order buttons hold the keyboard
+    // and their ring is showing, an arrow moves that ring and does not pan.
+    // A pan that was moved onto another key still scrolls.
+    const bool arrows_move_the_ring =
+        hud_buttons_focused_ && oa_layer_ != nullptr && oa_layer_->family_ring_shown();
+    if (action_key_held("camera.pan-left", arrows_move_the_ring))
         --dx;
-    if (action_key_held("camera.pan-right"))
+    if (action_key_held("camera.pan-right", arrows_move_the_ring))
         ++dx;
-    if (action_key_held("camera.pan-up"))
+    if (action_key_held("camera.pan-up", arrows_move_the_ring))
         --dz;
-    if (action_key_held("camera.pan-down"))
+    if (action_key_held("camera.pan-down", arrows_move_the_ring))
         ++dz;
     // Off stops this edge scroll only. Arrow keys above, and the touch HUD's
     // edge band while a drag is held, keep moving the view.

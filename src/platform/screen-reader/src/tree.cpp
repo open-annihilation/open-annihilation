@@ -649,6 +649,11 @@ void mark_tree_sent(uint64_t marked) {
     have_sent = true;
 }
 
+std::vector<Node> testing_staged_nodes() {
+    const std::lock_guard<std::mutex> lock(tree_mutex);
+    return snapshot;
+}
+
 void forget_sent_tree() {
     const std::lock_guard<std::mutex> lock(tree_mutex);
     have_sent = false;

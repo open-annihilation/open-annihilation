@@ -657,17 +657,19 @@ def check_mutators_and_match(client):
         )
     )
     require(body.get("ok") is True, f"the in-game menu did not open: {body}")
+    # Resume is focused at open; Tab moves to the next stop of the menu's
+    # order, Load Game, and shows the ring there.
     client.call("ui.key", {"action": "ui.menu-focus-next", "phase": "tap"})
     wait_screen(client, "match")
     tree = tree_of(client)
-    leaf = leaf_named(tree, "OK")
-    require(leaf is not None and leaf.get("focused"), f"the in-game menu's OK is {leaf}")
+    leaf = leaf_named(tree, "LOADGAME")
+    require(leaf is not None and leaf.get("focused"), f"the in-game menu's LOADGAME is {leaf}")
     frame = ring_frame(leaf)
     width, height, pixels = shoot(client)
     expect_present(pixels, width, height, leaf, frame, "the in-game menu after Tab")
     focused, shown = reported_focus(client)
     require(
-        focused == "OK" and shown,
+        focused == "LOADGAME" and shown,
         f"the in-game menu after Tab names {focused!r}, ring {shown}",
     )
     # O, the Options button's quick key, turns the in-game panel's page while
@@ -690,8 +692,13 @@ def check_mutators_and_match(client):
         focused == "PREV" and not shown,
         f"the in-game Options page at open names {focused!r}, ring {shown}",
     )
+    # Tab moves from OK to Cancel, the next stop, and shows the ring there.
     client.call("ui.key", {"action": "ui.menu-focus-next", "phase": "tap"})
     wait_screen(client, "match")
+    tree = tree_of(client)
+    leaf = leaf_named(tree, "CANCEL")
+    require(leaf is not None and leaf.get("focused"), f"the Options page's CANCEL is {leaf}")
+    frame = ring_frame(leaf)
     width, height, pixels = shoot(client)
     expect_present(pixels, width, height, leaf, frame, "the in-game Options page after Tab")
 

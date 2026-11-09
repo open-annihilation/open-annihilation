@@ -191,6 +191,32 @@ struct ScreenServices {
     /// @param input the key; read at once
     /// @return nonzero when the host owns the key
     int (*main_menu_order_owns_key)(void* host, const ScreenInput* input){};
+    /// Names the focus, list or screen action this key fires, and whether
+    /// the family's ring is showing.
+    ///
+    /// The multiplayer screens call it instead of reading Tab, the arrows,
+    /// Home, End and the page keys off the platform. A press and a repeat
+    /// both count. When one of `ui.menu-focus-*`, `ui.menu-list-*` or
+    /// `ui.screen-*` fired, its id is written into `action` with a
+    /// terminating zero, when it fits, and the call returns 1. A menu focus
+    /// or list action is written ahead of a screen action when more than one
+    /// fired. Zero, and a null function, mean none of them fired. When
+    /// `ring_shown` is not null it receives 1 while the layer's ring is
+    /// showing and 0 when it is hidden or no layer is up, whether or not an
+    /// action fired. The family's ring follows the answer: Next button and
+    /// Previous button show it. A screen that types the key into a field
+    /// asks with a null `action`, and the ring then neither shows nor stays
+    /// for that key.
+    ///
+    /// @param host ScreenContext::host
+    /// @param input the key; read at once
+    /// @param action receives the action id; may be null to ask only for the ring
+    /// @param capacity how many bytes `action` holds
+    /// @param ring_shown receives the ring; may be null
+    /// @return 1 when an action id was written
+    int (*bound_focus_action)(
+        void* host, const ScreenInput* input, char* action, std::size_t capacity, int* ring_shown
+    ){};
 };
 
 // What screens, overlays and dispatcher steps are called with. host and

@@ -190,6 +190,7 @@ enum class Control : int32_t {
     end_card,      ///< the end card's face; a press there is taken and does nothing
     view,          ///< whose view is on show
     camera,        ///< how the camera follows
+    photo,         ///< photo mode
 };
 
 /// Where the bar and its cards sit, in points.
@@ -206,6 +207,7 @@ struct Layout {
     kit::Rect speed{};                      ///< the speed button
     kit::Rect view{};                       ///< whose view is on show
     kit::Rect camera{};                     ///< how the camera follows
+    kit::Rect photo{};                      ///< photo mode
     kit::Rect chat{};                       ///< recorded chat
     kit::Rect keys{};                       ///< the shortcut card's button
     kit::Rect leave{};                      ///< the in-game menu

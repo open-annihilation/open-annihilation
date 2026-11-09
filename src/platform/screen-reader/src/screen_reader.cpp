@@ -19,6 +19,7 @@ Preference preference_of(std::string_view text) {
 
 #if !defined(OA_SCREEN_READER_COMPILED_OUT)
 
+#include "oa/platform/screen_reader/announce.hpp"
 #include "oa/platform/screen_reader/api.hpp"
 #include "oa/platform/screen_reader/tree.hpp"
 
@@ -1201,6 +1202,12 @@ bool speech_where_bridge_cannot() {
     return speech_needed;
 }
 
+bool announcements_open() {
+    if (chosen_preference == Preference::off)
+        return false;
+    return chosen_preference == Preference::on || reader_running();
+}
+
 bool reader_running() {
     static bool have_cache = false;
     static bool cached = false;
@@ -1222,9 +1229,51 @@ void refresh_window(SDL_Window* window) {
     note_geometry(window);
 }
 
+/// Adds one live node for each spoken line, under the window.
+///
+/// Each line keeps the politeness it asked for. The node sits inside the
+/// window, not at the screen's origin. An id the tree already uses is left
+/// alone. A new id changes the tree, so a repeated line is raised too.
+///
+/// @param[in,out] nodes the controls about to be staged
+void attach_live_region(std::vector<Node>& nodes) {
+    const std::vector<LiveLine> lines = live_lines();
+    std::size_t index = 0;
+    for (const LiveLine& line : lines) {
+        if (line.id == 0 || line.id == window_node || line.text.empty())
+            continue;
+        bool present = false;
+        for (const Node& node : nodes) {
+            if (node.id == line.id)
+                present = true;
+        }
+        if (present)
+            continue;
+        Node region;
+        region.id = line.id;
+        region.role = Role::label;
+        region.label = line.text;
+        region.live =
+            line.politeness == Politeness::assertive ? LiveSetting::assertive : LiveSetting::polite;
+        region.x = 8;
+        region.y = 8 + static_cast<double>(index) * 16;
+        region.width = 32;
+        region.height = 16;
+        for (Node& node : nodes) {
+            if (node.id == window_node) {
+                node.children.push_back(line.id);
+                break;
+            }
+        }
+        nodes.push_back(std::move(region));
+        ++index;
+    }
+}
+
 void submit_tree(std::vector<Node> nodes, uint64_t focus) {
     if (!reader_active.load(std::memory_order_acquire))
         return;
+    attach_live_region(nodes);
     if (!stage_tree(std::move(nodes), focus))
         return;
     const uint64_t marked = staged_fingerprint();
@@ -1286,6 +1335,10 @@ void note_attach_finished(SDL_Window* /*window*/, bool /*succeeded*/) {
 }
 
 bool speech_where_bridge_cannot() {
+    return chosen_preference == Preference::on;
+}
+
+bool announcements_open() {
     return chosen_preference == Preference::on;
 }
 

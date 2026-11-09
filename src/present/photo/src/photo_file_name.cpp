@@ -163,6 +163,7 @@ std::string join_map(const std::vector<Piece>& pieces) {
     return map;
 }
 
+#ifdef _WIN32
 /// How many UTF-16 units one character takes.
 ///
 /// @param code the character
@@ -170,6 +171,7 @@ std::string join_map(const std::vector<Piece>& pieces) {
 std::size_t utf16_units(char32_t code) noexcept {
     return code > 0xffff ? 2 : 1;
 }
+#endif
 
 } // namespace
 

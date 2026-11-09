@@ -318,6 +318,35 @@ struct ModelDraws {
 /// @return true where render() adds the lights itself
 [[nodiscard]] bool draws_lights(const Context& context) noexcept;
 
+/// The samples a picture of this size is drawn with. A supersample of 0 means
+/// the picture does not fit, even at one sample a pixel.
+struct Sampling {
+    uint32_t supersample{1}; ///< samples along each axis of an enlarged target
+    uint32_t multisample{1}; ///< samples a pixel the card takes, before that
+};
+
+/// The supersample and multisample a picture of this size is drawn at, for
+/// the anti-aliasing asked for, on a card that does or does not multisample.
+/// The fitting is the one render() uses: the asked factor is halved until the
+/// enlarged target fits 4096 pixels a side, and a 2x2 of it is the card's
+/// multisampling where that was asked for and the samples still fit.
+///
+/// @param width the picture, in pixels
+/// @param height the picture, in pixels
+/// @param requested_supersample the anti-aliasing asked for: 1, 2, 4, 8 or 16
+/// @param device_multisamples true when the card multisamples and it is allowed
+/// @return the sampling; supersample 0 when the picture cannot be drawn
+[[nodiscard]] Sampling fitted_sampling(
+    uint32_t width, uint32_t height, uint32_t requested_supersample, bool device_multisamples
+) noexcept;
+
+/// Whether the card multisamples the formats render() draws, as the last
+/// query found. False before that query, and when multisampling is not allowed.
+///
+/// @param context the renderer's resources
+/// @return true when a frame may take the card's multisampling
+[[nodiscard]] bool device_multisamples(const Context& context) noexcept;
+
 /// Render world triangles through a pixel-space affine projection without a window.
 /// Reuse shaders and buffers across frames, uploading the atlas only when its revision
 /// or dimensions change. Readback waits for completion before returning RGBA8 pixels.

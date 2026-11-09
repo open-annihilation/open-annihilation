@@ -12,20 +12,31 @@
 // key and resize steps go through the window a player would use.
 // --check-photo time: one pass freezes, steps, draws each eighth and runs
 // slowly; the other never enters. A shared match and a watcher hold the picture.
+// --check-photo pad-touch: a controller opens photo mode, frames the shot and
+// takes it, then the phone's MENU does the same with a drag and a pinch.
+// --check-photo looks: each colour grade on that fight, then the same fight
+// with no look. Full filters the preview and the photo of one frame.
 #include "oa/app/runtime.hpp"
 
 #include "engine_settings_state.hpp"
+#include "net_options.hpp"
+#include "oa_layer_check.hpp"
 #include "full_presentation.hpp"
 #include "language_state.hpp"
 #include "oa_layer.hpp"
+#include "pad_state.hpp"
 #include "photo_camera.hpp"
+#include "touch_state.hpp"
 #include "photo_clipboard.hpp"
 #include "photo_state.hpp"
+#include "render_run.hpp"
 
 #include "oa/app/far_view.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/frame_pacing.hpp"
+#include "oa/app/hook_call.hpp"
 #include "oa/app/user_folder.hpp"
+#include "oa/base/game_loop.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/core/player.h"
 #include "oa/core/player_setup.h"
@@ -37,16 +48,22 @@
 #include "oa/formats/oakeys/manifest.hpp"
 #include "oa/formats/json.hpp"
 #include "oa/formats/png.hpp"
+#include "oa/present/photo/photo_sizes.hpp"
+#include "renderer_live_gpu.hpp"
+#include "oa/present/photo/looks.hpp"
 #include "oa/sim/simulation_state.hpp"
 
 #include "oa/platform/files.hpp"
+#include "oa/session/demo.hpp"
 #include "oa/ui/engine_settings.hpp"
+#include "oa/ui/touch_hud.hpp"
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/sim/messages.hpp"
 #include "oa/sim/model_runtime/instance.hpp"
 #include "oa/sim/spatial_state/spatial.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/kit/input.hpp"
+#include "oa/ui/photo_panel/crop.hpp"
 #include "oa/ui/photo_panel/layout.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/hud/kill_board.hpp"
@@ -73,6 +90,7 @@
 #include <system_error>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #ifndef OA_ENGINE_VERSION
@@ -780,6 +798,213 @@ struct SharedMatchHold {
         photo_extension_bits = 0;
     }
 };
+
+/// One frame of the pad-touch check, and how long View is held past its delay.
+constexpr uint64_t kPadTouchFrameMs = 16;
+constexpr uint64_t kPadTouchHoldMs = 450;
+/// Frames after a stand-in pad is attached, so the runtime can open it.
+constexpr int kPadTouchAttachFrames = 3;
+/// A stick pushed past the dead zone, and a trigger pulled or at rest.
+constexpr float kPadTouchStick = 0.9F;
+constexpr float kPadTouchTrigger = 1.0F;
+/// The stand-in pad's USB numbers: an Xbox pad, plus the four paddles that
+/// make View the game layer.
+constexpr uint16_t kPadTouchVendor = 0x045e;
+constexpr uint16_t kPadTouchProduct = 0x02ea;
+/// The joystick axis ends the binding's ranges are measured against.
+constexpr int kPadTouchAxisMost = SDL_JOYSTICK_AXIS_MAX;
+constexpr int kPadTouchAxisLeast = SDL_JOYSTICK_AXIS_MIN;
+/// The check's own touch device: SDL does not know it, and the check allows that.
+constexpr SDL_TouchID kPadTouchDevice = 1;
+
+/// The buttons the stand-in has: an Xbox pad's, and the four paddles.
+constexpr std::array<SDL_GamepadButton, 19> kPadTouchButtons{
+    SDL_GAMEPAD_BUTTON_SOUTH,          SDL_GAMEPAD_BUTTON_EAST,
+    SDL_GAMEPAD_BUTTON_WEST,           SDL_GAMEPAD_BUTTON_NORTH,
+    SDL_GAMEPAD_BUTTON_BACK,           SDL_GAMEPAD_BUTTON_GUIDE,
+    SDL_GAMEPAD_BUTTON_START,          SDL_GAMEPAD_BUTTON_LEFT_STICK,
+    SDL_GAMEPAD_BUTTON_RIGHT_STICK,    SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
+    SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_DPAD_UP,
+    SDL_GAMEPAD_BUTTON_DPAD_DOWN,      SDL_GAMEPAD_BUTTON_DPAD_LEFT,
+    SDL_GAMEPAD_BUTTON_DPAD_RIGHT,     SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1,
+    SDL_GAMEPAD_BUTTON_LEFT_PADDLE1,   SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2,
+    SDL_GAMEPAD_BUTTON_LEFT_PADDLE2,
+};
+
+/// The joystick input SDL binds one gamepad button or axis to.
+struct PadTouchBinding {
+    SDL_GamepadBindingType type{SDL_GAMEPAD_BINDTYPE_NONE};
+    int index{};
+    int hat_mask{};
+    int input_least{};
+    int input_most{};
+    int output_least{};
+    int output_most{};
+};
+
+/// The stand-in pad. Closing the check's joystick and detaching it are its
+/// own, including when a check fails.
+struct PadTouchStandIn {
+    SDL_JoystickID id{};
+    SDL_Joystick* joystick{};
+    std::array<PadTouchBinding, SDL_GAMEPAD_BUTTON_COUNT> buttons{};
+    std::array<PadTouchBinding, SDL_GAMEPAD_AXIS_COUNT> axes{};
+
+    PadTouchStandIn() = default;
+    PadTouchStandIn(const PadTouchStandIn&) = delete;
+    PadTouchStandIn& operator=(const PadTouchStandIn&) = delete;
+
+    ~PadTouchStandIn() {
+        if (joystick != nullptr)
+            SDL_CloseJoystick(joystick);
+        joystick = nullptr;
+        if (id != 0)
+            SDL_DetachVirtualJoystick(id);
+        id = 0;
+    }
+};
+
+/// Attaches the stand-in and reads the joystick inputs its buttons and axes
+/// are bound to.
+///
+/// @param stand_in the stand-in
+/// @throws std::runtime_error when SDL refuses it
+void attach_pad_touch(PadTouchStandIn& stand_in) {
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo pad-touch failed: " + what);
+    };
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.vendor_id = kPadTouchVendor;
+    desc.product_id = kPadTouchProduct;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    for (int axis = 0; axis < SDL_GAMEPAD_AXIS_COUNT; ++axis)
+        desc.axis_mask |= 1U << static_cast<unsigned>(axis);
+    for (const SDL_GamepadButton button : kPadTouchButtons)
+        desc.button_mask |= 1U << static_cast<unsigned>(button);
+    desc.nbuttons = static_cast<Uint16>(kPadTouchButtons.size());
+    desc.name = "photo pad";
+    stand_in.id = SDL_AttachVirtualJoystick(&desc);
+    if (stand_in.id == 0)
+        fail(std::string("SDL refused the stand-in pad: ") + SDL_GetError());
+    stand_in.joystick = SDL_OpenJoystick(stand_in.id);
+    if (stand_in.joystick == nullptr)
+        fail(std::string("cannot open the stand-in pad: ") + SDL_GetError());
+    SDL_Gamepad* gamepad = SDL_OpenGamepad(stand_in.id);
+    if (gamepad == nullptr)
+        fail(std::string("SDL does not take the stand-in as a gamepad: ") + SDL_GetError());
+    int count = 0;
+    SDL_GamepadBinding** bindings = SDL_GetGamepadBindings(gamepad, &count);
+    for (int at = 0; bindings != nullptr && at < count; ++at) {
+        const SDL_GamepadBinding& binding = *bindings[at];
+        PadTouchBinding found{};
+        found.type = binding.input_type;
+        if (binding.input_type == SDL_GAMEPAD_BINDTYPE_BUTTON) {
+            found.index = binding.input.button;
+        } else if (binding.input_type == SDL_GAMEPAD_BINDTYPE_HAT) {
+            found.index = binding.input.hat.hat;
+            found.hat_mask = binding.input.hat.hat_mask;
+        } else if (binding.input_type == SDL_GAMEPAD_BINDTYPE_AXIS) {
+            found.index = binding.input.axis.axis;
+            found.input_least = binding.input.axis.axis_min;
+            found.input_most = binding.input.axis.axis_max;
+        }
+        if (binding.output_type == SDL_GAMEPAD_BINDTYPE_BUTTON && binding.output.button >= 0 &&
+            binding.output.button < SDL_GAMEPAD_BUTTON_COUNT) {
+            stand_in.buttons[static_cast<std::size_t>(binding.output.button)] = found;
+        } else if (
+            binding.output_type == SDL_GAMEPAD_BINDTYPE_AXIS && binding.output.axis.axis >= 0 &&
+            binding.output.axis.axis < SDL_GAMEPAD_AXIS_COUNT
+        ) {
+            found.output_least = binding.output.axis.axis_min;
+            found.output_most = binding.output.axis.axis_max;
+            stand_in.axes[static_cast<std::size_t>(binding.output.axis.axis)] = found;
+        }
+    }
+    SDL_free(bindings);
+    SDL_CloseGamepad(gamepad);
+    if (stand_in.buttons[SDL_GAMEPAD_BUTTON_SOUTH].type == SDL_GAMEPAD_BINDTYPE_NONE)
+        fail("the stand-in has no binding for A");
+    if (stand_in.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER].type != SDL_GAMEPAD_BINDTYPE_AXIS)
+        fail("the stand-in has no binding for L2");
+    if (stand_in.axes[SDL_GAMEPAD_AXIS_LEFTX].type != SDL_GAMEPAD_BINDTYPE_AXIS ||
+        stand_in.axes[SDL_GAMEPAD_AXIS_RIGHTX].type != SDL_GAMEPAD_BINDTYPE_AXIS)
+        fail("the stand-in has no stick bindings");
+}
+
+/// Sets one button of the stand-in through the joystick input it is bound to.
+///
+/// @param stand_in the stand-in
+/// @param button the gamepad button
+/// @param down whether it is down
+/// @throws std::runtime_error when it cannot be set
+void set_pad_touch_button(PadTouchStandIn& stand_in, SDL_GamepadButton button, bool down) {
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo pad-touch failed: " + what);
+    };
+    if (stand_in.joystick == nullptr)
+        fail("the stand-in pad is not attached");
+    const PadTouchBinding& binding = stand_in.buttons[static_cast<std::size_t>(button)];
+    bool ok = false;
+    switch (binding.type) {
+    case SDL_GAMEPAD_BINDTYPE_BUTTON:
+        ok = SDL_SetJoystickVirtualButton(stand_in.joystick, binding.index, down);
+        break;
+    case SDL_GAMEPAD_BINDTYPE_HAT:
+        ok = SDL_SetJoystickVirtualHat(
+            stand_in.joystick,
+            binding.index,
+            static_cast<Uint8>(down ? binding.hat_mask : SDL_HAT_CENTERED)
+        );
+        break;
+    case SDL_GAMEPAD_BINDTYPE_AXIS:
+        ok = SDL_SetJoystickVirtualAxis(
+            stand_in.joystick,
+            binding.index,
+            static_cast<Sint16>(down ? binding.input_most : binding.input_least)
+        );
+        break;
+    case SDL_GAMEPAD_BINDTYPE_NONE:
+        fail("the stand-in has no binding for a button");
+        break;
+    default:
+        fail("the stand-in binds a button in a way the check cannot press");
+        break;
+    }
+    if (!ok)
+        fail(std::string("cannot set the stand-in's button: ") + SDL_GetError());
+}
+
+/// Sets one axis of the stand-in, inverting the binding's ranges.
+///
+/// @param stand_in the stand-in
+/// @param axis the gamepad axis
+/// @param value -1..1 for a stick (y down), 0..1 for a trigger
+/// @throws std::runtime_error when it cannot be set
+void set_pad_touch_axis(PadTouchStandIn& stand_in, SDL_GamepadAxis axis, float value) {
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo pad-touch failed: " + what);
+    };
+    if (stand_in.joystick == nullptr)
+        fail("the stand-in pad is not attached");
+    const PadTouchBinding& binding = stand_in.axes[static_cast<std::size_t>(axis)];
+    if (binding.type != SDL_GAMEPAD_BINDTYPE_AXIS)
+        fail("the stand-in has no binding for an axis");
+    const double wanted = value >= 0.0F ? static_cast<double>(value) * kPadTouchAxisMost
+                                        : static_cast<double>(-value) * kPadTouchAxisLeast;
+    double part = 0.0;
+    if (binding.output_most != binding.output_least)
+        part = (wanted - static_cast<double>(binding.output_least)) /
+               static_cast<double>(binding.output_most - binding.output_least);
+    const double raw = static_cast<double>(binding.input_least) +
+                       part * static_cast<double>(binding.input_most - binding.input_least);
+    const auto clamped = static_cast<Sint16>(
+        std::clamp(static_cast<int>(std::lround(raw)), kPadTouchAxisLeast, kPadTouchAxisMost)
+    );
+    if (!SDL_SetJoystickVirtualAxis(stand_in.joystick, binding.index, clamped))
+        fail(std::string("cannot set the stand-in's axis: ") + SDL_GetError());
+}
 
 } // namespace
 
@@ -1502,6 +1727,8 @@ void Runtime::check_photo_panel() {
         "photo.health",
         "photo.guides",
         "photo.section.capture",
+        "photo.size",
+        "photo.smooth",
         "photo.copy-to-clipboard",
         "photo.player-names",
         "photo.take",
@@ -1536,8 +1763,7 @@ void Runtime::check_photo_panel() {
         const oa::ui::kit::DisplayList listed = screen()->display_list();
         for (const oa::ui::kit::Control& control : listed.controls) {
             require(!control.name.empty(), where + " has a control with no name");
-            const bool readout = control.name == "photo.clock" || control.name == "photo.size" ||
-                                 control.name == "photo.file";
+            const bool readout = control.name == "photo.clock" || control.name == "photo.file";
             if (readout) {
                 require(
                     control.kind == oa::ui::kit::ControlKind::area && !control.focusable,
@@ -1639,6 +1865,1606 @@ void Runtime::check_photo_panel() {
     std::cout << "photo panel: ok" << std::endl;
 }
 
+void Runtime::check_photo_pad_touch() {
+    /// Puts the preferences file back. The fight may write its own rows; the
+    /// check compares the file after that, and this puts the original back.
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& path = host.options_.preferences_file;
+            if (path.has_value())
+                existed = fs::exists(*path);
+            bytes = file_bytes(path);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& path = runtime.options_.preferences_file;
+            if (path.has_value()) {
+                if (!existed) {
+                    std::error_code error;
+                    fs::remove(*path, error);
+                } else {
+                    std::ofstream out(*path, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    /// Opens only the check's virtual pad, then puts that choice back.
+    struct PadsOnly {
+        Runtime& runtime;
+        bool before;
+
+        explicit PadsOnly(Runtime& host)
+            : runtime(host), before(host.pad_state().virtual_pads_only) {
+            host.pad_state().virtual_pads_only = true;
+        }
+
+        PadsOnly(const PadsOnly&) = delete;
+        PadsOnly& operator=(const PadsOnly&) = delete;
+
+        ~PadsOnly() { runtime.pad_state().virtual_pads_only = before; }
+    };
+
+    const PreferencesHold preferences_hold(*this);
+    const PadsOnly pads_only(*this);
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo pad-touch failed: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    require(sdl_.window != nullptr, "the check has no window");
+    start_benchmark_skirmish();
+    const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+
+    const auto read_orders = [this] {
+        std::vector<UnitOrders> orders;
+        const oa::World& world = match_->state();
+        for (uint32_t slot = 0; slot < world.unit_slot_count; ++slot) {
+            const oa::Unit* unit = oa::world_unit_at(&world, slot);
+            if (unit == nullptr || unit->type_index == 0)
+                continue;
+            orders.push_back(
+                {unit->id,
+                 unit->type_index,
+                 unit->flags,
+                 static_cast<uint32_t>(unit->primary_order),
+                 static_cast<uint32_t>(unit->secondary_order)}
+            );
+        }
+        return orders;
+    };
+
+    uint64_t clock_ns = 1'000'000'000ULL;
+    bool running = true;
+    const auto step = [&](uint64_t ms) {
+        // The pad and the touch controls share this clock. The frame clock
+        // stays the check's own, so the fight does not jump.
+        clock_ns += ms * 1'000'000ULL;
+        pad_state().check_clock_ns = clock_ns;
+        touch_state().dispatch.check_clock_ns = clock_ns;
+        SDL_PumpEvents();
+        SDL_Event event{};
+        while (SDL_PollEvent(&event))
+            dispatch_event(event, running);
+        require(running, "a frame ended the run");
+        idle_tick();
+    };
+    const auto steps = [&](uint64_t total_ms) {
+        for (uint64_t elapsed = 0; elapsed < total_ms; elapsed += kPadTouchFrameMs)
+            step(std::min(kPadTouchFrameMs, total_ms - elapsed));
+    };
+
+    PadTouchStandIn stand_in;
+    attach_pad_touch(stand_in);
+    for (int frame = 0; frame < kPadTouchAttachFrames; ++frame)
+        step(kPadTouchFrameMs);
+    const OpenPad* opened = nullptr;
+    for (const OpenPad& candidate : pad_state().pads)
+        if (candidate.id == stand_in.id)
+            opened = &candidate;
+    require(opened != nullptr, "the runtime did not open the stand-in pad");
+    require(opened->traits.grips, "the stand-in has no grips, so View is not the game layer");
+
+    const auto tap_button = [&](SDL_GamepadButton button) {
+        set_pad_touch_button(stand_in, button, true);
+        step(kPadTouchFrameMs);
+        set_pad_touch_button(stand_in, button, false);
+        step(kPadTouchFrameMs);
+    };
+
+    // View is held past its delay, so letting go is the end of the hold and
+    // not a tap of unit info. L2 then opens photo mode.
+    set_pad_touch_button(stand_in, SDL_GAMEPAD_BUTTON_BACK, true);
+    steps(kPadTouchHoldMs);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, kPadTouchTrigger);
+    step(kPadTouchFrameMs);
+    require(photo_mode(), "L2 with View held did not enter photo mode");
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 0.0F);
+    step(kPadTouchFrameMs);
+    set_pad_touch_button(stand_in, SDL_GAMEPAD_BUTTON_BACK, false);
+    step(kPadTouchFrameMs);
+    require(photo_mode(), "letting go of View left photo mode");
+
+    render_match_surface();
+    present_match_layers();
+    // Entering holds a local fight, so the frames that frame the shot do not
+    // move it. An order the sticks gave would show against that.
+    require(photo_frozen(), "entering photo mode did not hold the fight");
+    const std::vector<UnitOrders> pad_orders = read_orders();
+    const std::array<double, 2> place_before = match_view_place();
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTX, kPadTouchStick);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTY, 0.0F);
+    steps(400);
+    const std::array<double, 2> place_after = match_view_place();
+    require(
+        place_after[0] != place_before[0] || place_after[1] != place_before[1],
+        "the left stick did not pan"
+    );
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTX, 0.0F);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTY, 0.0F);
+    step(kPadTouchFrameMs);
+
+    const float zoom_before = match_zoom();
+    const float target_before = match_zoom_target_ > 0.0F ? match_zoom_target_ : match_zoom_;
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_RIGHTX, 0.0F);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_RIGHTY, -kPadTouchStick);
+    steps(400);
+    require(match_zoom_target_ > target_before, "the right stick did not aim a closer zoom");
+    require(match_zoom() > zoom_before, "the right stick did not zoom in");
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_RIGHTX, 0.0F);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_RIGHTY, 0.0F);
+    step(kPadTouchFrameMs);
+    require(read_orders() == pad_orders, "a stick gave an order");
+
+    render_match_surface();
+    present_match_layers();
+    tap_button(SDL_GAMEPAD_BUTTON_SOUTH);
+    wait_for_photos();
+    const std::string saved = saved_photo_name(status_);
+    require(!saved.empty(), "A wrote no photo (" + status_ + ")");
+    const fs::path saved_file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+    require(fs::is_regular_file(saved_file), "A named a photo that is not a file");
+
+    // Entering held the fight, so the first X lets it run, as the freeze key
+    // does, and the next X holds it again.
+    tap_button(SDL_GAMEPAD_BUTTON_WEST);
+    require(!photo_frozen(), "X did not let the held fight run");
+    tap_button(SDL_GAMEPAD_BUTTON_WEST);
+    require(photo_frozen(), "X did not freeze");
+    const std::vector<UnitOrders> frozen_orders = read_orders();
+    tap_button(SDL_GAMEPAD_BUTTON_NORTH);
+    require(!photo_panel_shown(), "Y did not hide the panel");
+    require(read_orders() == frozen_orders, "a controller input gave an order");
+
+    // The D-pad walks the panel. A presses a focused button and the ring
+    // goes, so the next A takes a photo again; on a slider A takes one.
+    const auto focused_name = [&]() -> std::string {
+        const LayerScreen* open = oa_layer().find("photo-mode");
+        if (open == nullptr)
+            return {};
+        const oa::ui::kit::Interaction focus = open->interaction();
+        if (!oa::ui::kit::focus_ring_visible(focus))
+            return {};
+        const oa::ui::kit::DisplayList list = open->display_list();
+        const oa::ui::kit::Control* control = oa::ui::kit::control_of(list, focus.focused);
+        return control != nullptr ? control->name : std::string();
+    };
+    // Down to the last control, then up: the open panel has some 30 stops.
+    const auto pad_reach = [&](std::string_view name) {
+        for (int press = 0; press < 80 && focused_name() != name; ++press)
+            tap_button(press < 40 ? SDL_GAMEPAD_BUTTON_DPAD_DOWN : SDL_GAMEPAD_BUTTON_DPAD_UP);
+        require(focused_name() == name, "the D-pad did not reach " + std::string(name));
+    };
+    tap_button(SDL_GAMEPAD_BUTTON_NORTH);
+    require(photo_panel_shown(), "Y did not show the panel again");
+    tap_button(SDL_GAMEPAD_BUTTON_DPAD_DOWN);
+    require(photo_focus_ring_shown(), "the D-pad did not show the panel's focus ring");
+    pad_reach("photo.section.look");
+    require(photo_->section_look, "the Look section was not open");
+    tap_button(SDL_GAMEPAD_BUTTON_SOUTH);
+    require(!photo_->section_look, "A did not press the focused section header");
+    require(!photo_focus_ring_shown(), "the ring stayed after A pressed a button");
+    pad_reach("photo.section.look");
+    tap_button(SDL_GAMEPAD_BUTTON_SOUTH);
+    require(photo_->section_look, "A did not open the Look section again");
+    tap_button(SDL_GAMEPAD_BUTTON_SOUTH);
+    wait_for_photos();
+    const std::string again = saved_photo_name(status_);
+    require(!again.empty() && again != saved, "A after a press wrote no photo (" + status_ + ")");
+    pad_reach("photo.zoom");
+    tap_button(SDL_GAMEPAD_BUTTON_SOUTH);
+    wait_for_photos();
+    const std::string on_slider = saved_photo_name(status_);
+    require(
+        !on_slider.empty() && on_slider != again,
+        "A on a focused slider wrote no photo (" + status_ + ")"
+    );
+    require(read_orders() == frozen_orders, "the panel's D-pad and A gave an order");
+    tap_button(SDL_GAMEPAD_BUTTON_EAST);
+    require(!photo_mode(), "B did not leave photo mode");
+
+    // The phone. A cancelled finger turns the touch controls on and gives no
+    // order; MENU's Photo mode then enters, and a drag and a pinch frame.
+    steps(kPadTouchFrameMs * 3);
+    touch_state().dispatch.accept_unregistered_touch = true;
+    namespace hud = oa::ui::touch_hud;
+    uint64_t finger_id = 1;
+    const auto send_finger = [&](SDL_EventType type, uint64_t id, float x, float y) {
+        float window_x = x;
+        float window_y = y;
+        if (!frame_to_window(sdl_.renderer, x, y, &window_x, &window_y))
+            fail(std::string("cannot place a finger on the window: ") + SDL_GetError());
+        int width = 0;
+        int height = 0;
+        if (!SDL_GetWindowSize(sdl_.window, &width, &height) || width <= 0 || height <= 0)
+            fail(std::string("the window has no size: ") + SDL_GetError());
+        SDL_Event event{};
+        event.type = type;
+        event.tfinger.timestamp = clock_ns;
+        event.tfinger.touchID = kPadTouchDevice;
+        event.tfinger.fingerID = id;
+        event.tfinger.x = window_x / static_cast<float>(width);
+        event.tfinger.y = window_y / static_cast<float>(height);
+        const bool lifted = type == SDL_EVENT_FINGER_UP || type == SDL_EVENT_FINGER_CANCELED;
+        event.tfinger.pressure = lifted ? 0.0F : 1.0F;
+        event.tfinger.windowID = SDL_GetWindowID(sdl_.window);
+        dispatch_event(event, running);
+        require(running, "a finger ended the run");
+    };
+    const auto tap_at = [&](float x, float y) {
+        const uint64_t id = finger_id++;
+        send_finger(SDL_EVENT_FINGER_DOWN, id, x, y);
+        send_finger(SDL_EVENT_FINGER_UP, id, x, y);
+        step(kPadTouchFrameMs);
+    };
+    const float canvas_w = static_cast<float>(std::max(match_layout_.width, 1));
+    const float canvas_h = static_cast<float>(std::max(match_layout_.height, 1));
+    send_finger(SDL_EVENT_FINGER_DOWN, finger_id, canvas_w * 0.55F, canvas_h * 0.45F);
+    send_finger(SDL_EVENT_FINGER_CANCELED, finger_id, canvas_w * 0.55F, canvas_h * 0.45F);
+    ++finger_id;
+    steps(kPadTouchFrameMs * 2);
+    require(touch_state().frame_ready, "touch laid out no frame");
+    require(touch_phone_class(), "the window is not the phone layout");
+
+    const auto centre_of = [&](hud::Control which, int index) {
+        const hud::Frame& laid = touch_state().frame;
+        for (std::size_t at = 0; at < laid.control_count; ++at) {
+            const hud::ControlRect& control = laid.controls[at];
+            if (control.control != which)
+                continue;
+            if (index >= 0 && control.index != static_cast<uint8_t>(index))
+                continue;
+            return std::pair<float, float>{
+                static_cast<float>(control.rect.x) + static_cast<float>(control.rect.width) * 0.5F,
+                static_cast<float>(control.rect.y) + static_cast<float>(control.rect.height) * 0.5F
+            };
+        }
+        fail(
+            index < 0 ? std::string("a control is not on the frame")
+                      : std::string("a menu item is not on the frame")
+        );
+        return std::pair<float, float>{};
+    };
+    const auto [menu_x, menu_y] = centre_of(hud::Control::menu, -1);
+    tap_at(menu_x, menu_y);
+    require(touch_state().hud.sheet == hud::Sheet::phone_menu, "MENU did not open the phone menu");
+    const auto [item_x, item_y] =
+        centre_of(hud::Control::menu_item, static_cast<int>(hud::PhoneMenuItem::photo_mode));
+    tap_at(item_x, item_y);
+    require(photo_mode(), "the phone menu's Photo mode did not enter");
+    require(photo_frozen(), "the phone's photo mode did not hold the fight");
+    const std::vector<UnitOrders> touch_orders = read_orders();
+
+    // Every control a finger presses is at least 44 points. A row the view
+    // cuts is judged on the part that shows. A row wholly outside the view
+    // stays listed, and it is not judged against the chips or the key line.
+    // A tap on a header, a switch and the time strip lands at the centre.
+    const auto photo_controls = [&] {
+        const LayerScreen* open = oa_layer().find("photo-mode");
+        require(open != nullptr, "the phone's photo panel is not open");
+        return open->display_list();
+    };
+    const auto find_control = [&](const char* name, oa::ui::kit::Rect& rect) {
+        const oa::ui::kit::DisplayList list = photo_controls();
+        for (const oa::ui::kit::Control& control : list.controls) {
+            if (control.name == name) {
+                rect = control.rect;
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto require_finger_rows = [&] {
+        const oa::ui::kit::DisplayList list = photo_controls();
+        int presses = 0;
+        for (const oa::ui::kit::Control& control : list.controls) {
+            const bool finger = control.kind == oa::ui::kit::ControlKind::button ||
+                                control.kind == oa::ui::kit::ControlKind::toggle ||
+                                control.kind == oa::ui::kit::ControlKind::slider ||
+                                control.kind == oa::ui::kit::ControlKind::levels;
+            if (!finger)
+                continue;
+            ++presses;
+            require(
+                control.rect.height >= 44,
+                "a phone control is under 44 points (" + control.name + ")"
+            );
+            oa::ui::kit::Rect shown = control.rect;
+            if (control.clip.width > 0 && control.clip.height > 0)
+                shown = oa::ui::kit::intersect(control.rect, control.clip);
+            if (shown.width <= 0 || shown.height <= 0)
+                continue;
+            require(
+                shown.x >= 0 && shown.y >= 72 && shown.x + shown.width <= match_layout_.width &&
+                    shown.y + shown.height <= match_layout_.height - 44,
+                "a phone control meets the chips or the key line (" + control.name + ")"
+            );
+        }
+        require(presses > 0, "the phone panel laid out no pressable control");
+    };
+    const auto centre_of_rect = [](const oa::ui::kit::Rect& rect) {
+        return std::pair<float, float>{
+            static_cast<float>(rect.x) + static_cast<float>(rect.width) * 0.5F,
+            static_cast<float>(rect.y) + static_cast<float>(rect.height) * 0.5F
+        };
+    };
+    const auto centre_inside = [](const oa::ui::kit::Control& control) {
+        const oa::ui::kit::Point mid{
+            control.rect.x + control.rect.width / 2, control.rect.y + control.rect.height / 2
+        };
+        if (control.clip.width > 0 && control.clip.height > 0)
+            return oa::ui::kit::contains(control.clip, mid);
+        return oa::ui::kit::contains(control.rect, mid);
+    };
+    // A finger reports a drag as many small moves, and the rows follow each.
+    const auto drag_panel = [&](float from_x, float from_y, float to_y) {
+        constexpr int kMoves = 8;
+        const uint64_t id = finger_id++;
+        send_finger(SDL_EVENT_FINGER_DOWN, id, from_x, from_y);
+        for (int move = 1; move <= kMoves; ++move) {
+            const float part = static_cast<float>(move) / static_cast<float>(kMoves);
+            send_finger(SDL_EVENT_FINGER_MOTION, id, from_x, from_y + (to_y - from_y) * part);
+        }
+        send_finger(SDL_EVENT_FINGER_UP, id, from_x, to_y);
+        step(kPadTouchFrameMs);
+    };
+    // Every row stays in the list, in or out of the view. Scroll until the
+    // named row's centre is in the part a press can reach. A centre above the
+    // view is dragged down; one below is dragged up.
+    const auto scroll_until = [&](const char* name) {
+        for (int attempt = 0; attempt < 14; ++attempt) {
+            const oa::ui::kit::DisplayList listed = photo_controls();
+            const oa::ui::kit::Control* target = nullptr;
+            const oa::ui::kit::Control* anchor = nullptr;
+            for (const oa::ui::kit::Control& control : listed.controls) {
+                if (target == nullptr && control.name == name)
+                    target = &control;
+                const bool pinned = control.name == "photo.leave" || control.name == "photo.take" ||
+                                    control.name == "photo.hint";
+                const bool finger = control.kind == oa::ui::kit::ControlKind::button ||
+                                    control.kind == oa::ui::kit::ControlKind::toggle ||
+                                    control.kind == oa::ui::kit::ControlKind::slider ||
+                                    control.kind == oa::ui::kit::ControlKind::levels;
+                if (pinned || !finger || anchor != nullptr || !centre_inside(control))
+                    continue;
+                anchor = &control;
+            }
+            if (target != nullptr && centre_inside(*target))
+                return target->rect;
+            if (anchor == nullptr) {
+                std::string seen;
+                for (const oa::ui::kit::Control& control : listed.controls) {
+                    seen += control.name;
+                    seen += '@';
+                    seen += std::to_string(control.rect.y);
+                    seen += 'x';
+                    seen += std::to_string(control.rect.height);
+                    seen += ' ';
+                }
+                require(
+                    false,
+                    std::string("the panel has no row to scroll for ") + name + " (" + seen + ")"
+                );
+                return oa::ui::kit::Rect{};
+            }
+            const oa::ui::kit::Rect anchor_rect = anchor->rect;
+            const float view_top = anchor->clip.height > 0 ? static_cast<float>(anchor->clip.y)
+                                                           : static_cast<float>(anchor_rect.y);
+            const float target_y = target == nullptr
+                                       ? view_top
+                                       : static_cast<float>(target->rect.y) +
+                                             static_cast<float>(target->rect.height) * 0.5F;
+            const bool above = target != nullptr && target_y < view_top;
+            const auto [anchor_x, anchor_y] = centre_of_rect(anchor_rect);
+            drag_panel(anchor_x, anchor_y, above ? anchor_y + 64.0F : anchor_y - 64.0F);
+            require_finger_rows();
+        }
+        require(false, std::string("scrolling did not show ") + name);
+        return oa::ui::kit::Rect{};
+    };
+    require_finger_rows();
+    oa::ui::kit::Rect header{};
+    require(find_control("photo.section.camera", header), "the camera header is not on the panel");
+    const auto [header_x, header_y] = centre_of_rect(header);
+    tap_at(header_x, header_y);
+    require(!photo_->section_camera, "a tap on the camera header did not fold it");
+    tap_at(static_cast<float>(header.x) - 4.0F, header_y);
+    require(photo_->section_camera, "a tap beside the camera header did not open it");
+    require_finger_rows();
+
+    // A drag that starts on the zoom slider moves the rows the whole way the
+    // finger goes, and neither moves the slider nor zooms.
+    oa::ui::kit::Rect zoom_row{};
+    require(find_control("photo.zoom", zoom_row), "the zoom slider is not on the panel");
+    const auto [zoom_x, zoom_y] = centre_of_rect(zoom_row);
+    const float panel_zoom_before = match_zoom_target_;
+    drag_panel(zoom_x, zoom_y, zoom_y - 24.0F);
+    oa::ui::kit::Rect zoom_moved{};
+    require(find_control("photo.zoom", zoom_moved), "a drag of 24 points hid the zoom slider");
+    require(zoom_moved.y == zoom_row.y - 24, "the rows did not follow the finger");
+    require(match_zoom_target_ == panel_zoom_before, "a drag on the zoom slider zoomed");
+    drag_panel(zoom_x, zoom_y - 24.0F, zoom_y);
+    require(find_control("photo.zoom", zoom_moved), "a drag back hid the zoom slider");
+    require(zoom_moved.y == zoom_row.y, "a drag back did not put the rows back");
+
+    const oa::ui::kit::Rect time_header = scroll_until("photo.section.time");
+    const auto [time_x, time_y] = centre_of_rect(time_header);
+    tap_at(time_x, time_y);
+    const oa::ui::kit::Rect strip = scroll_until("photo.time-mode");
+    require(strip.height >= 44, "the time strip is under 44 points");
+    // The fight is already frozen, so a tap on Freeze changes nothing. Slow is
+    // the middle. The finger lifts before the frame steps, and Freeze is put
+    // back before the next step, so the fight does not run a tick.
+    const float slow_x = static_cast<float>(strip.x) + static_cast<float>(strip.width) * 0.5F;
+    const float slow_y = static_cast<float>(strip.y) + static_cast<float>(strip.height) * 0.5F;
+    const uint64_t slow_id = finger_id++;
+    send_finger(SDL_EVENT_FINGER_DOWN, slow_id, slow_x, slow_y);
+    send_finger(SDL_EVENT_FINGER_UP, slow_id, slow_x, slow_y);
+    require(photo_slow_speed() > 0 && !photo_frozen(), "a tap on Slow did not slow the fight");
+    bool slow_lit = false;
+    {
+        const oa::ui::kit::DisplayList listed = photo_controls();
+        for (const oa::ui::kit::Item& item : listed.items) {
+            const auto* levels = std::get_if<oa::ui::kit::LevelsLook>(&item.look);
+            if (levels != nullptr && levels->chosen == 1)
+                slow_lit = true;
+        }
+    }
+    require(slow_lit, "Slow is not the time strip's chosen level");
+    require(photo_freeze(), "Freeze did not hold the fight after Slow");
+    require(photo_frozen() && photo_slow_speed() == 0, "the fight was still running after Freeze");
+
+    const oa::ui::kit::Rect look_header = scroll_until("photo.section.look");
+    const auto [look_x, look_y] = centre_of_rect(look_header);
+    tap_at(look_x, look_y);
+    const oa::ui::kit::Rect toggle = scroll_until("photo.selection");
+    const auto [switch_x, switch_y] = centre_of_rect(toggle);
+    const bool selection_before = photo_->show_selection;
+    tap_at(switch_x, switch_y);
+    require(
+        photo_->show_selection != selection_before, "a tap on Show selection did not switch it"
+    );
+    tap_at(static_cast<float>(toggle.x) - 4.0F, switch_y);
+    require(
+        photo_->show_selection == selection_before, "a tap beside Show selection did not switch it"
+    );
+    require_finger_rows();
+
+    // The panel, the chips and the key line take the right edge, the top and
+    // the bottom. The drag and the pinch stay on the open battlefield.
+    const std::array<double, 2> dragged_from = match_view_place();
+    const float drag_x = canvas_w * 0.22F;
+    const float drag_y = canvas_h * 0.45F;
+    const uint64_t drag_id = finger_id++;
+    send_finger(SDL_EVENT_FINGER_DOWN, drag_id, drag_x, drag_y);
+    send_finger(SDL_EVENT_FINGER_MOTION, drag_id, drag_x + 160.0F, drag_y);
+    send_finger(SDL_EVENT_FINGER_UP, drag_id, drag_x + 160.0F, drag_y);
+    step(kPadTouchFrameMs);
+    const std::array<double, 2> dragged_to = match_view_place();
+    require(
+        dragged_to[0] != dragged_from[0] || dragged_to[1] != dragged_from[1],
+        "a one-finger drag did not pan"
+    );
+
+    const float zoomed_before = match_zoom();
+    const float pinch_x = canvas_w * 0.28F;
+    const float pinch_y = canvas_h * 0.45F;
+    const uint64_t left_finger = finger_id++;
+    const uint64_t right_finger = finger_id++;
+    send_finger(SDL_EVENT_FINGER_DOWN, left_finger, pinch_x - 24.0F, pinch_y);
+    send_finger(SDL_EVENT_FINGER_DOWN, right_finger, pinch_x + 24.0F, pinch_y);
+    send_finger(SDL_EVENT_FINGER_MOTION, left_finger, pinch_x - 96.0F, pinch_y);
+    send_finger(SDL_EVENT_FINGER_MOTION, right_finger, pinch_x + 96.0F, pinch_y);
+    send_finger(SDL_EVENT_FINGER_UP, left_finger, pinch_x - 96.0F, pinch_y);
+    send_finger(SDL_EVENT_FINGER_UP, right_finger, pinch_x + 96.0F, pinch_y);
+    require(match_zoom() > zoomed_before, "a pinch did not zoom in");
+
+    // A finger the system cancels on Take photo presses nothing; a tap there
+    // takes the photo.
+    const auto take_centre = [&] {
+        const LayerScreen* open = oa_layer().find("photo-mode");
+        require(open != nullptr, "the phone's photo panel is not open");
+        const oa::ui::kit::DisplayList list = open->display_list();
+        for (const oa::ui::kit::Control& control : list.controls)
+            if (control.name == "photo.take")
+                return std::pair<float, float>{
+                    static_cast<float>(control.rect.x) +
+                        static_cast<float>(control.rect.width) / 2.0F,
+                    static_cast<float>(control.rect.y) +
+                        static_cast<float>(control.rect.height) / 2.0F
+                };
+        fail("Take photo is not on the phone's panel");
+        return std::pair<float, float>{};
+    };
+    const std::string before_reach = saved_photo_name(status_);
+    const auto [take_x, take_y] = take_centre();
+    oa::ui::kit::Rect take_rect{};
+    require(find_control("photo.take", take_rect), "Take photo is not on the phone's panel");
+    tap_at(static_cast<float>(take_rect.x) - 4.0F, take_y);
+    wait_for_photos();
+    const std::string reached = saved_photo_name(status_);
+    require(!reached.empty() && reached != before_reach, "a tap beside Take photo wrote no photo");
+    const uint64_t cancelled_id = finger_id++;
+    send_finger(SDL_EVENT_FINGER_DOWN, cancelled_id, take_x, take_y);
+    send_finger(SDL_EVENT_FINGER_CANCELED, cancelled_id, take_x, take_y);
+    step(kPadTouchFrameMs);
+    wait_for_photos();
+    require(saved_photo_name(status_) == reached, "a cancelled finger on Take photo took a photo");
+    tap_at(take_x, take_y);
+    wait_for_photos();
+    const std::string tapped = saved_photo_name(status_);
+    require(!tapped.empty() && tapped != reached, "a tap on Take photo wrote no photo");
+    require(read_orders() == touch_orders, "a touch input gave an order");
+    require(
+        file_bytes(options_.preferences_file) == preferences_settled, "the preferences file changed"
+    );
+    oa::ui::kit::Rect leave_rect{};
+    require(find_control("photo.leave", leave_rect), "Leave is not on the phone's panel");
+    const auto [leave_x, leave_y] = centre_of_rect(leave_rect);
+    tap_at(leave_x, leave_y);
+    require(!photo_mode(), "a tap on Leave stayed in photo mode");
+    if (photo_mode())
+        leave_photo_mode();
+    if (match_ != nullptr) {
+        leave_match();
+        load(Screen::main_menu);
+    }
+    std::cout << "photo pad-touch: ok" << std::endl;
+}
+
+void Runtime::check_photo_looks() {
+    /// Puts the preferences file back. The fights write their own rows.
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& preferences = host.options_.preferences_file;
+            if (preferences.has_value())
+                existed = fs::exists(*preferences);
+            bytes = file_bytes(preferences);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& preferences = runtime.options_.preferences_file;
+            if (preferences.has_value()) {
+                if (!existed) {
+                    std::error_code remove_error;
+                    fs::remove(*preferences, remove_error);
+                } else {
+                    std::ofstream out(*preferences, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    const PreferencesHold preferences_hold(*this);
+
+    struct GammaHold {
+        Runtime& runtime;
+        float previous;
+
+        explicit GammaHold(Runtime& host) : runtime(host), previous(host.display_gamma_) {
+            runtime.set_display_gamma(kCheckGamma);
+        }
+
+        GammaHold(const GammaHold&) = delete;
+        GammaHold& operator=(const GammaHold&) = delete;
+
+        ~GammaHold() { runtime.set_display_gamma(previous); }
+    };
+
+    const GammaHold gamma_hold(*this);
+
+    struct PictureSweep {
+        Runtime& runtime;
+
+        explicit PictureSweep(Runtime& host) : runtime(host) {}
+
+        PictureSweep(const PictureSweep&) = delete;
+        PictureSweep& operator=(const PictureSweep&) = delete;
+
+        ~PictureSweep() {
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, ""));
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, "ridge"));
+        }
+    };
+
+    const PictureSweep picture_sweep(*this);
+    const ClipboardHookHold clipboard_hold;
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo looks check: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    require(!gamma_identity_, "the gamma is the identity");
+    using HardwareAcceleration = oa::ui::engine_settings::HardwareAcceleration;
+    const HardwareAcceleration asked =
+        options_.hardware_acceleration.value_or(HardwareAcceleration::off);
+    const auto step_tick = [this] {
+        try {
+            step_match_simulation();
+        } catch (const std::exception& step_error) {
+            report_match_tick_error(step_error.what());
+        }
+    };
+    const auto clear_look = [this] {
+        if (photo_ == nullptr)
+            return;
+        photo_->look_preset = 0;
+        photo_->look_vignette = 0;
+        photo_->look_roundness = 50;
+        photo_->look_grain = 0;
+        photo_->look_grain_size = 2;
+        photo_->look_frame = 0;
+    };
+    const auto set_grade = [&](int preset) {
+        require(photo_ != nullptr, "photo mode holds no look");
+        clear_look();
+        photo_->look_preset = static_cast<uint8_t>(std::clamp(preset, 0, 5));
+    };
+    const auto start_fight = [&] {
+        start_benchmark_skirmish();
+        match_layout_ = lay_out_match(options_.match_width, options_.match_height);
+        require(
+            least_match_zoom() <= kPlayZoom && most_match_zoom() >= kPlayZoom,
+            "zoom 1 is outside the match's play limits"
+        );
+        match_zoom_ = kPlayZoom;
+        match_zoom_target_ = kPlayZoom;
+        spawn_combat_armies(kArmy);
+        oa::Game& game = match_->state().game;
+        console::set_console_flags(
+            game,
+            static_cast<uint16_t>(
+                console::console_flags(game) | console::console_flag::selection_boxes
+            )
+        );
+        oa::Unit* commander = nullptr;
+        for (const auto& slot : match_->world().slots) {
+            if (slot.unit != nullptr && slot.record.type_index != 0 &&
+                slot.record.owner_index == match_local_player_) {
+                commander = oa::world_unit_at(&match_->state(), slot.unit_index);
+                break;
+            }
+        }
+        require(commander != nullptr, "the fight has no local commander");
+        commander->flags |= OA_UNIT_FLAG_SELECTED;
+        match_command_ = MatchCommand::attack;
+        pending_build_type_ = 0;
+        set_display_gamma(kCheckGamma);
+        require(!gamma_identity_, "the gamma is the identity");
+    };
+    const auto end_fight = [this] {
+        if (photo_mode())
+            leave_photo_mode();
+        if (match_ != nullptr) {
+            leave_match();
+            load(Screen::main_menu);
+        }
+    };
+    const auto clear_pictures = [&] {
+        remove_saved_pictures(screenshots_folder(user_folder_, ""));
+        remove_saved_pictures(screenshots_folder(user_folder_, "ridge"));
+        if (match_ != nullptr)
+            remove_saved_pictures(photo_shots_folder());
+    };
+    const auto file_contains = [&](const fs::path& path, std::string_view needle) {
+        std::ifstream in(path, std::ios::binary);
+        require(static_cast<bool>(in), "the photo could not be read");
+        const std::string bytes(
+            (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()
+        );
+        return bytes.find(needle) != std::string::npos;
+    };
+
+    if (asked == HardwareAcceleration::full) {
+        start_fight();
+        clear_pictures();
+        for (int tick = 1; tick <= kEnterTick; ++tick) {
+            step_tick();
+            if (tick == kEnterTick)
+                require(enter_photo_mode(), "photo mode did not open");
+            if (photo_mode()) {
+                set_photo_show_selection(false);
+                set_photo_show_health_bars(false);
+            }
+            render_match_surface();
+        }
+        require(photo_mode() && full_presentation(), "Full is not presenting");
+        set_display_gamma(kCheckGamma);
+        require(!gamma_identity_, "the gamma is the identity");
+        set_grade(2);
+        const std::vector<char> prefs = file_bytes(options_.preferences_file);
+        renderer::Surface presented;
+        {
+            const CaptureHold hold(capture_frame_, presented);
+            render_match_surface();
+            present_match_layers();
+        }
+        require(full_ != nullptr && full_->drawn, "Full did not draw the frame");
+        std::vector<uint8_t> plain;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        std::string reason;
+        require(
+            capture_photo_pixels(plain, width, height, reason),
+            reason.empty() ? std::string("the frame was not read") : reason
+        );
+        std::vector<uint8_t> expected = plain;
+        apply_photo_look_rgb(expected, width, height, 1);
+        require(expected != plain, "the look left the full picture unchanged");
+        take_photo();
+        wait_for_photos();
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
+        const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+        const std::vector<uint8_t> rows = png_rgb(file, width, height);
+        require(rows == expected, "the photo is not the look on Full's capture");
+        require_presented_battlefield(
+            rows,
+            width,
+            height,
+            presented,
+            match_layout_.left,
+            match_layout_.top,
+            match_layout_.width,
+            match_layout_.height
+        );
+        require(file_contains(file, "\"preset\":\"dusk\""), "the record does not name the grade");
+        require(file_bytes(options_.preferences_file) == prefs, "the preferences file changed");
+        end_fight();
+        clear_pictures();
+        std::printf("photo looks full: ok\n");
+        std::fflush(stdout);
+        return;
+    }
+    if (asked != HardwareAcceleration::off)
+        fail("looks check runs Off or Full");
+
+    const char* grade_names[] = {"1997", "dusk", "arctic", "noir", "bleach"};
+    const char* grade_pins[] = {
+        "8eccd1658608578a6a9d4bd738123b62a7ba5890a5dcf0f138cc7f3117a05a8d",
+        "3d5ee740bf5e1851918a14aede799015dfe17ac8d67e9b75346dcac1bbf910c6",
+        "8f77a8078ddb59e32d643cdfb7ed40808dd20cc1eabba4a0eff9f99d5f95c7d9",
+        "ad0691e77cce3e42eda2c4bbbca8d856cccae8c873ea0a8db37df768355830dc",
+        "ab365a16fd5ea24e439e93935a115751424d9d190ca82e29d7552c638176666f",
+    };
+    std::vector<char> prefs_before;
+    const auto play_pass = [&](bool shoot) {
+        start_fight();
+        clear_pictures();
+        for (int tick = 1; tick <= kPassTicks; ++tick) {
+            step_tick();
+            if (shoot && tick == kEnterTick)
+                require(enter_photo_mode(), "photo mode did not open");
+            if (photo_mode()) {
+                set_photo_show_selection(false);
+                set_photo_show_health_bars(false);
+            }
+            if (shoot && tick == kEnterTick) {
+                set_display_gamma(kCheckGamma);
+                require(!gamma_identity_, "the gamma is the identity");
+                require(photo_mode(), "photo mode was not open");
+                prefs_before = file_bytes(options_.preferences_file);
+                bool digest_missed = false;
+                const auto shoot_one = [&](const char* name,
+                                           std::string_view expect_sha,
+                                           bool graded) {
+                    renderer::Surface presented;
+                    {
+                        const CaptureHold hold(capture_frame_, presented);
+                        render_match_surface();
+                        present_match_layers();
+                    }
+                    std::vector<uint8_t> expected = gamma_mapped(match_world_cpu_, gamma_table_);
+                    require(!expected.empty(), "the battlefield could not be copied");
+                    const uint32_t width = match_world_cpu_.width;
+                    const uint32_t height = match_world_cpu_.height;
+                    if (graded)
+                        apply_photo_look_rgb(expected, width, height, 1);
+                    take_photo();
+                    wait_for_photos();
+                    const std::string saved = saved_photo_name(status_);
+                    require(!saved.empty(), std::string("status is ") + status_);
+                    const fs::path file =
+                        photo_shots_folder() / oa::platform::path_from_utf8(saved);
+                    const std::vector<uint8_t> rows = png_rgb(file, width, height);
+                    require(
+                        rows == expected, std::string(name) + " is not the filtered battlefield"
+                    );
+                    require_presented_battlefield(
+                        rows,
+                        width,
+                        height,
+                        presented,
+                        match_layout_.left,
+                        match_layout_.top,
+                        match_layout_.width,
+                        match_layout_.height
+                    );
+                    const std::string sha = sha256_hex(rows);
+                    if (sha != expect_sha) {
+                        std::fprintf(stderr, "photo looks check: %s %s\n", name, sha.c_str());
+                        digest_missed = true;
+                    }
+                    return file;
+                };
+                clear_look();
+                const fs::path plain = shoot_one("none", kPhotoCaptureSha256, false);
+                require(
+                    !accelerated_presentation() && !full_presentation(),
+                    "Off is presenting on the card"
+                );
+                require(!file_contains(plain, "\"look\":"), "a look was written with none on");
+                for (int grade = 0; grade < 5; ++grade) {
+                    set_grade(grade + 1);
+                    const fs::path saved = shoot_one(grade_names[grade], grade_pins[grade], true);
+                    if (grade == 1) {
+                        require(
+                            file_contains(
+                                saved,
+                                "\"look\":{\"preset\":\"dusk\",\"vignette\":0,\"roundness\":50,"
+                                "\"grain\":0,\"grain_size\":2,\"grain_pixels\":2,\"frame\":"
+                                "\"none\",\"tilt_shift\":null}"
+                            ),
+                            "the dusk record is not the look"
+                        );
+                    }
+                }
+                // A square crop with a frame, a vignette and grain. The photo
+                // is the look on the crop, and the preview inside the crop is
+                // that photo: the look sits where the photo has it.
+                {
+                    using oa::ui::photo_panel::Guide;
+                    clear_look();
+                    photo_->look_preset = 2;
+                    photo_->look_vignette = 70;
+                    photo_->look_roundness = 100;
+                    photo_->look_grain = 40;
+                    photo_->look_grain_size = 3;
+                    photo_->look_frame = 1;
+                    photo_->guide = static_cast<uint8_t>(Guide::crop_1_1);
+                    renderer::Surface presented;
+                    {
+                        const CaptureHold hold(capture_frame_, presented);
+                        render_match_surface();
+                        present_match_layers();
+                    }
+                    std::vector<uint8_t> expected = gamma_mapped(match_world_cpu_, gamma_table_);
+                    require(!expected.empty(), "the battlefield could not be copied");
+                    uint32_t width = match_world_cpu_.width;
+                    uint32_t height = match_world_cpu_.height;
+                    const oa::ui::kit::Rect crop = oa::ui::photo_panel::crop_bounds(
+                        static_cast<int32_t>(width), static_cast<int32_t>(height), Guide::crop_1_1
+                    );
+                    oa::ui::photo_panel::crop_centred(expected, width, height, Guide::crop_1_1);
+                    require(width == height && crop.width > 0, "the crop is not square");
+                    apply_photo_look_rgb(expected, width, height, 1);
+                    take_photo();
+                    wait_for_photos();
+                    const std::string saved = saved_photo_name(status_);
+                    require(!saved.empty(), std::string("status is ") + status_);
+                    const std::vector<uint8_t> rows = png_rgb(
+                        photo_shots_folder() / oa::platform::path_from_utf8(saved), width, height
+                    );
+                    require(rows == expected, "the cropped photo is not the look on the crop");
+                    // The guide's lines lie on the crop's edges, over the
+                    // battlefield: compare from three pixels inside them.
+                    constexpr uint32_t kInside = 3;
+                    require(width > kInside * 2 && height > kInside * 2, "the crop is too small");
+                    const uint32_t inner_w = width - kInside * 2;
+                    const uint32_t inner_h = height - kInside * 2;
+                    std::vector<uint8_t> inner(static_cast<std::size_t>(inner_w) * inner_h * 3U);
+                    for (uint32_t row = 0; row < inner_h; ++row)
+                        std::memcpy(
+                            inner.data() + static_cast<std::size_t>(row) * inner_w * 3U,
+                            rows.data() +
+                                (static_cast<std::size_t>(row + kInside) * width + kInside) * 3U,
+                            static_cast<std::size_t>(inner_w) * 3U
+                        );
+                    require_presented_battlefield(
+                        inner,
+                        inner_w,
+                        inner_h,
+                        presented,
+                        match_layout_.left + crop.x + static_cast<int>(kInside),
+                        match_layout_.top + crop.y + static_cast<int>(kInside),
+                        match_layout_.width,
+                        match_layout_.height
+                    );
+                    photo_->guide = 0;
+                }
+                // The caption bar, with the panel hidden, on the whole
+                // battlefield and on a 3:2 crop, whose bar lies higher than
+                // the window's bottom at 640x480. The key line keeps clear of
+                // the bar, so the presented bar is the photo's bar, letters
+                // included.
+                using oa::ui::photo_panel::Guide;
+                for (const Guide caption_guide : {Guide::off, Guide::crop_3_2}) {
+                    const bool panel_was_shown = photo_->panel_shown;
+                    clear_look();
+                    photo_->look_frame = static_cast<uint8_t>(oa::present::photo::Frame::caption);
+                    photo_->panel_shown = false;
+                    photo_->guide = static_cast<uint8_t>(caption_guide);
+                    renderer::Surface presented;
+                    {
+                        const CaptureHold hold(capture_frame_, presented);
+                        render_match_surface();
+                        present_match_layers();
+                    }
+                    std::vector<uint8_t> expected = gamma_mapped(match_world_cpu_, gamma_table_);
+                    require(!expected.empty(), "the battlefield could not be copied");
+                    uint32_t width = match_world_cpu_.width;
+                    uint32_t height = match_world_cpu_.height;
+                    oa::ui::kit::Rect kept{
+                        0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)
+                    };
+                    if (caption_guide != Guide::off) {
+                        kept = oa::ui::photo_panel::crop_bounds(
+                            static_cast<int32_t>(width), static_cast<int32_t>(height), caption_guide
+                        );
+                        oa::ui::photo_panel::crop_centred(expected, width, height, caption_guide);
+                        require(
+                            kept.width == static_cast<int32_t>(width) &&
+                                kept.height == static_cast<int32_t>(height) &&
+                                kept.y + kept.height <
+                                    static_cast<int32_t>(match_world_cpu_.height),
+                            "the 3:2 crop does not leave rows under it"
+                        );
+                    }
+                    apply_photo_look_rgb(expected, width, height, 1);
+                    take_photo();
+                    wait_for_photos();
+                    const std::string saved = saved_photo_name(status_);
+                    require(!saved.empty(), std::string("status is ") + status_);
+                    const std::vector<uint8_t> rows = png_rgb(
+                        photo_shots_folder() / oa::platform::path_from_utf8(saved), width, height
+                    );
+                    require(
+                        rows == expected, "the caption photo is not the look on the battlefield"
+                    );
+                    const int32_t bar = oa::present::photo::caption_bar_height(
+                        static_cast<int32_t>(width), static_cast<int32_t>(height)
+                    );
+                    // A crop's guide lines lie on its edges, over the
+                    // battlefield: compare from three pixels inside them.
+                    const uint32_t inset = caption_guide == Guide::off ? 0U : 3U;
+                    require(
+                        bar > 0 && static_cast<uint32_t>(bar) < height &&
+                            static_cast<uint32_t>(bar) > inset && width > inset * 2U,
+                        "the caption bar has no rows"
+                    );
+                    const uint32_t first = height - static_cast<uint32_t>(bar);
+                    for (uint32_t y = first; y < height - inset; ++y) {
+                        for (uint32_t x = inset; x < width - inset; ++x) {
+                            const int window_x = match_layout_.left + kept.x + static_cast<int>(x);
+                            const int window_y = match_layout_.top + kept.y + static_cast<int>(y);
+                            const bool inside = window_x >= 0 && window_y >= 0 &&
+                                                static_cast<uint32_t>(window_x) < presented.width &&
+                                                static_cast<uint32_t>(window_y) < presented.height;
+                            require(inside, "the caption bar is outside the presented frame");
+                            const std::size_t photo_at =
+                                (static_cast<std::size_t>(y) * width + x) * 3U;
+                            const std::size_t shown_at =
+                                (static_cast<std::size_t>(window_y) * presented.width +
+                                 static_cast<uint32_t>(window_x)) *
+                                3U;
+                            if (rows[photo_at] != presented.rgb[shown_at] ||
+                                rows[photo_at + 1U] != presented.rgb[shown_at + 1U] ||
+                                rows[photo_at + 2U] != presented.rgb[shown_at + 2U]) {
+                                throw std::runtime_error(
+                                    std::string("photo looks check: the caption bar differs at ") +
+                                    std::to_string(x) + "," + std::to_string(y) +
+                                    (caption_guide == Guide::off ? "" : " on the 3:2 crop")
+                                );
+                            }
+                        }
+                    }
+                    photo_->panel_shown = panel_was_shown;
+                }
+                photo_->guide = 0;
+                clear_look();
+                const fs::path again = shoot_one("none-again", kPhotoCaptureSha256, false);
+                require(
+                    !file_contains(again, "\"look\":"), "a look stayed on after it was cleared"
+                );
+                require(!digest_missed, "a pinned digest did not match");
+            } else {
+                render_match_surface();
+            }
+            if (tick == kLeaveTick)
+                leave_photo_mode();
+        }
+        require(!photo_mode(), "photo mode was still open at the last tick");
+        DrawReadBack read = match_draw_read_back();
+        end_fight();
+        return read;
+    };
+    const DrawReadBack shot = play_pass(true);
+    const DrawReadBack quiet = play_pass(false);
+    const char* difference = draw_read_back_difference(shot, quiet);
+    require(difference == nullptr, difference == nullptr ? std::string() : std::string(difference));
+    require(file_bytes(options_.preferences_file) == prefs_before, "the preferences file changed");
+    clear_pictures();
+    std::printf("photo looks: ok\n");
+    std::fflush(stdout);
+}
+
+void Runtime::check_photo_replay() {
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo replay failed: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    require(sdl_.window != nullptr && sdl_.renderer != nullptr, "the check has no window");
+    require(
+        options_.user_folder && !options_.user_folder->empty() && !user_folder_.empty(),
+        "the run has no folder of the player's own (--user-folder)"
+    );
+    const fs::path recorded = net_options().play_demo;
+    if (recorded.empty()) {
+        // A build without the fixture recording (OA_REPLAY_FIXTURES) names none.
+        std::cout << "photo replay: skipped: no recording was named (--play-demo)" << std::endl;
+        return;
+    }
+
+    // Puts the preferences file back, and stops the run writing it on the way out.
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& path = host.options_.preferences_file;
+            if (path.has_value())
+                existed = fs::exists(*path);
+            bytes = file_bytes(path);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& path = runtime.options_.preferences_file;
+            if (path.has_value()) {
+                if (!existed) {
+                    std::error_code error;
+                    fs::remove(*path, error);
+                } else {
+                    std::ofstream out(*path, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    const PreferencesHold preferences_hold(*this);
+
+    std::ifstream stream(recorded, std::ios::binary);
+    require(
+        static_cast<bool>(stream),
+        "the recording did not open: " + oa::platform::path_to_utf8(recorded)
+    );
+    const std::vector<uint8_t> recording_bytes{
+        std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()
+    };
+    require(!recording_bytes.empty(), "the recording is empty");
+    const oa::base::sha256::Digest file_digest = oa::base::sha256::digest_of(recording_bytes);
+    const std::array<char, oa::base::sha256::hex_size> file_hex =
+        oa::base::sha256::to_hex(file_digest);
+    const std::string file_sha(file_hex.data(), file_hex.size());
+    constexpr std::string_view kFixtureSha =
+        "b169f5184bf6993055ddf52026ad99cf301130831859ce77d4ef335c0e7b8a8c";
+    require(file_sha == kFixtureSha, "the recording's digest is " + file_sha);
+    const std::string file_name = oa::platform::path_to_utf8(recorded.filename());
+    const std::string parent_text = oa::platform::path_to_utf8(recorded.parent_path());
+    require(
+        file_name.find('/') == std::string::npos && file_name.find('\\') == std::string::npos,
+        "the recording's name has a folder"
+    );
+
+    // The full path is kept. The name handed to the playback is the file alone.
+    replay_recording_path_ = recorded;
+    const RecordingInput input{
+        file_name.c_str(), recording_bytes.data(), recording_bytes.size(), true
+    };
+    ReplayHooks hooks{};
+    RecordingInfo info{};
+    bool opened = false;
+    try {
+        opened =
+            call_hook_or_raise<&Extension::open_recording>(extension_, *this, input, hooks, info);
+    } catch (const std::exception& open_error) {
+        fail(std::string("the recording did not play: ") + open_error.what());
+    }
+    require(opened, "no extension played the recording");
+
+    bool running = true;
+    const uint64_t clock_start_ns = frame_pacing::steady_now_ns();
+    frame_run_clock_ns_ = clock_start_ns;
+    match_timing_.previous_clock = oa::base::game_loop::scaled_clock(
+        static_cast<uint32_t>(clock_start_ns / 1'000'000ULL), match_clock_scale()
+    );
+    match_timing_.remainder = 0.0F;
+    const auto bump = [&](uint32_t milliseconds) {
+        if (frame_run_clock_ns_)
+            *frame_run_clock_ns_ += static_cast<uint64_t>(milliseconds) * 1'000'000ULL;
+        run_frame(running);
+        require(running, "a frame ended the run");
+    };
+    const auto read_playback = [&] {
+        ReplayPlaybackView playback{};
+        const bool filled = call_hook_or_report<&Extension::replay_state>(
+            extension_, hook_error_report(), *this, &playback
+        );
+        require(filled && match_ != nullptr, "the replay state was not read");
+        return playback;
+    };
+    bool started = false;
+    for (int frame_index = 0; frame_index < 400; ++frame_index) {
+        bump(50);
+        if (screen_ == Screen::match && match_ != nullptr &&
+            (current_extension_state() & extension_state::replay) != 0) {
+            started = true;
+            break;
+        }
+    }
+    require(started, "the replay did not start");
+    if (LayerScreen* welcome = oa_layer().find("first-run"))
+        oa_layer().close(welcome);
+    require(
+        SDL_SetWindowSize(sdl_.window, 1280, 720) && SDL_SyncWindow(sdl_.window),
+        std::string("the window did not resize: ") + SDL_GetError()
+    );
+    apply_output_mode();
+    bump(50);
+
+    call_hook_or_report<&Extension::replay_set_speed>(extension_, hook_error_report(), *this, 1000);
+    call_hook_or_report<&Extension::replay_play>(extension_, hook_error_report(), *this);
+    bool playing = false;
+    for (int frame_index = 0; frame_index < 30; ++frame_index) {
+        bump(50);
+        const ReplayPlaybackView playback = read_playback();
+        const bool bit = (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+        if (!playback.paused && !bit && !playback.skipping) {
+            playing = true;
+            break;
+        }
+    }
+    require(playing, "the replay stayed paused");
+
+    // Open may have written the file. Photo mode must not write it again.
+    const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+
+    // A seek while the replay is playing keeps going in the frames that wait
+    // for it to land. Pause, land on the tick, then play again. Entering
+    // photo mode sees that play and does not freeze it.
+    call_hook_or_report<&Extension::replay_pause>(extension_, hook_error_report(), *this);
+    constexpr uint32_t kSeekTick = 900;
+    require(replay_photo_seek(kSeekTick), "the seek was not asked");
+    const auto land_on = [&](uint32_t target, const char* why) {
+        for (int frame_index = 0; frame_index < 4000; ++frame_index) {
+            bump(200);
+            const ReplayPlaybackView playback = read_playback();
+            const bool pending = replay_photo_seek_pending();
+            const uint32_t game_tick = match_->state().game.tick;
+            if (!playback.skipping && !pending && playback.tick == target && game_tick == target)
+                return;
+            if (!playback.skipping && !pending && frame_index > 1 &&
+                (playback.tick != target || game_tick != target)) {
+                fail(
+                    std::string(why) + " landed on tick " + std::to_string(playback.tick) +
+                    " game " + std::to_string(game_tick)
+                );
+            }
+        }
+        fail(std::string(why) + " did not land");
+    };
+    land_on(kSeekTick, "the seek to 900");
+    call_hook_or_report<&Extension::replay_set_speed>(extension_, hook_error_report(), *this, 1000);
+    call_hook_or_report<&Extension::replay_play>(extension_, hook_error_report(), *this);
+
+    require(replay_viewer_command("watch.replay-bar"), "the bar did not pin");
+    bump(50);
+    const auto listed = [this] {
+        std::vector<AutomationControl> controls;
+        oa_layer().automation_controls(controls);
+        return controls;
+    };
+    const auto find_named = [&](std::string_view name) -> std::optional<AutomationControl> {
+        const std::vector<AutomationControl> controls = listed();
+        for (const AutomationControl& control : controls) {
+            if (control.name == name && control.visible && control.window_width > 0 &&
+                control.window_height > 0)
+                return control;
+        }
+        return std::nullopt;
+    };
+    const std::optional<AutomationControl> photo_button = find_named("oa.replay-viewer.photo");
+    if (!photo_button.has_value()) {
+        std::string names;
+        const std::vector<AutomationControl> controls = listed();
+        for (const AutomationControl& control : controls) {
+            if (control.name.find("replay-viewer") == std::string::npos)
+                continue;
+            if (!names.empty())
+                names += ' ';
+            names += control.name;
+        }
+        fail("the photo button is not shown: " + names);
+    }
+    const layout::Point pixel{
+        photo_button->window_x + photo_button->window_width / 2,
+        photo_button->window_y + photo_button->window_height / 2
+    };
+    const auto pointer_at = [&](SDL_EventType type, uint8_t button) {
+        SDL_Event event = window_pointer_event(sdl_.window, sdl_.renderer, type, pixel, button);
+        dispatch_event(event, running);
+        require(running, "a pointer event ended the run");
+    };
+    pointer_at(SDL_EVENT_MOUSE_MOTION, 0);
+    pointer_at(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
+    pointer_at(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
+    bump(50);
+    require(photo_mode(), "the photo button did not open photo mode");
+    require(!photo_frozen(), "a playing replay opened frozen");
+    {
+        const std::vector<AutomationControl> controls = listed();
+        bool saw_time = false;
+        for (const AutomationControl& control : controls) {
+            require(
+                control.name.find("replay-viewer.") == std::string::npos,
+                "the bar stayed in the tree: " + control.name
+            );
+            if (control.name.find("photo.time-mode") != std::string::npos)
+                saw_time = true;
+        }
+        require(saw_time, "the photo panel's time control is not shown");
+    }
+
+    const int32_t origin_x = match_camera_x_;
+    const int32_t origin_z = match_camera_z_;
+    set_camera_position(origin_x + 80, origin_z + 40, 0);
+    bump(50);
+    if (match_camera_x_ == origin_x && match_camera_z_ == origin_z)
+        set_camera_position(origin_x - 80, origin_z - 40, 0);
+    bump(50);
+    require(
+        match_camera_x_ != origin_x || match_camera_z_ != origin_z,
+        "the camera did not move to frame the photo"
+    );
+    const int32_t framed_x = match_camera_x_;
+    const int32_t framed_z = match_camera_z_;
+    const auto camera_held = [&](const char* why) {
+        require(
+            match_camera_x_ == framed_x && match_camera_z_ == framed_z,
+            std::string(why) + " moved the camera to " + std::to_string(match_camera_x_) + "," +
+                std::to_string(match_camera_z_)
+        );
+    };
+
+    // The frames that open photo mode may play a tick or two past the seek.
+    // The steps are counted from the tick photo mode is standing on.
+    const uint32_t at_photo = match_->state().game.tick;
+    uint32_t stepped = at_photo;
+    for (int step_index = 0; step_index < 3; ++step_index) {
+        require(photo_step(), "a step forward was refused at " + std::to_string(stepped));
+        ++stepped;
+        land_on(stepped, "a step forward");
+        camera_held("a step forward");
+    }
+    for (int step_index = 0; step_index < 2; ++step_index) {
+        require(photo_step_back(), "a step back was refused at " + std::to_string(stepped));
+        --stepped;
+        land_on(stepped, "a step back");
+        camera_held("a step back");
+    }
+    require(stepped == at_photo + 1U, "the steps did not land one tick after the seek");
+
+    render_match_surface();
+    present_match_layers();
+    take_photo();
+    wait_for_photos();
+    const std::string saved = saved_photo_name(status_);
+    require(!saved.empty(), "no photo was saved: " + status_);
+    const fs::path picture = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+    std::ifstream picture_file(picture, std::ios::binary);
+    require(static_cast<bool>(picture_file), "the photo could not be read");
+    const std::vector<char> stored{
+        std::istreambuf_iterator<char>(picture_file), std::istreambuf_iterator<char>()
+    };
+    const std::span<const uint8_t> file(
+        reinterpret_cast<const uint8_t*>(stored.data()), stored.size()
+    );
+    std::vector<oa::formats::png::TextChunk> texts;
+    require(oa::formats::png::read_texts(file, &texts), "the photo's text could not be read");
+    const std::string shots_text = oa::platform::path_to_generic_utf8(photo_shots_folder());
+    const std::string recorded_text = oa::platform::path_to_utf8(recorded);
+    std::string source;
+    std::string record_text;
+    for (const oa::formats::png::TextChunk& chunk : texts) {
+        const std::string chunk_text(chunk.text);
+        if (!parent_text.empty() && chunk_text.find(parent_text) != std::string::npos)
+            fail("the photo names a folder");
+        if (!shots_text.empty() && chunk_text.find(shots_text) != std::string::npos)
+            fail("the photo names the screenshots folder");
+        if (!recorded_text.empty() && recorded_text != file_name &&
+            chunk_text.find(recorded_text) != std::string::npos)
+            fail("the photo names the recording's path");
+        if (chunk.keyword == "Source")
+            source = chunk_text;
+        if (chunk.keyword == "OpenAnnihilation")
+            record_text = chunk_text;
+    }
+    require(source == "Replay", "Source is " + source);
+    oa::formats::json::JsonError json_error;
+    const std::optional<oa::formats::json::Json> record =
+        oa::formats::json::parse_json(record_text, json_error);
+    require(record.has_value(), "the record is not JSON");
+    const oa::formats::json::Json* game = record->find("game");
+    const oa::formats::json::Json* kind = game == nullptr ? nullptr : game->find("kind");
+    const oa::formats::json::Json* game_tick = game == nullptr ? nullptr : game->find("tick");
+    require(
+        kind != nullptr && kind->string() != nullptr && *kind->string() == "replay",
+        "the record's kind is not a replay"
+    );
+    require(
+        game_tick != nullptr && game_tick->integer().has_value() &&
+            *game_tick->integer() == static_cast<int64_t>(stepped),
+        "the record's tick is not the stepped tick"
+    );
+    const oa::formats::json::Json* replay = record->find("replay");
+    require(replay != nullptr, "the record has no replay");
+    const oa::formats::json::Json* replay_file = replay->find("file");
+    const oa::formats::json::Json* replay_sha = replay->find("sha256");
+    const oa::formats::json::Json* replay_tick = replay->find("tick");
+    require(
+        replay_file != nullptr && replay_file->string() != nullptr &&
+            *replay_file->string() == file_name,
+        "the record's file is not the recording's name"
+    );
+    require(
+        replay_file->string()->find('/') == std::string::npos &&
+            replay_file->string()->find('\\') == std::string::npos,
+        "the record's file names a folder"
+    );
+    require(
+        replay_sha != nullptr && replay_sha->string() != nullptr &&
+            *replay_sha->string() == file_sha,
+        "the record's digest is not the recording's"
+    );
+    require(
+        replay_tick != nullptr && replay_tick->integer().has_value() &&
+            *replay_tick->integer() == static_cast<int64_t>(stepped),
+        "the record's replay tick is not the stepped tick"
+    );
+
+    // Slow, Freeze and Run are the playback's own speed and pause. The keys
+    // step back and jump through the bar's seek, and the framed view stays.
+    const auto tap = [&](SDL_Scancode scancode) {
+        SDL_Event event{};
+        event.key.windowID = SDL_GetWindowID(sdl_.window);
+        event.key.scancode = scancode;
+        event.key.key = SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, true);
+        event.key.mod = SDL_KMOD_NONE;
+        for (const bool down : {true, false}) {
+            event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            event.key.down = down;
+            event.key.repeat = false;
+            dispatch_event(event, running);
+            require(running, "a key ended the run");
+        }
+    };
+    require(photo_slow(1), "Slow was refused");
+    {
+        const ReplayPlaybackView playback = read_playback();
+        require(
+            !playback.paused && playback.asked_milli == 500,
+            "Slow did not play the replay at half speed"
+        );
+        require(
+            !photo_frozen() && photo_slow_speed() == 1,
+            "photo mode does not read the replay's slow play"
+        );
+    }
+    for (int frame_index = 0; frame_index < 5; ++frame_index)
+        bump(200);
+    require(match_->state().game.tick > stepped, "the replay did not play slowly");
+    camera_held("slow play");
+    tap(SDL_SCANCODE_SPACE);
+    require(read_playback().paused && photo_frozen(), "Space did not pause the replay");
+    tap(SDL_SCANCODE_SPACE);
+    {
+        const ReplayPlaybackView playback = read_playback();
+        require(
+            !playback.paused && playback.asked_milli == 1000 && !photo_frozen(),
+            "Run did not play at the speed photo mode opened at"
+        );
+    }
+    tap(SDL_SCANCODE_SPACE);
+    require(read_playback().paused, "Space did not pause the replay again");
+    // A paused frame, so the bar reads the tick the jumps count from.
+    bump(50);
+    const uint32_t before_scrub = match_->state().game.tick;
+    tap(SDL_SCANCODE_J);
+    land_on(before_scrub - 300U, "J");
+    camera_held("J");
+    require(read_playback().paused, "J dropped the pause");
+    tap(SDL_SCANCODE_L);
+    land_on(before_scrub, "L");
+    camera_held("L");
+    tap(SDL_SCANCODE_COMMA);
+    land_on(before_scrub - 1U, "the comma");
+    camera_held("the comma");
+    // Leaving keeps this pause and this speed.
+    require(photo_slow(1) && photo_freeze(), "Slow, then Freeze, was refused");
+
+    const ReplayPlaybackView before_end = read_playback();
+    // A windowed replay leaves the match when the game's outcome is reached,
+    // which this recording does before its last recorded tick. The jump stops
+    // on a keyframe after the world has settled and before that outcome, so
+    // the step back still has a match. It is still a jump back from late in
+    // the recording.
+    constexpr uint32_t kNearEnd = 42000;
+    uint32_t end_target = kNearEnd;
+    if (before_end.length_known > 1 && before_end.length_known < kNearEnd)
+        end_target = before_end.length_known - 1;
+    // The framed camera has to survive this jump, the same as a step.
+    arm_photo_replay_camera();
+    if (!replay_photo_seek(end_target)) {
+        if (photo_ != nullptr) {
+            photo_->guard_camera = false;
+            photo_->guard_awaiting = false;
+        }
+        fail("the jump to the end was not asked");
+    }
+    uint32_t end_tick = 0;
+    bool ended = false;
+    for (int frame_index = 0; frame_index < 8000; ++frame_index) {
+        bump(200);
+        const ReplayPlaybackView playback = read_playback();
+        end_tick = match_->state().game.tick;
+        if (!playback.skipping && !replay_photo_seek_pending() && end_tick > 40000U) {
+            ended = true;
+            break;
+        }
+    }
+    require(ended, "the jump to the end stayed at tick " + std::to_string(end_tick));
+    camera_held("the jump to the end");
+    require(photo_step_back(), "the step back from the end was refused");
+    bool stepped_end = false;
+    uint32_t back_tick = end_tick;
+    for (int frame_index = 0; frame_index < 4000; ++frame_index) {
+        bump(200);
+        const ReplayPlaybackView playback = read_playback();
+        back_tick = match_->state().game.tick;
+        if (!playback.skipping && !replay_photo_seek_pending() && back_tick > 40000U &&
+            back_tick < end_tick) {
+            stepped_end = true;
+            break;
+        }
+        if (!playback.skipping && !replay_photo_seek_pending() && frame_index > 1 &&
+            (back_tick == 0 || back_tick >= end_tick)) {
+            fail("the step back from the end landed on tick " + std::to_string(back_tick));
+        }
+    }
+    require(stepped_end, "the step back from the end stayed at tick " + std::to_string(back_tick));
+    camera_held("the step back from the end");
+
+    leave_photo_mode();
+    require(!photo_mode(), "photo mode stayed open");
+    {
+        const ReplayPlaybackView playback = read_playback();
+        require(playback.paused, "leaving photo mode unpaused the replay");
+        require(playback.asked_milli == 500, "leaving photo mode changed the viewing speed");
+        const std::vector<AutomationControl> controls = listed();
+        bool saw_play = false;
+        for (const AutomationControl& control : controls) {
+            if (control.name == "oa.replay-viewer.play")
+                saw_play = true;
+            require(
+                control.name.find("photo.time-mode") == std::string::npos,
+                "the photo panel stayed open"
+            );
+        }
+        require(saw_play, "the playback bar did not come back");
+    }
+
+    call_hook_or_report<&Extension::replay_set_speed>(extension_, hook_error_report(), *this, 1000);
+    call_hook_or_report<&Extension::replay_play>(extension_, hook_error_report(), *this);
+    // The recording's pinned end is tick 42965. A windowed frame that reaches
+    // the game's outcome leaves the match on that same frame, short of the
+    // recording, so the rest is played on the replay clock alone. A short
+    // step near the end keeps one frame from passing the pinned tick: the
+    // digest mixes the tick in.
+    constexpr uint32_t kPinnedEnd = 42965;
+    constexpr uint64_t kPinnedDigest = 0x3884654d74a1ad81ULL;
+    const auto play_on = [&](uint32_t milliseconds) {
+        if (frame_run_clock_ns_)
+            *frame_run_clock_ns_ += static_cast<uint64_t>(milliseconds) * 1'000'000ULL;
+        begin_loop_frame();
+        take_frame_time();
+        advance_match_clock(frame_clock_milliseconds());
+    };
+    uint64_t digest = 0;
+    uint32_t final_tick = back_tick;
+    bool saw_digest = false;
+    for (int frame_index = 0; frame_index < 8000; ++frame_index) {
+        if (match_ == nullptr || screen_ != Screen::match)
+            break;
+        final_tick = match_->state().game.tick;
+        if (final_tick >= 40000U) {
+            digest = oa::session::demo::demo_world_digest(&match_->state());
+            saw_digest = true;
+            if (final_tick >= kPinnedEnd)
+                break;
+        }
+        const uint32_t step_ms = final_tick + 60U >= kPinnedEnd ? 16U : 50U;
+        play_on(step_ms);
+    }
+    std::printf(
+        "photo replay: tick %u digest %016llx\n",
+        final_tick,
+        static_cast<unsigned long long>(digest)
+    );
+    require(saw_digest, "the replay ended at tick " + std::to_string(final_tick));
+    require(
+        digest == kPinnedDigest,
+        "the end digest is " + std::to_string(digest) + " at tick " + std::to_string(final_tick)
+    );
+    require(
+        file_bytes(options_.preferences_file) == preferences_settled, "the preferences file changed"
+    );
+    std::printf("photo replay: ok\n");
+    std::fflush(stdout);
+}
+
 int Runtime::check_photo() {
     switch (options_.photo_group) {
     case PhotoGroup::mode:
@@ -1660,6 +3486,17 @@ int Runtime::check_photo() {
         return 0;
     case PhotoGroup::panel:
         check_photo_panel();
+        return 0;
+    case PhotoGroup::sizes:
+        return check_photo_sizes();
+    case PhotoGroup::pad_touch:
+        check_photo_pad_touch();
+        return 0;
+    case PhotoGroup::looks:
+        check_photo_looks();
+        return 0;
+    case PhotoGroup::replay:
+        check_photo_replay();
         return 0;
     }
     throw std::runtime_error("photo mode check: unknown group");
@@ -4608,6 +6445,1105 @@ int Runtime::check_photo_live() {
         return 77;
     check_photo_selection_box(true);
     std::printf("photo capture live: equal\n");
+    std::fflush(stdout);
+    return 0;
+}
+
+int Runtime::check_photo_sizes() {
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& preferences = host.options_.preferences_file;
+            if (preferences.has_value())
+                existed = fs::exists(*preferences);
+            bytes = file_bytes(preferences);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& preferences = runtime.options_.preferences_file;
+            if (preferences.has_value()) {
+                if (!existed) {
+                    std::error_code remove_error;
+                    fs::remove(*preferences, remove_error);
+                } else {
+                    std::ofstream out(*preferences, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    struct GammaHold {
+        Runtime& runtime;
+        float previous;
+
+        explicit GammaHold(Runtime& host) : runtime(host), previous(host.display_gamma_) {
+            runtime.set_display_gamma(kCheckGamma);
+        }
+
+        GammaHold(const GammaHold&) = delete;
+        GammaHold& operator=(const GammaHold&) = delete;
+
+        ~GammaHold() { runtime.set_display_gamma(previous); }
+    };
+
+    struct PictureSweep {
+        Runtime& runtime;
+
+        explicit PictureSweep(Runtime& host) : runtime(host) {}
+
+        PictureSweep(const PictureSweep&) = delete;
+        PictureSweep& operator=(const PictureSweep&) = delete;
+
+        ~PictureSweep() {
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, ""));
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, "ridge"));
+        }
+    };
+
+    struct FlagHold {
+        bool& flag;
+        bool previous;
+
+        explicit FlagHold(bool& held, bool value) : flag(held), previous(held) { flag = value; }
+
+        FlagHold(const FlagHold&) = delete;
+        FlagHold& operator=(const FlagHold&) = delete;
+
+        ~FlagHold() { flag = previous; }
+    };
+
+    namespace photo = oa::present::photo;
+
+    const PreferencesHold preferences_hold(*this);
+    const GammaHold gamma_hold(*this);
+    const PictureSweep picture_sweep(*this);
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo sizes failed: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    const auto same_world = [&](const DrawReadBack& earlier, const DrawReadBack& later) {
+        const char* difference = draw_read_back_difference(earlier, later);
+        require(
+            difference == nullptr, difference == nullptr ? std::string{} : std::string(difference)
+        );
+    };
+    // The file name carries the clock's second. A photo that crosses that
+    // second may change those pixels and no others.
+    const auto frames_equal = [&](const renderer::Surface& earlier,
+                                  const renderer::Surface& later) {
+        require(
+            earlier.width == later.width && earlier.height == later.height &&
+                !earlier.rgb.empty() && earlier.rgb.size() == later.rgb.size(),
+            "the window frames differ in size"
+        );
+        oa::ui::kit::Rect file_box{};
+        bool have_file = false;
+        if (LayerScreen* open = oa_layer().find("photo-mode")) {
+            const oa::ui::kit::DisplayList listed = open->display_list();
+            for (const oa::ui::kit::Control& control : listed.controls) {
+                if (control.name == "photo.file") {
+                    file_box = control.rect;
+                    have_file = true;
+                }
+            }
+        }
+        const double density = sdl_.window == nullptr
+                                   ? 1.0
+                                   : static_cast<double>(SDL_GetWindowPixelDensity(sdl_.window));
+        const auto to_px = [&](int32_t points) {
+            return static_cast<int32_t>(std::lround(static_cast<double>(points) * density));
+        };
+        const int32_t file_x = have_file ? to_px(file_box.x) : 0;
+        const int32_t file_y = have_file ? to_px(file_box.y) : 0;
+        const int32_t file_right = have_file ? to_px(file_box.x + file_box.width) : 0;
+        const int32_t file_bottom = have_file ? to_px(file_box.y + file_box.height) : 0;
+        for (uint32_t row = 0; row < earlier.height; ++row) {
+            for (uint32_t column = 0; column < earlier.width; ++column) {
+                const std::size_t at =
+                    (static_cast<std::size_t>(row) * earlier.width + column) * 3U;
+                if (earlier.rgb[at] == later.rgb[at] &&
+                    earlier.rgb[at + 1U] == later.rgb[at + 1U] &&
+                    earlier.rgb[at + 2U] == later.rgb[at + 2U])
+                    continue;
+                const bool in_file = have_file && static_cast<int32_t>(column) >= file_x &&
+                                     static_cast<int32_t>(column) < file_right &&
+                                     static_cast<int32_t>(row) >= file_y &&
+                                     static_cast<int32_t>(row) < file_bottom;
+                if (!in_file) {
+                    fail(
+                        "the window changed at " + std::to_string(column) + "," +
+                        std::to_string(row)
+                    );
+                }
+            }
+        }
+    };
+    const auto settle_panel = [&] {
+        if (photo_ != nullptr)
+            photo_->toast_on = false;
+        set_photo_smooth_factor(1);
+        set_photo_size_factor(1);
+        wait_for_photos();
+        if (match_ != nullptr)
+            remove_saved_pictures(photo_shots_folder());
+    };
+    const auto choose_photo = [&](int size_factor, int smooth) {
+        set_photo_size_factor(size_factor);
+        set_photo_smooth_factor(smooth);
+        set_photo_size_factor(size_factor);
+        set_photo_smooth_factor(smooth);
+        require(
+            photo_ != nullptr && photo_->size_factor == size_factor &&
+                photo_->smooth_factor == smooth,
+            "size " + std::to_string(size_factor) + " smooth " + std::to_string(smooth) +
+                " was not offered"
+        );
+    };
+    const auto take_sized = [&](int size_factor, int smooth) {
+        choose_photo(size_factor, smooth);
+        take_photo();
+        wait_for_photos();
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
+        const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+        std::error_code exists_error;
+        require(fs::is_regular_file(file, exists_error), saved);
+        return decode_png(file);
+    };
+    const auto capture_window = [&] {
+        renderer::Surface frame;
+        const CaptureHold hold(capture_frame_, frame);
+        render_match_surface();
+        present_match_layers();
+        return frame;
+    };
+    const auto step_tick = [this] {
+        try {
+            step_match_simulation();
+        } catch (const std::exception& step_error) {
+            report_match_tick_error(step_error.what());
+        }
+    };
+    const auto hold_play_zoom = [&] {
+        require(
+            least_match_zoom() <= kPlayZoom && most_match_zoom() >= kPlayZoom,
+            "zoom 1 is outside the match's play limits"
+        );
+        match_zoom_ = kPlayZoom;
+        match_zoom_target_ = kPlayZoom;
+    };
+    const auto arm_and_select = [&] {
+        oa::Game& game = match_->state().game;
+        console::set_console_flags(
+            game,
+            static_cast<uint16_t>(
+                console::console_flags(game) | console::console_flag::selection_boxes
+            )
+        );
+        oa::Unit* commander = nullptr;
+        for (const auto& slot : match_->world().slots) {
+            if (slot.unit != nullptr && slot.record.type_index != 0 &&
+                slot.record.owner_index == match_local_player_) {
+                commander = oa::world_unit_at(&match_->state(), slot.unit_index);
+                break;
+            }
+        }
+        require(commander != nullptr, "the fight has no local commander");
+        commander->flags |= OA_UNIT_FLAG_SELECTED;
+        match_command_ = MatchCommand::attack;
+        pending_build_type_ = 0;
+    };
+    const auto start_fight = [&] {
+        start_benchmark_skirmish();
+        match_layout_ = lay_out_match(options_.match_width, options_.match_height);
+        hold_play_zoom();
+        spawn_combat_armies(kArmy);
+        arm_and_select();
+        set_display_gamma(kCheckGamma);
+        require(!gamma_identity_, "the gamma is the identity");
+    };
+    const auto end_fight = [this] {
+        if (photo_mode())
+            leave_photo_mode();
+        if (match_ != nullptr) {
+            leave_match();
+            load(Screen::main_menu);
+        }
+    };
+    const auto clear_pictures = [&] {
+        remove_saved_pictures(screenshots_folder(user_folder_, ""));
+        remove_saved_pictures(screenshots_folder(user_folder_, "ridge"));
+        if (match_ != nullptr)
+            remove_saved_pictures(photo_shots_folder());
+    };
+    const auto open_photo = [&] {
+        start_fight();
+        clear_pictures();
+        for (int tick = 1; tick <= kEnterTick; ++tick) {
+            step_tick();
+            if (tick == kEnterTick)
+                require(enter_photo_mode(), "photo mode did not open");
+            if (photo_mode()) {
+                set_photo_show_selection(false);
+                set_photo_show_health_bars(false);
+            }
+            render_match_surface();
+        }
+        require(photo_mode() && photo_ != nullptr, "photo mode was not open");
+        set_display_gamma(kCheckGamma);
+        require(!gamma_identity_, "the gamma is the identity");
+    };
+
+    // Grain size is in pixels, so a photo twice the battlefield draws each
+    // grain twice as large, and carries the grain the preview shows. The
+    // criterion: box-reduced by 2, the grain the 2× photo carries (the 2×
+    // photo with grain less the 2× photo without) is the grain the Screen
+    // photo carries (Screen with grain less Screen without), the same value
+    // in every colour channel where neither photo is at 0 or 255, which the
+    // grain may have clipped, and those are at least half the channels. The
+    // grain is the same hash of the same cells, so no tolerance is needed.
+    // The draw's own pixels cancel out, so it
+    // holds in every render mode. Grain left at the panel's size must fail it,
+    // so the check tells the two apart. Each photo is also the look on its
+    // picture without grain, and the records keep both grain sizes.
+    const auto check_grain = [&](const DecodedPng& screen_plain,
+                                 const DecodedPng& two_plain,
+                                 const char* where) {
+        require(photo_ != nullptr, "photo mode was not open");
+        const uint8_t preset = photo_->look_preset;
+        const int32_t vignette = photo_->look_vignette;
+        const int32_t grain = photo_->look_grain;
+        const int32_t grain_size = photo_->look_grain_size;
+        const uint8_t frame = photo_->look_frame;
+        photo_->look_preset = 0;
+        photo_->look_vignette = 0;
+        photo_->look_frame = 0;
+        photo_->look_grain = 60;
+        photo_->look_grain_size = 3;
+        const auto take_grained = [&](int size_factor) {
+            choose_photo(size_factor, 1);
+            take_photo();
+            wait_for_photos();
+            const std::string saved = saved_photo_name(status_);
+            require(!saved.empty(), "status is " + status_);
+            const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+            std::ifstream in(file, std::ios::binary);
+            require(static_cast<bool>(in), "the grain photo could not be read");
+            std::string bytes(
+                (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()
+            );
+            return std::pair<DecodedPng, std::string>{decode_png(file), std::move(bytes)};
+        };
+        const auto [screen_grain, screen_file] = take_grained(1);
+        const auto [two_grain, two_file] = take_grained(2);
+        require(
+            screen_grain.width == screen_plain.width &&
+                screen_grain.height == screen_plain.height && two_grain.width == two_plain.width &&
+                two_grain.height == two_plain.height &&
+                two_plain.width == screen_plain.width * 2U &&
+                two_plain.height == screen_plain.height * 2U,
+            "the grain photos are not Screen and twice it"
+        );
+        std::vector<uint8_t> screen_look = screen_plain.rows;
+        apply_photo_look_rgb(screen_look, screen_plain.width, screen_plain.height, 1);
+        require(screen_grain.rows == screen_look, "the Screen photo is not its look");
+        std::vector<uint8_t> two_look = two_plain.rows;
+        apply_photo_look_rgb(two_look, two_plain.width, two_plain.height, 2);
+        require(two_grain.rows == two_look, "the 2× photo is not the look at twice the grain size");
+        std::vector<uint8_t> panel_sized = two_plain.rows;
+        apply_photo_look_rgb(panel_sized, two_plain.width, two_plain.height, 1);
+        const auto reduced = [&](const std::vector<uint8_t>& rows) {
+            std::vector<uint8_t> out;
+            int32_t out_w = 0;
+            int32_t out_h = 0;
+            require(
+                photo::box_reduce(
+                    rows.data(),
+                    rows.size(),
+                    static_cast<int32_t>(two_plain.width),
+                    static_cast<int32_t>(two_plain.height),
+                    2,
+                    out,
+                    out_w,
+                    out_h
+                ) && out_w == static_cast<int32_t>(screen_plain.width) &&
+                    out_h == static_cast<int32_t>(screen_plain.height),
+                "the 2× photo did not reduce to Screen's size"
+            );
+            return out;
+        };
+        const std::vector<uint8_t> two_reduced = reduced(two_grain.rows);
+        const std::vector<uint8_t> plain_reduced = reduced(two_plain.rows);
+        const std::vector<uint8_t> panel_reduced = reduced(panel_sized);
+        const auto at_end = [](uint8_t value) { return value == 0 || value == 255; };
+        std::size_t kept = 0;
+        std::size_t matched = 0;
+        std::size_t panel_matched = 0;
+        const std::size_t wide = static_cast<std::size_t>(two_plain.width) * 3U;
+        for (uint32_t row = 0; row < screen_plain.height; ++row) {
+            for (uint32_t column = 0; column < screen_plain.width; ++column) {
+                for (uint32_t channel = 0; channel < 3U; ++channel) {
+                    const std::size_t at =
+                        (static_cast<std::size_t>(row) * screen_plain.width + column) * 3U +
+                        channel;
+                    const std::size_t corner = static_cast<std::size_t>(row) * 2U * wide +
+                                               static_cast<std::size_t>(column) * 6U + channel;
+                    if (at_end(screen_grain.rows[at]) || at_end(two_grain.rows[corner]) ||
+                        at_end(two_grain.rows[corner + 3U]) ||
+                        at_end(two_grain.rows[corner + wide]) ||
+                        at_end(two_grain.rows[corner + wide + 3U]))
+                        continue;
+                    ++kept;
+                    const int preview = static_cast<int>(screen_grain.rows[at]) -
+                                        static_cast<int>(screen_plain.rows[at]);
+                    const int photo_grain =
+                        static_cast<int>(two_reduced[at]) - static_cast<int>(plain_reduced[at]);
+                    const int panel_grain =
+                        static_cast<int>(panel_reduced[at]) - static_cast<int>(plain_reduced[at]);
+                    if (photo_grain == preview)
+                        ++matched;
+                    if (panel_grain == preview)
+                        ++panel_matched;
+                }
+            }
+        }
+        const std::size_t channels = screen_plain.rows.size();
+        std::size_t plain_ends = 0;
+        for (const uint8_t value : screen_plain.rows)
+            plain_ends += at_end(value) ? 1U : 0U;
+        require(kept * 2U >= channels, "the grain could be read in under half the channels");
+        require(matched == kept, "box-reduced, the 2× photo's grain is not the Screen photo's");
+        require(panel_matched * 2U < kept, "grain at the panel's size passes as the preview's");
+        require(
+            screen_file.find("\"grain_size\":3,\"grain_pixels\":3,") != std::string::npos,
+            "the Screen photo's record does not keep its grain sizes"
+        );
+        require(
+            two_file.find("\"grain_size\":3,\"grain_pixels\":6,") != std::string::npos,
+            "the 2× photo's record does not keep its grain sizes"
+        );
+        std::printf(
+            "photo sizes%s grain: box-reduced 2x carries the Screen grain in %zu of %zu channels "
+            "read (%zu in all, %zu already at 0 or 255), grain at the panel's size in %zu\n",
+            where,
+            matched,
+            kept,
+            channels,
+            plain_ends,
+            panel_matched
+        );
+        std::fflush(stdout);
+        photo_->look_preset = preset;
+        photo_->look_vignette = vignette;
+        photo_->look_grain = grain;
+        photo_->look_grain_size = grain_size;
+        photo_->look_frame = frame;
+    };
+
+    using HardwareAcceleration = oa::ui::engine_settings::HardwareAcceleration;
+    const HardwareAcceleration asked =
+        options_.hardware_acceleration.value_or(HardwareAcceleration::off);
+
+    // Full without --force-capable is the turned view on the system's video
+    // driver. Where no graphics device can draw it, the dummy driver
+    // included, the check skips with 77 rather than taking Full's branch.
+    if (asked == HardwareAcceleration::full && !options_.force_capable) {
+        oa::ui::engine_settings::EngineSettings chosen = engine_settings();
+        chosen.allow_full_3d = true;
+        chosen.anti_aliasing = oa::ui::engine_settings::AntiAliasing::x4;
+        apply_engine_settings(chosen);
+        const auto aliasing = engine_settings().anti_aliasing;
+        open_photo();
+        bool turned = false;
+        try {
+            turned = turn_live_camera(20.0F, 12.0F);
+        } catch (const std::exception&) {
+            turned = false;
+        }
+        bool skip = false;
+        {
+            const FlagHold presenting(presenting_frame_, true);
+            const auto draw_live = [&] {
+                try {
+                    const FlagHold capturing(photo_capture_live_, true);
+                    return render_live_match_surface();
+                } catch (const std::exception&) {
+                    return false;
+                }
+            };
+            const bool warmed = draw_live();
+            if (!turned || live_renderer_unavailable() || !live_renderer_active())
+                skip = true;
+            else {
+                require(warmed && !live_renderer_failed(), "the turned view did not draw");
+            }
+        }
+        if (skip) {
+            end_fight();
+            return 77;
+        }
+        render_match_surface();
+        const int32_t field_w = match_layout_.battlefield_width();
+        const int32_t field_h = match_layout_.battlefield_height();
+        require(field_w > 0 && field_h > 0, "the battlefield is empty");
+        require(
+            engine_settings().anti_aliasing == oa::ui::engine_settings::AntiAliasing::x4,
+            "anti-aliasing is not 4×"
+        );
+        const photo::Machine machine = photo_capture_machine();
+        require(
+            machine.kind == photo::CaptureKind::turned, "the turned view is not drawing the photo"
+        );
+        require(
+            machine.edge_limit > 0 && machine.edge_limit <= photo::kTurnedEdge,
+            "the turned view offers more than 4096 pixels a side"
+        );
+        const TurnedFrameSampling play = turned_frame_sampling();
+        uint32_t requested = static_cast<uint32_t>(engine_settings().anti_aliasing);
+        if (requested == 0)
+            requested = 1;
+        const renderer_live_gpu::Sampling expect_sampling = renderer_live_gpu::fitted_sampling(
+            static_cast<uint32_t>(field_w),
+            static_cast<uint32_t>(field_h),
+            requested,
+            play.device_multisamples
+        );
+        require(
+            play.supersample == expect_sampling.supersample &&
+                play.multisample == expect_sampling.multisample && play.supersample != 0,
+            "the window frame lost samples"
+        );
+        const photo::Plan planned = photo_size_plan();
+        int first_past = 0;
+        for (const photo::Offer& offer : planned.sizes) {
+            if (offer.offered) {
+                require(
+                    offer.width <= machine.edge_limit && offer.height <= machine.edge_limit,
+                    "a size past the turned view's limit was offered"
+                );
+                continue;
+            }
+            if (first_past != 0)
+                continue;
+            first_past = offer.factor;
+            require(
+                offer.lock == photo::SizeLock::edge,
+                "the first size past the limit is not locked for the edge"
+            );
+            const std::string reason = photo_offer_reason(planned.kind, offer);
+            require(reason.find(std::to_string(offer.limit)) != std::string::npos, reason);
+            require(reason.find("anti-aliasing") != std::string::npos, reason);
+        }
+        require(first_past > 1, "no size was locked at this anti-aliasing");
+        // The fight has written the engine's own rows. The photos must add none.
+        const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+        const auto preferences_values = preference_values_;
+        settle_panel();
+        const renderer::Surface before = capture_window();
+        const DrawReadBack read_before = match_draw_read_back();
+        for (const photo::Offer& offer : planned.sizes) {
+            if (!offer.offered || offer.factor <= 1)
+                continue;
+            const DecodedPng shot = take_sized(offer.factor, 1);
+            require(
+                photo_ != nullptr && photo_->sized_by_live && !photo_->sized_by_full,
+                "an offered size was not drawn live"
+            );
+            require(
+                shot.width ==
+                        static_cast<uint32_t>(field_w) * static_cast<uint32_t>(offer.factor) &&
+                    shot.height ==
+                        static_cast<uint32_t>(field_h) * static_cast<uint32_t>(offer.factor),
+                "an offered photo is not that many times the battlefield"
+            );
+        }
+        // Smooth edges 2× draws the 2× picture and box-reduces it. At Enhanced
+        // 4× on this battlefield that step is past the sampling limit, so the
+        // comparison runs at Enhanced 2×, where the larger sizes keep the
+        // window's samples, the card's multisampling among them. Every size
+        // offered there is drawn. The window's own frames stay at 4×.
+        DecodedPng two;
+        {
+            struct AliasingHold {
+                Runtime& runtime;
+                oa::ui::engine_settings::AntiAliasing level;
+
+                AliasingHold(Runtime& host, oa::ui::engine_settings::AntiAliasing kept)
+                    : runtime(host), level(kept) {}
+
+                AliasingHold(const AliasingHold&) = delete;
+                AliasingHold& operator=(const AliasingHold&) = delete;
+
+                ~AliasingHold() {
+                    oa::ui::engine_settings::EngineSettings chosen = runtime.engine_settings();
+                    chosen.anti_aliasing = level;
+                    runtime.apply_engine_settings(chosen);
+                }
+            } aliasing_hold{*this, aliasing};
+
+            bool size_two = false;
+            bool smooth_two = false;
+            for (const photo::Offer& offer : planned.sizes) {
+                if (offer.factor == 2 && offer.offered)
+                    size_two = true;
+            }
+            for (const photo::Offer& offer : planned.smooth) {
+                if (offer.factor == 2 && offer.offered)
+                    smooth_two = true;
+            }
+            if (!size_two || !smooth_two) {
+                oa::ui::engine_settings::EngineSettings two_samples = engine_settings();
+                two_samples.anti_aliasing = oa::ui::engine_settings::AntiAliasing::x2;
+                apply_engine_settings(two_samples);
+                const photo::Plan opened = photo_size_plan();
+                size_two = false;
+                smooth_two = false;
+                int drawn_larger = 0;
+                for (const photo::Offer& offer : opened.sizes) {
+                    if (offer.factor == 2 && offer.offered)
+                        size_two = true;
+                    if (!offer.offered || offer.factor <= 1)
+                        continue;
+                    // A turned photo that lost samples is refused, so a
+                    // photo saved here kept the window's.
+                    const DecodedPng shot = take_sized(offer.factor, 1);
+                    require(
+                        photo_ != nullptr && photo_->sized_by_live && !photo_->sized_by_full,
+                        "a size offered at Enhanced 2× was not drawn live"
+                    );
+                    require(
+                        shot.width == static_cast<uint32_t>(field_w) *
+                                          static_cast<uint32_t>(offer.factor) &&
+                            shot.height == static_cast<uint32_t>(field_h) *
+                                               static_cast<uint32_t>(offer.factor),
+                        "a photo offered at Enhanced 2× is not that many times the battlefield"
+                    );
+                    ++drawn_larger;
+                }
+                for (const photo::Offer& offer : opened.smooth) {
+                    if (offer.factor == 2 && offer.offered)
+                        smooth_two = true;
+                }
+                const renderer_live_gpu::Sampling at_two = renderer_live_gpu::fitted_sampling(
+                    static_cast<uint32_t>(field_w),
+                    static_cast<uint32_t>(field_h),
+                    2,
+                    play.device_multisamples
+                );
+                std::printf(
+                    "photo sizes live: at Enhanced 2x, sampling %u/%u, %d larger sizes drawn\n",
+                    at_two.supersample,
+                    at_two.multisample,
+                    drawn_larger
+                );
+            }
+            require(size_two && smooth_two, "2× was not offered where the samples stay");
+            const DecodedPng screen = take_sized(1, 1);
+            two = take_sized(2, 1);
+            const DecodedPng smooth = take_sized(1, 2);
+            require(
+                photo_ != nullptr && photo_->sized_by_live && !photo_->sized_by_full,
+                "the turned photo was not drawn live"
+            );
+            require(
+                two.width == static_cast<uint32_t>(field_w) * 2U &&
+                    two.height == static_cast<uint32_t>(field_h) * 2U,
+                "the 2× photo is not twice the battlefield"
+            );
+            std::vector<uint8_t> reduced;
+            int32_t reduced_w = 0;
+            int32_t reduced_h = 0;
+            require(
+                photo::box_reduce(
+                    two.rows.data(),
+                    two.rows.size(),
+                    static_cast<int32_t>(two.width),
+                    static_cast<int32_t>(two.height),
+                    2,
+                    reduced,
+                    reduced_w,
+                    reduced_h
+                ),
+                "the 2× draw did not reduce"
+            );
+            require(
+                reduced_w == static_cast<int32_t>(smooth.width) &&
+                    reduced_h == static_cast<int32_t>(smooth.height) && reduced == smooth.rows,
+                "Smooth 2× is not the 2× draw box-reduced"
+            );
+            require(smooth.rows != screen.rows, "Smooth 2× is the Screen photo");
+            std::printf("photo sizes live: smooth 2x matches box-reduced 2x\n");
+        }
+        require(engine_settings().anti_aliasing == aliasing, "anti-aliasing changed");
+        settle_panel();
+        const renderer::Surface after = capture_window();
+        frames_equal(before, after);
+        same_world(read_before, match_draw_read_back());
+        require(engine_settings().anti_aliasing == aliasing, "anti-aliasing changed");
+        require(
+            file_bytes(options_.preferences_file) == preferences_settled &&
+                preference_values_ == preferences_values,
+            "the preferences file changed"
+        );
+        end_fight();
+        std::printf(
+            "photo sizes live: 2x %ux%u edge %d sampling %u/%u\n",
+            two.width,
+            two.height,
+            machine.edge_limit,
+            play.supersample,
+            play.multisample
+        );
+        std::printf("photo sizes live: ok\n");
+        std::fflush(stdout);
+        return 0;
+    }
+
+    if (asked == HardwareAcceleration::full) {
+        // Enhanced anti-aliasing at 4x, so that the window's world target is
+        // supersampled and a photo at a lower factor would show.
+        oa::ui::engine_settings::EngineSettings chosen = engine_settings();
+        chosen.anti_aliasing = oa::ui::engine_settings::AntiAliasing::x4;
+        apply_engine_settings(chosen);
+        open_photo();
+        require(full_presentation() && full_ != nullptr, "Full is not presenting");
+        // Full fits its world target to the factor as it presents a frame.
+        std::ignore = capture_window();
+        require(full_ != nullptr && full_->supersample > 1, "Full is not supersampling");
+        const uint32_t factor = full_->supersample;
+        const auto aliasing = engine_settings().anti_aliasing;
+        const int32_t field_w = match_layout_.battlefield_width();
+        const int32_t field_h = match_layout_.battlefield_height();
+        require(field_w > 0 && field_h > 0, "the battlefield is empty");
+        // The fight has written the engine's own rows. The photos must add none.
+        const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+        const auto preferences_values = preference_values_;
+        settle_panel();
+        const renderer::Surface before = capture_window();
+        const DrawReadBack read_before = match_draw_read_back();
+        require(full_ != nullptr && full_->supersample == factor, "the window's factor changed");
+        const DecodedPng two = take_sized(2, 1);
+        require(photo_->sized_by_full && !photo_->sized_by_live, "Full did not draw the 2× photo");
+        require(photo_->sized_supersample == factor, "Full lowered the anti-aliasing factor");
+        require(full_ != nullptr && full_->supersample == factor, "the window's factor changed");
+        require(
+            two.width == static_cast<uint32_t>(field_w) * 2U &&
+                two.height == static_cast<uint32_t>(field_h) * 2U,
+            "the 2× photo is not twice the battlefield"
+        );
+        std::vector<uint8_t> processor;
+        const double shot_zoom = static_cast<double>(match_zoom()) * 2.0;
+        require(
+            draw_processor_photo(
+                processor,
+                static_cast<int32_t>(two.width),
+                static_cast<int32_t>(two.height),
+                shot_zoom
+            ),
+            "the processor frame was not drawn"
+        );
+        require(processor != two.rows, "Full drew the processor's picture");
+        std::printf("photo sizes full: drawn factor %u differs\n", factor);
+        // In a replay, photo mode keeps the framed view while a seek is in
+        // flight. A photo taken then is the same picture, and the window's
+        // next frame still finds that view to put back.
+        arm_photo_replay_camera();
+        const DecodedPng guarded = take_sized(2, 1);
+        const bool still_armed =
+            photo_ != nullptr && photo_->guard_camera && photo_->guard_awaiting;
+        if (photo_ != nullptr) {
+            photo_->guard_camera = false;
+            photo_->guard_awaiting = false;
+        }
+        require(still_armed, "a photo used up the replay seek's framed view");
+        require(guarded.rows == two.rows, "a photo during a replay seek drew another view");
+        std::printf("photo sizes full: a replay seek's framed view leaves the photo alone\n");
+        const DecodedPng screen = take_sized(1, 1);
+        const DecodedPng smooth = take_sized(1, 2);
+        require(
+            photo_ != nullptr && photo_->sized_by_full && !photo_->sized_by_live,
+            "Full did not draw Smooth edges 2×"
+        );
+        require(photo_->sized_supersample == factor, "Full lowered the anti-aliasing factor");
+        std::vector<uint8_t> reduced;
+        int32_t reduced_w = 0;
+        int32_t reduced_h = 0;
+        require(
+            photo::box_reduce(
+                two.rows.data(),
+                two.rows.size(),
+                static_cast<int32_t>(two.width),
+                static_cast<int32_t>(two.height),
+                2,
+                reduced,
+                reduced_w,
+                reduced_h
+            ),
+            "the 2× draw did not reduce"
+        );
+        require(
+            reduced_w == static_cast<int32_t>(smooth.width) &&
+                reduced_h == static_cast<int32_t>(smooth.height) && reduced == smooth.rows,
+            "Smooth 2× is not the 2× draw box-reduced"
+        );
+        require(smooth.rows != screen.rows, "Smooth 2× is the Screen photo");
+        std::printf("photo sizes full: smooth 2x matches box-reduced 2x\n");
+        check_grain(screen, two, " full");
+        require(
+            render_run_ != nullptr && render_run_->host != nullptr, "Full has no renderer host"
+        );
+        // The size row is judged at the smooth step in use. Smooth edges 2×
+        // is still selected, and at that step 2× draws four times the
+        // battlefield. Read the row at Smooth edges off.
+        require(photo_ != nullptr, "photo mode was not open");
+        photo_->size_factor = 1;
+        photo_->smooth_factor = 1;
+        uint32_t limit = 0;
+        if (factor <= 1) {
+            limit = static_cast<uint32_t>(std::max(field_w, field_h) * 2);
+        } else {
+            const uint32_t grain = full_supersampling::target_grain;
+            const uint32_t across =
+                full_supersampling::rounded_up(static_cast<uint32_t>(field_w) * 2U, grain);
+            const uint32_t down =
+                full_supersampling::rounded_up(static_cast<uint32_t>(field_h) * 2U, grain);
+            limit = std::max(across, down) * factor;
+        }
+        render_run_->host->faults().texture_limit = limit;
+        const photo::Plan planned = photo_size_plan();
+        const photo::Offer* two_offer = nullptr;
+        const photo::Offer* four_offer = nullptr;
+        for (const photo::Offer& offer : planned.sizes) {
+            if (offer.factor == 2)
+                two_offer = &offer;
+            if (offer.factor == 4)
+                four_offer = &offer;
+        }
+        require(two_offer != nullptr && two_offer->offered, "2× was not offered under the limit");
+        require(
+            four_offer != nullptr && !four_offer->offered &&
+                four_offer->lock == photo::SizeLock::edge,
+            "4× was offered past the texture limit"
+        );
+        const std::string reason = photo_offer_reason(planned.kind, *four_offer);
+        require(reason.find(std::to_string(four_offer->limit)) != std::string::npos, reason);
+        const int32_t grain = static_cast<int32_t>(full_supersampling::target_grain);
+        const int32_t raw = static_cast<int32_t>(limit);
+        const int32_t fitted = (raw / static_cast<int32_t>(factor) / grain) * grain;
+        require(four_offer->limit == fitted, "the limit is not the picture that fits");
+        require(reason.find(std::to_string(fitted)) != std::string::npos, reason);
+        if (fitted != raw)
+            require(reason.find(std::to_string(raw)) == std::string::npos, reason);
+        std::printf("photo sizes full: limit %s\n", reason.c_str());
+        render_run_->host->faults().texture_limit = 0;
+        require(full_ != nullptr && full_->supersample == factor, "the window's factor changed");
+        require(engine_settings().anti_aliasing == aliasing, "anti-aliasing changed");
+        settle_panel();
+        const renderer::Surface after = capture_window();
+        frames_equal(before, after);
+        same_world(read_before, match_draw_read_back());
+        require(full_ != nullptr && full_->supersample == factor, "the window's factor changed");
+        std::printf("photo sizes full: frames equal\n");
+        // A held picture is the Screen copy, whatever Size and Smooth edges
+        // were. The rows say so. This does not draw the window.
+        require(photo_ != nullptr, "photo mode was not open");
+        photo_->size_factor = 2;
+        photo_->smooth_factor = 2;
+        photo_->picture_held = true;
+        bool held_reason = false;
+        bool held_screen = false;
+        bool held_off = false;
+        const std::string held_sentence(oa::data::languages::interface_text("Held picture"));
+        const std::string screen_word(oa::data::languages::interface_text("Screen"));
+        const std::string off_word(oa::data::languages::interface_text("Off"));
+        if (LayerScreen* open = oa_layer().find("photo-mode")) {
+            const oa::ui::kit::DisplayList listed = open->display_list();
+            for (const oa::ui::kit::Control& control : listed.controls) {
+                if (control.name == "photo.size.reason")
+                    held_reason = control.text == held_sentence;
+                if (control.name == "photo.size")
+                    held_screen = control.text.find(screen_word) != std::string::npos;
+                if (control.name == "photo.smooth")
+                    held_off = control.text.find(off_word) != std::string::npos;
+            }
+        }
+        photo_->picture_held = false;
+        photo_->size_factor = 1;
+        photo_->smooth_factor = 1;
+        require(
+            held_reason && held_screen && held_off, "a held picture does not say what it saves"
+        );
+        require(
+            file_bytes(options_.preferences_file) == preferences_settled &&
+                preference_values_ == preferences_values,
+            "the preferences file changed"
+        );
+        end_fight();
+        std::printf("photo sizes full: ok\n");
+        std::fflush(stdout);
+        return 0;
+    }
+
+    const auto play_pass = [&](bool shoot) {
+        start_fight();
+        clear_pictures();
+        for (int tick = 1; tick <= kPassTicks; ++tick) {
+            step_tick();
+            if (tick == kEnterTick)
+                require(enter_photo_mode(), "photo mode did not open");
+            if (photo_mode()) {
+                set_photo_show_selection(false);
+                set_photo_show_health_bars(false);
+            }
+            render_match_surface();
+            if (shoot && tick == kEnterTick) {
+                set_display_gamma(kCheckGamma);
+                require(!gamma_identity_, "the gamma is the identity");
+                const int32_t field_w = match_layout_.battlefield_width();
+                const int32_t field_h = match_layout_.battlefield_height();
+                require(field_w > 0 && field_h > 0, "the battlefield is empty");
+                settle_panel();
+                const photo::Plan open_plan = photo_size_plan();
+                const std::string pixels_reason(
+                    oa::data::languages::interface_text("Off and Basic draw whole pixels")
+                );
+                for (const photo::Offer& offer : open_plan.smooth) {
+                    if (offer.factor == 1)
+                        continue;
+                    require(
+                        !offer.offered && offer.lock == photo::SizeLock::pixels,
+                        "Smooth edges is offered where the picture is whole pixels"
+                    );
+                    require(
+                        photo_offer_reason(open_plan.kind, offer) == pixels_reason, pixels_reason
+                    );
+                }
+                for (const photo::Offer& offer : open_plan.sizes) {
+                    if (offer.factor <= 1)
+                        continue;
+                    require(offer.offered, "a larger size was not offered");
+                    if (offer.factor == 2) {
+                        require(
+                            offer.width == field_w * 2 && offer.height == field_h * 2,
+                            "2× is not twice the battlefield"
+                        );
+                    }
+                }
+                bool saw_pixels = false;
+                if (LayerScreen* open = oa_layer().find("photo-mode")) {
+                    const oa::ui::kit::DisplayList listed = open->display_list();
+                    for (const oa::ui::kit::Control& control : listed.controls) {
+                        if (control.name == "photo.size.reason" &&
+                            control.text.find(pixels_reason) != std::string::npos)
+                            saw_pixels = true;
+                    }
+                }
+                require(saw_pixels, pixels_reason);
+                const renderer::Surface before = capture_window();
+                const DrawReadBack read_before = match_draw_read_back();
+                const DecodedPng screen = take_sized(1, 1);
+                require(
+                    photo_ != nullptr && !photo_->sized_by_full && !photo_->sized_by_live,
+                    "Screen was drawn again"
+                );
+                require(
+                    screen.width == static_cast<uint32_t>(field_w) &&
+                        screen.height == static_cast<uint32_t>(field_h),
+                    "Screen is not the battlefield"
+                );
+                const DecodedPng wide = take_sized(2, 1);
+                require(
+                    photo_ != nullptr && !photo_->sized_by_full && !photo_->sized_by_live,
+                    "the 2× photo was not drawn by the processor"
+                );
+                require(
+                    wide.width == static_cast<uint32_t>(field_w) * 2U &&
+                        wide.height == static_cast<uint32_t>(field_h) * 2U,
+                    "the 2× photo is not twice the battlefield"
+                );
+                {
+                    struct MemoryHold {
+                        Runtime& runtime;
+                        std::optional<oa::platform::SystemMemorySample> previous;
+
+                        explicit MemoryHold(Runtime& host) : runtime(host) {
+                            if (runtime.render_run_ != nullptr)
+                                previous = runtime.render_run_->forced_memory;
+                        }
+
+                        MemoryHold(const MemoryHold&) = delete;
+                        MemoryHold& operator=(const MemoryHold&) = delete;
+
+                        ~MemoryHold() {
+                            if (runtime.render_run_ != nullptr)
+                                runtime.render_run_->forced_memory = std::move(previous);
+                            clear_remembered_photo();
+                        }
+                    } memory_hold{*this};
+                    require(render_run_ != nullptr, "the run has no renderer");
+                    clear_remembered_photo();
+                    const auto bytes_at = [&](int factor) {
+                        return static_cast<uint64_t>(field_w) * static_cast<uint64_t>(factor) *
+                               static_cast<uint64_t>(field_h) * static_cast<uint64_t>(factor) *
+                               uint64_t{6};
+                    };
+                    uint64_t physical = uint64_t{64} << 20;
+                    uint64_t floor = physical / render_policy::memory_guard_free_divisor;
+                    if (render_run_->watch && render_run_->watch->memory.thresholds.physical != 0) {
+                        floor = render_run_->watch->memory.thresholds.free_floor;
+                        physical = render_run_->watch->memory.thresholds.physical;
+                    }
+                    const uint64_t two_bytes = bytes_at(2);
+                    const uint64_t three_bytes = bytes_at(3);
+                    const uint64_t headroom = two_bytes + (three_bytes - two_bytes) / 2U;
+                    oa::platform::SystemMemorySample sample;
+                    sample.available = floor + headroom;
+                    sample.available_known = true;
+                    sample.physical = physical;
+                    sample.committed_known = false;
+                    render_run_->forced_memory = sample;
+                    const photo::Plan tight = photo_size_plan();
+                    const photo::Offer* screen_offer = nullptr;
+                    const photo::Offer* two_offer = nullptr;
+                    const photo::Offer* four_offer = nullptr;
+                    for (const photo::Offer& offer : tight.sizes) {
+                        if (offer.factor == 1)
+                            screen_offer = &offer;
+                        if (offer.factor == 2)
+                            two_offer = &offer;
+                        if (offer.factor == 4)
+                            four_offer = &offer;
+                    }
+                    require(screen_offer != nullptr && screen_offer->offered, "Screen was locked");
+                    require(
+                        two_offer != nullptr && two_offer->offered,
+                        "2× was not offered before the held picture"
+                    );
+                    require(
+                        four_offer != nullptr && !four_offer->offered &&
+                            four_offer->lock == photo::SizeLock::memory,
+                        "4× was not locked for memory"
+                    );
+                    require(
+                        four_offer->width == field_w * 4 && four_offer->height == field_h * 4,
+                        "4× is not four times the battlefield"
+                    );
+                    const std::string memory_reason(
+                        oa::data::languages::interface_text("Not enough memory")
+                    );
+                    require(
+                        photo_offer_reason(tight.kind, *four_offer) == memory_reason, memory_reason
+                    );
+                    const uint64_t held_bytes = (headroom - two_bytes) + 1U;
+                    PhotoClipboardImage image;
+                    image.bytes.assign(static_cast<std::size_t>(held_bytes), uint8_t{1});
+                    image.mime = "image/png";
+                    const PhotoCopyReport held_offer =
+                        offer_photo_clipboard("Held.png", std::move(image), false, false, true);
+                    require(
+                        held_offer.result == PhotoCopyResult::skipped,
+                        "the held picture was offered"
+                    );
+                    require(
+                        remembered_photo_bytes() == static_cast<std::size_t>(held_bytes),
+                        "the held picture was not counted"
+                    );
+                    const photo::Plan held_plan = photo_size_plan();
+                    const photo::Offer* held_two = nullptr;
+                    const photo::Offer* held_screen = nullptr;
+                    for (const photo::Offer& offer : held_plan.sizes) {
+                        if (offer.factor == 1)
+                            held_screen = &offer;
+                        if (offer.factor == 2)
+                            held_two = &offer;
+                    }
+                    require(
+                        held_screen != nullptr && held_screen->offered,
+                        "Screen was locked by the held picture"
+                    );
+                    require(
+                        held_two != nullptr && !held_two->offered &&
+                            held_two->lock == photo::SizeLock::memory,
+                        "the held picture did not lock 2×"
+                    );
+                    require(
+                        photo_offer_reason(held_plan.kind, *held_two) == memory_reason,
+                        memory_reason
+                    );
+                }
+                // With the memory back, 4× is drawn: the largest photo the
+                // fight offers, four times the battlefield.
+                const DecodedPng four = take_sized(4, 1);
+                require(
+                    photo_ != nullptr && !photo_->sized_by_full && !photo_->sized_by_live,
+                    "the 4× photo was not drawn by the processor"
+                );
+                require(
+                    four.width == static_cast<uint32_t>(field_w) * 4U &&
+                        four.height == static_cast<uint32_t>(field_h) * 4U,
+                    "the 4× photo is not four times the battlefield"
+                );
+                check_grain(screen, wide, "");
+                settle_panel();
+                const renderer::Surface after = capture_window();
+                frames_equal(before, after);
+                same_world(read_before, match_draw_read_back());
+                const std::string screen_sha = sha256_hex(screen.rows);
+                const std::string wide_sha = sha256_hex(wide.rows);
+                const std::string four_sha = sha256_hex(four.rows);
+                std::printf(
+                    "photo sizes screen: %s %ux%u\n",
+                    screen_sha.c_str(),
+                    screen.width,
+                    screen.height
+                );
+                std::printf(
+                    "photo sizes two: %s %ux%u\n", wide_sha.c_str(), wide.width, wide.height
+                );
+                std::printf(
+                    "photo sizes four: %s %ux%u\n", four_sha.c_str(), four.width, four.height
+                );
+                std::printf(
+                    "photo sizes pinned: %s %s %s\n",
+                    screen_sha.c_str(),
+                    wide_sha.c_str(),
+                    four_sha.c_str()
+                );
+                std::fflush(stdout);
+            }
+            if (tick == kLeaveTick)
+                leave_photo_mode();
+        }
+        require(!photo_mode(), "photo mode was still open at the last tick");
+        DrawReadBack read = match_draw_read_back();
+        end_fight();
+        return read;
+    };
+    // A fight writes the engine's own rows. The pass that takes no photo
+    // settles those. The pass that takes photos must add nothing.
+    const DrawReadBack quiet = play_pass(false);
+    const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+    const auto preferences_values = preference_values_;
+    const DrawReadBack shot = play_pass(true);
+    same_world(shot, quiet);
+    require(
+        file_bytes(options_.preferences_file) == preferences_settled &&
+            preference_values_ == preferences_values,
+        "the preferences file changed"
+    );
+    std::printf("photo sizes: ok\n");
     std::fflush(stdout);
     return 0;
 }

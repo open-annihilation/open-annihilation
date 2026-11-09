@@ -70,10 +70,19 @@ struct SizeFact {
 };
 
 /// A look applied to the picture. Written only when the photo has one.
+/// Roundness, grain size and the frame are written with the grade, so a
+/// frame on its own is not read as no look, and the picture can be made again.
+/// The grain is kept twice: the size the panel chose, in the battlefield's
+/// pixels, and the size it was drawn at in this picture, which a photo two to
+/// four times the battlefield draws that many times larger.
 struct LookFact {
     std::string preset;            ///< the look's name
     int vignette = 0;              ///< the vignette, 0 to 100
+    int roundness = 50;            ///< the vignette's roundness, 0 to 100
     int grain = 0;                 ///< the grain, 0 to 100
+    int grain_size = 2;            ///< the panel's grain size: the battlefield's pixels
+    int grain_pixels = 2;          ///< one grain's pixels in this picture, at least 1
+    std::string frame{"none"};     ///< none, thin, mat or caption
     std::optional<int> tilt_shift; ///< the tilt, or nothing when the look has none
 };
 

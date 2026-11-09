@@ -87,7 +87,9 @@ namespace kit = oa::ui::kit;
 // the hook count is unchanged. Version 21 also adds the replay viewer's
 // eight hooks, so the count is 49. Version 21 also adds
 // ScreenServices::main_menu_order_owns_key, which is not one of this
-// table's hooks, so the count is unchanged.
+// table's hooks, so the count is unchanged. Version 21 also adds
+// ScreenServices::bound_focus_action, which is not one of this table's
+// hooks, so the count is unchanged.
 constexpr uint32_t kExtensionApiVersionRecorded = 21;
 constexpr std::size_t kHookCount = 49;
 static_assert(

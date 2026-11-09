@@ -22,6 +22,7 @@
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/photo_panel/crop.hpp"
 #include "oa/ui/photo_panel/draw.hpp"
+#include "oa/ui/photo_panel/layout.hpp"
 #include "block_font.hpp"
 
 #include <array>
@@ -151,7 +152,41 @@ panel::Model model_for(const Scene& scene) {
     model.zoom_stop = panel::zoom_stop_nearest(zooms, 1.F);
     model.key_line = "F9 Leave   Enter Take photo   Space Freeze   H Hide panel   G Guides";
     model.guide_value = std::string(panel::guide_name(scene.guide));
-    if (scene.visit == panel::Visit::shared) {
+    const bool shared = scene.visit == panel::Visit::shared;
+    std::array<panel::ChoiceStop, 4> sizes{};
+    std::array<panel::ChoiceStop, 3> smooth{};
+    const int factors[] = {1, 2, 3, 4};
+    const int32_t picture_w[] = {640, 1280, 1920, 2560};
+    const int32_t picture_h[] = {480, 960, 1440, 1920};
+    for (int index = 0; index < 4; ++index) {
+        sizes[static_cast<std::size_t>(index)].factor = factors[index];
+        sizes[static_cast<std::size_t>(index)].width = picture_w[index];
+        sizes[static_cast<std::size_t>(index)].height = picture_h[index];
+        if (shared && index > 0)
+            sizes[static_cast<std::size_t>(index)].lock = "Shared game";
+    }
+    const int smooth_factors[] = {1, 2, 4};
+    for (int index = 0; index < 3; ++index) {
+        smooth[static_cast<std::size_t>(index)].factor = smooth_factors[index];
+        if (shared && index == 2)
+            smooth[static_cast<std::size_t>(index)].lock = "Shared game";
+    }
+    panel::ChoiceWords words;
+    words.times = scene.modern ? "\u00d7" : "x";
+    const panel::ChoiceCopy copy = panel::choice_copy(sizes, smooth, 0, 0, words);
+    model.size_captions = copy.size_captions;
+    model.smooth_captions = copy.smooth_captions;
+    model.size_label = copy.size_label;
+    model.smooth_label = copy.smooth_label;
+    model.size_value = copy.size_value;
+    model.size_reason = copy.reason;
+    for (int index = 0; index < 4; ++index)
+        model.size_locks[static_cast<std::size_t>(index)] =
+            sizes[static_cast<std::size_t>(index)].lock;
+    for (int index = 0; index < 3; ++index)
+        model.smooth_locks[static_cast<std::size_t>(index)] =
+            smooth[static_cast<std::size_t>(index)].lock;
+    if (shared) {
         model.freeze_caption = "Hold picture";
         model.slow_lock = "Shared game";
         model.speed_lock = "Shared game";

@@ -86,6 +86,12 @@ class PhotoWriter {
     /// @return the count, at most four
     [[nodiscard]] int outstanding() const;
 
+    /// Bytes of pictures queued or being written. The memory guard counts
+    /// these. The limit of four photos is unchanged.
+    ///
+    /// @return the bytes, including the picture in hand
+    [[nodiscard]] std::size_t queued_bytes() const;
+
     /// Reads one finished photo, if one is waiting.
     ///
     /// @return the notice, or nothing when none has finished since the last poll
@@ -116,6 +122,7 @@ class PhotoWriter {
     std::unordered_set<std::string> reserved_;
     std::string writing_name_;
     int outstanding_ = 0;
+    std::size_t queued_bytes_ = 0; ///< pictures queued or in hand
     bool stopping_ = false;
     std::thread thread_;
 };

@@ -2161,6 +2161,8 @@ void Runtime::show_match_pause_menu() {
     } else
         status_ = "Pause menu unavailable";
     // The menu opens with the ring hidden, unless Always show focus is on.
+    // A ring that was on the panel's buttons does not follow the menu in.
+    leave_hud_button_focus();
     oa_layer().note_family_opened();
 }
 
@@ -2945,6 +2947,87 @@ oa::ui::gui_input::GadgetOwner* load_unplaced_panel(
     return oa::ui::gui_input::load_panel(panel, layout, name, panel_flag::no_draw);
 }
 
+/// One key sent through the gadget engine's copy of the open panel.
+struct OpenPanelKey {
+    bool ok = false;
+    int32_t left = 0; ///< 0 when the engine took the key
+    int32_t focus = oa::ui::gui_layout::kNoGadget;
+    bool slider = false;
+    int16_t knob = 0;
+};
+
+/// Whether Shift is held, for the copy of the panel. The loaded panel has no keys of its own.
+struct ShiftHeld {
+    bool down = false;
+};
+
+/// Sends one key to a copy of the open panel and reads where the focus and a slider landed.
+///
+/// @param layout the panel as shown
+/// @param name the panel's GUI file
+/// @param focus the record that has the keyboard focus, or none
+/// @param code the gadget engine's key
+/// @param shift whether Shift is held
+/// @return what the key did; ok is false when the panel does not load
+OpenPanelKey dispatch_open_panel_key(
+    const oa::ui::gui_layout::Layout& layout,
+    std::string_view name,
+    int32_t focus,
+    int32_t code,
+    bool shift
+) {
+    namespace gui_input = oa::ui::gui_input;
+    OpenPanelKey sent;
+    gui_input::GadgetPanel panel;
+    auto* owner = load_unplaced_panel(panel, layout, name);
+    if (owner == nullptr)
+        return sent;
+    ShiftHeld held;
+    held.down = shift;
+    panel.host.context = &held;
+    panel.host.is_key_down = [](void* context, int32_t asked) {
+        return static_cast<const ShiftHeld*>(context)->down && asked == gui_input::key_code::shift;
+    };
+    const auto& gadgets = layout.gadgets;
+    owner->focus = focus > 0 && static_cast<std::size_t>(focus) < gadgets.size()
+                       ? focus
+                       : oa::ui::gui_layout::kNoGadget;
+    sent.left = gui_input::dispatch_key(panel, code);
+    sent.focus = owner->focus;
+    sent.ok = true;
+    if (sent.focus <= 0 || static_cast<std::size_t>(sent.focus) >= owner->records().size())
+        return sent;
+    const auto& record = owner->records()[static_cast<std::size_t>(sent.focus)];
+    if (oa::ui::gui_layout::gadget_type_of(record) !=
+        static_cast<uint8_t>(oa::ui::gui_layout::GadgetType::scroll_bar))
+        return sent;
+    sent.slider = true;
+    sent.knob = oa::ui::gui_layout::record_i16(record, oa::ui::gui_layout::field::scroll_knob);
+    return sent;
+}
+
+/// Page Up, Page Down, Home or End, with no Ctrl, Alt or system key.
+///
+/// The arrows are the menu-focus actions, so a layout can move them. These
+/// four keep stepping a slider from the key itself.
+int32_t panel_page_key(const SDL_KeyboardEvent& key) {
+    namespace gui_input = oa::ui::gui_input;
+    if ((key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0)
+        return 0;
+    switch (key.key) {
+    case SDLK_PAGEUP:
+        return gui_input::key_code::page_up;
+    case SDLK_PAGEDOWN:
+        return gui_input::key_code::page_down;
+    case SDLK_HOME:
+        return gui_input::key_code::home;
+    case SDLK_END:
+        return gui_input::key_code::end;
+    default:
+        return 0;
+    }
+}
+
 } // namespace
 
 int32_t Runtime::loaded_panel_focus() const {
@@ -3032,6 +3115,13 @@ void Runtime::open_match_options_page(ui::OptionsPanel which) {
                       << '\n';
         }
     }
+    // The sweep opens the Sound page after the Options already hold the
+    // keyboard. A ring the player has moved since stays on its control.
+    std::string ringed;
+    if (oa_layer_ != nullptr && oa_layer_->family_ring_shown() && match_hud_ &&
+        match_hud_focus_ > 0 &&
+        static_cast<std::size_t>(match_hud_focus_) < match_hud_->layout.gadgets.size())
+        ringed = match_hud_->layout.gadgets[static_cast<std::size_t>(match_hud_focus_)].common.name;
     if (!load_match_hud_layout(oa::data::defs::gui_path(kPreferencesLayout))) {
         status_ = "options panel unavailable: PREFS.GUI did not load";
         std::cerr << status_ << '\n';
@@ -3121,6 +3211,15 @@ void Runtime::open_match_options_page(ui::OptionsPanel which) {
     panel_to_widgets(panel, layout, widget_gaf_frames_, widget_text_stages_);
     // Each sub-panel loader ends by giving its labels the shadow bit.
     oa::ui::gui_input::mark_label_shadows(layout.gadgets);
+    if (!ringed.empty()) {
+        for (std::size_t index = 1; index < layout.gadgets.size(); ++index) {
+            const auto& common = layout.gadgets[index].common;
+            if (common.active != 0 && common.name == ringed) {
+                match_hud_focus_ = static_cast<int32_t>(index);
+                break;
+            }
+        }
+    }
     // The page takes the place of the turned-over picture.
     if (context.host.release_lightbar != nullptr)
         context.host.release_lightbar(context.host.context);
@@ -3495,22 +3594,33 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         match_panels_keyboard_ || match_hud_panel_ == oa::data::defs::gui_path(kPreferencesLayout);
     if (!keyboard && !confirming)
         return false;
-    // Tab and Shift+Tab show the family's ring and are not taken. The
-    // console's options key still sees Tab, as it does today. The menus'
-    // next-button action is not searched while a match panel holds the
-    // keyboard, so the key itself is what asks.
+    // The menu moves are the actions the player bound. The match does not
+    // search the menus' context, so the feed offers those actions. Tab itself
+    // is still the team menu's key when that menu is offered (below).
     const bool tab_key = (key.key == SDLK_TAB || key.scancode == SDL_SCANCODE_TAB) &&
                          (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) == 0;
-    if (keyboard && tab_key && oa_layer_ != nullptr)
-        oa_layer_->note_family_tab();
+    const bool shift_held = (key.mod & SDL_KMOD_SHIFT) != 0;
+    const bool ring = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
     namespace bindings = oa::ui::key_bindings;
     const auto down = [](const bindings::ActionEvent* fired) {
         return fired != nullptr && fired->phase == bindings::Phase::pressed;
+    };
+    const auto moved = [](std::string_view id, const Runtime* self) {
+        return self->fired_action(id) != nullptr;
     };
     const bool accept = down(fired_action("ui.menu-accept"));
     const bool cancel = down(fired_action("ui.menu-cancel"));
     const bool press = down(fired_action("ui.menu-press"));
     const bool menu_key = accept || cancel || press;
+    const bool next = moved("ui.menu-focus-next", this);
+    const bool previous = moved("ui.menu-focus-previous", this);
+    const bool focus_left = moved("ui.menu-focus-left", this);
+    const bool focus_right = moved("ui.menu-focus-right", this);
+    const bool focus_up = moved("ui.menu-focus-up", this) || moved("ui.menu-list-up", this);
+    const bool focus_down_key =
+        moved("ui.menu-focus-down", this) || moved("ui.menu-list-down", this);
+    const bool focus_move =
+        next || previous || focus_left || focus_right || focus_up || focus_down_key;
     const auto panel_events = match_action_events();
     bool gui_pressed = false;
     for (const bindings::ActionEvent& fed : panel_events) {
@@ -3520,9 +3630,10 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         }
     }
     // Keys with Ctrl, Alt or the system key down type no character. A menu or
-    // button action that was moved onto such a chord still answers.
+    // button action that was moved onto such a chord still answers. Alt+Tab
+    // is not offered, so it does not walk.
     const bool modified = (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0;
-    if (modified && !menu_key && !gui_pressed)
+    if (modified && !menu_key && !gui_pressed && !focus_move)
         return false;
     // The surrender question answers Enter and Escape outside this panel.
     if (confirming && (accept || cancel))
@@ -3531,6 +3642,90 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
     if (!keyboard && press)
         return false;
     const auto& gadgets = match_hud_->layout.gadgets;
+    const auto keep = [&](const OpenPanelKey& sent) {
+        if (!sent.ok)
+            return;
+        if (sent.focus > 0 && static_cast<std::size_t>(sent.focus) < gadgets.size())
+            match_hud_focus_ = sent.focus;
+        if (!sent.slider || sent.focus <= 0 ||
+            static_cast<std::size_t>(sent.focus) >= gadgets.size())
+            return;
+        auto* bar = std::get_if<oa::ui::gui_layout::ScrollBarFields>(
+            &match_hud_->layout.gadgets[static_cast<std::size_t>(sent.focus)].fields
+        );
+        if (bar == nullptr || bar->knob_position == sent.knob)
+            return;
+        bar->knob_position = sent.knob;
+        preferences_bar_moved(static_cast<std::size_t>(sent.focus));
+    };
+    // In a shared game, and in every game while the alliance menu is offered
+    // everywhere, the team menu's key opens and closes that menu over these
+    // panels, as in 3.1c. When this Tab is that key it shows the ring and goes
+    // on to the team menu, as it did before the panels walked by Tab.
+    bool team_menu_key = false;
+    if (tab_key && (multiplayer_session() || team_menu_every_game())) {
+        for (const bindings::ActionEvent& fed : panel_events) {
+            if (fed.phase == bindings::Phase::pressed && fed.action == "game.team-menu") {
+                team_menu_key = true;
+                break;
+            }
+        }
+    }
+    if (keyboard && tab_key && team_menu_key && oa_layer_ != nullptr)
+        oa_layer_->note_family_tab();
+    // Next and Previous move along the panel's order. On the default layout
+    // those are Tab and Shift+Tab. The first stop is already focused; this
+    // key lands on the next one and shows the ring. The direction is the
+    // action's, so a Previous chord that holds no Shift still goes backward.
+    if (keyboard && (next || previous) && !team_menu_key) {
+        if (oa_layer_ != nullptr)
+            oa_layer_->note_family_tab();
+        keep(dispatch_open_panel_key(
+            match_hud_->layout,
+            match_hud_panel_,
+            match_hud_focus_,
+            gui_input::key_code::tab,
+            previous && !next
+        ));
+        return true;
+    }
+    // Once the ring shows, the focus actions move it, and Left and Right step
+    // a slider. Page, Home and End step a slider from the key. While the ring
+    // is hidden those keys do what they did before.
+    int32_t aimed = 0;
+    if (focus_left)
+        aimed = gui_input::key_code::left;
+    else if (focus_right)
+        aimed = gui_input::key_code::right;
+    else if (focus_up)
+        aimed = gui_input::key_code::up;
+    else if (focus_down_key)
+        aimed = gui_input::key_code::down;
+    const int32_t page = panel_page_key(key);
+    const int32_t arrow = aimed != 0 ? aimed : page;
+    if (keyboard && arrow != 0 && ring) {
+        const OpenPanelKey sent = dispatch_open_panel_key(
+            match_hud_->layout, match_hud_panel_, match_hud_focus_, arrow, shift_held
+        );
+        if (sent.ok && sent.left == 0) {
+            keep(sent);
+            return true;
+        }
+    }
+    // Return, once the ring shows, presses the focused button and hides the
+    // ring. A slider and any other control that is not a button keep the
+    // panel's Enter default. While the ring is hidden, Return is that default.
+    if (keyboard && accept && ring && match_hud_focus_ > 0 &&
+        static_cast<std::size_t>(match_hud_focus_) < gadgets.size()) {
+        const auto& focused = gadgets[static_cast<std::size_t>(match_hud_focus_)];
+        const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&focused.fields);
+        if (focused.common.active != 0 && button != nullptr && !button->grayed_out) {
+            if (oa_layer_ != nullptr)
+                oa_layer_->note_family_return();
+            activate_match_hud(static_cast<std::size_t>(match_hud_focus_));
+            return true;
+        }
+    }
     // Enter, Escape and Space go to the panel's key dispatch first.
     if (menu_key) {
         gui_input::GadgetPanel panel;

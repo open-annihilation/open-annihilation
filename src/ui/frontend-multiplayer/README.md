@@ -49,3 +49,5 @@ A viewer counts each unit-check record the host sends, and the count keeps going
 ## Limitations
 
 The chat ring holds text only, so the lines carry the words and not a colour. The second line of the host's block is left out when the frame has no room for it. A guest's row can sit above the player rows when GET MAP's box leaves no clear place under them.
+
+Next button and Previous button move through the connection screens and the battle room, following the player's key layout. With the game's own layout those are Tab and Shift+Tab. Until one of them is pressed, the battle room's arrows keep the walk they had. What the keys do is described in [docs/multiplayer/keyboard.md](../../../docs/multiplayer/keyboard.md).

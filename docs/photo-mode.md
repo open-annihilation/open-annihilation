@@ -62,6 +62,29 @@ Opening the game menu, or Settings, leaves photo mode first.
 A new window size lays the battlefield out alone at that size. Leaving
 puts back the play layout of the size the window has then.
 
+## Controller and touch
+
+Hold View and press L2 to open photo mode (Menu and L2 on a gamepad
+without grips). A takes the photo, B leaves, X freezes the battle or lets
+a frozen battle run, and on a shared match it holds the picture. Y hides
+the panel. The first press of the D-pad shows the focus ring, and the
+D-pad then moves through the panel: left and right change a switch, a
+slider or Run, Slow and Freeze, and A presses a focused button, as Enter
+does. The ring then goes, so the next A takes the photo. The left stick
+pans. The right stick zooms up and down, and turns left and right when the
+view can turn. The grips do nothing.
+
+On a phone, MENU's Photo mode opens it. A one-finger drag on the battlefield
+pans, a pinch zooms, and a two-finger twist turns when the view can turn.
+The panel's controls are finger-sized. One section is open at a time. Leave
+and Take photo stay in reach, and a one-finger drag that starts on the
+panel scrolls the rows between them. Size and Smooth edges each have a row
+for the label and the pixels, and the stops on the whole row under it.
+Where four stops would be narrower than a finger, Size takes two rows of
+two. The hint reads Show panel. Once a
+controller has been used, the key line names A, B, X and Y. A tablet's
+MENU opens the in-game menu, which has no Photo mode button yet.
+
 ## Time
 
 On a skirmish or a campaign mission, entering photo mode stops the battle
@@ -74,10 +97,14 @@ to the tick you stopped on. That choice is drawn whether or not Smooth
 motion is on. Running on continues from the tick you are on. The time
 the battle spent stopped is not played.
 
-In a replay, stopping uses the replay's own pause, and slowing uses the
-replay's own speeds. Slow lifts that pause, so the replay plays at the
-speed you chose. The line says Frozen only while the replay's pause is
-on. Stepping, and the moment between ticks, come later.
+In a replay, Freeze is the replay's pause and Slow is half speed. Slow
+lifts that pause, so the replay plays at half speed. Run puts back the
+speed the replay had when photo mode opened. + and − step that speed.
+Stepping moves one recorded moment and then pauses. The moment between
+two ticks, in the same eighths, is there while the replay is paused.
+The line says Frozen only while the replay's pause is on, and Slow ½×
+while it plays at half speed. A replay that was playing when photo mode
+opened keeps playing. See [From a replay](#from-a-replay).
 
 In a match shared with other machines, whether you play or you watch, the
 battle is not stopped, slowed or stepped, and nothing is sent to the other
@@ -136,18 +163,41 @@ Run, or Hold picture pressed again, lets go of the held picture. Slow,
 Speed, Step and Between ticks say Shared game on the next line and do not
 move the battle. A replay keeps its own pause.
 
-Look has Show selection, Show health bars and Guides. Guides cycles thirds,
-the centre, the safe area, and the crops 16:9, 3:2, 4:3, 1:1, 4:5, 9:16
-and 21:9. The lines are drawn over the battlefield and are never in a
-photo. A chosen crop writes the photo centred to that shape.
+Look has a colour grade (None, 1997, Dusk, Arctic, Noir, Bleach), Vignette
+and its Roundness, Grain and its Size, and a Frame (None, Thin border, Wide
+mat, Caption bar), then Show selection, Show health bars and Guides. Guides
+cycles thirds, the centre, the safe area, and the crops 16:9, 3:2, 4:3, 1:1,
+4:5, 9:16 and 21:9. The lines are drawn over the battlefield and are never
+in a photo. A chosen crop writes the photo centred to that shape.
 
-Photo has Size (Screen, until a later ticket), Copy to clipboard, Player
-names, the file name the next photo will use, Take photo and Copy. Size
-and the file name are words, not buttons. Take photo is the lime button.
+Photo has Size (Screen, 2×, 3× and 4× the battlefield) and Smooth edges
+(Off, 2× and 4×). Each row is labelled. The chosen size's pixels are written
+once, on the Size row, as in Size 2× 1280×960. The classic look writes x,
+because its font has no multiplication sign. Then Copy to clipboard, Player
+names, the file name the next photo will use, Take photo and Copy.
+
+Off and Basic draw a larger photo with bigger pixels, the same picture the
+window already drew. Smooth edges is locked there, because Off and Basic
+draw whole pixels, and a smoothed photo would be the Screen photo. Full
+draws a larger photo on the card at the anti-aliasing the window is using.
+The reason names the picture size that fits at that factor, not the card's
+raw limit. The 3D view draws a larger photo up to the largest picture whose
+sampling matches the window's frame at this anti-aliasing.
+
+A size can be missing because of the card's limit, because there is not
+enough memory, or because the match is a shared game. Locks that share a
+reason are named once, as in 2×, 3× and 4×: Shared game, under the rows,
+over as many lines as the sentence needs. A shared match
+offers Screen, and smooth edges at 2× in Full and the 3D view, and the
+larger sizes say Shared game.
+While a picture is held, the photo is that Screen copy whatever the rows
+said, and both rows are locked with Held picture. The file name is words,
+not a button. Take photo is the lime button.
 
 Chips at the top left say where you are. A skirmish shows Photo mode,
-Frozen or Slow, and the clock. A replay shows Replay paused and the clock
-while the replay is paused. A shared match shows Live in amber, and the
+Frozen or Slow, and the clock. A replay shows Replay paused, the clock and
+the replay's length while the replay is paused, and Photo mode with that
+clock and length while it plays. A shared match shows Live in amber, and the
 under-attack line and the chat count under the chips. The head of the panel
 says which key leaves, with Esc, and pressing it leaves photo mode. The
 line along the bottom gives the keys that leave, take a photo, freeze, hide
@@ -164,7 +214,52 @@ a frame writes nothing, and the match's message log says Photo not taken.
 Tab and Shift+Tab reach every control. The panel opens on its first control
 with no focus ring. The ring appears once Tab or Shift+Tab moves the focus,
 and Return or moving the pointer hides it. Return, the arrows and Space do
-what they do in photo mode whenever that ring is not showing.
+what they do in photo mode whenever that ring is not showing. With the ring
+on a slider, Left and Right move it a stop, Page Up and Page Down a tenth
+of its range, and Home and End to its ends.
+
+## Looks
+
+A look is a colour grade, a vignette, grain and a frame. None, with the
+vignette and the grain at 0 and no frame, leaves the picture as it was.
+Roundness and grain size do nothing while their amounts are 0. The grade,
+the vignette and the grain run after the player's gamma. Grain is seeded
+from the match's tick, so the same moment makes the same grain. The caption
+bar names the map, the game clock and the date, drawn with the interface
+face, so the words do not depend on the match's data.
+
+Off and Basic filter the composed battlefield before it is presented. Full
+reads that battlefield back, filters it and draws it back in its place. The
+turned view reads the frame back while a look is on. A frozen battle, and a
+held picture, filter again only when the camera or the look changes. While
+time is running, or slow, Full and the turned view filter every frame, and
+the panel says the preview lowers the frame rate.
+
+The photo is that same filter, on every size. Grain size counts the
+battlefield's pixels as the window shows them, so a photo at 2×, 3× or 4×
+draws each grain that many times larger and carries the grain the preview
+shows; the frame and the caption bar grow with the picture too. A crop is
+cut before the
+look, so the frame, the vignette and the grain sit on the crop, and the
+preview paints them there too, leaving the battlefield outside the crop as
+it is. With no look on, the preview and the photo match a visit that never
+offered one. Guides stay over the battlefield and out of the photo. The
+panel is not filtered, and neither is the Open Annihilation layer.
+Explosion flash stays as it was set.
+
+While a caption bar is on, the key line keeps off the bar at every size,
+with the panel shown or hidden, so the words can be read before the photo
+is taken. The bar lies at the bottom of the photo, which with a crop is
+the crop's bottom: the key line stays under a crop that leaves it room,
+and otherwise sits above the bar. The panel stops above the bar while its
+rows fit there, and the notice after a photo sits above it too. Hiding the
+panel leaves the hint and that key line; the bar itself is the photo's
+bar. The preset
+names wrap onto as many rows as they need, and each chip shows its whole
+name. When a look is on, the photo's record names the grade, the vignette
+and its roundness, the grain, its size as the panel chose it
+(`grain_size`) and as the photo drew it (`grain_pixels`, the panel's size
+times the photo's size factor), and the frame.
 
 ## Keys
 
@@ -173,6 +268,10 @@ mode", and its own area, Photo mode, with no legend letter. Every command
 in that area can be moved. F9 opens photo mode while you play or watch.
 F9 leaves it while it is open. They are different commands. Escape leaves
 too, and no photo command takes Escape.
+
+`,` steps back one recorded moment and then pauses. J and L jump ten
+seconds back and forward, and Shift+J and Shift+L jump a minute. Those
+jumps land on the same battle a straight watch would.
 
 Enter takes a photo and does not open the chat line. A photo taken as photo
 mode opens waits until a photo-mode frame has been presented, one frame, so
@@ -197,6 +296,29 @@ photo and still does not change the match.
 
 The commands and their default keys are listed under Photo mode in
 [Keys](keys.md#photo-mode).
+
+## From a replay
+
+The photo button on the playback bar, and F9, open photo mode. The button
+sits on the bar beside Chat, Keys and Leave. The replay keeps playing if
+it was playing. Freeze is the replay's pause. Slow is half speed. Run
+puts back the speed from when photo mode opened. + and − step the speed
+the replay is watched at.
+
+Step moves one recorded moment, then pauses. Step back does the same
+the other way. The ten-second and one-minute jumps land on the same
+battle a straight watch would. The view you framed stays where it is
+when the replay jumps.
+
+The photo names the recording's file, its digest and the moment. It never
+names a folder. With player names off, the file name stays out and the
+digest and the moment remain.
+
+Leaving returns to the playback bar. The pause and the speed stay as you
+left them. The bar is not drawn while the photo screen is up, including
+a bar you pinned, and its controls and the player list leave the tree
+until you come back. While the replay is paused, the chips show Replay
+paused, the clock and the replay's length.
 
 ## Leaving
 

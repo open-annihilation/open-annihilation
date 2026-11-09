@@ -431,6 +431,99 @@ void check_column_repair_and_keys() {
     );
 }
 
+struct ShiftHeld {
+    bool down = false;
+};
+
+input::GadgetHost shift_host(ShiftHeld& held) {
+    input::GadgetHost host;
+    host.context = &held;
+    host.is_key_down = [](void* context, int32_t code) {
+        return static_cast<ShiftHeld*>(context)->down && code == input::key_code::shift;
+    };
+    return host;
+}
+
+/// Focus after one key on a copy of the panel. Shift walks Tab backward.
+int32_t
+focus_after_key(std::vector<layout::Gadget> gadgets, int32_t focus, int32_t key, bool shift) {
+    input::GadgetPanel panel;
+    input::init_gadget_panel(panel);
+    layout::Layout loaded;
+    loaded.gadgets = std::move(gadgets);
+    auto* owner = input::load_panel(panel, loaded, "PANEL", input::panel_flag::no_draw);
+    require(owner != nullptr, "the panel loads");
+    ShiftHeld held;
+    held.down = shift;
+    panel.host = shift_host(held);
+    owner->focus = focus;
+    input::dispatch_key(panel, key);
+    return owner->focus;
+}
+
+/// Knob position after one key on a focused slider.
+int16_t slider_after_key(std::vector<layout::Gadget> gadgets, int32_t focus, int32_t key) {
+    input::GadgetPanel panel;
+    input::init_gadget_panel(panel);
+    layout::Layout loaded;
+    loaded.gadgets = std::move(gadgets);
+    auto* owner = input::load_panel(panel, loaded, "PANEL", input::panel_flag::no_draw);
+    require(owner != nullptr, "the options panel loads");
+    owner->focus = focus;
+    input::dispatch_key(panel, key);
+    require(
+        owner->focus > 0 && static_cast<std::size_t>(owner->focus) < owner->records().size(),
+        "the slider keeps the focus"
+    );
+    const auto& record = owner->records()[static_cast<std::size_t>(owner->focus)];
+    return layout::record_i16(record, layout::field::scroll_knob);
+}
+
+// Tab and Shift+Tab on the in-game menu, and Tab and a slider on its options.
+void check_match_menu_keys(const oa::AssetStore& assets) {
+    const auto menu = load_gui(assets, "guis/ARMOPT.GUI");
+    const std::vector<int32_t> order = input::tab_order(menu);
+    require(order.size() >= 2, "the in-game menu has more than one stop");
+    require(
+        focus_after_key(menu, order.front(), input::key_code::tab, false) == order[1],
+        "Tab in the in-game menu moves off the first stop"
+    );
+    require(
+        focus_after_key(menu, order[1], input::key_code::tab, true) == order.front(),
+        "Shift+Tab in the in-game menu moves back"
+    );
+
+    auto prefs = load_gui(assets, "guis/PREFS.GUI");
+    merge_panel(prefs, load_gui(assets, "guis/SOUNDSRT.GUI"));
+    const std::vector<int32_t> pref_order = input::tab_order(prefs);
+    require(pref_order.size() >= 2, "the in-game options have more than one stop");
+    require(
+        focus_after_key(prefs, pref_order.front(), input::key_code::tab, false) == pref_order[1],
+        "Tab in the in-game options moves off the first stop"
+    );
+    int32_t bar = -1;
+    for (std::size_t index = 1; index < prefs.size(); ++index) {
+        const layout::Gadget& gadget = prefs[index];
+        if (gadget.common.type != layout::GadgetType::scroll_bar || gadget.common.active == 0)
+            continue;
+        if (gadget.common.width <= gadget.common.height)
+            continue;
+        bar = static_cast<int32_t>(index);
+        break;
+    }
+    require(bar > 0, "the in-game options have a slider");
+    auto& fields = std::get<layout::ScrollBarFields>(prefs[static_cast<std::size_t>(bar)].fields);
+    if (fields.range < 12)
+        fields.range = 21;
+    fields.knob_position = 10;
+    require(
+        slider_after_key(prefs, bar, input::key_code::right) == 11, "Right steps an options slider"
+    );
+    require(
+        slider_after_key(prefs, bar, input::key_code::left) == 9, "Left steps an options slider"
+    );
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -439,6 +532,7 @@ int main(int argc, char** argv) {
         try {
             check_speeds_panel_labels(assets);
             check_installed_tab_orders(assets);
+            check_match_menu_keys(assets);
         } catch (const std::exception& error) {
             std::cerr << error.what() << '\n';
             return 1;

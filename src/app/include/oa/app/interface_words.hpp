@@ -533,6 +533,26 @@ inline constexpr std::string_view interface_words[] = {
     "Applied in this order.",
     "Click to change.",
     "Click to read.",
+    // Spoken updates: chat, the lobby, a match and the consoles.
+    "An option changed",
+    "Commander under attack",
+    "Defeat",
+    "The countdown has started",
+    "The host has left",
+    "The map is {name}",
+    "There are no saved games to choose from",
+    "Victory",
+    "Whisper from {name}: {text}",
+    "{count} new lines in {room}",
+    "{name} changed colour to {colour}",
+    "{name} changed side to {side}",
+    "{name} changed team to {team}",
+    "{name} is not ready",
+    "{name} is ready",
+    "{name} joined",
+    "{name} left",
+    "battle room",
+    "match",
 };
 
 } // namespace oa::app

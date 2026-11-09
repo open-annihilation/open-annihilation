@@ -1955,6 +1955,51 @@ actions:
     source: [OA]
     default: ["G"]
     words: {name: "Guides", description: "Cycles the guides over the battlefield"}
+  photo.step-back:
+    area: photo
+    order: 18
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: [","]
+    words: {name: "Step back", description: "Goes back one tick, then freezes"}
+  photo.scrub-back:
+    area: photo
+    order: 19
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["J"]
+    words: {name: "Back 10 seconds", description: "Jumps back ten seconds"}
+  photo.scrub-forward:
+    area: photo
+    order: 20
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["L"]
+    words: {name: "Forward 10 seconds", description: "Jumps forward ten seconds"}
+  photo.scrub-back-long:
+    area: photo
+    order: 21
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Shift+J"]
+    words: {name: "Back a minute", description: "Jumps back a minute"}
+  photo.scrub-forward-long:
+    area: photo
+    order: 22
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Shift+L"]
+    words: {name: "Forward a minute", description: "Jumps forward a minute"}
   debug.keys:
     area: developer
     order: 1
@@ -2608,3 +2653,10 @@ actions:
     source: [3.1c]
     default: ["Down", "WheelDown"]
     words: {name: "List down", description: "Steps a list down, or moves the focus down from a button"}
+  ui.hud-focus:
+    area: menus
+    order: 12
+    context: [play]
+    kind: press
+    source: [OA]
+    words: {name: "Focus the panel's buttons", description: "Moves a ring over the order buttons and the build page. Press again to return to the battlefield."}

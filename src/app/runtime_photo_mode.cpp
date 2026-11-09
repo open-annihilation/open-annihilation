@@ -181,13 +181,13 @@ std::string Runtime::photo_status_line() {
             (bits & (extension_state::shared_match | extension_state::local_watcher)) != 0;
         // A shared match never shows Frozen: its clock is the battle's, and it
         // keeps running. Freeze is this machine's hold, beside the pause key.
-        // A replay says Frozen only while its own pause is on.
-        const bool replay = !shared && photo_time_is_replay();
-        const bool replay_paused =
-            replay && (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
-        const bool frozen =
-            !shared && (replay ? replay_paused : photo_->time == PhotoState::Time::frozen);
-        const bool slow = !shared && !frozen && photo_->time == PhotoState::Time::slow;
+        // A replay says Frozen while its playback is paused, and Slow with
+        // half speed while it plays below 1×.
+        const bool replay = !shared && photo_->replay_visit;
+        if (replay)
+            note_replay_photo_pace();
+        const bool frozen = !shared && photo_frozen();
+        const bool slow = !shared && !frozen && photo_slow_speed() > 0;
         if (frozen) {
             line += "  ";
             line += oa::data::languages::interface_text("Frozen");
@@ -195,7 +195,10 @@ std::string Runtime::photo_status_line() {
             line += "  ";
             line += oa::data::languages::interface_text("Slow");
             line += ' ';
-            line += std::to_string(photo_->slow_speed * 3);
+            if (replay)
+                line += oa::data::languages::interface_text("½×");
+            else
+                line += std::to_string(photo_->slow_speed * 3);
         }
         if (photo_->picture_held) {
             line += "  ";
@@ -417,6 +420,9 @@ bool Runtime::enter_photo_mode() {
             oa_layer().close(open);
     }
     try {
+        // The panel reads this on its first layout, which is this call.
+        if (photo_time_is_replay())
+            photo_->replay_visit = true;
         open_photo_panel();
         refresh_photo_kept_view();
         // Freeze after the screen is up, so a throw still leaves cleanly.
@@ -424,8 +430,39 @@ bool Runtime::enter_photo_mode() {
         if (photo_time_is_local()) {
             photo_->time = PhotoState::Time::frozen;
             snap_held_clock();
-        } else if (photo_time_is_replay())
-            photo_->entry_speed = match_->state().game.requested_speed;
+        } else if (photo_time_is_replay()) {
+            // The viewing speed, not the recorded pace. 0, while a skip is
+            // running, is 1×. A replay already paused is paused through the
+            // playback, so a later jump keeps that pause. A playing replay
+            // stays playing.
+            photo_->replay_visit = true;
+            ReplayPlaybackView playback{};
+            const bool filled = call_hook_or_report<&Extension::replay_state>(
+                extension_, hook_error_report(), *this, &playback
+            );
+            uint32_t milli = 1000;
+            if (filled && playback.asked_milli != 0)
+                milli = playback.asked_milli;
+            if (milli > 65535U)
+                milli = 65535U;
+            photo_->entry_speed = static_cast<uint16_t>(milli);
+            const bool bit =
+                (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+            const bool paused = bit || (filled && playback.paused);
+            if (paused) {
+                call_hook_or_report<&Extension::replay_pause>(
+                    extension_, hook_error_report(), *this
+                );
+            }
+            if (filled) {
+                photo_->replay_tick_seen = playback.tick;
+                photo_->replay_length_seen = playback.length_known;
+            }
+            photo_->replay_paused_seen = paused;
+            photo_->replay_slow_seen =
+                (!paused && filled && playback.asked_milli > 0 && playback.asked_milli < 1000) ? 1
+                                                                                               : 0;
+        }
     } catch (...) {
         leave_photo_mode();
         return false;
@@ -441,6 +478,7 @@ bool Runtime::enter_photo_mode() {
 void Runtime::leave_photo_mode(bool match_ending, bool restore_keys_overlay) noexcept {
     if (photo_ == nullptr)
         return;
+    clear_photo_look_cache();
     // A photo asked for before a frame, then left in that same visit, is
     // dropped. Say so, where the line used to stay quiet.
     if (photo_->capture_waiting) {
@@ -462,9 +500,12 @@ void Runtime::leave_photo_mode(bool match_ending, bool restore_keys_overlay) noe
     // A feature the photo view put under the pointer stays in the bar.
     clear_match_hover();
     // The time field alone: this function must not ask the extension, whose
-    // state hook can throw. A replay's pause bit and speed are left as they are.
-    const bool resume =
-        photo_->time == PhotoState::Time::frozen || photo_->time == PhotoState::Time::slow;
+    // state hook can throw. A replay's pause and viewing speed are the
+    // playback's own, and are left as they are. Snapping the held clock is
+    // the local match's bookkeeping.
+    const bool replay_visit = photo_->replay_visit;
+    const bool resume = !replay_visit && (photo_->time == PhotoState::Time::frozen ||
+                                          photo_->time == PhotoState::Time::slow);
     const auto state = std::move(photo_);
     match_layout_ = state->layout;
     match_camera_x_ = state->camera_x;
@@ -530,11 +571,25 @@ bool Runtime::photo_clock_held() const {
 }
 
 bool Runtime::photo_frozen() const noexcept {
-    return photo_ != nullptr && photo_->time == PhotoState::Time::frozen;
+    if (photo_ == nullptr)
+        return false;
+    if (photo_->replay_visit) {
+        const bool bit = match_ != nullptr &&
+                         (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+        return bit || photo_->replay_paused_seen;
+    }
+    return photo_->time == PhotoState::Time::frozen;
 }
 
 int32_t Runtime::photo_slow_speed() const noexcept {
-    if (photo_ == nullptr || photo_->time != PhotoState::Time::slow)
+    if (photo_ == nullptr)
+        return 0;
+    if (photo_->replay_visit) {
+        if (photo_frozen())
+            return 0;
+        return photo_->replay_slow_seen;
+    }
+    if (photo_->time != PhotoState::Time::slow)
         return 0;
     return photo_->slow_speed;
 }
@@ -553,13 +608,14 @@ bool Runtime::photo_freeze() {
     if (!photo_time_is_local()) {
         if (!photo_time_is_replay())
             return false;
-        auto& game = match_->state().game;
-        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0)
+        if (photo_frozen())
             return false;
-        run_console_hotkey(oa::ui::console::hotkey::pause);
-        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0)
+        call_hook_or_report<&Extension::replay_pause>(extension_, hook_error_report(), *this);
+        if ((match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0)
             return false;
-        photo_->time = PhotoState::Time::frozen;
+        photo_->replay_visit = true;
+        photo_->replay_paused_seen = true;
+        photo_->replay_slow_seen = 0;
         photo_->shutter = false;
         return true;
     }
@@ -578,31 +634,24 @@ bool Runtime::photo_run() {
     if (!photo_time_is_local()) {
         if (!photo_time_is_replay())
             return false;
-        bool acted = false;
-        auto& game = match_->state().game;
-        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0) {
-            run_console_hotkey(oa::ui::console::hotkey::pause);
-            acted = (game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0;
-        }
-        if (photo_->slow_speed != 0) {
-            auto& world = match_->state();
-            const uint16_t before = world.game.requested_speed;
-            const int32_t restore = static_cast<int32_t>(photo_->entry_speed);
-            std::ignore =
-                oa::sim::speed::set_speed(world, restore, message_hooks(), game_speed_range());
-            match_timing_.requested_rate = world.game.requested_speed;
-            match_timing_.actual_rate = world.game.current_speed;
-            preferences_.current_game_speed = world.game.current_speed;
-            if (world.game.requested_speed != before)
-                call_hook_or_report<&Extension::speed_changed>(
-                    extension_, hook_error_report(), *this, world.game.requested_speed
-                );
-            photo_->slow_speed = 0;
-            acted = true;
-        }
-        if (!acted)
+        note_replay_photo_pace();
+        ReplayPlaybackView playback{};
+        const bool filled = call_hook_or_report<&Extension::replay_state>(
+            extension_, hook_error_report(), *this, &playback
+        );
+        uint32_t asked = 1000;
+        if (filled && playback.asked_milli != 0)
+            asked = playback.asked_milli;
+        const uint32_t restore = photo_->entry_speed == 0 ? 1000U : photo_->entry_speed;
+        if (!photo_frozen() && asked == restore)
             return false;
-        photo_->time = PhotoState::Time::running;
+        call_hook_or_report<&Extension::replay_set_speed>(
+            extension_, hook_error_report(), *this, static_cast<int32_t>(restore)
+        );
+        call_hook_or_report<&Extension::replay_play>(extension_, hook_error_report(), *this);
+        photo_->replay_visit = true;
+        photo_->replay_paused_seen = false;
+        photo_->replay_slow_seen = restore < 1000U ? 1 : 0;
         photo_->shutter = false;
         return true;
     }
@@ -632,26 +681,18 @@ bool Runtime::photo_slow(int32_t speed) {
     if (photo_->time == PhotoState::Time::slow && photo_->slow_speed == paced)
         return false;
     if (!local) {
-        auto& world = match_->state();
-        auto& game = world.game;
-        // Freeze leaves the replay's pause on. Slow lifts it, as Run does,
-        // so the replay plays at the speed chosen.
-        if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0) {
-            run_console_hotkey(oa::ui::console::hotkey::pause);
-            if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0)
-                return false;
-        }
-        const uint16_t before = world.game.requested_speed;
-        std::ignore = oa::sim::speed::set_speed(world, paced, message_hooks(), range);
-        match_timing_.requested_rate = world.game.requested_speed;
-        match_timing_.actual_rate = world.game.current_speed;
-        preferences_.current_game_speed = world.game.current_speed;
-        if (world.game.requested_speed != before)
-            call_hook_or_report<&Extension::speed_changed>(
-                extension_, hook_error_report(), *this, world.game.requested_speed
-            );
-        photo_->time = PhotoState::Time::slow;
-        photo_->slow_speed = paced;
+        // Every stop asks for half speed, the only viewing speed below 1×.
+        // Slow lifts a pause, so the replay plays at that speed.
+        note_replay_photo_pace();
+        if (!photo_frozen() && photo_->replay_slow_seen != 0)
+            return false;
+        call_hook_or_report<&Extension::replay_set_speed>(
+            extension_, hook_error_report(), *this, int32_t{500}
+        );
+        call_hook_or_report<&Extension::replay_play>(extension_, hook_error_report(), *this);
+        photo_->replay_visit = true;
+        photo_->replay_paused_seen = false;
+        photo_->replay_slow_seen = 1;
         photo_->shutter = false;
         return true;
     }
@@ -667,7 +708,17 @@ bool Runtime::photo_slow(int32_t speed) {
 }
 
 bool Runtime::photo_step() {
-    if (photo_ == nullptr || match_ == nullptr || !photo_time_is_local())
+    if (photo_ == nullptr || match_ == nullptr)
+        return false;
+    if (photo_time_is_replay()) {
+        note_replay_photo_pace();
+        const uint32_t tick = match_->state().game.tick;
+        const uint32_t length = photo_->replay_length_seen;
+        if (length > 0 && tick >= length)
+            return false;
+        return photo_seek_replay_tick(tick + 1U, true);
+    }
+    if (!photo_time_is_local())
         return false;
     const GrantedTicks grant = run_granted_ticks(1, true);
     if (grant.ran == 0)
@@ -678,8 +729,142 @@ bool Runtime::photo_step() {
     return true;
 }
 
+bool Runtime::photo_step_back() {
+    if (photo_ == nullptr || match_ == nullptr || !photo_time_is_replay())
+        return false;
+    note_replay_photo_pace();
+    const uint32_t tick = match_->state().game.tick;
+    if (tick == 0)
+        return false;
+    return photo_seek_replay_tick(tick - 1U, true);
+}
+
+bool Runtime::photo_scrub(int32_t delta) {
+    if (photo_ == nullptr || match_ == nullptr || !photo_time_is_replay())
+        return false;
+    arm_photo_replay_camera();
+    const bool asked = replay_photo_seek_by(delta);
+    if (!asked && photo_ != nullptr) {
+        photo_->guard_camera = false;
+        photo_->guard_awaiting = false;
+    }
+    return asked;
+}
+
+bool Runtime::photo_seek_replay_tick(uint32_t tick, bool pause_first) {
+    if (photo_ == nullptr || match_ == nullptr)
+        return false;
+    if (pause_first) {
+        // Pause through the playback before the jump, so the landing keeps it.
+        call_hook_or_report<&Extension::replay_pause>(extension_, hook_error_report(), *this);
+        photo_->replay_visit = true;
+        photo_->replay_paused_seen = true;
+        photo_->replay_slow_seen = 0;
+        photo_->shutter = false;
+    }
+    arm_photo_replay_camera();
+    const bool asked = replay_photo_seek(tick);
+    if (!asked) {
+        photo_->guard_camera = false;
+        photo_->guard_awaiting = false;
+    }
+    return asked;
+}
+
+void Runtime::note_replay_photo_pace() {
+    if (photo_ == nullptr || !photo_->replay_visit || match_ == nullptr)
+        return;
+    ReplayPlaybackView playback{};
+    const bool filled = call_hook_or_report<&Extension::replay_state>(
+        extension_, hook_error_report(), *this, &playback
+    );
+    const bool bit = (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+    if (!filled) {
+        photo_->replay_paused_seen = bit;
+        if (bit)
+            photo_->replay_slow_seen = 0;
+        return;
+    }
+    photo_->replay_tick_seen = playback.tick;
+    photo_->replay_length_seen = playback.length_known;
+    // A seek clears the pause bit while it runs. Keep the pause this visit
+    // asked for, so the strip does not flicker off until the jump lands.
+    if (playback.skipping && photo_->replay_paused_seen)
+        return;
+    const bool paused = bit || playback.paused;
+    photo_->replay_paused_seen = paused;
+    photo_->replay_slow_seen =
+        (!paused && playback.asked_milli > 0 && playback.asked_milli < 1000U) ? 1 : 0;
+}
+
+void Runtime::arm_photo_replay_camera() {
+    if (photo_ == nullptr)
+        return;
+    photo_->guard_camera = true;
+    photo_->guard_awaiting = true;
+    photo_->guard_live = false;
+    note_photo_replay_camera();
+}
+
+void Runtime::note_photo_replay_camera() {
+    if (photo_ == nullptr || !photo_->guard_camera)
+        return;
+    photo_->guard_camera_x = match_camera_x_;
+    photo_->guard_camera_z = match_camera_z_;
+    photo_->guard_zoom = match_zoom_;
+    photo_->guard_zoom_target = match_zoom_target_;
+    photo_->guard_exact = exact_view_;
+    photo_->guard_hold = view_hold_;
+    if (live_renderer_ != nullptr) {
+        photo_->guard_live = true;
+        const std::array<float, 2> angles = live_camera_angles();
+        photo_->guard_live_yaw = angles[0];
+        photo_->guard_live_pitch = angles[1];
+        photo_->guard_live_unlocked = live_renderer_unlocked();
+    }
+}
+
+void Runtime::guard_photo_replay_camera() {
+    if (photo_ == nullptr || !photo_->guard_camera || match_ == nullptr)
+        return;
+    const bool pending = replay_photo_seek_pending();
+    if (!pending && !photo_->guard_awaiting)
+        return;
+    match_camera_x_ = photo_->guard_camera_x;
+    match_camera_z_ = photo_->guard_camera_z;
+    match_zoom_ = photo_->guard_zoom;
+    match_zoom_target_ = photo_->guard_zoom_target;
+    exact_view_ = photo_->guard_exact;
+    view_hold_ = photo_->guard_hold;
+    if (photo_->guard_live)
+        restore_live_camera(
+            photo_->guard_live_yaw, photo_->guard_live_pitch, photo_->guard_live_unlocked
+        );
+    // A restored follow would centre the view on a recorded unit. The framed
+    // place is the one this visit holds.
+    match_tracking_ = false;
+    tracked_match_unit_ = 0;
+    match_->state().game.follow_unit = 0;
+    terrain_cache_cam_x_ = kUncachedTerrainCamera;
+    if (!pending) {
+        photo_->guard_camera = false;
+        photo_->guard_awaiting = false;
+    }
+}
+
 bool Runtime::photo_between(int32_t eighths) {
-    if (photo_ == nullptr || !photo_time_is_local())
+    if (photo_ == nullptr)
+        return false;
+    if (photo_time_is_replay()) {
+        if (!photo_frozen())
+            return false;
+        if (eighths < 0 || eighths > 8)
+            return false;
+        photo_->shutter = true;
+        photo_->shutter_eighth = eighths;
+        return true;
+    }
+    if (!photo_time_is_local())
         return false;
     if (photo_->time != PhotoState::Time::frozen)
         return false;
@@ -771,7 +956,16 @@ void Runtime::grant_photo_slow_ticks() {
 }
 
 void Runtime::apply_photo_fraction(uint32_t& fraction) const {
-    if (photo_ == nullptr || !photo_time_is_local())
+    if (photo_ == nullptr)
+        return;
+    if (photo_->replay_visit) {
+        if (photo_frozen() && photo_->shutter) {
+            const int32_t eighth = std::clamp(photo_->shutter_eighth, int32_t{0}, int32_t{8});
+            fraction = static_cast<uint32_t>(eighth) * (whole_tick / 8U);
+        }
+        return;
+    }
+    if (!photo_time_is_local())
         return;
     if (photo_->time == PhotoState::Time::frozen && photo_->shutter) {
         const int32_t eighth = std::clamp(photo_->shutter_eighth, int32_t{0}, int32_t{8});

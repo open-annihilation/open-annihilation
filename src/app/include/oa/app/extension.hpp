@@ -263,6 +263,14 @@
 /// main-menu overlay calls it. While it answers, the host owns that key:
 /// the overlay drops its focus and passes the key on. The engine fills it.
 /// No extension fills it. It is not a hook.
+/// Version 21 also adds ScreenServices::bound_focus_action. The multiplayer
+/// screens call it for the focus, list and screen action a key fires, and
+/// for whether the family's ring is showing. The engine fills it. No
+/// extension fills it. It is not a hook.
+/// Version 21 also adds spoken_updates_open, which an extension asks before
+/// it composes a spoken line, and post_extension_note's kinds line, room,
+/// place, muzzle and hear, which go to spoken updates only and are never
+/// returned by take_extension_notes. Neither is a hook.
 #define OA_EXTENSION_API_VERSION 21
 
 namespace oa {
@@ -1866,10 +1874,25 @@ using ExtensionWindowSource =
 /// @param source the list of windows; null removes the source for `context`
 void set_extension_window_source(Runtime& runtime, void* context, ExtensionWindowSource source);
 
+/// Whether spoken updates will be heard.
+///
+/// True under the screen-reader preference `on`, or under `auto` while a
+/// screen reader is running; never under `off`. A module asks before it
+/// composes a spoken line, so a closed gate reads no catalogue and posts no
+/// line. The call does not throw. It is not a hook.
+///
+/// @return true when a spoken line would be announced
+[[nodiscard]] bool spoken_updates_open();
+
 /// Posts a short note a program driving the game can read as an event.
 ///
 /// `kind` and `text` are copied. At most 256 notes are kept; an older one
-/// is dropped. A null or empty kind is ignored. The call does not throw.
+/// is dropped. A null or empty kind is ignored. Kinds `line`, `room`,
+/// `place`, `muzzle` and `hear` are copied into the spoken inbox and not
+/// this ring: the feed never reads them, and a full room must not push the
+/// feed's own notes out. While spoken updates are closed
+/// (`spoken_updates_open`), the inbox takes only `muzzle` and `hear`, so a
+/// player's mute is known when a reader starts. The call does not throw.
 /// It is not a hook. A call may come from any hook.
 ///
 /// @param runtime the running app

@@ -518,6 +518,28 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
     }
     if (count == 0)
         return levels;
+    // A wrapped strip's rows are the bands draw_levels paints. One row keeps
+    // the column walk, so a strip of three is unchanged.
+    const bool wrapped = look.columns > 0 && static_cast<std::size_t>(look.columns) < count;
+    if (wrapped) {
+        const int32_t columns = look.columns;
+        const int32_t rows = (static_cast<int32_t>(count) + columns - 1) / columns;
+        const int32_t gap = std::max(look.row_gap, int32_t{0});
+        const int32_t span = area.height - gap * (rows - 1);
+        const int32_t band_h = rows > 0 ? span / std::max(rows, int32_t{1}) : area.height;
+        const int32_t chip_w = std::max(look.level_width, int32_t{1});
+        for (std::size_t level = 0; level < count; ++level) {
+            const int32_t row = static_cast<int32_t>(level) / columns;
+            const int32_t column = static_cast<int32_t>(level) % columns;
+            levels[level].rect = {
+                area.x + 1 + column * chip_w,
+                area.y + row * (band_h + gap),
+                chip_w,
+                std::max(band_h, int32_t{1}),
+            };
+        }
+        return levels;
+    }
     // Each column belongs to the level a press there chooses.
     bool started = false;
     std::size_t current = 0;

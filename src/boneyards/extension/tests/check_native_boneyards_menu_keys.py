@@ -102,6 +102,19 @@ MENU_CREDITS = (320, 466)
 # With no Tab, the menu's own focus, or the plate's Enter. Credits is not
 # one of them: the base names Single player where a shifted Credits was named.
 NOTAB_FOCUS = {None, "SINGLE", "MULTI", "INTRO", "EXIT", "EnterBYBtn"}
+# The feed offers a release only to a build whose own package it lists, so it
+# lists every platform's: the pill shows wherever the check runs.
+PLATFORMS = (
+    "linux-arm64",
+    "linux-armhf",
+    "linux-x86_64",
+    "macos-universal",
+    "steam-deck",
+    "windows-95",
+    "windows-arm64",
+    "windows-x64",
+    "windows-x86",
+)
 
 
 class Failure(Exception):
@@ -845,7 +858,7 @@ def walk_more_maps(session):
 
 
 def publish_feed(tool, root):
-    """Signs a one-byte 0.9.9 feed and returns its address, key and server."""
+    """Signs a 0.9.9 feed of one-byte packages and returns its address, key and server."""
     serve_root = root / "serve"
     files = serve_root / "files"
     files.mkdir(parents=True)
@@ -857,8 +870,11 @@ def publish_feed(tool, root):
         ["catalogue", "keygen", "--id", "a20-menu-keys", "--out", str(key),
          "--passphrase-file", str(passphrase)],
     )
-    package = files / "open-annihilation-0.9.9-macos-universal.zip"
-    package.write_bytes(b"x")
+    packages = []
+    for platform in PLATFORMS:
+        package = files / f"open-annihilation-0.9.9-{platform}.zip"
+        package.write_bytes(b"x")
+        packages.append(str(package))
 
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -872,7 +888,7 @@ def publish_feed(tool, root):
     run_tool(
         tool,
         ["engine-feed", "write", "--version=0.9.9", "--date", "2026-11-06", "--from", "0.0.1",
-         "--page", base + "/page", "--mirror", base + "/files/", "--out", str(feed), str(package)],
+         "--page", base + "/page", "--mirror", base + "/files/", "--out", str(feed), *packages],
     )
     run_tool(
         tool,
@@ -894,21 +910,30 @@ def run_tool(tool, args):
 
 
 def settle_pill(session):
-    """Waits for the pill, keeping a finished download ready instead of installing."""
+    """Waits for the pill, keeping a finished download ready instead of installing.
+
+    The pill shows while the package downloads, and the question that it is
+    ready opens over the menu when the download ends. The walk starts only
+    after that question is answered, or its Tab would land in the question.
+    """
     deadline = time.monotonic() + PILL_TIMEOUT
     body = {}
+    kept = False
     while time.monotonic() < deadline:
         body = shown(session)
         names = dialogs_of(body)
         if READY in names:
             click_named(session, ["oa.ready-update.keep-ready"])
+            kept = True
             time.sleep(0.4)
             continue
-        listed = leaves(tree_of(session))
-        if any(control.get("name") == PILL for control in listed):
-            return
+        if kept:
+            listed = leaves(tree_of(session))
+            if any(control.get("name") == PILL for control in listed):
+                return
         time.sleep(0.4)
-    raise Failure(f"the update pill did not show; {where(body)}\n{session.tail()}")
+    happened = "the update pill did not show" if kept else "the download was never ready"
+    raise Failure(f"{happened}; {where(body)}\n{session.tail()}")
 
 
 def walk_pill(session):

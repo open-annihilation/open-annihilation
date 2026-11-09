@@ -457,11 +457,17 @@ int32_t multiplayer_presence_badges(PresenceBadgeSpot* out, int32_t capacity) no
 /// Returns the slot of the battle room's row whose name has the keyboard's
 /// focus: the front panel's focused control when it is a remote player's
 /// PLAYER<slot> name (the local player's own row is a label and takes no
-/// focus). Tab and the arrow keys, which are also the pad's D-pad, move
-/// the focus onto those rows after the lists and before the chat line.
-/// Up and Down stay inside a list, and Left and Right stay in the chat line.
-/// Return and the pad's A open that row's card when it shows an OA badge,
-/// and otherwise do nothing; they never press the row.
+/// focus). Before Next button or Previous button, the arrow keys, which are
+/// also the pad's D-pad, move the focus onto those rows after the lists and
+/// before the chat line. Up and Down stay inside a list, and Left and Right
+/// stay in the chat line. After Next button or Previous button, the arrows
+/// move among those rows. Next button itself walks the player's own Ready,
+/// side, colour and team, then the options down the column, the map, the
+/// sliders, the chat log and line, Start and Previous Menu, and does not stop
+/// on another player's row. With the game's own layout Next button is Tab and
+/// Previous button is Shift+Tab. Return and the pad's A open that row's card
+/// when it shows an OA badge, and otherwise do nothing; they never press the
+/// row.
 ///
 /// @return the slot, 0..9; -1 while the battle room is not shown, a dialog
 ///     covers it, or the focus is on no player's row
@@ -469,13 +475,15 @@ int32_t multiplayer_presence_badges(PresenceBadgeSpot* out, int32_t capacity) no
 
 /// One control of the battle room's panel, in frame pixels.
 struct BattleRoomControl {
-    int32_t index{-1};       ///< the control's index
-    std::string name{};      ///< its name
-    int32_t x{};             ///< its left edge, plus the panel's offset
-    int32_t y{};             ///< its top edge, plus the panel's offset
-    int32_t width{};         ///< its width
-    int32_t height{};        ///< its height
-    int32_t focus_place{-1}; ///< its place in the battle room's focus order, or -1
+    int32_t index{-1};  ///< the control's index
+    std::string name{}; ///< its name
+    int32_t x{};        ///< its left edge, plus the panel's offset
+    int32_t y{};        ///< its top edge, plus the panel's offset
+    int32_t width{};    ///< its width
+    int32_t height{};   ///< its height
+    /// Its place in the Tab order, then the lists, remote rows and chat line
+    /// the arrows walk before Tab, or -1 when it is in neither.
+    int32_t focus_place{-1};
 };
 
 /// The battle room's controls that have an area, including ones that are hidden.

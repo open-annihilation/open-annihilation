@@ -168,6 +168,7 @@ enum class Glyph : uint8_t {
     chat,    ///< recorded chat
     keys,    ///< the shortcut card
     leave,   ///< the in-game menu
+    photo,   ///< photo mode
 };
 
 /// Fills a triangle one row at a time. The point is the right or the left end.
@@ -268,6 +269,18 @@ void draw_glyph(const kit::Canvas& canvas, const kit::Rect& rect, Glyph glyph, k
         kit::fill_rect(canvas, {left + 7, top + 1, 1, kGlyph - 2}, ink);
         kit::fill_rect(canvas, {left + 1, top + kGlyph - 2, 7, 1}, ink);
         kit::fill_rect(canvas, {left + 8, top + 5, 3, 2}, ink);
+        break;
+    case Glyph::photo:
+        // A camera: the body outline, the viewfinder bump, and the lens ring.
+        kit::fill_rect(canvas, {left + 1, top + 4, 10, 1}, ink);
+        kit::fill_rect(canvas, {left + 1, top + 9, 10, 1}, ink);
+        kit::fill_rect(canvas, {left + 1, top + 4, 1, 6}, ink);
+        kit::fill_rect(canvas, {left + 10, top + 4, 1, 6}, ink);
+        kit::fill_rect(canvas, {left + 3, top + 2, 4, 2}, ink);
+        kit::fill_rect(canvas, {left + 4, top + 6, 4, 1}, ink);
+        kit::fill_rect(canvas, {left + 4, top + 8, 4, 1}, ink);
+        kit::fill_rect(canvas, {left + 4, top + 6, 1, 3}, ink);
+        kit::fill_rect(canvas, {left + 7, top + 6, 1, 3}, ink);
         break;
     }
 }
@@ -1176,12 +1189,12 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
         speed_w = full_need;
     const int32_t safe_width = std::max(width, int32_t{1});
     const int32_t safe_height = std::max(height, int32_t{1});
-    // Five icons, play, the view slot and the camera slot, and the gaps between
+    // Six icons, play, the view slot and the camera slot, and the gaps between
     // them. Time and speed give up width before those slots do: the time down
     // to what its text needs, then the speed button to its full caption, its
     // brief caption and the asked speed alone. Only past all of those do both
     // shrink to their least.
-    const int32_t fixed = pad * 2 + icon * 5 + play_w + view_w + camera_w + gap * 9;
+    const int32_t fixed = pad * 2 + icon * 6 + play_w + view_w + camera_w + gap * 10;
     int32_t spare = safe_width - fixed - time_w - speed_w;
     const auto give = [&spare](int32_t& from, int32_t floor) {
         if (spare >= 0)
@@ -1202,6 +1215,31 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
     }
     give(time_w, std::max(int32_t{48}, time_need));
     give(speed_w, 36);
+    // A long clock on a narrow battlefield can still hang past the bar after
+    // the speed button has taken its asked form. The padding inside those two
+    // buttons gives way before a control leaves the bar. The words themselves
+    // stay whole.
+    if (spare < 0 &&
+        (need.speed_asked > 0 || need.speed_brief > 0 || need.speed_full > 0 || need.skip > 0)) {
+        int32_t caption = need.speed_asked;
+        if (layout.speed_form == SpeedForm::brief)
+            caption = need.speed_brief;
+        else if (layout.speed_form == SpeedForm::full)
+            caption = std::max(need.speed_full, need.skip);
+        if (caption > 0)
+            give(speed_w, caption);
+    }
+    if (spare < 0 && need.time > 0)
+        give(time_w, need.time);
+    // Ten gaps. Pull them in only by what still sticks out past the bar.
+    int32_t row_gap = gap;
+    if (spare < -pad) {
+        constexpr int32_t kRowGaps = 10;
+        const int32_t stick = -spare - pad;
+        const int32_t per = std::min(gap, (stick + kRowGaps - 1) / kRowGaps);
+        row_gap = gap - per;
+        spare += per * kRowGaps;
+    }
     // The view and the camera never shrink below the slot they were given.
     // They grow only into width the row still has, and never past the caption.
     int32_t room = std::max(spare, int32_t{0});
@@ -1228,23 +1266,25 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
     const int32_t play_y = row_y + (control_h - play_h) / 2;
     int32_t x = pad;
     layout.back = {x, icon_y, icon, icon};
-    x += icon + gap;
+    x += icon + row_gap;
     layout.play = {x, play_y, play_w, play_h};
-    x += play_w + gap;
+    x += play_w + row_gap;
     layout.forward = {x, icon_y, icon, icon};
-    x += icon + gap;
+    x += icon + row_gap;
     layout.time = {x, row_y, time_w, control_h};
-    x += time_w + gap;
+    x += time_w + row_gap;
     layout.speed = {x, row_y, speed_w, control_h};
-    x += speed_w + gap + grow;
+    x += speed_w + row_gap + grow;
     layout.view = {x, row_y, view_w, control_h};
-    x += view_w + gap;
+    x += view_w + row_gap;
     layout.camera = {x, row_y, camera_w, control_h};
-    x += camera_w + gap;
+    x += camera_w + row_gap;
+    layout.photo = {x, icon_y, icon, icon};
+    x += icon + row_gap;
     layout.chat = {x, icon_y, icon, icon};
-    x += icon + gap;
+    x += icon + row_gap;
     layout.keys = {x, icon_y, icon, icon};
-    x += icon + gap;
+    x += icon + row_gap;
     layout.leave = {x, icon_y, icon, icon};
     const int32_t button = control_h;
     const int32_t knob_w = 12;
@@ -1410,6 +1450,8 @@ Control hit_control(const Layout& layout, kit::Point at) {
     if (const Control hit = in(Control::view, layout.view); hit != Control::none)
         return hit;
     if (const Control hit = in(Control::camera, layout.camera); hit != Control::none)
+        return hit;
+    if (const Control hit = in(Control::photo, layout.photo); hit != Control::none)
         return hit;
     if (const Control hit = in(Control::chat, layout.chat); hit != Control::none)
         return hit;
@@ -1645,6 +1687,15 @@ void fill_controls(const Layout& layout, const Model& model, kit::DisplayList& l
     );
     add_control(
         list,
+        Control::photo,
+        layout.photo,
+        "photo",
+        kit::ControlKind::button,
+        shown(words::photo),
+        false
+    );
+    add_control(
+        list,
         Control::chat,
         layout.chat,
         "chat",
@@ -1700,6 +1751,7 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
         draw_menu_button(
             canvas, layout.camera, camera_button_caption(model.camera), model.camera_open
         );
+        draw_icon_button(canvas, layout.photo, Glyph::photo, false);
         draw_icon_button(canvas, layout.chat, Glyph::chat, model.chat_shown);
         draw_icon_button(canvas, layout.keys, Glyph::keys, model.keys_open);
         draw_icon_button(canvas, layout.leave, Glyph::leave, false);

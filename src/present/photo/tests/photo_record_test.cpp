@@ -274,6 +274,8 @@ int main() {
     look.preset = "dusk";
     look.vignette = 40;
     look.grain = 20;
+    look.grain_size = 3;
+    look.grain_pixels = 6;
     watched.look = look;
     const std::vector<PhotoText> full = photo_texts(watched);
     CHECK(full.size() == 6);
@@ -297,6 +299,39 @@ int main() {
         CHECK(tilt != nullptr && tilt->find("tilt_shift") != nullptr);
         if (tilt != nullptr && tilt->find("tilt_shift") != nullptr)
             CHECK(tilt->find("tilt_shift")->type() == JsonType::null);
+        if (tilt != nullptr) {
+            const Json* roundness = tilt->find("roundness");
+            const Json* grain_size = tilt->find("grain_size");
+            const Json* grain_pixels = tilt->find("grain_pixels");
+            const Json* frame = tilt->find("frame");
+            CHECK(
+                roundness != nullptr && roundness->integer().has_value() &&
+                *roundness->integer() == 50
+            );
+            CHECK(
+                grain_size != nullptr && grain_size->integer().has_value() &&
+                *grain_size->integer() == 3
+            );
+            CHECK(
+                grain_pixels != nullptr && grain_pixels->integer().has_value() &&
+                *grain_pixels->integer() == 6
+            );
+            const auto look_order = tilt->names();
+            const char* expected_look[] = {
+                "preset",
+                "vignette",
+                "roundness",
+                "grain",
+                "grain_size",
+                "grain_pixels",
+                "frame",
+                "tilt_shift"
+            };
+            CHECK(look_order.size() == 8);
+            for (std::size_t at = 0; at < look_order.size() && at < 8; ++at)
+                CHECK(look_order[at] == expected_look[at]);
+            CHECK(frame != nullptr && frame->string() != nullptr && *frame->string() == "none");
+        }
     }
 
     PhotoFacts plain = sample(true);

@@ -1066,12 +1066,33 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
+    /// The step along the original screen's order that this key fired.
+    ///
+    /// The cell sits in that order, which follows the player's key layout:
+    /// Next button and Previous button, Tab and Shift+Tab with the game's own.
+    ///
+    /// @return tab or back tab; nothing when neither fired
+    [[nodiscard]] std::optional<kit::Key> order_step() const {
+        if (runtime_.fired_action("ui.menu-focus-next") != nullptr)
+            return kit::Key::tab;
+        if (runtime_.fired_action("ui.menu-focus-previous") != nullptr)
+            return kit::Key::back_tab;
+        return std::nullopt;
+    }
+
     /// Takes the open menu's keys, the information key, Escape when a card
     /// is open, and the keys a focused cell holds.
     ///
     /// @param pressed the key
+    /// @param sdl_key the platform key; 0 for a pad action or an order step
     /// @return none or redraw when the screen takes it; pass otherwise
-    LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
+    LayerAnswer key(kit::Key pressed, uint32_t sdl_key) override {
+        // Tab and Shift+Tab reach the layer's screens as Next control and
+        // Previous control. The original screen's order this cell sits in
+        // follows Next button and Previous button instead, whichever keys
+        // the player's layout binds (shortcut), so these go on.
+        if ((pressed == kit::Key::tab || pressed == kit::Key::back_tab) && sdl_key != 0)
+            return LayerAnswer::pass;
         if (menu_.seat >= 0) {
             if (pressed == kit::Key::tab || pressed == kit::Key::back_tab)
                 return LayerAnswer::none;
@@ -1097,10 +1118,13 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return answer_key(pressed);
     }
 
-    /// Lets every shortcut go on.
+    /// Takes Next button and Previous button as Tab's steps, and lets every
+    /// other shortcut go on.
     ///
-    /// @return pass
+    /// @return none or redraw when the screen takes the step; pass otherwise
     LayerAnswer shortcut(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) override {
+        if (const std::optional<kit::Key> step = order_step())
+            return key(*step, 0);
         return LayerAnswer::pass;
     }
 

@@ -370,6 +370,7 @@ void Runtime::leave_match() {
         );
     match_paused_ = false;
     match_panels_keyboard_ = false;
+    leave_hud_button_focus();
     match_finished_ = false;
     // A stage belongs to the match it set up.
     stage_.reset();

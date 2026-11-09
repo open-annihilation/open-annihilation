@@ -1,0 +1,252 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// The photo sizes a battlefield offers, and an exact box reduction.
+#include "oa/present/photo/photo_sizes.hpp"
+
+#include <cstdint>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+namespace {
+
+int failures = 0;
+
+#define CHECK(condition)                                                                           \
+    do {                                                                                           \
+        if (!(condition)) {                                                                        \
+            std::fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition);                   \
+            ++failures;                                                                            \
+        }                                                                                          \
+    } while (false)
+
+using oa::present::photo::CaptureKind;
+using oa::present::photo::Draw;
+using oa::present::photo::Field;
+using oa::present::photo::Machine;
+using oa::present::photo::Offer;
+using oa::present::photo::Plan;
+using oa::present::photo::SizeLock;
+using oa::present::photo::box_reduce;
+using oa::present::photo::plan_draw;
+using oa::present::photo::plan_sizes;
+
+/// A machine with room for every size the edge limit allows.
+///
+/// @param kind the render mode
+/// @param edge the pixel cap; 0 for none
+/// @return the machine
+Machine open_machine(CaptureKind kind, int32_t edge) {
+    Machine machine;
+    machine.kind = kind;
+    machine.edge_limit = edge;
+    machine.cpu_bytes = ~uint64_t{0};
+    machine.gpu_bytes = ~uint64_t{0};
+    machine.zoom = 1.0F;
+    if (kind == CaptureKind::full) {
+        machine.supersample = 2;
+        machine.grain = 12;
+        machine.bytes_per_texel = 4;
+    }
+    return machine;
+}
+
+/// The offer whose factor is `factor`.
+///
+/// @param offers the four sizes or the three smooth steps
+/// @param count how many
+/// @param factor the factor
+/// @return the offer, or a locked stand-in when none matches
+Offer find_offer(const Offer* offers, int count, int factor) {
+    for (int index = 0; index < count; ++index)
+        if (offers[index].factor == factor)
+            return offers[index];
+    Offer missing;
+    missing.lock = SizeLock::edge;
+    return missing;
+}
+
+} // namespace
+
+int main() {
+    const Field small{320, 180};
+    const Machine processor = open_machine(CaptureKind::processor, 16384);
+    const Plan open = plan_sizes(small, processor, 1, 1);
+    CHECK(
+        find_offer(open.sizes, 4, 1).offered && find_offer(open.sizes, 4, 1).width == 320 &&
+        find_offer(open.sizes, 4, 1).height == 180
+    );
+    CHECK(find_offer(open.sizes, 4, 2).offered && find_offer(open.sizes, 4, 2).width == 640);
+    CHECK(find_offer(open.sizes, 4, 3).offered && find_offer(open.sizes, 4, 3).width == 960);
+    CHECK(
+        find_offer(open.sizes, 4, 4).offered && find_offer(open.sizes, 4, 4).width == 1280 &&
+        find_offer(open.sizes, 4, 4).height == 720
+    );
+    CHECK(
+        !find_offer(open.smooth, 3, 2).offered &&
+        find_offer(open.smooth, 3, 2).lock == SizeLock::pixels
+    );
+    CHECK(
+        !find_offer(open.smooth, 3, 4).offered &&
+        find_offer(open.smooth, 3, 4).lock == SizeLock::pixels
+    );
+
+    Machine edged = processor;
+    edged.edge_limit = 200;
+    const Plan at_edge = plan_sizes(Field{100, 50}, edged, 1, 1);
+    CHECK(find_offer(at_edge.sizes, 4, 1).offered);
+    CHECK(find_offer(at_edge.sizes, 4, 2).offered);
+    CHECK(
+        !find_offer(at_edge.sizes, 4, 3).offered &&
+        find_offer(at_edge.sizes, 4, 3).lock == SizeLock::edge &&
+        find_offer(at_edge.sizes, 4, 3).limit == 200
+    );
+    CHECK(
+        !find_offer(at_edge.sizes, 4, 4).offered &&
+        find_offer(at_edge.sizes, 4, 4).lock == SizeLock::edge
+    );
+
+    Machine tight = processor;
+    tight.cpu_bytes = 100U * 50U * 6U;
+    const Plan memory = plan_sizes(Field{100, 50}, tight, 1, 1);
+    CHECK(find_offer(memory.sizes, 4, 1).offered);
+    CHECK(
+        !find_offer(memory.sizes, 4, 2).offered &&
+        find_offer(memory.sizes, 4, 2).lock == SizeLock::memory
+    );
+    CHECK(find_offer(memory.sizes, 4, 4).lock == SizeLock::memory);
+
+    Machine shared = processor;
+    shared.shared = true;
+    const Plan together = plan_sizes(small, shared, 1, 1);
+    CHECK(find_offer(together.sizes, 4, 1).offered);
+    CHECK(
+        find_offer(together.sizes, 4, 2).lock == SizeLock::shared &&
+        !find_offer(together.sizes, 4, 2).offered
+    );
+    CHECK(find_offer(together.sizes, 4, 3).lock == SizeLock::shared);
+    CHECK(find_offer(together.sizes, 4, 4).lock == SizeLock::shared);
+    CHECK(find_offer(together.smooth, 3, 1).offered);
+    CHECK(
+        find_offer(together.smooth, 3, 2).lock == SizeLock::pixels &&
+        !find_offer(together.smooth, 3, 2).offered
+    );
+    CHECK(
+        find_offer(together.smooth, 3, 4).lock == SizeLock::pixels &&
+        !find_offer(together.smooth, 3, 4).offered
+    );
+    const Draw shared_four = plan_draw(small, shared, 1, 4);
+    CHECK(!shared_four.offered && shared_four.lock == SizeLock::pixels);
+
+    Machine full = open_machine(CaptureKind::full, 500);
+    const Plan card = plan_sizes(Field{100, 80}, full, 1, 1);
+    CHECK(find_offer(card.sizes, 4, 1).offered);
+    CHECK(find_offer(card.sizes, 4, 2).offered);
+    CHECK(
+        !find_offer(card.sizes, 4, 4).offered &&
+        find_offer(card.sizes, 4, 4).lock == SizeLock::edge &&
+        find_offer(card.sizes, 4, 4).limit == 240
+    );
+    Machine wide = open_machine(CaptureKind::full, 5136);
+    wide.supersample = 4;
+    wide.grain = 12;
+    const Plan fitted = plan_sizes(Field{640, 480}, wide, 1, 1);
+    CHECK(find_offer(fitted.sizes, 4, 2).offered);
+    CHECK(
+        !find_offer(fitted.sizes, 4, 3).offered &&
+        find_offer(fitted.sizes, 4, 3).lock == SizeLock::edge &&
+        find_offer(fitted.sizes, 4, 3).limit == 1284
+    );
+    CHECK(
+        !find_offer(fitted.sizes, 4, 4).offered &&
+        find_offer(fitted.sizes, 4, 4).lock == SizeLock::edge &&
+        find_offer(fitted.sizes, 4, 4).limit == 1284
+    );
+    Machine full_shared = open_machine(CaptureKind::full, 16384);
+    full_shared.shared = true;
+    const Plan full_together = plan_sizes(small, full_shared, 1, 1);
+    CHECK(find_offer(full_together.sizes, 4, 1).offered);
+    CHECK(find_offer(full_together.sizes, 4, 2).lock == SizeLock::shared);
+    CHECK(find_offer(full_together.smooth, 3, 2).offered);
+    CHECK(
+        find_offer(full_together.smooth, 3, 4).lock == SizeLock::shared &&
+        !find_offer(full_together.smooth, 3, 4).offered
+    );
+    Machine full_memory = full;
+    full_memory.edge_limit = 16384;
+    full_memory.gpu_bytes = 1;
+    const Plan card_memory = plan_sizes(Field{100, 80}, full_memory, 1, 1);
+    CHECK(find_offer(card_memory.sizes, 4, 2).lock == SizeLock::memory);
+
+    const Machine turned = open_machine(CaptureKind::turned, 4096);
+    const Plan view = plan_sizes(Field{2000, 1000}, turned, 1, 1);
+    CHECK(find_offer(view.sizes, 4, 2).offered && find_offer(view.sizes, 4, 2).width == 4000);
+    CHECK(
+        !find_offer(view.sizes, 4, 3).offered &&
+        find_offer(view.sizes, 4, 3).lock == SizeLock::edge &&
+        find_offer(view.sizes, 4, 3).limit == 4096
+    );
+
+    const Field fields[] = {{64, 64}, {320, 180}, {640, 480}, {1920, 1080}};
+    const int32_t limits[] = {256, 1024, 4096, 16384};
+    const CaptureKind kinds[] = {CaptureKind::processor, CaptureKind::full, CaptureKind::turned};
+    for (const Field& field : fields) {
+        for (const int32_t limit : limits) {
+            for (const CaptureKind kind : kinds) {
+                Machine machine = open_machine(kind, limit);
+                if (kind != CaptureKind::full)
+                    machine.supersample = 1;
+                for (const int smooth : {1, 2, 4}) {
+                    const Plan plan = plan_sizes(field, machine, 1, smooth);
+                    for (const Offer& offer : plan.sizes) {
+                        if (!offer.offered)
+                            continue;
+                        const int32_t draw_edge = std::max(offer.width, offer.height) * smooth;
+                        CHECK(limit <= 0 || draw_edge <= limit);
+                        CHECK(offer.width == field.width * offer.factor);
+                        CHECK(offer.height == field.height * offer.factor);
+                    }
+                }
+            }
+        }
+    }
+
+    const Machine smooth_edge = open_machine(CaptureKind::processor, 150);
+    const Plan smoothed = plan_sizes(Field{100, 50}, smooth_edge, 1, 2);
+    CHECK(
+        !find_offer(smoothed.sizes, 4, 1).offered &&
+        find_offer(smoothed.sizes, 4, 1).lock == SizeLock::edge
+    );
+    const Plan unsmoothed = plan_sizes(Field{100, 50}, smooth_edge, 1, 1);
+    CHECK(find_offer(unsmoothed.sizes, 4, 1).offered);
+    CHECK(!find_offer(unsmoothed.sizes, 4, 2).offered);
+
+    const uint8_t block[] = {0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255};
+    std::vector<uint8_t> reduced;
+    int32_t out_w = 0;
+    int32_t out_h = 0;
+    CHECK(box_reduce(block, sizeof block, 2, 2, 2, reduced, out_w, out_h));
+    CHECK(out_w == 1 && out_h == 1 && reduced.size() == 3);
+    CHECK(reduced[0] == 64 && reduced[1] == 64 && reduced[2] == 64);
+
+    std::vector<uint8_t> same;
+    CHECK(box_reduce(block, sizeof block, 2, 2, 1, same, out_w, out_h));
+    CHECK(out_w == 2 && out_h == 2 && same.size() == sizeof block);
+    CHECK(same[3] == 255 && same[7] == 255 && same[11] == 255);
+
+    std::vector<uint8_t> flat(4U * 4U * 3U, 10);
+    CHECK(box_reduce(flat.data(), flat.size(), 4, 4, 4, reduced, out_w, out_h));
+    CHECK(out_w == 1 && out_h == 1 && reduced.size() == 3);
+    CHECK(reduced[0] == 10 && reduced[1] == 10 && reduced[2] == 10);
+
+    std::vector<uint8_t> uneven;
+    CHECK(!box_reduce(block, sizeof block, 2, 2, 3, uneven, out_w, out_h));
+    CHECK(uneven.empty());
+
+    if (failures != 0) {
+        std::fprintf(stderr, "%d checks failed\n", failures);
+        return 1;
+    }
+    return 0;
+}

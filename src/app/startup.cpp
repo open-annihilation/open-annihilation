@@ -446,6 +446,14 @@ void check_game_files_options(Options& options) {
         return PhotoGroup::keys;
     if (text == "panel")
         return PhotoGroup::panel;
+    if (text == "sizes")
+        return PhotoGroup::sizes;
+    if (text == "pad-touch")
+        return PhotoGroup::pad_touch;
+    if (text == "looks")
+        return PhotoGroup::looks;
+    if (text == "replay")
+        return PhotoGroup::replay;
     return std::nullopt;
 }
 
@@ -1953,7 +1961,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
                      "[--check-renderer-proof] [--check-live-renderer] "
                      "[--check-briefing-narration] "
-                     "[--check-photo [mode|time|camera|capture|live|keys]] "
+                     "[--check-photo [mode|time|camera|capture|live|keys|panel|sizes|"
+                     "pad-touch|looks|replay]] "
                      "[--check-director-view] "
                      "[--check-director-render] [--check-interpolation] "
                      "[--check-unit-playout] [--check-running-while-inactive] "

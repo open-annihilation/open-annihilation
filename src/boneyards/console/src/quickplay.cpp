@@ -11,6 +11,7 @@
 #include "widgets.hpp"
 
 #include "oa/boneyards/console/gui_screen.hpp"
+#include "oa/boneyards/console/status_widget.hpp"
 #include "oa/boneyards/message_box.hpp"
 #include "oa/boneyards/screens/lobby_widgets.hpp"
 #include "oa/boneyards/screens/quickplay.hpp"
@@ -18,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -591,6 +593,12 @@ void take_notices(QuickPlayView* view) {
         else if (notice.kind == QuickPlayNoticeKind::withdrawn)
             effect = screens::quickplay_apply_withdrawn(&view->model, &notice.withdrawn);
         show_effect(effect);
+        if (effect.show_offer) {
+            char offer_line[192];
+            screens::quickplay_offer_line(&view->model, offer_line, sizeof offer_line);
+            if (offer_line[0] != '\0')
+                boneyards_console_driver_note("alert", offer_line);
+        }
     }
 }
 

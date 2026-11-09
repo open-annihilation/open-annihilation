@@ -219,6 +219,7 @@ enum class Layer : uint8_t {
     build_ring,      ///< the build ring is open
     select_sheet,    ///< SELECT ▾ is open
     menus,           ///< a menu, a dialog or a screen other than the match
+    photo,           ///< photo mode is open
 };
 
 /// What is held or open, which decides the layer.
@@ -230,10 +231,11 @@ struct Held {
     bool order_ring{};   ///< the order ring is open
     bool build_ring{};   ///< the build ring is open
     bool select_sheet{}; ///< SELECT ▾ is open
+    bool photo{};        ///< photo mode is open; this layer wins over every other
 };
 
-/// Returns the layer: menus off the match; else order ring, build ring, select sheet, groups,
-/// game, standing orders, base, the first that applies.
+/// Returns the layer: photo mode first, then menus off the match; else order ring, build
+/// ring, select sheet, groups, game, standing orders, base, the first that applies.
 ///
 /// @param held what is held or open
 /// @return the layer the buttons act in
@@ -315,6 +317,16 @@ enum class Action : uint8_t {
     library_action,
     /// Toggles the keys overlay. On the default map, hold View and press R1.
     keys_overlay,
+    /// Opens photo mode. On the default map, hold View and press L2.
+    photo_mode,
+    /// Takes the photo (photo mode).
+    photo_capture,
+    /// Leaves photo mode.
+    photo_leave,
+    /// Freezes or runs the clock, or holds the picture (photo mode).
+    photo_freeze,
+    /// Hides the photo panel, or shows it again.
+    photo_panel,
 };
 
 /// One button's meaning in a layer.

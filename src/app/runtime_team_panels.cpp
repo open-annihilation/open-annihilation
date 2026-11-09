@@ -488,7 +488,9 @@ void Runtime::toggle_team_menu() {
     );
     if (opened) {
         // The tab menu gives the match's panels the keyboard until the match
-        // resumes.
+        // resumes. The order buttons give it up, as the in-game menu does,
+        // so the next Tab closes this menu instead of walking those buttons.
+        leave_hud_button_focus();
         match_panels_keyboard_ = true;
         status_ = "Team menu";
         render_match_surface();

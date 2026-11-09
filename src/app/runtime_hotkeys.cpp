@@ -278,6 +278,27 @@ bool Runtime::answer_photo_action(const keys::ActionEvent& action) {
         std::ignore = photo_step();
         return true;
     }
+    if (id == "photo.step-back") {
+        std::ignore = photo_step_back();
+        return true;
+    }
+    // Ten seconds and one minute, the same steps as the playback bar.
+    if (id == "photo.scrub-back") {
+        std::ignore = photo_scrub(-300);
+        return true;
+    }
+    if (id == "photo.scrub-forward") {
+        std::ignore = photo_scrub(300);
+        return true;
+    }
+    if (id == "photo.scrub-back-long") {
+        std::ignore = photo_scrub(-1800);
+        return true;
+    }
+    if (id == "photo.scrub-forward-long") {
+        std::ignore = photo_scrub(1800);
+        return true;
+    }
     if (id == "photo.shutter-back" || id == "photo.shutter-on") {
         const int32_t now = photo_shutter_eighth();
         const int32_t next = id == "photo.shutter-on" ? std::min(now + 1, int32_t{8})
@@ -326,6 +347,144 @@ bool Runtime::answer_photo_action(const keys::ActionEvent& action) {
     return true;
 }
 
+std::vector<oa::ui::hud::PanelButton> Runtime::hud_focus_buttons() const {
+    std::vector<oa::ui::hud::PanelButton> buttons;
+    if (!match_hud_)
+        return buttons;
+    const auto& gadgets = match_hud_->layout.gadgets;
+    buttons.resize(gadgets.size());
+    for (std::size_t index = 0; index < gadgets.size(); ++index) {
+        const auto& gadget = gadgets[index];
+        oa::ui::hud::PanelButton& button = buttons[index];
+        button.name = gadget.common.name.c_str();
+        button.x = gadget.common.x;
+        button.y = gadget.common.y;
+        button.width = gadget.common.width;
+        button.height = gadget.common.height;
+        button.attributes = static_cast<uint8_t>(gadget.common.common_attributes);
+        const auto* fields = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+        const bool state_gray = index < match_hud_states_.size() && match_hud_states_[index].grayed;
+        button.grayed = state_gray || (fields != nullptr && fields->grayed_out);
+        button.active = gadget.common.type == oa::ui::gui_layout::GadgetType::button &&
+                        gadget.common.active != 0 && fields != nullptr;
+    }
+    return buttons;
+}
+
+void Runtime::toggle_hud_button_focus() {
+    if (hud_buttons_focused_) {
+        leave_hud_button_focus();
+        return;
+    }
+    if (match_ == nullptr || match_finished_ || match_paused_ || photo_mode() || unit_info_panel_ ||
+        !match_hud_)
+        return;
+    const std::vector<oa::ui::hud::PanelButton> buttons = hud_focus_buttons();
+    const std::vector<int32_t> stops = oa::ui::hud::panel_button_stops(buttons);
+    if (stops.empty())
+        return;
+    hud_buttons_focused_ = true;
+    hud_button_focus_ = stops.front();
+    if (oa_layer_ != nullptr && oa_layer_->always_show_focus())
+        oa_layer_->note_family_tab();
+}
+
+void Runtime::leave_hud_button_focus() {
+    if (!hud_buttons_focused_)
+        return;
+    hud_buttons_focused_ = false;
+    hud_button_focus_ = -1;
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
+}
+
+bool Runtime::answer_hud_button_focus_key(const SDL_KeyboardEvent& key) {
+    namespace hud = oa::ui::hud;
+    namespace bindings = oa::ui::key_bindings;
+    if (!hud_buttons_focused_ || match_ == nullptr || match_finished_ || match_paused_ ||
+        photo_mode() || unit_info_panel_ || !match_hud_)
+        return false;
+    const bool modified = (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0;
+    const bool tab_key = !modified && (key.key == SDLK_TAB || key.scancode == SDL_SCANCODE_TAB);
+    const std::vector<hud::PanelButton> buttons = hud_focus_buttons();
+    // A panel that shows no button any more (the selection went) ends the
+    // focus, so the keys go back to the battlefield.
+    if (hud::panel_button_stops(buttons).empty()) {
+        leave_hud_button_focus();
+        return false;
+    }
+    // In a shared game, and wherever the alliance menu is offered, Tab opens
+    // that menu. It is not this mode's next key, even when next is also Tab.
+    if (tab_key && (multiplayer_session() || team_menu_every_game())) {
+        for (const bindings::ActionEvent& fed : match_action_events()) {
+            if (fed.phase == bindings::Phase::pressed && fed.action == "game.team-menu")
+                return false;
+        }
+    }
+    // Next and Previous are the bound actions. The direction is the action's,
+    // so a Previous chord with no Shift still goes backward.
+    const bool next = fired_action("ui.menu-focus-next") != nullptr;
+    const bool previous = fired_action("ui.menu-focus-previous") != nullptr;
+    if (next || previous) {
+        if (oa_layer_ != nullptr)
+            oa_layer_->note_family_tab();
+        const hud::PanelFocusStep step = hud::step_panel_button_focus(
+            buttons,
+            hud_button_focus_,
+            previous && !next ? hud::PanelFocusMove::tab_previous : hud::PanelFocusMove::tab_next,
+            true
+        );
+        if (step.index > 0)
+            hud_button_focus_ = step.index;
+        return true;
+    }
+    const bool ring = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
+    if (!ring)
+        return false;
+    const auto pressed = [](const bindings::ActionEvent* fired) {
+        return fired != nullptr && fired->phase == bindings::Phase::pressed;
+    };
+    hud::PanelFocusMove move = hud::PanelFocusMove::press;
+    bool arrow = false;
+    if (fired_action("ui.menu-focus-left") != nullptr) {
+        move = hud::PanelFocusMove::left;
+        arrow = true;
+    } else if (fired_action("ui.menu-focus-right") != nullptr) {
+        move = hud::PanelFocusMove::right;
+        arrow = true;
+    } else if (
+        fired_action("ui.menu-focus-up") != nullptr || fired_action("ui.menu-list-up") != nullptr
+    ) {
+        move = hud::PanelFocusMove::up;
+        arrow = true;
+    } else if (
+        fired_action("ui.menu-focus-down") != nullptr ||
+        fired_action("ui.menu-list-down") != nullptr
+    ) {
+        move = hud::PanelFocusMove::down;
+        arrow = true;
+    } else if (pressed(fired_action("ui.menu-cancel"))) {
+        leave_hud_button_focus();
+        return true;
+    } else if (!pressed(fired_action("ui.menu-accept"))) {
+        return false;
+    }
+    if (arrow) {
+        const hud::PanelFocusStep step =
+            hud::step_panel_button_focus(buttons, hud_button_focus_, move, true);
+        if (step.index > 0)
+            hud_button_focus_ = step.index;
+        return true;
+    }
+    const hud::PanelFocusStep pressed_stop =
+        hud::step_panel_button_focus(buttons, hud_button_focus_, hud::PanelFocusMove::press, true);
+    if (pressed_stop.press && pressed_stop.index > 0)
+        activate_match_hud(static_cast<std::size_t>(pressed_stop.index));
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
+    return true;
+}
+
 bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // Action ids are strings, so this is a chain of comparisons.
     const std::string_view id = action.action;
@@ -334,11 +493,16 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id.starts_with("watch.replay-") || id == "watch.next-player-view" ||
         id == "watch.previous-player-view" || id == "watch.whole-view" ||
         id == "watch.camera-mode") {
+        // Photo mode has its own step and scrub. The bar's keys do nothing
+        // here, including C, Q and the pinned bar.
+        if (photo_mode())
+            return true;
         if (action.phase == keys::Phase::pressed)
             static_cast<void>(replay_viewer_command(id));
         return true;
     }
     if (id == "game.photo-mode") {
+        leave_hud_button_focus();
         if (!photo_mode() && action.phase == keys::Phase::pressed)
             std::ignore = enter_photo_mode();
         return true;
@@ -374,6 +538,11 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         std::ignore = open_unit_info();
         return true;
     }
+    if (id == "ui.hud-focus") {
+        if (action.phase == keys::Phase::pressed)
+            toggle_hud_button_focus();
+        return true;
+    }
     if (id == "game.menu") {
         // The game menu is the match's own. Photo mode ends first, so the
         // menu opens on the interface the player left.
@@ -398,6 +567,16 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // always taken. Pressed while the pause the window's absence holds has
     // yet to end, it keeps the match paused, now as the player's own pause.
     if (id == "game.pause") {
+        // A replay's pause is the playback's. The bit alone is dropped by a jump.
+        if (photo_mode() && photo_time_is_replay()) {
+            if (action.phase == keys::Phase::pressed) {
+                if (photo_frozen())
+                    std::ignore = photo_run();
+                else
+                    std::ignore = photo_freeze();
+            }
+            return true;
+        }
         if (away_pause_holds()) {
             away_pause_.held = false;
             away_pause_.resume_ns.reset();
@@ -668,11 +847,12 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         // A replay keeps the speed it is watched at. A shared match is taken
         // and does not change anyone's speed.
         if (photo_mode()) {
-            if (photo_time_is_replay())
+            if (photo_time_is_replay()) {
                 call_hook_or_report<&Extension::replay_step_speed>(
                     extension_, hook_error_report(), *this, id == "game.speed-up" ? 1 : -1
                 );
-            else if (photo_time_is_local()) {
+                note_replay_photo_pace();
+            } else if (photo_time_is_local()) {
                 // Frozen, Slow 1 to the fastest slow speed, then the match's
                 // own speed: + climbs that ladder and - goes down it.
                 const int32_t now = photo_slow_speed();
@@ -871,6 +1051,11 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // The in-game menu's and the tab menu's panels, and the preferences a
     // match opens, take the keys they answer while they hold the keyboard.
     if (press_match_panel_key(key))
+        return true;
+    // Focus of the order buttons and the build page takes the menu's next and
+    // previous actions, and, once the ring shows, its arrows, Return and
+    // Escape. While the ring is hidden the other keys go on to the match.
+    if (answer_hud_button_focus_key(key))
         return true;
     // The console's actions come before Escape and the play keys, so a shared
     // game's Tab opens the allies menu and, with the debug keys on, '=', ']',

@@ -1640,6 +1640,24 @@
 	zh-Hans=快速对战;
 	}
 
+[Login]
+	{
+	de=Anmeldung;
+	fr=Connexion;
+	it=Accesso;
+	es=Acceso;
+	zh-Hans=登录;
+	}
+
+[Update]
+	{
+	de=Aktualisierung;
+	fr=Mise à jour;
+	it=Aggiornamento;
+	es=Actualización;
+	zh-Hans=更新;
+	}
+
 [Exit]
 	{
 	de=Beenden;
@@ -2061,5 +2079,158 @@
 	it=[CORE];
 	es=[NÚCLEO];
 	zh-Hans=[CORE];
+	}
+
+[Battle, {place}]
+	{
+	de=Schlacht, {place};
+	fr=Bataille, {place};
+	it=Battaglia, {place};
+	es=Batalla, {place};
+	zh-Hans=战斗，{place};
+	}
+
+[Offline]
+	{
+	de=Offline;
+	fr=Hors ligne;
+	it=Non in linea;
+	es=Sin conexión;
+	zh-Hans=离线;
+	}
+
+[Connecting]
+	{
+	de=Verbinden;
+	fr=Connexion;
+	it=Connessione;
+	es=Conectando;
+	zh-Hans=正在连接;
+	}
+
+[Disconnected]
+	{
+	de=Getrennt;
+	fr=Déconnecté;
+	it=Disconnesso;
+	es=Desconectado;
+	zh-Hans=已断开;
+	}
+
+[Entered {room}]
+	{
+	de={room} betreten;
+	fr=Entré dans {room};
+	it=Entrato in {room};
+	es=Entraste en {room};
+	zh-Hans=进入 {room};
+	}
+
+[Logged in as {name}]
+	{
+	de=Angemeldet als {name};
+	fr=Connecté en tant que {name};
+	it=Accesso come {name};
+	es=Conectado como {name};
+	zh-Hans=以 {name} 的身份登录;
+	}
+
+[Opened {console}]
+	{
+	de={console} geöffnet;
+	fr={console} ouvert;
+	it=Aperto {console};
+	es=Abierto {console};
+	zh-Hans=打开了 {console};
+	}
+
+[Page from {name}]
+	{
+	de=Page von {name};
+	fr=Page de {name};
+	it=Page da {name};
+	es=Page de {name};
+	zh-Hans=来自 {name} 的传呼;
+	}
+
+[Page from {name}: {text}]
+	{
+	de=Page von {name}: {text};
+	fr=Page de {name} : {text};
+	it=Page da {name}: {text};
+	es=Page de {name}: {text};
+	zh-Hans=来自 {name} 的传呼：{text};
+	}
+
+[Planet {name}]
+	{
+	de=Planet {name};
+	fr=Planète {name};
+	it=Pianeta {name};
+	es=Planeta {name};
+	zh-Hans=行星 {name};
+	}
+
+[Summary of {name}: {owner}, {battles} battles, {forming} forming]
+	{
+	de=Zusammenfassung von {name}: {owner}, {battles} Schlachten, {forming} im Aufbau;
+	fr=Résumé de {name} : {owner}, {battles} batailles, {forming} en formation;
+	it=Riepilogo di {name}: {owner}, {battles} battaglie, {forming} in formazione;
+	es=Resumen de {name}: {owner}, {battles} batallas, {forming} formándose;
+	zh-Hans={name} 的概况：{owner}，{battles} 场战斗，{forming} 场组建中;
+	}
+
+[Whisper from {name}]
+	{
+	de=Flüstern von {name};
+	fr=Chuchotement de {name};
+	it=Sussurro da {name};
+	es=Susurro de {name};
+	zh-Hans=来自 {name} 的低语;
+	}
+
+[Whisper from {name}: {text}]
+	{
+	de=Flüstern von {name}: {text};
+	fr=Chuchotement de {name} : {text};
+	it=Sussurro da {name}: {text};
+	es=Susurro de {name}: {text};
+	zh-Hans=来自 {name} 的低语：{text};
+	}
+
+[Whisper to {name}: {text}]
+	{
+	de=Flüstern an {name}: {text};
+	fr=Chuchotement à {name} : {text};
+	it=Sussurro a {name}: {text};
+	es=Susurro a {name}: {text};
+	zh-Hans=对 {name} 低语：{text};
+	}
+
+[{count} new lines in {room}]
+	{
+	de={count} neue Zeilen in {room};
+	fr={count} nouvelles lignes dans {room};
+	it={count} nuove righe in {room};
+	es={count} líneas nuevas en {room};
+	zh-Hans={room} 有 {count} 条新消息;
+	}
+
+[{name} joined {room}]
+	{
+	de={name} ist {room} beigetreten;
+	fr={name} a rejoint {room};
+	it={name} è entrato in {room};
+	es={name} se unió a {room};
+	zh-Hans={name} 加入了 {room};
+	}
+
+[{name} left {room}]
+	{
+	de={name} hat {room} verlassen;
+	fr={name} a quitté {room};
+	it={name} ha lasciato {room};
+	es={name} dejó {room};
+	zh-Hans={name} 离开了 {room};
 	}
 

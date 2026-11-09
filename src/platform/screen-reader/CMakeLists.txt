@@ -11,7 +11,7 @@ if(NOT TARGET SDL3::SDL3)
   return()
 endif()
 
-add_library(oa-platform-screen-reader src/screen_reader.cpp src/tree.cpp)
+add_library(oa-platform-screen-reader src/announce.cpp src/screen_reader.cpp src/tree.cpp)
 add_library(oa::platform::screen_reader ALIAS oa-platform-screen-reader)
 target_include_directories(oa-platform-screen-reader PUBLIC include)
 target_compile_features(oa-platform-screen-reader PUBLIC cxx_std_20)

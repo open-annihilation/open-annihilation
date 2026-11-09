@@ -31,13 +31,15 @@ struct Answer {
 /// @param placed the layout
 /// @param kind which pointer event
 /// @param at the point, in the screen's points
+/// @param finger_reach how far a finger may reach, in the screen's points; 0 is a mouse
 /// @return what the host does
 [[nodiscard]] Answer pointer_event(
     kit::Interaction& interaction,
     const Model& model,
     const Layout& placed,
     oa::app::ScreenInputKind kind,
-    kit::Point at
+    kit::Point at,
+    int32_t finger_reach = 0
 );
 
 /// Applies a key the kit knows.
@@ -47,7 +49,10 @@ struct Answer {
 /// and freeze as they do with the panel closed to the keys. Return is not
 /// consumed then either, so it takes a photo. While the ring shows, the
 /// kit's keys move the focus and press the focused control, and Return or a
-/// pointer move hides the ring.
+/// pointer move hides the ring. While the ring shows and the layout has a
+/// scroll area, an arrow moves as the kit does with that area laid out whole,
+/// so a row outside the view stays a stop. Left and right on a slider or on
+/// Run, Slow and Freeze still change that control.
 ///
 /// @param[in,out] interaction the focus
 /// @param model the panel

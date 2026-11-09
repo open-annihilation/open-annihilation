@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import zipfile
@@ -656,7 +657,10 @@ def run_game(native, game_dir, work, case_dir, extra, keep_user=False):
 
 
 def decompress_zstd(data):
-    """The bytes of one zstd frame. Uses the standard library, then a module, then the zstd tool."""
+    """The bytes of one zstd frame, or None when nothing here decodes zstd.
+
+    Uses the standard library, then a module, then the zstd tool.
+    """
     try:
         from compression import zstd
         return zstd.decompress(data)
@@ -667,12 +671,32 @@ def decompress_zstd(data):
         return zstandard.ZstdDecompressor().decompress(data)
     except ImportError:
         pass
+    if shutil.which("zstd") is None:
+        return None
     completed = subprocess.run(
         ["zstd", "-d", "-c"], input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     if completed.returncode == 0:
         return completed.stdout
-    raise RuntimeError("no zstd decoder: compression.zstd, zstandard, or the zstd tool")
+    raise RuntimeError("the zstd tool could not decode the recording")
+
+
+def unpacked_recording(tool, blob):
+    """The recording of a .oademo, as oa-tool replay unpack writes it back."""
+    with tempfile.TemporaryDirectory() as folder:
+        replay = Path(folder) / "upload.oademo"
+        recording = Path(folder) / "upload.tad"
+        replay.write_bytes(blob)
+        completed = subprocess.run(
+            [str(tool), "replay", "unpack", str(replay), "--out", str(recording)],
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"oa-tool replay unpack failed: {completed.stdout} {completed.stderr}"
+            )
+        return recording.read_bytes()
 
 
 def tad_sector_types(data):
@@ -716,8 +740,12 @@ def multipart_replay(raw):
     raise RuntimeError("the upload has no replay part")
 
 
-def uploaded_recording(raw):
-    """The recording inside an uploaded .oademo."""
+def uploaded_recording(raw, tool):
+    """The recording inside an uploaded .oademo.
+
+    Where neither this Python nor the system decodes zstd, as on a Linux
+    build image, oa-tool unpacks the replay.
+    """
     blob = multipart_replay(raw)
     with zipfile.ZipFile(io.BytesIO(blob)) as archive:
         names = archive.namelist()
@@ -725,9 +753,10 @@ def uploaded_recording(raw):
             if not name.startswith("recording"):
                 continue
             stored = archive.read(name)
-            if name.endswith(".zst"):
-                return decompress_zstd(stored)
-            return stored
+            if not name.endswith(".zst"):
+                return stored
+            plain = decompress_zstd(stored)
+            return plain if plain is not None else unpacked_recording(tool, blob)
     raise RuntimeError(f"the upload holds {names}, not a recording")
 
 
@@ -934,7 +963,7 @@ def main():
         upload_error = ""
         try:
             if first:
-                uploaded = uploaded_recording(first)
+                uploaded = uploaded_recording(first, args.tool)
         except (OSError, RuntimeError, zipfile.BadZipFile, ValueError) as error:
             upload_error = str(error)
         planted_types = tad_sector_types(planted) if planted else []

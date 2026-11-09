@@ -5,6 +5,8 @@
 // use. The picture is queued; the writer thread encodes it and writes it.
 #include "oa/app/runtime.hpp"
 
+#include "oa/app/hook_call.hpp"
+
 #include "full_presentation.hpp"
 #include "photo_clipboard.hpp"
 #include "photo_state.hpp"
@@ -12,6 +14,7 @@
 #include "render_run.hpp"
 #include "render_state.hpp"
 
+#include "oa/base/sha256.hpp"
 #include "oa/core/player.h"
 #include "oa/core/player_setup.h"
 #include "oa/core/world.h"
@@ -19,6 +22,7 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/machine.hpp"
+#include "oa/present/photo/looks.hpp"
 #include "oa/present/photo/photo_file_name.hpp"
 #include "oa/present/photo/photo_texts.hpp"
 #include "oa/ui/photo_panel/crop.hpp"
@@ -36,6 +40,8 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -452,6 +458,17 @@ bool Runtime::capture_photo_pixels(
     std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height, std::string& reason
 ) {
     reason = std::string(kNotDrawn);
+    if (photo_ != nullptr) {
+        photo_->sized_by_full = false;
+        photo_->sized_by_live = false;
+        photo_->sized_supersample = 1;
+    }
+    // Screen with smooth edges off keeps the picture the window already
+    // drew. A larger size, or smooth edges, is drawn again at that size.
+    // A held picture stays the copy photo mode is showing.
+    if (photo_ != nullptr && !photo_picture_held() &&
+        (photo_->size_factor != 1 || photo_->smooth_factor != 1))
+        return capture_sized_photo(rgb, width, height);
     // A held picture is what photo mode shows while the shared match runs on
     // under it, so the photo is that copy, not a new frame of the live
     // battlefield. Every tier holds its copy before the display gamma, and
@@ -550,6 +567,8 @@ void Runtime::take_photo() {
     }
     if (photo_ != nullptr)
         photo_->capture_waiting = false;
+    if (photo_ != nullptr)
+        snap_photo_factors();
     if (photo_files().outstanding() >= 4) {
         note_photo_refused(kQueueFull);
         return;
@@ -572,6 +591,14 @@ void Runtime::take_photo() {
         const auto guide = static_cast<oa::ui::photo_panel::Guide>(photo_->guide);
         oa::ui::photo_panel::crop_centred(rgb, width, height, guide);
     }
+    // After the crop, so every size that is saved through here carries the
+    // look, and before the thumbnail, so the notice matches the file. A
+    // photo larger than the battlefield draws its grain larger by its size
+    // factor, so the grain covers the map as the preview's does.
+    const int size_factor =
+        photo_ != nullptr && !photo_picture_held() ? std::clamp(photo_->size_factor, 1, 4) : 1;
+    if (photo_look_active())
+        apply_photo_look_rgb(rgb, width, height, size_factor);
     remember_photo_thumbnail(rgb, width, height);
 
     fs::path folder;
@@ -636,12 +663,61 @@ void Runtime::take_photo() {
     }
     facts.size.width = width;
     facts.size.height = height;
-    facts.size.smooth = 1;
+    const bool sized = photo_ != nullptr && !photo_picture_held() &&
+                       (photo_->size_factor != 1 || photo_->smooth_factor != 1);
+    facts.size.smooth = sized ? photo_->smooth_factor : 1;
     facts.created = utc_moment();
     facts.player_names = photo_player_names();
+    if (photo_look_active() && photo_ != nullptr) {
+        photo::LookFact fact;
+        const int preset = std::clamp(static_cast<int>(photo_->look_preset), 0, 5);
+        fact.preset = photo::preset_key(static_cast<photo::Preset>(preset));
+        fact.vignette = std::clamp(photo_->look_vignette, 0, 100);
+        fact.roundness = std::clamp(photo_->look_roundness, 0, 100);
+        fact.grain = std::clamp(photo_->look_grain, 0, 100);
+        fact.grain_size = std::clamp(photo_->look_grain_size, 1, 16);
+        fact.grain_pixels = photo::photo_grain_size(fact.grain_size, size_factor);
+        const int frame = std::clamp(static_cast<int>(photo_->look_frame), 0, 3);
+        fact.frame = photo::frame_key(static_cast<photo::Frame>(frame));
+        facts.look = std::move(fact);
+    }
     // Passed so a photo that stored it would fail the capture check. The
     // text builder never writes a folder.
     facts.shots_folder = oa::platform::path_to_generic_utf8(folder);
+    if (photo_time_is_replay() && !replay_recording_path_.empty()) {
+        photo::ReplayFact fact;
+        fact.file = oa::platform::path_to_utf8(replay_recording_path_.filename());
+        const std::string path_key = oa::platform::path_to_utf8(replay_recording_path_);
+        if (photo_ != nullptr && photo_->replay_digest_path == path_key &&
+            !photo_->replay_digest_hex.empty()) {
+            fact.sha256 = photo_->replay_digest_hex;
+        } else {
+            std::ifstream recording(replay_recording_path_, std::ios::binary);
+            if (recording) {
+                const std::vector<uint8_t> recording_bytes{
+                    std::istreambuf_iterator<char>(recording), std::istreambuf_iterator<char>()
+                };
+                if (!recording_bytes.empty()) {
+                    const oa::base::sha256::Digest digest =
+                        oa::base::sha256::digest_of(recording_bytes);
+                    const std::array<char, oa::base::sha256::hex_size> hex =
+                        oa::base::sha256::to_hex(digest);
+                    fact.sha256.assign(hex.data(), hex.size());
+                    if (photo_ != nullptr) {
+                        photo_->replay_digest_hex = fact.sha256;
+                        photo_->replay_digest_path = path_key;
+                    }
+                }
+            }
+        }
+        ReplayPlaybackView replay_now{};
+        const bool filled = call_hook_or_report<&Extension::replay_state>(
+            extension_, hook_error_report(), *this, &replay_now
+        );
+        const uint32_t replay_tick = filled ? replay_now.tick : match_->state().game.tick;
+        fact.tick = static_cast<int64_t>(replay_tick);
+        facts.replay = std::move(fact);
+    }
 
     PhotoWriter::Picture picture;
     picture.rgb = std::move(rgb);

@@ -163,11 +163,25 @@ adds.
 | L1 | The share panel (multiplayer), the previous primary unit (single player) | h, Shift+Tab |
 | R1 | The keys overlay | Cmd+/ or Ctrl+/ |
 | R2 | A screenshot | Ctrl+F9 |
+| L2 | Photo mode | F9 |
 
 While a replay plays, A plays or pauses, L1 jumps back ten seconds and R1
 jumps forward ten seconds, L2 and R2 go slower and faster, the D-pad left
 and right jump to the previous and next marker, and B pins the bar. Y
 shows the next player's view and X changes how the camera follows.
+
+**Photo mode.** Hold View and press L2 to open it (Menu and L2 on a
+gamepad without grips, [the fallback map](#the-fallback-map)). A takes the
+photo, B leaves, X freezes the battle or lets a frozen battle run, and on a
+shared match it holds the picture. Y hides the panel.
+The first press of the D-pad shows the focus ring, and the D-pad then moves
+through the panel: left and right change a switch, a slider or Run, Slow
+and Freeze, and A presses a focused button, as Enter does. The ring then
+goes, so the next A takes the photo. The left stick pans. The right stick
+zooms up and down, and turns left and right when the view can turn. The
+grips do nothing.
+Letting go of View gives no order. While a replay plays, L2 still changes
+its speed until photo mode is open.
 
 **Standing orders (hold R5 with a face button or the D-pad).** R5 with R2
 or A stays a forced click.

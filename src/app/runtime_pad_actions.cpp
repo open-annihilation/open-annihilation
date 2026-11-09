@@ -139,8 +139,10 @@ void PadAccess::press(Runtime& runtime, pc::PadButton button, uint64_t now) {
     }
     // A replay's bar takes A, the shoulders, the triggers, the d-pad and B
     // before a match binding. A paused match and a modal screen keep theirs.
+    // Photo mode keeps A, B and the D-pad. Outside it a replay's bar still
+    // takes L2 for slower, before the game layer's photo button.
     if ((runtime.current_extension_state() & extension_state::replay) != 0 &&
-        !runtime.match_paused_ && !runtime.oa_layer().modal_shown(true)) {
+        !runtime.photo_mode() && !runtime.match_paused_ && !runtime.oa_layer().modal_shown(true)) {
         if (runtime.replay_viewer_pad(button)) {
             state.pressed[index] = {};
             state.taps[index] = {};
@@ -334,6 +336,35 @@ void PadAccess::act_press(
     }
     case pc::Action::keys_overlay:
         runtime.toggle_keys_overlay_screen();
+        return;
+    case pc::Action::photo_mode:
+        if (!runtime.photo_mode())
+            std::ignore = runtime.enter_photo_mode();
+        return;
+    case pc::Action::photo_capture:
+        if (runtime.photo_mode())
+            runtime.take_photo();
+        return;
+    case pc::Action::photo_leave:
+        if (runtime.photo_mode())
+            runtime.leave_photo_mode();
+        return;
+    case pc::Action::photo_freeze:
+        // The same choice as the photo.freeze key: a local match or a replay
+        // freezes and runs, and a shared match holds the picture.
+        if (!runtime.photo_mode())
+            return;
+        if (runtime.photo_time_is_local() || runtime.photo_time_is_replay()) {
+            if (runtime.photo_frozen())
+                std::ignore = runtime.photo_run();
+            else
+                std::ignore = runtime.photo_freeze();
+        } else {
+            std::ignore = runtime.photo_hold_picture();
+        }
+        return;
+    case pc::Action::photo_panel:
+        runtime.toggle_photo_panel();
         return;
     case pc::Action::unit_info:
         // The unit under the pointer; with R4 held it is pinned.
@@ -1118,6 +1149,14 @@ void PadAccess::sheet_action(Runtime& runtime, pc::Action action) {
 }
 
 void PadAccess::menu_step(Runtime& runtime, pc::Action action) {
+    // The panel ignores arrows until the focus ring shows. The first press
+    // shows it, as Tab does, and a later press moves.
+    const bool focus_arm = action == pc::Action::focus_up || action == pc::Action::focus_down ||
+                           action == pc::Action::focus_left || action == pc::Action::focus_right;
+    if (focus_arm && runtime.photo_mode() && !runtime.photo_focus_ring_shown()) {
+        send_key(runtime, SDLK_TAB);
+        return;
+    }
     if (action == pc::Action::wheel_up || action == pc::Action::wheel_down) {
         // One notch of the wheel, towards the top when the stick is pushed up.
         const float notches = action == pc::Action::wheel_up ? 1.0F : -1.0F;

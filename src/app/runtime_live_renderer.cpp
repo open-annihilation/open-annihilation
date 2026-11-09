@@ -739,6 +739,16 @@ bool Runtime::live_renderer_failed() const noexcept {
     return live_renderer_ && live_renderer_->failed;
 }
 
+Runtime::TurnedFrameSampling Runtime::turned_frame_sampling() const noexcept {
+    TurnedFrameSampling sampling;
+    if (live_renderer_ == nullptr)
+        return sampling;
+    sampling.supersample = live_renderer_->gpu.actual_supersample;
+    sampling.multisample = live_renderer_->gpu.actual_multisample;
+    sampling.device_multisamples = renderer_live_gpu::device_multisamples(live_renderer_->gpu);
+    return sampling;
+}
+
 bool Runtime::live_renderer_unavailable() const noexcept {
     return live_renderer_ && live_renderer_->unavailable;
 }
@@ -1247,6 +1257,12 @@ bool Runtime::render_live_match_surface() {
               render_run_->host->presenting_on_card() &&
               sdl_.renderer == render_run_->host->renderer()) ||
              turned_overlay_checked_);
+        // A look needs the picture in memory. A frozen frame whose camera
+        // and look are unchanged keeps the card's picture and presents the
+        // filtered copy. A held picture is that copy, not a new read-back.
+        if (photo_look_active() && !photo_picture_held() &&
+            (photo_look_preview_due() || !photo_look_cpu_valid_))
+            live.gpu.keep_on_card = false;
         const auto model_draws =
             renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
         Span drawing(Stage::gpu_total);
@@ -1315,6 +1331,10 @@ bool Runtime::render_live_match_surface() {
                     lights
                 );
             }
+        } else if (photo_capture_live_) {
+            // A photo that did not draw is refused. The play camera stays
+            // where it was, and the live renderer is not marked failed.
+            return false;
         } else if (
             !built && live.scene.out_of_room && last.held && director_ == nullptr &&
             (!at_last || last_picture_read())

@@ -416,6 +416,37 @@ int notch_count(const Chord& chord, const InputEvent& event) {
     return magnitude;
 }
 
+/// Whether the chord's key is an arrow: Up, Down, Left or Right, by name or by position.
+///
+/// @param chord the chord
+/// @return true for those four keys
+bool arrow_trigger(const Chord& chord) {
+    const auto arrow_position = [](uint16_t scancode) {
+        if (scancode == 0)
+            return false;
+        const std::span<const NamedKeySpec> keys = named_keys();
+        for (const NamedKey id : {NamedKey::up, NamedKey::down, NamedKey::left, NamedKey::right}) {
+            const auto index = static_cast<std::size_t>(id);
+            if (index < keys.size() && keys[index].scancode == scancode)
+                return true;
+        }
+        return false;
+    };
+    if (chord.kind == TriggerKind::named) {
+        const auto named = static_cast<NamedKey>(chord.named);
+        if (named == NamedKey::up || named == NamedKey::down || named == NamedKey::left ||
+            named == NamedKey::right)
+            return true;
+        const std::span<const NamedKeySpec> keys = named_keys();
+        if (chord.named >= keys.size())
+            return false;
+        return arrow_position(keys[chord.named].scancode);
+    }
+    if (chord.kind == TriggerKind::place)
+        return arrow_position(chord.scancode);
+    return false;
+}
+
 /// Whether a plain key's position is held.
 ///
 /// @param chord the chord
@@ -1716,7 +1747,9 @@ void Dispatcher::consume_sticky() {
     state_->sticky.consume();
 }
 
-bool Dispatcher::chord_key_held(std::string_view action, const HeldKeys& keys_held) const {
+bool Dispatcher::chord_key_held(
+    std::string_view action, const HeldKeys& keys_held, bool skip_arrows
+) const {
     const Bound* found = nullptr;
     for (const Bound& bound : state_->resolved.actions) {
         if (bound.id == action) {
@@ -1728,6 +1761,8 @@ bool Dispatcher::chord_key_held(std::string_view action, const HeldKeys& keys_he
         return false;
     for (const BoundChord& item : found->chords) {
         if (item.chord.kind == TriggerKind::modifier_alone)
+            continue;
+        if (skip_arrows && arrow_trigger(item.chord))
             continue;
         if (trigger_held(item.chord, keys_held, state_->keyboard))
             return true;

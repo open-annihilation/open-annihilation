@@ -24,6 +24,7 @@
 
 #include "oa/formats/zip/stream.hpp"
 
+#include "oa/data/defs/layout.hpp"
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -945,25 +946,34 @@ bool binding_key(
     return false;
 }
 
-/// While the save dialog's name takes typing, the dispatcher searches only
-/// the chat group. A menu chord that types no character is offered here, so
-/// Tab and the list keys still move, on whatever chord the player bound.
+/// Offers one menu action whose chord this key matches, when the live
+/// contexts do not already search the menus.
 ///
-/// Letters stay with the name, Shift included. Return, Escape, Backspace,
-/// Left, Right, Home and End are not among the actions offered, so they
-/// keep editing the name.
+/// An exact chord wins over one the event holds extra modifiers for, so
+/// Shift+Tab is Previous and not Next with Shift held. Among those, the
+/// higher rank wins. An action already in `events` is left as it is.
+/// `exact_only` drops a match that has extra Shift, Alt or Meta, so Alt+Tab
+/// is not a walk. `skip_typing` leaves a key that types a character alone.
 ///
 /// @param[in,out] events the actions this key started
 /// @param resolved the bindings
 /// @param keyboard the keyboard the chords match on
 /// @param platform which key Primary means
 /// @param input the key
-void offer_save_menu_moves(
+/// @param yield the action ids that may be offered
+/// @param skip_typing leave a key that types a character with the caller
+/// @param exact_only offer only a chord the modifiers match exactly
+/// @param characters offer a chord that names a letter, not only a named key
+void offer_menu_actions(
     std::vector<keys::ActionEvent>& events,
     const keys::Resolved& resolved,
     const keys::KeyboardMap& keyboard,
     keys::Platform platform,
-    const keys::InputEvent& input
+    const keys::InputEvent& input,
+    std::span<const std::string_view> yield,
+    bool skip_typing,
+    bool exact_only,
+    bool characters
 ) {
     if (!input.down || input.kind != keys::InputKind::key)
         return;
@@ -972,16 +982,8 @@ void offer_save_menu_moves(
     const bool types = (input.modifiers & (keys::ctrl | keys::alt | keys::meta)) == 0 &&
                        (input.key_code & keys::position_key_code_bit) == 0 &&
                        input.key_code >= 0x20 && input.key_code <= 0x10FFFF;
-    if (types)
+    if (skip_typing && types)
         return;
-    static constexpr std::array<std::string_view, 6> yield{
-        "ui.menu-focus-next",
-        "ui.menu-focus-previous",
-        "ui.menu-list-up",
-        "ui.menu-list-down",
-        "ui.menu-focus-up",
-        "ui.menu-focus-down",
-    };
     const uint32_t menus = context_bit("menus");
     if (menus == 0)
         return;
@@ -1001,16 +1003,17 @@ void offer_save_menu_moves(
             continue;
         for (const keys::BoundChord& binding : bound.chords) {
             const keys::Chord& chord = binding.chord;
-            if (chord.kind == keys::TriggerKind::character || chord.gesture != keys::Gesture::press)
+            if (chord.gesture != keys::Gesture::press)
+                continue;
+            if (!characters && chord.kind == keys::TriggerKind::character)
                 continue;
             const keys::Match quality = keys::match(chord, input, keyboard, platform);
             if (quality == keys::Match::none)
                 continue;
+            if (exact_only && quality != keys::Match::exact)
+                continue;
             const bool exact = quality == keys::Match::exact;
             const int ranked = keys::rank(chord);
-            // An exact chord wins over one the event holds extra modifiers
-            // for, so Shift+Tab is Previous and not Next with Shift held.
-            // Among those, the higher rank wins.
             const bool better = chosen == nullptr || (exact && !chosen_exact) ||
                                 (exact == chosen_exact && ranked > chosen_rank);
             if (!better)
@@ -1041,6 +1044,69 @@ void offer_save_menu_moves(
     out.chord = *chosen_chord;
     out.context = menus_index;
     events.push_back(out);
+}
+
+/// While the save dialog's name takes typing, the dispatcher searches only
+/// the chat group. A menu chord that types no character is offered here, so
+/// Tab and the list keys still move, on whatever chord the player bound.
+///
+/// Letters stay with the name, Shift included. Return, Escape, Backspace,
+/// Left, Right, Home and End are not among the actions offered, so they
+/// keep editing the name.
+///
+/// @param[in,out] events the actions this key started
+/// @param resolved the bindings
+/// @param keyboard the keyboard the chords match on
+/// @param platform which key Primary means
+/// @param input the key
+void offer_save_menu_moves(
+    std::vector<keys::ActionEvent>& events,
+    const keys::Resolved& resolved,
+    const keys::KeyboardMap& keyboard,
+    keys::Platform platform,
+    const keys::InputEvent& input
+) {
+    static constexpr std::array<std::string_view, 6> yield{
+        "ui.menu-focus-next",
+        "ui.menu-focus-previous",
+        "ui.menu-list-up",
+        "ui.menu-list-down",
+        "ui.menu-focus-up",
+        "ui.menu-focus-down",
+    };
+    offer_menu_actions(events, resolved, keyboard, platform, input, yield, true, false, false);
+}
+
+/// While a match panel or the order buttons hold the keyboard, the menus'
+/// context is not searched. The move, accept and cancel actions are offered
+/// on the chords the player bound, exactly, so a rebound key reaches the
+/// panel and Alt+Tab does not.
+///
+/// @param[in,out] events the actions this key started
+/// @param resolved the bindings
+/// @param keyboard the keyboard the chords match on
+/// @param platform which key Primary means
+/// @param input the key
+void offer_match_panel_moves(
+    std::vector<keys::ActionEvent>& events,
+    const keys::Resolved& resolved,
+    const keys::KeyboardMap& keyboard,
+    keys::Platform platform,
+    const keys::InputEvent& input
+) {
+    static constexpr std::array<std::string_view, 10> yield{
+        "ui.menu-focus-next",
+        "ui.menu-focus-previous",
+        "ui.menu-focus-up",
+        "ui.menu-focus-down",
+        "ui.menu-focus-left",
+        "ui.menu-focus-right",
+        "ui.menu-list-up",
+        "ui.menu-list-down",
+        "ui.menu-accept",
+        "ui.menu-cancel",
+    };
+    offer_menu_actions(events, resolved, keyboard, platform, input, yield, false, true, true);
 }
 
 /// The English name of a modifier bit, or empty.
@@ -2729,8 +2795,24 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
         return true;
     // The save dialog's name is text entry, so the feed above searched only
     // the chat group. Offer the menu moves whose chords type no character.
+    // A match panel is the same: the menus' context is not searched while
+    // the match has the keyboard, so the bound moves are offered here.
+    const bool prefs_panel = match_paused_ && !match_panels_keyboard_ &&
+                             match_hud_panel_ == oa::data::defs::gui_path("PREFS.GUI");
+    const bool match_panel_keys =
+        !contexts.text_entry && screen_ == Screen::match && match_ != nullptr && !match_finished_ &&
+        !photo_mode() &&
+        (hud_buttons_focused_ || (match_paused_ && match_panels_keyboard_) || prefs_panel);
     if (save_dialog_open() && state.ready)
         offer_save_menu_moves(
+            state.events,
+            state.dispatcher.bindings(),
+            state.dispatcher.keyboard(),
+            state.platform,
+            *input
+        );
+    else if (match_panel_keys && state.ready)
+        offer_match_panel_moves(
             state.events,
             state.dispatcher.bindings(),
             state.dispatcher.keyboard(),
@@ -2960,7 +3042,7 @@ void Runtime::tag_layout_ids(
     }
 }
 
-bool Runtime::action_key_held(std::string_view action) {
+bool Runtime::action_key_held(std::string_view action, bool skip_arrows) {
     // No key is down in a headless run that draws no picture unless the
     // run's own check holds one, and resolving the bindings only then keeps
     // the table beside the loaded units.
@@ -2971,7 +3053,7 @@ bool Runtime::action_key_held(std::string_view action) {
         return false;
     keys::HeldKeys keys_held;
     keys_held.down = key_is_down;
-    return key_bindings_state_->dispatcher.chord_key_held(action, keys_held);
+    return key_bindings_state_->dispatcher.chord_key_held(action, keys_held, skip_arrows);
 }
 
 bool Runtime::action_held(std::string_view action) const {

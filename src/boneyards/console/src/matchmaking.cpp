@@ -10,6 +10,7 @@
 #include "battle_console.hpp"
 #include "console_state.hpp"
 #include "oa/boneyards/console/gui_screen.hpp"
+#include "oa/boneyards/console/status_widget.hpp"
 #include "oa/boneyards/message_box.hpp"
 #include "oa/boneyards/screens/matchmaking.hpp"
 #include "widgets.hpp"
@@ -324,6 +325,10 @@ void apply_effect(
         write_offer_text(dialog);
         show_offer(dialog, true);
         rest_blink(dialog);
+        char offer_line[192];
+        screens::matchmaking_offer_line(&dialog->choices, offer_line, sizeof offer_line);
+        if (offer_line[0] != '\0')
+            boneyards_console_driver_note("alert", offer_line);
     }
     if (effect.show_box)
         show_words(screens::matchmaking_result_text(effect.box_result));

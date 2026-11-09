@@ -552,7 +552,9 @@ automation_entries(const DisplayList& list, const Interaction& interaction);
 ///   <name>.off and <name>.on, each half the switch, the On half's the
 ///   wider by the odd column; checked on the half the switch shows;
 /// - a strip of levels (Role::levels): each level where level_at finds it,
-///   checked on the chosen level and enabled only where it is offered;
+///   or, on a strip wrapped onto rows (LevelsLook::columns), at its row and
+///   column, checked on the chosen level and enabled only where it is
+///   offered;
 /// - a row of buttons (ControlKind::buttons): each button the list draws for it;
 /// - a drop-down whose menu is open (Role::choice, ChoiceLook::open): each
 ///   item the menu (Role::choice_menu) shows, at the rectangle the menu draws

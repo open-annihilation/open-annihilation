@@ -2618,6 +2618,19 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 sdl_.renderer, full.overlay_texture, nullptr, &world, one_to_one_scale_mode()
             );
         }
+        // A look reads the battlefield back, including what was painted over
+        // it, and draws the filtered picture in its place. The Open
+        // Annihilation layer and the panel are drawn after this, and a
+        // capture reads the card before this runs. No look skips the pass.
+        if (photo_look_active() && !accelerated_.reading_back)
+            present_photo_look_full(
+                battlefield.x,
+                battlefield.y,
+                static_cast<int>(bf_w),
+                static_cast<int>(bf_h),
+                moved,
+                full.final_target
+            );
         finish_match_layers(frame_format, dialogs, upload_start, present_start);
         return true;
     } catch (const FullFrameRefusedError& error) {

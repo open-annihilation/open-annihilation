@@ -394,6 +394,12 @@ std::string_view remembered_photo_name() noexcept {
     return remembered_photo.file_name;
 }
 
+std::size_t remembered_photo_bytes() noexcept {
+    if (!remembered_photo.held || remembered_photo.bytes == nullptr)
+        return 0;
+    return remembered_photo.bytes->size();
+}
+
 void clear_remembered_photo() noexcept {
     remembered_photo = {};
 }

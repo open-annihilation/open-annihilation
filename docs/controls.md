@@ -190,6 +190,22 @@ including a pause set with Pause or Cmd+P. In a shared match, closing the
 menu leaves the synchronized pause unchanged; use Pause or Cmd+P to toggle
 it.
 
+Tab and Shift+Tab move through the game menu and the options it opens, and
+show the focus ring. The first item is already focused, with no ring, and
+the first Tab moves on to the next. Once the ring shows, the arrow keys
+move it, and Left and Right step a slider. Return presses the focused
+control and hides the ring. Until you press Tab, Return still presses the
+menu's own default, and the arrow keys do what they did before. Escape
+resumes.
+
+**Focus the panel's buttons** (`ui.hud-focus`) is unbound. During a match
+F6 is Go to bookmark 2, and there is no free chord, so bind this in the
+editor if you want it. While it is on, Tab and Shift+Tab move a ring over
+the order buttons and the build page. The arrows move that ring once it is
+showing. Return presses the focused button and hides the ring. Escape, or
+the action again, returns to the battlefield. Until the ring shows, every
+other key does what it does today. The build cells stay unbound.
+
 **Back** (`game.back`) is Escape and Ctrl+Escape, and it moves in the
 editor. Escape still closes the chat line and Open Annihilation's own
 screens, which that binding cannot take away

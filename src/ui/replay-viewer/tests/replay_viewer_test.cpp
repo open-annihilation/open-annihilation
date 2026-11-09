@@ -49,6 +49,7 @@ std::vector<kit::Rect> row_of(const viewer::Layout& layout) {
         layout.speed,
         layout.view,
         layout.camera,
+        layout.photo,
         layout.chat,
         layout.keys,
         layout.leave,
@@ -88,6 +89,7 @@ void check_size(int32_t width, int32_t height) {
     viewer::fill_controls(layout, model, list);
     bool saw_view = false;
     bool saw_camera = false;
+    bool saw_photo = false;
     bool saw_back = false;
     bool saw_play = false;
     bool saw_forward = false;
@@ -99,6 +101,7 @@ void check_size(int32_t width, int32_t height) {
     for (const kit::Control& control : list.controls) {
         saw_view = saw_view || control.name == "replay-viewer.view";
         saw_camera = saw_camera || control.name == "replay-viewer.camera";
+        saw_photo = saw_photo || control.name == "replay-viewer.photo";
         saw_back = saw_back || control.name == "replay-viewer.back";
         saw_play = saw_play || control.name == "replay-viewer.play";
         saw_forward = saw_forward || control.name == "replay-viewer.forward";
@@ -108,7 +111,7 @@ void check_size(int32_t width, int32_t height) {
         saw_keys = saw_keys || control.name == "replay-viewer.keys";
         saw_leave = saw_leave || control.name == "replay-viewer.leave";
     }
-    OA_CHECK(saw_view && saw_camera);
+    OA_CHECK(saw_view && saw_camera && saw_photo);
     OA_CHECK(saw_back && saw_play && saw_forward && saw_timeline);
     OA_CHECK(saw_speed && saw_chat && saw_keys && saw_leave);
 
@@ -372,6 +375,7 @@ void check_draw(int width, int height) {
         expect_button(pixels, layout.play, kit::hud_colour::lit);
         expect_button(pixels, layout.forward, face);
         expect_button(pixels, layout.speed, face);
+        expect_button(pixels, layout.photo, face);
         expect_button(pixels, layout.chat, face);
         expect_button(pixels, layout.keys, face);
         expect_button(pixels, layout.leave, face);
@@ -404,6 +408,7 @@ void check_names() {
     };
     kit::DisplayList list;
     viewer::fill_controls(layout, model, list);
+    OA_CHECK(caption_of(list, "replay-viewer.photo") == "Photo");
     OA_CHECK(caption_of(list, "replay-viewer.back") == "Back 10 seconds");
     OA_CHECK(caption_of(list, "replay-viewer.play") == "Play");
     OA_CHECK(caption_of(list, "replay-viewer.forward") == "Forward 10 seconds");
@@ -977,6 +982,7 @@ int main() {
     OA_CHECK(viewer::hit_control(layout, centre(layout.play)) == viewer::Control::play);
     OA_CHECK(viewer::hit_control(layout, centre(layout.view)) == viewer::Control::view);
     OA_CHECK(viewer::hit_control(layout, centre(layout.camera)) == viewer::Control::camera);
+    OA_CHECK(viewer::hit_control(layout, centre(layout.photo)) == viewer::Control::photo);
     OA_CHECK(viewer::tick_at(layout.timeline, layout.timeline.x, model.length) == 0);
     OA_CHECK(
         viewer::tick_at(

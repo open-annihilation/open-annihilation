@@ -256,6 +256,12 @@ void enqueue_request(const accesskit_action_request* request);
 /// @param focus the focused id
 void submit_tree(std::vector<Node> nodes, uint64_t focus);
 
+/// A copy of the tree last staged. A test reads the live nodes. The game
+/// does not call this.
+///
+/// @return the controls, in the order they were staged
+[[nodiscard]] std::vector<Node> testing_staged_nodes();
+
 /// Marks the bridge as asked for by a reader, so a test can reach `submit_tree`'s
 /// guard. The game does not call this. A test clears it before it returns.
 ///

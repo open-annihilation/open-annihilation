@@ -10,6 +10,7 @@ namespace oa::ui::photo_panel::words {
 
 inline constexpr std::string_view leave_head = "{key} or Esc leaves";
 inline constexpr std::string_view shows_panel = "{key} shows the panel";
+inline constexpr std::string_view show_panel = "Show panel";
 inline constexpr std::string_view photo_not_taken = "Photo not taken";
 inline constexpr std::string_view show_selection = "Show selection";
 inline constexpr std::string_view show_health = "Show health bars";
@@ -58,5 +59,32 @@ inline constexpr std::string_view medium = "Medium";
 inline constexpr std::string_view near = "Near";
 inline constexpr std::string_view centre_lines = "Centre lines";
 inline constexpr std::string_view copied = "Copied";
+inline constexpr std::string_view smooth_edges = "Smooth edges";
+inline constexpr std::string_view two = "2×";
+inline constexpr std::string_view three = "3×";
+inline constexpr std::string_view four = "4×";
+inline constexpr std::string_view and_word = "and";
+inline constexpr std::string_view card_edge =
+    "This graphics card draws at most {limit} pixels a side";
+inline constexpr std::string_view photo_edge = "A photo is at most {limit} pixels a side";
+inline constexpr std::string_view turned_edge =
+    "The 3D view draws at most {limit} pixels a side at this anti-aliasing";
+inline constexpr std::string_view not_enough_memory = "Not enough memory";
+inline constexpr std::string_view whole_pixels = "Off and Basic draw whole pixels";
+inline constexpr std::string_view held_picture = "Held picture";
+inline constexpr std::string_view year_1997 = "1997";
+inline constexpr std::string_view arctic = "Arctic";
+inline constexpr std::string_view bleach = "Bleach";
+inline constexpr std::string_view caption_bar = "Caption bar";
+inline constexpr std::string_view dusk = "Dusk";
+inline constexpr std::string_view frame = "Frame";
+inline constexpr std::string_view grain = "Grain";
+inline constexpr std::string_view grain_size = "Grain size";
+inline constexpr std::string_view noir = "Noir";
+inline constexpr std::string_view roundness = "Roundness";
+inline constexpr std::string_view preview_rate = "The preview lowers the frame rate.";
+inline constexpr std::string_view thin_border = "Thin border";
+inline constexpr std::string_view vignette = "Vignette";
+inline constexpr std::string_view wide_mat = "Wide mat";
 
 } // namespace oa::ui::photo_panel::words

@@ -79,6 +79,31 @@ build that leaves the bridge out does not include it:
 `oa/platform/screen_reader/api.hpp` is the table of C functions `load`
 binds. A check builds a node through that table and reads it back.
 
+`oa/platform/screen_reader/announce.hpp` is the spoken-update queue. It does
+not name AccessKit, so a build that leaves the bridge out can include it.
+
+- `announce(text, politeness)` keeps one line for the speech fallback and
+  adds a new live node for it. A repeated sentence is a new node. A node is
+  dropped once about four seconds have passed, or once more than eight
+  newer lines are waiting. It does nothing when the text is empty, when
+  `open-annihilation.access.screen-reader` is `off`, or when it is `auto`
+  and no screen reader is running. `announcements_open` is that gate. `take_announcements` hands
+  the lines to the game, which posts each one as an `announce` note.
+  `speech_where_bridge_cannot` is unchanged: this module still does not speak.
+- `LineQueue` holds collapsible polite lines for `line_hold_ms` (about a
+  second and a half) from the oldest unsent line in that room. Those lines
+  then become "{count} new lines in {room}", or the line itself when there
+  is only one. A line that is not collapsible, and an assertive line, leave
+  on the flush that sees them and do not close the room's window. A muted
+  player's line is dropped and does not count. An empty name is never muted.
+  The game keeps one queue and stamps it with `SDL_GetTicks`.
+- While lines are waiting, `submit_tree` adds one label per line under the
+  window, inside the window rather than at the origin. Each label keeps the
+  politeness that line asked for. Polite waits. Assertive is spoken at once.
+- `speak-chat` is `off`, `pages` or `all` (absent is `all`). `speak-lobby`
+  is on unless the value is `0`. `speak-ticker` is off unless the value is
+  `1`. The game reads them. This module only parses the text.
+
 ## State
 
 Until `load` and `attach` are called, the module holds no library handle and
@@ -109,7 +134,8 @@ Open Annihilation. The game's controls follow on the game's thread.
   attaches nothing.
 - With no screen reader running, no control tree is built and nothing is
   sent. An unchanged tree sends nothing.
-- The bridge draws nothing and speaks nothing.
+- The bridge draws nothing and calls no speech engine. A spoken line is
+  queued and published as a live region. Speech itself is elsewhere.
 - Windows never imports `accesskit.dll` at load. The program loads the copy
   beside itself, and only on Windows 10 or later.
 - A Windows 95 build, a build with the bridge switched off, and a platform
@@ -133,7 +159,9 @@ AccessKit's C API and reads the test node's role and label. It also maps a
 fixture that holds each role a reader is shown, reads every node's role,
 label, value, bounds and actions back through that API, and turns each
 action into the game's event. An unchanged tree is staged and then submitted
-again while a reader is marked active, and the factory is not called. On Windows it loads the DLL beside the
+again while a reader is marked active, and the factory is not called. It
+also checks the queue, the collapse, the mute and the gate that records a
+line only while a reader is running or the preference is `on`. On Windows it loads the DLL beside the
 test. It skips when that DLL is not there (the Visual Studio lane has only
 the header). On a Windows older than Windows 10 it checks that `accesskit.dll`
 is not loaded (`GetModuleHandleW` returns null). On a build that leaves the

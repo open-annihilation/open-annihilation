@@ -1276,6 +1276,18 @@ void lobby_set_alliance(
 /// @param reason RejectReason value, stored as the slot's reject reason.
 void lobby_reject(Lobby& lobby, uint32_t player_id, uint8_t reason) noexcept;
 
+/// Notes that the battle room closed because its creator left.
+///
+/// The next `lobby_take_creator_left` reports it once. The notice is
+/// independent of the lobby record, so a joiner can say it after the
+/// screen has already left the room.
+void lobby_note_creator_left() noexcept;
+
+/// Reports and clears the creator-left note.
+///
+/// @return true once after `lobby_note_creator_left`
+[[nodiscard]] bool lobby_take_creator_left() noexcept;
+
 /// Broadcasts a chat line "<name> text" as 0x05 from the speaker, flushes it and posts it locally.
 ///
 /// With Lobby::unicode_chat on the line goes as net_match_say sends one:

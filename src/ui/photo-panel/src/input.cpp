@@ -8,6 +8,9 @@
 #include "oa/ui/kit/components.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <span>
+#include <variant>
 
 namespace oa::ui::photo_panel {
 namespace {
@@ -103,6 +106,27 @@ Press command_for(kit::ControlId id, const Model& model, int32_t value) {
     case kGuides:
         press.command = Command::cycle_guides;
         break;
+    case kPreset:
+        press.command = Command::set_preset;
+        press.value = std::clamp(value, int32_t{0}, int32_t{5});
+        break;
+    case kVignette:
+        press.command = Command::set_vignette;
+        break;
+    case kRoundness:
+        press.command = Command::set_roundness;
+        break;
+    case kGrain:
+        press.command = Command::set_grain;
+        break;
+    case kGrainSize:
+        press.command = Command::set_grain_size;
+        break;
+    case kFrame:
+        press.command = Command::cycle_frame;
+        break;
+    case kLookRate:
+        break;
     case kCapture:
         press.command = Command::toggle_section;
         press.value = kSectionCapture;
@@ -122,8 +146,23 @@ Press command_for(kit::ControlId id, const Model& model, int32_t value) {
     case kHint:
         press.command = Command::show_panel;
         break;
+    case kSize: {
+        const int32_t index = std::clamp(value, int32_t{0}, int32_t{3});
+        if (!model.size_locks[static_cast<std::size_t>(index)].empty())
+            return {};
+        press.command = Command::set_size;
+        press.value = model.size_factors[static_cast<std::size_t>(index)];
+        break;
+    }
+    case kSmooth: {
+        const int32_t index = std::clamp(value, int32_t{0}, int32_t{2});
+        if (!model.smooth_locks[static_cast<std::size_t>(index)].empty())
+            return {};
+        press.command = Command::set_smooth;
+        press.value = model.smooth_factors[static_cast<std::size_t>(index)];
+        break;
+    }
     case kClock:
-    case kSize:
     case kFile:
         break;
     default:
@@ -179,6 +218,14 @@ int32_t stops_of(const Model& model, kit::ControlId id) {
         return model.speed_stops;
     case kBetween:
         return model.between_stops;
+    case kVignette:
+        return model.vignette_stops;
+    case kRoundness:
+        return model.roundness_stops;
+    case kGrain:
+        return model.grain_stops;
+    case kGrainSize:
+        return model.grain_size_stops;
     default:
         return 2;
     }
@@ -197,6 +244,14 @@ int32_t stop_of(const Model& model, kit::ControlId id) {
         return model.speed_stop;
     case kBetween:
         return model.between_stop;
+    case kVignette:
+        return model.vignette_stop;
+    case kRoundness:
+        return model.roundness_stop;
+    case kGrain:
+        return model.grain_stop;
+    case kGrainSize:
+        return model.grain_size_stop;
     default:
         return 0;
     }
@@ -209,16 +264,104 @@ Press press_of(const Model& model, kit::ControlId id, int32_t value) {
     return command_for(id, model, value);
 }
 
-/// The level under a point on the Run / Slow / Freeze strip.
-int32_t level_of(const kit::Control& control, kit::Point at) {
-    const int32_t level_w = std::max((control.rect.width - 2) / 3, int32_t{1});
-    return static_cast<int32_t>(kit::level_at(control.rect, 3, level_w, at.x));
+/// How many levels a strip holds. The time strip and Smooth edges have
+/// three, Size four and a look six.
+int32_t level_count(const kit::Control& control) {
+    const std::size_t count = control.parts.empty() ? std::size_t{3} : control.parts.size();
+    return static_cast<int32_t>(count);
+}
+
+/// The level a strip is on: the look's preset, the photo's size, its smooth
+/// edges, or Run / Slow / Freeze.
+int32_t chosen_level(const Model& model, kit::ControlId id, int32_t count) {
+    const int32_t last = std::max(count - 1, int32_t{0});
+    if (id == kPreset)
+        return std::clamp(model.preset, int32_t{0}, last);
+    if (id == kSize)
+        return std::clamp(model.size_index, int32_t{0}, last);
+    if (id == kSmooth)
+        return std::clamp(model.smooth_index, int32_t{0}, last);
+    return std::clamp(model.time_mode, int32_t{0}, last);
+}
+
+/// True when that stop of Size or Smooth edges is locked. Time mode's Slow
+/// lock is handled with the time strip, not here.
+bool level_locked(const Model& model, kit::ControlId id, int32_t index) {
+    if (id == kSize)
+        return index >= 0 && index < 4 &&
+               !model.size_locks[static_cast<std::size_t>(index)].empty();
+    if (id == kSmooth)
+        return index >= 0 && index < 3 &&
+               !model.smooth_locks[static_cast<std::size_t>(index)].empty();
+    return false;
+}
+
+/// The level under a point. A wrapped strip uses its rows. One row uses the
+/// width its levels are drawn at, not always a third.
+int32_t level_of(const kit::DisplayList& list, const kit::Control& control, kit::Point at) {
+    const int32_t count = std::max(level_count(control), int32_t{1});
+    const kit::LevelsLook* levels = nullptr;
+    for (const kit::Item& item : list.items) {
+        if (item.control != control.id || item.role != kit::Role::levels)
+            continue;
+        levels = std::get_if<kit::LevelsLook>(&item.look);
+        break;
+    }
+    if (levels != nullptr && levels->columns > 0 &&
+        static_cast<std::size_t>(levels->columns) < static_cast<std::size_t>(count)) {
+        const int32_t columns = levels->columns;
+        const int32_t rows = (count + columns - 1) / columns;
+        const int32_t gap = std::max(levels->row_gap, int32_t{0});
+        const int32_t span = control.rect.height - gap * (rows - 1);
+        const int32_t band_h = rows > 0 ? span / std::max(rows, int32_t{1}) : control.rect.height;
+        const int32_t stride = std::max(band_h + gap, int32_t{1});
+        int32_t band = (at.y - control.rect.y) / stride;
+        if (band < 0)
+            band = 0;
+        if (band >= rows)
+            band = rows - 1;
+        const int32_t chip_w = std::max(levels->level_width, int32_t{1});
+        int32_t place = (at.x - control.rect.x - 1) / chip_w;
+        if (place < 0)
+            place = 0;
+        if (place >= columns)
+            place = columns - 1;
+        int32_t index = band * columns + place;
+        if (index >= count)
+            index = count - 1;
+        if (index < 0)
+            index = 0;
+        return index;
+    }
+    const int32_t level_w = levels != nullptr && levels->level_width > 0
+                                ? levels->level_width
+                                : std::max((control.rect.width - 2) / count, int32_t{1});
+    return static_cast<int32_t>(
+        kit::level_at(control.rect, static_cast<std::size_t>(count), level_w, at.x)
+    );
 }
 
 /// A press or a leave hides the photo notice. Moving the focus does not.
 void note_panel_press(Answer& answer) {
     if (answer.press.command != Command::none || answer.leave)
         answer.dismiss_toast = true;
+}
+
+/// Tells whether a key moves the focus.
+bool arrow_key(kit::Key key) noexcept {
+    return key == kit::Key::up || key == kit::Key::down || key == kit::Key::left ||
+           key == kit::Key::right;
+}
+
+/// The way an arrow key moves the focus.
+kit::Direction direction_of(kit::Key key) noexcept {
+    if (key == kit::Key::down)
+        return kit::Direction::down;
+    if (key == kit::Key::left)
+        return kit::Direction::left;
+    if (key == kit::Key::right)
+        return kit::Direction::right;
+    return kit::Direction::up;
 }
 
 } // namespace
@@ -228,7 +371,8 @@ Answer pointer_event(
     const Model& model,
     const Layout& placed,
     oa::app::ScreenInputKind kind,
-    kit::Point at
+    kit::Point at,
+    int32_t finger_reach
 ) {
     Answer answer;
     const bool chrome = on_chrome(placed, at) || kit::hit(placed.list, at) != kit::no_control;
@@ -239,6 +383,15 @@ Answer pointer_event(
         return answer;
     }
     if (kind == oa::app::ScreenInputKind::pointer_down) {
+        if (finger_reach > 0) {
+            const kit::PointerOutcome held =
+                kit::finger_down(interaction, placed.list, at, finger_reach);
+            if (!chrome && interaction.pressed == kit::no_control)
+                return answer;
+            answer.consumed = true;
+            answer.redraw = held.result != kit::PointerResult::none;
+            return answer;
+        }
         if (!chrome)
             return answer;
         const kit::PointerOutcome held = kit::pointer_down(interaction, placed.list, at);
@@ -263,7 +416,7 @@ Answer pointer_event(
         if (control->kind == kit::ControlKind::slider)
             value = stop_at(*control, stops_of(model, control->id), released.at);
         else if (control->kind == kit::ControlKind::levels)
-            value = level_of(*control, released.at);
+            value = level_of(placed.list, *control, released.at);
         answer.press = press_of(model, control->id, value);
         if (answer.press.command == Command::leave)
             answer.leave = true;
@@ -294,7 +447,61 @@ key_event(kit::Interaction& interaction, const Model& model, const Layout& place
         return answer;
     }
 
+    // The touch layout's rows are one scroll area. Arrows judge them laid out
+    // whole, so a row outside the view is still a stop. Left and right on a
+    // control that steps stay with the kit, which changes the step.
+    if (placed.rows.view.height > 0 && arrow_key(key)) {
+        const kit::Control* focused = kit::control_of(placed.list, interaction.focused);
+        const bool along_steps = focused != nullptr && focused->steps &&
+                                 (key == kit::Key::left || key == kit::Key::right);
+        if (!along_steps) {
+            const kit::ControlId next = kit::focus_toward(
+                placed.list,
+                interaction.focused,
+                direction_of(key),
+                std::span<const kit::ScrollArea>(&placed.rows, 1)
+            );
+            answer.consumed = true;
+            if (next == kit::no_control)
+                return answer;
+            interaction.focused = next;
+            interaction.focus_shown = true;
+            interaction.pointer_hid_ring = false;
+            answer.redraw = true;
+            return answer;
+        }
+    }
+
     const kit::ControlId before = interaction.focused;
+    // Page Up and Page Down move a focused slider a tenth of its range, and
+    // Home and End take it to its ends, as every slider does from the
+    // keyboard. Elsewhere they stay photo mode's.
+    if (key == kit::Key::page_up || key == kit::Key::page_down || key == kit::Key::home ||
+        key == kit::Key::end) {
+        const kit::Control* focused = kit::control_of(placed.list, before);
+        if (focused != nullptr && focused->kind == kit::ControlKind::slider) {
+            const int32_t last = std::max(stops_of(model, focused->id) - 1, int32_t{0});
+            const int32_t big = std::max(last / 10, int32_t{1});
+            const int32_t now = stop_of(model, focused->id);
+            int32_t next = now;
+            if (key == kit::Key::page_up)
+                next = now + big;
+            else if (key == kit::Key::page_down)
+                next = now - big;
+            else if (key == kit::Key::home)
+                next = 0;
+            else
+                next = last;
+            next = std::clamp(next, int32_t{0}, last);
+            answer.consumed = true;
+            answer.redraw = true;
+            if (next != now) {
+                answer.press = press_of(model, focused->id, next);
+                note_panel_press(answer);
+            }
+            return answer;
+        }
+    }
     const kit::KeyOutcome moved = kit::key(interaction, placed.list, key);
     if (moved.result == kit::KeyResult::scroll)
         return answer;
@@ -312,8 +519,8 @@ key_event(kit::Interaction& interaction, const Model& model, const Layout& place
         if (focused != nullptr && focused->kind == kit::ControlKind::slider)
             return answer;
         if (focused != nullptr && focused->kind == kit::ControlKind::levels) {
-            const int32_t mode = std::clamp(model.time_mode, int32_t{0}, int32_t{2});
-            answer.press = command_for(focused->id, model, mode);
+            const int32_t count = std::max(level_count(*focused), int32_t{1});
+            answer.press = command_for(focused->id, model, chosen_level(model, focused->id, count));
             answer.dismiss_toast = true;
             return answer;
         }
@@ -352,18 +559,24 @@ key_event(kit::Interaction& interaction, const Model& model, const Layout& place
         return answer;
     }
     if (control->kind == kit::ControlKind::levels) {
+        const int32_t count = std::max(level_count(*control), int32_t{1});
+        const int32_t current = chosen_level(model, control->id, count);
         if (key == kit::Key::left || key == kit::Key::right) {
             const int32_t step = key == kit::Key::right ? 1 : -1;
-            int32_t next = std::clamp(model.time_mode + step, int32_t{0}, int32_t{2});
-            if (next == 1 && !model.slow_lock.empty())
+            int32_t next = std::clamp(current + step, int32_t{0}, count - 1);
+            // Slow is refused in a shared match. A look's strip has no such gap.
+            if (control->id == kRun && next == 1 && !model.slow_lock.empty())
                 next = step > 0 ? 2 : 0;
-            // Repeating the lit mode would toggle Freeze. Only a new mode is sent.
-            if (next != model.time_mode)
+            // A locked size or smooth step is passed over. Past the last one
+            // offered nothing changes.
+            while (next >= 0 && next < count && level_locked(model, control->id, next))
+                next += step;
+            // Repeating the lit level would toggle Freeze. Only a new level is sent.
+            if (next >= 0 && next < count && next != current)
                 answer.press = command_for(control->id, model, next);
             answer.dismiss_toast = true;
         } else if (key == kit::Key::space || key == kit::Key::enter) {
-            const int32_t mode = std::clamp(model.time_mode, int32_t{0}, int32_t{2});
-            answer.press = command_for(control->id, model, mode);
+            answer.press = command_for(control->id, model, current);
             answer.dismiss_toast = true;
         }
         if (answer.press.command == Command::leave)

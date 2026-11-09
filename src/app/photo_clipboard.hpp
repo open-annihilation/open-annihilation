@@ -187,6 +187,12 @@ copy_remembered_photo(bool copy_on, bool game_mode, bool image_clipboard);
 /// @return the file name, without a folder
 [[nodiscard]] std::string_view remembered_photo_name() noexcept;
 
+/// Bytes of the picture still held for the clipboard, including when copying
+/// is off. The memory guard counts these. Zero when nothing is held.
+///
+/// @return the bytes
+[[nodiscard]] std::size_t remembered_photo_bytes() noexcept;
+
 /// Forgets the remembered photo. A test starts from none.
 void clear_remembered_photo() noexcept;
 

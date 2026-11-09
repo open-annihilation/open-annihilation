@@ -77,7 +77,8 @@
 // fill. Version 21 also adds the rectangle where an extension window's art
 // takes the press. It is not a hook, and these hooks do not state one.
 // Version 21 also adds ScreenServices::main_menu_order_owns_key. These hooks
-// do not call it.
+// do not call it. Version 21 also adds ScreenServices::bound_focus_action.
+// These hooks do not call it.
 constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,

@@ -147,9 +147,56 @@ bool rect_holds(const hud::Rect& rect, float x, float y) noexcept {
 
 } // namespace
 
+void TouchDispatchAccess::photo_battlefield_gestures(
+    Runtime& runtime, const gestures::GestureBatch& batch
+) {
+    if (runtime.photo_camera_locked())
+        return;
+    std::optional<gestures::Gesture> pinch;
+    float pinch_scale = 1.0F;
+    for (std::size_t index = 0; index < batch.count && index < batch.items.size(); ++index) {
+        const auto& gesture = batch.items[index];
+        switch (gesture.kind) {
+        case gestures::GestureKind::drag_began:
+        case gestures::GestureKind::drag_moved:
+        case gestures::GestureKind::pan_began:
+        case gestures::GestureKind::pan_moved:
+            runtime.pan_match_camera_by(-gesture.dx, -gesture.dy);
+            break;
+        case gestures::GestureKind::pinch_moved:
+            pinch_scale *= gesture.scale;
+            pinch = gesture;
+            break;
+        case gestures::GestureKind::twist_moved:
+            std::ignore = runtime.photo_turn(gesture.turn);
+            break;
+        case gestures::GestureKind::press:
+        case gestures::GestureKind::rest_moved:
+        case gestures::GestureKind::tap:
+        case gestures::GestureKind::hold_started:
+        case gestures::GestureKind::hold_released:
+        case gestures::GestureKind::drag_ended:
+        case gestures::GestureKind::pan_ended:
+        case gestures::GestureKind::pinch_began:
+        case gestures::GestureKind::pinch_ended:
+        case gestures::GestureKind::twist_began:
+        case gestures::GestureKind::twist_ended:
+        case gestures::GestureKind::two_finger_tap:
+        case gestures::GestureKind::cancelled:
+            break;
+        }
+    }
+    if (pinch && pinch_scale > 0.0F)
+        runtime.zoom_match_about(pinch_scale, pinch->x, pinch->y);
+}
+
 void TouchDispatchAccess::battlefield_gestures(
     Runtime& runtime, const gestures::GestureBatch& batch
 ) {
+    if (runtime.photo_mode()) {
+        photo_battlefield_gestures(runtime, batch);
+        return;
+    }
     auto& dispatch = runtime.touch_state().dispatch;
     // A pan and a pinch of the same move: the pan first, then the zoom
     // about the fingers' new centre, so the ground under them stays there.
@@ -217,6 +264,10 @@ void TouchDispatchAccess::battlefield_gestures(
             pinch = gesture;
             break;
         case gestures::GestureKind::pinch_ended:
+            break;
+        case gestures::GestureKind::twist_began:
+        case gestures::GestureKind::twist_moved:
+        case gestures::GestureKind::twist_ended:
             break;
         case gestures::GestureKind::two_finger_tap:
             if (!close_overlay(runtime))
@@ -1284,6 +1335,10 @@ void TouchDispatchAccess::control_tap(
             case hud::PhoneMenuItem::chat:
                 close_sheet(runtime, false);
                 runtime.open_chat_line();
+                return;
+            case hud::PhoneMenuItem::photo_mode:
+                close_sheet(runtime, false);
+                std::ignore = runtime.enter_photo_mode();
                 return;
             }
             return;

@@ -30,7 +30,7 @@ namespace {
 /// @return true when events.subscribe accepts it
 bool known_extension_kind(std::string_view name) {
     return name == "said" || name == "page" || name == "ticker" || name == "alert" ||
-           name == "session" || name == "console";
+           name == "session" || name == "console" || name == "announce";
 }
 
 } // namespace

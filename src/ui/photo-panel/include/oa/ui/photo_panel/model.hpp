@@ -75,6 +75,18 @@ inline constexpr kit::ControlId kSpeedReason = 32;
 inline constexpr kit::ControlId kStepReason = 33;
 inline constexpr kit::ControlId kBetweenReason = 34;
 inline constexpr kit::ControlId kSaved = 35;
+inline constexpr kit::ControlId kPreset = 36;
+inline constexpr kit::ControlId kVignette = 37;
+inline constexpr kit::ControlId kRoundness = 38;
+inline constexpr kit::ControlId kGrain = 39;
+inline constexpr kit::ControlId kGrainSize = 40;
+inline constexpr kit::ControlId kFrame = 41;
+/// The rate note under the frame. It does not take Tab.
+inline constexpr kit::ControlId kLookRate = 42;
+/// Smooth edges. A levels strip, so 2× and 4× can both be chosen.
+inline constexpr kit::ControlId kSmooth = 43;
+/// Why a size, or smooth edges at 4×, is locked. It does not take Tab.
+inline constexpr kit::ControlId kSizeReason = 44;
 
 /// A folding section's number, carried on a press of its header.
 inline constexpr int kSectionCamera = 1;
@@ -106,6 +118,14 @@ enum class Command : uint8_t {
     toggle_names,     ///< player names in the photo
     take_photo,       ///< write a photo
     copy_photo,       ///< copy the last photo
+    set_preset,       ///< preset in value, 0 to 5
+    set_vignette,     ///< vignette stop in value
+    set_roundness,    ///< roundness stop in value
+    set_grain,        ///< grain stop in value
+    set_grain_size,   ///< grain-size stop in value, 0 is a size of 1
+    cycle_frame,      ///< the next frame
+    set_size,         ///< size factor in value: 1, 2, 3 or 4
+    set_smooth,       ///< smooth factor in value: 1, 2 or 4
 };
 
 /// A press the panel reports.
@@ -121,6 +141,13 @@ struct Model {
     kit::SizeClass size_class{kit::SizeClass::regular}; ///< the class to lay out at
     Visit visit{Visit::skirmish};                       ///< which chips and locks
     bool shown{true};                                   ///< the panel itself; false leaves the hint
+    /// Finger-sized rows. One section is open, Leave and Take photo stay put,
+    /// and the rest scrolls. False keeps the keyboard and mouse layout.
+    bool touch{false};
+    int32_t touch_row{44}; ///< a finger's row, in the window's pixels; at least 44
+    int32_t scroll{0};     ///< how far the scrolling rows have moved, in pixels
+    /// A focused control the scrolling rows move to show. None leaves the scroll.
+    kit::ControlId reveal{kit::no_control};
     bool camera_open{true};
     bool time_open{true};
     bool look_open{true};
@@ -172,9 +199,21 @@ struct Model {
     int32_t time_mode{0};
     std::string clock{};
     std::string file_name{};
-    std::string size_value{"Screen"}; ///< Screen, in this ticket
-    std::string guide_value{"Off"};   ///< the guide's name, or Off
-    std::string key_line{};           ///< the chords along the bottom
+    /// Size stops: Screen, then 2×, 3× and 4×. The pixels are `size_value`.
+    std::array<std::string, 4> size_captions{"Screen", "2×", "3×", "4×"};
+    std::array<int32_t, 4> size_factors{1, 2, 3, 4};
+    /// Empty when that stop can be chosen.
+    std::array<std::string, 4> size_locks{};
+    int32_t size_index{0}; ///< the lit size, 0 through 3
+    /// Smooth edges: Off, then 2× and 4×.
+    std::array<std::string, 3> smooth_captions{"Off", "2×", "4×"};
+    std::array<int32_t, 3> smooth_factors{1, 2, 4};
+    std::array<std::string, 3> smooth_locks{};
+    int32_t smooth_index{0}; ///< the lit smooth step, 0 through 2
+    /// Locked sizes, and a locked smooth step, on one line. Empty when all move.
+    std::string size_reason{};
+    std::string guide_value{"Off"}; ///< the guide's name, or Off
+    std::string key_line{};         ///< the chords along the bottom
     /// Captions, already looked up. The defaults are the English keys.
     std::string camera_title{"Camera"};
     std::string time_title{"Time"};
@@ -194,7 +233,45 @@ struct Model {
     std::string selection_label{"Show selection"};
     std::string health_label{"Show health bars"};
     std::string guides_label{"Guides"};
+    /// The six presets, already looked up. 0 is None.
+    std::array<std::string, 6> preset_labels{"None", "1997", "Dusk", "Arctic", "Noir", "Bleach"};
+    int32_t preset{0};
+    std::string vignette_label{"Vignette"};
+    int32_t vignette_stop{0};
+    int32_t vignette_stops{101};
+    std::string vignette_value{"0%"};
+    /// The widest vignette the row can show, so the track keeps its width.
+    std::vector<std::string> vignette_reserve{"100%"};
+    std::string roundness_label{"Roundness"};
+    int32_t roundness_stop{50};
+    int32_t roundness_stops{101};
+    std::string roundness_value{"50%"};
+    std::vector<std::string> roundness_reserve{"100%"};
+    std::string grain_label{"Grain"};
+    int32_t grain_stop{0};
+    int32_t grain_stops{101};
+    std::string grain_value{"0%"};
+    std::vector<std::string> grain_reserve{"100%"};
+    std::string grain_size_label{"Grain size"};
+    int32_t grain_size_stop{1}; ///< 0 is a grain of 1 pixel
+    int32_t grain_size_stops{16};
+    std::string grain_size_value{"2"};
+    std::vector<std::string> grain_size_reserve{"16"};
+    std::string frame_label{"Frame"};
+    std::string frame_value{"None"};
+    /// Points from the bottom of the window up to the top of a caption bar:
+    /// the bar's own rows, and under a crop the rows below the crop as well.
+    /// The key line stays under a crop that leaves it room, and otherwise
+    /// sits above the bar, as the panel does while its rows fit there. The
+    /// toast sits above the bar. 0 keeps the key line in the bottom band.
+    int32_t caption_clear{0};
+    /// Shown under the frame while a look is previewed on Full or the turned
+    /// view and time is running. Empty draws nothing.
+    std::string preview_note{};
     std::string size_label{"Size"};
+    /// The chosen size, once: "2× 1280×960". Empty draws no value.
+    std::string size_value{};
+    std::string smooth_label{"Smooth edges"};
     std::string copy_switch_label{"Copy to clipboard"};
     std::string names_label{"Player names"};
     std::string file_label{"File"};

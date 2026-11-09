@@ -29,7 +29,7 @@ constexpr std::array<PadButton, 22> prompt_order{
 };
 
 /// The layers chord_for searches, in order.
-constexpr std::array<Layer, 8> chord_layers{
+constexpr std::array<Layer, 9> chord_layers{
     Layer::base,
     Layer::groups,
     Layer::game,
@@ -38,6 +38,7 @@ constexpr std::array<Layer, 8> chord_layers{
     Layer::build_ring,
     Layer::select_sheet,
     Layer::menus,
+    Layer::photo,
 };
 
 /// Returns a binding of an action alone.
@@ -234,8 +235,38 @@ Binding game_binding(const MapContext& ctx, PadButton role) noexcept {
         return bind(Action::share_panel);
     case PadButton::r2:
         return bind(Action::screenshot);
+    case PadButton::l2:
+        return bind(Action::photo_mode);
     case PadButton::r1:
         return ctx.fallback ? Binding{} : bind(Action::keys_overlay);
+    default:
+        return {};
+    }
+}
+
+/// Returns a button's meaning while photo mode is open, by role. The sticks frame the shot;
+/// these buttons take it, leave, freeze and walk the panel. No button clicks or orders.
+///
+/// @param role the button by role
+/// @return its binding
+Binding photo_binding(PadButton role) noexcept {
+    switch (role) {
+    case PadButton::a:
+        return bind(Action::photo_capture);
+    case PadButton::b:
+        return bind(Action::photo_leave);
+    case PadButton::x:
+        return bind(Action::photo_freeze);
+    case PadButton::y:
+        return bind(Action::photo_panel);
+    case PadButton::dpad_up:
+        return bind(Action::focus_up);
+    case PadButton::dpad_right:
+        return bind(Action::focus_right);
+    case PadButton::dpad_down:
+        return bind(Action::focus_down);
+    case PadButton::dpad_left:
+        return bind(Action::focus_left);
     default:
         return {};
     }
@@ -459,6 +490,8 @@ Scheme effective_scheme(Scheme chosen, const PadTraits& traits) noexcept {
 }
 
 Layer layer_for(const Held& held) noexcept {
+    if (held.photo)
+        return Layer::photo;
     if (!held.in_match)
         return Layer::menus;
     if (held.order_ring)
@@ -516,7 +549,7 @@ Binding binding_for(const MapContext& ctx, Layer layer, PadButton button) noexce
     if (is_grip(role)) {
         // The grips are modifiers and layer keys: the same in every layer of the match, and
         // nothing in the menus or on a pad without them.
-        if (ctx.fallback || layer == Layer::menus)
+        if (ctx.fallback || layer == Layer::menus || layer == Layer::photo)
             return {};
         return grip_binding(role);
     }
@@ -537,6 +570,8 @@ Binding binding_for(const MapContext& ctx, Layer layer, PadButton button) noexce
         return sheet_binding(role);
     case Layer::menus:
         return menus_binding(role);
+    case Layer::photo:
+        return photo_binding(role);
     }
     return {};
 }

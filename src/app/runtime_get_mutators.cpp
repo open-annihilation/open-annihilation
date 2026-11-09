@@ -540,12 +540,33 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
+    /// The step along the original screen's order that this key fired.
+    ///
+    /// The row sits in that order, which follows the player's key layout:
+    /// Next button and Previous button, Tab and Shift+Tab with the game's own.
+    ///
+    /// @return tab or back tab; nothing when neither fired
+    [[nodiscard]] std::optional<kit::Key> order_step() const {
+        if (runtime_.fired_action("ui.menu-focus-next") != nullptr)
+            return kit::Key::tab;
+        if (runtime_.fired_action("ui.menu-focus-previous") != nullptr)
+            return kit::Key::back_tab;
+        return std::nullopt;
+    }
+
     /// Takes the keys the row holds the focus for, Y, which reads the set,
     /// the information key, which shows the card, and Escape while it is open.
     ///
     /// @param pressed the key
+    /// @param sdl_key the platform key; 0 for a pad action
     /// @return none or redraw when the row takes it; pass otherwise
-    LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
+    LayerAnswer key(kit::Key pressed, uint32_t sdl_key) override {
+        // Tab and Shift+Tab reach the layer's screens as Next control and
+        // Previous control. The original screen's order this row sits in
+        // follows Next button and Previous button instead, whichever keys
+        // the player's layout binds (shortcut), so these go on.
+        if ((pressed == kit::Key::tab || pressed == kit::Key::back_tab) && sdl_key != 0)
+            return LayerAnswer::pass;
         if (pressed == kit::Key::info && focus_ring_ && focused_ == Held::view &&
             card_.key_info(card_slot)) {
             ++revision_;
@@ -558,10 +579,13 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         return answer_key(pressed);
     }
 
-    /// Lets every shortcut go on.
+    /// Takes Next button and Previous button as Tab's steps, and lets every
+    /// other shortcut go on.
     ///
-    /// @return pass
+    /// @return none or redraw when the row takes the step; pass otherwise
     LayerAnswer shortcut(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) override {
+        if (const std::optional<kit::Key> step = order_step())
+            return answer_key(*step);
         return LayerAnswer::pass;
     }
 
@@ -992,7 +1016,14 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
                      laid.side.height + 2 * room_focus_margin}
                 )
             );
+        // The guest's buttons stand where the host's stands, over View Map, so
+        // Tab reads them just after View Map. Where View Map takes no Tab, the
+        // record before them does.
         laid.before = record_before(laid.focusable, leftmost);
+        for (const FocusNote& record : laid.focusable) {
+            if (record.index == laid.anchor_index)
+                laid.before = record.index;
+        }
         int32_t before_place = -1;
         for (const FocusNote& record : laid.focusable) {
             if (record.index == laid.before)

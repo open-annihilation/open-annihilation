@@ -26,7 +26,7 @@ constexpr float kInertiaStopPointsPerSecond = 20.0F;
 } // namespace
 
 void Runtime::pan_match_camera_by(float dx, float dy) {
-    if (screen_ != Screen::match || !selected_tnt_ || director_mode())
+    if (screen_ != Screen::match || !selected_tnt_ || director_mode() || photo_camera_locked())
         return;
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
     stop_match_tracking();
@@ -56,7 +56,8 @@ void Runtime::pan_match_camera_by(float dx, float dy) {
 }
 
 void Runtime::zoom_match_about(float factor, float x, float y) {
-    if (screen_ != Screen::match || !selected_tnt_ || director_mode() || !(factor > 0.0F))
+    if (screen_ != Screen::match || !selected_tnt_ || director_mode() || photo_camera_locked() ||
+        !(factor > 0.0F))
         return;
     // A zoom keeps a camera's follow of a unit: it zooms about the
     // battlefield's centre, where the follow keeps the unit, and the follow
@@ -79,8 +80,16 @@ void Runtime::zoom_match_about(float factor, float x, float y) {
         static_cast<double>(std::max(1, match_layout_.battlefield_height()))
     );
     // The zoom and its target together: nothing eases, so the map stays
-    // under the fingers.
-    const float zoom = std::clamp(match_zoom_ * factor, least_match_zoom(), most_match_zoom());
+    // under the fingers. Photo mode uses its own range, so a pinch does
+    // not change the play zoom's settings.
+    float least = least_match_zoom();
+    float most = most_match_zoom();
+    if (photo_mode()) {
+        const std::array<float, 2> offered = photo_zoom_limits();
+        least = offered[0];
+        most = offered[1];
+    }
+    const float zoom = std::clamp(match_zoom_ * factor, least, most);
     zoom_focus_ = {false, x, y};
     zoom_view_about(zoom, focus_x, focus_y);
     match_zoom_target_ = zoom;
@@ -88,6 +97,12 @@ void Runtime::zoom_match_about(float factor, float x, float y) {
 
 void TouchDispatchAccess::step_inertia(Runtime& runtime, uint64_t elapsed_ns) {
     auto& dispatch = runtime.touch_state().dispatch;
+    // A lift in photo mode stops with the finger: the picture does not coast.
+    if (runtime.photo_mode()) {
+        dispatch.inertia_x = 0.0F;
+        dispatch.inertia_y = 0.0F;
+        return;
+    }
     if (dispatch.inertia_x == 0.0F && dispatch.inertia_y == 0.0F)
         return;
     // A finger on the battlefield, another screen or a camera that cannot
@@ -119,6 +134,8 @@ void TouchDispatchAccess::step_auto_scroll(Runtime& runtime, uint64_t elapsed_ns
     auto& state = runtime.touch_state();
     auto& dispatch = state.dispatch;
     dispatch.auto_scrolling = false;
+    if (runtime.photo_mode())
+        return;
     if (runtime.screen_ != Screen::match || !runtime.match_ ||
         !(dispatch.box_active || dispatch.ghost_drag))
         return;

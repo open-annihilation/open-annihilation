@@ -45,6 +45,7 @@ bool PhotoWriter::enqueue(Picture picture) {
     }
     reserved_.insert(picture.file_name);
     ++outstanding_;
+    queued_bytes_ += picture.rgb.size();
     queue_.push_back(std::move(picture));
     work_.notify_one();
     return true;
@@ -58,6 +59,11 @@ bool PhotoWriter::holds(std::string_view file_name) const {
 int PhotoWriter::outstanding() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return outstanding_;
+}
+
+std::size_t PhotoWriter::queued_bytes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queued_bytes_;
 }
 
 std::optional<PhotoWriter::Notice> PhotoWriter::poll() {
@@ -97,6 +103,7 @@ void PhotoWriter::run() {
             queue_.pop_front();
             writing_name_ = picture.file_name;
         }
+        const std::size_t held_bytes = picture.rgb.size();
         Notice notice;
         try {
             notice = save(picture);
@@ -110,6 +117,10 @@ void PhotoWriter::run() {
             reserved_.erase(picture.file_name);
             writing_name_.clear();
             notices_.push_back(std::move(notice));
+            if (queued_bytes_ >= held_bytes)
+                queued_bytes_ -= held_bytes;
+            else
+                queued_bytes_ = 0;
             --outstanding_;
             if (outstanding_ == 0)
                 idle_.notify_all();

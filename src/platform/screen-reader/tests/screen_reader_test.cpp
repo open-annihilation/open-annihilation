@@ -6,6 +6,7 @@
 // beside this program. A Windows 95 build checks that the bridge is left out.
 
 #include "oa/platform/screen_reader.hpp"
+#include "oa/platform/screen_reader/announce.hpp"
 
 #include "oa/test/check.hpp"
 
@@ -548,9 +549,13 @@ bool hook_updates() {
 
 /// An unchanged tree is not sent, so the factory does not run.
 ///
+/// A live region left up by an earlier announcement would change the tree,
+/// so the region is cleared first.
+///
 /// The reader is marked active and the push is a hook, so the test fails when
 /// the guard is skipped and when the reader was never marked active.
 void unchanged_tree_skips_the_factory() {
+    screen::testing_reset_announcements();
     screen::Node window;
     window.id = screen::window_node;
     window.role = screen::Role::window;
@@ -587,11 +592,244 @@ void unchanged_tree_skips_the_factory() {
     screen::forget_sent_tree();
     hook_ran = nullptr;
 }
+
+/// Two lines in one submit are two live nodes. A repeated line is a new node.
+void two_lines_are_two_nodes() {
+    screen::set_preference(screen::Preference::on);
+    screen::testing_reset_announcements();
+    screen::forget_sent_tree();
+    bool ran = false;
+    hook_ran = &ran;
+    screen::testing_set_update_hook(hook_updates);
+    screen::testing_set_reader_active(true);
+    screen::Node window;
+    window.id = screen::window_node;
+    window.role = screen::Role::window;
+    window.label = "Open Annihilation";
+    screen::announce("First", screen::Politeness::polite);
+    screen::announce("Second", screen::Politeness::assertive);
+    screen::submit_tree(std::vector<screen::Node>{window}, screen::window_node);
+    const std::vector<screen::Node> staged = screen::testing_staged_nodes();
+    uint64_t first_id = 0;
+    bool saw_second = false;
+    int live = 0;
+    bool parented = false;
+    for (const screen::Node& node : staged) {
+        if (node.id == screen::window_node) {
+            parented = node.children.size() >= 2;
+            continue;
+        }
+        if (node.role != screen::Role::label)
+            continue;
+        ++live;
+        OA_CHECK(node.x == 8.0);
+        OA_CHECK(node.y >= 8.0);
+        OA_CHECK(node.width == 32.0);
+        OA_CHECK(node.height == 16.0);
+        if (node.label == "First") {
+            first_id = node.id;
+            OA_CHECK(node.live == screen::LiveSetting::polite);
+        }
+        if (node.label == "Second") {
+            saw_second = true;
+            OA_CHECK(node.live == screen::LiveSetting::assertive);
+            OA_CHECK(node.id != first_id);
+        }
+    }
+    OA_CHECK(live == 2);
+    OA_CHECK(first_id != 0);
+    OA_CHECK(saw_second);
+    OA_CHECK(parented);
+
+    screen::announce("First", screen::Politeness::polite);
+    screen::submit_tree(std::vector<screen::Node>{window}, screen::window_node);
+    const std::vector<screen::Node> again = screen::testing_staged_nodes();
+    int repeated = 0;
+    bool new_id = false;
+    for (const screen::Node& node : again) {
+        if (node.label != "First")
+            continue;
+        ++repeated;
+        if (node.id != first_id)
+            new_id = true;
+    }
+    OA_CHECK(repeated >= 2);
+    OA_CHECK(new_id);
+
+    screen::testing_set_update_hook(nullptr);
+    screen::testing_set_reader_active(false);
+    screen::forget_sent_tree();
+    screen::testing_reset_announcements();
+    screen::set_preference(screen::Preference::automatic);
+    hook_ran = nullptr;
+}
 #endif
+
+screen::SpokenOffer
+line_of(const char* text, bool collapse, const char* room, const char* speaker) {
+    screen::SpokenOffer offer;
+    offer.text = text;
+    offer.collapsible = collapse;
+    offer.room = room;
+    offer.speaker = speaker;
+    return offer;
+}
+
+/// The queue holds polite chat, collapses a burst, and drops a muted player.
+void check_queue() {
+    OA_CHECK(screen::speak_chat_of("") == screen::SpeakChat::all);
+    OA_CHECK(screen::speak_chat_of("later") == screen::SpeakChat::all);
+    OA_CHECK(screen::speak_chat_of("off") == screen::SpeakChat::off);
+    OA_CHECK(screen::speak_chat_of("pages") == screen::SpeakChat::pages);
+    OA_CHECK(screen::speak_lobby_of(""));
+    OA_CHECK(screen::speak_lobby_of("1"));
+    OA_CHECK(screen::speak_lobby_of("yes"));
+    OA_CHECK(!screen::speak_lobby_of("0"));
+    OA_CHECK(!screen::speak_ticker_of(""));
+    OA_CHECK(!screen::speak_ticker_of("0"));
+    OA_CHECK(screen::speak_ticker_of("1"));
+
+    const uint64_t hold = screen::line_hold_ms();
+
+    screen::LineQueue alone;
+    alone.set_now(0);
+    alone.push(line_of("Ada: one", true, "Main", "Ada"));
+    OA_CHECK(alone.flush().empty());
+    alone.set_now(hold);
+    const std::vector<screen::Announcement> one = alone.flush();
+    OA_CHECK(one.size() == 1);
+    OA_CHECK(!one[0].burst);
+    OA_CHECK(one[0].text == "Ada: one");
+
+    screen::LineQueue burst;
+    burst.set_now(0);
+    burst.push(line_of("Ada: one", true, "Main", "Ada"));
+    burst.push(line_of("Bea: two", true, "Main", "Bea"));
+    OA_CHECK(burst.flush().empty());
+    burst.set_now(hold);
+    const std::vector<screen::Announcement> collapsed = burst.flush();
+    OA_CHECK(collapsed.size() == 1);
+    OA_CHECK(collapsed[0].burst);
+    OA_CHECK(collapsed[0].count == 2);
+    OA_CHECK(collapsed[0].room == "Main");
+    OA_CHECK(collapsed[0].text == "2 new lines in Main");
+    OA_CHECK(collapsed[0].politeness == screen::Politeness::polite);
+
+    screen::LineQueue rooms;
+    rooms.set_now(0);
+    rooms.push(line_of("Ada: one", true, "Main", "Ada"));
+    rooms.push(line_of("Bea: two", true, "Other", "Bea"));
+    rooms.set_now(hold);
+    const std::vector<screen::Announcement> apart = rooms.flush();
+    OA_CHECK(apart.size() == 2);
+    OA_CHECK(!apart[0].burst && !apart[1].burst);
+
+    screen::LineQueue split;
+    split.set_now(0);
+    split.push(line_of("Ada: one", true, "Main", "Ada"));
+    split.push(line_of("Page from Cy", false, "", "Cy"));
+    split.push(line_of("Bea: two", true, "Main", "Bea"));
+    const std::vector<screen::Announcement> page = split.flush();
+    OA_CHECK(page.size() == 1);
+    OA_CHECK(page[0].text == "Page from Cy");
+    split.set_now(hold);
+    const std::vector<screen::Announcement> kept = split.flush();
+    OA_CHECK(kept.size() == 1);
+    OA_CHECK(kept[0].burst);
+    OA_CHECK(kept[0].count == 2);
+    OA_CHECK(kept[0].text == "2 new lines in Main");
+
+    screen::LineQueue muted;
+    muted.set_now(0);
+    muted.set_muted("Ada", true);
+    muted.set_muted("", true);
+    muted.push(line_of("Ada: one", true, "Main", "Ada"));
+    muted.push(line_of("Bea: two", true, "Main", "Bea"));
+    muted.push(line_of("Ada: three", true, "Main", "Ada"));
+    muted.push(line_of("a notice", false, "", ""));
+    const std::vector<screen::Announcement> heard = muted.flush();
+    OA_CHECK(heard.size() == 1);
+    OA_CHECK(heard[0].text == "a notice");
+    muted.set_now(hold);
+    const std::vector<screen::Announcement> later = muted.flush();
+    OA_CHECK(later.size() == 1);
+    OA_CHECK(!later[0].burst);
+    OA_CHECK(later[0].text == "Bea: two");
+
+    screen::LineQueue again;
+    again.set_now(0);
+    again.set_muted("Ada", true);
+    again.set_muted("Ada", false);
+    again.push(line_of("Ada: back", true, "Main", "Ada"));
+    again.set_now(hold);
+    const std::vector<screen::Announcement> returned = again.flush();
+    OA_CHECK(returned.size() == 1);
+    OA_CHECK(returned[0].text == "Ada: back");
+
+    // Five lines 300 ms apart are one burst. A page in between is said then.
+    screen::LineQueue five;
+    const char* texts[] = {"one", "two", "three", "four", "five"};
+    for (int step = 0; step < 5; ++step) {
+        five.set_now(static_cast<uint64_t>(step) * 300);
+        five.push(line_of(texts[step], true, "Main", "Ada"));
+        if (step == 2)
+            five.push(line_of("Page from Cy", false, "", "Cy"));
+        const std::vector<screen::Announcement> flushed = five.flush();
+        if (step == 2) {
+            OA_CHECK(flushed.size() == 1);
+            OA_CHECK(flushed[0].text == "Page from Cy");
+        } else {
+            OA_CHECK(flushed.empty());
+        }
+    }
+    five.set_now(hold);
+    const std::vector<screen::Announcement> gathered = five.flush();
+    OA_CHECK(gathered.size() == 1);
+    OA_CHECK(gathered[0].burst);
+    OA_CHECK(gathered[0].count == 5);
+    OA_CHECK(gathered[0].room == "Main");
+    OA_CHECK(gathered[0].text == "5 new lines in Main");
+}
+
+/// A line is recorded only while a reader is running or the preference is on.
+void check_gate() {
+    screen::set_preference(screen::Preference::automatic);
+    screen::testing_reset_announcements();
+    screen::announce("quiet", screen::Politeness::polite);
+    if (!screen::reader_running()) {
+        OA_CHECK(screen::take_announcements().empty());
+        OA_CHECK(!screen::live_region().shown);
+    } else {
+        (void)screen::take_announcements();
+    }
+    screen::set_preference(screen::Preference::on);
+    screen::testing_reset_announcements();
+    screen::announce("Heard", screen::Politeness::assertive);
+    const std::vector<screen::Announcement> taken = screen::take_announcements();
+    OA_CHECK(taken.size() == 1);
+    OA_CHECK(taken[0].text == "Heard");
+    OA_CHECK(taken[0].politeness == screen::Politeness::assertive);
+    OA_CHECK(screen::live_region().shown);
+    OA_CHECK(screen::live_region().text == "Heard");
+    OA_CHECK(screen::live_region().politeness == screen::Politeness::assertive);
+    screen::announce("", screen::Politeness::polite);
+    OA_CHECK(screen::take_announcements().empty());
+    screen::set_preference(screen::Preference::off);
+    screen::testing_reset_announcements();
+    screen::announce("silent", screen::Politeness::polite);
+    // Off records nothing, whether or not a reader is running.
+    OA_CHECK(!screen::announcements_open());
+    OA_CHECK(screen::take_announcements().empty());
+    OA_CHECK(!screen::live_region().shown);
+    screen::set_preference(screen::Preference::automatic);
+    screen::testing_reset_announcements();
+}
 
 } // namespace
 
 int main() {
+    check_queue();
+    check_gate();
     OA_CHECK(screen::preference_of("") == screen::Preference::automatic);
     OA_CHECK(screen::preference_of("auto") == screen::Preference::automatic);
     OA_CHECK(screen::preference_of("on") == screen::Preference::on);
@@ -620,6 +858,7 @@ int main() {
         role_and_label_round_trip();
         roles_actions_and_silence();
         unchanged_tree_skips_the_factory();
+        two_lines_are_two_nodes();
     }
 #endif
     return oa::test::check_exit_status();

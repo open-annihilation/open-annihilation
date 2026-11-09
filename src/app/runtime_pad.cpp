@@ -501,6 +501,9 @@ pc::Held PadAccess::held(Runtime& runtime) {
         result.build_ring = touch->hud.build_ring.has_value();
         result.select_sheet = touch->hud.sheet == hud::Sheet::select_menu;
     }
+    // Photo mode wins even when the match is paused, so a pad cannot fall
+    // through to the menus' clicks.
+    result.photo = runtime.photo_mode();
     return result;
 }
 

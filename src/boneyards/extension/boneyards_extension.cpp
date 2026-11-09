@@ -46,6 +46,7 @@
 #include "oa/boneyards/screens/registration.hpp"
 #include "oa/boneyards/shown_text.hpp"
 
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/fonts.hpp"
 #include "oa/platform/preferences.hpp"
@@ -57,6 +58,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <initializer_list>
+#include <iterator>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -94,8 +98,11 @@
 // the rectangle where an extension window's art takes the press. The strip
 // states that rectangle while its art is drawn. Version 21 also adds
 // ScreenServices::main_menu_order_owns_key. The main-menu overlay calls it
-// and passes the key on when the host owns it. This extension table fills
-// no new hook. None of 15 to 21 is a hook this module fills.
+// and passes the key on when the host owns it. Version 21 also adds
+// ScreenServices::bound_focus_action, which the multiplayer screens call, and
+// spoken_updates_open, which this module asks before it composes a spoken
+// line. This extension table fills no new hook. None of 15 to 21 is a hook
+// this module fills.
 constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
@@ -297,6 +304,12 @@ struct LobbySeen {
     int32_t connection_level{};
     int32_t console_screen{};
     char user_name[oa::boneyards::kSessionNameCapacity]{};
+    char selected_name[16]{};
+    bool summary_shown{};
+    char summary_name[16]{};
+    char summary_owner[16]{};
+    char summary_battles[12]{};
+    char summary_forming[12]{};
 };
 
 LobbySeen g_lobby_seen{};
@@ -736,12 +749,462 @@ const char* console_note_name(int32_t id) {
     }
 }
 
+/// The Boneyards catalogue beside the program, or an empty one.
+///
+/// The engine does not read this file. A missing file leaves every sentence
+/// in English.
+///
+/// @return the catalogue; it lives for the process
+const oa::data::languages::InterfaceText& speech_words() {
+    static const oa::data::languages::InterfaceText catalogue = [] {
+        oa::data::languages::InterfaceText loaded;
+        const std::filesystem::path file =
+            oa::platform::path_from_utf8(oa::platform::program_directory()) / "languages" /
+            "boneyards.tdf";
+        std::ifstream input(file, std::ios::binary);
+        if (!input)
+            return loaded;
+        const std::string bytes(
+            (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
+        );
+        loaded.add(bytes, nullptr);
+        return loaded;
+    }();
+    return catalogue;
+}
+
+/// One catalogue sentence in the language the interface is showing.
+///
+/// @param english the sentence as the source writes it
+/// @return the translation, or the English when the catalogue has none
+std::string speech(const char* english) {
+    if (english == nullptr || english[0] == '\0')
+        return {};
+    const std::string_view line =
+        speech_words().text(english, oa::data::languages::interface_language());
+    return std::string(line);
+}
+
+/// Fills `{token}` places in a catalogue sentence.
+///
+/// @param english the pattern
+/// @param places each place name and the text that replaces it
+/// @return the filled sentence
+std::string speech_filled(
+    const char* english, std::initializer_list<std::pair<std::string_view, std::string_view>> places
+) {
+    std::string pattern = speech(english);
+    for (const auto& place : places) {
+        const std::string token = std::string("{") + std::string(place.first) + "}";
+        std::string::size_type at = 0;
+        while ((at = pattern.find(token, at)) != std::string::npos) {
+            pattern.replace(at, token.size(), place.second);
+            at += place.second.size();
+        }
+    }
+    return pattern;
+}
+
+/// The room joins and leaves name. Entering a room replaces it.
+///
+/// @return the room
+std::string& spoken_room() {
+    static std::string room = "Main";
+    return room;
+}
+
+/// Posts one internal spoken line. `S` is a login, `P` waits, `A` does not.
+/// `G` is a page and `W` a whisper, which follow speak-chat.
+///
+/// @param runtime the running app
+/// @param prefix `S`, `P`, `A`, `G` or `W`
+/// @param sentence the sentence, already in the player's language
+void post_spoken_line(Runtime& runtime, char prefix, const std::string& sentence) {
+    if (!spoken_updates_open() || sentence.empty())
+        return;
+    std::string text;
+    text.push_back(prefix);
+    text.push_back('\t');
+    text += sentence;
+    post_extension_note(runtime, "line", text.c_str());
+}
+
+/// Posts a join or a leave that may collapse with the room's chat.
+///
+/// @param runtime the running app
+/// @param room the room
+/// @param speaker the player
+/// @param sentence the sentence
+void post_spoken_membership(
+    Runtime& runtime,
+    const std::string& room,
+    const std::string& speaker,
+    const std::string& sentence
+) {
+    if (!spoken_updates_open() || sentence.empty())
+        return;
+    const std::string text = std::string("C\t") + room + "\t" + speaker + "\t" + sentence;
+    post_extension_note(runtime, "line", text.c_str());
+}
+
+/// The English title of a console id.
+///
+/// @param id the short name the console note carries
+/// @return the title, or null
+const char* console_english(const char* id) {
+    if (std::strcmp(id, "update") == 0)
+        return "Update";
+    if (std::strcmp(id, "login") == 0)
+        return "Login";
+    if (std::strcmp(id, "recon") == 0)
+        return "Recon";
+    if (std::strcmp(id, "chat") == 0)
+        return "Chat";
+    if (std::strcmp(id, "battle") == 0)
+        return "Battle";
+    if (std::strcmp(id, "ladders") == 0)
+        return "Ladders";
+    if (std::strcmp(id, "news") == 0)
+        return "News";
+    if (std::strcmp(id, "profile") == 0)
+        return "Profile";
+    if (std::strcmp(id, "help") == 0)
+        return "Help";
+    if (std::strcmp(id, "quickplay") == 0)
+        return "QuickPlay";
+    if (std::strcmp(id, "locator") == 0)
+        return "Locator";
+    return nullptr;
+}
+
+/// Posts "Planet {name}".
+///
+/// @param runtime the running app
+/// @param name the planet
+void post_spoken_place(Runtime& runtime, const char* name) {
+    if (!spoken_updates_open() || name == nullptr || name[0] == '\0')
+        return;
+    post_spoken_line(runtime, 'P', speech_filled("Planet {name}", {{"name", name}}));
+}
+
+/// Posts a planet's summary.
+///
+/// @param runtime the running app
+/// @param name the planet
+/// @param owner its owner
+/// @param battles how many battles
+/// @param forming how many are forming
+void post_spoken_summary(
+    Runtime& runtime, const char* name, const char* owner, const char* battles, const char* forming
+) {
+    if (!spoken_updates_open() || name == nullptr || name[0] == '\0')
+        return;
+    post_spoken_line(
+        runtime,
+        'P',
+        speech_filled(
+            "Summary of {name}: {owner}, {battles} battles, {forming} forming",
+            {{"name", name},
+             {"owner", owner != nullptr ? owner : ""},
+             {"battles", battles != nullptr ? battles : ""},
+             {"forming", forming != nullptr ? forming : ""}}
+        )
+    );
+}
+
+/// Posts the connection sentence. A login is said once by the engine.
+///
+/// @param runtime the running app
+/// @param level the session level
+/// @param name the player, when one is logged in
+void post_spoken_session(Runtime& runtime, int level, const char* name) {
+    if (!spoken_updates_open())
+        return;
+    std::string sentence;
+    if (level <= 0)
+        sentence = speech("Offline");
+    else if (level == 1)
+        sentence = speech("Connecting");
+    else if (level == 2)
+        sentence = speech("Disconnected");
+    else if (name != nullptr && name[0] != '\0')
+        sentence = speech_filled("Logged in as {name}", {{"name", name}});
+    post_spoken_line(runtime, 'S', sentence);
+}
+
+/// Posts the console sentence, in the catalogue's words for that console.
+///
+/// @param runtime the running app
+/// @param id the console note's short name
+void post_spoken_console(Runtime& runtime, const char* id) {
+    if (!spoken_updates_open())
+        return;
+    const char* english = console_english(id);
+    if (english == nullptr)
+        return;
+    if (std::strcmp(id, "battle") == 0 && g_lobby_seen.selected_name[0] != '\0') {
+        post_spoken_line(
+            runtime, 'P', speech_filled("Battle, {place}", {{"place", g_lobby_seen.selected_name}})
+        );
+        return;
+    }
+    const std::string title = speech(english);
+    post_spoken_line(runtime, 'P', speech_filled("Opened {console}", {{"console", title}}));
+}
+
+/// Reads `[Entered 'Room']`.
+///
+/// @param text the line
+/// @param[out] room the room name
+/// @return true when the line is that sentence
+bool entered_room_line(const std::string& text, std::string& room) {
+    constexpr std::string_view kOpen = "[Entered '";
+    constexpr std::string_view kClose = "']";
+    if (!text.starts_with(kOpen) || !text.ends_with(kClose) ||
+        text.size() < kOpen.size() + kClose.size())
+        return false;
+    room.assign(text, kOpen.size(), text.size() - kOpen.size() - kClose.size());
+    return true;
+}
+
+/// Reads `<Page from Name> text`.
+///
+/// @param text the line
+/// @param[out] name the sender
+/// @param[out] body the message
+/// @return true when the line is a page
+bool page_from_line(std::string_view text, std::string& name, std::string& body) {
+    constexpr std::string_view kOpen = "<Page from ";
+    if (!text.starts_with(kOpen))
+        return false;
+    const std::size_t end = text.find('>');
+    if (end == std::string_view::npos || end < kOpen.size())
+        return false;
+    name.assign(text.substr(kOpen.size(), end - kOpen.size()));
+    body.clear();
+    if (end + 1 < text.size()) {
+        std::string_view rest = text.substr(end + 1);
+        if (rest.starts_with(" "))
+            rest.remove_prefix(1);
+        body.assign(rest);
+    }
+    return !name.empty();
+}
+
+/// Reads `<You whispered to Name> text`.
+///
+/// @param text the line
+/// @param[out] name the other player
+/// @param[out] body the message
+/// @return true when the line is that echo
+bool whisper_to(std::string_view text, std::string& name, std::string& body) {
+    constexpr std::string_view kMark = "whispered to ";
+    const std::size_t at = text.find(kMark);
+    if (at == std::string_view::npos)
+        return false;
+    const std::size_t name_at = at + kMark.size();
+    const std::size_t end = text.find('>', name_at);
+    if (end == std::string_view::npos)
+        return false;
+    name.assign(text.substr(name_at, end - name_at));
+    body.clear();
+    if (end + 1 < text.size()) {
+        std::string_view rest = text.substr(end + 1);
+        if (rest.starts_with(" "))
+            rest.remove_prefix(1);
+        body.assign(rest);
+    }
+    return !name.empty();
+}
+
+/// Reads `Name: text`.
+///
+/// @param text the line
+/// @param[out] name the speaker
+/// @param[out] body the message
+/// @return true when the line is ordinary chat
+bool said_speaker(std::string_view text, std::string& name, std::string& body) {
+    if (text.empty() || text.front() == '[' || text.front() == '<')
+        return false;
+    const std::size_t colon = text.find(": ");
+    if (colon == std::string_view::npos || colon == 0)
+        return false;
+    name.assign(text.substr(0, colon));
+    const std::size_t tag = name.find(" [");
+    if (tag != std::string::npos)
+        name.resize(tag);
+    body.assign(text.substr(colon + 2));
+    return !name.empty();
+}
+
+/// The message box's words, with its escaped newlines turned into breaks.
+///
+/// @param english the line the box was given
+/// @return the words it shows
+std::string box_words(const char* english) {
+    const char* face = oa::boneyards::shown_text(english != nullptr ? english : "");
+    std::string copy = face != nullptr ? face : "";
+    std::string broken;
+    broken.reserve(copy.size());
+    for (std::size_t index = 0; index < copy.size(); ++index) {
+        if (copy[index] == '\\' && index + 1 < copy.size() && copy[index + 1] == 'n') {
+            broken.push_back('\n');
+            ++index;
+            continue;
+        }
+        broken.push_back(copy[index]);
+    }
+    return broken;
+}
+
+/// Posts the spoken form of one forwarded note. The raw note is posted too.
+///
+/// @param runtime the running app
+/// @param kind the note's kind
+/// @param text the note's text
+void speak_forwarded(Runtime& runtime, const char* kind, const char* text) {
+    if (!spoken_updates_open() || kind == nullptr || text == nullptr)
+        return;
+    const std::string line(text);
+    if (std::strcmp(kind, "said") == 0) {
+        std::string room;
+        if (entered_room_line(line, room)) {
+            if (!room.empty())
+                spoken_room() = room;
+            post_spoken_line(
+                runtime, 'P', speech_filled("Entered {room}", {{"room", spoken_room()}})
+            );
+            return;
+        }
+        std::string name;
+        std::string body;
+        if (whisper_to(line, name, body)) {
+            post_spoken_line(
+                runtime,
+                'W',
+                speech_filled("Whisper to {name}: {text}", {{"name", name}, {"text", body}})
+            );
+            return;
+        }
+        if (page_from_line(line, name, body))
+            return;
+        if (!said_speaker(line, name, body))
+            return;
+        constexpr std::string_view kWhispered = "<Whispered>";
+        if (body.starts_with(kWhispered)) {
+            std::string_view rest(body);
+            rest.remove_prefix(kWhispered.size());
+            if (rest.starts_with(" "))
+                rest.remove_prefix(1);
+            const char* pattern =
+                rest.empty() ? "Whisper from {name}" : "Whisper from {name}: {text}";
+            post_spoken_line(
+                runtime, 'W', speech_filled(pattern, {{"name", name}, {"text", rest}})
+            );
+        }
+        return;
+    }
+    if (std::strcmp(kind, "page") == 0) {
+        std::string name;
+        std::string body;
+        if (!page_from_line(line, name, body)) {
+            post_spoken_line(runtime, 'G', line);
+            return;
+        }
+        const char* pattern = body.empty() ? "Page from {name}" : "Page from {name}: {text}";
+        post_spoken_line(runtime, 'G', speech_filled(pattern, {{"name", name}, {"text", body}}));
+        return;
+    }
+    if (std::strcmp(kind, "alert") == 0) {
+        std::string name;
+        std::string body;
+        if (page_from_line(line, name, body))
+            return;
+        post_spoken_line(runtime, 'A', box_words(text));
+        return;
+    }
+    if (std::strcmp(kind, "room") != 0)
+        return;
+    constexpr std::string_view kJoined = "joined ";
+    constexpr std::string_view kLeaving = "left ";
+    const bool joined = line.starts_with(kJoined);
+    const bool leaving = line.starts_with(kLeaving);
+    if (!joined && !leaving)
+        return;
+    const std::string name = line.substr((joined ? kJoined : kLeaving).size());
+    if (name.empty() || name == g_lobby_seen.user_name)
+        return;
+    const char* pattern = joined ? "{name} joined {room}" : "{name} left {room}";
+    post_spoken_membership(
+        runtime,
+        spoken_room(),
+        name,
+        speech_filled(pattern, {{"name", name}, {"room", spoken_room()}})
+    );
+}
+
+/// Remembers the selected planet and its summary, and posts them after the seed.
+///
+/// @param runtime the running app
+/// @param probe the frame just read
+/// @param post true to post a change; the seed only remembers
+void remember_place(
+    Runtime& runtime, const oa::boneyards::console::MainFrameProbe& probe, bool post
+) {
+    if (std::strcmp(probe.selected_name, g_lobby_seen.selected_name) != 0) {
+        copy_c_text(
+            g_lobby_seen.selected_name, sizeof g_lobby_seen.selected_name, probe.selected_name
+        );
+        if (post && g_lobby_seen.selected_name[0] != '\0') {
+            post_extension_note(runtime, "place", g_lobby_seen.selected_name);
+            post_spoken_place(runtime, g_lobby_seen.selected_name);
+        }
+    }
+    const bool summary_changed =
+        probe.summary_shown != g_lobby_seen.summary_shown ||
+        std::strcmp(probe.summary_name, g_lobby_seen.summary_name) != 0 ||
+        std::strcmp(probe.summary_owner, g_lobby_seen.summary_owner) != 0 ||
+        std::strcmp(probe.summary_battles, g_lobby_seen.summary_battles) != 0 ||
+        std::strcmp(probe.summary_forming, g_lobby_seen.summary_forming) != 0;
+    if (!summary_changed)
+        return;
+    g_lobby_seen.summary_shown = probe.summary_shown;
+    copy_c_text(g_lobby_seen.summary_name, sizeof g_lobby_seen.summary_name, probe.summary_name);
+    copy_c_text(g_lobby_seen.summary_owner, sizeof g_lobby_seen.summary_owner, probe.summary_owner);
+    copy_c_text(
+        g_lobby_seen.summary_battles, sizeof g_lobby_seen.summary_battles, probe.summary_battles
+    );
+    copy_c_text(
+        g_lobby_seen.summary_forming, sizeof g_lobby_seen.summary_forming, probe.summary_forming
+    );
+    if (!post || !probe.summary_shown || probe.summary_name[0] == '\0')
+        return;
+    char text[128];
+    std::snprintf(
+        text,
+        sizeof text,
+        "summary\t%s\t%s\t%s\t%s",
+        probe.summary_name,
+        probe.summary_owner,
+        probe.summary_battles,
+        probe.summary_forming
+    );
+    post_extension_note(runtime, "place", text);
+    post_spoken_summary(
+        runtime,
+        probe.summary_name,
+        probe.summary_owner,
+        probe.summary_battles,
+        probe.summary_forming
+    );
+}
+
 /// Posts a session or console note when the lobby changes.
 ///
 /// The first successful read is remembered and not posted. A later change of
 /// the connection or the login name posts `session` as the level and the
 /// name. A console posts `console` once it shows, unless it is the one last
-/// posted and has not closed since.
+/// posted and has not closed since. A planet and its summary post `place`.
 ///
 /// @param runtime the running app
 void note_lobby_frame(Runtime& runtime) {
@@ -758,6 +1221,7 @@ void note_lobby_frame(Runtime& runtime) {
         g_lobby_seen.connection_level = probe.connection_level;
         g_lobby_seen.console_screen = probe.screen_shown ? probe.console_screen : console_ids::none;
         copy_c_text(g_lobby_seen.user_name, sizeof g_lobby_seen.user_name, probe.user_name);
+        remember_place(runtime, probe, false);
         return;
     }
     // Losing the Boneyards after the player has left drops the battle tunnel.
@@ -775,16 +1239,20 @@ void note_lobby_frame(Runtime& runtime) {
             text, sizeof text, "%d %s", static_cast<int>(probe.connection_level), probe.user_name
         );
         post_extension_note(runtime, "session", text);
+        post_spoken_session(runtime, probe.connection_level, probe.user_name);
     }
     if (probe.screen_shown && probe.console_screen != g_lobby_seen.console_screen) {
-        if (const char* name = console_note_name(probe.console_screen))
+        if (const char* name = console_note_name(probe.console_screen)) {
             post_extension_note(runtime, "console", name);
+            post_spoken_console(runtime, name);
+        }
         g_lobby_seen.console_screen = probe.console_screen;
     } else if (probe.console_screen == console_ids::none) {
         g_lobby_seen.console_screen = console_ids::none;
     }
     g_lobby_seen.connection_level = probe.connection_level;
     copy_c_text(g_lobby_seen.user_name, sizeof g_lobby_seen.user_name, probe.user_name);
+    remember_place(runtime, probe, true);
 }
 
 /// Forwards a lobby note onto the running app. A quiet load posts nothing.
@@ -795,6 +1263,7 @@ void forward_driver_note(const char* kind, const char* text) {
     if (g_quiet_load || g_player_folder_runtime == nullptr)
         return;
     post_extension_note(*g_player_folder_runtime, kind, text);
+    speak_forwarded(*g_player_folder_runtime, kind, text);
 }
 
 /// The words a player hears for one English line.

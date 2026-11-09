@@ -48,6 +48,7 @@
 #include "oa/formats/ota.hpp"
 #include "oa/formats/tdf.hpp"
 #include "oa/present/display.hpp"
+#include "oa/present/photo/photo_sizes.hpp"
 #include "oa/present/gaf_sprites.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/present/game_text.hpp"
@@ -63,6 +64,7 @@
 #include "oa/ui/hud/boundary.hpp"
 #include "oa/ui/hud/build_page_fit.hpp"
 #include "oa/ui/hud/camera_scroll.hpp"
+#include "oa/ui/hud/command_buttons.hpp"
 #include "oa/ui/hud/game_clock.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/kill_board.hpp"
@@ -262,6 +264,9 @@ struct RecordSample;
 namespace oa::app {
 
 enum class AwayAction : uint8_t;
+
+/// A pointer or a key offered to a screen. Defined in screen_registry.hpp.
+enum class ScreenInputKind : uint8_t;
 
 /// Loads the session palette, PALETTE.PAL, through the palette file loader.
 ///
@@ -631,6 +636,15 @@ enum class Act : uint8_t;
 /// @param options the options already parsed, including the data folder
 /// @return 0 when the helper was started, otherwise -1
 [[nodiscard]] int guard_unconfirmed_start(int argc, char** argv, const Options& options);
+
+/// Copies one extension note into the spoken-update inbox. Kind `announce`
+/// is ignored, so a spoken line is not spoken again. While spoken updates
+/// are closed (`spoken_updates_open`, extension.hpp), only `muzzle` and
+/// `hear` are kept, so a player's mute is known when a reader starts.
+///
+/// @param kind the note's kind
+/// @param text the note's text; null is empty
+void remember_spoken_note(const char* kind, const char* text);
 
 /// Drives one entry. Defined with the entry, so the question's host can call
 /// back without the runtime header naming the question screen.
@@ -2653,6 +2667,73 @@ class Runtime final : public menu::Host,
     /// @param on true names the players
     void set_photo_player_names(bool on);
 
+    /// Chooses a photo size when that size is offered. A locked size is left
+    /// as it was. 1 is Screen, then 2, 3 and 4 times the battlefield.
+    ///
+    /// @param factor 1, 2, 3 or 4
+    void set_photo_size_factor(int factor);
+
+    /// Chooses smooth edges when that step is offered. 1 is off, then 2 and
+    /// 4. A locked step is left as it was.
+    ///
+    /// @param factor 1, 2 or 4
+    void set_photo_smooth_factor(int factor);
+
+    /// Keeps the chosen size and smooth step, or the greatest one still
+    /// offered when the choice is locked.
+    void snap_photo_factors();
+
+    /// Keeps the chosen size and smooth step from a machine already built,
+    /// so a refresh does not sample memory again.
+    ///
+    /// @param machine the battlefield's mode and memory
+    void snap_photo_factors(const oa::present::photo::Machine& machine);
+
+    /// The sizes and smooth steps the panel can offer now.
+    ///
+    /// @return the offers for the battlefield, the mode and the memory
+    [[nodiscard]] oa::present::photo::Plan photo_size_plan();
+
+    /// The sizes and smooth steps for a machine already built.
+    ///
+    /// @param machine the battlefield's mode and memory
+    /// @return the offers
+    [[nodiscard]] oa::present::photo::Plan
+    photo_size_plan(const oa::present::photo::Machine& machine);
+
+    /// The sentence for a size or a smooth step that is not offered. Empty
+    /// when it is offered. A pixel cap is filled in.
+    ///
+    /// @param kind the mode the offer was judged for
+    /// @param offer the size or the smooth step
+    /// @return the sentence
+    [[nodiscard]] std::string photo_offer_reason(
+        oa::present::photo::CaptureKind kind, const oa::present::photo::Offer& offer
+    ) const;
+
+    /// Draws one photo on the processor, for one frame, and puts the window's
+    /// picture back. The frame uses the player's Gamma table. Full and the
+    /// turned view do not take their photo this way.
+    ///
+    /// @param[out] rgb the drawn picture, before a box reduction
+    /// @param draw_width the draw, in pixels
+    /// @param draw_height the draw, in pixels
+    /// @param zoom output pixels a map pixel
+    /// @return false when the frame could not be drawn
+    [[nodiscard]] bool draw_processor_photo(
+        std::vector<uint8_t>& rgb, int32_t draw_width, int32_t draw_height, double zoom
+    );
+
+    /// Draws a photo larger than the window, or with smooth edges, in the
+    /// render mode in use, and box-reduces it to the picture.
+    ///
+    /// @param[out] rgb the picture
+    /// @param[out] width its width
+    /// @param[out] height its height
+    /// @return false when it could not be drawn
+    [[nodiscard]] bool
+    capture_sized_photo(std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height);
+
     /// Waits until every photo already accepted has been written, then
     /// reports the latest one on the status line.
     void wait_for_photos();
@@ -2671,37 +2752,62 @@ class Runtime final : public menu::Host,
     /// @return the count
     [[nodiscard]] uint32_t photo_chat_lines_since_enter();
 
-    /// Stops a match on this machine. A replay pauses with its own pause.
+    /// Stops a match on this machine. A replay pauses through the playback.
     /// A shared match or a watcher is refused, and the time state stays.
     ///
     /// @return true when this call froze the battle
     [[nodiscard]] bool photo_freeze();
 
     /// Runs a frozen or slow match on. The time it spent held is not caught
-    /// up. A replay resumes its own pause, and a speed this mode set is put
-    /// back to the speed the replay had on entering. A shared match is refused.
+    /// up. A replay plays, and the viewing speed it had on entering is put
+    /// back. A shared match is refused.
     ///
     /// @return true when this call changed the time state
     [[nodiscard]] bool photo_run();
 
     /// Plays a match on this machine slowly: each step from 1 to 9 is three
     /// ticks a second, within the speeds the battle allows. The game's own
-    /// speed is not written. A replay uses its own speed. A shared match
-    /// is refused.
+    /// speed is not written. A replay plays at half speed, the only speed
+    /// below 1×, whichever step from 1 to 9 was asked. A shared match is refused.
     ///
     /// @param speed 1 to 9; a speed outside that is refused
     /// @return true when this call set the slow pace
     [[nodiscard]] bool photo_slow(int32_t speed);
 
     /// Plays one tick of a match on this machine, then leaves it frozen.
-    /// A replay, a shared match and a watcher are refused.
+    /// A replay seeks one recorded tick forward and stays paused.
+    /// A shared match and a watcher are refused.
     ///
     /// @return true when a tick was played
     [[nodiscard]] bool photo_step();
 
+    /// Seeks one recorded tick back and stays paused.
+    ///
+    /// A match that is not a replay is refused. The first tick has nowhere to go.
+    ///
+    /// @return true when the seek was asked
+    [[nodiscard]] bool photo_step_back();
+
+    /// Seeks a replay by a number of ticks and keeps the pause it has.
+    ///
+    /// Ten seconds is 300 ticks and a minute is 1,800, the same steps as the
+    /// playback bar. A match that is not a replay is refused.
+    ///
+    /// @param delta the ticks to add; negative jumps back
+    /// @return true when the seek was asked
+    [[nodiscard]] bool photo_scrub(int32_t delta);
+
+    /// Pauses a replay when asked, then seeks to one tick.
+    ///
+    /// @param tick the tick to land on
+    /// @param pause_first true pauses before the seek
+    /// @return true when the seek was asked
+    [[nodiscard]] bool photo_seek_replay_tick(uint32_t tick, bool pause_first);
+
     /// Draws a frozen match on this machine part of the way from the tick
     /// before to the frozen tick, in eighths. It is drawn whatever Smooth
-    /// motion says. A replay and a shared match are refused.
+    /// motion says. A paused replay uses the same eighths. A shared match
+    /// is refused.
     ///
     /// @param eighths 0 is the tick before, 8 the frozen tick
     /// @return true when that eighth is what the next draw shows
@@ -2724,13 +2830,34 @@ class Runtime final : public menu::Host,
 
     /// Tells whether photo mode has frozen a match on this machine.
     ///
+    /// A replay is frozen while its pause is on.
+    ///
     /// @return true while the photo clock is frozen
     [[nodiscard]] bool photo_frozen() const noexcept;
 
     /// The slow speed photo mode is playing, from 1 to 9.
     ///
+    /// A replay reports 1 while it plays below 1×, and 0 while it is paused
+    /// or at 1× or faster.
+    ///
     /// @return that speed, or 0 when photo mode is not playing slowly
     [[nodiscard]] int32_t photo_slow_speed() const noexcept;
+
+    /// Reads the replay's pause and speed into this photo visit.
+    ///
+    /// The strip follows that reading. The reading is not taken from a
+    /// method that promises not to throw.
+    void note_replay_photo_pace();
+
+    /// Puts the framed camera back while a photo seek is in flight, and on
+    /// the frame it lands.
+    void guard_photo_replay_camera();
+
+    /// Remembers the camera a photo seek must keep.
+    void arm_photo_replay_camera();
+
+    /// A pan during that seek keeps the place the player just set.
+    void note_photo_replay_camera();
 
     /// Tells whether a shared match is showing the held picture.
     ///
@@ -2764,7 +2891,8 @@ class Runtime final : public menu::Host,
     void grant_photo_slow_ticks();
 
     /// Replaces a draw's fraction while a match on this machine is frozen
-    /// between ticks, or playing slowly with Smooth motion on.
+    /// between ticks, or playing slowly with Smooth motion on. A paused
+    /// replay uses the same eighths. Its slow play is the playback's speed.
     ///
     /// @param[in,out] fraction the fraction the draw is about to use
     void apply_photo_fraction(uint32_t& fraction) const;
@@ -2852,7 +2980,8 @@ class Runtime final : public menu::Host,
     ///
     /// Without the interface the frame is the battlefield alone, drawn
     /// EngineView::margin pixels larger and cut at the view's offset, with
-    /// the default gamma; the player's saved gamma never applies. No
+    /// the default gamma unless the presentation asks for the player's Gamma
+    /// table. No
     /// overlay, label, panel, message or cursor is drawn. The Game block's
     /// camera is left bound to the drawn view. The processor draws it,
     /// unless director_draws_on_card (draw_director_card_frame).
@@ -2946,11 +3075,137 @@ class Runtime final : public menu::Host,
     /// window sizes. Throws std::runtime_error when a check fails.
     void check_photo_panel();
 
+    /// Runs --check-photo sizes: Screen, smooth edges and larger photos, in
+    /// the render mode in use.
+    ///
+    /// @return 77 when the turned-view check has no graphics device, otherwise 0
+    /// @throws std::runtime_error when a check fails
+    [[nodiscard]] int check_photo_sizes();
+
+    /// Runs --check-photo pad-touch: a controller opens photo mode, frames
+    /// the shot and takes it, then a phone does the same by touch. Throws
+    /// std::runtime_error when a check fails.
+    void check_photo_pad_touch();
+
+    /// Runs --check-photo looks: each preset on the fight the capture check
+    /// photographs, then the same fight with no look. Throws
+    /// std::runtime_error when a check fails.
+    void check_photo_looks();
+
+    /// Tells whether photo mode is showing a look.
+    ///
+    /// None, a vignette of 0, a grain of 0 and no frame is not a look.
+    /// Roundness and grain size do nothing while their amounts are 0.
+    ///
+    /// @return true when a look would change the picture
+    [[nodiscard]] bool photo_look_active() const noexcept;
+
+    /// Tells whether this frame's preview should be filtered again.
+    ///
+    /// A running or slow battle filters every frame. A frozen battle, and a
+    /// held picture, filter again when the camera or the look changes.
+    ///
+    /// @return true when the filtered picture already held is not this frame
+    [[nodiscard]] bool photo_look_preview_due() const;
+
+    /// Paints the current look into packed RGB. The caller has already
+    /// applied the player's gamma. Does nothing when no look is on.
+    ///
+    /// Grain size is in pixels, so a photo drawn larger than the battlefield
+    /// draws its grain larger by the same factor
+    /// (oa::present::photo::photo_grain_size), and the grain covers the map
+    /// as the preview's does.
+    ///
+    /// @param[in,out] rgb packed RGB, three bytes a pixel
+    /// @param width the picture's width
+    /// @param height the picture's height
+    /// @param size_factor the photo's size: 1 for Screen, 2 to 4 for a
+    ///        photo that many times the battlefield
+    void apply_photo_look_rgb(
+        std::vector<uint8_t>& rgb, uint32_t width, uint32_t height, int size_factor
+    ) const;
+
+    /// Paints the current look into the preview of a battlefield.
+    ///
+    /// A photo is cropped to the chosen guide before its look, so the
+    /// preview paints the look on that crop alone, where the photo will
+    /// carry it: its frame, vignette and grain land as the photo's do. The
+    /// battlefield outside the crop is left as it is. With no crop it is
+    /// the whole picture. Does nothing when no look is on.
+    ///
+    /// @param bytes the picture's first row
+    /// @param width the picture's width, in pixels
+    /// @param height the picture's height, in pixels
+    /// @param stride bytes from one row to the next
+    /// @param channels 3 for RGB, 4 for RGBA (the fourth byte is kept)
+    void paint_photo_look_preview(
+        uint8_t* bytes, uint32_t width, uint32_t height, uint32_t stride, uint32_t channels
+    ) const;
+
+    /// Filters the processor's battlefield into the look cache when this
+    /// frame needs a new preview.
+    ///
+    /// @return false when there is no picture to filter
+    [[nodiscard]] bool refresh_photo_look_cpu();
+
+    /// Filters the Full battlefield on the card and draws it back, before
+    /// the Open Annihilation layer. A frozen frame whose camera and look
+    /// are unchanged is drawn from the filtered picture. Nothing happens
+    /// when no look is on.
+    ///
+    /// @param x the battlefield's left edge, in the window
+    /// @param y the battlefield's top edge, in the window
+    /// @param width the battlefield's width
+    /// @param height the battlefield's height
+    /// @param moved true when the frame was drawn into a zoomed-out target
+    /// @param target the texture the window's frame is presented into, or
+    ///        null for the window
+    void
+    present_photo_look_full(int x, int y, int width, int height, bool moved, SDL_Texture* target);
+
+    /// Forgets the filtered preview. Leaving photo mode calls this.
+    void clear_photo_look_cache() noexcept;
+
+    /// The look's inputs, mixed so a frozen preview can tell a new frame.
+    ///
+    /// @return the mix
+    [[nodiscard]] uint64_t photo_look_key() const;
+
+    /// Runs --check-photo replay: a recording is watched, photo mode steps
+    /// and steps back, and the photo names that recording. Throws
+    /// std::runtime_error when a check fails.
+    void check_photo_replay();
+
     /// Puts the photo panel on the Open Annihilation layer.
     void open_photo_panel();
 
     /// Hides the photo panel, or shows it again. Outside photo mode, nothing.
     void toggle_photo_panel();
+
+    /// Tells whether the photo panel is showing.
+    ///
+    /// @return true while photo mode's panel is drawn
+    [[nodiscard]] bool photo_panel_shown() const noexcept;
+
+    /// Tells whether the photo panel is drawing its focus ring.
+    ///
+    /// The pad's first step through the panel shows the ring, as Tab does,
+    /// and the arrows move only once it shows.
+    ///
+    /// @return true while that ring is drawn
+    [[nodiscard]] bool photo_focus_ring_shown() const;
+
+    /// Offers a finger to the photo panel.
+    ///
+    /// A press the panel takes stays on the panel. One it passes goes on to
+    /// pan the battlefield. The press is marked as a finger's, so the panel
+    /// takes the nearest control within a finger's reach.
+    ///
+    /// @param kind pointer_down, pointer_move or pointer_up
+    /// @param x the finger, in the picture's pixels
+    /// @param y the finger, in the picture's pixels
+    /// @return true when the panel took it
+    [[nodiscard]] bool offer_photo_pointer(ScreenInputKind kind, float x, float y);
 
     /// The next guide over the battlefield, and back to none after the last crop.
     void cycle_photo_guides();
@@ -3619,11 +3874,14 @@ class Runtime final : public menu::Host,
     /// Whether a key of the action's chords is down.
     ///
     /// A modifier never stops it: any chord whose key is held counts. Resolves
-    /// the bindings on first use. [runtime_key_bindings.cpp]
+    /// the bindings on first use. When `skip_arrows` is set, an arrow key of
+    /// the chord does not count. A letter or any other key bound to the same
+    /// action still does. [runtime_key_bindings.cpp]
     ///
     /// @param action the action id
+    /// @param skip_arrows leave arrow keys out of the chords that count
     /// @return true while one of that action's keys is down
-    [[nodiscard]] bool action_key_held(std::string_view action);
+    [[nodiscard]] bool action_key_held(std::string_view action, bool skip_arrows = false);
 
     /// Whether an action is held by its key, its modifier role or its latch.
     ///
@@ -4566,6 +4824,12 @@ class Runtime final : public menu::Host,
     /// it after the extension's pump.
     void finish_quit_request();
     ScreenRegistry screens_{};
+    // The screen being offered a key asked ScreenServices::bound_focus_action
+    // about it, and the command it was given: empty when none fired, or when
+    // it asked only for the ring because the key types into a field. The
+    // family's ring follows that answer (dispatch_screen_input).
+    bool screen_bound_asked_{};
+    std::string screen_bound_action_{};
     // The overlays the extensions registered (register_screens).
     std::vector<OverlayDesc> extension_overlays_;
     // While set_extension_overlays_aside has them aside, the registry's
@@ -5266,22 +5530,47 @@ class Runtime final : public menu::Host,
 
     /// Answers a key over a paused match while its panels hold the keyboard
     /// (the in-game menu or the tab menu opened them), as the gadget engine
-    /// takes keys: Enter presses the panel's Enter default, or the focused
-    /// control when it has none or that default cannot be pressed; Space
-    /// presses the focused control; Escape presses the panel's Escape default
-    /// when it is active; any other key presses the first active button,
-    /// grayed-out ones aside, whose quick key it is in either case. The
-    /// surrender confirmation leaves Enter and Escape to enter_match_menu()
-    /// and escape_match_menu(); asked by a close request over the running
-    /// match, when the panels lack the keyboard, it still takes its quick
-    /// keys, though not Space. The preferences a match opens take keys so
-    /// too. The character a quick key that presses a button types after its
-    /// press is dropped (answered_key_).
+    /// takes keys: Tab and Shift+Tab move through the panel's order and show
+    /// the ring; once the ring shows, the arrows move it and Left and Right
+    /// step a slider. Enter presses the panel's Enter default while the ring
+    /// is hidden, and the focused button once the ring shows; Space presses
+    /// the focused control; Escape presses the panel's Escape default when it
+    /// is active; any other key presses the first active button, grayed-out
+    /// ones aside, whose quick key it is in either case. The surrender
+    /// confirmation leaves Enter and Escape to enter_match_menu() and
+    /// escape_match_menu(); asked by a close request over the running match,
+    /// when the panels lack the keyboard, it still takes its quick keys,
+    /// though not Space. The preferences a match opens take keys so too. The
+    /// character a quick key that presses a button types after its press is
+    /// dropped (answered_key_).
     ///
     /// @param key the key pressed
     /// @return true when the panel took the key; false when it goes on to the
     ///         match's other keys
     bool press_match_panel_key(const SDL_KeyboardEvent& key);
+
+    /// Turns keyboard focus of the order buttons and the build page on or off.
+    ///
+    /// The first stop is focused and the ring stays hidden, unless Always show
+    /// focus is on. A second press returns to the battlefield.
+    void toggle_hud_button_focus();
+
+    /// Leaves that focus and hides the ring. Does nothing while it is off.
+    void leave_hud_button_focus();
+
+    /// One entry per gadget of the order panel, for keyboard focus of its buttons.
+    [[nodiscard]] std::vector<oa::ui::hud::PanelButton> hud_focus_buttons() const;
+
+    /// Answers Tab, the arrows, Return and Escape while the panel's buttons have the focus.
+    ///
+    /// Tab and Shift+Tab move and show the ring. While the ring is hidden,
+    /// every other key does what it does today. While it shows, the arrows
+    /// move, Return presses the focused button and hides the ring, and Escape
+    /// returns to the battlefield.
+    ///
+    /// @param key the key pressed
+    /// @return true when the focus took the key
+    bool answer_hud_button_focus_key(const SDL_KeyboardEvent& key);
 
     /// Steps the lightbar sweep of the preferences a match opens, before the frame's HUD is drawn.
     ///
@@ -9135,6 +9424,25 @@ class Runtime final : public menu::Host,
     /// @return false when no replay is playing
     bool replay_viewer_command(std::string_view id);
 
+    /// Seeks the replay photo mode is watching, through the playback bar's seek.
+    ///
+    /// The bar is not shown. The landing rule is the bar's.
+    ///
+    /// @param tick the tick
+    /// @return false when no replay is playing
+    bool replay_photo_seek(uint32_t tick);
+
+    /// Seeks that replay by a number of ticks. The pause is left as it is.
+    ///
+    /// @param delta the ticks to add; negative jumps back
+    /// @return false when no replay is playing
+    bool replay_photo_seek_by(int32_t delta);
+
+    /// Tells whether a photo seek has not landed.
+    ///
+    /// @return true while the bar is still holding the asked tick
+    [[nodiscard]] bool replay_photo_seek_pending() const;
+
     /// Shows the playback bar while a replay plays.
     void show_replay_bar();
 
@@ -9499,6 +9807,19 @@ class Runtime final : public menu::Host,
     [[nodiscard]] std::array<float, 2> live_camera_angles() const noexcept;
     /// Reports a scene or GPU failure from the last attempted frame.
     [[nodiscard]] bool live_renderer_failed() const noexcept;
+
+    /// The sampling the turned view's last successful frame drew at, and
+    /// whether the card multisamples. Zeros mean no frame has succeeded.
+    struct TurnedFrameSampling {
+        uint32_t supersample{1};    ///< samples along each axis
+        uint32_t multisample{1};    ///< samples a pixel, before that
+        bool device_multisamples{}; ///< the card multisamples the formats
+    };
+
+    /// The turned view's last frame, for a photo that must keep it.
+    ///
+    /// @return the sampling; the defaults when the turned view is not made
+    [[nodiscard]] TurnedFrameSampling turned_frame_sampling() const noexcept;
     /// Distinguishes an unsupported GPU backend from a rendering error.
     [[nodiscard]] bool live_renderer_unavailable() const noexcept;
     /// Returns the graphics device the turned view draws on, where the live
@@ -12280,6 +12601,11 @@ class Runtime final : public menu::Host,
     /// no reader, this builds nothing.
     void publish_screen_reader();
 
+    /// Speaks this frame's chat, lobby and ticker lines, and posts each
+    /// announcement for the event feed. Nothing is recorded when no screen
+    /// reader is running and the screen-reader preference is not `on`.
+    void speak_updates();
+
     /// Leaves the end screen: closes the report, tells the extension and releases the finished
     /// match.
     void release_endgame();
@@ -13378,6 +13704,20 @@ class Runtime final : public menu::Host,
     /// @return false when the rectangle cannot be read
     [[nodiscard]] bool
     copy_presented_battlefield(std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height);
+
+    /// The battlefield, the mode and the memory a photo size is judged with.
+    ///
+    /// @return what plan_sizes reads
+    [[nodiscard]] oa::present::photo::Machine photo_capture_machine();
+
+    /// Puts the window's picture back after `draw`, including when `draw`
+    /// throws or returns false. The window is drawn again, so the next frame
+    /// is the one the player had.
+    ///
+    /// @param draw draws the photo
+    /// @return what `draw` returned
+    template <class Draw>
+    bool restoring_photo_window(Draw&& draw);
 
     /// Captures the battlefield by the render mode in use. A mode that cannot
     /// capture does not fall back to another. While a picture is held, the
@@ -14533,12 +14873,13 @@ class Runtime final : public menu::Host,
     [[nodiscard]] int32_t announced_frontend_focus() const;
 
     /// Returns the record the tree reports as focused on the match's panel
-    /// while that panel has the keyboard.
+    /// while that panel has the keyboard, or on the order buttons while
+    /// keyboard focus of those buttons is on.
     ///
     /// Where the panel focuses none, it is the first record of the panel's
     /// order, and the panel's own focus is left where it is.
     ///
-    /// @return the record, or -1 while the panel does not have the keyboard
+    /// @return the record, or -1 while nothing has the keyboard
     [[nodiscard]] int32_t announced_match_focus() const;
 
     /// Marks the focused control the screen names when the family's ring is drawn.
@@ -21611,6 +21952,11 @@ class Runtime final : public menu::Host,
     // The match's panels take the keyboard, and show their focus: 3.1c gives
     // its GUI the keyboard while the in-game menu or the tab menu is open.
     bool match_panels_keyboard_ = false;
+    // Keyboard focus is on the order buttons and the build page. The ring
+    // stays hidden until Tab or Shift+Tab. This is not the pause menu's keyboard.
+    bool hud_buttons_focused_ = false;
+    // The order or build button that focus is on, or -1.
+    int32_t hud_button_focus_ = -1;
     std::vector<MatchGadgetState> match_hud_states_; // one per match_hud_ gadget
     std::optional<oa::formats::fnt::Font> match_small_font_;
     // The viewed side names a font. One that names none has its HUD labels
@@ -22709,6 +23055,19 @@ class Runtime final : public menu::Host,
     // start-up for Options::draw_threads or the machine's default; null
     // when that is one thread, which draws them on the calling thread alone.
     std::unique_ptr<oa::platform::job_pool::Pool> draw_pool_;
+    /// The battlefield last filtered for a look, after the player's gamma.
+    /// The card's picture is not this buffer, and a frame with no look does
+    /// not fill it.
+    renderer::Surface photo_look_cpu_{};
+    bool photo_look_cpu_valid_{false};
+    uint64_t photo_look_key_{};
+    bool photo_look_key_set_{false};
+    /// Packed RGBA of a Full frame filtered in place, for a frozen preview
+    /// that does not read the card again. Empty until that frame is filtered.
+    std::vector<uint8_t> photo_look_rgba_{};
+    uint32_t photo_look_rgba_width_{};
+    uint32_t photo_look_rgba_height_{};
+    bool photo_look_rgba_valid_{false};
     std::vector<uint8_t> debug_font_; // smlfont.FNT as loaded, for the debug grid
     oa::present::world_renderer::FogTileSet fog_tiles_{};
     oa::present::world_renderer::FogShading fog_shading_{};

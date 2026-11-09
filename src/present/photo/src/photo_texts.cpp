@@ -327,8 +327,16 @@ std::string record_text(const PhotoFacts& facts, const std::string& clock) {
         writer.string(game_utf8(facts.look->preset));
         writer.key("vignette");
         writer.integer(facts.look->vignette);
+        writer.key("roundness");
+        writer.integer(facts.look->roundness);
         writer.key("grain");
         writer.integer(facts.look->grain);
+        writer.key("grain_size");
+        writer.integer(facts.look->grain_size);
+        writer.key("grain_pixels");
+        writer.integer(facts.look->grain_pixels);
+        writer.key("frame");
+        writer.string(facts.look->frame.empty() ? "none" : game_utf8(facts.look->frame));
         writer.key("tilt_shift");
         if (facts.look->tilt_shift.has_value())
             writer.integer(*facts.look->tilt_shift);

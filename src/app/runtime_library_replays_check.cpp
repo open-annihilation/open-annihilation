@@ -821,9 +821,12 @@ void Runtime::check_library_replays() {
         }
     };
     // Let them go moves on a worker. Wait until that move has been taken
-    // into the index, and fail rather than wait forever.
+    // into the index, and fail rather than wait forever. The wait is timed,
+    // not counted in frames: a frame here takes about a millisecond, and the
+    // system's trash can take longer than hundreds of them on a busy machine.
     const auto drain_moves = [&] {
-        for (int waited = 0; waited < 600 && replay_trash_sweep_ != nullptr; ++waited)
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (replay_trash_sweep_ != nullptr && std::chrono::steady_clock::now() < deadline)
             frames(1);
         require(replay_trash_sweep_ == nullptr, "old replays were still being moved");
     };

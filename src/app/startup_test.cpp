@@ -2339,6 +2339,22 @@ int main() {
         photo_panel.check_photo && photo_panel.photo_group == oa::app::PhotoGroup::panel,
         "--check-photo panel names the panel group"
     );
+    const auto photo_sizes = parse({"--check-photo", "sizes"});
+    expect(
+        photo_sizes.check_photo && photo_sizes.photo_group == oa::app::PhotoGroup::sizes,
+        "--check-photo sizes names the sizes group"
+    );
+    const auto photo_pad_touch = parse({"--check-photo", "pad-touch"});
+    expect(
+        photo_pad_touch.check_photo &&
+            photo_pad_touch.photo_group == oa::app::PhotoGroup::pad_touch,
+        "--check-photo pad-touch names the controller and touch group"
+    );
+    const auto photo_replay = parse({"--check-photo", "replay"});
+    expect(
+        photo_replay.check_photo && photo_replay.photo_group == oa::app::PhotoGroup::replay,
+        "--check-photo replay names the replay group"
+    );
     expect(
         parse({"--check-photo", "capture", "--force-capable"}).force_capable,
         "--force-capable goes with --check-photo"

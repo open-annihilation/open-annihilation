@@ -12,12 +12,15 @@
 
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/files.hpp"
+#include "oa/present/photo/looks.hpp"
 #include "oa/present/photo/photo_file_name.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/photo_panel/crop.hpp"
 #include "oa/ui/photo_panel/draw.hpp"
 #include "oa/ui/photo_panel/input.hpp"
+#include "oa/ui/photo_panel/layout.hpp"
 #include "oa/ui/photo_panel/words.hpp"
+#include "oa/ui/replay_viewer/replay_viewer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -217,17 +220,71 @@ struct Runtime::PhotoScreen final : LayerScreen {
         panel::draw_panel(canvas, model_, placed_, shown_);
     }
 
-    LayerAnswer pointer(ScreenInputKind kind, uint8_t, kit::Point at, int32_t) override {
+    LayerAnswer pointer(ScreenInputKind kind, uint8_t, kit::Point at, int32_t reach) override {
         ensure();
+        // A finger drag that starts on the scrolling rows moves them. Leave,
+        // Take photo and the hint stay put, and a short move is still a tap.
+        if (kind == ScreenInputKind::pointer_up && finger_drag_) {
+            finger_drag_ = false;
+            finger_armed_ = false;
+            chrome_down_ = false;
+            interaction_.pressed = kit::no_control;
+            interaction_.finger_shift = {};
+            return LayerAnswer::redraw;
+        }
+        if (model_.touch && (finger_armed_ || finger_drag_) &&
+            kind == ScreenInputKind::pointer_move) {
+            const int32_t dy = at.y - finger_y_;
+            const int32_t dx = at.x - finger_x_;
+            const int32_t distance = dy < 0 ? -dy : dy;
+            const int32_t across = dx < 0 ? -dx : dx;
+            const int32_t slop = std::max(int32_t{8}, model_.touch_row / 5);
+            // A finger that goes sideways past the slop first stays with its
+            // control, so a slider's drag is never taken for a scroll.
+            if (!finger_drag_ && across >= slop && across >= distance)
+                finger_armed_ = false;
+            else if (!finger_drag_ && distance >= slop)
+                finger_drag_ = true;
+            if (finger_drag_) {
+                // The rows follow every move of the finger until it lifts.
+                finger_armed_ = false;
+                scroll_ = finger_scroll_ - dy;
+                interaction_.pressed = kit::no_control;
+                interaction_.finger_shift = {};
+                chrome_down_ = true;
+                // The rows stop at either end. The finger's start moves with
+                // them there, so a move back scrolls at once.
+                ensure();
+                finger_scroll_ = scroll_ + dy;
+                return LayerAnswer::redraw;
+            }
+        }
         if (kind == ScreenInputKind::pointer_up && !chrome_down_ &&
             interaction_.pressed == kit::no_control)
             return LayerAnswer::pass;
         const bool held_chrome = kind == ScreenInputKind::pointer_down ? false : chrome_down_;
-        const panel::Answer answer = panel::pointer_event(interaction_, model_, placed_, kind, at);
-        if (kind == ScreenInputKind::pointer_down)
+        const panel::Answer answer =
+            panel::pointer_event(interaction_, model_, placed_, kind, at, reach);
+        if (kind == ScreenInputKind::pointer_down) {
             chrome_down_ = answer.consumed;
-        if (kind == ScreenInputKind::pointer_up)
+            const bool pinned = interaction_.pressed == panel::kHead ||
+                                interaction_.pressed == panel::kTake ||
+                                interaction_.pressed == panel::kHint;
+            if (model_.touch && reach > 0 && answer.consumed && !pinned) {
+                finger_armed_ = true;
+                finger_drag_ = false;
+                finger_x_ = at.x;
+                finger_y_ = at.y;
+                finger_scroll_ = scroll_;
+            } else {
+                finger_armed_ = false;
+                finger_drag_ = false;
+            }
+        }
+        if (kind == ScreenInputKind::pointer_up) {
             chrome_down_ = false;
+            finger_armed_ = false;
+        }
         return settle(answer, held_chrome || answer.consumed);
     }
 
@@ -238,6 +295,21 @@ struct Runtime::PhotoScreen final : LayerScreen {
     }
 
     LayerAnswer wheel(kit::Point, float) override { return LayerAnswer::pass; }
+
+    LayerAnswer pad_action(oa::ui::pad_controls::Action action) override {
+        // A on a button the ring shows presses it as Enter does, and the ring
+        // goes, so the next A takes the photo again. Elsewhere, where the
+        // D-pad's left and right change the control, A takes the photo.
+        if (action != oa::ui::pad_controls::Action::photo_capture)
+            return LayerAnswer::pass;
+        ensure();
+        if (!kit::focus_ring_visible(interaction_))
+            return LayerAnswer::pass;
+        const kit::Control* focused = kit::control_of(shown_, interaction_.focused);
+        if (focused == nullptr || focused->kind != kit::ControlKind::button)
+            return LayerAnswer::pass;
+        return key(kit::Key::enter, 0U);
+    }
 
     [[nodiscard]] kit::DisplayList display_list() const override {
         ensure();
@@ -260,6 +332,10 @@ struct Runtime::PhotoScreen final : LayerScreen {
     void close(bool) override { runtime_.leave_photo_mode(); }
 
   private:
+
+    /// The size and smooth-edge strips, and the one line that says why a stop
+    /// is locked. A stored factor the battlefield cannot draw snaps to one it can.
+    void fill_size_choices(panel::Model& model) const;
 
     void remember_size(const LayerView& placed_on) const {
         int32_t across = std::max(placed_on.picture.width, placed_on.room.width);
@@ -285,12 +361,30 @@ struct Runtime::PhotoScreen final : LayerScreen {
             notice.toast_until_ns = runtime_.frame_time_ns_ + kToastShowsNs;
         else if (notice.toast_on && runtime_.frame_time_ns_ >= notice.toast_until_ns)
             notice.toast_on = false;
+        if (runtime_.touch_controls_active()) {
+            // One section stays open: the first that is open, and the others
+            // fold. A keyboard layout is left as the player set it.
+            bool kept = false;
+            const auto keep = [&](bool& open) {
+                if (open && !kept) {
+                    kept = true;
+                    return;
+                }
+                open = false;
+            };
+            keep(notice.section_camera);
+            keep(notice.section_time);
+            keep(notice.section_look);
+            keep(notice.section_capture);
+        }
         const PhotoState& state = *runtime_.photo_;
         model_ = {};
         model_.width = width_;
         model_.height = height_;
         model_.size_class = kit::size_class_of(width_, height_);
         const bool replay = runtime_.photo_time_is_replay();
+        if (replay)
+            runtime_.note_replay_photo_pace();
         const bool shared = !replay && !runtime_.photo_time_is_local();
         model_.visit = shared ? panel::Visit::shared
                               : (replay ? panel::Visit::replay : panel::Visit::skirmish);
@@ -365,6 +459,8 @@ struct Runtime::PhotoScreen final : LayerScreen {
             model_.speed_stop = slow - 1;
         model_.speed_stops = 9;
         model_.speed_value = std::to_string((model_.speed_stop + 1) * 10) + "%";
+        if (replay && runtime_.photo_slow_speed() > 0)
+            model_.speed_value = looked_up("½×");
         model_.between_stops = 9;
         model_.between_stop = std::clamp(runtime_.photo_shutter_eighth(), int32_t{0}, int32_t{8});
         model_.between_value = std::to_string(model_.between_stop);
@@ -417,8 +513,52 @@ struct Runtime::PhotoScreen final : LayerScreen {
         model_.selection_label = looked_up(words::show_selection);
         model_.health_label = looked_up(words::show_health);
         model_.guides_label = looked_up(words::guides);
+        model_.preset_labels = {
+            looked_up("None"),
+            looked_up(words::year_1997),
+            looked_up(words::dusk),
+            looked_up(words::arctic),
+            looked_up(words::noir),
+            looked_up(words::bleach),
+        };
+        model_.preset = std::clamp(static_cast<int>(state.look_preset), 0, 5);
+        model_.vignette_label = looked_up(words::vignette);
+        model_.vignette_stop = std::clamp(state.look_vignette, 0, 100);
+        model_.vignette_value = std::to_string(model_.vignette_stop) + "%";
+        model_.roundness_label = looked_up(words::roundness);
+        model_.roundness_stop = std::clamp(state.look_roundness, 0, 100);
+        model_.roundness_value = std::to_string(model_.roundness_stop) + "%";
+        model_.grain_label = looked_up(words::grain);
+        model_.grain_stop = std::clamp(state.look_grain, 0, 100);
+        model_.grain_value = std::to_string(model_.grain_stop) + "%";
+        model_.grain_size_label = looked_up(words::grain_size);
+        const int grain_size = std::clamp(state.look_grain_size, 1, 16);
+        model_.grain_size_stop = grain_size - 1;
+        model_.grain_size_value = std::to_string(grain_size);
+        model_.frame_label = looked_up(words::frame);
+        const std::string_view frame_keys[] = {
+            "None", words::thin_border, words::wide_mat, words::caption_bar
+        };
+        const int frame_index = std::clamp(static_cast<int>(state.look_frame), 0, 3);
+        model_.frame_value = looked_up(frame_keys[frame_index]);
+        model_.caption_clear = 0;
+        if (state.look_frame == static_cast<uint8_t>(photo::Frame::caption)) {
+            // The bar lies at the bottom of what the photo keeps: the crop a
+            // guide keeps, else the whole battlefield.
+            kit::Rect kept = panel::crop_bounds(width_, height_, model_.guide);
+            if (kept.width <= 0 || kept.height <= 0)
+                kept = {0, 0, width_, height_};
+            const int32_t under = std::max(height_ - (kept.y + kept.height), int32_t{0});
+            model_.caption_clear = under + photo::caption_bar_height(kept.width, kept.height);
+        }
+        const bool still = state.time == PhotoState::Time::frozen || state.picture_held;
+        const bool costly = runtime_.full_presentation() || runtime_.live_renderer_active();
+        model_.preview_note.clear();
+        if (runtime_.photo_look_active() && !still && costly)
+            model_.preview_note = looked_up(words::preview_rate);
         model_.size_label = looked_up(words::size);
-        model_.size_value = looked_up(words::screen);
+        model_.smooth_label = looked_up(words::smooth_edges);
+        fill_size_choices(model_);
         model_.copy_switch_label = looked_up(words::copy_to_clipboard);
         model_.names_label = looked_up(words::player_names);
         model_.file_label = looked_up(words::file);
@@ -437,6 +577,32 @@ struct Runtime::PhotoScreen final : LayerScreen {
                           "   " + chord_or("photo.freeze", "Space") + " " + freeze_word + "   " +
                           chord_or("photo.panel", "H") + " " + looked_up(words::hide_panel) +
                           "   " + chord_or("photo.guides", "G") + " " + looked_up(words::guides);
+        // A finger sees words it can tap. A pad that has been used sees its
+        // own buttons, on the desktop as on a touch layout, and the desktop
+        // hint names Y. The keyboard line stays until either of those.
+        const auto pad_line = [&] {
+            return std::string("A ") + looked_up(words::take_photo) + " · B " +
+                   looked_up(words::leave) + " · X " + freeze_word + " · Y " +
+                   looked_up(words::hide_panel);
+        };
+        model_.touch = runtime_.touch_controls_active();
+        if (model_.touch) {
+            const double pixels = static_cast<double>(runtime_.touch_px_per_point());
+            const int32_t row = static_cast<int32_t>(std::lround(44.0 * pixels));
+            model_.touch_row = row > 44 ? row : 44;
+            model_.scroll = scroll_;
+            if (!finger_drag_ && kit::focus_ring_visible(interaction_))
+                model_.reveal = interaction_.focused;
+            model_.head = looked_up(words::leave);
+            model_.hint_label = looked_up(words::show_panel);
+            if (runtime_.pad_used())
+                model_.key_line = pad_line();
+            else
+                model_.key_line.clear();
+        } else if (runtime_.pad_used()) {
+            model_.key_line = pad_line();
+            model_.hint_label = fill_key(looked_up(words::shows_panel), "Y");
+        }
 
         fill_chips(shared, replay);
         model_.toast = state.toast_on;
@@ -449,6 +615,8 @@ struct Runtime::PhotoScreen final : LayerScreen {
         const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
         const kit::Fonts fallback;
         placed_ = panel::layout_of(model_, fonts != nullptr ? *fonts : fallback);
+        if (model_.touch)
+            scroll_ = placed_.scroll;
         repair_focus();
         shown_ = panel::shown_list(placed_, interaction_);
         const std::string stamp = stamp_of();
@@ -478,11 +646,17 @@ struct Runtime::PhotoScreen final : LayerScreen {
             return;
         }
         if (replay) {
-            const bool paused =
-                runtime_.match_ != nullptr &&
-                (runtime_.match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+            const bool paused = runtime_.photo_frozen();
             model_.chips[0] = looked_up(paused ? words::replay_paused : words::photo_mode);
-            model_.chips[1] = clock;
+            uint32_t shown_tick =
+                runtime_.match_ != nullptr ? runtime_.match_->state().game.tick : 0;
+            uint32_t shown_length = 0;
+            if (runtime_.photo_ != nullptr) {
+                shown_length = runtime_.photo_->replay_length_seen;
+                if (runtime_.photo_->replay_tick_seen != 0 || shown_length != 0)
+                    shown_tick = runtime_.photo_->replay_tick_seen;
+            }
+            model_.chips[1] = oa::ui::replay_viewer::time_text(shown_tick, shown_length);
             return;
         }
         model_.chips[0] = looked_up(words::photo_mode);
@@ -554,6 +728,18 @@ struct Runtime::PhotoScreen final : LayerScreen {
         text += model_.toast_name;
         text += model_.toast_note;
         text += model_.freeze_caption;
+        text += std::to_string(scroll_);
+        text += std::to_string(model_.preset);
+        text += std::to_string(model_.vignette_stop);
+        text += model_.vignette_value;
+        text += std::to_string(model_.roundness_stop);
+        text += model_.roundness_value;
+        text += std::to_string(model_.grain_stop);
+        text += model_.grain_value;
+        text += std::to_string(model_.grain_size_stop);
+        text += model_.grain_size_value;
+        text += model_.frame_value;
+        text += model_.preview_note;
         for (const std::string& chip : model_.chips)
             text += chip;
         return text;
@@ -592,16 +778,45 @@ struct Runtime::PhotoScreen final : LayerScreen {
         case panel::Command::show_panel:
             state->panel_shown = true;
             break;
-        case panel::Command::toggle_section:
+        case panel::Command::toggle_section: {
+            bool* open = nullptr;
             if (press.value == panel::kSectionCamera)
-                state->section_camera = !state->section_camera;
+                open = &state->section_camera;
             else if (press.value == panel::kSectionTime)
-                state->section_time = !state->section_time;
+                open = &state->section_time;
             else if (press.value == panel::kSectionLook)
-                state->section_look = !state->section_look;
+                open = &state->section_look;
             else if (press.value == panel::kSectionCapture)
-                state->section_capture = !state->section_capture;
+                open = &state->section_capture;
+            if (open == nullptr)
+                break;
+            *open = !*open;
+            // Opening one section on a touch layout folds the others, so the
+            // next layout keeps the one the finger just opened. Its header
+            // goes to the top of the scrolling rows: the old scroll belonged
+            // to the section that just folded, and would hide this one.
+            if (runtime_.touch_controls_active() && *open) {
+                if (open != &state->section_camera)
+                    state->section_camera = false;
+                if (open != &state->section_time)
+                    state->section_time = false;
+                if (open != &state->section_look)
+                    state->section_look = false;
+                if (open != &state->section_capture)
+                    state->section_capture = false;
+                const int32_t row = model_.touch_row > 44 ? model_.touch_row : 44;
+                const int32_t gap = std::max(int32_t{2}, row / 11);
+                int before = 0;
+                if (open == &state->section_time)
+                    before = 1;
+                else if (open == &state->section_look)
+                    before = 2;
+                else if (open == &state->section_capture)
+                    before = 3;
+                scroll_ = before * (row + gap);
+            }
             break;
+        }
         case panel::Command::set_zoom:
             if (!runtime_.photo_camera_locked()) {
                 const auto limits = runtime_.photo_zoom_limits();
@@ -681,6 +896,30 @@ struct Runtime::PhotoScreen final : LayerScreen {
         case panel::Command::copy_photo:
             runtime_.copy_last_photo();
             break;
+        case panel::Command::set_preset:
+            state->look_preset = static_cast<uint8_t>(std::clamp(press.value, 0, 5));
+            break;
+        case panel::Command::set_vignette:
+            state->look_vignette = std::clamp(press.value, 0, 100);
+            break;
+        case panel::Command::set_roundness:
+            state->look_roundness = std::clamp(press.value, 0, 100);
+            break;
+        case panel::Command::set_grain:
+            state->look_grain = std::clamp(press.value, 0, 100);
+            break;
+        case panel::Command::set_grain_size:
+            state->look_grain_size = std::clamp(press.value, 0, 15) + 1;
+            break;
+        case panel::Command::cycle_frame:
+            state->look_frame = static_cast<uint8_t>((static_cast<int>(state->look_frame) + 1) % 4);
+            break;
+        case panel::Command::set_size:
+            runtime_.set_photo_size_factor(press.value);
+            break;
+        case panel::Command::set_smooth:
+            runtime_.set_photo_smooth_factor(press.value);
+            break;
         case panel::Command::leave:
         case panel::Command::none:
             break;
@@ -694,11 +933,102 @@ struct Runtime::PhotoScreen final : LayerScreen {
     mutable kit::DisplayList shown_{};
     mutable bool chrome_down_{};
     mutable bool opened_{};
+    mutable int32_t scroll_{};
+    mutable bool finger_armed_{};
+    mutable bool finger_drag_{};
+    mutable int32_t finger_x_{};
+    mutable int32_t finger_y_{};
+    mutable int32_t finger_scroll_{};
     mutable int32_t width_{640};
     mutable int32_t height_{480};
     mutable uint64_t revision_{1};
     mutable std::string stamp_{};
 };
+
+void Runtime::PhotoScreen::fill_size_choices(panel::Model& model) const {
+    if (runtime_.photo_ == nullptr)
+        return;
+    // One plan for the rows. The factors snap from that same plan.
+    const photo::Machine machine = runtime_.photo_capture_machine();
+    runtime_.snap_photo_factors(machine);
+    const photo::Plan plan = runtime_.photo_size_plan(machine);
+    // A held picture is the Screen copy. The rows say so, and the stored
+    // factors come back when the hold ends.
+    const bool held = runtime_.photo_picture_held();
+    const int chosen_size = held ? 1 : runtime_.photo_->size_factor;
+    const int chosen_smooth = held ? 1 : runtime_.photo_->smooth_factor;
+    const std::string held_reason = looked_up(words::held_picture);
+    const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
+    const bool modern = fonts != nullptr && kit::modern_look(*fonts);
+
+    const std::string screen = looked_up(words::screen);
+    const std::string off = looked_up(words::off);
+    const std::string two = looked_up(words::two);
+    const std::string three = looked_up(words::three);
+    const std::string four = looked_up(words::four);
+    const std::string size_word = looked_up(words::size);
+    const std::string smooth_word = looked_up(words::smooth_edges);
+    const std::string and_word = looked_up(words::and_word);
+
+    std::array<panel::ChoiceStop, 4> sizes{};
+    std::array<panel::ChoiceStop, 3> smooth{};
+    int size_index = 0;
+    int smooth_index = 0;
+    for (int index = 0; index < 4; ++index) {
+        const photo::Offer& offer = plan.sizes[static_cast<std::size_t>(index)];
+        panel::ChoiceStop& stop = sizes[static_cast<std::size_t>(index)];
+        stop.factor = offer.factor;
+        stop.width = offer.width;
+        stop.height = offer.height;
+        stop.lock = held ? held_reason : runtime_.photo_offer_reason(plan.kind, offer);
+        if (offer.factor == chosen_size)
+            size_index = index;
+    }
+    for (int index = 0; index < 3; ++index) {
+        const photo::Offer& offer = plan.smooth[static_cast<std::size_t>(index)];
+        panel::ChoiceStop& stop = smooth[static_cast<std::size_t>(index)];
+        stop.factor = offer.factor;
+        stop.lock = held ? held_reason : runtime_.photo_offer_reason(plan.kind, offer);
+        if (offer.factor == chosen_smooth)
+            smooth_index = index;
+    }
+
+    panel::ChoiceWords copy_words;
+    copy_words.screen = screen;
+    copy_words.off = off;
+    copy_words.two = two;
+    copy_words.three = three;
+    copy_words.four = four;
+    copy_words.size = size_word;
+    copy_words.smooth = smooth_word;
+    copy_words.and_word = and_word;
+    copy_words.times = modern ? std::string_view{"\u00d7"} : std::string_view{"x"};
+    const panel::ChoiceCopy copy =
+        panel::choice_copy(sizes, smooth, size_index, smooth_index, copy_words);
+
+    model.size_label = copy.size_label;
+    model.smooth_label = copy.smooth_label;
+    model.size_value = copy.size_value;
+    model.size_reason = copy.reason;
+    model.size_index = size_index;
+    model.smooth_index = smooth_index;
+    for (int index = 0; index < 4; ++index) {
+        model.size_factors[static_cast<std::size_t>(index)] =
+            sizes[static_cast<std::size_t>(index)].factor;
+        model.size_captions[static_cast<std::size_t>(index)] =
+            copy.size_captions[static_cast<std::size_t>(index)];
+        model.size_locks[static_cast<std::size_t>(index)] =
+            sizes[static_cast<std::size_t>(index)].lock;
+    }
+    for (int index = 0; index < 3; ++index) {
+        model.smooth_factors[static_cast<std::size_t>(index)] =
+            smooth[static_cast<std::size_t>(index)].factor;
+        model.smooth_captions[static_cast<std::size_t>(index)] =
+            copy.smooth_captions[static_cast<std::size_t>(index)];
+        model.smooth_locks[static_cast<std::size_t>(index)] =
+            smooth[static_cast<std::size_t>(index)].lock;
+    }
+}
 
 void Runtime::open_photo_panel() {
     oa_layer().push(std::make_unique<PhotoScreen>(*this));
@@ -708,6 +1038,37 @@ void Runtime::toggle_photo_panel() {
     if (photo_ == nullptr)
         return;
     photo_->panel_shown = !photo_->panel_shown;
+}
+
+bool Runtime::photo_panel_shown() const noexcept {
+    return photo_ != nullptr && photo_->panel_shown;
+}
+
+bool Runtime::photo_focus_ring_shown() const {
+    if (oa_layer_ == nullptr || !photo_mode())
+        return false;
+    const LayerScreen* screen = oa_layer_->find(kPhotoScreen);
+    if (screen == nullptr)
+        return false;
+    return kit::focus_ring_visible(screen->interaction());
+}
+
+bool Runtime::offer_photo_pointer(ScreenInputKind kind, float x, float y) {
+    if (!photo_mode() || oa_layer_ == nullptr)
+        return false;
+    // The press is a finger's, so the layer hands the panel the finger's reach.
+    bool& finger = engine_settings_state().finger_pointer;
+    const bool was_finger = finger;
+    finger = true;
+    ScreenInput input{};
+    input.kind = kind;
+    input.button = 1;
+    input.clicks = kind == ScreenInputKind::pointer_down ? uint8_t{1} : uint8_t{0};
+    input.x = x;
+    input.y = y;
+    const bool taken = oa_layer().take_input(input);
+    finger = was_finger;
+    return taken;
 }
 
 void Runtime::cycle_photo_guides() {

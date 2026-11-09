@@ -722,6 +722,11 @@ photo mode".
 | Copy last photo | `Primary+C` | `photo.copy` |
 | Freeze / Hold picture | `Space` | `photo.freeze` |
 | Step a tick | `.` | `photo.step` |
+| Step back | `,` | `photo.step-back` |
+| Back 10 seconds | `J` | `photo.scrub-back` |
+| Forward 10 seconds | `L` | `photo.scrub-forward` |
+| Back a minute | `Shift+J` | `photo.scrub-back-long` |
+| Forward a minute | `Shift+L` | `photo.scrub-forward-long` |
 | Shutter back | `Shift+,` | `photo.shutter-back` |
 | Shutter on | `Shift+.` | `photo.shutter-on` |
 | Pan | `MouseLeft` | `photo.pan` |
@@ -809,6 +814,7 @@ These answer while a replay plays, and not while a live game is watched. Slower 
 | Focus right | `Right` | `ui.menu-focus-right` |
 | List up | `Up, WheelUp` | `ui.menu-list-up` |
 | List down | `Down, WheelDown` | `ui.menu-list-down` |
+| Focus the panel's buttons | — | `ui.hud-focus` |
 
 ### Developer
 

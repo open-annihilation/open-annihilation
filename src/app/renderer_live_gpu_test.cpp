@@ -2774,11 +2774,31 @@ void card_shadows() {
     OA_CHECK(refused(broken));
 }
 
+/// The samples a picture keeps. No device is opened: the fit is pure.
+void sampling_fits_the_asked_level() {
+    const auto same = [](Sampling got, uint32_t supersample, uint32_t multisample) {
+        OA_CHECK(got.supersample == supersample);
+        OA_CHECK(got.multisample == multisample);
+    };
+    same(fitted_sampling(640, 480, 4, true), 2, 4);
+    same(fitted_sampling(1280, 960, 4, true), 1, 4);
+    same(fitted_sampling(2560, 1920, 4, true), 1, 1);
+    same(fitted_sampling(640, 480, 4, false), 4, 1);
+    same(fitted_sampling(1280, 960, 4, false), 2, 1);
+    same(fitted_sampling(2560, 1920, 4, false), 1, 1);
+    same(fitted_sampling(640, 480, 1, true), 1, 1);
+    same(fitted_sampling(8000, 8000, 4, false), 0, 1);
+    same(fitted_sampling(0, 480, 4, true), 0, 1);
+    Context context;
+    OA_CHECK(!device_multisamples(context));
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
 int main() {
     invalid_input();
+    sampling_fits_the_asked_level();
     if (oa::test::check_exit_status() != 0)
         return oa::test::check_exit_status();
     if (!SDL_Init(SDL_INIT_VIDEO)) {

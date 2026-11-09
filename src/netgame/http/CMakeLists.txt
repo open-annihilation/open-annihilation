@@ -50,6 +50,12 @@ if(BUILD_TESTING)
     PRIVATE oa-netgame-http oa-netgame-http-fixture oa-test-support oa-netgame oa-base-threads)
   add_test(NAME net-http COMMAND oa-netgame-http-test)
   set_tests_properties(net-http PROPERTIES TIMEOUT 120)
+  # Where the client loads libssl at run time, the test checks that a system
+  # with libssl gets HTTPS.
+  if(OA_HTTP_TLS AND UNIX AND NOT APPLE)
+    target_compile_definitions(oa-netgame-http-test PRIVATE OA_HTTP_TLS_OPENSSL=1)
+    target_link_libraries(oa-netgame-http-test PRIVATE ${CMAKE_DL_LIBS})
+  endif()
 
   # The reader is compiled into this program so the test does not link the
   # client library, which would define the reader twice.

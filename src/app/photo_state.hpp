@@ -9,6 +9,7 @@
 #pragma once
 
 #include "oa/app/runtime.hpp"
+#include "oa/platform/memory_status.hpp"
 #include "oa/sim/messages.hpp"
 
 #include <cstdint>
@@ -108,7 +109,31 @@ struct Runtime::PhotoState {
     float held_live_yaw{};
     float held_live_pitch{};
     bool held_live_unlocked{};
-    uint16_t entry_speed{}; ///< a replay's speed on entering, for Run to put back
+    /// A replay's viewing speed on entering, in thousandths of 1×, for Run
+    /// to put back. 0 is read as 1×.
+    uint16_t entry_speed{};
+    bool replay_visit{};           ///< this visit is a replay
+    bool replay_paused_seen{};     ///< the playback was paused when it was last read
+    int32_t replay_slow_seen{};    ///< 1 while a replay plays below 1×
+    uint32_t replay_tick_seen{};   ///< the playback's tick when it was last read
+    uint32_t replay_length_seen{}; ///< the recording's length when it was last read
+    /// The framed camera, put back while a photo seek is in flight and on
+    /// the frame it lands. A pan writes this again. It is dropped after that frame.
+    bool guard_camera{};
+    bool guard_awaiting{}; ///< a photo seek was asked and has not landed yet
+    int32_t guard_camera_x{};
+    int32_t guard_camera_z{};
+    float guard_zoom{};
+    float guard_zoom_target{};
+    ExactView guard_exact{};
+    ViewHold guard_hold{};
+    bool guard_live{};
+    float guard_live_yaw{};
+    float guard_live_pitch{};
+    bool guard_live_unlocked{};
+    /// The recording's digest for this visit, so a second photo does not read the file again.
+    std::string replay_digest_hex{};
+    std::string replay_digest_path{};
 
     /// The panel beside the battlefield. Hiding it leaves the hint.
     bool panel_shown{true};
@@ -116,6 +141,24 @@ struct Runtime::PhotoState {
     bool section_time{true};
     bool section_look{true};
     bool section_capture{true};
+    /// The size chosen for the next photo: 1 is Screen, then 2, 3 and 4
+    /// times the battlefield. Kept for this visit. Not a preference.
+    int size_factor{1};
+    /// Smooth edges for the next photo: 1 is off, then 2 and 4. The draw is
+    /// this many times the picture, then box-reduced. Kept for this visit.
+    int smooth_factor{1};
+    /// The last sized photo was drawn by Full on the window's renderer.
+    bool sized_by_full{false};
+    /// The last sized photo was drawn by the turned view.
+    bool sized_by_live{false};
+    /// The anti-aliasing factor a Full photo was drawn at. 1 otherwise.
+    uint32_t sized_supersample{1};
+    /// The system's memory as the size plan last read it, and the steady
+    /// clock then. The panel builds a plan on every tick and draw; the plan
+    /// reads the memory again once a second, as the memory guard does.
+    oa::platform::SystemMemorySample memory_read{};
+    bool memory_read_ok{};     ///< that reading found the memory
+    uint64_t memory_read_ns{}; ///< 0 until the first reading
     /// The guide over the battlefield, as photo_panel::Guide. Off is 0.
     uint8_t guide{};
     bool toast_on{}; ///< a photo's notice is showing
@@ -128,6 +171,15 @@ struct Runtime::PhotoState {
     std::vector<uint8_t> toast_rgb{}; ///< the thumbnail, packed RGB
     uint32_t toast_width{};
     uint32_t toast_height{};
+
+    /// The look for this visit. None, a vignette of 0, a grain of 0 and no
+    /// frame leave the picture as it was. Not a preference: leaving drops it.
+    uint8_t look_preset{};      ///< photo::Preset, 0 is none
+    int32_t look_vignette{};    ///< 0 to 100
+    int32_t look_roundness{50}; ///< 0 is a box, 100 is a circle
+    int32_t look_grain{};       ///< 0 to 100
+    int32_t look_grain_size{2}; ///< pixels of one grain, at least 1
+    uint8_t look_frame{};       ///< photo::Frame, 0 is none
 
     /// Tells whether a unit is in the view photo mode kept: listed by the
     /// last collect against the player's camera, not the photo camera.

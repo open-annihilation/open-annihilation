@@ -457,6 +457,9 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     ///
     /// @param canvas the screen's picture
     void draw(const kit::Canvas& canvas) const override {
+        // Photo mode puts the bar away, including one pinned with B.
+        if (runtime_.photo_mode())
+            return;
         rv::draw(canvas, layout_, model_);
         if (export_open_ && !library_list_.items.empty())
             library::draw_library(kit::placed_at(canvas, export_origin_), library_list_);
@@ -473,6 +476,8 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     LayerAnswer pointer(
         ScreenInputKind kind, uint8_t button, kit::Point at, int32_t /*finger_reach*/
     ) override {
+        if (runtime_.photo_mode())
+            return LayerAnswer::pass;
         note_pointer(at);
         const kit::Rect dialog{
             export_origin_.x + export_dialog_.x,
@@ -574,6 +579,8 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     /// @param notches how far the wheel turned; positive is away from the player
     /// @return redraw when the list moved; otherwise pass
     LayerAnswer wheel(kit::Point at, float notches) override {
+        if (runtime_.photo_mode())
+            return LayerAnswer::pass;
         if (notches == 0.0F || !kit::contains(layout_.players, at))
             return LayerAnswer::pass;
         if (notches > 0.0F)
@@ -595,7 +602,11 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     /// Returns the controls on show, for automation.
     ///
     /// @return the display list
-    [[nodiscard]] kit::DisplayList display_list() const override { return shown_; }
+    [[nodiscard]] kit::DisplayList display_list() const override {
+        if (runtime_.photo_mode())
+            return {};
+        return shown_;
+    }
 
     /// Returns the pointer's hover. The bar does not take the keyboard focus.
     ///
@@ -621,7 +632,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         }
         advance_visibility();
         refresh();
-        apply_camera();
+        // Follow their camera would move the framed view on every frame,
+        // including across a seek. Photo mode keeps the camera where it is.
+        if (!runtime_.photo_mode())
+            apply_camera();
         pump_export();
         ++revision_;
         return LayerAnswer::redraw;
@@ -685,6 +699,21 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         refresh();
         ++revision_;
     }
+
+    /// Seeks to a tick for photo mode. The bar stays as it is.
+    ///
+    /// @param tick the tick
+    void seek_for_photo(uint32_t tick) { seek_to(tick); }
+
+    /// Seeks by a number of ticks for photo mode. The bar stays as it is.
+    ///
+    /// @param delta the ticks to add; negative jumps back
+    void seek_by_for_photo(int32_t delta) { seek_by(delta); }
+
+    /// Tells whether a seek photo mode asked for has not landed.
+    ///
+    /// @return true while the landing rule is still holding the asked tick
+    [[nodiscard]] bool photo_seek_pending() const { return seek_armed_; }
 
     /// Shows the next or previous row of the player list, and scrolls the
     /// list so that row is on show.
@@ -1701,6 +1730,9 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                 model_.speed_open = false;
             }
             break;
+        case rv::Control::photo:
+            static_cast<void>(runtime_.enter_photo_mode());
+            break;
         case rv::Control::chat:
             runtime_.replay_chat_hidden_ = !runtime_.replay_chat_hidden_;
             model_.chat_shown = !runtime_.replay_chat_hidden_;
@@ -2170,6 +2202,30 @@ bool Runtime::replay_viewer_command(std::string_view id) {
         return false;
     replay_viewer_->command(id);
     return true;
+}
+
+bool Runtime::replay_photo_seek(uint32_t tick) {
+    if ((current_extension_state() & extension_state::replay) == 0)
+        return false;
+    ensure_replay_viewer();
+    if (replay_viewer_ == nullptr)
+        return false;
+    replay_viewer_->seek_for_photo(tick);
+    return true;
+}
+
+bool Runtime::replay_photo_seek_by(int32_t delta) {
+    if ((current_extension_state() & extension_state::replay) == 0)
+        return false;
+    ensure_replay_viewer();
+    if (replay_viewer_ == nullptr)
+        return false;
+    replay_viewer_->seek_by_for_photo(delta);
+    return true;
+}
+
+bool Runtime::replay_photo_seek_pending() const {
+    return replay_viewer_ != nullptr && replay_viewer_->photo_seek_pending();
 }
 
 void Runtime::show_replay_bar() {

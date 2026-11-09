@@ -9386,6 +9386,14 @@
 	it=PAUSA: mette in pausa o riprende la partita.;
 	}
 
+[PHOTO MODE]
+	{
+	de=FOTOMODUS;
+	fr=MODE PHOTO;
+	es=MODO FOTO;
+	it=MODALITÀ FOTO;
+	}
+
 [PLACE]
 	{
 	de=PLATZIEREN;
@@ -23980,6 +23988,22 @@
 	it=Scorre un elenco in giù, o sposta il focus in giù da un pulsante;
 	}
 
+[Focus the panel's buttons]
+	{
+	de=Knöpfe der Leiste fokussieren;
+	fr=Boutons du panneau;
+	es=Botones del panel;
+	it=Pulsanti del pannello;
+	}
+
+[Moves a ring over the order buttons and the build page. Press again to return to the battlefield.]
+	{
+	de=Bewegt einen Ring über die Befehlsknöpfe und die Bauseite. Nochmal drücken, um aufs Schlachtfeld zurückzukehren;
+	fr=Déplace un anneau sur les boutons d'ordre et la page de construction. Appuie encore pour revenir au champ de bataille;
+	es=Mueve un anillo sobre los botones de órdenes y la página de construcción. Pulsa otra vez para volver al campo de batalla;
+	it=Sposta un anello sui pulsanti degli ordini e sulla pagina di costruzione. Premi di nuovo per tornare al campo di battaglia;
+	}
+
 [Selects the unit under the pointer, or starts a box]
 	{
 	de=Wählt die Einheit unter dem Zeiger, oder beginnt einen Rahmen;
@@ -26582,6 +26606,14 @@
 	it=Mostra le barre di salute;
 	}
 
+[Show panel]
+	{
+	de=Leiste zeigen;
+	fr=Afficher le panneau;
+	es=Mostrar el panel;
+	it=Mostra il pannello;
+	}
+
 [Player names]
 	{
 	de=Spielernamen;
@@ -26596,6 +26628,86 @@
 	fr=Partie partagée;
 	es=Partida compartida;
 	it=Partita condivisa;
+	}
+
+[Smooth edges]
+	{
+	de=Weiche Kanten;
+	fr=Bords lisses;
+	es=Bordes suaves;
+	it=Bordi morbidi;
+	}
+
+[2×]
+	{
+	de=2×;
+	fr=2×;
+	es=2×;
+	it=2×;
+	}
+
+[3×]
+	{
+	de=3×;
+	fr=3×;
+	es=3×;
+	it=3×;
+	}
+
+[4×]
+	{
+	de=4×;
+	fr=4×;
+	es=4×;
+	it=4×;
+	}
+
+[This graphics card draws at most {limit} pixels a side]
+	{
+	de=Diese Grafikkarte zeichnet höchstens {limit} Pixel pro Seite;
+	fr=Cette carte graphique dessine au plus {limit} pixels de côté;
+	es=Esta tarjeta gráfica dibuja como máximo {limit} píxeles por lado;
+	it=Questa scheda grafica disegna al massimo {limit} pixel per lato;
+	}
+
+[A photo is at most {limit} pixels a side]
+	{
+	de=Ein Foto hat höchstens {limit} Pixel pro Seite;
+	fr=Une photo fait au plus {limit} pixels de côté;
+	es=Una foto tiene como máximo {limit} píxeles por lado;
+	it=Una foto è al massimo di {limit} pixel per lato;
+	}
+
+[The 3D view draws at most {limit} pixels a side at this anti-aliasing]
+	{
+	de=Die 3D-Ansicht zeichnet höchstens {limit} Pixel pro Seite bei dieser Kantenglättung;
+	fr=La vue 3D dessine au plus {limit} pixels de côté à ce lissage;
+	es=La vista 3D dibuja como máximo {limit} píxeles por lado con este suavizado;
+	it=La vista 3D disegna al massimo {limit} pixel per lato con questo antialiasing;
+	}
+
+[Off and Basic draw whole pixels]
+	{
+	de=Aus und Einfach zeichnen ganze Pixel;
+	fr=Arrêt et Basique dessinent des pixels entiers;
+	es=Apagado y Básico dibujan píxeles enteros;
+	it=Spento e Base disegnano pixel interi;
+	}
+
+[Held picture]
+	{
+	de=Gehaltenes Bild;
+	fr=Image gardée;
+	es=Imagen retenida;
+	it=Immagine tenuta;
+	}
+
+[Not enough memory]
+	{
+	de=Nicht genug Speicher;
+	fr=Pas assez de mémoire;
+	es=No hay memoria suficiente;
+	it=Memoria insufficiente;
 	}
 
 [Hold picture]
@@ -28958,6 +29070,22 @@
 	it=Avanza di un tick, poi congela;
 	}
 
+[Step back]
+	{
+	de=Einen Tick zurück;
+	fr=Reculer d'un tick;
+	es=Retroceder un tick;
+	it=Indietro di un tick;
+	}
+
+[Goes back one tick, then freezes]
+	{
+	de=Geht einen Tick zurück und friert dann ein;
+	fr=Recule d'un tick, puis gèle;
+	es=Retrocede un tick y luego congela;
+	it=Torna indietro di un tick, poi congela;
+	}
+
 [Shutter back]
 	{
 	de=Verschluss zurück;
@@ -29108,4 +29236,260 @@
 	fr=le presse-papiers ne contient que du texte;
 	es=el portapapeles solo contiene texto;
 	it=gli appunti contengono solo testo;
+	}
+
+[An option changed]
+	{
+	de=Eine Option hat sich geändert;
+	fr=Une option a changé;
+	es=Cambió una opción;
+	it=Un'opzione è cambiata;
+	}
+
+[Commander under attack]
+	{
+	de=Kommandant wird angegriffen;
+	fr=Le commandant est attaqué;
+	es=El comandante está bajo ataque;
+	it=Il comandante è sotto attacco;
+	}
+
+[Defeat]
+	{
+	de=Niederlage;
+	fr=Défaite;
+	es=Derrota;
+	it=Sconfitta;
+	}
+
+[The countdown has started]
+	{
+	de=Der Countdown hat begonnen;
+	fr=Le compte à rebours a commencé;
+	es=Empezó la cuenta atrás;
+	it=Il conto alla rovescia è iniziato;
+	}
+
+[The host has left]
+	{
+	de=Der Host ist gegangen;
+	fr=L'hôte est parti;
+	es=El anfitrión se fue;
+	it=L'host se n'è andato;
+	}
+
+[The map is {name}]
+	{
+	de=Die Karte ist {name};
+	fr=La carte est {name};
+	es=El mapa es {name};
+	it=La mappa è {name};
+	}
+
+[There are no saved games to choose from]
+	{
+	de=Es gibt keine gespeicherten Spiele zur Auswahl;
+	fr=Il n'y a aucune partie sauvegardée à choisir;
+	es=No hay partidas guardadas para elegir;
+	it=Non ci sono partite salvate da scegliere;
+	}
+
+[Victory]
+	{
+	de=Sieg;
+	fr=Victoire;
+	es=Victoria;
+	it=Vittoria;
+	}
+
+[Whisper from {name}: {text}]
+	{
+	de=Flüstern von {name}: {text};
+	fr=Chuchotement de {name} : {text};
+	es=Susurro de {name}: {text};
+	it=Sussurro da {name}: {text};
+	}
+
+[{count} new lines in {room}]
+	{
+	de={count} neue Zeilen in {room};
+	fr={count} nouvelles lignes dans {room};
+	es={count} líneas nuevas en {room};
+	it={count} nuove righe in {room};
+	}
+
+[{name} changed colour to {colour}]
+	{
+	de={name} hat die Farbe zu {colour} gewechselt;
+	fr={name} a changé de couleur pour {colour};
+	es={name} cambió de color a {colour};
+	it={name} ha cambiato colore in {colour};
+	}
+
+[{name} changed side to {side}]
+	{
+	de={name} hat die Seite zu {side} gewechselt;
+	fr={name} a changé de camp pour {side};
+	es={name} cambió de bando a {side};
+	it={name} ha cambiato schieramento in {side};
+	}
+
+[{name} changed team to {team}]
+	{
+	de={name} hat das Team zu {team} gewechselt;
+	fr={name} a changé d'équipe pour {team};
+	es={name} cambió de equipo a {team};
+	it={name} ha cambiato squadra in {team};
+	}
+
+[{name} is not ready]
+	{
+	de={name} ist nicht bereit;
+	fr={name} n'est pas prêt;
+	es={name} no está listo;
+	it={name} non è pronto;
+	}
+
+[{name} is ready]
+	{
+	de={name} ist bereit;
+	fr={name} est prêt;
+	es={name} está listo;
+	it={name} è pronto;
+	}
+
+[{name} joined]
+	{
+	de={name} ist beigetreten;
+	fr={name} a rejoint;
+	es={name} se unió;
+	it={name} è entrato;
+	}
+
+[{name} left]
+	{
+	de={name} ist gegangen;
+	fr={name} est parti;
+	es={name} se fue;
+	it={name} è uscito;
+	}
+
+[battle room]
+	{
+	de=Gefechtsraum;
+	fr=Salle de bataille;
+	es=Sala de batalla;
+	it=Sala di battaglia;
+	}
+
+[match]
+	{
+	de=Partie;
+	fr=partie;
+	es=partida;
+	it=partita;
+	}
+
+[Arctic]
+	{
+	de=Arktis;
+	fr=Arctique;
+	es=Ártico;
+	it=Artico;
+	}
+
+[Bleach]
+	{
+	de=Bleich;
+	fr=Délavé;
+	es=Lavado;
+	it=Sbiadito;
+	}
+
+[Caption bar]
+	{
+	de=Textleiste;
+	fr=Bandeau;
+	es=Franja;
+	it=Didascalia;
+	}
+
+[Dusk]
+	{
+	de=Abendlicht;
+	fr=Crépuscule;
+	es=Anochecer;
+	it=Tramonto;
+	}
+
+[Frame]
+	{
+	de=Rahmen;
+	fr=Cadre;
+	es=Marco;
+	it=Cornice;
+	}
+
+[Grain]
+	{
+	de=Korn;
+	fr=Grain;
+	es=Grano;
+	it=Grana;
+	}
+
+[Grain size]
+	{
+	de=Korngröße;
+	fr=Taille du grain;
+	es=Tamaño del grano;
+	it=Dimensione della grana;
+	}
+
+[Noir]
+	{
+	de=Schwarzweiß;
+	fr=Noir;
+	es=Noir;
+	it=Noir;
+	}
+
+[Roundness]
+	{
+	de=Rundung;
+	fr=Rondeur;
+	es=Redondez;
+	it=Rotondità;
+	}
+
+[The preview lowers the frame rate.]
+	{
+	de=Die Vorschau senkt die Bildrate.;
+	fr=L'aperçu baisse le nombre d'images.;
+	es=La vista previa baja los fotogramas.;
+	it=L'anteprima abbassa i fotogrammi.;
+	}
+
+[Thin border]
+	{
+	de=Dünner Rand;
+	fr=Bord fin;
+	es=Borde fino;
+	it=Bordo sottile;
+	}
+
+[Vignette]
+	{
+	de=Vignette;
+	fr=Vignettage;
+	es=Viñeta;
+	it=Vignettatura;
+	}
+
+[Wide mat]
+	{
+	de=Breiter Rand;
+	fr=Large marge;
+	es=Marco ancho;
+	it=Bordo largo;
 	}

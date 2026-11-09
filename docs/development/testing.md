@@ -702,6 +702,13 @@ names, these run the game headless:
   `--game-password` is refused with the game list's notice, the right one
   joins the game `--game-name` names, and the joiners' preferences keep
   their address and name.
+- `native-room-keys` (`tools/check_native_room_keys.py`) hosts a TCP/IP room
+  and joins it from a second game, both on the dummy drivers. By the keyboard
+  alone the joiner gets ready, picks a side and a colour, and the host
+  starts. It then plays once more with Next button on F7: F7 walks the battle
+  room, from Select Map to Mutators and on to Metal, and the game list, and
+  Tab does not. Each run writes its own preferences and user folder, so the
+  next run starts clean.
 
 `open-annihilation --play-demo FILE.tad` replays a recorded game through
 the path a watching machine receives a match on; with `--headless-check`
@@ -1398,6 +1405,46 @@ gamma once, and skips with status 77 when no device can draw it. Then it
 holds the turned view in a shared match, drawn as played frames are, and
 the photo taken 30 ticks later is the held copy, not the live picture. The
 check removes the photos it wrote.
+`native-photo-sizes` (`--check-photo sizes`) freezes that fight and saves
+Screen and a photo twice the battlefield. Screen keeps the picture the
+window already drew. The 2× photo is drawn again by the processor, at the
+player's gamma. Smooth edges is locked, because Off and Basic draw whole
+pixels, and the panel says so. With memory forced short, 4× is locked for
+not enough memory, and a picture held for the clipboard then locks 2×,
+which was open. With the memory back, the 4× photo is four times the
+battlefield. With grain on (60, size 3), Screen and 2× are taken again:
+each is the look on its picture without grain, the 2× one at grain size 6,
+and their records keep `grain_size` 3 and `grain_pixels` 3 and 6.
+Box-reduced by 2, the grain the 2× photo carries (with grain less without)
+equals the grain the Screen photo carries in every colour channel no grain
+pushed to 0 or 255, at least nine in ten; grain left at size 3 on the 2×
+photo must fail that comparison. The draw's own pixels cancel, so the
+criterion holds in any render mode. The world's read-back matches a pass
+that took no photo. A fight writes the engine's own preference rows; the
+photos add none, and the file is put back. The SHA-256 digests of Screen,
+2× and 4× are pinned.
+`native-photo-sizes-full`
+(`--hardware-acceleration=full --force-capable`, SDL's software renderer)
+sets Enhanced anti-aliasing to 4× and draws a 2× photo with Full, at the
+anti-aliasing factor the window is using, which must be above 1, and that
+picture differs from the same size drawn on the processor. Smooth edges 2×
+matches that 2× photo box-reduced and differs from Screen. The grain
+comparison of `native-photo-sizes` holds on Full's photos too. The 2× photo
+taken while photo mode keeps a replay seek's framed view is the same
+picture, and that view is still kept for the window. With the texture
+limit forced down, the size past it is not offered and the reason names the
+picture that fits at the window's factor. A held picture locks both rows
+with Held picture. The window's frames after the photo match the frames
+before it, apart from the file name's clock. `native-photo-sizes-live`
+(`--check-photo sizes --hardware-acceleration=full`, the system's video
+driver) sets Enhanced anti-aliasing to 4×. Every offered size keeps the
+window frame's sampling, and the first size past that limit is locked with
+the reason that names it. Smooth edges 2× matches the turned view's own 2×
+photo box-reduced where that step is offered, at Enhanced anti-aliasing 2×
+when 4× locks it, where every size offered is drawn too, and the window's
+frames stay at 4×. It skips with status 77 when
+no device can draw the view, including under the dummy video driver. None
+of these photos is a preference.
 `native-photo-keys` (`--check-photo keys`) plays the skirmish's fight in a
 window on the dummy drivers, with Off acceleration. F9 and Enter in one
 input batch write nothing until a photo-mode frame is presented. That photo
@@ -1420,6 +1467,26 @@ view, and copy nothing. F9 and Escape each leave. Ctrl+F9 writes a PCX
 screenshot outside photo mode and, on the default layout, a PNG photo inside
 it. A scratch Keys layout moves Take photo to K: K writes a photo and Enter
 does not. The preferences file is unchanged.
+`native-photo-looks` (`--check-photo looks`) plays the capture check's fight
+twice on the dummy drivers. One pass enters photo mode. With no look it
+saves the pinned Off photo. Each colour grade then saves a photo of that
+frozen frame, pinned by its SHA-256, equal to that grade on the battlefield
+the window presented outside the photo line. One photo's record names the
+grade. A square crop with a frame, a vignette and grain saves the look on
+the crop, and the window shows that photo inside the crop. With the caption
+bar on and the panel hidden, the presented bar equals the photo's bar,
+letters included, on the whole battlefield and on a 3:2 crop, whose bar
+lies above the window's bottom. The preferences
+file is unchanged, and a pass that never enters reads back as the pass that
+does.
+`native-photo-looks-full` (`--check-photo looks --hardware-acceleration=full --force-capable`)
+filters the Full preview and the photo. The photo is that grade on the
+picture Full would have saved of the same frame. Its pixels are not pinned.
+`present-photo-looks` runs each grade, the vignette, the grain and each
+frame on a fixed 64×36 picture, on one, two and eight threads and on the
+caller. The bytes are pinned and do not depend on the number of threads.
+None and an amount of 0 leave the picture unchanged, and the same seed
+writes the same grain.
 `native-photo-panel` (`--check-photo panel`, with `--snapshot`) plays the
 same fight at 640×480, 1280×720 and 1920×1080. Take photo writes a photo
 with no panel in it, equal to the battlefield of that frame. H hides the
@@ -1428,11 +1495,41 @@ a 1:1 crop writes a square photo. Tab walks every control and the first Tab
 shows the focus ring. A drag on the battlefield pans and never selects.
 Leaving before a frame, after Take photo in that same visit, says Photo not
 taken and writes nothing. The preferences file is unchanged.
+`native-photo-pad-touch` (`--check-photo pad-touch`) on a phone-sized window
+opens photo mode from the game layer's L2, takes a photo, freezes, hides the
+panel and leaves with the face buttons, pans and zooms with the sticks, and
+presses a focused section header with A after the D-pad, then opens it from
+the phone MENU. There every pressable control of the panel is at least 44
+points tall; a drag of many small moves on the zoom slider moves the rows
+the whole way and does not zoom; it taps a section header, the time strip,
+Show selection and Take photo at their centre and a few points outside
+their edge. It pans with a drag, zooms with a pinch, takes no photo for a
+cancelled finger on Take photo and one for a tap, leaves the preferences
+file unchanged, and leaves with a tap on Leave.
+`native-photo-replay` (`--check-photo replay`, with `--play-demo` naming
+fixture recording 720, `720 - Show Down - NJ_THUG, Screamer.tad`) seeks to
+a tick, opens photo mode from the playback bar, steps three ticks forward
+and two back, and takes a photo. The photo's record holds that recording's
+file name, its SHA-256 and the tick, and no folder. Slow then plays the
+replay at half speed, Space pauses it and runs it at the speed photo mode
+opened at, and J, L and `,` jump back ten seconds, forward ten seconds and
+back one tick, each keeping the framed view. Leaving keeps the pause and
+the speed the replay is watched at. After leaving, the replay plays on to
+its pinned end on the replay's own clock, with no frame drawn: a drawn
+frame ends the match at the game's outcome, before the recording's last
+tick. The preferences file is unchanged.
+`OA_REPLAY_FIXTURES` names the folder that holds the fixture recordings:
+set it in the environment or pass `-DOA_REPLAY_FIXTURES=PATH` to CMake, with
+an absolute path. Without that recording there the check reports skipped.
 `ui-photo-panel-layout` lays the panel out at those three sizes in each size
 class and both looks, including Large at 640×480, for a skirmish, a replay
 and a shared match: every control lies inside the panel and the panel inside
 the window, Tab follows the sections, and a locked control carries its
-reason. `ui-photo-panel-draw` and `ui-photo-panel-draw-data` pin the panel
+reason. Laid out for touch on two phones and a tablet, every pressable
+control and every stop of a strip is a finger's row tall and wide (Size's
+four stops take two rows at a phone's largest rows), and the rows show a
+row at every scroll offset, with Camera open and with Photo open under the
+longest size reason. `ui-photo-panel-draw` and `ui-photo-panel-draw-data` pin the panel
 in those three states at those three sizes in both looks
 (`src/ui/photo-panel/tests/frames.txt`). `--frames` writes
 `photo-panel-<scene>.png`.

@@ -1612,6 +1612,43 @@ bool draws_lights(const Context& context) noexcept {
            context.state->lights.surface_pipeline != nullptr;
 }
 
+Sampling fitted_sampling(
+    uint32_t width, uint32_t height, uint32_t requested_supersample, bool device_multisamples
+) noexcept {
+    Sampling fitted;
+    if (width == 0 || height == 0 || requested_supersample == 0) {
+        fitted.supersample = 0;
+        return fitted;
+    }
+    uint32_t supersample = requested_supersample;
+    // Stop before dividing by zero. A picture wider than the largest edge
+    // at one sample a pixel does not fit.
+    while (supersample > 1 &&
+           (width > max_dimension / supersample || height > max_dimension / supersample))
+        supersample /= 2;
+    if (width > max_dimension || height > max_dimension) {
+        fitted.supersample = 0;
+        return fitted;
+    }
+    uint32_t samples = 1;
+    if (device_multisamples && requested_supersample >= 2) {
+        const uint32_t drawn = std::max<uint32_t>(1, supersample / 2);
+        if (uint64_t{width} * drawn * height * drawn * multisample_count <=
+            uint64_t{max_dimension} * max_dimension) {
+            samples = multisample_count;
+            supersample = drawn;
+        }
+    }
+    fitted.supersample = supersample;
+    fitted.multisample = samples;
+    return fitted;
+}
+
+bool device_multisamples(const Context& context) noexcept {
+    return context.multisampling_allowed && context.state != nullptr &&
+           context.state->multisample_known && context.state->multisample_supported;
+}
+
 Result render(
     Context& context,
     std::span<const Vertex> vertices,
@@ -1755,25 +1792,19 @@ Result render(
             );
         state.multisample_known = true;
     }
-    uint32_t supersample = requested_supersample;
-    while (output_width > max_dimension / supersample ||
-           output_height > max_dimension / supersample)
-        supersample /= 2;
     // The card's multisampling takes a 2x2 of the samples asked for where it
     // can: every triangle's edge keeps its samples while the card shades a
     // quarter of the pixels. It needs no larger target, so a frame too wide
     // to supersample still takes it, as long as the card holds no more
     // samples than the largest supersampled target.
-    uint32_t samples = 1;
-    if (context.multisampling_allowed && state.multisample_supported &&
-        requested_supersample >= 2) {
-        const uint32_t drawn = std::max<uint32_t>(1, supersample / 2);
-        if (uint64_t{output_width} * drawn * output_height * drawn * multisample_count <=
-            uint64_t{max_dimension} * max_dimension) {
-            samples = multisample_count;
-            supersample = drawn;
-        }
-    }
+    const Sampling fitted = fitted_sampling(
+        output_width,
+        output_height,
+        requested_supersample,
+        context.multisampling_allowed && state.multisample_supported
+    );
+    const uint32_t supersample = fitted.supersample;
+    const uint32_t samples = fitted.multisample;
     const uint32_t render_width = output_width * supersample;
     const uint32_t render_height = output_height * supersample;
     // Multisampled and supersampled, the card averages the samples at the

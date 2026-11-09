@@ -5,6 +5,7 @@
 #include "oa/app/runtime.hpp"
 #include "oa_layer.hpp"
 #include "photo_clipboard.hpp"
+#include "photo_state.hpp"
 #include "oa/app/netgame/launch_file.hpp"
 #include "renderer_effect_events.hpp"
 #include "oa/app/view_rules.hpp"
@@ -1407,6 +1408,10 @@ void Runtime::run_frame(bool& running) {
         last_stream_sweep_ms_ = now_ms;
     }
     oa::platform::log_files::maintain();
+    // Spoken lines are queued before the tree is published, so this frame's
+    // announcement is in the live region. Nothing is recorded unless a
+    // screen reader is running or the preference is on.
+    speak_updates();
     // The tree is published after the screens have moved. Nothing is built
     // unless a screen reader is running, and an unchanged tree is not sent.
     publish_screen_reader();
@@ -1705,6 +1710,13 @@ void Runtime::move_match_camera() {
     // A held picture keeps the camera, including a follow that was already on.
     if (photo_camera_locked() || live_renderer_active())
         return;
+    // A photo seek keeps the framed view. A keyframe can put a follow back;
+    // following it here would move the camera before the frame can restore it.
+    if (photo_ != nullptr && photo_->guard_camera && match_ != nullptr) {
+        match_tracking_ = false;
+        tracked_match_unit_ = 0;
+        match_->state().game.follow_unit = 0;
+    }
     if (match_)
         follow_match_camera_unit();
     if (match_tracking_) {
@@ -2212,12 +2224,19 @@ int32_t Runtime::announced_frontend_focus() const {
 }
 
 int32_t Runtime::announced_match_focus() const {
-    if (!match_panels_keyboard_ || !match_hud_ || match_hud_->layout.gadgets.empty())
+    if (!match_hud_ || match_hud_->layout.gadgets.empty())
         return -1;
-    if (match_hud_focus_ > 0 &&
-        static_cast<std::size_t>(match_hud_focus_) < match_hud_->layout.gadgets.size())
-        return match_hud_focus_;
-    return frontend_panel_focus(match_hud_->layout, 0, oa::ui::gui_input::FocusDirection::next);
+    // The pause menu's focus wins over a ring left on the order buttons.
+    if (match_panels_keyboard_) {
+        if (match_hud_focus_ > 0 &&
+            static_cast<std::size_t>(match_hud_focus_) < match_hud_->layout.gadgets.size())
+            return match_hud_focus_;
+        return frontend_panel_focus(match_hud_->layout, 0, oa::ui::gui_input::FocusDirection::next);
+    }
+    if (hud_buttons_focused_ && hud_button_focus_ > 0 &&
+        static_cast<std::size_t>(hud_button_focus_) < match_hud_->layout.gadgets.size())
+        return hud_button_focus_;
+    return -1;
 }
 
 void Runtime::move_frontend_focus(oa::ui::gui_input::FocusDirection direction) {

@@ -942,18 +942,26 @@ bool Runtime::compose_match_dialog_layer() {
 void Runtime::present_photo_world() {
     if (sdl_.renderer == nullptr)
         return;
+    // A look is painted after the player's gamma, into a copy. The card's
+    // picture is not used: a turned frame kept on the card has not been
+    // filtered, and the processor buffer of that frame is only the key.
+    const bool looked = photo_look_active();
+    if (looked && !refresh_photo_look_cpu())
+        return;
     // A held picture is the copy stamped into the processor buffer. The
     // card's live picture would reframe it, so it is not used while held.
     // Otherwise a turned frame the card keeps is drawn from the card, as
     // play draws it. The processor buffer of that frame is only the overlay
     // canvas, filled with the key, so uploading it leaves the window black.
-    SDL_Texture* const card_world = photo_picture_held() ? nullptr : compose_turned_overlay();
-    if (card_world == nullptr && match_world_cpu_.rgb.empty())
+    SDL_Texture* const card_world =
+        looked || photo_picture_held() ? nullptr : compose_turned_overlay();
+    const renderer::Surface& world_source = looked ? photo_look_cpu_ : match_world_cpu_;
+    if (card_world == nullptr && world_source.rgb.empty())
         return;
     const auto frame_format = opaque_layer_format();
     const auto upload_start = std::chrono::steady_clock::now();
-    int world_width = static_cast<int>(match_world_cpu_.width);
-    int world_height = static_cast<int>(match_world_cpu_.height);
+    int world_width = static_cast<int>(world_source.width);
+    int world_height = static_cast<int>(world_source.height);
     if ((world_width <= 0 || world_height <= 0) && card_world != nullptr) {
         world_width = card_world->w;
         world_height = card_world->h;
@@ -970,7 +978,7 @@ void Runtime::present_photo_world() {
             SDL_BLENDMODE_NONE
         );
         upload_rgb24_tiles(
-            match_world_tex_, match_world_cpu_, gamma_identity_ ? nullptr : &gamma_table_
+            match_world_tex_, world_source, looked || gamma_identity_ ? nullptr : &gamma_table_
         );
     }
     const auto present_start = std::chrono::steady_clock::now();
@@ -1065,14 +1073,19 @@ void Runtime::present_match_layers() {
     );
     const auto upload_start = std::chrono::steady_clock::now();
     // A turned frame the card keeps is drawn from the card, with what was
-    // painted over it added there; any other battlefield is uploaded.
-    SDL_Texture* const card_world = compose_turned_overlay();
+    // painted over it added there; any other battlefield is uploaded. A look
+    // is uploaded from the filtered copy, which already carries the gamma.
+    const bool looked = photo_look_active();
+    if (looked && !refresh_photo_look_cpu())
+        return;
+    SDL_Texture* const card_world = looked ? nullptr : compose_turned_overlay();
+    const renderer::Surface& world_source = looked ? photo_look_cpu_ : match_world_cpu_;
     if (card_world == nullptr)
         match_world_tex_.ensure(
             sdl_.renderer,
             frame_format,
-            static_cast<int>(match_world_cpu_.width),
-            static_cast<int>(match_world_cpu_.height),
+            static_cast<int>(world_source.width),
+            static_cast<int>(world_source.height),
             render_texture_limit(),
             SDL_BLENDMODE_NONE
         );
@@ -1081,7 +1094,7 @@ void Runtime::present_match_layers() {
     );
     if (card_world == nullptr)
         upload_rgb24_tiles(
-            match_world_tex_, match_world_cpu_, gamma_identity_ ? nullptr : &gamma_table_
+            match_world_tex_, world_source, looked || gamma_identity_ ? nullptr : &gamma_table_
         );
     const auto present_start = std::chrono::steady_clock::now();
     phase_times_.upload += elapsed_since(upload_start);
@@ -1123,8 +1136,8 @@ void Runtime::present_match_layers() {
     const SDL_FRect world{
         static_cast<float>(match_layout_.left),
         static_cast<float>(match_layout_.top),
-        static_cast<float>(match_world_cpu_.width),
-        static_cast<float>(match_world_cpu_.height)
+        static_cast<float>(world_source.width),
+        static_cast<float>(world_source.height)
     };
     if (card_world == nullptr)
         match_world_tex_.draw(sdl_.renderer, nullptr, &world);

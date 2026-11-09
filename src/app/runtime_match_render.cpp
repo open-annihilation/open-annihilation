@@ -1513,6 +1513,9 @@ bool Runtime::draw_match_surface() {
         card_world || processor_below_one,
         card_world && match_zoom() > 0.0F && match_zoom() < 1.0F
     );
+    // A photo seek puts the framed camera back before this frame clamps it,
+    // including the frame the jump lands on.
+    guard_photo_replay_camera();
     const auto held = view_camera();
     const int32_t camera_x = directed ? std::max(0, match_camera_x_) : held[0];
     const int32_t camera_y = directed ? std::max(0, match_camera_z_) : held[1];

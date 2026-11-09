@@ -4571,6 +4571,28 @@ void retire_slot(Lobby& lobby, Player& player) noexcept {
 
 } // namespace
 
+namespace {
+
+/// The one-shot note that the creator's leave closed the room.
+///
+/// @return the flag
+bool& creator_left_noted() noexcept {
+    static bool noted = false;
+    return noted;
+}
+
+} // namespace
+
+void lobby_note_creator_left() noexcept {
+    creator_left_noted() = true;
+}
+
+bool lobby_take_creator_left() noexcept {
+    const bool noted = creator_left_noted();
+    creator_left_noted() = false;
+    return noted;
+}
+
 void lobby_reject(Lobby& lobby, uint32_t player_id, uint8_t reason) noexcept {
     const auto slot = slot_for_player_id(lobby, player_id);
     if (slot < 0)
@@ -5076,8 +5098,10 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
                                   player.status == kSlotRemote &&
                                   (info_of(lobby, player).role & kRoleHost) != 0;
         lobby_reject(lobby, event.player_id, kRejectPlayer);
-        if (creator_left)
+        if (creator_left) {
             lobby_reject(lobby, local_player(lobby).player_id, kRejectCreatorLeft);
+            lobby_note_creator_left();
+        }
         flush(lobby);
         // A slot the rejection did not retire (one already rejected) is
         // retired here.

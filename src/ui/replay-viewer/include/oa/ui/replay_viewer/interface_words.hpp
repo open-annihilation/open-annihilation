@@ -60,6 +60,8 @@ inline constexpr std::string_view chat = "Chat";
 inline constexpr std::string_view keys = "Keys";
 /// The button that opens the in-game menu.
 inline constexpr std::string_view leave = "Leave";
+/// The button that opens photo mode.
+inline constexpr std::string_view photo = "Photo";
 /// The timeline while the index pass is still finding markers. `{percent}` is
 /// how far that pass has come.
 inline constexpr std::string_view finding = "No markers yet · finding them, {percent} %";
@@ -121,6 +123,7 @@ inline constexpr std::string_view interface_words[] = {
     words::chat,
     words::keys,
     words::leave,
+    words::photo,
     words::finding,
     words::export_outside,
     words::no_result,

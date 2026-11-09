@@ -439,6 +439,21 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
       set_tests_properties(native-mcp-lobby PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_boneyards_checks}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Spoken updates from the chat replay: Ghost_Commander's line itself,
+      # one page and one whisper, a late member list that stays quiet, no
+      # page, whisper or chat line under speak-chat off, and no announce
+      # notes when the screen-reader preference is unset. The preference is
+      # on for the first three launches, so no reader has to be running.
+      add_test(NAME native-boneyards-announce COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_announce.py"
+        --native "$<TARGET_FILE:oa-game>"
+        --game-dir "${oa_launcher_game_dir}"
+        --mod-dir "${CMAKE_BINARY_DIR}/coreprime"
+        --replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/alpha_chat.replay"
+        --scratch-root "${oa_boneyards_checks}")
+      set_tests_properties(native-boneyards-announce PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_boneyards_checks}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The war map by keyboard. Login may still be clicked. The planet is
       # chosen with F6, the arrows and Return.
       add_test(NAME native-boneyards-keys-war-map COMMAND ${Python3_EXECUTABLE}

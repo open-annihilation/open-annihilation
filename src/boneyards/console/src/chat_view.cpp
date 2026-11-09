@@ -8,6 +8,7 @@
 // and hands it the typed ones.
 #include "oa/boneyards/utf8.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 #include "console_state.hpp"
@@ -232,11 +233,25 @@ void chat_room_row(
         remove_list_row(list, found);
 }
 
+/// Posts a join or a leave for the open room.
+///
+/// @param joined true when the member arrived
+/// @param name the member
+void note_room_membership(bool joined, const char* name) {
+    if (name == nullptr || name[0] == '\0')
+        return;
+    // The longer word, its space, and the longest name the chat holds.
+    char text[sizeof "joined " + screens::kPlayerNameCapacity];
+    std::snprintf(text, sizeof text, "%s %s", joined ? "joined" : "left", name);
+    boneyards_console_driver_note("room", text);
+}
+
 /// Keeps the player list in step with the chat's.
 ///
 /// A new member gets a BYPlayerListItem; the rank and latency icons follow
 /// the member, and the muzzle and whisper lock pick the name's font at the
-/// next draw; a member who left loses the row.
+/// next draw; a member who left loses the row. A join, a leave and a muzzle
+/// are posted so a screen reader can hear them.
 ///
 /// @param user unused context of the chat's output hook
 /// @param change how the row changed
@@ -246,22 +261,30 @@ void chat_player_row(
     void* /*user*/, screens::RowChange change, const screens::ChatPlayer* player, size_t index
 ) {
     ChatView* view = g_open_chat;
-    if (view == nullptr)
+    if (view == nullptr || player == nullptr)
         return;
     screens::ByListBox* list = view->player_list;
     screens::ByPlayerRow* row = nullptr;
     if (change == screens::RowChange::added) {
         row = screens::by_player_row_create(list, player->name, player->user_id, fonts_of(view));
+        note_room_membership(true, player->name);
     } else {
         Window* found = list_row(list, index, screens::kByPlayerRowClass);
         row = reinterpret_cast<screens::ByPlayerRow*>(found);
         if (row == nullptr || row->user_id != player->user_id)
             return;
         if (change == screens::RowChange::removed) {
+            boneyards_console_driver_note("hear", player->name);
+            note_room_membership(false, player->name);
             remove_list_row(list, found);
             return;
         }
     }
+    if (row == nullptr)
+        return;
+    const bool was_silenced = change != screens::RowChange::added && row->silenced;
+    if (player->silenced != was_silenced)
+        boneyards_console_driver_note(player->silenced ? "muzzle" : "hear", player->name);
     row->silenced = player->silenced;
     row->whisper_locked = player->whisper_locked;
     if (row->icons.latency_frame != player->latency_icon)

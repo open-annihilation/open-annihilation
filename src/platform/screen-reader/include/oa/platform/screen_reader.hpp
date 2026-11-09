@@ -127,6 +127,15 @@ void note_attach_finished(SDL_Window* window, bool succeeded);
 /// @return true when speech may run in place of the bridge
 [[nodiscard]] bool speech_where_bridge_cannot();
 
+/// Reports whether a spoken update may be made.
+///
+/// True when the preference is `on`, or when it is `auto` and a screen
+/// reader is running. Under `off` nothing is recorded, even with a reader
+/// running.
+///
+/// @return true when announcements are recorded
+[[nodiscard]] bool announcements_open();
+
 /// Reports whether the system says a screen reader, or another assistive
 /// client, is running.
 ///
