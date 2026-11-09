@@ -10200,6 +10200,15 @@ class Runtime final : public menu::Host,
     /// frame.
     void blit_match_minimap();
 
+    /// Builds minimap contacts at the displayed HUD resolution.
+    /// Retains the original radar geometry for input and uses the ordinary
+    /// picture when a separate contact layer cannot be prepared.
+    void prepare_minimap_display();
+
+    /// Draws the prepared minimap picture at its final display rectangle.
+    /// Does nothing when the ordinary HUD already supplies the picture.
+    void present_minimap_display();
+
     /// Returns the RGB of a match palette index.
     ///
     /// @param index palette index
@@ -20264,6 +20273,16 @@ class Runtime final : public menu::Host,
         /// empty otherwise.
         std::vector<uint8_t> game_picture{};
 
+        /// The displayed minimap's palette indices and per-pixel owner masks.
+        std::vector<uint8_t> display_indices{};
+        std::vector<uint16_t> display_owners{};
+        /// The minimap composed at the destination resolution, without HUD scaling.
+        renderer::Surface display_image{};
+        HudRect display_rect{};
+        SDL_Texture* display_texture = nullptr;
+        int display_texture_w = 0;
+        int display_texture_h = 0;
+
         /// Frees the radar surfaces and well.
         void release();
 
@@ -21560,6 +21579,12 @@ class Runtime final : public menu::Host,
     /// at the frame's allowance.
     void draw_frame_stats();
 
+    /// Draws current positive-health live unit counts per player over an offline staged battle.
+    /// Reads canonical records each draw, including unfinished units once they
+    /// have positive health. Zero-health and death-pending units are excluded.
+    /// The banner is shown only when explicitly enabled for a staged skirmish showcase.
+    void draw_battle_counts();
+
     /// Checks "+stats" through the chat line: it needs no passphrase, echoes
     /// to this machine alone, and draws its panel, with its outline, raised
     /// edge, darkened fill and graph, at its inset from the battlefield's
@@ -21614,6 +21639,8 @@ class Runtime final : public menu::Host,
     /// The eases the frame's resource readout takes; empty for one a draw.
     std::optional<uint32_t> readout_eases_{};
     bool frame_stats_shown_ = false; ///< "+stats" shows the overlay
+    /// Shows the live-count banner in an explicitly staged offline battle.
+    bool battle_counts_shown_{};
     std::string renderer_driver_{};  ///< SDL's name for the render driver; empty without one
     std::string renderer_adapter_{}; ///< the adapter's name; empty where none was read
     /// The turned view's graphics device that turned_driver_ and
