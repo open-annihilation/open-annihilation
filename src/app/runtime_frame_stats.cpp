@@ -424,6 +424,7 @@ FrameStatsNotes Runtime::frame_stats_notes() const {
 }
 
 void Runtime::draw_frame_stats() {
+    draw_battle_counts();
     frame_stats_place_.reset();
     if (!frame_stats_shown_ || !match_)
         return;
@@ -640,6 +641,16 @@ void Runtime::draw_frame_stats() {
 }
 
 void Runtime::check_console_stats(const std::function<void(const char*)>& enter_line) {
+    if (options_.showcase != Showcase::skirmish_battle || options_.stage_file.empty()) {
+        const uint32_t ran = console::console_execute(
+            match_console(), "BattleCounts 1", console::command_class::option
+        );
+        if ((ran & console::command_class::option) == 0 ||
+            (ran & console::command_class::private_echo) == 0 || battle_counts_shown_)
+            throw std::runtime_error(
+                "console check: BattleCounts was not a private option confined to a staged battle"
+            );
+    }
     oa::Game& game = match_->state().game;
     // The echoed lines stay out of the compared frames.
     const auto capture = [&] {
