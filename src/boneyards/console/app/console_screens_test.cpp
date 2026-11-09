@@ -152,6 +152,79 @@ void run_frontend(void*) {
     ++g_frontend_passes;
 }
 
+// The host the overlay is given: the runtime answers only through the
+// services, so any address stands for it.
+int g_host = 0;
+
+// The player's layout the fake runtime reads: the default one, or Next
+// button on F7 and J and Previous button on Shift+F7 and Shift+J.
+bool g_next_moved = false;
+// Key presses the overlay asked about. A screen that asks is held to the
+// answer for the ring; one that does not is held to the key itself.
+int g_asked = 0;
+// Those it asked about with no action: a character typed into a field asks
+// only about the ring.
+int g_asked_for_ring = 0;
+// The bindings fire nothing for the next key, as for a platform repeat when
+// the player has a repeat delay and rate of their own.
+bool g_fire_nothing = false;
+
+constexpr uint32_t k_key_f7 = 0x40000040U;
+
+// What the engine's bindings fire for a key on the menus. A chord matches
+// Ctrl only where it names Ctrl, and Shift, Alt or the system key held
+// beyond it.
+const char* bound_action(const ScreenInput& input) {
+    if ((input.modifiers & oa::app::kInputModifierCtrl) != 0)
+        return nullptr;
+    const bool shift = (input.modifiers & 0x0003) != 0;
+    const bool next_key =
+        g_next_moved ? input.key == k_key_f7 || input.key == 'j' : input.key == '\t';
+    if (next_key)
+        return shift ? "ui.menu-focus-previous" : "ui.menu-focus-next";
+    switch (input.key) {
+    case 0x40000050U:
+        return "ui.menu-focus-left";
+    case 0x4000004FU:
+        return "ui.menu-focus-right";
+    case 0x40000052U:
+        return "ui.menu-list-up";
+    case 0x40000051U:
+        return "ui.menu-list-down";
+    case 0x4000004AU:
+        return "ui.screen-home";
+    case 0x4000004DU:
+        return "ui.screen-end";
+    case 0x4000004BU:
+        return "ui.screen-page-up";
+    case 0x4000004EU:
+        return "ui.screen-page-down";
+    default:
+        return nullptr;
+    }
+}
+
+int fake_bound_focus_action(
+    void*, const ScreenInput* input, char* action, std::size_t capacity, int* ring_shown
+) {
+    if (ring_shown != nullptr)
+        *ring_shown = 0;
+    if (input == nullptr || input->kind != ScreenInputKind::key_down)
+        return 0;
+    ++g_asked;
+    if (action == nullptr || capacity == 0) {
+        ++g_asked_for_ring;
+        return 0;
+    }
+    if (g_fire_nothing)
+        return 0;
+    const char* fired = bound_action(*input);
+    if (fired == nullptr || std::strlen(fired) + 1 > capacity)
+        return 0;
+    std::memcpy(action, fired, std::strlen(fired) + 1);
+    return 1;
+}
+
 const ScreenServices k_services{
     request_screen,
     play_sound,
@@ -172,7 +245,12 @@ const ScreenServices k_services{
     nullptr,
     stop_sounds,
     play_sound_alternate,
-    run_frontend
+    run_frontend,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    fake_bound_focus_action
 };
 
 std::size_t call_index(const char* call) {
@@ -895,6 +973,98 @@ void test_boneyards_state(const OverlayDesc& overlay, ScreenContext& ctx, oa::As
         !key_held(by::key::control) && !key_held(by::key::alt) && !key_held(by::key::system),
         "Ctrl, Alt and the system modifier do not stay held"
     );
+    {
+        // Ctrl+Tab fires no focus command. It walks as it did before, and is
+        // not asked about, so the ring follows the key as before.
+        const int asked = g_asked;
+        ScreenInput input{};
+        input.kind = ScreenInputKind::key_down;
+        input.key = '\t';
+        input.modifiers = oa::app::kInputModifierCtrl;
+        send_input(overlay, ctx, input);
+        input.kind = ScreenInputKind::key_up;
+        send_input(overlay, ctx, input);
+        check(widget->desktop.focus == password_field, "Ctrl+Tab walks from the name");
+        check(g_asked == asked, "Ctrl+Tab is not asked about");
+        click(
+            overlay,
+            ctx,
+            static_cast<float>(name_field->x + 4),
+            static_cast<float>(name_field->y + 4)
+        );
+        check(widget->desktop.focus == name_field, "a click puts the keyboard back in the name");
+    }
+    {
+        // With a repeat delay and rate of the player's own, the bindings
+        // leave the platform's repeats alone, so a held Left fires nothing
+        // after its press. Its repeat still moves the caret, as before.
+        const int32_t caret = name_edit->caret;
+        name_edit->caret = name_edit->length;
+        send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 0x40000050U);
+        g_fire_nothing = true;
+        send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 0x40000050U);
+        g_fire_nothing = false;
+        send(overlay, ctx, ScreenInputKind::key_up, 0, 0, 0x40000050U);
+        check(name_edit->caret == name_edit->length - 2, "a held Left's repeat moves the caret");
+        name_edit->caret = caret;
+    }
+    {
+        // Next button on F7 and J, Previous button on Shift+F7 and Shift+J.
+        g_next_moved = true;
+        const auto shift_f7 = [&]() {
+            ScreenInput input{};
+            input.kind = ScreenInputKind::key_down;
+            input.key = k_key_f7;
+            input.modifiers = 0x0003;
+            send_input(overlay, ctx, input);
+            input.kind = ScreenInputKind::key_up;
+            send_input(overlay, ctx, input);
+        };
+        // J typed into the name stays a letter: the overlay asks only about
+        // the ring, no ring shows, and the keyboard stays.
+        widget->desktop.keyboard_ring = 0;
+        const int asked = g_asked_for_ring;
+        send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 'j');
+        type_text(overlay, ctx, "j");
+        send(overlay, ctx, ScreenInputKind::key_up, 0, 0, 'j');
+        step();
+        check(std::strcmp(login.name, "Secret_1j") == 0, "J types into the name");
+        check(widget->desktop.focus == name_field, "J typed into the name moves nothing");
+        check(widget->desktop.keyboard_ring == 0, "J typed into the name shows no ring");
+        check(g_asked_for_ring == asked + 1, "J typed into the name asks only about the ring");
+        press(overlay, ctx, '\t');
+        check(widget->desktop.focus == name_field, "with Next button moved, Tab stays put");
+        press(overlay, ctx, k_key_f7);
+        check(widget->desktop.focus == password_field, "F7 walks from the name to the password");
+        check(widget->desktop.keyboard_ring != 0, "F7 shows the ring");
+        shift_f7();
+        check(widget->desktop.focus == name_field, "Shift+F7 goes back to the name");
+        // Outside a field J walks and types nothing, whether or not its
+        // character comes with it.
+        shift_f7();
+        check(
+            widget->desktop.focus != name_field && widget->desktop.focus != password_field,
+            "Shift+F7 goes back to the login choice"
+        );
+        send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 'j');
+        type_text(overlay, ctx, "j");
+        send(overlay, ctx, ScreenInputKind::key_up, 0, 0, 'j');
+        step();
+        check(widget->desktop.focus == name_field, "J walks from the login choice to the name");
+        check(std::strcmp(login.name, "Secret_1j") == 0, "the J that walked types nothing");
+        // With no field there is no text input, so the press brings no
+        // character. One typed later by an input method is the player's.
+        shift_f7();
+        press(overlay, ctx, 'j');
+        check(widget->desktop.focus == name_field, "J walks to the name again");
+        type_text(overlay, ctx, "j");
+        step();
+        check(std::strcmp(login.name, "Secret_1jj") == 0, "a j typed after the walk is kept");
+        g_next_moved = false;
+        by::single_edit_set_text(name_edit, "Secret_1");
+        step();
+        check(std::strcmp(login.name, "Secret_1") == 0, "the login name is restored again");
+    }
     press(overlay, ctx, '\t');
     check(widget->desktop.focus == password_field, "Password follows the login choice");
     type_text(overlay, ctx, "Pa55word!");
@@ -1316,7 +1486,7 @@ int main() {
     surface.width = 640;
     surface.height = 480;
     surface.rgb.assign(640U * 480U * 3U, 0x55);
-    ScreenContext ctx{nullptr, &k_services, &assets, &surface, nullptr, nullptr, 0};
+    ScreenContext ctx{&g_host, &k_services, &assets, &surface, nullptr, nullptr, 0};
     overlay.create(&ctx, overlay.state);
     check(g_main_menu_overlay == 1, "the overlay reports itself over the main menu");
     check(

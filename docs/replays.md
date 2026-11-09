@@ -232,10 +232,24 @@ the whole replay, and the row says **Defeated 18:02** or **Left 21:40** once
 that moment has passed. Choosing that row shows the sight the match still
 holds for the seat. When the seat itself is gone, the row stays, the eye
 stays on it, and the view is the whole map: the match no longer holds that
-player's sight. **Camera** is free, that player's own camera when the
-recording already carries camera records, or one unit. **Follow their
-camera** while every player is shown follows the first player who shared a
-camera. Double-click a unit to keep it in the middle until you pan; when
+player's sight. **Camera** is free, **Director** when the index has recorded
+a fight, that player's own camera when the recording already carries camera
+records, or one unit. **Director** follows one fight at a time, a little
+ahead of the moment on show. It stays with that fight while the fight is
+just ahead or no more than ten seconds past, and changes then only for a
+heavier fight. Either way it changes only once four seconds of the battle
+have passed and about a second and a half of real time, so a fast playback
+does not flicker between fights. A
+nearby fight is panned to. A fight farther than the picture comfortably
+shows is a cut. It does not sweep across the map. The filmed script
+(`--generate-script`, in the developer notes) is a different tool: playing
+it between the fights cut back and forth and swept the map, so the replay
+does not use it to place the camera. With nothing ahead, Director stays
+with the latest fight just passed. Through a quiet minute it stays with the
+nearest fight of that minute, the one ahead when the two are equally far,
+rather than a start base. Before the first fight it shows a start base: the
+first commander's. It is not offered for a replay whose index has no fight. **Follow their camera** while every player is shown follows
+the first player who shared a camera. Double-click a unit to keep it in the middle until you pan; when
 that unit is gone the camera returns to free. The list at the top right
 names each player. On a 640×480 battlefield it starts folded, and **F4**
 folds it to colour chips or opens it. **Tab** and **Shift+Tab** move through
@@ -391,9 +405,11 @@ map or its unit definitions are not installed, or no extension of the build
 replays it.
 
 While a replay is watched, a timeline the Library already holds for that file
-is what the bar shows, and no pass is started. Otherwise the bar starts this
-same pass beside the game, at low priority, and the timeline it writes is
-stored in the Library's index, so the next Watch and the card need no pass.
+is what the bar shows, and no pass is started when that timeline names its
+battle events. A timeline with no `events` member is read again. Otherwise
+the bar starts this same pass beside the game, at low priority, and the
+timeline it writes is stored in the Library's index, so the next Watch and
+the card need no pass.
 The pass keeps a preferences file of its own and does not change the player's.
 It prints `replay index: progress N` on standard output each thousand ticks,
 `N` the percent of the recording's length it has read, and the bar shows that
@@ -406,7 +422,7 @@ One compact JSON object, its members in this order:
 
 | Member | What it holds |
 |---|---|
-| `oademo_timeline` | `1`, the version of this file |
+| `oademo_timeline` | `1`, the version of this file. Version 2 and later are refused. A version 1 file with no `events` member still reads |
 | `length` | `ticks`, the last tick, which is the length of the replay (a second of game time is 30 ticks); `ms`, the recording's length on the recorder's clock, when known |
 | `ended` | `how`, `finished`, `left` or `cut`, and `tick`, the tick it ended on |
 | `verdict` | how the replay went: `finished` (everything recorded was replayed), `clean`, `paced`, `content_differs`, `errors`, `first_error_tick` (0 for none) and `last_error` (text, empty for none) |
@@ -416,6 +432,7 @@ One compact JSON object, its members in this order:
 | `markers_omitted` | how many markers were left out; only when it is not 0 |
 | `totals` | `from_tick`, `period_ticks` and, for each player who plays, one array of samples for `kills`, `losses`, `commanders_lost`, `units`, `metal` and `energy` |
 | `intensity` | `from_tick`, `period_ticks` and `damage`: the health points taken off units in each stretch |
+| `events` | where the fighting was, in tick order, as compact arrays (below). Always written. Empty when the game had no fight. At most 512 |
 
 A number of a player is the player's number in the recording, the one the
 description's `players` list gives. A name is UTF-8. `totals` holds one
@@ -451,6 +468,75 @@ pair, as playback applies it, whatever else the record asks of the other
 machine; a pair is allied once both players have set theirs, and the marker
 says so. A file keeps at most 1,000 markers of each kind and counts the rest
 in `markers_omitted`, so that it stays small whatever was said.
+
+An event of the battle is a compact array: the `tick`, the `kind`, an `x`
+across the map and a `z` on the row the picture draws, then `player`,
+`metal`, `health` and `amount` through the last of those that is not 0.
+`[1200,"unit_lost",40,80,1,90,600]` is a unit lost at tick 1,200. The member
+is always written, and it is an empty list when the game had no fight. The
+version stays 1, so a reader that knows only the moments, the intensity and
+the winners ignores `events`.
+
+| Kind | Meaning |
+|---|---|
+| `unit_lost` | a unit was destroyed. `player` owned it. `metal` is what it cost and `health` is its full health, when the type is known |
+| `building_lost` | a building was destroyed, or a loss whose type is not known. The same members as `unit_lost` |
+| `engagement` | a large cluster of hits. `amount` is the health points taken. The place is the centre of the hits, weighted by how hard each one was |
+| `commander` | a commander was created. This alone is not a fight |
+| `commander_lost` | a commander's real death. A commander displaced from its slot and replaced by another of its player's on the same tick is left out, and this alone is not a fight |
+
+Hits are gathered into squares of 512 map pixels over each stretch of 300
+ticks. A square becomes one engagement when the hits take 2,000 health or
+there are eight of them. Healing and paralysis are not hits. A capture, a
+reclaim, a dismissal and a cancelled build are not losses. Of the fights in
+one of those squares and stretches, the heaviest is kept. A file then keeps
+at most 512 events. The commanders are kept, and the fights that remain are
+spread across the whole game rather than taken from its opening. When the
+commanders alone fill the file, the fights are left out. A commander
+displaced from its slot leaves out that creation as well as the loss. The
+commander that replaces it is kept.
+
+**Director** is offered once the index holds a `unit_lost`, a `building_lost`
+or an `engagement`. It follows one fight. The fight it would choose at a
+moment is the heaviest in the next eight seconds (240 ticks). When that
+stretch is quiet, it is the most recent fight in the ten seconds just passed
+(300 ticks), not the heaviest and not the earliest. When both are quiet, it
+is the nearest fight inside one minute (1,800 ticks), the one ahead of the
+moment when a fight ahead and a fight behind are equally far. The camera
+keeps the fight it is already on while that fight is inside the next eight
+seconds or the ten seconds just passed, and leaves it then only for a fight
+at least one and a half times as heavy. An older fight gives way to the
+fight the camera would choose, however heavy it was, so a big engagement
+does not hold the picture for a minute while the battle moves on. Either
+way the picture changes only once four seconds of the battle (120 ticks)
+and about a second and a half of real time have passed since the last
+change. A fast
+playback therefore skips fights rather than cutting on every one. A fight
+within 64 map pixels is the same subject: the picture eases across and the
+hold is not started again. A move within 75 percent of the picture's width,
+which is also within about two screens, is an eased pan that stays under one
+screen a second at 1×.
+Anything farther is a cut. A place just left is not shown again within ten
+seconds. An engagement's weight is its `amount`; a loss's weight is its
+`metal`, then its `health`. Before the first fight, the picture shows the
+start of the first commander the index names, the lowest player number
+first. Each step reads only the events within a minute of the moment on
+show, so it costs the same however many events the index keeps. A seek, or
+choosing Director, plays these rules from the start of the replay at 1×,
+so the picture after a jump is the one a steady 1× watch shows there.
+
+The Library stores one timeline, the JSON text, on each replay in
+`Recordings/.replays/index.json`. The file is at most 64 MiB. It keeps a
+timeline it stored, including the watched place. A version 1 timeline with
+no `events` member is read again, and the old text stays until the new one
+is stored, so a replay the pass can no longer read keeps its result and its
+marks. While it waits, its row says Reading… and the Library counts it as
+not yet read; a pass that refuses it ends that, as for a row with no
+timeline. The version is read from the start of the text, `{"oademo_timeline":1,`,
+without parsing the whole timeline. An empty timeline is a pass that
+finished with nothing to store, and is left as it is. A version 1 timeline
+that names `events`, including an empty list, is kept. Version 2 and later
+are refused.
 
 ### How it ended and who won
 
@@ -523,10 +609,12 @@ alternating the two. The machine ran other builds and tests all the while
 15 %. CPU time is the user time `time -l` reports, in seconds, one figure
 for each run; memory is the peak resident size in megabytes.
 
-The pass keeps the timeline recorder to the players' standings
-(`Detail::standings`: every hit, the commanders created and killed, and
-each player's totals every second), which is all the index reads. The whole
-recorder, as `--generate-script` uses it, was measured too.
+The pass records the fight as well as the players' standings
+(`Detail::battles`: every hit, the commanders created and killed, every unit
+and building destroyed, and each player's totals every second). It still
+takes no sample of where a unit stood. The table is what the standings-only
+pass cost, measured before the fight was added, and what the whole recorder
+costs, as `--generate-script` uses it.
 
 | Recording | Ticks | Plain `--play-demo` | The pass, standings | The pass, whole recorder |
 |---|---:|---|---|---|
@@ -548,13 +636,24 @@ took 2.64 to 2.76 s, 18.9 to 20.8 s and 113.1 to 114.4 s.)
   13.7 million samples of its mobile units (every unit twice a second,
   28 bytes each) and 771,556 events, and peaks at 1.3 to 1.4 GB against
   0.64 GB for the plain run. That is too much for a pass the Library runs in
-  the background on a player's computer, so the pass asks the recorder for
-  the standings only (191,732 events on 5573, and no samples): 90 MB above
-  the plain run on 5573, and 12 to 17 MB on 884. The index is the same
-  either way: the two builds wrote the same bytes for 720, 721, 884, 5575
-  and 5573.
-- The index of a recording is a file of 7 to 100 kilobytes (720: 7.6 KB;
-  5573: 98 KB, 184 chat lines).
+  the background on a player's computer. That measurement kept the recorder
+  to the standings (191,732 events on 5573, and no samples): 90 MB above
+  the plain run on 5573, and 12 to 17 MB on 884. The pass now records the
+  fight as well and still takes no sample of a unit.
+- The index of a recording was a file of 7 to 100 kilobytes when it held no
+  battle events (720: 7.6 KB; 5573: 98 KB, 184 chat lines). It stays version
+  1 and adds `events`: the heaviest fight in each square of 512 map pixels
+  and each stretch of 300 ticks, then at most 512 events, written as
+  compact arrays. 64 events left a four-hour game one fight every four
+  minutes, and the camera on a stale place for minutes at a time; 512 add at
+  most about 21 KB to an index. Recording the fight costs about 8 to 10 percent more processor
+  time than the standings-only pass, and the same peak memory. On this
+  Studio, 884 took 15.43 s of CPU against 14.00 s, and peaked at 376 MB
+  against 377 MB. 5573 took 109.0 s against 100.5 s, and peaked at 741 MB
+  against 746 MB. 5574 took 86.1 s against 78.7 s. The sizes after this
+  change are in the table of the six games below. Markers, totals, the
+  verdict and the winners of those six stay as that table says. The Library
+  stores that timeline text once per replay.
 
 The playback bar's pass is that same program, started beside the game at low
 priority. Its time and its memory are the pass's own, and they are not part
@@ -563,17 +662,19 @@ writes is stored in the Library's index.
 
 ### The six recorded 3.1c games
 
-The index of each of the six recorded 3.1c games the tests keep, indexed
-twice to the same bytes:
+The index of each of the six recorded 3.1c games the tests keep. Two indexes
+of one recording are the same bytes. The bytes changed from the pins that
+had no battle events because version 1 now holds `events`, including when a
+game's events are only its commanders:
 
-| Id | Length (ticks) | Ended | Winners | Verdict |
-|---|---:|---|---|---|
-| 720 | 42,965 | `finished` | player 1, NJ_THUG | clean |
-| 721 | 41,571 | `finished` | player 1, freakmaster | clean |
-| 884 | 81,556 | `finished` | player 4, GG_Med | clean |
-| 5573 | 469,856 | `finished` | player 2, RawDawgFU | clean |
-| 5574 | 250,601 | `finished` | player 1, Gnug315 | clean |
-| 5575 | 87,567 | `finished` | player 1, TAG_Sensation | not clean: one error, first on tick 82,901 |
+| Id | Length (ticks) | Ended | Winners | Verdict | Index |
+|---|---:|---|---|---|---:|
+| 720 | 42,965 | `finished` | player 1, NJ_THUG | clean | 16,618 bytes |
+| 721 | 41,571 | `finished` | player 1, freakmaster | clean | 9,992 bytes |
+| 884 | 81,556 | `finished` | player 4, GG_Med | clean | 35,608 bytes |
+| 5573 | 469,856 | `finished` | player 2, RawDawgFU | clean | 119,256 bytes |
+| 5574 | 250,601 | `finished` | player 1, Gnug315 | clean | 75,342 bytes |
+| 5575 | 87,567 | `finished` | player 1, TAG_Sensation | not clean: one error, first on tick 82,901 | 39,185 bytes |
 
 Each length is the end tick the table of those games (`demos.tsv`) pins for
 the game. Each holds a second commander death a few seconds after the one

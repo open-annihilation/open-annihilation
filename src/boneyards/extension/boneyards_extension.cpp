@@ -99,9 +99,10 @@
 // states that rectangle while its art is drawn. Version 21 also adds
 // ScreenServices::main_menu_order_owns_key. The main-menu overlay calls it
 // and passes the key on when the host owns it. Version 21 also adds
-// ScreenServices::bound_focus_action, which the multiplayer screens call, and
-// spoken_updates_open, which this module asks before it composes a spoken
-// line. This extension table fills no new hook. None of 15 to 21 is a hook
+// ScreenServices::bound_focus_action. The multiplayer screens call it, and so
+// do these consoles, the frame and the war map. spoken_updates_open, which
+// this module asks before it composes a spoken line, is the same version.
+// This extension table fills no new hook. None of 15 to 21 is a hook
 // this module fills.
 constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(

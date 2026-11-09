@@ -819,6 +819,7 @@ void a_timeline_index_is_written_and_read() {
     OA_CHECK(
         text.rfind("{\"oademo_timeline\":1,\"length\":{\"ticks\":42965,\"ms\":1432960},", 0) == 0
     );
+    OA_CHECK(text.find("\"events\":[]") != std::string::npos);
     OA_CHECK(text.find("\"ended\":{\"how\":\"finished\",\"tick\":42965}") != std::string::npos);
     OA_CHECK(text.find("\"result\":{\"winners\":[2],\"by\":\"commanders\"}") != std::string::npos);
     OA_CHECK(
@@ -853,6 +854,7 @@ void a_timeline_index_is_written_and_read() {
     OA_CHECK(read->markers_omitted == 2);
     OA_CHECK(read->totals.size() == 2 && read->totals[0].metal == index.totals[0].metal);
     OA_CHECK(read->damage == index.damage);
+    OA_CHECK(read->version == timeline_version && read->events.empty() && read->events_recorded);
     OA_CHECK(read->period_ticks == index_period_ticks && read->first_tick == 0);
     OA_CHECK(read->extra.size() == 1 && read->extra[0].name == "later");
     OA_CHECK(timeline_index_text(*read) == text);
@@ -891,6 +893,24 @@ void a_timeline_index_is_written_and_read() {
         OA_CHECK(skipped.has_value() && skipped->markers.size() == bare.markers.size());
     }
 
+    // A version 1 file from before battle events still reads. The writer now
+    // always names `events`, so the member is taken out of the text here.
+    std::string without_events = text;
+    const std::string events_array = ",\"events\":[]";
+    const std::size_t events_at = without_events.find(events_array);
+    OA_CHECK(events_at != std::string::npos);
+    if (events_at != std::string::npos) {
+        without_events.erase(events_at, events_array.size());
+        const std::optional<TimelineIndex> bare_events = parse_timeline_index(without_events);
+        OA_CHECK(
+            bare_events.has_value() && bare_events->version == 1 && bare_events->events.empty() &&
+            !bare_events->events_recorded
+        );
+        OA_CHECK(timeline_wants_events(without_events));
+        OA_CHECK(!timeline_wants_events(text));
+        OA_CHECK(timeline_prefix_version(text) == std::optional<int>{1});
+    }
+
     // What is refused: not JSON, another version, a missing member, a wrong
     // one and a player number above a byte.
     OA_CHECK(!parse_timeline_index("").has_value());
@@ -907,6 +927,7 @@ void a_timeline_index_is_written_and_read() {
             return !parse_timeline_index(changed).has_value();
         };
     OA_CHECK(refuses(text, "\"oademo_timeline\":1", "\"oademo_timeline\":2"));
+    OA_CHECK(refuses(text, "\"oademo_timeline\":1", "\"oademo_timeline\":3"));
     OA_CHECK(refuses(text, "\"oademo_timeline\":1", "\"oademo_timeline\":\"1\""));
     OA_CHECK(refuses(text, "\"ticks\":42965", "\"ticks\":-1"));
     OA_CHECK(refuses(text, "\"how\":\"finished\"", "\"how\":\"vanished\""));
@@ -921,6 +942,64 @@ void a_timeline_index_is_written_and_read() {
     OA_CHECK(refuses(text, "\"damage\":[0,12000,5000000000]", "\"damage\":[0,-1]"));
     OA_CHECK(refuses(text, "\"markers\":[", "\"markrs\":["));
     OA_CHECK(refuses(text, "\"text\":\"<NJ_THUG>", "\"text\":5,\"x\":\"<NJ_THUG>"));
+}
+
+// A fight is written with its place, and a commander with nothing else to
+// say leaves out the zero members. A kind this version does not know is
+// skipped. A known kind with a wrong member refuses the file.
+void battle_events_are_written_and_read() {
+    using namespace oa::formats::oademo;
+    TimelineIndex index = sample_index();
+    BattleEvent placed;
+    placed.tick = 0;
+    placed.kind = BattleKind::commander;
+    placed.x = 10;
+    placed.z = 20;
+    BattleEvent lost;
+    lost.tick = 1200;
+    lost.kind = BattleKind::unit_lost;
+    lost.x = 40;
+    lost.z = 80;
+    lost.player = 1;
+    lost.metal = 90;
+    lost.health = 600;
+    BattleEvent cluster;
+    cluster.tick = 1500;
+    cluster.kind = BattleKind::engagement;
+    cluster.x = 500;
+    cluster.z = 600;
+    cluster.amount = 2400;
+    index.events = {placed, lost, cluster};
+    const std::string text = timeline_index_text(index);
+    OA_CHECK(text.find("[0,\"commander\",10,20]") != std::string::npos);
+    OA_CHECK(text.find("[1200,\"unit_lost\",40,80,1,90,600]") != std::string::npos);
+    OA_CHECK(text.find("[1500,\"engagement\",500,600,0,0,0,2400]") != std::string::npos);
+    const std::optional<TimelineIndex> read = parse_timeline_index(text);
+    OA_CHECK(read.has_value() && read->events.size() == 3 && read->events_recorded);
+    if (read.has_value() && read->events.size() == 3) {
+        OA_CHECK(read->events[0].kind == BattleKind::commander && read->events[0].player == 0);
+        OA_CHECK(read->events[1].metal == 90 && read->events[1].health == 600);
+        OA_CHECK(read->events[2].amount == 2400);
+    }
+    OA_CHECK(read.has_value() && timeline_index_text(*read) == text);
+
+    std::string future = text;
+    const std::string first = "[0,\"commander\",10,20]";
+    const std::size_t at = future.find(first);
+    OA_CHECK(at != std::string::npos);
+    if (at != std::string::npos) {
+        future.insert(at, "[5,\"later\",1,2],");
+        const std::optional<TimelineIndex> skipped = parse_timeline_index(future);
+        OA_CHECK(skipped.has_value() && skipped->events.size() == 3);
+    }
+    std::string broken = text;
+    const std::string commander = "[0,\"commander\",10,20]";
+    const std::size_t where = broken.find(commander);
+    OA_CHECK(where != std::string::npos);
+    if (where != std::string::npos) {
+        broken.replace(where, commander.size(), "[-1,\"commander\",10,20]");
+        OA_CHECK(!parse_timeline_index(broken).has_value());
+    }
 }
 
 // The words of an end and of a marker are the ones the design lists, and a
@@ -942,7 +1021,13 @@ void the_words_of_an_index_are_pinned() {
     OA_CHECK(marker_kind_name(MarkerKind::alliance) == "alliance");
     OA_CHECK(marker_kind_name(MarkerKind::pause) == "pause");
     OA_CHECK(marker_kind_name(MarkerKind::chat) == "chat");
+    OA_CHECK(battle_kind_name(BattleKind::unit_lost) == "unit_lost");
+    OA_CHECK(battle_kind_name(BattleKind::building_lost) == "building_lost");
+    OA_CHECK(battle_kind_name(BattleKind::engagement) == "engagement");
+    OA_CHECK(battle_kind_name(BattleKind::commander) == "commander");
+    OA_CHECK(battle_kind_name(BattleKind::commander_lost) == "commander_lost");
     OA_CHECK(index_period_ticks == 300 && most_markers_of_a_kind == 1000);
+    OA_CHECK(timeline_version == 1 && most_battle_events == 512);
 }
 
 bool notice_of(
@@ -1201,6 +1286,7 @@ int main() {
     deflated_recording_past_the_limit_is_refused();
     unit_table_digest_follows_the_verdicts();
     a_timeline_index_is_written_and_read();
+    battle_events_are_written_and_read();
     the_words_of_an_index_are_pinned();
     an_export_is_plain_and_the_same_twice();
     a_replay_export_keeps_a_clean_recording();

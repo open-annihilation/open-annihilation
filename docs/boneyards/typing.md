@@ -5,6 +5,23 @@ A refresh of the same screen does not take the keyboard back if the player
 has moved to another field. Return runs the button the layout names as its
 default.
 
+The focus keys follow the player's layout, in the consoles, on the main
+frame and on the war map. Next button, Previous button, Focus left, Focus
+right, List up, List down, Page up, Page down, Go to start and Go to end
+are the commands. With the default layout, and with a layout saved by
+0.9.0, those commands are Tab, Shift+Tab, the arrows, Home, End and the
+page keys, and every step below is unchanged. A key the player moves in
+the key editor moves here too, and the key it left does not. A character
+typed into a field stays in that field when a focus command was moved
+onto that character. F6 and Shift+F6 are not those commands: they still
+move between the main frame, an open console and the war map, unless the
+player has moved one of the commands above onto F6. Nor is Tab, an arrow,
+Home, End or a page key held with Ctrl: whatever the layout, it does what
+it does with the default layout. Ctrl+Left and Ctrl+Right still move a
+field's caret by a word. A focus key held down repeats its move at the
+system's pace, as before, even when the player has set a repeat delay and
+rate of their own.
+
 | Screen | Field |
 | --- | --- |
 | Chat | the entry line |

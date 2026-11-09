@@ -27630,6 +27630,14 @@
 	it=Segui un'unità;
 	}
 
+[Director]
+	{
+	de=Regie;
+	fr=Réalisation;
+	es=Director;
+	it=Regia;
+	}
+
 [Defeated {time}]
 	{
 	de=Besiegt {time};

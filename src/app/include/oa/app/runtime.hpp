@@ -10423,10 +10423,12 @@ class Runtime final : public menu::Host,
     /// tier.
     void update_render_tier();
 
-    /// Notes that a match's loading screen begins: in a shared game or a
-    /// replay the tier keeps what it has, and what would start the
-    /// accelerated tier waits for the match to end
-    /// (render_policy::begin_match).
+    /// Notes that a match's loading screen begins. A replay decides its tier
+    /// first (update_render_tier), so one that is the first scene begins in
+    /// the tier the player chose and the loading screen makes Full's pages
+    /// for that tier. A shared game keeps the tier it already has. In
+    /// either, what would start the accelerated tier, or Full, waits for
+    /// the match to end (render_policy::begin_match).
     ///
     /// @param kind the match's kind, from its bootstrap; MatchKind::none for
     ///     a match played alone
@@ -12596,9 +12598,10 @@ class Runtime final : public menu::Host,
     /// already handles, before this frame polls events.
     void take_screen_reader_actions();
 
-    /// Publishes the control tree when the system says a screen reader is
-    /// running, one has asked for the tree, and the tree has changed. With
-    /// no reader, this builds nothing.
+    /// Publishes the control tree when a screen reader is running and one
+    /// has asked for it. Where the bridge cannot run, this speaks the
+    /// focused control: always when the preference is on, and while a
+    /// screen reader is running when it is automatic.
     void publish_screen_reader();
 
     /// Speaks this frame's chat, lobby and ticker lines, and posts each

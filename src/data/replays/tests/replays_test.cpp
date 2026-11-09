@@ -22,6 +22,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/formats/oademo/interface_words.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/formats/zip.hpp"
 #include "oa/formats/zip/writer.hpp"
@@ -544,7 +545,7 @@ void the_index_reads_back_as_written(const Scratch& scratch) {
     // A campaign name can end in a space, and the index keeps it. The timeline
     // is the pass's text, and the watched tick is where a Watch was left.
     odd.mission_name = "Core Contingency ";
-    odd.timeline = std::string("{\"markers\":[]}");
+    odd.timeline = oa::formats::oademo::timeline_index_text(oa::formats::oademo::TimelineIndex{});
     odd.watched_tick = 21000;
     odd.read_stamp = "installed-1";
     index.replays.push_back(odd);
@@ -1537,6 +1538,71 @@ void a_set_aside_kept_file_spares_what_it_may_have_kept(const Scratch& scratch) 
     OA_CHECK(!lib::spared_by_set_aside(long_ago, lib::kept_set_aside_at(recordings)));
 }
 
+/// A timeline from before battle events is kept and marked for a new read.
+/// The watched place stays. A current timeline, including one with no fight,
+/// and an empty one, are kept and are not read again. A timeline that does
+/// not parse is kept too, so a replay the pass can no longer read holds its
+/// result until a new timeline is stored.
+void a_timeline_from_before_battle_events_is_read_again() {
+    using oa::formats::oademo::TimelineIndex;
+    TimelineIndex current;
+    current.length_ticks = 100;
+    const std::string current_text = oa::formats::oademo::timeline_index_text(current);
+    std::string stale_text = current_text;
+    const std::string events_array = ",\"events\":[]";
+    const std::size_t events_at = stale_text.find(events_array);
+    OA_CHECK(events_at != std::string::npos);
+    if (events_at != std::string::npos)
+        stale_text.erase(events_at, events_array.size());
+
+    const auto parsed_of = [](std::string timeline) {
+        lib::Index index;
+        lib::Replay replay;
+        replay.path = "old.tad";
+        replay.file = lib::FileKind::tad;
+        replay.watched_tick = 42;
+        replay.timeline = std::move(timeline);
+        index.replays.push_back(std::move(replay));
+        return lib::parse_index(lib::index_text(index));
+    };
+
+    const std::optional<lib::Index> stale = parsed_of(stale_text);
+    OA_CHECK(stale.has_value() && stale->replays.size() == 1);
+    if (stale.has_value() && stale->replays.size() == 1) {
+        OA_CHECK(stale->replays[0].timeline.has_value());
+        if (stale->replays[0].timeline.has_value())
+            OA_CHECK(*stale->replays[0].timeline == stale_text);
+        OA_CHECK(oa::formats::oademo::timeline_wants_events(stale_text));
+        OA_CHECK(stale->replays[0].watched_tick == std::optional<uint32_t>{42});
+    }
+    const std::optional<lib::Index> kept = parsed_of(current_text);
+    OA_CHECK(kept.has_value() && kept->replays.size() == 1);
+    if (kept.has_value() && kept->replays.size() == 1) {
+        OA_CHECK(kept->replays[0].timeline.has_value());
+        if (kept->replays[0].timeline.has_value())
+            OA_CHECK(*kept->replays[0].timeline == current_text);
+        OA_CHECK(!oa::formats::oademo::timeline_wants_events(current_text));
+        OA_CHECK(kept->replays[0].watched_tick == std::optional<uint32_t>{42});
+    }
+    const std::string junk_text = "{\"markers\":[]}";
+    const std::optional<lib::Index> junk = parsed_of(junk_text);
+    OA_CHECK(junk.has_value() && junk->replays.size() == 1);
+    if (junk.has_value() && junk->replays.size() == 1) {
+        OA_CHECK(junk->replays[0].timeline.has_value());
+        if (junk->replays[0].timeline.has_value())
+            OA_CHECK(*junk->replays[0].timeline == junk_text);
+        OA_CHECK(oa::formats::oademo::timeline_wants_events(junk_text));
+        OA_CHECK(junk->replays[0].watched_tick == std::optional<uint32_t>{42});
+    }
+    const std::optional<lib::Index> empty = parsed_of(std::string{});
+    OA_CHECK(empty.has_value() && empty->replays.size() == 1);
+    if (empty.has_value() && empty->replays.size() == 1) {
+        OA_CHECK(empty->replays[0].timeline.has_value() && empty->replays[0].timeline->empty());
+        OA_CHECK(!oa::formats::oademo::timeline_wants_events({}));
+        OA_CHECK(empty->replays[0].watched_tick == std::optional<uint32_t>{42});
+    }
+}
+
 void a_multibyte_title_is_cut_on_a_character() {
     std::string title = "a";
     for (int count = 0; count < 80; ++count)
@@ -1570,7 +1636,8 @@ void a_campaign_keeps_its_mission_name(const Scratch& scratch) {
     OA_CHECK(scanned.replays[0].mission_name.back() == ' ');
     // An unchanged file keeps the name, and a timeline written onto the index.
     lib::Index stored = scanned;
-    stored.replays[0].timeline = std::string("{\"markers\":[]}");
+    stored.replays[0].timeline =
+        oa::formats::oademo::timeline_index_text(oa::formats::oademo::TimelineIndex{});
     stored.replays[0].watched_tick = 21000;
     const lib::Index again = lib::scan(recordings, stored);
     OA_CHECK(same_index(again, stored));
@@ -1586,6 +1653,7 @@ int main() {
     const Scratch scratch;
     a_scan_lists_and_reads_only_the_replays(scratch);
     the_index_reads_back_as_written(scratch);
+    a_timeline_from_before_battle_events_is_read_again();
     a_campaign_keeps_its_mission_name(scratch);
     a_deleted_index_is_rebuilt(scratch);
     kept_marks_outlive_the_index(scratch);

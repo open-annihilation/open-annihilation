@@ -27,8 +27,9 @@ Every document in the repository, by what you want to do.
   `--list-content --json`, and the exit statuses and refusals.
 - [troubleshooting.md](troubleshooting.md): zooming out when memory is
   short, the message the game shows when it runs out of memory, a slow
-  frame rate on a laptop with two graphics cards, and a copy of the game
-  that does not finish.
+  frame rate on a laptop with two graphics cards, a copy of the game
+  that does not finish, and speech when the screen-reader support cannot
+  load.
 - [settings.md](settings.md): Open Annihilation's own settings, with a
   picture of each section: opening them, the grouped section list, moving
   OA's windows, OK, Cancel, Restore defaults and the count of changes, and

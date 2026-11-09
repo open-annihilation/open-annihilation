@@ -32,18 +32,32 @@ asking, it builds no tree and sends nothing.
 - `attach_skipped` is true after an attach of that window has failed, until
   the preference changes. `note_attach_finished` records that, and whether
   speech may run in place of the bridge.
-- `speech_where_bridge_cannot` is true when the preference is `on` and the
-  adapter did not attach, including a build that leaves the bridge out. This
-  module does not speak.
+- `speech_where_bridge_cannot` is true on Windows when the bridge did not
+  attach, or this build leaves it out, and the preference is `on`, or it is
+  `auto` while Windows says a screen reader is running. It is false under
+  `off`, and on macOS, iOS and Linux. `oa/platform/screen_reader/speech.hpp`
+  speaks then: a focus change is the control's name, what it is and its
+  value, and it cuts off the previous line. A polite announcement waits for
+  the line already going, and an assertive one cuts it off. Neither a focus
+  change nor an assertive line cuts off an announcement made less than half
+  a second before (`line_cuts_off`), so a message box's text is heard before
+  the button the focus moves to. The voice is the system's,
+  created through ole32. The speech library is not linked. When that voice
+  is not installed, nothing is spoken and nothing is shown.
 - `reader_running` is true while the system says a screen reader, or another
   assistive client, is running. The answer is cached for about half a
-  second. Windows asks `SystemParametersInfo`, macOS and iOS ask whether
+  second. Windows asks `SystemParametersInfo` for the screen-reader flag,
+  which NVDA and JAWS set, and, because Narrator does not set it, reads
+  Narrator's `RunningState` under
+  `HKEY_CURRENT_USER\Software\Microsoft\Narrator\NoRoam` where Narrator
+  keeps it (not in the Windows 95 build). macOS and iOS ask whether
   VoiceOver is on, and Linux asks AT-SPI with Properties.Get of
   org.a11y.Status.IsEnabled on the shared session bus. The connection stays
   open. The call is flushed and its reply is dispatched without waiting, and
   the accessibility bus is not opened. ScreenReaderEnabled is the older
   property, used when IsEnabled does not answer. A build that leaves the
-  bridge out returns false.
+  bridge out returns false, except on Windows, where it asks the same way
+  for speech.
 - `active` is true after a screen reader has asked for the tree. The game
   publishes a tree only while `reader_running` is also true.
 - `refresh_window` tells the adapter the window's size and whether it holds
@@ -79,17 +93,27 @@ build that leaves the bridge out does not include it:
 `oa/platform/screen_reader/api.hpp` is the table of C functions `load`
 binds. A check builds a node through that table and reads it back.
 
+`oa/platform/screen_reader/speech.hpp` is the sentence a focus change
+speaks, and the call that speaks it. It does not name a speech engine.
+`focus_sentence` joins the label, the role and the value. `speak_focus`
+says that sentence and stops the previous line. `speak_announcement` says
+an announcement: a polite one after the line already being spoken, an
+assertive one in its place. `line_cuts_off` is that rule, with the
+announcement made just before kept. Both speak only when
+`speech_where_bridge_cannot` is true.
+
 `oa/platform/screen_reader/announce.hpp` is the spoken-update queue. It does
 not name AccessKit, so a build that leaves the bridge out can include it.
 
-- `announce(text, politeness)` keeps one line for the speech fallback and
-  adds a new live node for it. A repeated sentence is a new node. A node is
-  dropped once about four seconds have passed, or once more than eight
-  newer lines are waiting. It does nothing when the text is empty, when
+- `announce(text, politeness)` keeps one line for speech and adds a new
+  live node for it. A repeated sentence is a new node. A node is dropped
+  once about four seconds have passed, or once more than eight newer lines
+  are waiting. It does nothing when the text is empty, when
   `open-annihilation.access.screen-reader` is `off`, or when it is `auto`
-  and no screen reader is running. `announcements_open` is that gate. `take_announcements` hands
-  the lines to the game, which posts each one as an `announce` note.
-  `speech_where_bridge_cannot` is unchanged: this module still does not speak.
+  and no screen reader is running. `announcements_open` is that gate.
+  `take_announcements` hands the lines to the game, which posts each one
+  as an `announce` note. When `speech_where_bridge_cannot` is true, the
+  line is also spoken, as `speak_announcement` says.
 - `LineQueue` holds collapsible polite lines for `line_hold_ms` (about a
   second and a half) from the oldest unsent line in that room. Those lines
   then become "{count} new lines in {room}", or the line itself when there
@@ -134,8 +158,9 @@ Open Annihilation. The game's controls follow on the game's thread.
   attaches nothing.
 - With no screen reader running, no control tree is built and nothing is
   sent. An unchanged tree sends nothing.
-- The bridge draws nothing and calls no speech engine. A spoken line is
-  queued and published as a live region. Speech itself is elsewhere.
+- The bridge draws nothing. A spoken line is queued and published as a
+  live region. On Windows, where the bridge cannot run, the same line is
+  spoken by the system's voice. macOS, iOS and Linux do not speak here.
 - Windows never imports `accesskit.dll` at load. The program loads the copy
   beside itself, and only on Windows 10 or later.
 - A Windows 95 build, a build with the bridge switched off, and a platform
@@ -161,7 +186,9 @@ label, value, bounds and actions back through that API, and turns each
 action into the game's event. An unchanged tree is staged and then submitted
 again while a reader is marked active, and the factory is not called. It
 also checks the queue, the collapse, the mute and the gate that records a
-line only while a reader is running or the preference is `on`. On Windows it loads the DLL beside the
+line only while a reader is running or the preference is `on`. It checks
+the sentence a focus change speaks, which lines cut off the voice, and that
+speech under `auto` is off unless a screen reader is running. On Windows it loads the DLL beside the
 test. It skips when that DLL is not there (the Visual Studio lane has only
 the header). On a Windows older than Windows 10 it checks that `accesskit.dll`
 is not loaded (`GetModuleHandleW` returns null). On a build that leaves the
@@ -200,6 +227,8 @@ collapse, a slider's keys and set value on a field reach only the control
 that holds the game's focus. A shortcut is set on the node. Neither
 `accesskit_windows` nor `accesskit_macos` reads `keyboard_shortcut`.
 
-The bridge does not speak. Where it cannot load, `on` is the switch that
-lets speech run instead. Settings does not offer a row for the preference
-yet.
+Where the bridge cannot load, Windows speaks through the system's voice.
+`on` speaks always. `auto` speaks only while Windows says a screen reader
+is running. A machine with no speech installed stays quiet, with no dialog
+and no error. macOS, iOS and Linux do not use that voice. Settings does
+not offer a row for the preference yet.

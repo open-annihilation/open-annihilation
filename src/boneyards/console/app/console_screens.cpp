@@ -144,6 +144,24 @@ constexpr KeyMapping k_key_map[] = {
 // Modifier bits of either Shift key. Ctrl, Alt and the system key have named
 // constants; Shift is the low two bits of the same word.
 constexpr uint16_t k_modifier_shift = 0x0003;
+// A named key (the arrows, Home, End, the page keys, the function keys) has
+// this bit set. A key with it set types no character.
+constexpr uint32_t k_position_key = 0x40000000U;
+// How many focus keys can be down at once. A press is remembered until its
+// release, so the release delivers the same move the press did.
+constexpr int k_held_focus = 8;
+// Remembered when a press is not delivered: the layout moved its command
+// onto another key, so the release is not delivered either.
+constexpr int32_t k_focus_dropped = -1;
+
+// One focus key that is down, and the move its press was delivered as.
+struct HeldFocus {
+    uint32_t sdl = 0;
+    int32_t sent = 0;
+    bool held = false;
+    // The press was Previous button, so a repeat walks back too.
+    bool previous = false;
+};
 
 struct OverlayState {
     ScreenContext* ctx = nullptr; // valid during a hook call only
@@ -206,6 +224,12 @@ struct OverlayState {
     // A press that began outside the strip's rows is the menu's: the strip
     // lets its moves and its release through.
     bool press_outside_strip = false;
+    // Focus keys that are down, so each release delivers the move its press did.
+    HeldFocus held_focus[k_held_focus]{};
+    // The character a focus command took, dropped from the text that follows
+    // the press, until the key is let go. Zero when the next typed character
+    // is kept.
+    int32_t swallow_character = 0;
 };
 
 OverlayState g_state;
@@ -807,12 +831,283 @@ bool translate(const ScreenInput& input, uint32_t held, bool typing, Message* ms
     }
 }
 
+// The one character a printable key types, in lower case for a letter, or 0
+// when the key types nothing.
+int32_t typed_byte(uint32_t key) {
+    if ((key & k_position_key) != 0 || key < static_cast<uint32_t>(k_first_character) ||
+        key > static_cast<uint32_t>(k_last_printable_keycode))
+        return 0;
+    if (key >= static_cast<uint32_t>('A') && key <= static_cast<uint32_t>('Z'))
+        return static_cast<int32_t>(key - static_cast<uint32_t>('A') + static_cast<uint32_t>('a'));
+    return static_cast<int32_t>(key);
+}
+
+// True when the key types into a field. Ctrl, Alt and the system key do not,
+// and neither does a place key. Shift still types, so a command moved onto a
+// letter stays with the field.
+bool key_types_into_field(const ScreenInput& input) {
+    const uint16_t command = kInputModifierCtrl | kInputModifierAlt | kInputModifierSystem;
+    if ((input.modifiers & command) != 0)
+        return false;
+    return typed_byte(input.key) != 0;
+}
+
+// True when this text is the one character a focus command already took.
+bool swallowed_text(const char* text, int32_t stored) {
+    if (text == nullptr || text[0] == '\0' || text[1] != '\0' || stored == 0)
+        return false;
+    const auto byte = static_cast<unsigned char>(text[0]);
+    int32_t typed = static_cast<int32_t>(byte);
+    if (byte >= 'A' && byte <= 'Z')
+        typed = static_cast<int32_t>(byte - 'A' + 'a');
+    return typed == stored;
+}
+
 // Gives the focused edit the typed characters, whole, including those no
-// single key value can name.
+// single key value can name. A character a focus command already took is
+// dropped, so it is not typed into the field the command lands on.
 void route_text(OverlayState* state, const ScreenInput& input) {
     if (input.text == nullptr)
         return;
+    if (swallowed_text(input.text, state->swallow_character)) {
+        state->swallow_character = 0;
+        return;
+    }
+    state->swallow_character = 0;
     console::boneyards_status_widget_take_text(state->widget, input.text);
+}
+
+// The move a reported focus, list or screen action asks for. Next button and
+// Previous button walk. The focus and list actions are the arrows. Page up,
+// Page down, Go to start and Go to end step a list or a field. Next control
+// and the screen's own arrows are not these.
+enum class FocusMove : uint8_t {
+    none,
+    next,
+    previous,
+    left,
+    right,
+    up,
+    down,
+    home,
+    end,
+    page_up,
+    page_down,
+};
+
+FocusMove focus_move_of(const char* action) {
+    if (action == nullptr || action[0] == '\0')
+        return FocusMove::none;
+    if (std::strcmp(action, "ui.menu-focus-next") == 0)
+        return FocusMove::next;
+    if (std::strcmp(action, "ui.menu-focus-previous") == 0)
+        return FocusMove::previous;
+    if (std::strcmp(action, "ui.menu-focus-left") == 0)
+        return FocusMove::left;
+    if (std::strcmp(action, "ui.menu-focus-right") == 0)
+        return FocusMove::right;
+    if (std::strcmp(action, "ui.menu-focus-up") == 0 || std::strcmp(action, "ui.menu-list-up") == 0)
+        return FocusMove::up;
+    if (std::strcmp(action, "ui.menu-focus-down") == 0 ||
+        std::strcmp(action, "ui.menu-list-down") == 0)
+        return FocusMove::down;
+    if (std::strcmp(action, "ui.screen-home") == 0)
+        return FocusMove::home;
+    if (std::strcmp(action, "ui.screen-end") == 0)
+        return FocusMove::end;
+    if (std::strcmp(action, "ui.screen-page-up") == 0)
+        return FocusMove::page_up;
+    if (std::strcmp(action, "ui.screen-page-down") == 0)
+        return FocusMove::page_down;
+    return FocusMove::none;
+}
+
+// The key the consoles, the frame and the war map already understand for a move.
+int32_t focus_message_key(FocusMove move) {
+    switch (move) {
+    case FocusMove::next:
+    case FocusMove::previous:
+        return oa::boneyards::key::tab;
+    case FocusMove::left:
+        return oa::boneyards::key::left;
+    case FocusMove::right:
+        return oa::boneyards::key::right;
+    case FocusMove::up:
+        return oa::boneyards::key::up;
+    case FocusMove::down:
+        return oa::boneyards::key::down;
+    case FocusMove::home:
+        return oa::boneyards::key::home;
+    case FocusMove::end:
+        return oa::boneyards::key::end;
+    case FocusMove::page_up:
+        return oa::boneyards::key::page_up;
+    case FocusMove::page_down:
+        return oa::boneyards::key::page_down;
+    case FocusMove::none:
+        return 0;
+    }
+    return 0;
+}
+
+// Tab, the arrows, Home, End and the page keys. With the default layout each
+// of these fires one focus command. F6 is not one: it moves between regions
+// on its own.
+bool raw_focus_key(uint32_t key) {
+    switch (key) {
+    case 0x09U:
+    case 0x4000004AU:
+    case 0x4000004BU:
+    case 0x4000004DU:
+    case 0x4000004EU:
+    case 0x4000004FU:
+    case 0x40000050U:
+    case 0x40000051U:
+    case 0x40000052U:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void remember_focus(OverlayState* state, uint32_t sdl, int32_t sent, bool previous) {
+    HeldFocus* slot = nullptr;
+    for (HeldFocus& held : state->held_focus) {
+        if (held.held && held.sdl == sdl) {
+            slot = &held;
+            break;
+        }
+        if (slot == nullptr && !held.held)
+            slot = &held;
+    }
+    if (slot == nullptr)
+        slot = &state->held_focus[0];
+    slot->sdl = sdl;
+    slot->sent = sent;
+    slot->held = true;
+    slot->previous = previous;
+}
+
+// The focus key that is down on this key, or null.
+const HeldFocus* held_focus_of(const OverlayState* state, uint32_t sdl) {
+    for (const HeldFocus& held : state->held_focus) {
+        if (held.held && held.sdl == sdl)
+            return &held;
+    }
+    return nullptr;
+}
+
+bool take_focus(OverlayState* state, uint32_t sdl, int32_t* sent) {
+    for (HeldFocus& held : state->held_focus) {
+        if (!held.held || held.sdl != sdl)
+            continue;
+        *sent = held.sent;
+        held = {};
+        return true;
+    }
+    return false;
+}
+
+// What a key in the Boneyards does once the player's layout has been read.
+enum class FocusRoute : uint8_t { raw, send, drop };
+
+// Reads the focus command this key fires and fills `msg` when that command
+// decides the key.
+//
+// Next button, Previous button, the arrows, Home, End and the page keys are
+// the commands the layout binds, not the keys those commands use by default.
+// A letter typed into a field is never one of them, and neither is Tab, an
+// arrow, Home, End or a page key held with Ctrl. F6 is left as itself unless
+// a focus command was moved onto it. The release delivers the same move the
+// press did.
+FocusRoute focus_route(OverlayState* state, const ScreenInput& input, uint32_t held, Message* msg) {
+    if (state->services == nullptr || state->services->bound_focus_action == nullptr ||
+        state->host == nullptr)
+        return FocusRoute::raw;
+    if (input.kind == ScreenInputKind::key_up) {
+        int32_t sent = 0;
+        if (!take_focus(state, input.key, &sent))
+            return FocusRoute::raw;
+        // The press's character, when it comes, comes before the release.
+        // One that comes later was typed by other means (an input method's
+        // or an on-screen keyboard's text) and is kept.
+        state->swallow_character = 0;
+        if (sent == k_focus_dropped)
+            return FocusRoute::drop;
+        *msg = Message{};
+        msg->x = static_cast<int32_t>(input.x);
+        msg->y = static_cast<int32_t>(input.y);
+        msg->buttons = held;
+        msg->code = MessageCode::key_up;
+        msg->key = sent;
+        return FocusRoute::send;
+    }
+    if (input.kind != ScreenInputKind::key_down)
+        return FocusRoute::raw;
+    state->swallow_character = 0;
+    // A chord matches Ctrl only where it names Ctrl, so Ctrl with Tab, an
+    // arrow, Home, End or a page key is no focus command of the default
+    // layout. It goes to the consoles as before, unasked, so the ring
+    // follows the key as it always has, and Ctrl+Left and Ctrl+Right still
+    // move a field's caret by a word.
+    if ((input.modifiers & kInputModifierCtrl) != 0 && raw_focus_key(input.key))
+        return FocusRoute::raw;
+    const bool field =
+        state->widget != nullptr && console::boneyards_status_widget_text_field(
+                                        state->widget, nullptr, nullptr, nullptr, nullptr, nullptr
+                                    );
+    // A character typed into a field is the field's, even when the layout
+    // binds that key to a focus command. Asking with no action keeps the
+    // ring from showing for the character.
+    if (field && key_types_into_field(input)) {
+        static_cast<void>(
+            state->services->bound_focus_action(state->host, &input, nullptr, 0, nullptr)
+        );
+        return FocusRoute::raw;
+    }
+    char action[96]{};
+    static_cast<void>(
+        state->services->bound_focus_action(state->host, &input, action, sizeof action, nullptr)
+    );
+    const FocusMove move = focus_move_of(action);
+    int32_t sent = focus_message_key(move);
+    bool previous = move == FocusMove::previous;
+    if (move == FocusMove::none) {
+        // A key already down that fires nothing now is the platform's repeat
+        // of it: with a repeat delay and rate of the player's own, the
+        // bindings leave those alone. It repeats the move its press made, at
+        // the platform's pace, as the keys did before they followed the
+        // layout.
+        const HeldFocus* down = held_focus_of(state, input.key);
+        if (down == nullptr || down->sent == k_focus_dropped) {
+            if (!raw_focus_key(input.key))
+                return FocusRoute::raw;
+            remember_focus(state, input.key, k_focus_dropped, false);
+            return FocusRoute::drop;
+        }
+        sent = down->sent;
+        previous = down->previous;
+    }
+    remember_focus(state, input.key, sent, previous);
+    if (sent == oa::boneyards::key::tab) {
+        console::boneyards_status_widget_event_modifiers(
+            state->widget,
+            previous,
+            (input.modifiers & kInputModifierCtrl) != 0,
+            (input.modifiers & kInputModifierAlt) != 0,
+            (input.modifiers & kInputModifierSystem) != 0
+        );
+    }
+    const int32_t typed = typed_byte(input.key);
+    if (typed != 0 && key_types_into_field(input))
+        state->swallow_character = typed;
+    *msg = Message{};
+    msg->x = static_cast<int32_t>(input.x);
+    msg->y = static_cast<int32_t>(input.y);
+    msg->buttons = held;
+    msg->code = MessageCode::key_down;
+    msg->key = sent;
+    return FocusRoute::send;
 }
 
 // The overlay graphic is missing, so the player is told which files to add.
@@ -1260,7 +1555,22 @@ int overlay_event(ScreenContext* ctx, void* user) {
             state->widget, nullptr, nullptr, nullptr, nullptr, nullptr
         ))
         typing = false;
-    const bool routed = translate(input, state->held_buttons, typing, &msg);
+    // In the Boneyards the focus keys are the player's. The consoles, the
+    // frame and the war map then see the same moves they see with the
+    // default layout. On the main menu the host's order already owns those
+    // keys, and the strip keeps the keys it has today.
+    bool routed = false;
+    const bool focus_key = boneyards && (input.kind == ScreenInputKind::key_down ||
+                                         input.kind == ScreenInputKind::key_up);
+    if (focus_key) {
+        const FocusRoute decided = focus_route(state, input, state->held_buttons, &msg);
+        if (decided == FocusRoute::raw)
+            routed = translate(input, state->held_buttons, typing, &msg);
+        else
+            routed = decided == FocusRoute::send;
+    } else {
+        routed = translate(input, state->held_buttons, typing, &msg);
+    }
     if (input.kind == ScreenInputKind::pointer_up)
         state->held_buttons &= ~button_bit(input.button);
     if (!routed) {
@@ -1637,6 +1947,9 @@ void boneyards_console_release() {
     std::vector<uint8_t>().swap(g_state.plate_palette);
     g_state.plate_held = false;
     g_state.press_outside_strip = false;
+    for (HeldFocus& held : g_state.held_focus)
+        held = {};
+    g_state.swallow_character = 0;
     console::console_images_release_embedded_menu();
 }
 

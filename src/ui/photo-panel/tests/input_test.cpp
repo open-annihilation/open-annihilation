@@ -101,8 +101,10 @@ void walk_pad(int32_t width, int32_t height) {
         const kit::Control* here = kit::control_of(placed.list, interaction.focused);
         if (here == nullptr)
             break;
-        saw.emplace_back(here->name);
-        const bool header = here->name.rfind("photo.section.", 0) == 0 && !here->expanded;
+        // The layout is made again below, which frees here's list: keep its name.
+        const std::string here_name = here->name;
+        saw.emplace_back(here_name);
+        const bool header = here_name.rfind("photo.section.", 0) == 0 && !here->expanded;
         if (header) {
             const panel::Answer opened =
                 panel::key_event(interaction, model, placed, kit::Key::enter);
@@ -113,7 +115,7 @@ void walk_pad(int32_t width, int32_t height) {
             const kit::Control* stayed = kit::control_of(placed.list, interaction.focused);
             OA_CHECK(stayed != nullptr && centre_shown(*stayed));
         }
-        if (here->name == "photo.take")
+        if (here_name == "photo.take")
             break;
         const kit::ControlId before = interaction.focused;
         const kit::Key key = kit::focus_ring_visible(interaction) ? kit::Key::down : kit::Key::tab;

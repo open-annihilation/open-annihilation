@@ -114,15 +114,19 @@ void detach();
 
 /// Records how the last attach finished, for the skip and for speech.
 ///
-/// Speech is wanted when the preference is `on` and the adapter did not
-/// attach. This does not speak.
+/// Speech is wanted when the adapter did not attach and the preference is
+/// not `off`. This does not speak.
 ///
 /// @param window the window attach was given
 /// @param succeeded true when an adapter is attached
 void note_attach_finished(SDL_Window* window, bool succeeded);
 
-/// Reports whether speech should run because the preference is `on` and the
-/// bridge did not attach. Speech itself is elsewhere.
+/// Reports whether Windows should speak because the bridge cannot run.
+///
+/// True on Windows when the bridge did not attach (or this build leaves it
+/// out) and the preference is `on`, or it is `auto` and a screen reader is
+/// running. False under `off`, and on macOS, iOS and Linux, which speak
+/// through the bridge. Speaking a missing speech engine shows nothing.
 ///
 /// @return true when speech may run in place of the bridge
 [[nodiscard]] bool speech_where_bridge_cannot();
@@ -131,7 +135,7 @@ void note_attach_finished(SDL_Window* window, bool succeeded);
 ///
 /// True when the preference is `on`, or when it is `auto` and a screen
 /// reader is running. Under `off` nothing is recorded, even with a reader
-/// running.
+/// running. A build that leaves the bridge out asks Windows the same way.
 ///
 /// @return true when announcements are recorded
 [[nodiscard]] bool announcements_open();

@@ -1036,7 +1036,8 @@ void check_touch_layout(const kit::Fonts& fonts) {
     }
 
     panel::Model mouse = model_for(852, 393, kit::size_class_of(852, 393), panel::Visit::skirmish);
-    const kit::Control* short_row = named(panel::layout_of(mouse, fonts).list, "photo.leave");
+    const panel::Layout mouse_placed = panel::layout_of(mouse, fonts);
+    const kit::Control* short_row = named(mouse_placed.list, "photo.leave");
     expect(short_row != nullptr && short_row->rect.height < 44, "a mouse row stays under 44");
 }
 

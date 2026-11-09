@@ -2940,6 +2940,19 @@ void Runtime::check_photo_replay() {
         if (!ok)
             fail(what);
     };
+    // --hardware-acceleration=full draws the photo in Full. The check that
+    // names the flag requires that; a run that does not stays as it is.
+    const bool full_photo = options_.hardware_acceleration.value_or(
+                                oa::ui::engine_settings::HardwareAcceleration::off
+                            ) == oa::ui::engine_settings::HardwareAcceleration::full;
+    const auto require_full_photo = [&] {
+        if (!full_photo)
+            return;
+        require(
+            photo_capture_machine().kind == oa::present::photo::CaptureKind::full,
+            "the photo is not drawn by Full"
+        );
+    };
     require(sdl_.window != nullptr && sdl_.renderer != nullptr, "the check has no window");
     require(
         options_.user_folder && !options_.user_folder->empty() && !user_folder_.empty(),
@@ -3056,6 +3069,7 @@ void Runtime::check_photo_replay() {
         }
     }
     require(started, "the replay did not start");
+    require_full_photo();
     if (LayerScreen* welcome = oa_layer().find("first-run"))
         oa_layer().close(welcome);
     require(
@@ -3209,6 +3223,7 @@ void Runtime::check_photo_replay() {
 
     render_match_surface();
     present_match_layers();
+    require_full_photo();
     take_photo();
     wait_for_photos();
     const std::string saved = saved_photo_name(status_);
@@ -3461,6 +3476,8 @@ void Runtime::check_photo_replay() {
     require(
         file_bytes(options_.preferences_file) == preferences_settled, "the preferences file changed"
     );
+    if (full_photo)
+        std::printf("photo replay: full\n");
     std::printf("photo replay: ok\n");
     std::fflush(stdout);
 }

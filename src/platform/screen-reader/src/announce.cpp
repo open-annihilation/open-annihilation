@@ -5,6 +5,7 @@
 #include "oa/platform/screen_reader/announce.hpp"
 
 #include "oa/platform/screen_reader.hpp"
+#include "oa/platform/screen_reader/speech.hpp"
 
 #if !defined(OA_SCREEN_READER_COMPILED_OUT)
 #include <SDL3/SDL.h>
@@ -271,6 +272,10 @@ void testing_reset_announcements() {
 void announce(std::string text, Politeness politeness) {
     if (text.empty() || !announcements_open())
         return;
+    // Where the bridge cannot run, the same line is spoken. The live node
+    // is still recorded, for the bridge and for the event feed.
+    if (speech_where_bridge_cannot())
+        speak_announcement(text, politeness);
     prune_live();
     ShownLine line;
     line.id = take_live_id();

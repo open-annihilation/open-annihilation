@@ -2812,8 +2812,12 @@ library::RecordedResult recorded_result(int number, const std::vector<int>& winn
 ///
 /// @param[in,out] row the row
 void apply_timeline(library::ReplayRow& row) {
-    row.indexing = replay_index_pass_available && !replay_data::damaged(row.replay) &&
-                   !row.replay.timeline.has_value();
+    // A timeline with no `events` member is read again. The text stays until
+    // the new one is stored, so the marks below still draw from the old one.
+    // An empty timeline is a pass that stored nothing, and is not read again.
+    const bool held =
+        row.replay.timeline.has_value() && !oademo::timeline_wants_events(*row.replay.timeline);
+    row.indexing = replay_index_pass_available && !replay_data::damaged(row.replay) && !held;
     if (!row.replay.timeline.has_value() || row.replay.timeline->empty())
         return;
     const std::optional<oademo::TimelineIndex> parsed =
@@ -2923,9 +2927,9 @@ bool remember_index_text(
     return true;
 }
 
-/// Remembers that a pass could not read one file. The timeline stays unset,
-/// so a later change of what is installed reads the file again. An empty
-/// timeline is not stored.
+/// Remembers that a pass could not read one file. A timeline already stored
+/// stays, so the result and the marks remain, and a later change of what is
+/// installed reads the file again. An empty timeline is not stored.
 ///
 /// @param shelf the shelf
 /// @param user_folder the player's folder
@@ -2997,7 +3001,12 @@ bool note_index_spawn_failure(
 std::string
 next_unindexed(const ReplayShelf& shelf, const library::Library& model, const std::string& stamp) {
     const auto needs = [&](const replay_data::Replay& replay) {
-        if (replay_data::damaged(replay) || replay.timeline.has_value())
+        if (replay_data::damaged(replay))
+            return false;
+        // Kept when the stored text already names its battle events. A
+        // version 1 timeline with no `events` member is read again, and the
+        // text stays until that read is stored.
+        if (replay.timeline.has_value() && !oademo::timeline_wants_events(*replay.timeline))
             return false;
         if (replay.read_stamp.has_value() && *replay.read_stamp == stamp)
             return false;
@@ -5241,15 +5250,19 @@ void Runtime::LibraryHost::fill_replay_inputs(Runtime& runtime, library::Inputs&
         }
         // A row Watch would have to fetch, turn on or refuse is not read, shows
         // no Reading… chip and is not part of the footer's count. A refusal at
-        // the current stamp counts as read, so the footer is not stuck.
+        // the current stamp counts as read, so the footer is not stuck. A
+        // timeline with no `events` member waits for its new read like a row
+        // with none, and keeps its result and marks while it waits.
         const bool blocked = index_pass_blocked(row.gaps);
-        const bool refused = !replay.timeline.has_value() && replay.read_stamp.has_value() &&
-                             *replay.read_stamp == shelf.have_stamp;
+        const bool read =
+            replay.timeline.has_value() && !oademo::timeline_wants_events(*replay.timeline);
+        const bool refused =
+            !read && replay.read_stamp.has_value() && *replay.read_stamp == shelf.have_stamp;
         if (blocked || refused)
             row.indexing = false;
         if (!replay_data::damaged(replay) && !blocked) {
             ++index_total;
-            if (replay.timeline.has_value() || refused)
+            if (read || refused)
                 ++index_done;
         }
         shown.rows.push_back(std::move(row));

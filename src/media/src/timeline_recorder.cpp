@@ -289,14 +289,14 @@ TimelinePlayer& note_player(Timeline& timeline, const oa::World& world, uint8_t 
 /// @param[in,out] timeline the timeline
 /// @param world the world
 /// @param slot the unit's slot
-/// @param detail what the recorder keeps; at `standings` only a commander is
-///        recorded, and its type is not noted
+/// @param detail what the recorder keeps; at `standings` and `battles` only
+///        a commander is recorded, and its type is not noted
 void record_created(Timeline& timeline, const oa::World& world, uint16_t slot, Detail detail) {
     const oa::Unit* unit{unit_in(world, slot)};
     if (unit == nullptr)
         return;
     const bool commander{oa::sim::match_runtime::side_commander(world, *unit)};
-    if (detail == Detail::standings && !commander)
+    if (detail != Detail::full && !commander)
         return;
     if (detail == Detail::full)
         note_unit_type(timeline, world, *unit);
@@ -625,7 +625,7 @@ void TimelineRecorder::unit_damaged(
         const oa::Unit* record{unit_in(world, target)};
         if (record == nullptr)
             return;
-        if (recorder.detail_ == Detail::full)
+        if (recorder.detail_ != Detail::standings)
             note_unit_type(recorder.timeline_, world, *record);
         TimelineEvent event{};
         event.tick = world.game.tick;
@@ -661,7 +661,7 @@ void TimelineRecorder::unit_died(
         const bool commander{oa::sim::match_runtime::side_commander(world, *record)};
         if (recorder.detail_ == Detail::standings && !commander)
             return;
-        if (recorder.detail_ == Detail::full)
+        if (recorder.detail_ != Detail::standings)
             note_unit_type(recorder.timeline_, world, *record);
         TimelineEvent event{};
         event.tick = world.game.tick;

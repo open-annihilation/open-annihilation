@@ -11,7 +11,13 @@ if(NOT TARGET SDL3::SDL3)
   return()
 endif()
 
-add_library(oa-platform-screen-reader src/announce.cpp src/screen_reader.cpp src/tree.cpp)
+add_library(oa-platform-screen-reader src/announce.cpp src/screen_reader.cpp src/speech.cpp
+  src/tree.cpp)
+if(WIN32)
+  # The voice is created through ole32. The speech library itself is not
+  # linked, so a machine without it still starts.
+  target_link_libraries(oa-platform-screen-reader PUBLIC ole32 user32)
+endif()
 add_library(oa::platform::screen_reader ALIAS oa-platform-screen-reader)
 target_include_directories(oa-platform-screen-reader PUBLIC include)
 target_compile_features(oa-platform-screen-reader PUBLIC cxx_std_20)

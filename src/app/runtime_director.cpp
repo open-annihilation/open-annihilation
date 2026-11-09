@@ -1347,12 +1347,12 @@ int Runtime::run_replay_index() {
         if (!stream)
             throw std::runtime_error(recording_name + ": " + stream_error);
         const auto& world = match_->state();
-        // The index reads the standings, so the recorder keeps no more: a
-        // long game's samples of its units would take more memory than the
-        // replay itself.
+        // The index reads the fighting as well as the standings. The recorder
+        // still keeps no sample of the units: those samples are what makes a
+        // long game's timeline larger than the replay itself.
         director::TimelineRecorder recorder;
         recorder.begin(
-            world, info.viewer_player, selected_map_name_runtime_, director::Detail::standings
+            world, info.viewer_player, selected_map_name_runtime_, director::Detail::battles
         );
         match_->event_hooks = recorder.event_hooks();
         const uint32_t first_tick = world.game.tick;

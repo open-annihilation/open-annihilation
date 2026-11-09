@@ -7,8 +7,9 @@
 // which the index pass (`--replay-index`) writes beside any recording. It
 // holds the replay's length and how it ended, the markers a timeline bar
 // shows, each player's totals every ten seconds of game time, the battle's
-// intensity and the result. Every number is a whole number counted from the
-// recording, so the same recording always gives the same text.
+// intensity, where the fighting was and the result. Every number is a whole
+// number counted from the recording, so the same recording always gives the
+// same text.
 
 #include "oa/formats/oademo/oademo.hpp"
 
@@ -21,9 +22,18 @@
 
 namespace oa::formats::oademo {
 
-/// The version of `timeline.json` this reader and writer use, written as
-/// `oademo_timeline`.
+/// The version of `timeline.json` this writer uses, written as
+/// `oademo_timeline`. It stays 1. The battle events are the `events` member,
+/// which a reader that knows only the moments, the intensity and the winners
+/// ignores. A version of 2 or more is refused.
 inline constexpr int timeline_version = 1;
+
+/// The most battle events an index keeps. A game with more keeps the heaviest
+/// fight in each square and stretch, then spreads what remains across the
+/// whole game rather than taking it from the opening. 512 events take about
+/// 21 KB, and keep a fight within reach of the camera through most of a
+/// four-hour game.
+inline constexpr std::size_t most_battle_events = 512;
 
 /// Ticks in one second of game time.
 inline constexpr uint32_t game_ticks_per_second = 30;
@@ -174,9 +184,55 @@ struct IndexResult {
     ResultBy by{ResultBy::none};
 };
 
+/// What a battle event marks.
+enum class BattleKind : uint8_t {
+    unit_lost,      ///< a unit was destroyed
+    building_lost,  ///< a building was destroyed
+    engagement,     ///< a large cluster of hits
+    commander,      ///< a commander was created; this alone does not show a fight
+    commander_lost, ///< a commander's real death; a displaced commander is left out
+};
+
+/// Returns the word `kind` is written as.
+///
+/// @param kind the kind
+/// @return such as `unit_lost`
+[[nodiscard]] std::string_view battle_kind_name(BattleKind kind) noexcept;
+
+/// Tells whether an event is fighting, rather than a commander being placed
+/// or lost. The camera that follows the battle is offered only when an index
+/// holds one of these.
+///
+/// @param kind the kind
+/// @return true for a unit destroyed, a building lost or a large engagement
+[[nodiscard]] constexpr bool battle_fight(BattleKind kind) noexcept {
+    return kind == BattleKind::unit_lost || kind == BattleKind::building_lost ||
+           kind == BattleKind::engagement;
+}
+
+/// Where something in the battle happened, in map pixels.
+struct BattleEvent {
+    /// The game tick it happened on.
+    uint32_t tick{};
+    /// What happened.
+    BattleKind kind{BattleKind::unit_lost};
+    /// Its place across the map.
+    int32_t x{};
+    /// Its place down the map, on the row the picture draws.
+    int32_t z{};
+    /// The player's number in the recording; 0 when the event names none.
+    int player{};
+    /// What a lost unit or building cost in metal. 0 when it is not known.
+    uint32_t metal{};
+    /// Its full health. 0 when it is not known.
+    uint32_t health{};
+    /// Health points in an engagement.
+    int32_t amount{};
+};
+
 /// A replay's index.
 struct TimelineIndex {
-    /// The version, written as `oademo_timeline`. The reader accepts 1.
+    /// The version, written as `oademo_timeline`. Only version 1 is read.
     int version{timeline_version};
     /// The last tick: the replay's length in ticks.
     uint32_t length_ticks{};
@@ -204,6 +260,14 @@ struct TimelineIndex {
     std::vector<IndexSeries> totals{};
     /// Health points taken off units in each stretch of `period_ticks`.
     std::vector<uint64_t> damage{};
+    /// Where the fighting was, in tick order. Empty when the game had no
+    /// fight. At most `most_battle_events`. The writer always stores this,
+    /// as compact arrays.
+    std::vector<BattleEvent> events{};
+    /// The text named `events`, including an empty list. A version 1 timeline
+    /// from before battle events were recorded leaves this false, and the
+    /// Library reads that replay again.
+    bool events_recorded{false};
     /// Members this version does not interpret.
     std::vector<JsonExtra> extra{};
 };
@@ -223,7 +287,26 @@ struct TimelineIndex {
 ///
 /// @param text the `timeline.json` text
 /// @return the index, or nothing when the text is not JSON, names a version
-///         other than 1, or lacks a member or holds a wrong one
+///         other than 1, or lacks a member or holds a wrong one. A version 1
+///         timeline with no `events` member is read, and `events_recorded`
+///         is left false.
 [[nodiscard]] std::optional<TimelineIndex> parse_timeline_index(std::string_view text);
+
+/// Reads the version from the start of a timeline, without parsing it.
+///
+/// The writer always starts `{"oademo_timeline":N,`.
+///
+/// @param text the timeline text
+/// @return the version, or nothing when the text does not start that way
+[[nodiscard]] std::optional<int> timeline_prefix_version(std::string_view text) noexcept;
+
+/// Tells whether a stored timeline should be read again for its battle events.
+///
+/// An empty text is a pass that stored nothing, and is not read again. A
+/// version other than 1, or a version 1 timeline with no `events` member, is.
+///
+/// @param text the stored timeline; empty when the pass stored nothing
+/// @return true when the Library should index the replay again
+[[nodiscard]] bool timeline_wants_events(std::string_view text) noexcept;
 
 } // namespace oa::formats::oademo

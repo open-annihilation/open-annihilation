@@ -664,7 +664,18 @@ void check_player_list() {
     OA_CHECK(!saw_theirs);
     OA_CHECK(no_shared.camera_modes.size() == 1);
     OA_CHECK(no_shared.camera_modes[0] == viewer::CameraMode::free);
+    model.offer_director = true;
+    const viewer::Layout directed = viewer::lay_out(832, 476, model, true);
+    OA_CHECK(directed.camera_modes.size() == 2);
+    OA_CHECK(directed.camera_modes[0] == viewer::CameraMode::free);
+    OA_CHECK(directed.camera_modes[1] == viewer::CameraMode::director);
+    OA_CHECK(viewer::camera_button_caption(viewer::CameraMode::director) == "Director");
     model.offer_follow_camera = true;
+    model.offer_director = true;
+    const viewer::Layout both = viewer::lay_out(832, 476, model, true);
+    OA_CHECK(both.camera_modes.size() == 3);
+    OA_CHECK(both.camera_modes[2] == viewer::CameraMode::director);
+    model.offer_director = false;
     kit::DisplayList list;
     viewer::fill_controls(folded, model, list);
     bool saw_chip = false;

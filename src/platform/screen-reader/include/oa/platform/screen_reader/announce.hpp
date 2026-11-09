@@ -174,9 +174,9 @@ void testing_reset_announcements();
 /// A repeated sentence is a new node. A node is dropped once a few seconds
 /// have passed, or once newer lines have replaced it. Does nothing when no
 /// screen reader is running and the screen-reader preference is not `on`:
-/// nothing is recorded and the live lines are left as they were. Speech
-/// itself is elsewhere. The caller posts each line `take_announcements`
-/// returns.
+/// nothing is recorded and the live lines are left as they were. Where
+/// Windows speaks because the bridge cannot run, the line is spoken too.
+/// The caller posts each line `take_announcements` returns.
 ///
 /// @param text the sentence
 /// @param politeness how soon it is spoken

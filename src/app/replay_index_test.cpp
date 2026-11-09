@@ -5,7 +5,7 @@
 // made-up recording of every kind of record (also inside a .oademo, with the
 // refusals), and the index built from a made-up timeline and notes: the
 // totals, the damage, the markers and how they are ordered and capped, the
-// commanders' result and how the replay ended.
+// commanders' result, how the replay ended, and where the fighting was.
 
 #include "oa/app/replay_index.hpp"
 
@@ -607,6 +607,23 @@ void an_index_is_built() {
         OA_CHECK(index.markers[7].player == 2 && index.markers[8].player == 3);
     }
     OA_CHECK(index.markers_omitted == 0);
+    // The commanders are placed, including the one that replaces the displaced
+    // commander. That displacement is no loss, and the hits are too small to
+    // be a fight. The file is version 1, and it names its events.
+    OA_CHECK(index.version == oademo::timeline_version);
+    OA_CHECK(index.events.size() == 4);
+    if (index.events.size() == 4) {
+        OA_CHECK(index.events[0].kind == oademo::BattleKind::commander);
+        OA_CHECK(index.events[0].tick == 0 && index.events[0].player == 1);
+        OA_CHECK(index.events[1].kind == oademo::BattleKind::commander);
+        OA_CHECK(index.events[1].tick == 0 && index.events[1].player == 2);
+        OA_CHECK(index.events[2].kind == oademo::BattleKind::commander);
+        OA_CHECK(index.events[2].tick == 400 && index.events[2].player == 1);
+        OA_CHECK(index.events[3].kind == oademo::BattleKind::commander_lost);
+        OA_CHECK(index.events[3].tick == 800 && index.events[3].player == 2);
+        for (const oademo::BattleEvent& battle : index.events)
+            OA_CHECK(!oademo::battle_fight(battle.kind));
+    }
     OA_CHECK(index.result.winners == std::vector<int>{1});
     OA_CHECK(index.result.by == oademo::ResultBy::commanders);
     OA_CHECK(index.ended == oademo::IndexEnd::finished);
@@ -863,6 +880,660 @@ void a_short_game_gives_an_index() {
     OA_CHECK(oademo::parse_timeline_index(oademo::timeline_index_text(index)).has_value());
 }
 
+/// Puts a timeline event on the map. The row the picture draws is z - y / 2.
+///
+/// @param made the event
+/// @param x across the map
+/// @param y height
+/// @param z down the map
+void place_at(director::TimelineEvent& made, int32_t x, int32_t y, int32_t z) {
+    made.at.x = x;
+    made.at.y = y;
+    made.at.z = z;
+}
+
+/// Adds a unit type the index can name a loss from.
+///
+/// @param timeline the timeline
+/// @param index the type's index
+/// @param mobile a unit, rather than a building
+/// @param metal its metal cost
+/// @param health its full health
+void add_type(
+    director::Timeline& timeline, uint16_t index, bool mobile, uint32_t metal, uint32_t health
+) {
+    director::TimelineUnitType type;
+    type.type_index = index;
+    type.mobile = mobile;
+    type.metal_cost = metal;
+    type.max_damage = health;
+    timeline.header.unit_types.push_back(type);
+}
+
+/// Counts battle events of one kind.
+///
+/// @param index the index
+/// @param kind the kind
+/// @return the count
+std::size_t battles_of(const oademo::TimelineIndex& index, oademo::BattleKind kind) {
+    return static_cast<std::size_t>(std::count_if(
+        index.events.begin(), index.events.end(), [kind](const oademo::BattleEvent& battle) {
+            return battle.kind == kind;
+        }
+    ));
+}
+
+// Units destroyed and buildings lost are kept, with their place on the row
+// the picture draws. A capture, a reclaim, a dismissal, a cancelled build
+// and a commander replaced on the same tick are not. Hits in one square over
+// ten seconds become one engagement when they take 2,000 health or there
+// are eight of them. A commander placed or lost is kept and is not a fight.
+void the_battle_is_indexed() {
+    constexpr uint16_t tank = 1;
+    constexpr uint16_t solar = 2;
+    constexpr uint8_t weapon = 1;
+    constexpr uint8_t displaced = 0;
+    constexpr uint8_t captured = 4;
+    constexpr uint8_t reclaimed = 5;
+    constexpr uint8_t dismissed = 7;
+    constexpr uint8_t cancelled = 9;
+    constexpr uint8_t self_destruct = 3;
+    constexpr uint8_t healing = 10;
+    constexpr uint8_t paralysis = 2;
+
+    director::Timeline timeline;
+    timeline.header.last_tick = 5000;
+    timeline.verdict.finished = true;
+    add_type(timeline, tank, true, 90, 600);
+    add_type(timeline, solar, false, 145, 500);
+
+    director::TimelineEvent red = event(0, director::EventKind::created, 0, 1, true);
+    place_at(red, 1120, 0, 3696);
+    director::TimelineEvent blue = event(0, director::EventKind::created, 1, 2, true);
+    place_at(blue, 8880, 0, 13248);
+    timeline.events.push_back(red);
+    timeline.events.push_back(blue);
+
+    director::TimelineEvent replaced = event(400, director::EventKind::death, 0, 1, true);
+    replaced.damage_kind = displaced;
+    place_at(replaced, 1120, 0, 3696);
+    director::TimelineEvent replacement = event(400, director::EventKind::created, 0, 1, true);
+    place_at(replacement, 1120, 0, 3696);
+    timeline.events.push_back(replaced);
+    timeline.events.push_back(replacement);
+
+    const auto not_a_loss = [&](uint32_t tick, uint8_t kind) {
+        director::TimelineEvent death = event(tick, director::EventKind::death, 0, 9, false);
+        death.damage_kind = kind;
+        death.unit_type = tank;
+        place_at(death, 100, 0, 100);
+        timeline.events.push_back(death);
+    };
+    not_a_loss(500, captured);
+    not_a_loss(510, reclaimed);
+    not_a_loss(520, dismissed);
+    not_a_loss(530, cancelled);
+
+    director::TimelineEvent tank_lost = event(2000, director::EventKind::death, 0, 9, false);
+    tank_lost.damage_kind = weapon;
+    tank_lost.unit_type = tank;
+    place_at(tank_lost, 4000, 20, 3000);
+    timeline.events.push_back(tank_lost);
+
+    // Each loss is its own square and stretch, so the heaviest-per-square
+    // rule keeps every one of them.
+    director::TimelineEvent solar_lost = event(2400, director::EventKind::death, 1, 10, false);
+    solar_lost.damage_kind = weapon;
+    solar_lost.unit_type = solar;
+    place_at(solar_lost, 5120, 0, 3600);
+    timeline.events.push_back(solar_lost);
+
+    director::TimelineEvent unknown = event(2700, director::EventKind::death, 0, 11, false);
+    unknown.damage_kind = weapon;
+    unknown.unit_type = 99;
+    place_at(unknown, 6144, 0, 4200);
+    timeline.events.push_back(unknown);
+
+    director::TimelineEvent wrecked = event(3300, director::EventKind::death, 0, 12, false);
+    wrecked.damage_kind = self_destruct;
+    wrecked.unit_type = tank;
+    place_at(wrecked, 7168, 0, 4800);
+    timeline.events.push_back(wrecked);
+
+    director::TimelineEvent heavy = hit(3000, 1500, weapon);
+    place_at(heavy, 600, 0, 200);
+    director::TimelineEvent light = hit(3010, 500, weapon);
+    place_at(light, 700, 0, 400);
+    timeline.events.push_back(heavy);
+    timeline.events.push_back(light);
+
+    for (uint32_t tick = 3600; tick < 3608; ++tick) {
+        director::TimelineEvent small = hit(tick, 10, weapon);
+        place_at(small, 100, 0, 100);
+        timeline.events.push_back(small);
+    }
+    for (uint32_t tick = 4200; tick < 4207; ++tick) {
+        director::TimelineEvent few = hit(tick, 100, weapon);
+        place_at(few, 2000, 0, 2000);
+        timeline.events.push_back(few);
+    }
+    director::TimelineEvent healed = hit(3011, 5000, healing);
+    place_at(healed, 600, 0, 200);
+    director::TimelineEvent held = hit(3012, 5000, paralysis);
+    place_at(held, 600, 0, 200);
+    timeline.events.push_back(healed);
+    timeline.events.push_back(held);
+
+    const oademo::TimelineIndex index = build(timeline, three_players());
+    OA_CHECK(index.version == oademo::timeline_version);
+    OA_CHECK(battles_of(index, oademo::BattleKind::commander) == 3);
+    OA_CHECK(battles_of(index, oademo::BattleKind::commander_lost) == 0);
+    OA_CHECK(battles_of(index, oademo::BattleKind::unit_lost) == 2);
+    OA_CHECK(battles_of(index, oademo::BattleKind::building_lost) == 2);
+    OA_CHECK(battles_of(index, oademo::BattleKind::engagement) == 2);
+
+    const oademo::BattleEvent* tank_event = nullptr;
+    const oademo::BattleEvent* solar_event = nullptr;
+    const oademo::BattleEvent* unknown_event = nullptr;
+    const oademo::BattleEvent* heavy_event = nullptr;
+    const oademo::BattleEvent* small_event = nullptr;
+    for (const oademo::BattleEvent& battle : index.events) {
+        if (battle.tick == 400)
+            OA_CHECK(battle.kind == oademo::BattleKind::commander);
+        OA_CHECK(battle.tick != 500 && battle.tick != 510);
+        OA_CHECK(battle.tick != 520 && battle.tick != 530 && battle.tick != 4200);
+        if (battle.tick == 2000)
+            tank_event = &battle;
+        if (battle.tick == 2400)
+            solar_event = &battle;
+        if (battle.tick == 2700)
+            unknown_event = &battle;
+        if (battle.tick == 3000)
+            heavy_event = &battle;
+        if (battle.tick == 3600)
+            small_event = &battle;
+    }
+    OA_CHECK(tank_event != nullptr && solar_event != nullptr && unknown_event != nullptr);
+    OA_CHECK(heavy_event != nullptr && small_event != nullptr);
+    if (tank_event != nullptr) {
+        OA_CHECK(tank_event->kind == oademo::BattleKind::unit_lost);
+        OA_CHECK(tank_event->x == 4000 && tank_event->z == 2990);
+        OA_CHECK(tank_event->player == 1 && tank_event->metal == 90 && tank_event->health == 600);
+    }
+    if (solar_event != nullptr) {
+        OA_CHECK(solar_event->kind == oademo::BattleKind::building_lost);
+        OA_CHECK(solar_event->x == 5120 && solar_event->z == 3600);
+        OA_CHECK(solar_event->player == 2 && solar_event->metal == 145);
+        OA_CHECK(solar_event->health == 500);
+    }
+    if (unknown_event != nullptr) {
+        OA_CHECK(unknown_event->kind == oademo::BattleKind::building_lost);
+        OA_CHECK(unknown_event->x == 6144 && unknown_event->z == 4200);
+        OA_CHECK(unknown_event->metal == 0 && unknown_event->health == 0);
+    }
+    if (heavy_event != nullptr) {
+        OA_CHECK(heavy_event->kind == oademo::BattleKind::engagement);
+        OA_CHECK(heavy_event->x == 625 && heavy_event->z == 250 && heavy_event->amount == 2000);
+    }
+    if (small_event != nullptr) {
+        OA_CHECK(small_event->kind == oademo::BattleKind::engagement);
+        OA_CHECK(small_event->x == 100 && small_event->z == 100 && small_event->amount == 80);
+    }
+}
+
+// More fights than the file holds are spread across the game. Fights in one
+// square and stretch keep only the heaviest. Commanders are kept, and when
+// they alone fill the file the fights are left out.
+void the_battle_is_spread() {
+    constexpr uint16_t tank = 1;
+    constexpr uint16_t heavy = 2;
+    director::Timeline crowded;
+    crowded.header.last_tick = 700000;
+    crowded.verdict.finished = true;
+    add_type(crowded, tank, true, 10, 10);
+    crowded.events.push_back(event(0, director::EventKind::created, 0, 1, true));
+    crowded.events.push_back(event(0, director::EventKind::created, 1, 2, true));
+    constexpr uint32_t fights = 2000;
+    for (uint32_t index = 0; index < fights; ++index) {
+        director::TimelineEvent death = event(index * 300, director::EventKind::death, 0, 3, false);
+        death.damage_kind = 1;
+        death.unit_type = tank;
+        place_at(death, static_cast<int32_t>(index) * 512, 0, 50);
+        crowded.events.push_back(death);
+    }
+    const oademo::TimelineIndex spread = build(crowded, three_players());
+    OA_CHECK(spread.events.size() == oademo::most_battle_events);
+    OA_CHECK(battles_of(spread, oademo::BattleKind::commander) == 2);
+    const std::size_t room = oademo::most_battle_events - 2;
+    OA_CHECK(battles_of(spread, oademo::BattleKind::unit_lost) == room);
+    bool early = false;
+    uint32_t last_tick = 0;
+    for (const oademo::BattleEvent& battle : spread.events) {
+        if (battle.kind != oademo::BattleKind::unit_lost)
+            continue;
+        if (battle.tick == 0)
+            early = true;
+        last_tick = battle.tick;
+    }
+    const uint32_t expected_last = static_cast<uint32_t>((room - 1) * fights / room) * 300U;
+    OA_CHECK(early && last_tick == expected_last);
+    OA_CHECK(last_tick < (fights - 1) * 300U);
+
+    director::Timeline piled;
+    piled.header.last_tick = 1000;
+    piled.verdict.finished = true;
+    add_type(piled, tank, true, 10, 10);
+    add_type(piled, heavy, true, 500, 10);
+    piled.events.push_back(event(0, director::EventKind::created, 0, 1, true));
+    for (uint32_t index = 0; index < 8; ++index) {
+        director::TimelineEvent death = event(20 + index, director::EventKind::death, 0, 3, false);
+        death.damage_kind = 1;
+        death.unit_type = tank;
+        place_at(death, 100, 0, 100);
+        piled.events.push_back(death);
+    }
+    director::TimelineEvent costly = event(40, director::EventKind::death, 0, 4, false);
+    costly.damage_kind = 1;
+    costly.unit_type = heavy;
+    place_at(costly, 120, 0, 110);
+    piled.events.push_back(costly);
+    const oademo::TimelineIndex one_cell = build(piled, three_players());
+    OA_CHECK(battles_of(one_cell, oademo::BattleKind::unit_lost) == 1);
+    bool kept_heavy = false;
+    for (const oademo::BattleEvent& battle : one_cell.events) {
+        if (battle.kind != oademo::BattleKind::unit_lost)
+            continue;
+        kept_heavy = battle.tick == 40 && battle.metal == 500;
+    }
+    OA_CHECK(kept_heavy);
+
+    director::Timeline commanders;
+    commanders.header.last_tick = 1000000;
+    commanders.verdict.finished = true;
+    add_type(commanders, tank, true, 10, 10);
+    constexpr uint32_t many = 4100;
+    for (uint32_t index = 0; index < many; ++index)
+        commanders.events.push_back(
+            event(index, director::EventKind::created, static_cast<uint8_t>(index % 2), 1, true)
+        );
+    director::TimelineEvent late = event(1000000, director::EventKind::death, 0, 3, false);
+    late.damage_kind = 1;
+    late.unit_type = tank;
+    place_at(late, 1, 0, 1);
+    commanders.events.push_back(late);
+    const oademo::TimelineIndex only = build(commanders, three_players());
+    OA_CHECK(only.events.size() == oademo::most_battle_events);
+    OA_CHECK(battles_of(only, oademo::BattleKind::commander) == oademo::most_battle_events);
+    OA_CHECK(battles_of(only, oademo::BattleKind::unit_lost) == 0);
+    const uint32_t last_commander =
+        static_cast<uint32_t>((oademo::most_battle_events - 1) * many / oademo::most_battle_events);
+    OA_CHECK(only.events.front().tick == 0 && only.events.back().tick == last_commander);
+    OA_CHECK(only.events.back().kind == oademo::BattleKind::commander);
+}
+
+// A commander displaced from its slot leaves out that creation as well as
+// the loss. The replacement is kept. The same unit created again on that
+// tick keeps the later creation.
+void a_displaced_commander_creation_is_left_out() {
+    constexpr uint8_t displaced = 0;
+    director::Timeline timeline;
+    timeline.header.last_tick = 10;
+    timeline.verdict.finished = true;
+    director::TimelineEvent first = event(1, director::EventKind::created, 0, 5, true);
+    place_at(first, 100, 0, 200);
+    director::TimelineEvent death = event(1, director::EventKind::death, 0, 5, true);
+    death.damage_kind = displaced;
+    place_at(death, 100, 0, 200);
+    director::TimelineEvent replacement = event(1, director::EventKind::created, 0, 6, true);
+    place_at(replacement, 100, 0, 200);
+    timeline.events.push_back(first);
+    timeline.events.push_back(death);
+    timeline.events.push_back(replacement);
+    const oademo::TimelineIndex other_unit = build(timeline, three_players());
+    OA_CHECK(battles_of(other_unit, oademo::BattleKind::commander) == 1);
+    OA_CHECK(battles_of(other_unit, oademo::BattleKind::commander_lost) == 0);
+    if (!other_unit.events.empty())
+        OA_CHECK(other_unit.events.front().kind == oademo::BattleKind::commander);
+
+    director::Timeline same;
+    same.header.last_tick = 10;
+    same.verdict.finished = true;
+    director::TimelineEvent earlier = event(1, director::EventKind::created, 0, 5, true);
+    place_at(earlier, 100, 0, 200);
+    director::TimelineEvent lost = event(1, director::EventKind::death, 0, 5, true);
+    lost.damage_kind = displaced;
+    place_at(lost, 100, 0, 200);
+    director::TimelineEvent later = event(1, director::EventKind::created, 0, 5, true);
+    place_at(later, 100, 0, 200);
+    same.events.push_back(earlier);
+    same.events.push_back(lost);
+    same.events.push_back(later);
+    const oademo::TimelineIndex reused = build(same, three_players());
+    OA_CHECK(battles_of(reused, oademo::BattleKind::commander) == 1);
+    OA_CHECK(battles_of(reused, oademo::BattleKind::commander_lost) == 0);
+}
+
+/// Aims the camera at a few events.
+///
+/// @param events the events
+/// @param tick the moment on show
+/// @return where it looks
+replay_index::BattleAim aim_of(std::initializer_list<oademo::BattleEvent> events, uint32_t tick) {
+    const std::vector<oademo::BattleEvent> held(events);
+    return replay_index::battle_aim(held, tick);
+}
+
+/// One fight, for the camera test.
+///
+/// @param tick its tick
+/// @param kind its kind
+/// @param x across the map
+/// @param z down the map
+/// @return the event
+oademo::BattleEvent fight_at(uint32_t tick, oademo::BattleKind kind, int32_t x, int32_t z) {
+    oademo::BattleEvent made;
+    made.tick = tick;
+    made.kind = kind;
+    made.x = x;
+    made.z = z;
+    return made;
+}
+
+// The camera looks at the heaviest fight in the next eight seconds, then at
+// one in the ten seconds just passed. A commander placed or lost is not a
+// fight, so two start bases do not hold it while the battle is elsewhere.
+void the_camera_aims_at_the_fight() {
+    using oademo::BattleKind;
+    oademo::BattleEvent arm = fight_at(0, BattleKind::commander, 1120, 3696);
+    oademo::BattleEvent core = fight_at(0, BattleKind::commander, 8880, 13248);
+    oademo::BattleEvent loss = fight_at(23450, BattleKind::unit_lost, 4000, 8000);
+    loss.metal = 200;
+    oademo::BattleEvent building = fight_at(23480, BattleKind::building_lost, 4100, 8100);
+    building.metal = 50;
+    const std::vector<oademo::BattleEvent> battle{arm, core, loss, building};
+    const replay_index::BattleAim aimed = replay_index::battle_aim(battle, 23400);
+    OA_CHECK(aimed.found && aimed.tick == 23450 && aimed.x == 4000 && aimed.z == 8000);
+    const replay_index::BattleAim bases = aim_of({arm, core}, 23400);
+    OA_CHECK(!bases.found);
+
+    oademo::BattleEvent cluster = fight_at(23410, BattleKind::engagement, 6000, 1000);
+    cluster.amount = 3000;
+    oademo::BattleEvent lighter = fight_at(23400, BattleKind::unit_lost, 100, 100);
+    lighter.metal = 2500;
+    const replay_index::BattleAim heavier = aim_of({lighter, cluster}, 23400);
+    OA_CHECK(heavier.found && heavier.x == 6000 && heavier.z == 1000);
+
+    oademo::BattleEvent early = fight_at(100, BattleKind::unit_lost, 20, 30);
+    early.metal = 100;
+    oademo::BattleEvent later = fight_at(150, BattleKind::unit_lost, 10, 10);
+    later.metal = 100;
+    const replay_index::BattleAim sooner = aim_of({later, early}, 0);
+    OA_CHECK(sooner.found && sooner.tick == 100);
+
+    oademo::BattleEvent right = fight_at(100, BattleKind::unit_lost, 40, 10);
+    right.metal = 100;
+    oademo::BattleEvent left = fight_at(100, BattleKind::unit_lost, 20, 80);
+    left.metal = 100;
+    const replay_index::BattleAim west = aim_of({right, left}, 0);
+    OA_CHECK(west.found && west.x == 20);
+    oademo::BattleEvent lower = fight_at(100, BattleKind::unit_lost, 20, 5);
+    lower.metal = 100;
+    oademo::BattleEvent upper = fight_at(100, BattleKind::unit_lost, 20, 90);
+    upper.metal = 100;
+    const replay_index::BattleAim north = aim_of({upper, lower}, 0);
+    OA_CHECK(north.found && north.z == 5);
+
+    oademo::BattleEvent passed = fight_at(23200, BattleKind::unit_lost, 3000, 4000);
+    passed.metal = 80;
+    const replay_index::BattleAim trail = aim_of({passed}, 23400);
+    OA_CHECK(trail.found && trail.tick == 23200 && trail.x == 3000);
+    // With nothing ahead, the most recent fight behind wins, not the heaviest.
+    oademo::BattleEvent older_heavy = fight_at(23120, BattleKind::engagement, 1000, 1000);
+    older_heavy.amount = 99999;
+    oademo::BattleEvent newer_light = fight_at(23300, BattleKind::unit_lost, 5000, 5000);
+    newer_light.metal = 1;
+    const replay_index::BattleAim latest = aim_of({older_heavy, newer_light}, 23400);
+    OA_CHECK(latest.found && latest.tick == 23300 && latest.x == 5000);
+
+    oademo::BattleEvent edge = fight_at(1240, BattleKind::engagement, 8, 9);
+    edge.amount = 2000;
+    OA_CHECK(aim_of({edge}, 1000).found);
+    // Just past the eight seconds, still inside the quiet minute.
+    oademo::BattleEvent beyond = fight_at(1241, BattleKind::engagement, 8, 9);
+    beyond.amount = 2000;
+    OA_CHECK(aim_of({beyond}, 1000).found && aim_of({beyond}, 1000).tick == 1241);
+    oademo::BattleEvent minute = fight_at(2800, BattleKind::engagement, 8, 9);
+    minute.amount = 2000;
+    OA_CHECK(aim_of({minute}, 1000).found);
+    oademo::BattleEvent past_minute = fight_at(2801, BattleKind::engagement, 8, 9);
+    past_minute.amount = 2000;
+    OA_CHECK(!aim_of({past_minute}, 1000).found);
+
+    oademo::BattleEvent just = fight_at(700, BattleKind::unit_lost, 1, 2);
+    just.health = 10;
+    OA_CHECK(aim_of({just}, 1000).found);
+    // Just past the ten seconds, still inside the quiet minute.
+    oademo::BattleEvent older = fight_at(699, BattleKind::unit_lost, 1, 2);
+    older.health = 10;
+    OA_CHECK(aim_of({older}, 1000).found && aim_of({older}, 1000).tick == 699);
+    oademo::BattleEvent minute_back = fight_at(200, BattleKind::unit_lost, 1, 2);
+    minute_back.health = 10;
+    OA_CHECK(aim_of({minute_back}, 2000).found);
+    oademo::BattleEvent older_minute = fight_at(199, BattleKind::unit_lost, 1, 2);
+    older_minute.health = 10;
+    OA_CHECK(!aim_of({older_minute}, 2000).found);
+
+    // A quiet minute keeps the nearer fight. An equal gap keeps the one ahead.
+    // Recording 884 at 13:00 is this: the battle is not at either start base.
+    oademo::BattleEvent recent = fight_at(22569, BattleKind::unit_lost, 8081, 8829);
+    recent.metal = 100;
+    oademo::BattleEvent coming = fight_at(24691, BattleKind::engagement, 2104, 11726);
+    coming.amount = 172;
+    const replay_index::BattleAim lull = aim_of({arm, core, recent, coming}, 23400);
+    OA_CHECK(lull.found && lull.tick == 22569 && lull.x == 8081 && lull.z == 8829);
+    const replay_index::BattleAim only_coming = aim_of({arm, core, coming}, 23400);
+    OA_CHECK(only_coming.found && only_coming.tick == 24691 && only_coming.x == 2104);
+    oademo::BattleEvent soon = fight_at(1600, BattleKind::unit_lost, 3, 4);
+    soon.metal = 1;
+    oademo::BattleEvent as_far = fight_at(400, BattleKind::engagement, 7, 7);
+    as_far.amount = 99999;
+    const replay_index::BattleAim equal_gap = aim_of({as_far, soon}, 1000);
+    OA_CHECK(equal_gap.found && equal_gap.tick == 1600);
+
+    oademo::BattleEvent now = fight_at(1000, BattleKind::unit_lost, 4, 5);
+    now.metal = 1;
+    oademo::BattleEvent behind = fight_at(900, BattleKind::engagement, 9, 9);
+    behind.amount = 99999;
+    const replay_index::BattleAim ahead = aim_of({behind, now}, 1000);
+    OA_CHECK(ahead.found && ahead.tick == 1000 && ahead.x == 4);
+    OA_CHECK(!aim_of({}, 1000).found);
+}
+
+/// One step of Director.
+///
+/// @param events the fights
+/// @param tick the moment
+/// @param since real time since the last change, in milliseconds
+/// @param previous the view so far
+/// @return the next view
+replay_index::DirectorView step_director(
+    std::initializer_list<oademo::BattleEvent> events,
+    uint32_t tick,
+    uint32_t since,
+    const replay_index::DirectorView& previous
+) {
+    const std::vector<oademo::BattleEvent> held(events);
+    return replay_index::director_view(held, tick, since, previous, 1088, 624);
+}
+
+// Two fights a map apart that take turns being the heavier one do not pull
+// the camera back and forth. A view is held for four seconds of the battle
+// and for a second and a half of real time, and a place just left is not
+// taken again inside ten seconds. A nearby fight is panned to, slowly; a
+// far one is a cut.
+void the_director_stays_with_one_fight() {
+    using oademo::BattleKind;
+    constexpr int32_t width = 1088;
+    constexpr int32_t west = 0;
+    constexpr int32_t east = 20000;
+    std::vector<oademo::BattleEvent> events;
+    for (uint32_t index = 0; index < 40; ++index) {
+        oademo::BattleEvent made =
+            fight_at(index * 60, BattleKind::unit_lost, index % 2 == 0 ? west : east, 0);
+        made.metal = 50U * (index + 1);
+        events.push_back(made);
+    }
+    replay_index::DirectorView view;
+    int cuts = 0;
+    int shorts = 0;
+    int returns = 0;
+    int32_t fastest = 0;
+    int32_t previous_x = 0;
+    int32_t previous_z = 0;
+    bool have_previous = false;
+    int32_t left_x = 0;
+    uint32_t left_tick = 0;
+    bool have_left = false;
+    uint32_t last_cut = 0;
+    bool had_cut = false;
+    for (uint32_t tick = 0; tick <= 900; ++tick) {
+        uint32_t since = 0;
+        if (view.has_subject && tick >= view.cut_tick)
+            since = (tick - view.cut_tick) * 1000U / 30U;
+        const replay_index::DirectorView next =
+            replay_index::director_view(events, tick, since, view, width, 624);
+        if (have_previous) {
+            const int64_t across = static_cast<int64_t>(next.x) - previous_x;
+            const int64_t down = static_cast<int64_t>(next.z) - previous_z;
+            const int64_t step = across * across + down * down;
+            if (step > 64 * 64) {
+                ++cuts;
+                if (had_cut && tick - last_cut < replay_index::director_min_cut_ticks)
+                    ++shorts;
+                const int64_t back = static_cast<int64_t>(next.x) - left_x;
+                if (have_left && tick - left_tick <= replay_index::director_return_ticks &&
+                    back * back <= 64 * 64)
+                    ++returns;
+                left_x = previous_x;
+                left_tick = tick;
+                have_left = true;
+                last_cut = tick;
+                had_cut = true;
+            } else if (step > fastest)
+                fastest = static_cast<int32_t>(step);
+        }
+        previous_x = next.x;
+        previous_z = next.z;
+        have_previous = true;
+        view = next;
+    }
+    OA_CHECK(shorts == 0 && returns == 0 && cuts == 0);
+    // fastest holds a squared step. One screen a second is width/30 pixels.
+    const int32_t screen_per_tick = width / 30;
+    OA_CHECK(fastest <= screen_per_tick * screen_per_tick);
+
+    oademo::BattleEvent home = fight_at(0, BattleKind::unit_lost, 0, 0);
+    home.metal = 100;
+    oademo::BattleEvent far = fight_at(200, BattleKind::unit_lost, east, 0);
+    far.metal = 10000;
+    const replay_index::DirectorView opened = step_director({home}, 0, 0, {});
+    OA_CHECK(opened.has_subject && opened.x == 0 && opened.changed);
+    const replay_index::DirectorView waiting = step_director({home, far}, 200, 0, opened);
+    OA_CHECK(!waiting.changed && waiting.subject_x == 0);
+    const replay_index::DirectorView jumped =
+        step_director({home, far}, 200, replay_index::director_hold_ms, opened);
+    OA_CHECK(jumped.changed && jumped.cut && jumped.x == east);
+
+    oademo::BattleEvent near = fight_at(200, BattleKind::unit_lost, 400, 0);
+    near.metal = 10000;
+    const replay_index::DirectorView panned =
+        step_director({home, near}, 200, replay_index::director_hold_ms, opened);
+    OA_CHECK(panned.changed && !panned.cut && panned.x == 0 && panned.subject_x == 400);
+    replay_index::DirectorView along = panned;
+    int32_t largest = 0;
+    int32_t shown = panned.x;
+    for (uint32_t since = 33; since <= 4000; since += 33) {
+        along = replay_index::director_view(
+            std::vector<oademo::BattleEvent>{home, near}, 201, since, panned, width, 624
+        );
+        const int32_t moved = along.x - shown;
+        if (moved > largest)
+            largest = moved;
+        shown = along.x;
+        OA_CHECK(!along.changed);
+    }
+    OA_CHECK(along.x == 400);
+    OA_CHECK(largest <= screen_per_tick + 1);
+
+    // A later fight a short way off is the same subject. The picture eases
+    // there instead of jumping the whole way in one tick.
+    oademo::BattleEvent slide = fight_at(400, BattleKind::unit_lost, 50, 0);
+    slide.metal = 100;
+    const replay_index::DirectorView settled = step_director({home}, 400, 5000, opened);
+    OA_CHECK(settled.x == 0 && !settled.changed);
+    replay_index::DirectorView sliding = settled;
+    int32_t slide_largest = 0;
+    int32_t slide_x = settled.x;
+    const std::vector<oademo::BattleEvent> slide_events{home, slide};
+    for (uint32_t tick = 400; tick <= 430; ++tick) {
+        const uint32_t since = 5000U + (tick - 400U) * 1000U / 30U;
+        const replay_index::DirectorView next =
+            replay_index::director_view(slide_events, tick, since, sliding, width, 624);
+        const int32_t moved = next.x > slide_x ? next.x - slide_x : slide_x - next.x;
+        if (moved > slide_largest)
+            slide_largest = moved;
+        slide_x = next.x;
+        sliding = next;
+        OA_CHECK(!next.changed && !next.cut);
+    }
+    OA_CHECK(sliding.x == 50);
+    OA_CHECK(slide_largest <= screen_per_tick + 1);
+}
+
+// A heavy fight more than ten seconds old no longer holds the picture: a
+// lighter fight elsewhere takes it once the holds have passed. Inside those
+// ten seconds the heavy fight holds it.
+void an_old_fight_gives_way() {
+    using oademo::BattleKind;
+    constexpr int32_t east = 20000;
+    oademo::BattleEvent heavy = fight_at(0, BattleKind::engagement, 0, 0);
+    heavy.amount = 20000;
+    const replay_index::DirectorView opened = step_director({heavy}, 0, 0, {});
+    OA_CHECK(opened.has_subject && opened.subject_x == 0);
+
+    oademo::BattleEvent soon = fight_at(400, BattleKind::unit_lost, east, 0);
+    soon.metal = 50;
+    const replay_index::DirectorView held = step_director({heavy, soon}, 250, 5000, opened);
+    OA_CHECK(!held.changed && held.subject_x == 0);
+
+    oademo::BattleEvent later = fight_at(1100, BattleKind::unit_lost, east, 0);
+    later.metal = 50;
+    const replay_index::DirectorView moved = step_director({heavy, later}, 1000, 5000, opened);
+    OA_CHECK(moved.changed && moved.cut && moved.x == east);
+    const replay_index::DirectorView too_soon = step_director({heavy, later}, 1000, 100, opened);
+    OA_CHECK(!too_soon.changed && too_soon.subject_x == 0);
+}
+
+// Before the first fight the picture shows a start base: the first
+// commander, the lowest player number on the same tick. A commander lost is
+// not one, and an index with no commander gives none.
+void the_opening_shows_a_start() {
+    using oademo::BattleKind;
+    oademo::BattleEvent fourth = fight_at(1, BattleKind::commander, 1120, 3653);
+    fourth.player = 4;
+    oademo::BattleEvent third = fight_at(2, BattleKind::commander, 8880, 13229);
+    third.player = 3;
+    oademo::BattleEvent second = fight_at(1, BattleKind::commander, 500, 600);
+    second.player = 2;
+    oademo::BattleEvent lost = fight_at(0, BattleKind::commander_lost, 9, 9);
+    lost.player = 1;
+    const std::vector<oademo::BattleEvent> starts{fourth, third, second, lost};
+    const replay_index::BattleAim opening = replay_index::director_opening(starts);
+    OA_CHECK(opening.found && opening.x == 500 && opening.z == 600 && opening.tick == 1);
+    const std::vector<oademo::BattleEvent> none{lost, fight_at(5, BattleKind::unit_lost, 1, 1)};
+    OA_CHECK(!replay_index::director_opening(none).found);
+}
+
 } // namespace
 
 int main() {
@@ -874,5 +1545,12 @@ int main() {
     a_campaign_mission_names_its_result();
     markers_are_capped();
     a_short_game_gives_an_index();
+    the_battle_is_indexed();
+    the_battle_is_spread();
+    a_displaced_commander_creation_is_left_out();
+    the_camera_aims_at_the_fight();
+    the_director_stays_with_one_fight();
+    an_old_fight_gives_way();
+    the_opening_shows_a_start();
     return oa::test::check_exit_status();
 }

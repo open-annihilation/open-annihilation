@@ -1248,7 +1248,7 @@ def keep_log(log_dir, kept):
     return tail
 
 
-def run_game(native, game_dir, mod_dir, replay, scratch, drive):
+def run_game(native, game_dir, mod_dir, replay, scratch, drive, extra_args=None):
     """Starts one game on the dummy drivers and drives it."""
     root = Path(scratch)
     root.mkdir(parents=True, exist_ok=True)
@@ -1268,27 +1268,30 @@ def run_game(native, game_dir, mod_dir, replay, scratch, drive):
         environment["SDL_VIDEO_DRIVER"] = "dummy"
         environment["SDL_AUDIO_DRIVER"] = "dummy"
         environment["SDL_RENDER_DRIVER"] = "software"
+        command = [
+            *RUNNER,
+            str(native),
+            "--game-dir",
+            str(game_dir),
+            "--mod-dir",
+            str(mod_dir),
+            "--mcp",
+            "--skip-intro",
+            "--mute",
+            "-y",
+            "--boneyards-replay",
+            str(replay),
+            "--preferences-file",
+            str(preferences),
+            "--log-dir",
+            str(log_dir),
+            "--user-folder",
+            str(user_folder),
+        ]
+        if extra_args:
+            command.extend(extra_args)
         process = subprocess.Popen(
-            [
-                *RUNNER,
-                str(native),
-                "--game-dir",
-                str(game_dir),
-                "--mod-dir",
-                str(mod_dir),
-                "--mcp",
-                "--skip-intro",
-                "--mute",
-                "-y",
-                "--boneyards-replay",
-                str(replay),
-                "--preferences-file",
-                str(preferences),
-                "--log-dir",
-                str(log_dir),
-                "--user-folder",
-                str(user_folder),
-            ],
+            command,
             cwd=workdir,
             env=environment,
             stdin=subprocess.PIPE,

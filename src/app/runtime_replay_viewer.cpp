@@ -12,6 +12,7 @@
 #include "replay_index_pass.hpp"
 
 #include "oa/app/hook_call.hpp"
+#include "oa/app/replay_index.hpp"
 #include "oa/app/replay_watch.hpp"
 #include "oa/app/user_folder.hpp"
 #include "oa/base/threads.hpp"
@@ -43,6 +44,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -97,6 +99,7 @@ struct BuiltIndex {
     std::vector<BuiltPlayer> players{};
     std::vector<RawMarker> markers{};
     std::vector<uint32_t> heat{};
+    std::vector<oademo::BattleEvent> battles{};
 
     /// Colours the recording names, applied on the main thread.
     struct MetaColour {
@@ -271,7 +274,16 @@ BuiltIndex from_timeline(const oademo::TimelineIndex& timeline) {
     built.heat.reserve(timeline.damage.size());
     for (uint64_t sample : timeline.damage)
         built.heat.push_back(heat_sample(sample));
+    built.battles = timeline.events;
     return built;
+}
+
+/// Tells whether a timeline is one this build recorded the fighting into.
+///
+/// @param timeline the index
+/// @return true for version 1 that names its battle events, including an empty list
+bool timeline_current(const oademo::TimelineIndex& timeline) noexcept {
+    return timeline.version == oademo::timeline_version && timeline.events_recorded;
 }
 
 /// Reads a timeline.json file into a built index.
@@ -284,7 +296,7 @@ BuiltIndex read_timeline_file(const fs::path& path) {
         return {};
     const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     const std::optional<oademo::TimelineIndex> timeline = oademo::parse_timeline_index(text);
-    if (!timeline)
+    if (!timeline || !timeline_current(*timeline))
         return {};
     return from_timeline(*timeline);
 }
@@ -306,8 +318,10 @@ SavedTimeline read_saved_timeline(const fs::path& path) {
         const oademo::ReadResult read = oademo::read(file);
         if (read.ok() && read.replay->timeline) {
             if (const std::optional<oademo::TimelineIndex> timeline =
-                    oademo::parse_timeline_index(*read.replay->timeline))
-                return {from_timeline(*timeline), false};
+                    oademo::parse_timeline_index(*read.replay->timeline)) {
+                if (timeline_current(*timeline))
+                    return {from_timeline(*timeline), false};
+            }
         }
     }
     fs::path beside = path;
@@ -757,15 +771,19 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
 
     /// Moves to the next camera mode the recording can offer.
     ///
-    /// Follow a unit is left for Free, and then for the recorded camera when
-    /// the recording shared one. A recording without camera records stays on
-    /// Free.
+    /// Follow a unit is left for Free. Free then goes to the recorded camera
+    /// when the recording shared one, and then to the camera that follows the
+    /// fighting when the index holds a fight. Each step returns to Free.
     void step_camera_mode() {
         const rv::CameraMode from =
             camera_mode_ == rv::CameraMode::follow_unit ? rv::CameraMode::free : camera_mode_;
         rv::CameraMode next = rv::CameraMode::free;
         if (from == rv::CameraMode::free && runtime_.replay_shares_camera_)
             next = rv::CameraMode::follow_theirs;
+        else if (from == rv::CameraMode::free && director_offered())
+            next = rv::CameraMode::director;
+        else if (from == rv::CameraMode::follow_theirs && director_offered())
+            next = rv::CameraMode::director;
         use_camera(next);
     }
 
@@ -825,10 +843,12 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             if (!handed_timeline_.empty()) {
                 if (const std::optional<oademo::TimelineIndex> timeline =
                         oademo::parse_timeline_index(handed_timeline_)) {
-                    BuiltIndex built = from_timeline(*timeline);
-                    attach_meta(built, watched_path_);
-                    store_index(std::move(built));
-                    return;
+                    if (timeline_current(*timeline)) {
+                        BuiltIndex built = from_timeline(*timeline);
+                        attach_meta(built, watched_path_);
+                        store_index(std::move(built));
+                        return;
+                    }
                 }
             }
             const SavedTimeline saved = read_saved_timeline(watched_path_);
@@ -886,6 +906,20 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     ///
     /// @return true once the index arrived from a timeline
     [[nodiscard]] bool index_arrived() const { return index_taken_ && from_timeline_; }
+
+    /// The camera that follows the fighting is offered once the index holds
+    /// a unit destroyed, a building lost or a large engagement. A commander
+    /// being placed or lost does not offer it.
+    ///
+    /// @return true when the index holds a fight
+    [[nodiscard]] bool director_offered() const {
+        if (!index_arrived())
+            return false;
+        for (const oademo::BattleEvent& event : battles_)
+            if (oademo::battle_fight(event.kind))
+                return true;
+        return false;
+    }
 
     /// The index pass this bar started, while that process is running.
     ///
@@ -1139,7 +1173,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
             const std::optional<oademo::TimelineIndex> timeline =
                 oademo::parse_timeline_index(text);
-            if (!timeline) {
+            if (!timeline || !timeline_current(*timeline)) {
                 log_index_reason(status);
                 store_index({});
                 remove_index_output();
@@ -1234,6 +1268,16 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                 waiting = model_.markers.size() - 1;
         }
         meta_colours_ = std::move(taken->meta_colours);
+        battles_ = std::move(taken->battles);
+        // Director reads the events near the moment on show, found by tick.
+        std::stable_sort(
+            battles_.begin(),
+            battles_.end(),
+            [](const oademo::BattleEvent& left, const oademo::BattleEvent& right) {
+                return left.tick < right.tick;
+            }
+        );
+        director_started_ = false;
         if (taken->length > 0) {
             index_length_ = taken->length;
             index_length_known_ = true;
@@ -1898,12 +1942,16 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             return;
         if (mode == rv::CameraMode::follow_theirs && !runtime_.replay_shares_camera_)
             return;
+        if (mode == rv::CameraMode::director && !director_offered())
+            return;
         if (camera_mode_ == rv::CameraMode::follow_unit)
             runtime_.stop_match_tracking();
         camera_mode_ = mode;
         model_.camera = mode;
         model_.view_open = false;
         model_.camera_open = false;
+        if (mode == rv::CameraMode::director)
+            director_started_ = false;
     }
 
     /// Shows the player list's row.
@@ -2068,6 +2116,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         model_.list_folded = list_folded_;
         model_.camera = camera_mode_;
         model_.offer_follow_camera = runtime_.replay_shares_camera_;
+        model_.offer_director = director_offered();
     }
 
     /// Moves the camera for the mode on show. Free does not.
@@ -2081,6 +2130,8 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         }
         if (camera_mode_ == rv::CameraMode::follow_theirs)
             apply_recorded_camera();
+        else if (camera_mode_ == rv::CameraMode::director)
+            apply_director_camera();
     }
 
     /// Centres the view on a recorded camera.
@@ -2109,6 +2160,115 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         runtime_.set_camera_position(x, z, 0);
     }
 
+    /// Puts the middle of the picture on a place.
+    ///
+    /// @param centre_x the place across the map
+    /// @param centre_z the place down the map, on the row the picture draws
+    void place_centre(int32_t centre_x, int32_t centre_z) {
+        runtime_.set_camera_position(
+            centre_x - runtime_.visible_map_width() / 2,
+            centre_z - runtime_.visible_map_height() / 2,
+            0
+        );
+    }
+
+    /// The battle events within a minute either side of a tick: all that
+    /// replay_index::director_view reads at that tick. The list is in tick
+    /// order, so a step costs the same however many events the index keeps.
+    ///
+    /// @param tick the moment
+    /// @return the events from battle_lull_ticks before the tick to as many after
+    [[nodiscard]] std::span<const oademo::BattleEvent> battles_near(uint32_t tick) const {
+        constexpr uint32_t reach = replay_index::battle_lull_ticks;
+        constexpr uint32_t most = std::numeric_limits<uint32_t>::max();
+        const uint32_t from = tick > reach ? tick - reach : 0U;
+        const uint32_t to = tick > most - reach ? most : tick + reach;
+        const auto first = std::partition_point(
+            battles_.begin(), battles_.end(), [from](const oademo::BattleEvent& event) {
+                return event.tick < from;
+            }
+        );
+        const auto last =
+            std::partition_point(first, battles_.end(), [to](const oademo::BattleEvent& event) {
+                return event.tick <= to;
+            });
+        return {first, last};
+    }
+
+    /// Plays Director from the start of the battle up to a tick, as 1× would.
+    ///
+    /// A seek then shows the same place the steady playback would. The wall
+    /// clock is set so the pan still under way continues in real time.
+    ///
+    /// @param tick the moment on show
+    /// @param now the wall clock, in milliseconds
+    /// @param view_width the picture's width, in map pixels
+    /// @param view_height the picture's height, in map pixels
+    void resimulate_director(uint32_t tick, uint32_t now, int32_t view_width, int32_t view_height) {
+        director_view_ = {};
+        for (uint32_t at = 0; at <= tick; ++at) {
+            uint32_t since = 0;
+            if (director_view_.has_subject && at >= director_view_.cut_tick)
+                since = (at - director_view_.cut_tick) * 1000U / 30U;
+            director_view_ = replay_index::director_view(
+                battles_near(at), at, since, director_view_, view_width, view_height
+            );
+        }
+        const uint32_t synthetic = director_view_.has_subject && tick >= director_view_.cut_tick
+                                       ? (tick - director_view_.cut_tick) * 1000U / 30U
+                                       : 0U;
+        director_wall_ms_ = now - synthetic;
+        director_tick_ = tick;
+        director_started_ = true;
+    }
+
+    /// Shows the one fight Director is following.
+    ///
+    /// The picture eases toward a nearby fight and cuts to a far one. It does
+    /// not play the filmed script. A jump backward, or a jump of more than
+    /// ten seconds forward, is taken as a seek and matched to a steady 1×
+    /// playback. While the playback runs, real time holds each view, so a
+    /// fast speed skips fights rather than cutting faster. Before the first
+    /// fight, the picture shows the first commander's start.
+    void apply_director_camera() {
+        const uint32_t tick = model_.tick;
+        const uint32_t now = oa::platform::tick_ms();
+        const int32_t view_width = runtime_.visible_map_width();
+        const int32_t view_height = runtime_.visible_map_height();
+        constexpr uint32_t seek_gap = replay_index::director_return_ticks;
+        const bool jumped_back = director_started_ && tick < director_tick_;
+        const bool jumped_forward = director_started_ && tick > director_tick_ + seek_gap;
+        if (!director_started_ || jumped_back || jumped_forward) {
+            resimulate_director(tick, now, view_width, view_height);
+        } else if (tick > director_tick_) {
+            for (uint32_t at = director_tick_ + 1; at <= tick; ++at) {
+                const uint32_t since = now - director_wall_ms_;
+                director_view_ = replay_index::director_view(
+                    battles_near(at), at, since, director_view_, view_width, view_height
+                );
+                if (director_view_.changed)
+                    director_wall_ms_ = now;
+            }
+            director_tick_ = tick;
+        } else {
+            const uint32_t since = now - director_wall_ms_;
+            director_view_ = replay_index::director_view(
+                battles_near(tick), tick, since, director_view_, view_width, view_height
+            );
+            if (director_view_.changed)
+                director_wall_ms_ = now;
+        }
+        if (director_view_.has_subject) {
+            place_centre(director_view_.x, director_view_.z);
+            return;
+        }
+        // Before the first fight, a start base rather than wherever the
+        // picture happened to be.
+        const replay_index::BattleAim opening = replay_index::director_opening(battles_);
+        if (opening.found)
+            place_centre(opening.x, opening.z);
+    }
+
     Runtime& runtime_;
     rv::Model model_{};
     rv::Layout layout_{};
@@ -2134,6 +2294,11 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     bool list_folded_{};
     bool list_fold_chosen_{};
     rv::CameraMode camera_mode_{rv::CameraMode::free};
+    bool director_started_{};
+    uint32_t director_tick_{};
+    uint32_t director_wall_ms_{};
+    replay_index::DirectorView director_view_{};
+    std::vector<oademo::BattleEvent> battles_{};
     int viewed_slot_{-1};
     int list_scroll_{};
     int held_watch_{-1};

@@ -1401,6 +1401,8 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
         layout.camera_modes.push_back(CameraMode::free);
         if (model.offer_follow_camera)
             layout.camera_modes.push_back(CameraMode::follow_theirs);
+        if (model.offer_director)
+            layout.camera_modes.push_back(CameraMode::director);
         place_menu(
             layout.camera_menu,
             layout.camera_items,
@@ -1860,6 +1862,8 @@ std::string camera_button_caption(CameraMode mode) {
         return shown(words::follow_their_camera);
     case CameraMode::follow_unit:
         return shown(words::follow_a_unit);
+    case CameraMode::director:
+        return shown(words::director);
     case CameraMode::free:
         break;
     }

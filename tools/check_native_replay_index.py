@@ -15,7 +15,9 @@ check (--net-loopback-check) plays one headless over 127.0.0.1 and
   commanders decide the loopback game);
 - a copy of the recording cut at half its packets is indexed, and its index
   says the replay ended `cut`, on a tick before the end of the whole game,
-  with that tick as its length.
+  with that tick as its length;
+- every index is version 1 and holds its battle events, in tick order and
+  none past the replay's length.
 
 Every file is written under a scratch folder of its own, and the check sets
 every preference it reads, so a second run starts from the same state.
@@ -41,7 +43,8 @@ RUN_TIMEOUT = 600
 RECORDED_TICKS = 900
 # More ticks than the game has, so that a playback runs to its end.
 PLAY_TICKS = 100000
-# The version of the index this check reads.
+# The version of the index this check reads. Battle events are the `events`
+# member of version 1, each a compact array whose first value is the tick.
 INDEX_VERSION = 1
 RECORDED = re.compile(r"^multiplayer: recorded the game to (.+)$", re.MULTILINE)
 LAST_TICK = re.compile(r"^demo tick (\d+): digest [0-9a-f]{16},", re.MULTILINE)
@@ -146,6 +149,18 @@ def read_index(content, what):
         raise IndexFailure(f"the index of {what} is not JSON: {error}") from error
     if parsed.get("oademo_timeline") != INDEX_VERSION:
         raise IndexFailure(f"the index of {what} names version {parsed.get('oademo_timeline')}")
+    events = parsed.get("events")
+    if not isinstance(events, list):
+        raise IndexFailure(f"the index of {what} holds no list of battle events")
+    ticks = []
+    for event in events:
+        tick = event[0] if isinstance(event, list) and event else None
+        ticks.append(tick)
+    if any(not isinstance(tick, int) for tick in ticks) or ticks != sorted(ticks):
+        raise IndexFailure(f"the battle events of {what}'s index are not in tick order")
+    if ticks and ticks[-1] > parsed["length"]["ticks"]:
+        raise IndexFailure(f"a battle event of {what}'s index is on tick {ticks[-1]}, past the "
+                           f"replay's length of {parsed['length']['ticks']}")
     return parsed
 
 

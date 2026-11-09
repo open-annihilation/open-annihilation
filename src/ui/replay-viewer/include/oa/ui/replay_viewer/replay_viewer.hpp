@@ -103,6 +103,7 @@ enum class CameraMode : uint8_t {
     free,          ///< the player moves it
     follow_theirs, ///< the recorded player's own camera
     follow_unit,   ///< one unit stays in the middle
+    director,      ///< the camera goes where the fighting is
 };
 
 /// One row of the player list. The first row is every player.
@@ -159,6 +160,7 @@ struct Model {
     bool camera_open{};                  ///< the camera menu is open
     CameraMode camera{CameraMode::free}; ///< how the camera follows
     bool offer_follow_camera{};          ///< the recording shares cameras
+    bool offer_director{};               ///< the index holds a fight to follow
 };
 
 /// Room the view and camera buttons keep for the menu mark, in points.

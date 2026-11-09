@@ -6,10 +6,10 @@
 // the recording ends. The bar is drawn at 640x480, 1280x720 and 1920x1080,
 // and in German at 640x480. Each press is checked against the replay: pause,
 // seeks, markers, speed, a timeline drag, the pin, the shortcut card, the
-// controller and a tap. The camera modes are Free, Follow their camera and
-// Follow a unit. A second play switches view and camera, seeks nowhere after
-// that, and must digest the same as the straight play. Markers come from the
-// recording's index pass.
+// controller and a tap. The camera modes are Free, Follow their camera,
+// Follow a unit and, once the index holds a fight, Director. A second play
+// switches view and camera, seeks nowhere after that, and must digest the
+// same as the straight play. Markers come from the recording's index pass.
 
 #include "library_host.hpp"
 #include "net_options.hpp"
@@ -28,6 +28,9 @@
 #include "oa/core/player.h"
 #include "oa/core/world.h"
 #include "oa/platform/files.hpp"
+#include "oa/sim/match_runtime.hpp"
+#include "oa/sim/unit_spawn/spawn.hpp"
+#include "oa/sim/unit_spawn/spawn_runtime.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/library/export.hpp"
 #include "oa/ui/library/replays.hpp"
@@ -51,6 +54,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -371,11 +375,132 @@ void Runtime::check_replay_viewer() {
     );
     match_timing_.remainder = 0.0F;
     uint32_t recorded_tick = 0;
+    bool fight_planted = false;
+    bool fight_struck = false;
+    int32_t fight_x = 0;
+    int32_t fight_z = 0;
+    std::vector<uint16_t> fight_units;
     for (int frame_index = 0; frame_index < 8000; ++frame_index) {
         frames(1);
         if (match_ == nullptr || screen_ != Screen::match)
             break;
         recorded_tick = match_->state().game.tick;
+        // A fight far from the commanders, so the index has a battle to follow
+        // and the camera check can tell a start base from the fighting. One
+        // frame passes between the units appearing and their destruction, so
+        // the recording holds both.
+        if (!fight_planted && recorded_tick >= 1650) {
+            const oa::Game& game = match_->state().game;
+            const int32_t map_w = game.map_pixel_width;
+            const int32_t map_h = game.map_pixel_height;
+            int32_t margin = 400;
+            if (map_w < margin * 2 + 64)
+                margin = std::max(map_w / 8, int32_t{16});
+            if (map_h < margin * 2 + 64)
+                margin = std::min(margin, std::max(map_h / 8, int32_t{16}));
+            const int32_t left = std::min(margin, std::max(map_w - margin, int32_t{0}));
+            const int32_t right = std::max(left, map_w - margin);
+            const int32_t top = std::min(margin, std::max(map_h - margin, int32_t{0}));
+            const int32_t bottom = std::max(top, map_h - margin);
+
+            struct Spot {
+                int32_t x{};
+                int32_t z{};
+                int64_t gap{};
+            };
+
+            std::array<Spot, 5> spots{{
+                {left, top, 0},
+                {right, top, 0},
+                {left, bottom, 0},
+                {right, bottom, 0},
+                {(left + right) / 2, (top + bottom) / 2, 0},
+            }};
+            std::vector<std::pair<int32_t, int32_t>> commanders;
+            for (const auto& slot : match_->world().slots) {
+                if (slot.unit == nullptr)
+                    continue;
+                if (!oa::sim::match_runtime::side_commander(match_->state(), slot.record))
+                    continue;
+                commanders.emplace_back(
+                    static_cast<int32_t>(slot.unit->position[0] >> 16),
+                    static_cast<int32_t>(slot.unit->position[2] >> 16)
+                );
+            }
+            for (Spot& spot : spots) {
+                int64_t gap = std::numeric_limits<int64_t>::max();
+                for (const auto& commander : commanders) {
+                    const int64_t across = static_cast<int64_t>(spot.x) - commander.first;
+                    const int64_t down = static_cast<int64_t>(spot.z) - commander.second;
+                    gap = std::min(gap, across * across + down * down);
+                }
+                if (commanders.empty())
+                    gap = 0;
+                spot.gap = gap;
+            }
+            const auto farther = [](const Spot& left_spot, const Spot& right_spot) {
+                return left_spot.gap > right_spot.gap;
+            };
+            std::sort(spots.begin(), spots.end(), farther);
+            std::array<uint8_t, 2> players{{0, 1}};
+            int seated = 0;
+            for (int slot = 0; slot < OA_PLAYER_COUNT && seated < 2; ++slot) {
+                if (game.players[slot].in_use == 0)
+                    continue;
+                players[static_cast<std::size_t>(seated)] = static_cast<uint8_t>(slot);
+                ++seated;
+            }
+            if (seated == 1)
+                players[1] = players[0];
+            const std::array<std::string_view, 2> names{{"ARMPW", "CORAK"}};
+            for (const Spot& spot : spots) {
+                fight_units.clear();
+                for (int side = 0; side < 2 && seated > 0; ++side) {
+                    const uint16_t type = oa::sim::unit_spawn::find_type_index(
+                        spawn_type_names_, names[static_cast<std::size_t>(side)]
+                    );
+                    if (type == 0)
+                        continue;
+                    for (int index = 0; index < 2; ++index) {
+                        const int32_t x = std::clamp(
+                            spot.x + (side == 0 ? -40 : 40), int32_t{0}, std::max(map_w - 1, 0)
+                        );
+                        const int32_t z = std::clamp(
+                            spot.z + (index == 0 ? -24 : 24), int32_t{0}, std::max(map_h - 1, 0)
+                        );
+                        const auto across = static_cast<uint32_t>(x);
+                        const auto down = static_cast<uint32_t>(z);
+                        oa::sim::unit_spawn::Request request;
+                        request.player = players[static_cast<std::size_t>(side)];
+                        request.type = type;
+                        request.finished = true;
+                        request.state = kGroundOccupancyState;
+                        request.position = {
+                            across << 16,
+                            static_cast<uint32_t>(match_->map_height(across << 16, down << 16))
+                                << 16,
+                            down << 16,
+                        };
+                        const auto* placed = match_->create(request);
+                        if (placed == nullptr || placed->unit == nullptr)
+                            continue;
+                        fight_units.push_back(placed->unit_index);
+                    }
+                }
+                if (!fight_units.empty()) {
+                    fight_x = spot.x;
+                    fight_z = spot.z;
+                    fight_planted = true;
+                    break;
+                }
+            }
+        } else if (fight_planted && !fight_struck) {
+            for (uint16_t unit : fight_units)
+                match_->kill_unit(
+                    unit, static_cast<uint8_t>(oa::sim::match_runtime::DeathKind::weapon)
+                );
+            fight_struck = true;
+        }
         if (recorded_tick >= 2400)
             break;
     }
@@ -388,7 +513,9 @@ void Runtime::check_replay_viewer() {
         recorded_tick >= 2400,
         "the skirmish reached tick " + std::to_string(recorded_tick) + ", under 2,400"
     );
-    std::cout << "replay viewer: recorded " << recorded_tick << " ticks\n";
+    require(fight_planted && fight_struck, "the recording has no fight for the Director");
+    std::cout << "replay viewer: recorded " << recorded_tick << " ticks, fight at " << fight_x
+              << ", " << fight_z << '\n';
     leave_match();
     // leave_match drops the match and leaves the screen on it. The menu is
     // loaded before the next frame, which would otherwise draw no match.
@@ -501,6 +628,9 @@ void Runtime::check_replay_viewer() {
     wait_settled(false);
     const int32_t straight_camera_x = match_camera_x_;
     const int32_t straight_camera_z = match_camera_z_;
+    // The picture's place is part of the digest. Both plays are read from
+    // Free at the map's corner, with no frame between the move and the read.
+    set_camera_position(0, 0, 0);
     const uint64_t straight = match_world_digest();
     std::cout << "replay viewer straight " << digest_text(straight) << '\n';
     leave_match();
@@ -822,6 +952,18 @@ void Runtime::check_replay_viewer() {
     for (int frame_index = 0; frame_index < 8000 && playback().tick < 1800; ++frame_index)
         frames(1);
     require(playback().tick >= 1800, "a simulated minute did not pass");
+    // 16× spends the fight in a few frames. Hold the moment the minute
+    // lands, back on that minute, and read the Director there. Past it the
+    // picture follows a later fight, or a quiet stretch.
+    if (!playback().paused)
+        key(SDLK_PAUSE);
+    require(playback().paused, "the replay did not pause on the fight");
+    if (playback().tick != kLongTicks) {
+        call_hook_or_report<&Extension::replay_seek>(
+            extension_, hook_error_report(), *this, kLongTicks
+        );
+        wait_tick(kLongTicks, "the fight");
+    }
     key(SDLK_TAB);
     frames(2);
     key(SDLK_Q);
@@ -848,7 +990,7 @@ void Runtime::check_replay_viewer() {
             saw_follow_unit = true;
     }
     require(!saw_their_camera, "Follow their camera was offered for a skirmish recording");
-    require(!saw_director, "Director was offered");
+    require(saw_director, "Director was not offered");
     require(!saw_follow_unit, "Follow a unit was offered in the menu");
     const auto choose_camera = [&](std::string_view caption) {
         bool open = false;
@@ -873,13 +1015,35 @@ void Runtime::check_replay_viewer() {
         }
         require(false, std::string(caption) + " was not in the camera menu");
     };
+    choose_camera("Director");
+    frames(4);
+    {
+        const int64_t centre_x = static_cast<int64_t>(match_camera_x_) + visible_map_width() / 2;
+        const int64_t centre_z = static_cast<int64_t>(match_camera_z_) + visible_map_height() / 2;
+        const int64_t across = centre_x - fight_x;
+        const int64_t down = centre_z - fight_z;
+        const int64_t reach = std::max(visible_map_width(), visible_map_height());
+        require(
+            across * across + down * down <= reach * reach,
+            "Director was not on the fight at tick " + std::to_string(playback().tick)
+        );
+    }
     choose_camera("Free");
     key(SDLK_C);
     frames(2);
     require(
-        require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Free",
-        "C left Free when the recording shares no camera"
+        require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Director",
+        "C did not leave Free for Director"
     );
+    key(SDLK_C);
+    frames(2);
+    require(
+        require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Free",
+        "C did not leave Director for Free"
+    );
+    if (playback().paused)
+        key(SDLK_PAUSE);
+    require(!playback().paused, "the replay stayed paused after the cameras");
     uint16_t followed = 0;
     if (match_ != nullptr) {
         const auto& unit_slots = match_->world().slots;
@@ -1257,7 +1421,8 @@ void Runtime::check_replay_viewer() {
         "watch again lost " + colour_name + "'s colour"
     );
     require(replay_viewer_command("watch.whole-view"), "Q did not return every player");
-    set_camera_position(straight_camera_x, straight_camera_z, 0);
+    choose_camera("Free");
+    set_camera_position(0, 0, 0);
     const uint64_t again = match_world_digest();
     std::cout << "replay viewer straight " << digest_text(straight) << '\n';
     std::cout << "replay viewer switched " << digest_text(again) << '\n';

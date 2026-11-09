@@ -10,12 +10,20 @@
 #include "oa/app/runtime.hpp"
 
 #include "oa/platform/screen_reader.hpp"
+#include "oa/platform/screen_reader/speech.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <string>
 #include <string_view>
 #include <utility>
+
+#if defined(OA_SCREEN_READER_COMPILED_OUT) && defined(_WIN32)
+#include "oa/app/automation/view.hpp"
+#include "oa/app/check_host.hpp"
+
+#include <string>
+#endif
 
 #if !defined(OA_SCREEN_READER_COMPILED_OUT)
 
@@ -155,8 +163,89 @@ void push_event(SDL_WindowID window_id, const bridge::Event& event) {
     }
 }
 
+/// Speaks the focused control when the bridge cannot run.
+///
+/// @param nodes the controls a reader would be shown
+/// @param focused_id the focused id
+void speak_focused_node(
+    const std::vector<oa::platform::screen_reader::Node>& nodes, uint64_t focused_id
+) {
+    const oa::platform::screen_reader::Node* chosen = nullptr;
+    for (const oa::platform::screen_reader::Node& node : nodes) {
+        if (node.id == focused_id) {
+            chosen = &node;
+            break;
+        }
+    }
+    if (chosen == nullptr || chosen->role == oa::platform::screen_reader::Role::none) {
+        oa::platform::screen_reader::speak_focus({}, {}, {}, {});
+        return;
+    }
+    const auto role =
+        static_cast<oa::platform::screen_reader::SpokenRole>(static_cast<unsigned>(chosen->role));
+    oa::platform::screen_reader::speak_focus(
+        std::to_string(chosen->id),
+        chosen->label,
+        oa::platform::screen_reader::role_words(role),
+        chosen->value_text
+    );
+}
+
 } // namespace
 
+#endif
+
+#if defined(OA_SCREEN_READER_COMPILED_OUT) && defined(_WIN32)
+namespace {
+
+static_assert(
+    static_cast<unsigned>(oa::app::AutomationControlRole::none) ==
+    static_cast<unsigned>(oa::platform::screen_reader::SpokenRole::none)
+);
+static_assert(
+    static_cast<unsigned>(oa::app::AutomationControlRole::button) ==
+    static_cast<unsigned>(oa::platform::screen_reader::SpokenRole::button)
+);
+static_assert(
+    static_cast<unsigned>(oa::app::AutomationControlRole::label) ==
+    static_cast<unsigned>(oa::platform::screen_reader::SpokenRole::label)
+);
+
+/// Speaks the focused control from the listing. A masked field's value is
+/// how many characters it holds, never the text.
+///
+/// @param runtime the running game
+void speak_focused_control(oa::app::Runtime& runtime) {
+    const oa::app::CheckHost check = oa::app::check_host(runtime);
+    const oa::app::AutomationHost host = oa::app::automation_host(runtime);
+    const oa::app::automation::ControlListing listing =
+        oa::app::automation::listing_of(check, host);
+    const oa::app::automation::ListedControl* chosen = nullptr;
+    for (const oa::app::automation::ListedControl& item : listing.flat) {
+        if (!item.control.focused || !item.control.visible || item.control.hidden)
+            continue;
+        if (item.control.role == oa::app::AutomationControlRole::none)
+            continue;
+        chosen = &item;
+        break;
+    }
+    if (chosen == nullptr) {
+        oa::platform::screen_reader::speak_focus({}, {}, {}, {});
+        return;
+    }
+    const oa::app::AutomationControl& control = chosen->control;
+    std::string value = control.value_text;
+    if (control.masked || control.role == oa::app::AutomationControlRole::password)
+        value = std::to_string(control.text_length);
+    const auto role =
+        static_cast<oa::platform::screen_reader::SpokenRole>(static_cast<unsigned>(control.role));
+    const std::string identity = control.window + "\n" + control.dialog + "\n" + control.name;
+    oa::platform::screen_reader::speak_focus(
+        identity, control.label, oa::platform::screen_reader::role_words(role), value
+    );
+}
+
+} // namespace
 #endif
 
 namespace oa::app {
@@ -259,19 +348,27 @@ void Runtime::take_screen_reader_actions() {
 }
 
 void Runtime::publish_screen_reader() {
-    if (!oa::platform::screen_reader::reader_running())
-        return;
-    if (!oa::platform::screen_reader::active())
-        return;
 #if !defined(OA_SCREEN_READER_COMPILED_OUT)
+    const bool speaking = oa::platform::screen_reader::speech_where_bridge_cannot();
+    const bool publishing =
+        oa::platform::screen_reader::reader_running() && oa::platform::screen_reader::active();
+    if (!speaking && !publishing)
+        return;
     const CheckHost check = check_host(*this);
     const AutomationHost host = automation_host(*this);
     const oa::app::automation::ControlListing listing =
         oa::app::automation::listing_of(check, host);
     const oa::app::automation::WindowPlacement placement =
         oa::app::automation::window_placement(check);
-    uint64_t focus = oa::platform::screen_reader::window_node;
-    oa::platform::screen_reader::submit_tree(nodes_of(listing, placement, focus), focus);
+    uint64_t focused_id = oa::platform::screen_reader::window_node;
+    std::vector<oa::platform::screen_reader::Node> nodes = nodes_of(listing, placement, focused_id);
+    if (speaking)
+        speak_focused_node(nodes, focused_id);
+    if (publishing)
+        oa::platform::screen_reader::submit_tree(std::move(nodes), focused_id);
+#elif defined(_WIN32)
+    if (oa::platform::screen_reader::speech_where_bridge_cannot())
+        speak_focused_control(*this);
 #endif
 }
 

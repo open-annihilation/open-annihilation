@@ -7,6 +7,7 @@
 
 #include "oa/platform/screen_reader.hpp"
 #include "oa/platform/screen_reader/announce.hpp"
+#include "oa/platform/screen_reader/speech.hpp"
 
 #include "oa/test/check.hpp"
 
@@ -825,11 +826,79 @@ void check_gate() {
     screen::testing_reset_announcements();
 }
 
+/// The sentence a focus change speaks, and when Windows speaks at all.
+void check_focus_speech() {
+    OA_CHECK(screen::role_words(screen::SpokenRole::none).empty());
+    OA_CHECK(screen::role_words(screen::SpokenRole::button) == "button");
+    OA_CHECK(screen::role_words(screen::SpokenRole::check_box) == "check box");
+    OA_CHECK(screen::role_words(screen::SpokenRole::slider) == "slider");
+    OA_CHECK(screen::focus_sentence("Single", "button", "") == "Single, button");
+    OA_CHECK(screen::focus_sentence("Gamma", "slider", "1.0") == "Gamma, slider, 1.0");
+    OA_CHECK(screen::focus_sentence("", "button", "") == "button");
+    OA_CHECK(screen::focus_sentence("", "", "").empty());
+    OA_CHECK(
+        screen::focus_sentence("Ready", screen::role_words(screen::SpokenRole::check_box), "On") ==
+        "Ready, check box, On"
+    );
+
+    // A focus change cuts off what is being said, but not the message box's
+    // text announced just before it: that is heard, then the button.
+    OA_CHECK(screen::line_cuts_off(screen::SpokenLine::focus, -1));
+    OA_CHECK(!screen::line_cuts_off(screen::SpokenLine::focus, 27));
+    OA_CHECK(!screen::line_cuts_off(screen::SpokenLine::focus, screen::announcement_kept_ms - 1));
+    OA_CHECK(screen::line_cuts_off(screen::SpokenLine::focus, screen::announcement_kept_ms));
+    // A polite line waits its turn. An assertive one cuts off the voice,
+    // unless another announcement came with it.
+    OA_CHECK(!screen::line_cuts_off(screen::SpokenLine::polite, -1));
+    OA_CHECK(!screen::line_cuts_off(screen::SpokenLine::polite, 5000));
+    OA_CHECK(screen::line_cuts_off(screen::SpokenLine::assertive, -1));
+    OA_CHECK(screen::line_cuts_off(screen::SpokenLine::assertive, 5000));
+    OA_CHECK(!screen::line_cuts_off(screen::SpokenLine::assertive, 0));
+
+    screen::set_preference(screen::Preference::off);
+    screen::note_attach_finished(nullptr, false);
+    OA_CHECK(!screen::speech_where_bridge_cannot());
+
+    screen::set_preference(screen::Preference::on);
+    screen::note_attach_finished(nullptr, true);
+#if defined(_WIN32) && defined(OA_SCREEN_READER_COMPILED_OUT)
+    // This build has no bridge, so On speaks even though attach "succeeded".
+    OA_CHECK(screen::speech_where_bridge_cannot());
+#else
+    OA_CHECK(!screen::speech_where_bridge_cannot());
+#endif
+    screen::note_attach_finished(nullptr, false);
+#if defined(_WIN32)
+    OA_CHECK(screen::speech_where_bridge_cannot());
+    screen::set_preference(screen::Preference::automatic);
+    screen::note_attach_finished(nullptr, false);
+    // Automatic speaks only while a screen reader is running.
+    if (!screen::reader_running())
+        OA_CHECK(!screen::speech_where_bridge_cannot());
+    else
+        OA_CHECK(screen::speech_where_bridge_cannot());
+#else
+    OA_CHECK(!screen::speech_where_bridge_cannot());
+#endif
+
+    screen::set_preference(screen::Preference::off);
+    OA_CHECK(!screen::speech_where_bridge_cannot());
+    screen::set_preference(screen::Preference::automatic);
+    screen::note_attach_finished(nullptr, true);
+#if defined(_WIN32) && defined(OA_SCREEN_READER_COMPILED_OUT)
+    if (!screen::reader_running())
+        OA_CHECK(!screen::speech_where_bridge_cannot());
+#else
+    OA_CHECK(!screen::speech_where_bridge_cannot());
+#endif
+}
+
 } // namespace
 
 int main() {
     check_queue();
     check_gate();
+    check_focus_speech();
     OA_CHECK(screen::preference_of("") == screen::Preference::automatic);
     OA_CHECK(screen::preference_of("auto") == screen::Preference::automatic);
     OA_CHECK(screen::preference_of("on") == screen::Preference::on);

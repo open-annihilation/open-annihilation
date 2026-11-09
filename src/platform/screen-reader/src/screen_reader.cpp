@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/platform/screen_reader.hpp"
+#include "oa/platform/screen_reader/speech.hpp"
 
 #include <string_view>
 
@@ -22,6 +23,23 @@ Preference preference_of(std::string_view text) {
 #include "oa/platform/screen_reader/announce.hpp"
 #include "oa/platform/screen_reader/api.hpp"
 #include "oa/platform/screen_reader/tree.hpp"
+
+static_assert(
+    static_cast<unsigned>(oa::platform::screen_reader::SpokenRole::none) ==
+    static_cast<unsigned>(oa::platform::screen_reader::Role::none)
+);
+static_assert(
+    static_cast<unsigned>(oa::platform::screen_reader::SpokenRole::button) ==
+    static_cast<unsigned>(oa::platform::screen_reader::Role::button)
+);
+static_assert(
+    static_cast<unsigned>(oa::platform::screen_reader::SpokenRole::label) ==
+    static_cast<unsigned>(oa::platform::screen_reader::Role::label)
+);
+static_assert(
+    static_cast<unsigned>(oa::platform::screen_reader::SpokenRole::window) ==
+    static_cast<unsigned>(oa::platform::screen_reader::Role::window)
+);
 
 #include <SDL3/SDL.h>
 
@@ -150,6 +168,28 @@ bool subclass_hooks_ready() {
     );
     return set_window_subclass != nullptr && remove_window_subclass != nullptr &&
            def_subclass_proc != nullptr;
+}
+
+/// Whether Narrator says it is running. Narrator does not set the
+/// screen-reader flag: it keeps its state where Settings reads it, under
+/// HKEY_CURRENT_USER. Where Narrator keeps no such value, the answer is
+/// false.
+///
+/// @return true while Narrator is running
+bool narrator_running() {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(
+            HKEY_CURRENT_USER, L"Software\\Microsoft\\Narrator\\NoRoam", 0, KEY_QUERY_VALUE, &key
+        ) != ERROR_SUCCESS)
+        return false;
+    DWORD state = 0;
+    DWORD type = 0;
+    DWORD size = sizeof state;
+    const LONG read = RegQueryValueExW(
+        key, L"RunningState", nullptr, &type, reinterpret_cast<BYTE*>(&state), &size
+    );
+    RegCloseKey(key);
+    return read == ERROR_SUCCESS && type == REG_DWORD && size == sizeof state && state != 0;
 }
 
 /// The system's own version. A compatibility setting does not change it.
@@ -766,9 +806,9 @@ bool query_reader_running() {
 #else
     constexpr UINT screen_reader_flag = SPI_GETSCREENREADER;
 #endif
-    if (SystemParametersInfoW(screen_reader_flag, 0, &running, 0) == FALSE)
-        return false;
-    return running != FALSE;
+    if (SystemParametersInfoW(screen_reader_flag, 0, &running, 0) != FALSE && running != FALSE)
+        return true;
+    return narrator_running();
 #elif defined(__APPLE__)
     return voice_over_running();
 #elif defined(__linux__) || defined(__DragonFly__) || defined(__FreeBSD__) ||                      \
@@ -1168,6 +1208,7 @@ void set_preference(Preference mode) {
     chosen_preference = mode;
     attach_gave_up = false;
     skipped_window = nullptr;
+    forget_spoken_focus();
     if (mode == Preference::off) {
         detach();
         speech_needed = false;
@@ -1195,11 +1236,19 @@ void note_attach_finished(SDL_Window* window, bool succeeded) {
     }
     attach_gave_up = true;
     skipped_window = window;
-    speech_needed = chosen_preference == Preference::on;
+    speech_needed = chosen_preference != Preference::off;
 }
 
 bool speech_where_bridge_cannot() {
-    return speech_needed;
+#if !defined(_WIN32)
+    return false;
+#else
+    if (!speech_needed || chosen_preference == Preference::off)
+        return false;
+    if (chosen_preference == Preference::on)
+        return true;
+    return reader_running();
+#endif
 }
 
 bool announcements_open() {
@@ -1293,10 +1342,68 @@ void testing_set_update_hook(bool (*hook)()) {
 
 #else
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace oa::platform::screen_reader {
 namespace {
 
 Preference chosen_preference = Preference::automatic;
+
+#if defined(_WIN32) && !defined(OA_WINDOWS_95)
+/// Whether Narrator says it is running. Narrator does not set the
+/// screen-reader flag: it keeps its state where Settings reads it, under
+/// HKEY_CURRENT_USER. Where Narrator keeps no such value, the answer is
+/// false.
+///
+/// @return true while Narrator is running
+bool narrator_running() {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(
+            HKEY_CURRENT_USER, L"Software\\Microsoft\\Narrator\\NoRoam", 0, KEY_QUERY_VALUE, &key
+        ) != ERROR_SUCCESS)
+        return false;
+    DWORD state = 0;
+    DWORD type = 0;
+    DWORD size = sizeof state;
+    const LONG read = RegQueryValueExW(
+        key, L"RunningState", nullptr, &type, reinterpret_cast<BYTE*>(&state), &size
+    );
+    RegCloseKey(key);
+    return read == ERROR_SUCCESS && type == REG_DWORD && size == sizeof state && state != 0;
+}
+#endif
+
+#if defined(_WIN32)
+/// Asks Windows whether a screen reader is running: the screen-reader flag,
+/// or, past Windows 95, Narrator's own state. The answer is not cached.
+///
+/// @return true while a screen reader is running
+bool query_screen_reader() {
+    BOOL running = FALSE;
+#ifndef SPI_GETSCREENREADER
+    constexpr UINT screen_reader_flag = 0x0046;
+#else
+    constexpr UINT screen_reader_flag = SPI_GETSCREENREADER;
+#endif
+#if defined(OA_WINDOWS_95)
+    if (SystemParametersInfoA(screen_reader_flag, 0, &running, 0) == FALSE)
+        return false;
+    return running != FALSE;
+#else
+    if (SystemParametersInfoW(screen_reader_flag, 0, &running, 0) != FALSE && running != FALSE)
+        return true;
+    return narrator_running();
+#endif
+}
+#endif
 
 } // namespace
 
@@ -1309,7 +1416,10 @@ LoadResult load() {
 }
 
 void set_preference(Preference mode) {
+    if (mode == chosen_preference)
+        return;
     chosen_preference = mode;
+    forget_spoken_focus();
 }
 
 bool attach(SDL_Window* /*window*/) {
@@ -1335,15 +1445,38 @@ void note_attach_finished(SDL_Window* /*window*/, bool /*succeeded*/) {
 }
 
 bool speech_where_bridge_cannot() {
-    return chosen_preference == Preference::on;
+#if !defined(_WIN32)
+    return false;
+#else
+    if (chosen_preference == Preference::off)
+        return false;
+    if (chosen_preference == Preference::on)
+        return true;
+    return reader_running();
+#endif
 }
 
 bool announcements_open() {
-    return chosen_preference == Preference::on;
+    if (chosen_preference == Preference::off)
+        return false;
+    return chosen_preference == Preference::on || reader_running();
 }
 
 bool reader_running() {
+#if defined(_WIN32)
+    static bool have_cache = false;
+    static bool cached = false;
+    static DWORD checked_at = 0;
+    const DWORD now = GetTickCount();
+    if (have_cache && now - checked_at < 500)
+        return cached;
+    cached = query_screen_reader();
+    checked_at = now;
+    have_cache = true;
+    return cached;
+#else
     return false;
+#endif
 }
 
 bool active() {

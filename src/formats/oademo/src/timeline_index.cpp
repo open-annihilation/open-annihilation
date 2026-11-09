@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -25,6 +26,21 @@ struct KindName {
     MarkerKind kind{};
     std::string_view name{};
 };
+
+/// A battle event and the word it is written as.
+struct BattleName {
+    BattleKind kind{};
+    std::string_view name{};
+};
+
+/// Every battle event, in the order of BattleKind.
+constexpr std::array<BattleName, 5> battle_kind_names{{
+    {BattleKind::unit_lost, "unit_lost"},
+    {BattleKind::building_lost, "building_lost"},
+    {BattleKind::engagement, "engagement"},
+    {BattleKind::commander, "commander"},
+    {BattleKind::commander_lost, "commander_lost"},
+}};
 
 /// Every kind, in the order of MarkerKind.
 constexpr std::array<KindName, 9> marker_kind_names{{
@@ -434,9 +450,141 @@ bool known_member(std::string_view name) noexcept {
           "markers",
           "markers_omitted",
           "totals",
-          "intensity"})
+          "intensity",
+          "events"})
         if (known == name)
             return true;
+    return false;
+}
+
+/// Reads a battle event's kind.
+///
+/// @param text the word
+/// @param[out] kind the kind
+/// @return false when the word is not one this version knows
+bool parse_battle_kind(std::string_view text, BattleKind& kind) noexcept {
+    for (const BattleName& entry : battle_kind_names)
+        if (entry.name == text) {
+            kind = entry.kind;
+            return true;
+        }
+    return false;
+}
+
+/// Writes one battle event as a compact array.
+///
+/// The tick, the kind and the place are always written. `player`, `metal`,
+/// `health` and `amount` follow, and stop at the last one that is not 0.
+///
+/// @param writer the writer
+/// @param event the event
+void write_battle_event(json::JsonWriter& writer, const BattleEvent& event) {
+    writer.begin_array();
+    writer.integer(event.tick);
+    writer.string(battle_kind_name(event.kind));
+    writer.integer(event.x);
+    writer.integer(event.z);
+    const bool amount = event.amount != 0;
+    const bool health = amount || event.health != 0;
+    const bool metal = health || event.metal != 0;
+    const bool player = metal || event.player != 0;
+    if (player)
+        writer.integer(event.player);
+    if (metal)
+        writer.integer(static_cast<int64_t>(event.metal));
+    if (health)
+        writer.integer(static_cast<int64_t>(event.health));
+    if (amount)
+        writer.integer(event.amount);
+    writer.end_array();
+}
+
+/// Reads the optional tail of a battle-event array.
+///
+/// @param items the array, already known to hold the tick, kind and place
+/// @param[in,out] event the event
+/// @return false when a present tail value has the wrong type
+bool take_battle_tail(std::span<const json::Json> items, BattleEvent& event) {
+    if (items.size() > 4 && !take_player(&items[4], event.player))
+        return false;
+    if (items.size() > 5 && !take_u32(&items[5], event.metal))
+        return false;
+    if (items.size() > 6 && !take_u32(&items[6], event.health))
+        return false;
+    if (items.size() > 7 && !take_i32(&items[7], event.amount))
+        return false;
+    return true;
+}
+
+/// Reads one battle event from the compact array the writer emits.
+///
+/// @param element the event's array
+/// @param[out] event the event
+/// @param[out] known false when the kind is one this version does not know
+/// @return false when the array is not one, or a known event holds a wrong value
+bool parse_battle_array(const json::Json& element, BattleEvent& event, bool& known) {
+    known = false;
+    if (element.type() != json::JsonType::array)
+        return false;
+    const std::span<const json::Json> items = element.elements();
+    if (items.size() < 4 || items.size() > 8)
+        return false;
+    std::string kind;
+    if (!take_u32(&items[0], event.tick) || !take_string(&items[1], kind) ||
+        !take_i32(&items[2], event.x) || !take_i32(&items[3], event.z))
+        return false;
+    if (!parse_battle_kind(kind, event.kind))
+        return true;
+    known = true;
+    return take_battle_tail(items, event);
+}
+
+/// Reads one battle event from the object form.
+///
+/// @param element the event's object
+/// @param[out] event the event
+/// @param[out] known false when the kind is one this version does not know
+/// @return false when the object is missing a member or holds a wrong one
+bool parse_battle_object(const json::Json& element, BattleEvent& event, bool& known) {
+    known = false;
+    if (element.type() != json::JsonType::object)
+        return false;
+    std::string kind;
+    if (!take_string(member(element, "kind"), kind))
+        return false;
+    if (!parse_battle_kind(kind, event.kind))
+        return true;
+    known = true;
+    if (!take_u32(member(element, "tick"), event.tick) ||
+        !take_i32(member(element, "x"), event.x) || !take_i32(member(element, "z"), event.z))
+        return false;
+    if (const json::Json* player = member(element, "player");
+        player != nullptr && !take_player(player, event.player))
+        return false;
+    if (const json::Json* metal = member(element, "metal");
+        metal != nullptr && !take_u32(metal, event.metal))
+        return false;
+    if (const json::Json* health = member(element, "health");
+        health != nullptr && !take_u32(health, event.health))
+        return false;
+    if (const json::Json* amount = member(element, "amount");
+        amount != nullptr && !take_i32(amount, event.amount))
+        return false;
+    return true;
+}
+
+/// Reads one battle event, as an array or as an object.
+///
+/// @param element the event
+/// @param[out] event the event
+/// @param[out] known false when the kind is one this version does not know
+/// @return false when the value is neither, or a known event holds a wrong one
+bool parse_battle_event(const json::Json& element, BattleEvent& event, bool& known) {
+    if (element.type() == json::JsonType::array)
+        return parse_battle_array(element, event, known);
+    if (element.type() == json::JsonType::object)
+        return parse_battle_object(element, event, known);
+    known = false;
     return false;
 }
 
@@ -461,6 +609,13 @@ std::string_view marker_kind_name(MarkerKind kind) noexcept {
     return "start";
 }
 
+std::string_view battle_kind_name(BattleKind kind) noexcept {
+    for (const BattleName& entry : battle_kind_names)
+        if (entry.kind == kind)
+            return entry.name;
+    return "unit_lost";
+}
+
 std::string_view result_by_name(ResultBy by) noexcept {
     switch (by) {
     case ResultBy::none:
@@ -477,7 +632,7 @@ std::string timeline_index_text(const TimelineIndex& index) {
     json::JsonWriter writer;
     writer.begin_object();
     writer.key("oademo_timeline");
-    writer.integer(index.version);
+    writer.integer(timeline_version);
     writer.key("length");
     writer.begin_object();
     writer.key("ticks");
@@ -584,6 +739,11 @@ std::string timeline_index_text(const TimelineIndex& index) {
     writer.integer(index.period_ticks);
     write_numbers(writer, "damage", index.damage);
     writer.end_object();
+    writer.key("events");
+    writer.begin_array();
+    for (const BattleEvent& event : index.events)
+        write_battle_event(writer, event);
+    writer.end_array();
     for (const JsonExtra& extra : index.extra) {
         writer.key(extra.name);
         writer.raw(extra.json);
@@ -600,9 +760,13 @@ std::optional<TimelineIndex> parse_timeline_index(std::string_view text) {
     const json::Json& root = *parsed;
     TimelineIndex index;
     const json::Json* version = member(root, "oademo_timeline");
-    if (version == nullptr || version->integer() != timeline_version)
+    const std::optional<int64_t> version_number =
+        version != nullptr ? version->integer() : std::nullopt;
+    // Version 2 and later are refused. Version 1 is this writer and every
+    // timeline from before battle events were a member.
+    if (!version_number.has_value() || *version_number != timeline_version)
         return std::nullopt;
-    index.version = timeline_version;
+    index.version = static_cast<int>(*version_number);
 
     const json::Json* length = member(root, "length");
     if (length == nullptr || !take_u32(member(*length, "ticks"), index.length_ticks))
@@ -691,6 +855,20 @@ std::optional<TimelineIndex> parse_timeline_index(std::string_view text) {
         !take_damage(member(*intensity, "damage"), index.damage))
         return std::nullopt;
 
+    if (const json::Json* events = member(root, "events"); events != nullptr) {
+        if (events->type() != json::JsonType::array)
+            return std::nullopt;
+        index.events_recorded = true;
+        for (const json::Json& element : events->elements()) {
+            BattleEvent event;
+            bool known = false;
+            if (!parse_battle_event(element, event, known))
+                return std::nullopt;
+            if (known)
+                index.events.push_back(event);
+        }
+    }
+
     const auto names = root.names();
     const auto values = root.values();
     for (std::size_t at = 0; at < names.size(); ++at) {
@@ -701,6 +879,34 @@ std::optional<TimelineIndex> parse_timeline_index(std::string_view text) {
         index.extra.push_back(JsonExtra{names[at], extra.text()});
     }
     return index;
+}
+
+std::optional<int> timeline_prefix_version(std::string_view text) noexcept {
+    constexpr std::string_view prefix = "{\"oademo_timeline\":";
+    if (!text.starts_with(prefix))
+        return std::nullopt;
+    std::size_t at = prefix.size();
+    if (at >= text.size() || text[at] < '0' || text[at] > '9')
+        return std::nullopt;
+    int version = 0;
+    int digits = 0;
+    while (at < text.size() && text[at] >= '0' && text[at] <= '9' && digits < 9) {
+        version = version * 10 + (text[at] - '0');
+        ++at;
+        ++digits;
+    }
+    if (digits == 0 || at >= text.size() || text[at] != ',')
+        return std::nullopt;
+    return version;
+}
+
+bool timeline_wants_events(std::string_view text) noexcept {
+    if (text.empty())
+        return false;
+    const std::optional<int> version = timeline_prefix_version(text);
+    if (!version.has_value() || *version != timeline_version)
+        return true;
+    return text.find("\"events\":") == std::string_view::npos;
 }
 
 } // namespace oa::formats::oademo

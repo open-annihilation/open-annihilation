@@ -79,6 +79,8 @@ inline constexpr std::string_view free_camera = "Free";
 inline constexpr std::string_view follow_their_camera = "Follow their camera";
 /// The camera keeps one unit in the middle.
 inline constexpr std::string_view follow_a_unit = "Follow a unit";
+/// The camera goes where the fighting is.
+inline constexpr std::string_view director = "Director";
 /// A player who was defeated, on a list row. `{time}` is the game time.
 inline constexpr std::string_view defeated_at = "Defeated {time}";
 /// A player who left, on a list row. `{time}` is the game time.
@@ -132,6 +134,7 @@ inline constexpr std::string_view interface_words[] = {
     words::free_camera,
     words::follow_their_camera,
     words::follow_a_unit,
+    words::director,
     words::defeated_at,
     words::left_at,
     words::team_label,

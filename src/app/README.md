@@ -2886,7 +2886,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   once; Basic and Full apply at once too, except in a shared game or a replay, known
   from its bootstrap (`MatchBootstrap::multiplayer`, `replay`), which keeps
   the tier it began with until it ends (`begin_render_tier_match`,
-  `end_render_tier_match`). Setting it to Off and back, raising it from
+  `end_render_tier_match`). A replay decides its tier first, running the
+  function test where only that is missing, so a replay that is the first
+  scene (`--play-demo`, or a pending replay after a soft restart) begins in
+  the tier asked for and its loading screen makes Full's pages; a shared
+  game keeps the tier it has. Setting it to Off and back, raising it from
   Basic to Full, or Restore defaults,
   clears the renderer records' strikes and failure records in memory, lets
   a failed function test or an unwritten trial try again, lifts a drop of

@@ -11,6 +11,7 @@
 #include "oa/core/player_setup.h"
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/tad.hpp"
+#include "oa/media/director/planner.hpp"
 #include "oa/netgame/private_channel.hpp"
 #include "oa/netgame/records.hpp"
 #include "oa/netgame/unicode_chat.hpp"
@@ -19,9 +20,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <span>
@@ -37,6 +41,11 @@ namespace {
 namespace director = oa::media::director;
 namespace oademo = oa::formats::oademo;
 namespace tad = oa::formats::tad;
+
+static_assert(director_min_cut_ticks == director::min_cut_ticks);
+static_assert(director_switch_numerator == director::switch_ratio_numerator);
+static_assert(director_switch_denominator == director::switch_ratio_denominator);
+static_assert(director_pan_reach_percent == director::pan_reach_percent);
 
 /// The side value of a recorded player who only watches.
 constexpr uint8_t watcher_side = 2;
@@ -350,6 +359,25 @@ constexpr uint32_t opening_ticks = 3 * oademo::game_ticks_per_second;
 /// The kind a death names when the unit's slot is taken by another unit.
 constexpr uint8_t displaced_death_kind = 0;
 
+/// Deaths that are not a unit destroyed or a building lost: captured,
+/// reclaimed, dismissed or cancelled.
+constexpr uint8_t death_kind_captured = 4;
+constexpr uint8_t death_kind_reclaim = 5;
+constexpr uint8_t death_kind_dismissed = 7;
+constexpr uint8_t death_kind_cancelled = 9;
+
+/// Ticks gathered into one engagement: ten seconds.
+constexpr uint32_t engagement_period_ticks = 300;
+
+/// The side of the square a large engagement is gathered in, in map pixels.
+constexpr int32_t engagement_cell_pixels = 512;
+
+/// Health points that make a cluster of hits a large engagement.
+constexpr int64_t engagement_damage = 2000;
+
+/// Hits that make a cluster a large engagement when the damage is smaller.
+constexpr int engagement_hits = 8;
+
 /// Who is allied with whom: each record sets one player's side of a pair.
 class Alliances {
   public:
@@ -505,6 +533,316 @@ Commanders follow_commanders(const Source& source) {
     if (lost_this_tick && !found.decided)
         settle(tick);
     return found;
+}
+
+/// Returns the unit type a timeline recorded for an index.
+///
+/// @param timeline the timeline
+/// @param index the type's index
+/// @return the type, or null when the timeline did not note it
+const director::TimelineUnitType* type_named(const director::Timeline& timeline, uint16_t index) {
+    const std::vector<director::TimelineUnitType>& types = timeline.header.unit_types;
+    const auto at = std::lower_bound(
+        types.begin(),
+        types.end(),
+        index,
+        [](const director::TimelineUnitType& type, uint16_t wanted) {
+            return type.type_index < wanted;
+        }
+    );
+    if (at == types.end() || at->type_index != index)
+        return nullptr;
+    return &*at;
+}
+
+/// Tells whether a death is a unit destroyed or a building lost.
+///
+/// @param kind the death's kind
+/// @return false for a capture, a reclaim, a dismissal or a cancelled build
+bool destroyed_in_battle(uint8_t kind) noexcept {
+    return kind != death_kind_captured && kind != death_kind_reclaim &&
+           kind != death_kind_dismissed && kind != death_kind_cancelled;
+}
+
+/// Keeps at most `most` events, spread evenly across the ones given, which
+/// are already in order.
+///
+/// @param[in,out] events the events
+/// @param most how many to keep
+void keep_spread(std::vector<oademo::BattleEvent>& events, std::size_t most) {
+    if (events.size() <= most)
+        return;
+    std::vector<oademo::BattleEvent> kept;
+    kept.reserve(most);
+    const std::size_t count = events.size();
+    for (std::size_t place = 0; place < most; ++place)
+        kept.push_back(events[place * count / most]);
+    events = std::move(kept);
+}
+
+/// The weight of a fight: an engagement's health, or what a loss cost.
+///
+/// @param event a fight
+/// @return the weight, at least 1
+uint32_t fight_weight(const oademo::BattleEvent& event) noexcept {
+    if (event.kind == oademo::BattleKind::engagement && event.amount > 0)
+        return static_cast<uint32_t>(event.amount);
+    if (event.metal != 0)
+        return event.metal;
+    if (event.health != 0)
+        return event.health;
+    return 1;
+}
+
+/// Tells whether one fight should be shown instead of another.
+///
+/// @param event the candidate
+/// @param best the one held so far
+/// @return true when the candidate is heavier, or as heavy and earlier
+bool heavier_fight(const oademo::BattleEvent& event, const oademo::BattleEvent& best) noexcept {
+    const uint32_t weight = fight_weight(event);
+    const uint32_t held = fight_weight(best);
+    if (weight != held)
+        return weight > held;
+    if (event.tick != best.tick)
+        return event.tick < best.tick;
+    if (event.x != best.x)
+        return event.x < best.x;
+    return event.z < best.z;
+}
+
+/// The column or row of a map pixel. A negative place shares the first cell.
+///
+/// @param place the pixel
+/// @return the cell
+int32_t battle_cell(int32_t place) noexcept {
+    if (place <= 0)
+        return 0;
+    return place / engagement_cell_pixels;
+}
+
+/// Keeps the heaviest fight in each square of engagement_cell_pixels and each
+/// stretch of engagement_period_ticks.
+///
+/// @param[in,out] fights the fights, in any order
+void keep_heaviest_cell(std::vector<oademo::BattleEvent>& fights) {
+    struct Key {
+        uint32_t period{};
+        int32_t column{};
+        int32_t row{};
+
+        bool operator<(const Key& other) const noexcept {
+            return std::tie(period, column, row) < std::tie(other.period, other.column, other.row);
+        }
+    };
+
+    std::map<Key, oademo::BattleEvent> best;
+    for (const oademo::BattleEvent& event : fights) {
+        const Key key{
+            event.tick / engagement_period_ticks, battle_cell(event.x), battle_cell(event.z)
+        };
+        const auto found = best.find(key);
+        if (found == best.end() || heavier_fight(event, found->second))
+            best.insert_or_assign(key, event);
+    }
+    fights.clear();
+    fights.reserve(best.size());
+    for (const auto& [key, event] : best) {
+        (void)key;
+        fights.push_back(event);
+    }
+}
+
+/// Tells whether a commander creation is the one a replacement displaced.
+///
+/// The creation is left out when a displaced death of the same tick, unit
+/// and owner is recorded, and either another commander of that player was
+/// created on that tick or a later creation uses the same unit.
+///
+/// @param timeline the timeline
+/// @param event the creation
+/// @param displaced displaced deaths, as tick, unit and owner
+/// @return true when the creation is left out
+bool displaced_creation(
+    const director::Timeline& timeline,
+    const director::TimelineEvent& event,
+    const std::set<std::tuple<uint32_t, uint16_t, uint8_t>>& displaced
+) {
+    if (!displaced.contains({event.tick, event.unit, event.owner}))
+        return false;
+    for (const director::TimelineEvent& other : timeline.events) {
+        if (other.kind != director::EventKind::created ||
+            (other.flags & director::event_flag::commander) == 0 || other.owner != event.owner)
+            continue;
+        if (other.tick == event.tick && other.unit != event.unit)
+            return true;
+        if (other.unit == event.unit && &other > &event)
+            return true;
+    }
+    return false;
+}
+
+/// Orders battle events by tick, then kind, then place.
+///
+/// @param left one event
+/// @param right the other
+/// @return true when left comes first
+bool battle_before(const oademo::BattleEvent& left, const oademo::BattleEvent& right) noexcept {
+    if (left.tick != right.tick)
+        return left.tick < right.tick;
+    if (left.kind != right.kind)
+        return static_cast<uint8_t>(left.kind) < static_cast<uint8_t>(right.kind);
+    if (left.x != right.x)
+        return left.x < right.x;
+    return left.z < right.z;
+}
+
+/// Fills the index's battle events from the timeline.
+///
+/// A commander displaced and replaced on the same tick is left out, its
+/// creation and its loss. Hits are gathered into a square of
+/// engagement_cell_pixels over engagement_period_ticks, and a square becomes
+/// one engagement when the hits take engagement_damage health or there are
+/// engagement_hits of them. The heaviest fight in each of those squares and
+/// stretches is kept. Commanders are kept, and what remains is spread across
+/// the game so the file stays within most_battle_events.
+///
+/// @param source what the index is built from
+/// @param[in,out] index the index; its events are set
+void fill_battle_events(const Source& source, oademo::TimelineIndex& index) {
+    const director::Timeline& timeline = *source.timeline;
+    const StreamNotes& stream = *source.stream;
+    std::set<std::tuple<uint32_t, uint16_t, uint8_t>> replacements;
+    std::set<std::tuple<uint32_t, uint16_t, uint8_t>> displaced;
+    for (const director::TimelineEvent& event : timeline.events) {
+        if (event.kind == director::EventKind::created &&
+            (event.flags & director::event_flag::commander) != 0)
+            replacements.insert({event.tick, event.unit, event.owner});
+        if (event.kind == director::EventKind::death &&
+            (event.flags & director::event_flag::commander) != 0 &&
+            event.damage_kind == displaced_death_kind)
+            displaced.insert({event.tick, event.unit, event.owner});
+    }
+
+    std::vector<oademo::BattleEvent> commanders;
+    std::vector<oademo::BattleEvent> fights;
+
+    struct Cluster {
+        uint32_t period{};
+        int32_t column{};
+        int32_t row{};
+
+        bool operator<(const Cluster& other) const noexcept {
+            return std::tie(period, column, row) < std::tie(other.period, other.column, other.row);
+        }
+    };
+
+    struct Pile {
+        int64_t damage{};
+        int64_t across{};
+        int64_t down{};
+        int hits{};
+        uint32_t tick{};
+    };
+
+    std::map<Cluster, Pile> piles;
+    for (const director::TimelineEvent& event : timeline.events) {
+        if (event.kind == director::EventKind::created &&
+            (event.flags & director::event_flag::commander) != 0) {
+            if (displaced_creation(timeline, event, displaced))
+                continue;
+            oademo::BattleEvent placed;
+            placed.tick = event.tick;
+            placed.kind = oademo::BattleKind::commander;
+            placed.x = event.at.x;
+            placed.z = director::ground_row(event.at);
+            placed.player = number_in_slot(stream, event.owner);
+            commanders.push_back(placed);
+            continue;
+        }
+        if (event.kind == director::EventKind::death && destroyed_in_battle(event.damage_kind)) {
+            const bool commander = (event.flags & director::event_flag::commander) != 0;
+            if (commander && event.damage_kind == displaced_death_kind &&
+                replacements.contains({event.tick, event.unit, event.owner}))
+                continue;
+            oademo::BattleEvent placed;
+            placed.tick = event.tick;
+            placed.x = event.at.x;
+            placed.z = director::ground_row(event.at);
+            placed.player = number_in_slot(stream, event.owner);
+            if (commander) {
+                placed.kind = oademo::BattleKind::commander_lost;
+                commanders.push_back(placed);
+            } else {
+                const director::TimelineUnitType* type = type_named(timeline, event.unit_type);
+                const bool mobile = type != nullptr && type->mobile;
+                placed.kind =
+                    mobile ? oademo::BattleKind::unit_lost : oademo::BattleKind::building_lost;
+                if (type != nullptr) {
+                    placed.metal = type->metal_cost;
+                    placed.health = type->max_damage;
+                }
+                fights.push_back(placed);
+            }
+            continue;
+        }
+        if (event.kind != director::EventKind::damage || event.amount <= 0 ||
+            event.damage_kind == damage_kind_healing || event.damage_kind == damage_kind_paralyze)
+            continue;
+        const int32_t row = director::ground_row(event.at);
+        Cluster cluster;
+        cluster.period = event.tick / engagement_period_ticks;
+        cluster.column = event.at.x / engagement_cell_pixels;
+        cluster.row = row / engagement_cell_pixels;
+        Pile& pile = piles[cluster];
+        if (pile.hits == 0)
+            pile.tick = event.tick;
+        pile.damage += event.amount;
+        pile.across += static_cast<int64_t>(event.at.x) * event.amount;
+        pile.down += static_cast<int64_t>(row) * event.amount;
+        ++pile.hits;
+    }
+    for (const auto& [cluster, pile] : piles) {
+        (void)cluster;
+        if (pile.damage < engagement_damage && pile.hits < engagement_hits)
+            continue;
+        if (pile.damage <= 0)
+            continue;
+        oademo::BattleEvent placed;
+        placed.tick = pile.tick;
+        placed.kind = oademo::BattleKind::engagement;
+        const int64_t across = pile.across / pile.damage;
+        const int64_t down = pile.down / pile.damage;
+        placed.x = static_cast<int32_t>(std::clamp(
+            across,
+            static_cast<int64_t>(std::numeric_limits<int32_t>::min()),
+            static_cast<int64_t>(std::numeric_limits<int32_t>::max())
+        ));
+        placed.z = static_cast<int32_t>(std::clamp(
+            down,
+            static_cast<int64_t>(std::numeric_limits<int32_t>::min()),
+            static_cast<int64_t>(std::numeric_limits<int32_t>::max())
+        ));
+        placed.amount = pile.damage > std::numeric_limits<int32_t>::max()
+                            ? std::numeric_limits<int32_t>::max()
+                            : static_cast<int32_t>(pile.damage);
+        fights.push_back(placed);
+    }
+
+    std::stable_sort(commanders.begin(), commanders.end(), battle_before);
+    keep_heaviest_cell(fights);
+    std::stable_sort(fights.begin(), fights.end(), battle_before);
+    std::size_t room = oademo::most_battle_events;
+    if (commanders.size() >= room) {
+        keep_spread(commanders, room);
+        fights.clear();
+    } else {
+        room -= commanders.size();
+        keep_spread(fights, room);
+    }
+    index.events = std::move(commanders);
+    index.events.insert(index.events.end(), fights.begin(), fights.end());
+    std::stable_sort(index.events.begin(), index.events.end(), battle_before);
 }
 
 } // namespace
@@ -740,7 +1078,295 @@ oademo::TimelineIndex build_index(const Source& source) {
         index.ended = *source.recorded_end;
     else
         index.ended = oademo::IndexEnd::cut;
+    index.version = oademo::timeline_version;
+    fill_battle_events(source, index);
     return index;
+}
+
+BattleAim battle_aim(std::span<const oademo::BattleEvent> events, uint32_t tick) {
+    const auto in_stretch = [&](uint32_t from, uint32_t to) -> const oademo::BattleEvent* {
+        const oademo::BattleEvent* best = nullptr;
+        for (const oademo::BattleEvent& event : events) {
+            if (!oademo::battle_fight(event.kind) || event.tick < from || event.tick > to)
+                continue;
+            if (best == nullptr || heavier_fight(event, *best))
+                best = &event;
+        }
+        return best;
+    };
+    const auto later = [](uint32_t from, uint32_t by) {
+        return from > std::numeric_limits<uint32_t>::max() - by
+                   ? std::numeric_limits<uint32_t>::max()
+                   : from + by;
+    };
+    // The nearest fight in a stretch, by how far its tick is from the moment.
+    // An equal tick keeps the heavier fight.
+    const auto nearest = [&](uint32_t from, uint32_t to) -> const oademo::BattleEvent* {
+        const oademo::BattleEvent* best = nullptr;
+        uint32_t best_gap = 0;
+        for (const oademo::BattleEvent& event : events) {
+            if (!oademo::battle_fight(event.kind) || event.tick < from || event.tick > to)
+                continue;
+            const uint32_t gap = event.tick >= tick ? event.tick - tick : tick - event.tick;
+            if (best == nullptr || gap < best_gap ||
+                (gap == best_gap && heavier_fight(event, *best))) {
+                best = &event;
+                best_gap = gap;
+            }
+        }
+        return best;
+    };
+    // The latest fight in a stretch. The same tick keeps the heavier fight.
+    const auto most_recent = [&](uint32_t from, uint32_t to) -> const oademo::BattleEvent* {
+        const oademo::BattleEvent* best = nullptr;
+        for (const oademo::BattleEvent& event : events) {
+            if (!oademo::battle_fight(event.kind) || event.tick < from || event.tick > to)
+                continue;
+            if (best == nullptr || event.tick > best->tick ||
+                (event.tick == best->tick && heavier_fight(event, *best)))
+                best = &event;
+        }
+        return best;
+    };
+    const uint32_t ahead = later(tick, battle_look_ahead_ticks);
+    const oademo::BattleEvent* chosen = in_stretch(tick, ahead);
+    if (chosen == nullptr && tick > 0) {
+        const uint32_t trail = tick > battle_trail_ticks ? tick - battle_trail_ticks : 0;
+        chosen = most_recent(trail, tick - 1);
+    }
+    // A minute with no fight in the short windows still shows the battle,
+    // not the place the commanders started.
+    if (chosen == nullptr) {
+        const uint32_t ahead_from =
+            ahead == std::numeric_limits<uint32_t>::max() ? ahead : ahead + 1;
+        const oademo::BattleEvent* forward = nearest(ahead_from, later(tick, battle_lull_ticks));
+        const oademo::BattleEvent* back = nullptr;
+        if (tick > battle_trail_ticks) {
+            const uint32_t behind = tick > battle_lull_ticks ? tick - battle_lull_ticks : 0;
+            back = nearest(behind, tick - battle_trail_ticks - 1);
+        }
+        if (forward == nullptr)
+            chosen = back;
+        else if (back == nullptr)
+            chosen = forward;
+        else {
+            const uint32_t forward_gap = forward->tick - tick;
+            const uint32_t back_gap = tick - back->tick;
+            chosen = forward_gap <= back_gap ? forward : back;
+        }
+    }
+    BattleAim aim;
+    if (chosen == nullptr)
+        return aim;
+    aim.found = true;
+    aim.x = chosen->x;
+    aim.z = chosen->z;
+    aim.tick = chosen->tick;
+    return aim;
+}
+
+namespace {
+
+/// Tells whether two places are within `pixels` of each other.
+///
+/// @param ax one place, across the map
+/// @param az one place, down the map
+/// @param bx the other, across the map
+/// @param bz the other, down the map
+/// @param pixels the reach
+/// @return true when the distance is within the reach
+bool near_place(int32_t ax, int32_t az, int32_t bx, int32_t bz, int32_t pixels) noexcept {
+    const int64_t across = static_cast<int64_t>(ax) - bx;
+    const int64_t down = static_cast<int64_t>(az) - bz;
+    const int64_t reach = pixels;
+    return across * across + down * down <= reach * reach;
+}
+
+/// Tells whether the fight on show is still the fight of the moment.
+///
+/// A fight older than the trail stretch no longer holds the picture against
+/// a newer one, however heavy it was. The quiet minute only finds a place to
+/// go when nothing nearer in time is fighting.
+///
+/// @param view the view
+/// @param tick the moment on show
+/// @return true while that fight's tick is in the look-ahead or the trail stretch
+bool subject_in_range(const DirectorView& view, uint32_t tick) noexcept {
+    if (view.subject_tick >= tick)
+        return view.subject_tick - tick <= battle_look_ahead_ticks;
+    return tick - view.subject_tick <= battle_trail_ticks;
+}
+
+/// The fight battle_aim chose, or none.
+///
+/// @param events the events
+/// @param tick the moment on show
+/// @return the fight; null when battle_aim finds none
+const oademo::BattleEvent*
+fight_chosen(std::span<const oademo::BattleEvent> events, uint32_t tick) {
+    const BattleAim aim = battle_aim(events, tick);
+    if (!aim.found)
+        return nullptr;
+    const oademo::BattleEvent* chosen = nullptr;
+    for (const oademo::BattleEvent& event : events) {
+        if (!oademo::battle_fight(event.kind) || event.tick != aim.tick || event.x != aim.x ||
+            event.z != aim.z)
+            continue;
+        if (chosen == nullptr || heavier_fight(event, *chosen))
+            chosen = &event;
+    }
+    return chosen;
+}
+
+/// Moves the picture from where the pan started toward the fight.
+///
+/// The ease is a smoothstep. Its fastest moment stays under one screen a
+/// second at 1×. A cut, whose start is the fight, stays there.
+///
+/// @param[in,out] view the view
+/// @param since_cut_ms real time since the pan or cut started
+/// @param view_width the picture's width, in map pixels
+void ease_pan(DirectorView& view, uint32_t since_cut_ms, int32_t view_width) noexcept {
+    if (!view.has_subject)
+        return;
+    const double across =
+        static_cast<double>(view.subject_x) - static_cast<double>(view.pan_from_x);
+    const double down = static_cast<double>(view.subject_z) - static_cast<double>(view.pan_from_z);
+    const double distance = std::sqrt(across * across + down * down);
+    if (distance <= 0.5 || view_width <= 0) {
+        view.x = view.subject_x;
+        view.z = view.subject_z;
+        return;
+    }
+    // Smoothstep peaks at 1.5 times the average speed. The duration keeps
+    // that peak under 0.85 of a screen a second.
+    const double screen = static_cast<double>(view_width);
+    const double duration_ms = std::max(1.0, 1.5 * distance / (screen * 0.85) * 1000.0);
+    const uint32_t elapsed =
+        since_cut_ms >= view.pan_origin_ms ? since_cut_ms - view.pan_origin_ms : 0;
+    const double along = std::min(1.0, static_cast<double>(elapsed) / duration_ms);
+    const double eased = along * along * (3.0 - 2.0 * along);
+    view.x =
+        static_cast<int32_t>(std::lround(static_cast<double>(view.pan_from_x) + across * eased));
+    view.z = static_cast<int32_t>(std::lround(static_cast<double>(view.pan_from_z) + down * eased));
+}
+
+} // namespace
+
+BattleAim director_opening(std::span<const oademo::BattleEvent> events) {
+    const oademo::BattleEvent* first = nullptr;
+    const auto rank = [](const oademo::BattleEvent& event) {
+        return std::tuple(
+            event.tick,
+            event.player > 0 ? event.player : std::numeric_limits<int>::max(),
+            event.x,
+            event.z
+        );
+    };
+    for (const oademo::BattleEvent& event : events) {
+        if (event.kind != oademo::BattleKind::commander)
+            continue;
+        if (first == nullptr || rank(event) < rank(*first))
+            first = &event;
+    }
+    BattleAim aim;
+    if (first == nullptr)
+        return aim;
+    aim.found = true;
+    aim.x = first->x;
+    aim.z = first->z;
+    aim.tick = first->tick;
+    return aim;
+}
+
+DirectorView director_view(
+    std::span<const oademo::BattleEvent> events,
+    uint32_t tick,
+    uint32_t since_cut_ms,
+    const DirectorView& previous,
+    int32_t view_width,
+    int32_t view_height
+) {
+    DirectorView view = previous;
+    view.changed = false;
+    view.cut = false;
+    const oademo::BattleEvent* candidate = fight_chosen(events, tick);
+    if (candidate == nullptr) {
+        ease_pan(view, since_cut_ms, view_width);
+        return view;
+    }
+    const uint32_t weight = fight_weight(*candidate);
+    const bool same =
+        view.has_subject &&
+        near_place(
+            view.subject_x, view.subject_z, candidate->x, candidate->z, director_same_place_pixels
+        );
+    if (same) {
+        // The fight continued nearby. Ease across from the picture as it is.
+        // The hold clock stays, so a fast playback cannot strobe on the slide.
+        const bool moved = view.subject_x != candidate->x || view.subject_z != candidate->z;
+        view.subject_x = candidate->x;
+        view.subject_z = candidate->z;
+        view.subject_tick = candidate->tick;
+        view.subject_weight = weight;
+        if (moved) {
+            view.pan_from_x = view.x;
+            view.pan_from_z = view.z;
+            view.pan_origin_ms = since_cut_ms;
+        }
+        ease_pan(view, since_cut_ms, view_width);
+        return view;
+    }
+    const bool in_range = view.has_subject && subject_in_range(view, tick);
+    const bool outweighs =
+        !view.has_subject ||
+        static_cast<uint64_t>(weight) * director_switch_denominator >=
+            static_cast<uint64_t>(view.subject_weight) * director_switch_numerator;
+    const bool game_ready = !view.has_subject || (tick >= view.cut_tick &&
+                                                  tick - view.cut_tick >= director_min_cut_ticks);
+    const bool wall_ready = !view.has_subject || since_cut_ms >= director_hold_ms;
+    bool take = !view.has_subject || (game_ready && wall_ready && (!in_range || outweighs));
+    if (take && view.has_subject && view.left && tick >= view.left_tick &&
+        tick - view.left_tick <= director_return_ticks &&
+        near_place(
+            candidate->x, candidate->z, view.left_x, view.left_z, director_same_place_pixels
+        ))
+        take = false;
+    if (!take) {
+        ease_pan(view, since_cut_ms, view_width);
+        return view;
+    }
+    const bool first = !view.has_subject;
+    const int32_t from_x = view.x;
+    const int32_t from_z = view.z;
+    const double across = static_cast<double>(candidate->x) - static_cast<double>(from_x);
+    const double down = static_cast<double>(candidate->z) - static_cast<double>(from_z);
+    const double distance = std::sqrt(across * across + down * down);
+    const double pan_limit =
+        view_width > 0 ? static_cast<double>(view_width) * director_pan_reach_percent / 100.0 : 0.0;
+    const int32_t screen = std::max(view_width, view_height);
+    const double two_screens = screen > 0 ? static_cast<double>(screen) * 2.0 : 0.0;
+    const bool pan = !first && view_width > 0 && distance <= pan_limit && distance <= two_screens;
+    if (!first) {
+        view.left = true;
+        view.left_x = from_x;
+        view.left_z = from_z;
+        view.left_tick = tick;
+    }
+    view.has_subject = true;
+    view.subject_x = candidate->x;
+    view.subject_z = candidate->z;
+    view.subject_tick = candidate->tick;
+    view.subject_weight = weight;
+    view.cut_tick = tick;
+    view.changed = true;
+    view.cut = !pan;
+    view.pan_from_x = pan ? from_x : candidate->x;
+    view.pan_from_z = pan ? from_z : candidate->z;
+    view.pan_origin_ms = 0;
+    view.x = pan ? from_x : candidate->x;
+    view.z = pan ? from_z : candidate->z;
+    return view;
 }
 
 } // namespace oa::app::replay_index

@@ -3634,6 +3634,21 @@ if(OA_BUILD_PLATFORM)
         PASS_REGULAR_EXPRESSION "photo replay: ok"
         SKIP_REGULAR_EXPRESSION "photo replay: skipped"
         FAIL_REGULAR_EXPRESSION "photo replay failed:")
+      # The same replay with Full asked for. The photo is drawn by Full.
+      # Without the fixture recording the check reports itself skipped.
+      set(oa_photo_replay_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-replay-full")
+      file(MAKE_DIRECTORY "${oa_photo_replay_full_dir}/user")
+      add_test(NAME native-photo-replay-full COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo replay --hardware-acceleration=full --force-capable
+        ${oa_photo_replay_demo}
+        --user-folder "${oa_photo_replay_full_dir}/user"
+        --preferences-file "${oa_photo_replay_full_dir}/photo-replay.conf")
+      set_tests_properties(native-photo-replay-full PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_replay_full_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo replay: full"
+        SKIP_REGULAR_EXPRESSION "photo replay: skipped"
+        FAIL_REGULAR_EXPRESSION "photo replay failed:")
       # Photo mode's time: freeze, step, the eighths between ticks and slow
       # play, then a shared match and a watcher holding the picture.
       set(oa_photo_time_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-time")

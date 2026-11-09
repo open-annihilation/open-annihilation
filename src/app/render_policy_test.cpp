@@ -3000,6 +3000,141 @@ void test_host_runs() {
     }
 }
 
+/// A replay whose loading screen is the first thing drawn takes the tier
+/// decided then, including the function test where only that was missing.
+/// A shared game begun with the presentation still off keeps the standard
+/// tier until it ends. A replay opened after the decision, as from the
+/// Library, keeps the tier that decision gave it.
+void test_replay_before_first_decision() {
+    constexpr uint64_t eight_gibibytes = 8 * gibibyte;
+
+    // Full on the command line, the test not yet run, the presentation off.
+    // The decision runs the test and the replay begins in Full. Basic
+    // applies at once; Full again waits for the replay to end. A pending
+    // replay after a content switch is this run: the new start has drawn
+    // no frame.
+    {
+        TierInputs inputs;
+        inputs.renderer = true;
+        inputs.memory = eight_gibibytes;
+        inputs.players_own_profile = false;
+        inputs.setting = HardwareAcceleration::off;
+        inputs.flag = AccelerationFlag::full;
+        inputs.force_capable = true;
+        inputs.capability = Capability::software_renderer;
+        inputs.virtual_video_driver = true;
+        inputs.function_test = FunctionTest::not_run;
+        bool on = false;
+        StandInTest test;
+        const TierDecision decided = drawn_frame(inputs, on, test);
+        OA_CHECK(decided.tier == RenderTier::full);
+        OA_CHECK(decided.full == FullReason::full);
+        OA_CHECK(on && test.runs == 1);
+        begin_match(inputs.match, MatchKind::replay, on, decided.tier == RenderTier::full);
+        OA_CHECK(inputs.match.kind == MatchKind::replay);
+        OA_CHECK(inputs.match.accelerated && inputs.match.full);
+        OA_CHECK(drawn_frame(inputs, on, test).tier == RenderTier::full);
+        OA_CHECK(test.runs == 1);
+        inputs.flag = AccelerationFlag::basic;
+        OA_CHECK(drawn_frame(inputs, on, test).tier == RenderTier::accelerated);
+        OA_CHECK(on && !inputs.match.full);
+        inputs.flag = AccelerationFlag::full;
+        const TierDecision waiting = drawn_frame(inputs, on, test);
+        OA_CHECK(waiting.tier == RenderTier::accelerated);
+        OA_CHECK(waiting.full == FullReason::waiting_for_match_end);
+        OA_CHECK(test.runs == 1);
+    }
+
+    // The same facts for a shared game, closed on a presentation that has
+    // not switched on. The test does not run, and Full waits for the end.
+    {
+        TierInputs inputs;
+        inputs.renderer = true;
+        inputs.memory = eight_gibibytes;
+        inputs.players_own_profile = false;
+        inputs.setting = HardwareAcceleration::off;
+        inputs.flag = AccelerationFlag::full;
+        inputs.force_capable = true;
+        inputs.capability = Capability::software_renderer;
+        inputs.virtual_video_driver = true;
+        inputs.function_test = FunctionTest::not_run;
+        begin_match(inputs.match, MatchKind::shared_game, false, false);
+        bool on = false;
+        StandInTest test;
+        OA_CHECK(drawn_frame(inputs, on, test).reason == TierReason::waiting_for_match_end);
+        OA_CHECK(!on && !inputs.match.accelerated && test.runs == 0);
+        end_match(inputs.match);
+        OA_CHECK(drawn_frame(inputs, on, test).tier == RenderTier::full);
+        OA_CHECK(on && test.runs == 1);
+    }
+
+    // Opened after the menus, already in Full: it stays in Full, and the
+    // test does not run again.
+    {
+        TierInputs inputs = accelerated_run();
+        inputs.setting = HardwareAcceleration::full;
+        bool on = true;
+        StandInTest test;
+        const TierDecision decided = drawn_frame(inputs, on, test);
+        OA_CHECK(decided.tier == RenderTier::full && test.runs == 0);
+        begin_match(inputs.match, MatchKind::replay, on, true);
+        OA_CHECK(inputs.match.accelerated && inputs.match.full);
+        OA_CHECK(drawn_frame(inputs, on, test).tier == RenderTier::full);
+        OA_CHECK(on && test.runs == 0);
+    }
+
+    // Chosen Off, decided before the gate. The replay stays on the
+    // processor, and Full during it waits until the replay ends.
+    {
+        TierInputs inputs = accelerated_run();
+        inputs.function_test = FunctionTest::not_run;
+        inputs.setting = HardwareAcceleration::off;
+        bool on = false;
+        StandInTest test;
+        OA_CHECK(drawn_frame(inputs, on, test).reason == TierReason::setting_off);
+        OA_CHECK(test.runs == 0);
+        begin_match(inputs.match, MatchKind::replay, on, false);
+        OA_CHECK(!inputs.match.accelerated && !inputs.match.full);
+        inputs.setting = HardwareAcceleration::full;
+        OA_CHECK(drawn_frame(inputs, on, test).reason == TierReason::waiting_for_match_end);
+        OA_CHECK(!on && test.runs == 0);
+        end_match(inputs.match);
+        OA_CHECK(drawn_frame(inputs, on, test).tier == RenderTier::full);
+        OA_CHECK(on && test.runs == 1);
+    }
+
+    // The function test fails before the gate. The replay stays standard.
+    {
+        TierInputs inputs = accelerated_run();
+        inputs.function_test = FunctionTest::not_run;
+        inputs.setting = HardwareAcceleration::full;
+        bool on = false;
+        StandInTest test{false, 0};
+        OA_CHECK(drawn_frame(inputs, on, test).reason == TierReason::function_test_failed);
+        begin_match(inputs.match, MatchKind::replay, on, false);
+        OA_CHECK(!inputs.match.accelerated);
+        OA_CHECK(drawn_frame(inputs, on, test).reason == TierReason::function_test_failed);
+        OA_CHECK(!on && test.runs == 1);
+    }
+
+    // The dummy driver with no flag that asks for the card, as a check that
+    // does not name Full. The replay stays on the processor.
+    {
+        TierInputs inputs = accelerated_run();
+        inputs.players_own_profile = false;
+        inputs.setting = HardwareAcceleration::full;
+        inputs.virtual_video_driver = true;
+        inputs.function_test = FunctionTest::not_run;
+        bool on = false;
+        StandInTest test;
+        OA_CHECK(drawn_frame(inputs, on, test).reason == TierReason::environment);
+        begin_match(inputs.match, MatchKind::replay, on, false);
+        OA_CHECK(!inputs.match.accelerated && !inputs.match.full);
+        OA_CHECK(drawn_frame(inputs, on, test).reason == TierReason::environment);
+        OA_CHECK(!on && test.runs == 0);
+    }
+}
+
 int main() {
     test_texture_limit();
     test_assess_renderer();
@@ -3032,5 +3167,6 @@ int main() {
     test_forget_failures();
     test_step_tier();
     test_host_runs();
+    test_replay_before_first_decision();
     return oa::test::check_exit_status();
 }

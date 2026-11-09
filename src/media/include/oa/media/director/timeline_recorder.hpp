@@ -37,11 +37,16 @@ enum class Detail : uint8_t {
     /// killed, every shot, detonation and hit, the mobile units twice a
     /// second, the types and weapons used and the map's water.
     full,
-    /// What a replay's index reads: the players' standings, every hit, and
-    /// the commanders created and killed. The recorder asks the match for
-    /// those events only, and keeps no sample of the units, so a long
-    /// replay's timeline stays small.
+    /// What a replay's index reads of the standings: the players' standings,
+    /// every hit, and the commanders created and killed. The recorder asks
+    /// the match for those events only, and keeps no sample of the units, so
+    /// a long replay's timeline stays small.
     standings,
+    /// What a replay's index reads of the fighting: the standings, and also
+    /// every unit destroyed and every building lost, with the type of each
+    /// unit that is hit or lost. The recorder still keeps no sample of the
+    /// units, and asks for no shot or detonation.
+    battles,
 };
 
 /// Reads how every player of the match stands.
@@ -66,9 +71,10 @@ class TimelineRecorder {
     /// @param world the match's world, before its first replayed tick
     /// @param viewer_player the player index the replay is watched from
     /// @param map_name the map's name, as the game shows it
-    /// @param detail what to keep; `standings` leaves out the water, the
-    ///        units other than commanders already in the world, and whatever
-    ///        event_hooks and after_tick would record beyond the standings
+    /// @param detail what to keep; `standings` and `battles` leave out the
+    ///        water, the units other than commanders already in the world,
+    ///        and the samples, shots and detonations `full` records.
+    ///        `battles` also keeps every unit destroyed and every building lost
     void begin(
         const oa::World& world,
         uint8_t viewer_player,

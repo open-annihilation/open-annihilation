@@ -485,6 +485,10 @@ bool read_entry(const json::Json& value, Replay& replay) {
         replay.file = FileKind::tad;
     else
         return false;
+    // The stored timeline is kept whole. A pass that can no longer read the
+    // replay then keeps the result and the marks. Whether it should be read
+    // again (no `events` member, or a version other than 1) is decided from
+    // the text's prefix, without parsing it, by the Library.
     const json::Json* players = value.find("players");
     if (players == nullptr)
         return true;

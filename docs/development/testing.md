@@ -1518,6 +1518,9 @@ the speed the replay is watched at. After leaving, the replay plays on to
 its pinned end on the replay's own clock, with no frame drawn: a drawn
 frame ends the match at the game's outcome, before the recording's last
 tick. The preferences file is unchanged.
+`native-photo-replay-full` is that check with `--hardware-acceleration=full`
+and `--force-capable`. The photo is drawn by Full. Without the fixture
+recording it reports skipped, as `native-photo-replay` does.
 `OA_REPLAY_FIXTURES` names the folder that holds the fixture recordings:
 set it in the environment or pass `-DOA_REPLAY_FIXTURES=PATH` to CMake, with
 an absolute path. Without that recording there the check reports skipped.
