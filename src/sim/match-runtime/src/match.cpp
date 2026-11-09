@@ -3,6 +3,7 @@
 
 #include "match_state.hpp"
 #include "enhanced_state.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/ballistics.hpp"
 #include "oa/sim/weapon_execution/weapon_launch.hpp"
 #include <cstring>
@@ -633,6 +634,25 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         );
         if (!routes_added || !heads_added || !revision_added || !progress_added || !scan_added)
             fault_.note("Enhanced navigation state could not be registered");
+    }
+    if (enhanced_ &&
+        input.rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version) {
+        const bool retarget_added = add_rule_state(
+            rule_state_,
+            {"ai-retarget",
+             enhanced_.get(),
+             [](void* context) -> std::span<const uint8_t> {
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 return state.ai_retarget.state_bytes(state.unit_count);
+             },
+             [](void* context, std::span<const uint8_t> bytes) {
+                 auto& state = *static_cast<EnhancedState*>(context);
+                 return state.ai_retarget.restore(bytes, state.unit_count);
+             },
+             false}
+        );
+        if (!retarget_added)
+            fault_.note("Enhanced strike retarget state could not be registered");
     }
     spatial_.plots.resize(cells);
     spatial_.units = spatial_units_;

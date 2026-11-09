@@ -10,6 +10,7 @@
 #include "static_passability_memo.hpp"
 #include "order_ownership.hpp"
 #include "advisory_flow.hpp"
+#include "ai_retarget.hpp"
 
 namespace oa::sim::match_runtime {
 
@@ -17,6 +18,19 @@ namespace oa::sim::match_runtime {
 struct Match::EnhancedState {
     /// Prepares shared bounded work once for the match's current simulation tick.
     void prepare_advisory_tick(Match& match);
+
+    /// Advances bounded target-loss checks before a built-in controller runs.
+    ///
+    /// @param[in,out] match the match and its canonical computer tasks
+    /// @param player the built-in controller about to run
+    void prepare_ai_retarget(Match& match, uint8_t player);
+
+    /// Retains a strike target issued within the built-in controller scope.
+    ///
+    /// @param[in,out] match the match containing the source and target
+    /// @param source the squad member receiving the attack
+    /// @param target the live enemy target slot
+    void remember_ai_attack(Match& match, uint16_t source, uint16_t target);
 
     EnhancedCounters counters{};
     sim::unit_movement::LocalFlowCounters local_flow_counters{};
@@ -41,6 +55,7 @@ struct Match::EnhancedState {
     std::unique_ptr<StaticPassabilityMemo> static_passability_memo{};
     std::unique_ptr<OrderOwnershipIndex> order_ownership{};
     std::unique_ptr<AdvisoryFlowData> advisory{};
+    AiRetargetState ai_retarget{};
 };
 
 } // namespace oa::sim::match_runtime

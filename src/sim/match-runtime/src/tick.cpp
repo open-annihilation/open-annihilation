@@ -5,6 +5,7 @@
 #include "oa/sim/scenario/commander_rules.hpp"
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "route_prefix.hpp"
 #include "oa/sim/ground_orders/shared_routes.hpp"
 
@@ -160,8 +161,45 @@ void Match::run_player_controller(uint8_t player) {
     if (computer) {
         const SeatHooks hooks = seat_hooks_[player];
         const bool played = hooks.play != nullptr && hooks.play(hooks.context, *this, player);
-        if (!played)
+        auto* retarget = enhanced_ != nullptr && rules().setup.enhanced_mode.version ==
+                                                     data::enhanced_mode::battle_flow_version
+                             ? &enhanced_->ai_retarget
+                             : nullptr;
+        if (retarget != nullptr) {
+            const auto bit = static_cast<uint16_t>(uint16_t(1) << player);
+            if (played)
+                retarget->builtin_players &= static_cast<uint16_t>(~bit);
+            else
+                retarget->builtin_players |= bit;
+        }
+        if (!played) {
+            if (retarget != nullptr)
+                enhanced_->prepare_ai_retarget(*this, player);
+
+            // Attribution ends with this call, including a callback that unwinds it.
+            struct RetargetScope {
+                AiRetargetState* state;
+                bool previous_dispatch;
+                uint8_t previous_player;
+
+                ~RetargetScope() {
+                    if (state != nullptr) {
+                        state->builtin_dispatch = previous_dispatch;
+                        state->builtin_player = previous_player;
+                    }
+                }
+            } scope{
+                retarget,
+                retarget != nullptr && retarget->builtin_dispatch,
+                retarget != nullptr ? retarget->builtin_player : uint8_t(0)
+            };
+
+            if (retarget != nullptr) {
+                retarget->builtin_dispatch = true;
+                retarget->builtin_player = player;
+            }
             sim::ai::tick_match_computer_orders(*this, player);
+        }
     }
     sweep_weapon_targets(player, computer);
 }

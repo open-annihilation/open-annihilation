@@ -546,7 +546,11 @@ bool Match::issue_attack_command(
         return false;
     // The order keeps the target only when its kind takes one: a Suppress
     // order on an allied unit fires at the point alone.
-    return !order_refused(issue_order(source_index, kind, queue, target_index, point, 0, 0));
+    const bool issued =
+        !order_refused(issue_order(source_index, kind, queue, target_index, point, 0, 0));
+    if (issued && !queue && enhanced_ != nullptr)
+        enhanced_->remember_ai_attack(*this, source_index, target_index);
+    return issued;
 }
 
 sim::simulation_state::Order* Match::issue_attack_ground(

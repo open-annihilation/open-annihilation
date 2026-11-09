@@ -5,6 +5,7 @@
 #include "oa/sim/scenario/commander_rules.hpp"
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
 #include "oa/formats/tdf.hpp"
 
@@ -536,6 +537,11 @@ void Match::record_death_statistics(
 }
 
 void Match::release_target_observers(sim::simulation_state::Unit& target) {
+    if (enhanced_ != nullptr &&
+        rules().setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version)
+        enhanced_->ai_retarget.lose_target(
+            static_cast<uint16_t>(oa::world_unit_slot(&state(), &target.record))
+        );
     auto** head = observer_head(target);
     if (head == nullptr)
         return;
