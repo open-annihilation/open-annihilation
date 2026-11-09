@@ -58,7 +58,7 @@ class MatchTickAccess {
     /// Returns the active native path job without advancing or cancelling it.
     ///
     /// @param match match whose path controller is inspected
-    /// @return the active job, with null pointers when no job is active
+    /// @return the controller's job record; its unit is null when idle
     static sim::ground_orders::SearchRecord active_path_search(const Match& match);
 
     /// The order flags' bit StartBuilding sets and StopBuilding clears.
