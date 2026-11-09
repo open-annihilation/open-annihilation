@@ -21,6 +21,7 @@
 #include "oa/present/unit_playout.hpp"
 #include "oa/sim/match_runtime.hpp"
 #include "presentation_interpolation.hpp"
+#include "model_transform_cache.hpp"
 #include "world_draws.hpp"
 
 #include <cstddef>
@@ -158,6 +159,9 @@ struct MatchModels {
     std::vector<WorldBandScratch> band_scratch;
     // The frame's units, planned before the draws are worked out in order.
     UnitPlans unit_plans;
+    /// Exact model-space transform caches, one per unit-planning worker.
+    /// Each is reset for the run under that worker's floating-point control.
+    std::vector<ModelTransformCache> transform_caches;
     // The first band's buffer of turned debris points.
     std::vector<oa::formats::objects3d::FixedVector3> debris_points;
     // The most bands a frame of the match was drawn in, which a frame run

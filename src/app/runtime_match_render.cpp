@@ -678,17 +678,38 @@ void plan_model(
 /// @param frame what every plan of the frame reads
 /// @param[in,out] plan the unit, as found in the draw order; takes what it
 ///     is drawn as and its draw
+/// @param transforms this worker's exact geometry cache; null keeps native rebuilds
 void plan_unit_model(
     MatchModels& models,
     model_render::ModelRenderer& renderer,
     const UnitPlanFrame& frame,
-    UnitPlan& plan
+    UnitPlan& plan,
+    ModelTransformCache* transforms
 ) {
     const auto& model = plan.model;
     plan.shown = model;
     plan.adds_draw = false;
     if (model.instance == nullptr)
         return;
+    const auto update = [&](const model_render::ModelRef& shown) {
+        if (plan.linked || transforms == nullptr) {
+            model_render::update_linked_transforms(renderer, shown);
+            return;
+        }
+        const auto& unit = *shown.unit;
+        // The effective shift retains the ordinary small-angle threshold;
+        // world position and owner identity never enter model-space geometry.
+        model_render::set_model_shift(
+            shown, {unit.bank, static_cast<int16_t>(unit.heading), unit.pitch}
+        );
+        if (shown.state->transforms_dirty || shown.instance->transforms_dirty()) {
+            if (!transforms->reuse(*shown.instance, shown.state->shift)) {
+                shown.instance->rebuild_transforms(shown.state->shift);
+                transforms->remember(*shown.instance, shown.state->shift);
+            }
+            shown.state->transforms_dirty = false;
+        }
+    };
     if (plan.from_copies) {
         // The unit's own transforms are rebuilt as a draw of the whole tick
         // rebuilds them, so that the next such draw measures the region it
@@ -702,7 +723,7 @@ void plan_unit_model(
         const bool carried = model.unit->attach_parent != 0;
         model_render::note_piece_changes(model);
         if (!carried)
-            model_render::update_linked_transforms(renderer, model);
+            update(model);
         // While a unit draws from its copies, the units it carries draw
         // from theirs (carried_model).
         std::optional<Blending> blending;
@@ -712,7 +733,7 @@ void plan_unit_model(
         model_render::note_piece_changes(plan.shown);
         if (carried)
             return;
-        model_render::update_linked_transforms(renderer, plan.shown);
+        update(plan.shown);
         plan_model(
             renderer,
             models.bridge,
@@ -730,6 +751,8 @@ void plan_unit_model(
         return;
     }
     model_render::note_piece_changes(model);
+    if (!plan.linked && transforms != nullptr)
+        update(model);
     plan_model(
         renderer,
         models.bridge,
@@ -816,6 +839,9 @@ void plan_unit_draws(
     const uint32_t threads =
         pool != nullptr ? std::min(pool->threads(), oa::platform::job_pool::max_threads) : 1U;
     const uint32_t bands = std::min(threads, items);
+    const bool reuse_transforms = frame.live_renderer && !frame.snapshot_unlinked_vertices;
+    if (reuse_transforms && models.transform_caches.size() < bands)
+        models.transform_caches.resize(bands);
     if (models.band_scratch.size() + 1 < bands)
         models.band_scratch.resize(bands - 1);
     for (uint32_t band = 1; band < bands; ++band)
@@ -832,6 +858,9 @@ void plan_unit_draws(
             oa::present::DisplayContext* bound = oa::present::display_context();
             oa::present::bind_display(&models.display.context);
             oa::base::float_precision::restore_float_control(program_control);
+            auto* transforms = reuse_transforms ? &models.transform_caches[band] : nullptr;
+            if (transforms)
+                transforms->begin_frame();
             auto& failure = failures[band];
             for (uint32_t item = next_item.fetch_add(1, std::memory_order_relaxed); item < items;
                  item = next_item.fetch_add(1, std::memory_order_relaxed)) {
@@ -843,7 +872,11 @@ void plan_unit_draws(
                 try {
                     for (uint32_t at = begin; at < end; ++at)
                         plan_unit_model(
-                            models, renderer, frame, unit_plans.plans[unit_plans.order[at]]
+                            models,
+                            renderer,
+                            frame,
+                            unit_plans.plans[unit_plans.order[at]],
+                            transforms
                         );
                 } catch (const std::exception& error) {
                     if (failure.second.empty())
