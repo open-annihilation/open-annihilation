@@ -4,7 +4,9 @@
 // The pointer event word, the right button as the interface type decides it,
 // radar scrolls, mouse look, and the orders the pointer gives the selection
 // with the queued-order cancel.
+#include "group_order_bounds.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mission_types.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include <SDL3/SDL.h>
@@ -564,7 +566,20 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
         input::unit_order(world, command, *actor, aimed, &position, order_cursor_hooks());
     if (!input::order_keeps_group_shape(order))
         return point;
-    return order_point(input::group_order_point(centre, *actor, position));
+    const auto formation = input::group_order_point(centre, *actor, position);
+    const auto& enhanced = match_->rules().setup.enhanced_mode;
+    const bool ground_order = order == input::UnitOrder::move_ground ||
+                              order == input::UnitOrder::patrol ||
+                              order == input::UnitOrder::repair_patrol;
+    return order_point(bounded_group_order_point(
+        formation,
+        position,
+        *actor,
+        world.game.map_pixel_width,
+        world.game.map_pixel_height,
+        ground_order && enhanced.enabled &&
+            enhanced.version == oa::data::enhanced_mode::battle_flow_version
+    ));
 }
 
 } // namespace oa::app
