@@ -7,6 +7,7 @@
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/window_surface.hpp"
 #include "oa/app/runtime.hpp"
+#include "director_state.hpp"
 #include "oa/app/game_directory.hpp"
 #include "graphics_report.hpp"
 #include "oa_layer.hpp"

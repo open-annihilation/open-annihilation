@@ -3,6 +3,7 @@
 
 // Match chrome, side HUD, resource readout, fog and minimap.
 #include "oa/app/runtime.hpp"
+#include "director_state.hpp"
 #include "gui_actions.hpp"
 #include "oa_layer.hpp"
 #include "oa/data/input_actions/actions.hpp"
@@ -1570,7 +1571,7 @@ void Runtime::prepare_minimap_display() {
          row(game.radar_view_rect.y1),
          column(game.radar_view_rect.x2),
          row(game.radar_view_rect.y2)},
-        oa::game_ui_color(game, wr::ui_color_radar_marks)
+        wr::game_ui_color(game, wr::ui_color_radar_marks)
     };
     std::size_t outline_count = 1;
     if (ui_rules().camera_sharing.enabled) {
