@@ -3617,6 +3617,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   window; it is refused in headless runs. `console +stats 1` shows actual
   frame statistics, and `console +BattleCounts 1` adds canonical live
   counts only in this explicitly staged offline showcase.
+  Optional `--showcase-seconds N` overrides its 60-second wall time, and
+  `--showcase-tour FILE` samples presentation-only camera keys
+  (`SECONDS cut|move X Z ZOOM YAW PITCH`) on that same wall clock.
+  The private `showcase_tour.hpp` parser and sampler keep these paths
+  bounded and preserve the ordinary loop and simulation speed.
 - `runtime_bench.cpp`, `bench.hpp`, `bench.cpp`, `bench_timers.hpp`: the
   frame bench, `--bench FILE`
   ([docs/command-line.md](../../docs/command-line.md#--bench)), which plays

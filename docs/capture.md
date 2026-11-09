@@ -170,6 +170,40 @@ the actual live statistics; its fixed 30 FPS output is not a gameplay FPS
 measurement. The showcase logs the initial and final counts, combat events,
 state digests and actual display/backend for provenance.
 
+### Camera tours
+
+An explicitly staged skirmish showcase accepts `--showcase-seconds N`
+from 1 to 600; without it the battle still lasts 60 seconds. Add
+`--showcase-tour FILE` to sample a camera path on elapsed presentation
+wall time. Its schedule does not advance the simulation or depend on
+the battle reaching a particular tick.
+
+Each line names seconds, a transition, and the same five camera values as
+`view`. For example, this tour holds the overview, cuts south, zooms in,
+then pans north:
+
+```text
+0 cut 5120 5120 0.25 20 -53
+60 cut 5120 7360 0.25 20 -32
+72 move 5120 7360 0.9 20 -32
+96 move 5120 2896 0.9 20 -32
+```
+
+The first time must be zero. Times strictly increase and fit within the
+chosen duration; the last pose is held to the end. Blank lines and lines
+starting with `#` are ignored. Tours accept at most 512 keys and 64 KiB
+of text. `cut` holds the previous pose until its time, then jumps.
+`move` eases into its target, interpolating the center and pitch, zooming
+logarithmically and taking the shortest yaw turn. These transitions change
+only the camera. Models and their animations use normal rendering detail
+when the camera moves above the configured strategic-dot threshold.
+
+Append `--showcase-seconds 150 --showcase-tour battle.tour` to the staged
+capture command above. A normal `--max-fps 30` render cap can match the
+recorder's output rate; it does not change requested simulation speed.
+Live statistics still report the actual rendering and simulation work,
+including any slow frames and recording overhead.
+
 ## Construction in the constrained 3D view
 
 `--showcase base-construction --content totala:core-contingency
