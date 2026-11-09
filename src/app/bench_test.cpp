@@ -62,6 +62,9 @@ void view_reads_every_key() {
     OA_CHECK(defaults.stage_timers && defaults.stage.empty());
     OA_CHECK(defaults.warmup_frames == 0 && defaults.measure_frames == 0);
     OA_CHECK(defaults.expected_live_units == 0 && !defaults.require_paused);
+    OA_CHECK(defaults.expected_initial_units == 0 && defaults.expected_initial_per_side == 0);
+    OA_CHECK(defaults.expected_output_width == 0 && defaults.expected_output_height == 0);
+    OA_CHECK(defaults.display_number == 0 && !defaults.require_gameplay);
 
     bench::View view;
     const char* text = "# the low view\n"
@@ -105,6 +108,50 @@ void view_reads_every_key() {
     );
     OA_CHECK(paused.warmup_frames == 30 && paused.measure_frames == 60);
     OA_CHECK(paused.expected_live_units == 20000 && paused.require_paused);
+}
+
+/// A combat run verifies its starting armies without requiring casualties
+/// to keep the same live population throughout its tick span.
+void gameplay_view_checks_only_the_starting_population() {
+    bench::View view;
+    std::string error;
+    OA_CHECK(
+        bench::parse_view(
+            "require_gameplay 1\nwarmup_ticks 120\nmeasure_ticks 900\nmeasure_seconds 300\n"
+            "expected_initial_units 20000\nexpected_initial_per_side 10000\n"
+            "expected_output_width 1920\nexpected_output_height 1080\ndisplay_number 2\n",
+            view,
+            error
+        )
+    );
+    OA_CHECK(view.require_gameplay && !view.require_paused);
+    OA_CHECK(view.expected_initial_units == 20000 && view.expected_initial_per_side == 10000);
+    OA_CHECK(view.expected_live_units == 0);
+    OA_CHECK(view.warmup_ticks == 120 && view.measure_ticks == 900);
+    OA_CHECK(near(view.measure_seconds, 300));
+    OA_CHECK(view.expected_output_width == 1920 && view.expected_output_height == 1080);
+    OA_CHECK(view.display_number == 2 && near(view.turn_rate, 0));
+
+    const std::string invalid =
+        "require_gameplay needs an unpaused tick span, fixed camera and initial-only counts";
+    OA_CHECK(refusal("require_gameplay 1") == invalid);
+    OA_CHECK(
+        refusal("require_gameplay 1\nmeasure_ticks 900\nexpected_live_units 20000") == invalid
+    );
+    OA_CHECK(refusal("require_gameplay 1\nmeasure_ticks 900\nturn_rate 1") == invalid);
+    OA_CHECK(refusal("require_gameplay 1\nrequire_paused 1\nwarmup_ticks 0") == invalid);
+    OA_CHECK(refusal("require_gameplay 2") == "line 1: require_gameplay takes 0 or 1");
+    OA_CHECK(!refusal("expected_initial_units -1").empty());
+    OA_CHECK(!refusal("expected_initial_per_side 1.5").empty());
+    OA_CHECK(!refusal("display_number -1").empty());
+    OA_CHECK(
+        refusal("expected_output_width 1920") ==
+        "expected_output_width and expected_output_height must both be given"
+    );
+    OA_CHECK(
+        refusal("expected_output_height 1080") ==
+        "expected_output_width and expected_output_height must both be given"
+    );
 }
 
 /// A key the bench does not know, a value that does not read or is out of
@@ -401,6 +448,7 @@ void totals_of_a_frame_add_up() {
 
 int main() {
     view_reads_every_key();
+    gameplay_view_checks_only_the_starting_population();
     view_refuses_what_it_cannot_read();
     view_file_takes_its_folder();
     spread_takes_percentiles_and_the_slowest();
