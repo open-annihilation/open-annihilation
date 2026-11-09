@@ -66,6 +66,19 @@ bool surface_drawn(const Inputs& in);
 /// lies on the sea bed and under everything else, before the fog passes.
 void surface(card::CardFrame& frame, const Inputs& in);
 
+/// Identifies a finished naval model that can use heights for reflections.
+///
+/// Excludes stand-ins, aircraft, hovercraft and unfinished hulls, and draws
+/// whose water detail or reflections are off. Terrain and waterline checks
+/// remain in objects(); underwater shimmer computes its own heights.
+///
+/// @param in the current water detail and reflection strength
+/// @param draws the frame's planned draws
+/// @param draw the model whose height recording is considered
+/// @return whether the model stage should retain its vertices' world heights
+[[nodiscard]] bool
+needs_vertex_heights(const Inputs& in, const WorldDrawList& draws, const WorldDraw& draw) noexcept;
+
 /// Move a sprite under the water with the ripples' moved art (Inputs::art),
 /// shade submerged geometry and place a reflected naval silhouette before
 /// its original. A feature's frame (SpriteDraw::on_map) is the map's own

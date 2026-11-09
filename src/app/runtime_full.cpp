@@ -1902,7 +1902,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.wind = water_wind();
                 water.art = &water_art;
                 vertex_heights.clear();
-                model_inputs.vertex_heights = water.reflections > 0 ? &vertex_heights : nullptr;
+                model_inputs.vertex_heights = nullptr;
                 model_inputs.water_shimmer =
                     selected_tnt_->sea_level > 0
                         ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
@@ -1948,7 +1948,16 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                             sprites.emit(draw);
                             full.frame_vertices.sprites += frame.vertices.size() - before;
                         } else if (full::model_kind(draw.kind)) {
+                            // Only finished naval hulls consume model heights for reflections.
+                            // Underwater shimmer keeps its own per-corner height calculation.
+                            model_inputs.vertex_heights =
+                                renderer_water_classic::needs_vertex_heights(
+                                    water, models.draws, draw
+                                )
+                                    ? &vertex_heights
+                                    : nullptr;
                             full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
+                            model_inputs.vertex_heights = nullptr;
                             full.frame_vertices.models += frame.vertices.size() - before;
                         }
                         water.vertex_heights = vertex_heights;

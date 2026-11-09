@@ -307,6 +307,74 @@ int main(int argc, char** argv) {
     model.model.def = &definition;
     draws.models.push_back(model);
     WorldDraw draw{WorldDrawKind::model, 0};
+    OA_CHECK(renderer_water_classic::needs_vertex_heights(input, draws, draw));
+    for (const auto flags :
+         {uint32_t{0},
+          uint32_t{OA_UNIT_DEF_FLAG_FLOATER | OA_UNIT_DEF_FLAG_CAN_FLY},
+          uint32_t{OA_UNIT_DEF_FLAG_FLOATER | OA_UNIT_DEF_FLAG_CAN_HOVER}}) {
+        definition.flags = flags;
+        OA_CHECK(!renderer_water_classic::needs_vertex_heights(input, draws, draw));
+    }
+    definition.flags = OA_UNIT_DEF_FLAG_FLOATER;
+    ship.build_remaining = 0.5F;
+    OA_CHECK(!renderer_water_classic::needs_vertex_heights(input, draws, draw));
+    ship.build_remaining = 0;
+    draws.models[0].stand_in = 0;
+    draws.stand_ins.push_back(ship);
+    OA_CHECK(!renderer_water_classic::needs_vertex_heights(input, draws, draw));
+    draws.models[0].stand_in = -1;
+    input.view.zoom = 0.25F;
+    OA_CHECK(!renderer_water_classic::needs_vertex_heights(input, draws, draw));
+    input.view.zoom = 1;
+    input.reflections = 0;
+    OA_CHECK(!renderer_water_classic::needs_vertex_heights(input, draws, draw));
+    input.reflections = 1;
+    OA_CHECK(renderer_water_classic::needs_vertex_heights(input, draws, draw));
+    // Ground draws leave gaps in the height table. Both later hulls must
+    // reflect exactly as when every draw recorded all its heights.
+    {
+        oa::UnitDef ground_definition{};
+        auto mixed_draws = draws;
+        auto ground = model;
+        ground.model.def = &ground_definition;
+        mixed_draws.models.push_back(ground);
+        const auto mixed_frame = [&](bool record_all) {
+            renderer_water_classic::Inputs water = input;
+            water.reflected_vertices = 0;
+            card::CardFrame result;
+            std::vector<float> recorded;
+            for (const auto index : {1u, 0u, 1u, 0u}) {
+                const WorldDraw item{WorldDrawKind::model, index};
+                const auto first_vertex = result.vertices.size();
+                const auto first_index = result.indices.size();
+                card::append_quad(result, 120, 96, 16, 16, 0, 0, 1, 1, {1, 1, 1, 1});
+                card::Batch batch;
+                batch.first_index = static_cast<uint32_t>(first_index);
+                batch.index_count = 6;
+                result.batches.push_back(batch);
+                if (record_all ||
+                    renderer_water_classic::needs_vertex_heights(water, mixed_draws, item)) {
+                    recorded.resize(first_vertex, std::numeric_limits<float>::quiet_NaN());
+                    recorded.insert(recorded.end(), {64, 64, 32, 32});
+                }
+                water.vertex_heights = recorded;
+                renderer_water_classic::objects(
+                    result, water, mixed_draws, item, first_vertex, first_index
+                );
+            }
+            OA_CHECK(water.reflected_vertices != 0);
+            OA_CHECK(card::check_frame(result).empty());
+            return result;
+        };
+        const auto all = mixed_frame(true), naval_only = mixed_frame(false);
+        OA_CHECK(all.indices == naval_only.indices);
+        OA_CHECK(all.vertices.size() == naval_only.vertices.size());
+        OA_CHECK(all.batches.size() == naval_only.batches.size());
+        std::vector<uint8_t> all_pixels(320 * 240 * 3), naval_pixels(all_pixels.size());
+        draw_frame(all, all_pixels, 320, 240);
+        draw_frame(naval_only, naval_pixels, 320, 240);
+        OA_CHECK(all_pixels == naval_pixels);
+    }
     const auto make_ship = [&]() {
         frame.reset();
         card::append_quad(frame, 120, 96, 16, 16, 0, 0, 1, 1, {1, 1, 1, 1});

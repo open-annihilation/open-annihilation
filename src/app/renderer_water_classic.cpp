@@ -570,6 +570,20 @@ void surface(card::CardFrame& frame, const Inputs& in) {
         frame.batches.push_back(out);
 }
 
+bool needs_vertex_heights(
+    const Inputs& in, const WorldDrawList& draws, const WorldDraw& draw
+) noexcept {
+    if (!in.map || detail(in) == 0 || in.reflections <= 0 || draw.kind != WorldDrawKind::model ||
+        draw.index >= draws.models.size())
+        return false;
+    const auto& model = draws.models[draw.index];
+    return model.stand_in < 0 && model.model.def &&
+           (model.model.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0 &&
+           (model.model.def->flags & (OA_UNIT_DEF_FLAG_CAN_FLY | OA_UNIT_DEF_FLAG_CAN_HOVER)) ==
+               0 &&
+           model.model.unit && model.model.unit->build_remaining == 0;
+}
+
 void objects(
     card::CardFrame& frame,
     Inputs& in,
@@ -591,11 +605,7 @@ void objects(
             unit = &draws.stand_ins[model.stand_in];
         if (unit)
             position = model.shown_position.value_or(unit->position);
-        naval = model.stand_in < 0 && model.model.def &&
-                (model.model.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0 &&
-                (model.model.def->flags &
-                 (OA_UNIT_DEF_FLAG_CAN_FLY | OA_UNIT_DEF_FLAG_CAN_HOVER)) == 0 &&
-                unit && unit->build_remaining == 0;
+        naval = needs_vertex_heights(in, draws, draw);
         if (model.model.def)
             hull_waterline = static_cast<uint8_t>(model.model.def->water_line);
     } else if (
