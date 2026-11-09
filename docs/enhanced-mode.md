@@ -11,9 +11,9 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 4 remains the current preset while version 5 corridor flow
-is measured on the fixed 20,000-unit battle. Version 5 is available for
-explicit benchmark comparisons. The presets retain a capacity of
+Rules version 4 remains the current preset. Versions 5 and 6 are explicit
+experimental benchmark choices. Version 6 derives from version 4 and keeps
+version 5's advisory corridor lanes separate. The presets retain a capacity of
 10,000 units per participating player. The engine
 allocates ranges only for participating players, with at most 32,767 units
 across the match. Two players can therefore field 10,000 units each.
@@ -39,12 +39,10 @@ an unsupported step receives the ordinary blocked response. This corrects
 collision handling, but does not establish smooth movement through a crowded
 battlefield. Off and versions 1, 2 and 3 keep their original movement rules.
 
-Version 5 reserves a distinct rules identity for advisory corridor lanes.
-The version metadata prepares save, replay
-and multiplayer agreement; it does not by itself implement those behaviors
-or establish improved bridge flow. Version 4 keeps its original ground
-movement and collision checks. Unit and projectile capacities and renderer
-selection remain unchanged.
+Each preset has a distinct rules identity for saves, recordings and
+multiplayer agreement. New experiments preserve the behavior of Off and
+earlier presets. Unit and projectile capacities and renderer selection
+remain unchanged.
 
 Version 3 can also remove an unnecessary bend from a published guide when
 the unit's actual footprint has a clear, fully known line to the following
@@ -79,7 +77,36 @@ work limits bound corridor discovery, new queries and retained guidance.
 Retained units receive service in rotating slot order; deferred work keeps
 crossing history, and saved games retain the service cursor. Native movement
 and the swept footprint guard still decide every actual step. Version 5
-remains an explicit benchmark choice pending the fixed 20,000-unit comparison.
+remains an explicit benchmark choice after failing its earlier fixed-march
+comparison; those results do not diagnose the later aligned-patrol battle.
+
+Version 6 provisionally retains an unchanged patrol goal and its active
+search while the unit is still travelling toward it. Arrival, failure,
+cancellation and replacement still permit the normal mission transition.
+For ground move, patrol and repair-patrol orders, usable formation offsets
+remain unchanged. The bounds check uses the original group click when a
+generated offset's full footprint leaves the playable area and the click
+fits that area. This bounds fallback does not guarantee clear terrain.
+After that check, the additional terrain fallback uses the original playable
+click only when the resulting formation point has no statically eligible
+native arrival footprint and the click has one. Moving units do not
+invalidate a destination. These corrections do not establish that traffic
+can reach a destination promptly.
+
+The built-in computer player can refresh a lost strike target early. Its
+strike selector rejects dying targets and targets without positive health.
+Each Match permits at most one early AI task dispatch per six simulation
+ticks on the AI's owning machine; ordinary strike deadlines remain separate.
+The limit counts task dispatches across that Match. Its save-only 424-byte
+state retains target bindings, retry deadlines and native strike clocks,
+and stays outside shared simulation hashes.
+
+The current conservative queue predicate keeps a unit behind a live,
+same-owner leader with the same footprint and directed next two route
+points. Their final destinations may differ. The leader must own its active
+route and be ahead and nearer the next point. This applies within the existing
+traffic grace period of fewer than 30 blocked ticks; mature recovery remains available.
+The installed-map results below remain mixed and do not establish smooth flow.
 
 These changes do not yet establish smooth frame rates at that population.
 Ray tracing remains future work and will be a separate graphics choice.
@@ -143,7 +170,7 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2`, `3`, `4` or `5` with Enhanced Mode to compare the
+Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5` or `6` with Enhanced Mode to compare the
 presets on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
@@ -413,6 +440,93 @@ loads the exact aligned patrol setup and records 1,800 native ticks with
 normal ARM AI and combat. Further pathing work must use its evolving orders
 and goal epochs; it is a diagnostic baseline, not a replay of presented
 frames or a gameplay-performance measurement.
+
+## Version 6 aligned-patrol checkpoint
+
+The same-build comparison at `bffdc12eb` starts exactly 10,000 stock units
+per side on Core Prime Industrial Area, seed 7, with aligned commanders,
+unchanged positions, original group clicks and stock stances. ARM uses the
+normal built-in native computer player, with no seated brain or humanized
+controller. This headless diagnostic grants one tick at a time through the
+application's native step/finish path. Its window hooks and tick batching
+differ from the normal presented game; its timings are not gameplay FPS.
+
+Version 6 repairs 2,088 out-of-playable formation points and another 5,598
+points whose complete native arrival regions cannot fit the unit. It keeps
+all 12,314 usable original points unchanged. Of the bounds failures, 1,878
+also fail the padded native geometry; the other 210 intersect the hidden
+right edge of the playable area. An independent audit of the actual first
+retained post-tick native goals finds eligible arrival regions for all 20,000 version-6 units,
+with no untested goals. Bounds, static eligibility, connectivity and traffic
+remain separate questions.
+
+Both versions complete 9,000 ticks, or five simulation minutes, with normal
+victory and death rules enabled. Their outcomes remain ongoing at the cap.
+Their census, event and crossing records through tick 1,800 reproduce the
+earlier 60-second captures exactly, as do both canonical world states at that tick.
+The two fixed rear cohorts start with 798 original units each; their IDs are
+retained when actors die. Counts include actual births and deaths.
+
+| Observation | Version 4 | Experimental version 6 |
+| --- | ---: | ---: |
+| Unique CORE centre-bridge inward crossers at 1,800 ticks | 2 | 34 |
+| Unique CORE centre-bridge inward crossers at 9,000 ticks | 58 | 130 |
+| Unique ARM centre-bridge inward crossers at 9,000 ticks | 0 | 0 |
+| All CORE static-grid progress to original click, 9,000 ticks | 1,911.70 px | 2,002.37 px |
+| Repaired 674 CORE rear units: same estimated progress | 1,046.77 px | 1,228.70 px |
+| Unchanged 124 CORE rear units: progress to their own initial native goals | 3,216.16 px | 2,550.86 px |
+| Mean native-grant thread CPU | 10.32 ms | 11.90 ms |
+| p99 native-grant thread CPU | 15.49 ms | 16.33 ms |
+
+Static-grid progress is an offline estimate from native footprint origins
+and the initial native static masks: eight neighbours, no diagonal corner
+cutting and quantized edge lengths. All 20,000 original actors have finite
+estimates at the final endpoint; retired actors keep their own last-live
+position. The estimate ignores moving traffic, later wrecks, fog, planner
+limits and speed. It is not native path length. ARM replaces its original
+click through AI orders from tick 300, and patrols can rotate legs, so
+initial-target distance is not a complete measure of current-order
+execution or AI efficiency.
+
+The longer static-grid estimate shows about 17% more route-distance progress
+for the repaired rear subset even though the earlier 60-second Euclidean
+comparison looked worse. This supports a detour interpretation without
+establishing native path efficiency. The 124 unchanged endpoints
+still regress. At tick 9,000, 682 of the 797 surviving CORE rear originals
+have the collision-blocked flag set in version 6; that snapshot alone does
+not establish an attempted move. ARM's zero centre crossings must be read
+alongside its AI-selected targets, rather than treated alone as a route
+connectivity failure. These results do not establish smooth battle flow.
+
+Combat is sustained: CORE/ARM shots rise from 6,953/100,408 in the control
+to 14,957/140,836 in version 6. Final live counts are 9,479/9,783 and
+9,423/9,662 respectively; deaths are 521/223 and 577/339, with 0/6 and
+0/1 births. Both captures retain all detail rows without drops. All 61
+physical snapshots, spaced five simulation seconds apart, report zero ownership/overlap errors;
+the control separately reports one attached unit across 31 snapshots.
+This is a sampled ground-ownership check, not swept safety between samples.
+
+ARM rear goal exposure rises from 65.2% to 99.53% across the full capture;
+over the final 1,500 ticks both versions reach 99.67%. This separates the
+early retarget improvement from later shared strategic deadlines.
+
+The six-tick early AI budget is read from the frozen source and verified
+against saved state. Twelve early grants respect that spacing, costing
+23.60 ms mean and 25.68 ms maximum whole-grant CPU. Ordinary strike deadlines
+are separate. Each mode has one tick above 33.3 ms, its initial strike at
+tick 300; maxima are 73.36 and 78.13 ms. Timings include bounded event
+callbacks and exclude trace formatting and file writes. System and unrelated
+process activity is recorded, so these are desktop observations rather than
+isolated causal estimates. Event aggregates and per-tick hashes remain exact;
+head/goal hashes describe post-tick observations, not commands issued and
+replaced within one tick.
+
+Earlier bounds-only checkpoints (`95884214e`, then `868aaf1bc`) improved CORE
+centre crossings from 2 to 39 and 36 but left unusable terrain goals in
+place. Their CPU comparisons were also contended by compiler or unattributed
+Python work. They do not replace the same-build, usable-goal comparison
+above. Version 4 remains current, version 6 remains experimental, and ray
+tracing stays deferred while movement and presented frame rates improve.
 
 ## Current-view rendering checkpoint
 
