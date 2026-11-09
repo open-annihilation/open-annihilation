@@ -3,6 +3,7 @@
 
 #include "bench.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/files.hpp"
 
 #include <algorithm>
@@ -141,6 +142,12 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
                 return false;
             }
             view.players = static_cast<uint16_t>(players);
+        } else if (key == "rules_version") {
+            if (!read_count(value, view.rules_version) ||
+                !oa::data::enhanced_mode::supported_version(view.rules_version)) {
+                error = where + "rules_version takes 0 or a supported Enhanced Mode rules version";
+                return false;
+            }
         } else if (key == "menu_seconds") {
             read = seconds(view.menu_seconds);
         } else if (key == "warmup_ticks") {
@@ -243,6 +250,30 @@ bool read_view(const std::filesystem::path& file, View& view, std::string& error
     if (!read.stage.empty() && read.stage.is_relative())
         read.stage = file.parent_path() / read.stage;
     view = std::move(read);
+    return true;
+}
+
+bool validate_rules_request(const View& view, bool enhanced, std::string& error) {
+    if (!oa::data::enhanced_mode::supported_version(view.rules_version)) {
+        error = "rules_version is unsupported";
+        return false;
+    }
+    if (view.rules_version != 0 && !enhanced) {
+        error = "rules_version requires Enhanced Mode";
+        return false;
+    }
+    return true;
+}
+
+bool validate_started_rules(const View& view, uint32_t actual_version, std::string& error) {
+    if (!oa::data::enhanced_mode::supported_version(actual_version)) {
+        error = "the skirmish's Enhanced Mode rules version is unsupported";
+        return false;
+    }
+    if (view.rules_version != 0 && view.rules_version != actual_version) {
+        error = "the skirmish's Enhanced Mode rules differ from rules_version";
+        return false;
+    }
     return true;
 }
 

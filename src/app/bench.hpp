@@ -26,6 +26,7 @@ struct View {
     std::string label;           ///< the run's name in its lines; the file's stem
     std::filesystem::path stage; ///< a stage played into the match; empty for none
     uint16_t players = 2;        ///< the skirmish's players
+    uint32_t rules_version{};    ///< one-session Enhanced preset; 0 keeps normal settings
     double menu_seconds = 1.0;   ///< seconds on the main menu before SINGLE
     uint32_t warmup_ticks = 600; ///< the match tick the measured span starts at
     uint32_t warmup_frames{};    ///< rendered warm-up frames after the tick warm-up
@@ -80,6 +81,23 @@ struct View {
 /// @param[out] error what was wrong, when the file cannot be read or is refused
 /// @return true when the file read
 [[nodiscard]] bool read_view(const std::filesystem::path& file, View& view, std::string& error);
+
+/// Checks an optional preset against the player's Enhanced Mode setting.
+///
+/// @param view the requested benchmark setup
+/// @param enhanced whether Enhanced Mode is enabled in normal settings
+/// @param[out] error why the request cannot be used
+/// @return true for normal settings or a supported enabled preset
+[[nodiscard]] bool validate_rules_request(const View& view, bool enhanced, std::string& error);
+
+/// Checks the actual match's preset before a benchmark measures it.
+///
+/// @param view the requested benchmark setup
+/// @param actual_version the version held by the started match, 0 for Off
+/// @param[out] error why the actual rules cannot be measured
+/// @return true when the actual rules are supported and match an explicit request
+[[nodiscard]] bool
+validate_started_rules(const View& view, uint32_t actual_version, std::string& error);
 
 /// The spread of a measure over the frames of the span, in milliseconds.
 struct Spread {

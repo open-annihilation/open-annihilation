@@ -509,7 +509,7 @@ target_link_libraries(oa-app-window-icon PUBLIC oa-app-headers PRIVATE oa-format
 add_library(oa-app-bench src/app/bench.cpp)
 add_library(oa::app::bench ALIAS oa-app-bench)
 target_include_directories(oa-app-bench PUBLIC src/app)
-target_link_libraries(oa-app-bench PRIVATE oa-platform-shims oa-options)
+target_link_libraries(oa-app-bench PRIVATE oa-data-enhanced-mode oa-platform-shims oa-options)
 if(BUILD_TESTING)
   # A view file's keys, its refusals and its stage taken from its folder;
   # the spread of a measure, its percentiles and slowest 1%; the MEASURE

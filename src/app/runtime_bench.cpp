@@ -16,6 +16,7 @@
 
 #include "oa/core/unit.h"
 #include "oa/base/sha256.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/state_hash.hpp"
 #include "oa/ui/console/game_fields.hpp"
 
@@ -189,6 +190,9 @@ void Runtime::play_bench() {
     bench::View view;
     if (std::string error; !bench::read_view(options_.bench_file, view, error))
         fail(error);
+    if (std::string error;
+        !bench::validate_rules_request(view, engine_settings().enhanced_mode, error))
+        fail(error);
     if (view.require_gameplay &&
         (options_.fixed_clock || options_.frame_rate || options_.frame_clock_ms ||
          options_.headless_check || director_ || video_capture_ || capture_frame_ ||
@@ -239,6 +243,23 @@ void Runtime::play_bench() {
     const double menu_end = now() + view.menu_seconds;
     while (now() < menu_end)
         frame();
+    bool held_rules{};
+    const auto restore_rules = [&] {
+        if (held_rules)
+            release_enhanced_rules_once(true);
+    };
+
+    struct RestoreRules {
+        const decltype(restore_rules)& restore;
+
+        ~RestoreRules() { restore(); }
+    } restore{restore_rules};
+
+    if (view.rules_version != 0) {
+        if (!hold_enhanced_rules_once(view.rules_version))
+            fail("the requested Enhanced Mode rules could not be selected");
+        held_rules = true;
+    }
     exercise_click(menu::resource_name(menu::Button::single_player));
     exercise_click(entry::resource_name(entry::Button::skirmish));
     state_.player_count = view.players;
@@ -249,6 +270,9 @@ void Runtime::play_bench() {
         options_.stage_file = view.stage;
         apply_stage();
     }
+    const uint32_t actual_rules_version = oa::data::enhanced_mode::rules_version(match_->rules());
+    if (std::string error; !bench::validate_started_rules(view, actual_rules_version, error))
+        fail(error);
     // Live timings are painted into the software battlefield itself; they
     // would make identical paused scenes produce different image receipts.
     show_frame_stats(!view.require_paused && !view.require_gameplay);
@@ -337,13 +361,24 @@ void Runtime::play_bench() {
         snap_held_clock();
         std::printf(
             "bench: INITIAL units %u owner0 %u owner1 %u seed %u controller0 %u "
-            "controller1 %u setup_clock_reanchored 1\n",
+            "controller1 %u setup_clock_reanchored 1 enhanced_mode %u rules_version %u "
+            "requested_rules_version %u\n",
             initial_total,
             initial_census[0],
             initial_census[1],
             *options_.seed,
             unsigned(match_->state().game.players[0].status),
-            unsigned(match_->state().game.players[1].status)
+            unsigned(match_->state().game.players[1].status),
+            unsigned(actual_rules_version != 0),
+            actual_rules_version,
+            view.rules_version
+        );
+    } else {
+        std::printf(
+            "bench: INITIAL enhanced_mode %u rules_version %u requested_rules_version %u\n",
+            unsigned(actual_rules_version != 0),
+            actual_rules_version,
+            view.rules_version
         );
     }
     // The warm-up's frames are timed too, so that the kept ground's
