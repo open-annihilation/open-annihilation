@@ -415,6 +415,50 @@ void keyboard_focus_and_defaults() {
     require(input::dispatch_key(f.panel, 'q') == 'q', "unhandled key returned");
 }
 
+void keyboard_tab_and_slider() {
+    Fixture columns;
+    columns.panel.owner->focus = columns.index("MAPS");
+    require(input::dispatch_key(columns.panel, key::tab) == 0, "tab consumed");
+    require(columns.panel.owner->focus == columns.index("NAME"), "tab from MAPS lands on NAME");
+    Fixture spatial;
+    spatial.panel.owner->focus = spatial.index("MAPS");
+    input::focus_nearest(spatial.panel, input::FocusDirection::next);
+    require(
+        spatial.panel.owner->focus == spatial.index("MAPSUP"),
+        "an arrow from MAPS still lands on MAPSUP"
+    );
+
+    Fixture bar;
+    auto& slider = bar.record("MAPSBAR");
+    gui::set_record_i16(slider, field::width, 80);
+    gui::set_record_i16(slider, field::height, 12);
+    gui::set_record_i16(slider, field::scroll_range, 21);
+    gui::set_record_i16(slider, field::scroll_knob, 10);
+    bar.panel.owner->focus = bar.index("MAPSBAR");
+    require(input::dispatch_key(bar.panel, key::right) == 0, "right on a slider is consumed");
+    require(gui::record_i16(slider, field::scroll_knob) == 11, "right steps the knob one position");
+    require(input::dispatch_key(bar.panel, key::left) == 0, "left on a slider is consumed");
+    require(gui::record_i16(slider, field::scroll_knob) == 10, "left steps the knob back");
+    require(
+        input::dispatch_key(bar.panel, key::page_down) == 0, "page down on a slider is consumed"
+    );
+    require(
+        gui::record_i16(slider, field::scroll_knob) == 12, "page down steps a tenth of the travel"
+    );
+    require(input::dispatch_key(bar.panel, key::home) == 0, "home on a slider is consumed");
+    require(gui::record_i16(slider, field::scroll_knob) == 0, "home puts the knob at the start");
+    require(input::dispatch_key(bar.panel, key::end) == 0, "end on a slider is consumed");
+    require(
+        gui::record_i16(slider, field::scroll_knob) == 20, "end puts the knob at the last position"
+    );
+
+    bar.panel.owner->focus = bar.index("NAME");
+    require(
+        input::dispatch_key(bar.panel, key::home) == key::home,
+        "home in a text box is left for the caret"
+    );
+}
+
 void update_loop_activation() {
     Fixture f;
     static int32_t commands = 0;
@@ -761,6 +805,7 @@ int main() {
         scroll_bar_track_and_step();
         text_box_editing();
         keyboard_focus_and_defaults();
+        keyboard_tab_and_slider();
         update_loop_activation();
         state_setters();
         wrapping_and_blink_words();

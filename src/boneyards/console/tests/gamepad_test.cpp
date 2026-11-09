@@ -249,7 +249,12 @@ void present(StatusWidget* widget) {
     }
 }
 
-void check_screen(StatusWidget* widget, const char* name, KeyboardLog* keyboard) {
+// `named_stop` is false when the console has no named control the pad can
+// land on. The update list has no name, and its buttons stay hidden, so the
+// walk is the frame around that console.
+void check_screen(
+    StatusWidget* widget, const char* name, KeyboardLog* keyboard, bool named_stop = true
+) {
     MainFrame* frame = widget->system.main_frame;
     Window* screen = frame->active_screen;
     char label[96];
@@ -267,8 +272,13 @@ void check_screen(StatusWidget* widget, const char* name, KeyboardLog* keyboard)
     bool on_screen = false;
     for (int32_t i = 0; i < walk.count; ++i)
         on_screen = on_screen || under(screen, walk.order[i]);
-    std::snprintf(label, sizeof label, "%s is in the focus order", name);
-    check(on_screen, label);
+    if (named_stop) {
+        std::snprintf(label, sizeof label, "%s is in the focus order", name);
+        check(on_screen, label);
+    } else {
+        std::snprintf(label, sizeof label, "%s has no named stop in the focus order", name);
+        check(!on_screen, label);
+    }
     Window* fields[32]{};
     int32_t field_count = 0;
     collect_fields(screen, fields, &field_count);
@@ -468,8 +478,24 @@ int main(int argc, char** argv) {
         present(widget);
         Window* back = window_find_named(&widget->system.main_frame->base, "Back", nullptr);
         check(back != nullptr && window_is_shown(back), "REGISTER opens the registration console");
-        if (back != nullptr)
-            check_screen(widget, "registration", &keyboard);
+        // The page is modal. Without a browser, Open is hidden, and the route
+        // hotspots stay hidden until the in-game form is offered, so Back is
+        // the only named stop. The pad stays on that page.
+        if (back != nullptr && back->parent != nullptr) {
+            Window* page = back->parent;
+            dismiss_box(widget);
+            Walk walk{};
+            walk_focus(widget, &walk);
+            check(walk.count >= 1, "registration focus order has its stop");
+            check(same_walk(widget, walk), "registration focus order is stable");
+            bool inside = walk.count > 0;
+            bool saw_back = false;
+            for (int32_t i = 0; i < walk.count; ++i) {
+                inside = inside && under(page, walk.order[i]);
+                saw_back = saw_back || walk.order[i] == back;
+            }
+            check(inside && saw_back, "registration keeps the pad on its page");
+        }
         dismiss_box(widget);
     }
 
@@ -501,7 +527,7 @@ int main(int argc, char** argv) {
         widget->system.matchmaking_enabled = 1;
         main_frame_show_screen(widget->system.main_frame, screens[i]);
         present(widget);
-        check_screen(widget, names[i], &keyboard);
+        check_screen(widget, names[i], &keyboard, screens[i] != console_screen::update);
     }
 
     widget->system.matchmaking_enabled = 1;

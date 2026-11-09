@@ -688,6 +688,32 @@ Geometry geometry_of(
     }
     laid.before = record_before(laid.focusable, laid.button_points);
     laid.after = record_after(laid.focusable, laid.button_points);
+    // Tab's neighbours are named, so the button is read where the screen is:
+    // after Difficulty and before Start on a campaign, and after Select Map
+    // and before Start on the skirmish setup. The battle room keeps the
+    // geometric neighbours. A missing name keeps the one geometry found.
+    const auto named_focus = [&](std::string_view want) -> int32_t {
+        for (const FocusRecord& record : laid.focusable) {
+            if (record.index <= 0 || static_cast<std::size_t>(record.index) >= gadgets.size())
+                continue;
+            if (MutatorButtonAccess::names_equal(
+                    gadgets[static_cast<std::size_t>(record.index)].common.name, want
+                ))
+                return record.index;
+        }
+        return 0;
+    };
+    if (campaign) {
+        if (const int32_t difficulty = named_focus("Difficulty"); difficulty > 0)
+            laid.before = difficulty;
+        if (const int32_t start = named_focus("Start"); start > 0)
+            laid.after = start;
+    } else {
+        if (const int32_t select_map = named_focus("SelectMap"); select_map > 0)
+            laid.before = select_map;
+        if (const int32_t start = named_focus("Start"); start > 0)
+            laid.after = start;
+    }
     laid.first = first_record(laid.focusable);
     laid.last = last_record(laid.focusable);
     laid.below = column_below(laid.focusable, anchor_frame_x, laid.button_points);
@@ -854,7 +880,38 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// Makes the button.
     ///
     /// @param runtime the runtime
-    explicit MutatorButtonScreen(Runtime& runtime) : runtime_(runtime) {}
+    explicit MutatorButtonScreen(Runtime& runtime) : runtime_(runtime) {
+        runtime_.mutator_button_screen_ = this;
+    }
+
+    /// Clears the runtime's pointer when it still names this button.
+    ~MutatorButtonScreen() override {
+        if (runtime_.mutator_button_screen_ == this)
+            runtime_.mutator_button_screen_ = nullptr;
+    }
+
+    /// Tells whether the button holds the keyboard focus.
+    ///
+    /// @return true while it does
+    [[nodiscard]] bool holds_focus() const noexcept { return focused_; }
+
+    /// Clears the button's focus and leaves the screen's focus where it is.
+    void release_for_tab() {
+        if (!focused_ && !focus_ring_)
+            return;
+        focused_ = false;
+        focus_ring_ = false;
+        ++revision_;
+    }
+
+    /// Puts the keyboard focus on the button and shows its ring.
+    void take_for_tab() {
+        focused_ = true;
+        pressed_ = false;
+        focus_ring_ = true;
+        runtime_.set_frontend_focus(-1);
+        ++revision_;
+    }
 
     /// Returns "mutators-button".
     ///
@@ -1579,6 +1636,23 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     mutable std::optional<room::ScreenResources> battle_art_{};
     mutable bool battle_art_read_{}; ///< the battle room's art has been read
 };
+
+bool Runtime::mutator_button_has_focus() const {
+    const MutatorButtonScreen* screen = mutator_button_screen_;
+    return screen != nullptr && screen->holds_focus();
+}
+
+void Runtime::release_mutator_button_focus() {
+    MutatorButtonScreen* screen = mutator_button_screen_;
+    if (screen != nullptr)
+        screen->release_for_tab();
+}
+
+void Runtime::give_mutator_button_focus() {
+    MutatorButtonScreen* screen = mutator_button_screen_;
+    if (screen != nullptr)
+        screen->take_for_tab();
+}
 
 void Runtime::keep_mutator_button_screen() {
     OaLayer& layer = oa_layer();

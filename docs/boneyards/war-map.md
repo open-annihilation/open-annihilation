@@ -15,3 +15,18 @@ daylight time as that zone is on that date. Battles in the day that is
 ending are what move the front. A day can also be advanced by hand from
 the cluster's admin tools. The next 02:00 turn still comes after that.
 Times stored and sent for the war stay UTC, apart from this turn.
+
+## The keyboard
+
+F6 moves between the main frame and the war map. On the map the focus ring
+is drawn on the first planet. Just after login nothing has the keyboard, so
+the first F6 lands on the frame and the next on that planet. The arrows
+then move to the nearest planet in that direction. A planet joined to this
+one by a line is taken before the others. When no planet lies that way, the
+keyboard stays. Return chooses the planet the ring is on, as a press does,
+and Recon, Chat and Battle light. Home moves to the capitol of the player's
+side. + and − change the magnification as the slider does.
+
+The ring is not drawn until F6, Tab or Shift+Tab. Until then an arrow moves
+as it does on the rest of the main frame: Down lands on Map up left. The
+eight edge-scroll buttons stay in the main frame's region.

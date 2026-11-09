@@ -34,6 +34,7 @@
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/gui_input/gadget_panel.hpp"
+#include "oa/ui/gui_input/tab_order.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <chrono>
@@ -2193,7 +2194,7 @@ int32_t Runtime::frontend_focus() const {
                : -1;
 }
 
-int32_t Runtime::reported_frontend_focus() const {
+int32_t Runtime::announced_frontend_focus() const {
     if (!frontend_has_keyboard())
         return -1;
     const int32_t held = frontend_focus();
@@ -2204,7 +2205,7 @@ int32_t Runtime::reported_frontend_focus() const {
     return frontend_panel_focus(resources_.layout, 0, oa::ui::gui_input::FocusDirection::next);
 }
 
-int32_t Runtime::reported_match_focus() const {
+int32_t Runtime::announced_match_focus() const {
     if (!match_panels_keyboard_ || !match_hud_ || match_hud_->layout.gadgets.empty())
         return -1;
     if (match_hud_focus_ > 0 &&
@@ -2220,6 +2221,28 @@ void Runtime::move_frontend_focus(oa::ui::gui_input::FocusDirection direction) {
     if ((screen_ == Screen::new_campaign || screen_ == Screen::any_mission) && moved > 0)
         campaign_setup_focus_ =
             resources_.layout.gadgets[static_cast<std::size_t>(moved)].common.name;
+}
+
+void Runtime::move_frontend_tab(bool forward) {
+    const auto& gadgets = resources_.layout.gadgets;
+    const std::vector<int32_t> order = oa::ui::gui_input::tab_order(gadgets);
+    if (order.empty())
+        return;
+    const int32_t focus = frontend_focus();
+    int32_t landed = forward ? order.front() : order.back();
+    for (std::size_t at = 0; at < order.size(); ++at) {
+        if (order[at] != focus)
+            continue;
+        if (forward)
+            landed = order[(at + 1U) % order.size()];
+        else
+            landed = order[at == 0 ? order.size() - 1U : at - 1U];
+        break;
+    }
+    frontend_focus_ = landed;
+    if ((screen_ == Screen::new_campaign || screen_ == Screen::any_mission) && landed > 0 &&
+        static_cast<std::size_t>(landed) < gadgets.size())
+        campaign_setup_focus_ = gadgets[static_cast<std::size_t>(landed)].common.name;
 }
 
 void Runtime::load(Screen screen) {

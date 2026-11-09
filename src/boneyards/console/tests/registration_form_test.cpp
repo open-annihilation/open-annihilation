@@ -650,7 +650,41 @@ void test_closed(StatusWidget* widget) {
         "the form stays unbuilt without the in-game route"
     );
     check(!window_is_shown(named(registration, "GameHot")), "the in-game row is hidden");
+    Window* back = named(registration, "Back");
+    Window* open_button = named(registration, "Open");
+    Window* opener = register_button(widget->system.main_frame->active_screen);
+    check(widget->desktop.focus == opener, "opening the page leaves the keyboard on REGISTER");
+    press_key(widget, key::tab);
+    Window* landed = widget->desktop.focus;
+    check(
+        landed != nullptr && (landed == back || landed == open_button),
+        "the first Tab lands on the page"
+    );
+    Window* username = named(widget->system.main_frame->active_screen, "Username");
+    press_key(widget, key::tab);
+    bool on_page = false;
+    for (Window* cursor = widget->desktop.focus; cursor != nullptr; cursor = cursor->parent)
+        on_page = on_page || cursor == registration;
+    check(on_page && widget->desktop.focus != username, "Tab stays on the registration page");
     click(widget, named(registration, "Back"));
+    check(
+        widget->desktop.focus != opener,
+        "a click on Back leaves REGISTER without the keyboard, as before"
+    );
+    boneyards_status_widget_tick(widget);
+    // A key that closes the page hands the keyboard back to REGISTER.
+    Window* again = open_registration(widget);
+    check(again != nullptr, "REGISTER opens the page again");
+    if (again == nullptr)
+        return;
+    Window* again_back = named(again, "Back");
+    for (int32_t i = 0; i < 3 && widget->desktop.focus != again_back; ++i)
+        press_key(widget, key::tab);
+    check(widget->desktop.focus == again_back, "Tab reaches Back");
+    press_key(widget, key::escape);
+    // The next pass destroys the closed page, so it is read before the tick.
+    check(!window_is_shown(again), "Escape closes the page");
+    check(widget->desktop.focus == opener, "Escape on Back hands the keyboard back to REGISTER");
     boneyards_status_widget_tick(widget);
 }
 

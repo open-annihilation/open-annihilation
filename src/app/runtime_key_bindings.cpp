@@ -945,6 +945,104 @@ bool binding_key(
     return false;
 }
 
+/// While the save dialog's name takes typing, the dispatcher searches only
+/// the chat group. A menu chord that types no character is offered here, so
+/// Tab and the list keys still move, on whatever chord the player bound.
+///
+/// Letters stay with the name, Shift included. Return, Escape, Backspace,
+/// Left, Right, Home and End are not among the actions offered, so they
+/// keep editing the name.
+///
+/// @param[in,out] events the actions this key started
+/// @param resolved the bindings
+/// @param keyboard the keyboard the chords match on
+/// @param platform which key Primary means
+/// @param input the key
+void offer_save_menu_moves(
+    std::vector<keys::ActionEvent>& events,
+    const keys::Resolved& resolved,
+    const keys::KeyboardMap& keyboard,
+    keys::Platform platform,
+    const keys::InputEvent& input
+) {
+    if (!input.down || input.kind != keys::InputKind::key)
+        return;
+    // A key that types a character stays with the name. Ctrl, Alt and Meta
+    // do not type one. Tab is not a character; Shift+Tab is still Tab.
+    const bool types = (input.modifiers & (keys::ctrl | keys::alt | keys::meta)) == 0 &&
+                       (input.key_code & keys::position_key_code_bit) == 0 &&
+                       input.key_code >= 0x20 && input.key_code <= 0x10FFFF;
+    if (types)
+        return;
+    static constexpr std::array<std::string_view, 6> yield{
+        "ui.menu-focus-next",
+        "ui.menu-focus-previous",
+        "ui.menu-list-up",
+        "ui.menu-list-down",
+        "ui.menu-focus-up",
+        "ui.menu-focus-down",
+    };
+    const uint32_t menus = context_bit("menus");
+    if (menus == 0)
+        return;
+    const keys::Bound* chosen = nullptr;
+    const keys::Chord* chosen_chord = nullptr;
+    int chosen_rank = -1;
+    bool chosen_exact = false;
+    for (const keys::Bound& bound : resolved.actions) {
+        bool moves = false;
+        for (const std::string_view id : yield) {
+            if (bound.id == id) {
+                moves = true;
+                break;
+            }
+        }
+        if (!moves || (bound.contexts & menus) == 0)
+            continue;
+        for (const keys::BoundChord& binding : bound.chords) {
+            const keys::Chord& chord = binding.chord;
+            if (chord.kind == keys::TriggerKind::character || chord.gesture != keys::Gesture::press)
+                continue;
+            const keys::Match quality = keys::match(chord, input, keyboard, platform);
+            if (quality == keys::Match::none)
+                continue;
+            const bool exact = quality == keys::Match::exact;
+            const int ranked = keys::rank(chord);
+            // An exact chord wins over one the event holds extra modifiers
+            // for, so Shift+Tab is Previous and not Next with Shift held.
+            // Among those, the higher rank wins.
+            const bool better = chosen == nullptr || (exact && !chosen_exact) ||
+                                (exact == chosen_exact && ranked > chosen_rank);
+            if (!better)
+                continue;
+            chosen = &bound;
+            chosen_chord = &chord;
+            chosen_rank = ranked;
+            chosen_exact = exact;
+        }
+    }
+    if (chosen == nullptr || chosen_chord == nullptr)
+        return;
+    for (const keys::ActionEvent& existing : events) {
+        if (existing.action == chosen->id)
+            return;
+    }
+    uint8_t menus_index = 0;
+    const std::span<const actions::Context> table = actions::contexts();
+    for (std::size_t index = 0; index < table.size(); ++index) {
+        if (table[index].name == "menus") {
+            menus_index = static_cast<uint8_t>(index);
+            break;
+        }
+    }
+    keys::ActionEvent out;
+    out.action = chosen->id;
+    out.phase = input.repeat ? keys::Phase::repeated : keys::Phase::pressed;
+    out.chord = *chosen_chord;
+    out.context = menus_index;
+    events.push_back(out);
+}
+
 /// The English name of a modifier bit, or empty.
 ///
 /// @param bit one modifier bit
@@ -2629,6 +2727,16 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     // The dispatcher has seen this button. The order wheel may hold it back.
     if (take_order_wheel_button(event))
         return true;
+    // The save dialog's name is text entry, so the feed above searched only
+    // the chat group. Offer the menu moves whose chords type no character.
+    if (save_dialog_open() && state.ready)
+        offer_save_menu_moves(
+            state.events,
+            state.dispatcher.bindings(),
+            state.dispatcher.keyboard(),
+            state.platform,
+            *input
+        );
     return false;
 }
 

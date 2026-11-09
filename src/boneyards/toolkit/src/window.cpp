@@ -669,13 +669,19 @@ bool window_default_key_down(Window* self, const Message* msg) {
     if (msg == nullptr) {
         return false;
     }
+    // F6 is the desktop's, and only while a dialog or a region confines it.
+    // An unconfined desktop leaves the key for whoever had it before.
+    if (msg->key == key::f6)
+        return false;
+    // Tab is this control's when nothing confines it, as it was: the parent
+    // (or this window) picks the next target. A dialog or a region takes the
+    // key before it gets here.
     if (msg->key == key::tab) {
         const bool backwards = input_key_down(key::shift);
         Window* owner = self->parent != nullptr ? self->parent : self;
         Window* target = owner->ops->focus_target(owner, self, backwards);
-        if (target != nullptr) {
+        if (target != nullptr)
             services_desktop_focus(target);
-        }
         return true;
     }
     if (self->parent != nullptr) {

@@ -487,26 +487,28 @@ void Runtime::check_brain_campaign() {
         std::cout << "brain campaign check: " << kButton << " reads " << seat.text
                   << ", under Difficulty, inside the frame, meeting no gadget" << on << "\n";
 
-        int32_t predecessor = -1;
-        for (std::size_t at = 1; at < gadgets.size() && predecessor < 0; ++at) {
+        for (std::size_t at = 1; at < gadgets.size(); ++at) {
             set_frontend_focus(static_cast<int32_t>(at));
             frames(1);
             press_key(SDLK_UP, SDL_SCANCODE_UP, SDL_KMOD_NONE);
             frames(1);
             require(!seat_focused(), "Up focused " + std::string(kButton) + on);
-            set_frontend_focus(static_cast<int32_t>(at));
-            frames(1);
-            press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
-            frames(1);
-            if (seat_focused())
-                predecessor = static_cast<int32_t>(at);
         }
-        require(predecessor > 0, "Tab did not reach " + std::string(kButton) + on);
+        const int32_t difficulty_focus = gadget_index("Difficulty");
+        require(difficulty_focus > 0, "Difficulty is not on NEWGAME" + on);
+        set_frontend_focus(difficulty_focus);
+        frames(1);
+        press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        frames(1);
+        require(!seat_focused(), "Tab from Difficulty focused the brain before Mutators" + on);
+        press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        frames(1);
+        require(seat_focused(), "Tab from Mutators did not focus " + std::string(kButton) + on);
         press_key(SDLK_UP, SDL_SCANCODE_UP, SDL_KMOD_NONE);
         frames(1);
         require(seat_focused(), "Up moved on from " + std::string(kButton) + on);
-        std::cout << "brain campaign check: Tab reaches " << kButton << " and Up does not" << on
-                  << "\n";
+        std::cout << "brain campaign check: Tab from Mutators reaches " << kButton
+                  << " and Up does not" << on << "\n";
 
         press_key(SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
         frames(1);

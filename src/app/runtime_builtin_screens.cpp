@@ -962,7 +962,8 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
     // not show it, and Space does not hide it.
     if (taken && oa_layer_ != nullptr) {
         if (input.kind == ScreenInputKind::key_down) {
-            if (input.key == static_cast<uint32_t>(SDLK_TAB))
+            if (input.key == static_cast<uint32_t>(SDLK_TAB) ||
+                input.key == static_cast<uint32_t>(SDLK_F6))
                 oa_layer_->note_family_tab();
             else if (
                 input.key == static_cast<uint32_t>(SDLK_RETURN) ||

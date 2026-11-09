@@ -1238,6 +1238,24 @@ class Runtime final : public menu::Host,
     /// Closes the save dialog: stops text input and returns to the screen it was opened over.
     void close_save_dialog();
 
+    /// Tests whether this key is a menu move the save dialog lets through.
+    ///
+    /// Tab, Shift+Tab and the list steps. Letters, Return, Escape, Backspace
+    /// and the name's editing keys are not among them. [runtime_match_menus.cpp]
+    ///
+    /// @return true when the key should reach the menu keyboard
+    [[nodiscard]] bool save_dialog_menu_move() const;
+
+    /// Names the load or save dialog's button that Return presses itself.
+    ///
+    /// While the ring shows on DELETE or CANCEL, Return presses that button,
+    /// as a click does. On the list, the name and OK, and with no ring,
+    /// Return keeps its own answer: it loads, or saves under the name.
+    /// [runtime_match_menus.cpp]
+    ///
+    /// @return "DELETE" or "CANCEL"; empty otherwise
+    [[nodiscard]] std::string_view load_dialog_ringed_button() const;
+
     /// Leaves the load or save dialog as its CANCEL does, and as Escape does.
     ///
     /// Each dialog returns to the screen it was opened over, as in 3.1c: the
@@ -5489,6 +5507,23 @@ class Runtime final : public menu::Host,
     /// @param forward True to move toward the list's end.
     /// @return the row selected afterwards, or nothing when the list is not bound or has none
     std::optional<std::size_t> step_frontend_list_row(std::string_view name, bool forward);
+
+    /// Steps, pages or ends the focused frontend scroll bar and applies the value as a drag does.
+    ///
+    /// @param which 0 one step back, 1 one step forward, 2 a page back, 3 a page
+    /// forward, 4 the start, 5 the end
+    void nudge_focused_scroll(int32_t which);
+
+    /// Steps Load game's saved-game list and keeps the dialog's selection with it.
+    ///
+    /// @param forward true to move toward the end of the list
+    /// @return true when the list is showing and has a saved game to move to
+    bool step_load_game_list(bool forward);
+
+    /// Moves the campaign-end mission list by a page.
+    ///
+    /// @param forward true to move toward the end of the list
+    void page_end_mission_list(bool forward);
 
     /// Tells whether a panel whose first draw binds its scroll bars only once
     /// its setup has run: NEWGAME.GUI, which loads undrawn.
@@ -14342,7 +14377,7 @@ class Runtime final : public menu::Host,
     /// the screen's own focus is left where it is, so nothing new is drawn.
     ///
     /// @return the record, or -1 for none
-    [[nodiscard]] int32_t reported_frontend_focus() const;
+    [[nodiscard]] int32_t announced_frontend_focus() const;
 
     /// Returns the record the tree reports as focused on the match's panel
     /// while that panel has the keyboard.
@@ -14351,7 +14386,7 @@ class Runtime final : public menu::Host,
     /// order, and the panel's own focus is left where it is.
     ///
     /// @return the record, or -1 while the panel does not have the keyboard
-    [[nodiscard]] int32_t reported_match_focus() const;
+    [[nodiscard]] int32_t announced_match_focus() const;
 
     /// Marks the focused control the screen names when the family's ring is drawn.
     ///
@@ -14372,11 +14407,20 @@ class Runtime final : public menu::Host,
     void check_frontend_keyboard();
 
     /// Moves the frontend screen's keyboard focus to the nearest record that
-    /// takes it in a direction, as the GUI keyboard's Tab, Shift+Tab and
-    /// arrow keys do.
+    /// takes it in a direction, as the arrow keys do. The main menu's Tab
+    /// uses it too. Every other built-in screen's Tab uses move_frontend_tab.
     ///
     /// @param direction where the focus goes
     void move_frontend_focus(oa::ui::gui_input::FocusDirection direction);
+
+    /// Moves the frontend screen's keyboard focus along tab_order and wraps.
+    ///
+    /// The screen opens on the record it always opened on. The first Tab
+    /// leaves that record for the next stop. A focus that is not a stop
+    /// lands on the first stop, or the last when moving backward.
+    ///
+    /// @param forward true for Tab, false for Shift+Tab
+    void move_frontend_tab(bool forward);
 
     /// Puts the frontend screen's keyboard focus on a record, or on none.
     ///
@@ -14465,12 +14509,36 @@ class Runtime final : public menu::Host,
     /// @return true when the key pressed the focused button or gave the focus
     bool press_frontend_focus_action(bool accept);
 
-    /// Presses a button of the frontend screen as a left click released over
-    /// it does (click_selected_frontend_gadget), for a key that names it; a
+    /// Presses a button of the frontend screen as a click released over it
+    /// does (click_selected_frontend_gadget), for a key that names it; a
     /// screen that stays up has the gadget under the pointer hovered again.
     ///
     /// @param index the button's record in the current screen's layout
-    void press_frontend_button(std::size_t index);
+    /// @param button 1 for the left button, 2 for the right; a colour cycles
+    /// forward on the left and back on the right
+    void press_frontend_button(std::size_t index, int32_t button = 1);
+
+    /// Presses the panel's carriage-return default, when it names an active gadget.
+    ///
+    /// @return true when a gadget was pressed
+    bool press_panel_enter_default();
+
+    /// Turns a briefing's page, as a click on MOREBAR does. Page Up moves back
+    /// and does nothing on the first page.
+    ///
+    /// @param forward true for the next page
+    void page_briefing_text(bool forward);
+
+    /// Tells whether the Mutators button holds the keyboard focus.
+    ///
+    /// @return true while that button is showing and focused
+    [[nodiscard]] bool mutator_button_has_focus() const;
+
+    /// Clears the Mutators button's focus without moving the screen's focus.
+    void release_mutator_button_focus();
+
+    /// Puts the keyboard focus on the Mutators button and shows its ring.
+    void give_mutator_button_focus();
 
     /// Steps the stage of the selected button as releasing a click on it does.
     ///
@@ -22201,6 +22269,9 @@ class Runtime final : public menu::Host,
     // The record of the frontend screen's panel holding the keyboard focus,
     // -1 for none (frontend_focus()).
     int32_t frontend_focus_ = -1;
+    // The Mutators button, while that screen exists. The screen sets it as
+    // it is made and clears it as it goes. Brain seats hand Tab through it.
+    MutatorButtonScreen* mutator_button_screen_ = nullptr;
     Screen briefing_parent_ = Screen::new_campaign;
     bool briefing_from_pause_ = false;
     std::string briefing_text_{};

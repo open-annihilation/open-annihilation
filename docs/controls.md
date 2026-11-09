@@ -1,8 +1,9 @@
 # Controls
 
-The keys a match answers, beyond the buttons on the order panel. Every
-key named here can be moved in the [key editor](keys.md#the-key-editor).
-The chapter is [Keys](keys.md).
+The keys a match answers, beyond the buttons on the order panel, and the
+keyboard on the original menus. Every key named here can be moved in the
+[key editor](keys.md#the-key-editor). The chapter is
+[Keys](keys.md).
 
 ## Photo mode
 
@@ -413,3 +414,65 @@ release it pans while you hold it and stops when you let go.
 
 It does not start while the allied whiteboard is in use, in the menus, or
 on the panels. Settings > Controls, **Middle-click pans**, turns it off.
+
+## The original menus
+
+These are the menus the game has always had: the main menu, Single player,
+a new campaign, Any mission, Load game, the skirmish setup, map selection,
+Options and its Sound, Visuals, Speeds and Music pages, the briefing, and
+the campaign's end. Nothing new is drawn. The lit outline a control already
+had stays that outline, and it still moves with the focus.
+
+A screen opens on the control it has always opened on, and no focus ring is
+drawn. Tab moves to the next control in the order below, and Shift+Tab to
+the previous one, and the ring appears on the control they land on. The
+first Tab leaves the control the screen opened on. The main menu and the
+Sound, Visuals, Interface and Music pages open with no control of their own
+focused: there the first Tab puts the ring on the first control. Tab and
+Shift+Tab wrap at the ends of the order.
+
+Until you press Tab, Enter, Space, the arrows and a button's underlined
+letter do what they have always done. Once the ring is showing, the arrows
+still move by place, to the next and previous control or to the nearest one
+above or below, and the ring follows them. Enter presses the focused button
+and hides the ring. Space presses it and leaves the ring showing. On a
+control that is not a button, Enter, once the ring is showing, presses the
+button that screen uses for Enter. Escape leaves a screen as it always has.
+On the main menu Escape does nothing.
+
+On the main menu, Tab still walks Single player, Intro, Multiplayer and
+Exit, in that order.
+
+On the other screens Tab reads the screen:
+
+- **Single player.** Down the column: New Campaign, Skirmish, Options, Load
+  Game, Previous Menu. Any Mission, when it can take the keyboard, is a
+  column of its own to the right and comes after that column.
+- **A new campaign, and Any mission.** The side, then the campaign or
+  mission list, then the difficulty, Mutators, the brain seat, Start and
+  Previous Menu.
+- **Load game.** The list of saved games, the name, Load, Delete, Cancel.
+  Enter on the list, the name or Load loads the game, or saves it under
+  the name, as it always has. With the ring on Delete or Cancel, Enter
+  presses that button.
+- **Skirmish.** The rules down their column, then each player row as one
+  group (name, side, colour, team, metal, energy, and a computer's brain),
+  then Select Map, Mutators, Start and Previous Menu.
+- **Map selection.** The map list, then Load, then Previous Menu.
+- **Options, Sound, Visuals, Speeds and Music.** The section buttons, then
+  that page's settings. On Music the track buttons are one row.
+- **Briefing.** Start, then Back, then No Narration. Page Up and Page Down
+  turn the pages, whichever control is focused.
+- **The campaign's end.** Start, then Back, then the rest of that column.
+  Page Up and Page Down move through the mission list, whichever control is
+  focused.
+
+A slider changes from the keyboard the same way a drag changes it. Left and
+Right move it one step. Page Up and Page Down move it a larger step, a
+tenth of its travel and at least one step. Home and End take it to its
+ends. On a colour, once the ring is showing, Right cycles it forward and
+Left cycles it back, as a click does. On a list, Up and Down move the
+selection. That includes the list of saved games, a new campaign's lists
+and the map list. While you type a saved game's name, Left, Right, Home
+and End stay with the name, as they always have, and every letter goes to
+the name wherever the ring is.

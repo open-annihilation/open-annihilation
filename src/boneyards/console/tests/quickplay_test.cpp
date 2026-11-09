@@ -1067,6 +1067,7 @@ void expect_stretched(Window* button, const char* what) {
 }
 
 void expect_idle_pixels(Window* console) {
+    Window* find = named(console, "FIND BATTLE");
     const std::vector<uint8_t> drawn = frame_pixels();
     write_picture(drawn, "quickplay-idle.png");
     expect_glass(drawn);
@@ -1100,7 +1101,6 @@ void expect_idle_pixels(Window* console) {
     expect_picture(drawn, core, 277, 202, 9, "Core logo");
     expect_picture(drawn, checked, 216, 223, 9, "favorite check");
     expect_picture(drawn, scanner, 430, 145, 9, "idle scanner");
-    Window* find = named(console, "FIND BATTLE");
     if (find != nullptr)
         expect_caps(drawn, widened, find->x, find->y, "FIND BATTLE");
     bool saw_check = false;

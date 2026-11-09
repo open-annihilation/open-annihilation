@@ -47,6 +47,8 @@ inline constexpr int32_t paste_alternate = 0xEE;
 inline constexpr int32_t delete_forward = 0xEF;
 inline constexpr int32_t home = 0xF0;
 inline constexpr int32_t end = 0xF1;
+inline constexpr int32_t page_up = 0xF2;
+inline constexpr int32_t page_down = 0xF3;
 inline constexpr int32_t left = 0xF4;
 inline constexpr int32_t up = 0xF5;
 inline constexpr int32_t right = 0xF6;
@@ -865,6 +867,16 @@ void step_scroll_back(GadgetPanel& panel, int32_t index);
 /// @param index Scroll bar record.
 void step_scroll_forward(GadgetPanel& panel, int32_t index);
 
+/// Moves a scroll bar knob to a position, redrawing when it changes.
+///
+/// The position is kept within 0 .. range - 1. The bar's handler runs, as it
+/// does for a step, whether or not the knob moved.
+///
+/// @param[in,out] panel GUI context.
+/// @param index Scroll bar record.
+/// @param knob Knob position; clamped into the bar's range.
+void place_scroll_knob(GadgetPanel& panel, int32_t index, int16_t knob);
+
 /// Moves a list selection up one row; moving onto an "&G" header is refused.
 ///
 /// @param[in,out] panel GUI context.
@@ -952,9 +964,11 @@ void set_caret_and_draw(
 
 /// Dispatches a key against the focused record.
 ///
-/// Arrows step scroll bars, lists and focus; Tab cycles focus; Enter/Escape
-/// activate the panel's default buttons; Space activates the focused button,
-/// list or surface.
+/// Tab follows tab_order. Arrows still move by place, and step a horizontal
+/// scroll bar or a list. Page Up, Page Down, Home and End move a horizontal
+/// bar by a page or to its ends. Enter and Escape activate the panel's
+/// default buttons; Space activates the focused button, list or surface.
+/// A text box keeps Left, Right, Home, End and the page keys for its caret.
 ///
 /// @param[in,out] panel GUI context.
 /// @param key Key code from the frontend key queue.

@@ -825,7 +825,7 @@ struct AutomationHostAccess {
         }
         // The focus the tree reports. Where the screen focuses none, it is the
         // first record of the order, and the screen's own focus stays put.
-        placement.focus = game.reported_frontend_focus();
+        placement.focus = game.announced_frontend_focus();
         auto* scrolls = game.frontend_scrolls();
         const std::string gui_file = frontend_gui_file(game);
         std::array<int, 26> letters{};
@@ -942,7 +942,7 @@ struct AutomationHostAccess {
             placement.dialog = dialog_name(game.match_hud_panel_);
         // The focus the tree reports while the panels have the keyboard.
         // Where the panel focuses none, it is the first record of its order.
-        placement.focus = game.reported_match_focus();
+        placement.focus = game.announced_match_focus();
         const auto area = game.placed_panel_area();
         const auto& root = gadgets.front().common;
         if (area && (root.width <= 0 || root.height <= 0))

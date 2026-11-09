@@ -13,6 +13,7 @@
 #include "oa/media/intro_player.hpp"
 #include "oa/present/typed_text.hpp"
 #include "oa/ui/gui_input/gadget_panel.hpp"
+#include "oa/ui/gui_input/tab_order.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cctype>
@@ -582,6 +583,21 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
         if (cancel != nullptr && press_briefing_default(true))
             return true;
     }
+    // Page Up and Page Down turn a briefing's pages, and move the campaign
+    // end's mission list, whichever control is focused. The chords are the
+    // screen actions, so a player's layout can move them.
+    const bool screen_page_down = fired_action("ui.screen-page-down") != nullptr;
+    const bool screen_page_up = fired_action("ui.screen-page-up") != nullptr;
+    if (frontend_has_keyboard() && (screen_page_up || screen_page_down)) {
+        if (screen_ == Screen::briefing) {
+            page_briefing_text(screen_page_down);
+            return true;
+        }
+        if (screen_ == Screen::campaign_end) {
+            page_end_mission_list(screen_page_down);
+            return true;
+        }
+    }
     // Up and Down move the selection of a new campaign's focused list.
     if ((screen_ == Screen::new_campaign || screen_ == Screen::any_mission) &&
         (fired_action("ui.menu-list-up") != nullptr ||
@@ -597,16 +613,107 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
         step_map_list(fired_action("ui.menu-list-down") != nullptr))
         return true;
     if (frontend_has_keyboard()) {
+        const bool tab_next = fired_action("ui.menu-focus-next") != nullptr;
+        const bool tab_previous = fired_action("ui.menu-focus-previous") != nullptr;
+        if (tab_next || tab_previous) {
+            // Tab and Shift+Tab show the ring. The main menu keeps the order
+            // it has today. Every other screen follows the shared order.
+            if (oa_layer_ != nullptr)
+                oa_layer_->note_family_tab();
+            if (screen_ == Screen::main_menu) {
+                move_frontend_focus(
+                    tab_previous ? gui::FocusDirection::previous : gui::FocusDirection::next
+                );
+            } else {
+                move_frontend_tab(tab_next);
+            }
+            rebuild_surface();
+            return true;
+        }
+        int32_t menu_key = 0;
+        if (fired_action("ui.menu-focus-left") != nullptr)
+            menu_key = gui::key_code::left;
+        else if (fired_action("ui.menu-focus-right") != nullptr)
+            menu_key = gui::key_code::right;
+        else if (
+            fired_action("ui.menu-focus-up") != nullptr ||
+            fired_action("ui.menu-list-up") != nullptr
+        )
+            menu_key = gui::key_code::up;
+        else if (
+            fired_action("ui.menu-focus-down") != nullptr ||
+            fired_action("ui.menu-list-down") != nullptr
+        )
+            menu_key = gui::key_code::down;
+        else if (fired_action("ui.screen-page-up") != nullptr)
+            menu_key = gui::key_code::page_up;
+        else if (fired_action("ui.screen-page-down") != nullptr)
+            menu_key = gui::key_code::page_down;
+        else if (fired_action("ui.screen-home") != nullptr)
+            menu_key = gui::key_code::home;
+        else if (fired_action("ui.screen-end") != nullptr)
+            menu_key = gui::key_code::end;
         const auto focus = frontend_focus();
-        const bool from_button =
-            focus < 0 || resources_.layout.gadgets[static_cast<std::size_t>(focus)].common.type ==
-                             oa::ui::gui_layout::GadgetType::button;
+        const auto& gadgets = resources_.layout.gadgets;
+        const oa::ui::gui_layout::Gadget* focused = nullptr;
+        if (focus > 0 && static_cast<std::size_t>(focus) < gadgets.size())
+            focused = &gadgets[static_cast<std::size_t>(focus)];
+        const bool ring = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
+        gui::FocusKeyQuery query;
+        query.gadget = focused;
+        query.key = menu_key;
+        query.ring_shown = ring;
+        const gui::FocusKeyEffect effect =
+            menu_key != 0 ? gui::focus_key_action(query) : gui::FocusKeyEffect::unhandled;
+        switch (effect) {
+        case gui::FocusKeyEffect::scroll_back:
+            nudge_focused_scroll(0);
+            return true;
+        case gui::FocusKeyEffect::scroll_forward:
+            nudge_focused_scroll(1);
+            return true;
+        case gui::FocusKeyEffect::scroll_page_back:
+            nudge_focused_scroll(2);
+            return true;
+        case gui::FocusKeyEffect::scroll_page_forward:
+            nudge_focused_scroll(3);
+            return true;
+        case gui::FocusKeyEffect::scroll_home:
+            nudge_focused_scroll(4);
+            return true;
+        case gui::FocusKeyEffect::scroll_end:
+            nudge_focused_scroll(5);
+            return true;
+        case gui::FocusKeyEffect::list_previous:
+        case gui::FocusKeyEffect::list_next:
+            if (focused != nullptr && tdf_names_equal(focused->common.name, "GAMES")) {
+                std::ignore = step_load_game_list(effect == gui::FocusKeyEffect::list_next);
+            } else if (focused != nullptr) {
+                std::ignore = step_frontend_list_row(
+                    focused->common.name, effect == gui::FocusKeyEffect::list_next
+                );
+                rebuild_surface();
+            }
+            return true;
+        case gui::FocusKeyEffect::colour_forward:
+        case gui::FocusKeyEffect::colour_back:
+            if (focus > 0) {
+                const auto kept = frontend_focus_;
+                press_frontend_button(
+                    static_cast<std::size_t>(focus),
+                    effect == gui::FocusKeyEffect::colour_forward ? 1 : 2
+                );
+                if (screen_ == Screen::skirmish && frontend_focus_ != kept)
+                    set_frontend_focus(kept);
+            }
+            return true;
+        default:
+            break;
+        }
+        const bool from_button = focus < 0 || focused == nullptr ||
+                                 focused->common.type == oa::ui::gui_layout::GadgetType::button;
         std::optional<gui::FocusDirection> direction;
-        if (fired_action("ui.menu-focus-next") != nullptr)
-            direction = gui::FocusDirection::next;
-        else if (fired_action("ui.menu-focus-previous") != nullptr)
-            direction = gui::FocusDirection::previous;
-        else if (from_button && fired_action("ui.menu-focus-left") != nullptr)
+        if (from_button && fired_action("ui.menu-focus-left") != nullptr)
             direction = gui::FocusDirection::previous;
         else if (from_button && fired_action("ui.menu-focus-right") != nullptr)
             direction = gui::FocusDirection::next;
@@ -621,19 +728,17 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
         )
             direction = gui::FocusDirection::down;
         if (direction) {
-            // Tab and Shift+Tab show the ring on the control the focus lands
-            // on. An arrow moves the focus and leaves the ring hidden.
-            const bool tabbed = fired_action("ui.menu-focus-next") != nullptr ||
-                                fired_action("ui.menu-focus-previous") != nullptr;
-            if (tabbed && oa_layer_ != nullptr)
-                oa_layer_->note_family_tab();
+            // An arrow moves the focus and leaves the ring as it is.
             move_frontend_focus(*direction);
             rebuild_surface();
             return true;
         }
         // Return and Space press the focused button; a gamepad's A and Menu
-        // send Return.
+        // send Return. Return on a control that is not a button presses the
+        // screen's carriage-return default once the ring is showing.
         if ((accept_down || press_down) && press_frontend_focus_action(accept_down))
+            return true;
+        if (accept_down && ring && press_panel_enter_default())
             return true;
     }
     if (cancel != nullptr) {
@@ -771,7 +876,7 @@ bool Runtime::press_frontend_focus_action(bool accept) {
             rebuild_surface();
             return true;
         }
-        const int32_t first = reported_frontend_focus();
+        const int32_t first = announced_frontend_focus();
         if (first < 0)
             return false;
         const auto index = static_cast<std::size_t>(first);
@@ -796,12 +901,12 @@ bool Runtime::press_frontend_focus_action(bool accept) {
     return true;
 }
 
-void Runtime::press_frontend_button(std::size_t index) {
+void Runtime::press_frontend_button(std::size_t index, int32_t button) {
     // The screens' handlers read the selected gadget or the one under the
     // pointer; a screen that stays up then has the gadget under the pointer
     // hovered again, with its help.
     const auto pointer_hover = hovered_;
-    event_button_ = 1;
+    event_button_ = button;
     selected_ = static_cast<int32_t>(index);
     hovered_ = index;
     click_selected_frontend_gadget();
@@ -810,6 +915,26 @@ void Runtime::press_frontend_button(std::size_t index) {
         hovered_ = pointer_hover;
         refresh_help_text();
     }
+}
+
+bool Runtime::press_panel_enter_default() {
+    const auto& gadgets = resources_.layout.gadgets;
+    if (gadgets.empty())
+        return false;
+    const auto* panel = std::get_if<oa::ui::gui_layout::PanelFields>(&gadgets.front().fields);
+    if (panel == nullptr || panel->carriage_return_default.empty())
+        return false;
+    for (std::size_t index = 1; index < gadgets.size(); ++index) {
+        if (!tdf_names_equal(gadgets[index].common.name, panel->carriage_return_default))
+            continue;
+        if (gadgets[index].common.active == 0)
+            return false;
+        if (oa_layer_ != nullptr)
+            oa_layer_->note_family_return();
+        press_frontend_button(index);
+        return true;
+    }
+    return false;
 }
 
 bool Runtime::frontend_gadget_pressable(std::size_t index) const {

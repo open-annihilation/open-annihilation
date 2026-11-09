@@ -687,7 +687,10 @@ int save_overlay_enter(ScreenContext* ctx, LoadGameOverlay& overlay, int32_t nam
 // Typing edits GAMENAME up to its length, in whole characters of the
 // scripts save_name_characters gives; the characters no file's name may
 // hold are not taken. Backspace takes the last character away, Return saves
-// under the name and Escape leaves the dialog.
+// under the name and Escape leaves the dialog. While the ring shows on
+// DELETE or CANCEL, Return presses that button instead. Left, Right, Home
+// and End stay with the name. Tab, Shift+Tab and the list keys are the menu
+// actions, so they move.
 int save_overlay_key(ScreenContext* ctx, LoadGameOverlay& overlay, const ScreenInput& input) {
     const auto field = save_name_field(overlay);
     if (!field)
@@ -707,6 +710,12 @@ int save_overlay_key(ScreenContext* ctx, LoadGameOverlay& overlay, const ScreenI
     if (input.key == SDLK_BACKSPACE && oa::present::erase_last_character(text)) {
         ui::set_control_text(control, text);
     } else if (input.key == SDLK_RETURN) {
+        const std::string_view ringed_name =
+            static_cast<const Runtime*>(ctx->host)->load_dialog_ringed_button();
+        const int32_t ringed_index =
+            ringed_name.empty() ? -1 : ui::panel_find(overlay.panel, ringed_name);
+        if (ringed_index >= 0)
+            return save_overlay_press(ctx, overlay, ringed_index);
         return save_overlay_enter(ctx, overlay, index);
     } else if (input.key == SDLK_ESCAPE) {
         overlay.panel.selected = ui::panel_find(overlay.panel, "CANCEL");
@@ -716,6 +725,8 @@ int save_overlay_key(ScreenContext* ctx, LoadGameOverlay& overlay, const ScreenI
         std::ignore = ui::savegame_on_save_click(overlay.panel, overlay.saves);
         overlay.context = nullptr;
         static_cast<Runtime*>(ctx->host)->close_save_dialog();
+    } else if (static_cast<const Runtime*>(ctx->host)->save_dialog_menu_move()) {
+        return 0;
     }
     return 1;
 }
@@ -760,17 +771,20 @@ void load_overlay_click(ScreenContext* ctx, LoadGameOverlay& overlay, int32_t co
 
 // The load dialog's keys, as LOADGAME.GUI's defaults give them: Return is OK
 // (LOAD), which starts the selected save, and Escape is CANCEL, which leaves
-// the dialog as the button does. A message open over the dialog takes the
-// keys first.
+// the dialog as the button does. While the ring shows on CANCEL, Return is
+// CANCEL too. A message open over the dialog takes the keys first.
 int load_overlay_key(ScreenContext* ctx, LoadGameOverlay& overlay, const ScreenInput& input) {
     if (input.kind != ScreenInputKind::key_down || oa::ui::frontend_dialogs::dialog_count() != 0)
         return 0;
-    if (input.key == SDLK_RETURN) {
+    const bool return_cancels =
+        input.key == SDLK_RETURN &&
+        static_cast<const Runtime*>(ctx->host)->load_dialog_ringed_button() == "CANCEL";
+    if (input.key == SDLK_RETURN && !return_cancels) {
         if (const auto load = ui::panel_find(overlay.panel, "LOAD"); load >= 0)
             std::ignore = load_overlay_activate(ctx, overlay, load);
         return 1;
     }
-    if (input.key != SDLK_ESCAPE)
+    if (input.key != SDLK_ESCAPE && !return_cancels)
         return 0;
     if (const auto cancel = ui::panel_find(overlay.panel, "CANCEL");
         cancel >= 0 &&
@@ -1407,6 +1421,37 @@ void register_load_game_screens(ScreenRegistry* registry) {
     overlay_register(registry, &lightbar);
 }
 
+std::string_view Runtime::load_dialog_ringed_button() const {
+    if (screen_ != Screen::load_game || oa_layer_ == nullptr || !oa_layer_->family_ring_shown())
+        return {};
+    const int32_t focus = frontend_focus();
+    const auto& gadgets = resources_.layout.gadgets;
+    if (focus <= 0 || static_cast<std::size_t>(focus) >= gadgets.size())
+        return {};
+    const std::string_view focused = gadgets[static_cast<std::size_t>(focus)].common.name;
+    if (tdf_names_equal(focused, "DELETE"))
+        return "DELETE";
+    if (tdf_names_equal(focused, "CANCEL"))
+        return "CANCEL";
+    return {};
+}
+
+bool Runtime::save_dialog_menu_move() const {
+    static constexpr std::string_view ids[] = {
+        "ui.menu-focus-next",
+        "ui.menu-focus-previous",
+        "ui.menu-list-up",
+        "ui.menu-list-down",
+        "ui.menu-focus-up",
+        "ui.menu-focus-down",
+    };
+    for (const std::string_view id : ids) {
+        if (fired_action(id) != nullptr)
+            return true;
+    }
+    return false;
+}
+
 void Runtime::open_save_dialog(Screen parent) {
     auto& overlay = load_overlay();
     overlay.bound = false;
@@ -1522,6 +1567,25 @@ std::optional<std::string> Runtime::load_game_control_text(std::size_t index) co
         index > static_cast<std::size_t>(overlay.panel.count) || index >= ui::kPanelControls)
         return std::nullopt;
     return std::string(ui::control_text(overlay.panel.controls[index]));
+}
+
+bool Runtime::step_load_game_list(bool forward) {
+    auto& overlay = load_overlay();
+    // A list with no saved game has no row to move to. A click on it changes
+    // nothing, and neither does a key.
+    if (overlay.bound && overlay.rows.empty())
+        return false;
+    const auto row = step_frontend_list_row("GAMES", forward);
+    if (!row)
+        return false;
+    if (overlay.bound) {
+        if (auto* list = ui::panel_control(overlay.panel, "GAMES")) {
+            list->list_selection = static_cast<int16_t>(*row);
+            ui::savegame_on_games_selected(overlay.panel, overlay.saves);
+        }
+    }
+    rebuild_surface();
+    return true;
 }
 
 std::optional<Runtime::LoadGameRows> Runtime::load_game_rows() const {
@@ -2356,6 +2420,28 @@ void Runtime::activate_campaign_end_gadget() {
     if (!hovered_ || *hovered_ >= resources_.layout.gadgets.size())
         return;
     click_end_panel(*hovered_);
+}
+
+void Runtime::page_end_mission_list(bool forward) {
+    int32_t steps = 4;
+    if (const auto* gadget = widget("Missions")) {
+        int32_t item_height = 0;
+        if (const auto* fields = std::get_if<oa::ui::gui_layout::ListBoxFields>(&gadget->fields))
+            item_height = fields->item_height;
+        if (item_height > 0) {
+            const int32_t rows = static_cast<int32_t>(gadget->common.height) / item_height;
+            steps = rows < 1 ? 1 : rows;
+        }
+    }
+    for (int32_t step = 0; step < steps; ++step) {
+        const auto row = step_frontend_list_row("Missions", forward);
+        if (!row)
+            break;
+        selected_mission_index_ = *row;
+    }
+    if (auto* list = ui::panel_control(end_mission_session().panel, "Missions"))
+        list->list_selection = static_cast<int16_t>(selected_mission_index_);
+    rebuild_surface();
 }
 
 void Runtime::activate_end_panel_default() {

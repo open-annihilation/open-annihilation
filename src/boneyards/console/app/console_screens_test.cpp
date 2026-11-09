@@ -817,17 +817,21 @@ void test_boneyards_state(const OverlayDesc& overlay, ScreenContext& ctx, oa::As
     check(std::strcmp(login.name, "Secret_1") == 0, "the login name is restored");
     press(overlay, ctx, '\t');
     check(widget->desktop.focus != name_field, "tab moves the focus on");
+    by::Window* member_radio = nullptr;
     for (int32_t i = 0; i < name_field->parent->children.count; ++i) {
         by::Window* child = name_field->parent->children.items[i];
         if (child->ops->is_class(by::class_name::radio_button) &&
-            child->y == name_field->parent->y + 0x5c)
+            child->y == name_field->parent->y + 0x5c) {
+            member_radio = child;
             click(
                 overlay,
                 ctx,
                 static_cast<float>(child->x + child->width / 2),
                 static_cast<float>(child->y + child->height / 2)
             );
+        }
     }
+    check(member_radio != nullptr, "Registered User is on the login console");
     by::Window* password_field = nullptr;
     for (int32_t i = 0; name_field != nullptr && i < name_field->parent->children.count; ++i) {
         by::Window* child = name_field->parent->children.items[i];
@@ -842,13 +846,13 @@ void test_boneyards_state(const OverlayDesc& overlay, ScreenContext& ctx, oa::As
     );
     check(widget->desktop.focus == name_field, "click focuses username");
     press(overlay, ctx, '\t');
-    check(widget->desktop.focus == password_field, "Tab selects the next entry");
+    check(widget->desktop.focus == password_field, "Tab from Username reaches Password");
     send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 0x400000E1U);
     press(overlay, ctx, '\t');
     send(overlay, ctx, ScreenInputKind::key_up, 0, 0, 0x400000E1U);
     check(widget->desktop.focus == name_field, "Shift+Tab selects the previous entry");
     press(overlay, ctx, '\t');
-    check(widget->desktop.focus == password_field, "Tab selects the password again");
+    check(widget->desktop.focus == password_field, "Tab from Username reaches Password again");
     {
         // The gamepad's previous shoulder arrives as Tab with the Shift bit set,
         // and no separate Shift key.
@@ -891,6 +895,7 @@ void test_boneyards_state(const OverlayDesc& overlay, ScreenContext& ctx, oa::As
         "Ctrl, Alt and the system modifier do not stay held"
     );
     press(overlay, ctx, '\t');
+    check(widget->desktop.focus == password_field, "Password follows the login choice");
     type_text(overlay, ctx, "Pa55word!");
     step();
     check(std::strcmp(login.password, "Pa55word!") == 0, "typed password keeps case and symbols");

@@ -821,6 +821,64 @@ int main(int argc, char** argv) {
     CHECK(bounds_are(named(dialog, "Close"), 472, 146, 13, 12));
     CHECK(bounds_are(named(dialog, "Activate"), 162, 358, 99, 21));
     CHECK(named(dialog, "Activate")->visible == 1 && named(dialog, "Deactivate")->visible == 0);
+    CHECK(g_widget->desktop.focus == chat->matchmaking);
+    // Chat is open, so the button that opened the dialog is showing. Tab lands
+    // on Activate. Escape closes and hands the keyboard back. Return then must
+    // not start a search.
+    Message tab{};
+    tab.code = MessageCode::key_down;
+    tab.key = key::tab;
+    boneyards_status_widget_event(g_widget, tab);
+    CHECK(g_widget->desktop.focus == named(dialog, "Activate"));
+    Message escape{};
+    escape.code = MessageCode::key_down;
+    escape.key = key::escape;
+    CHECK(boneyards_status_widget_event(g_widget, escape));
+    CHECK(!window_is_shown(dialog));
+    CHECK(g_widget->desktop.focus == chat->matchmaking);
+    g_log.calls.clear();
+    Message ret{};
+    ret.code = MessageCode::key_down;
+    ret.key = key::enter;
+    boneyards_status_widget_event(g_widget, ret);
+    bool searched = false;
+    for (const std::string& call : g_log.calls)
+        searched = searched || call.rfind("join ", 0) == 0;
+    CHECK(!searched && !matchmaking_dialog_queued(dialog));
+    CHECK(g_widget->desktop.focus == chat->matchmaking);
+    if (!window_is_shown(dialog)) {
+        ScopedServices scope(g_widget);
+        dialog->focus_return = nullptr;
+        services_desktop_focus(chat->matchmaking);
+        matchmaking_dialog_open(g_widget, k_matchmaking_settings);
+    }
+    // Tab onto Close, then Escape: a key closed the dialog, so the opener gets
+    // the keyboard back. A click on Close leaves the keyboard on Close, as it
+    // always has, so the opener draws no white frame.
+    CHECK(window_is_shown(dialog) && g_widget->desktop.focus == chat->matchmaking);
+    boneyards_status_widget_event(g_widget, tab);
+    boneyards_status_widget_event(g_widget, tab);
+    CHECK(g_widget->desktop.focus == named(dialog, "Close"));
+    CHECK(boneyards_status_widget_event(g_widget, escape));
+    CHECK(!window_is_shown(dialog));
+    CHECK(g_widget->desktop.focus == chat->matchmaking);
+    {
+        ScopedServices scope(g_widget);
+        dialog->focus_return = nullptr;
+        services_desktop_focus(chat->matchmaking);
+        matchmaking_dialog_open(g_widget, k_matchmaking_settings);
+    }
+    click_window(named(dialog, "Close"));
+    CHECK(!window_is_shown(dialog));
+    CHECK(g_widget->desktop.focus == named(dialog, "Close"));
+    {
+        ScopedServices scope(g_widget);
+        dialog->focus_return = nullptr;
+        services_desktop_focus(chat->matchmaking);
+        matchmaking_dialog_open(g_widget, k_matchmaking_settings);
+    }
+    g_log.calls.clear();
+    g_log.sounds.clear();
     CHECK(bounds_are(named(dialog, "QueueMeter"), 162, 278, 104, 9));
     CHECK(bounds_are(named(dialog, "Scanner"), 403, 265, 72, 72));
     CHECK(named(dialog, "Duel")->x == 230 && named(dialog, "Duel")->y == 174);

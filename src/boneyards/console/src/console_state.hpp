@@ -342,6 +342,10 @@ struct StatusWidget {
     uint8_t event_control{};
     uint8_t event_alt{};
     uint8_t event_system{};
+    // The console screen id the keyboard regions last saw. -1 until the
+    // frame has been stamped, so opening QuickPlay can be told from a key
+    // that arrives while it is already open.
+    int32_t keyboard_console{-1};
     // A notice that arrived while the GUI was down (the game list, after the
     // main menu was left). The return from the battle opens it.
     std::string held_notice{};

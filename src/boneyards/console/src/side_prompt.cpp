@@ -233,11 +233,19 @@ void open_prompt(StatusWidget* owner) {
     preselect(screen, previous);
     cover_login(screen, owner->system.main_frame);
     gui_screen_set_user(screen, prompt, prompt_fired, prompt_destroyed);
+    // The layout names no Escape control. Release is drawn off while the
+    // login console is up, so the frame would not take the key. EXIT is
+    // the prompt's way out.
+    gui_screen_set_escape(screen, "EXIT");
     Window* root = gui_screen_root(screen);
     window_set_bounds(
         root, root->x, root->y, root->width, root->height, &owner->system.main_frame->base, true
     );
+    // The root keeps the keyboard, as it does today, so Choose draws no white
+    // frame until the first Tab or arrow lands on it. The prompt is modal, so
+    // those keys stay inside it, and EXIT is its way out.
     root->focusable = 1;
+    root->modal = 1;
     desktop_set_focus(&owner->desktop, root);
 }
 

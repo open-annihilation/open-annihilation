@@ -408,6 +408,8 @@ void take_radio(MatchmakingDialog* dialog, Window* source) {
         send_look(dialog);
 }
 
+void restore_opener(MatchmakingDialog* dialog);
+
 void dialog_on_notify(Window* self, const Notify* notify) {
     if (notify == nullptr || notify->code != NotifyCode::activated)
         return;
@@ -434,6 +436,18 @@ void dialog_on_notify(Window* self, const Notify* notify) {
     }
     if (notify->source == dialog->close) {
         self->visible = 0;
+        // A click focuses Close before the dialog hides. The keyboard stays
+        // on that button, now hidden, as it always has, so the opener's white
+        // frame does not come back. A key (Escape, or Return on Close) hands
+        // the keyboard back to the opener. The next key drops a focus that is
+        // no longer shown, so Return cannot reach a hidden Activate.
+        Desktop* desktop = services().desktop;
+        if (desktop != nullptr && desktop->pointer_last != 0) {
+            dialog->base.focus_return = nullptr;
+            dialog->base.modal = 0;
+        } else {
+            restore_opener(dialog);
+        }
         rest_blink(dialog);
         return;
     }
@@ -578,6 +592,72 @@ void adopt(MatchmakingDialog* dialog) {
     show_offer(dialog, false);
 }
 
+// The same report a click on the button sends. A hidden or disabled button
+// is left alone.
+bool press_button(Window* button) {
+    if (button == nullptr || !window_is_shown(button) ||
+        button->states.current == button_state::disabled)
+        return false;
+    window_play_sound(button, 2);
+    window_notify_parent(button, NotifyCode::activated, 0);
+    return true;
+}
+
+bool holds(const Window* root, const Window* window) {
+    for (const Window* cursor = window; cursor != nullptr; cursor = cursor->parent) {
+        if (cursor == root)
+            return true;
+    }
+    return false;
+}
+
+// The button that opened the dialog gets the keyboard back. A hidden Activate
+// must not keep it, or the next Return would start a search.
+void restore_opener(MatchmakingDialog* dialog) {
+    Window* back = dialog->base.focus_return;
+    dialog->base.focus_return = nullptr;
+    dialog->base.modal = 0;
+    if (desktop_holds(services().desktop, back) && window_is_shown(back))
+        services_desktop_focus(back);
+}
+
+// The dialog confines the keyboard while it is open, and leaves the focus
+// where it was. The first Tab or arrow lands on Activate.
+void take_keyboard(MatchmakingDialog* dialog) {
+    if (dialog->base.visible == 0 || dialog->unavailable) {
+        dialog->base.modal = 0;
+        return;
+    }
+    dialog->base.modal = 1;
+    Desktop* desktop = services().desktop;
+    if (dialog->base.focus_return != nullptr || desktop == nullptr || desktop->focus == nullptr)
+        return;
+    if (!holds(&dialog->base, desktop->focus))
+        dialog->base.focus_return = desktop->focus;
+}
+
+// Escape closes the dialog and must not reach the frame behind it. Enter
+// runs the face's button when no control has already answered it.
+bool dialog_key_down(Window* self, const Message* msg) {
+    if (msg == nullptr)
+        return false;
+    MatchmakingDialog* dialog = as_dialog(self);
+    if (msg->key == key::escape) {
+        if (!press_button(dialog->close)) {
+            self->visible = 0;
+            restore_opener(dialog);
+            rest_blink(dialog);
+        }
+        return true;
+    }
+    if (msg->key == key::enter) {
+        if (!press_button(dialog->activate))
+            press_button(dialog->deactivate);
+        return true;
+    }
+    return false;
+}
+
 void dialog_on_bounds(Window* self) {
     MatchmakingDialog* dialog = as_dialog(self);
     if (dialog->built || dialog->owner == nullptr)
@@ -588,10 +668,13 @@ void dialog_on_bounds(Window* self) {
         self->color = k_no_handle;
     }
     adopt(dialog);
-    if (dialog->unavailable)
+    if (dialog->unavailable) {
+        dialog->base.modal = 0;
         return;
+    }
     show_face(dialog);
     send_for_face(dialog);
+    take_keyboard(dialog);
 }
 
 const WindowOps* dialog_ops() {
@@ -600,6 +683,7 @@ const WindowOps* dialog_ops() {
         made.destroy = dialog_destroy;
         made.on_notify = dialog_on_notify;
         made.on_bounds = dialog_on_bounds;
+        made.key_down = dialog_key_down;
         made.pulse = dialog_pulse;
         return made;
     }();
@@ -609,6 +693,7 @@ const WindowOps* dialog_ops() {
 void present(MatchmakingDialog* dialog, int32_t face) {
     if (dialog->unavailable) {
         dialog->base.visible = 0;
+        dialog->base.modal = 0;
         say_needs_mod();
         return;
     }
@@ -622,6 +707,7 @@ void present(MatchmakingDialog* dialog, int32_t face) {
     if (dialog->built)
         send_for_face(dialog);
     dialog->base.ops->raise(&dialog->base);
+    take_keyboard(dialog);
 }
 
 } // namespace

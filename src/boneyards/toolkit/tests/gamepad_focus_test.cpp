@@ -42,6 +42,30 @@ bool key_is_down(void*, int32_t key) {
     return key >= 0 && key < 0x200 && g_keys[key] != 0;
 }
 
+// Enough stored captions for one test. Handles start at 1.
+char g_captions[8][32];
+int32_t g_caption_count = 0;
+
+Handle caption_create(void*, const char* text, int32_t) {
+    if (g_caption_count >= 8)
+        return k_no_handle;
+    const Handle handle = g_caption_count + 1;
+    std::snprintf(
+        g_captions[g_caption_count], sizeof g_captions[0], "%s", text != nullptr ? text : ""
+    );
+    ++g_caption_count;
+    return handle;
+}
+
+const char* caption_get(void*, Handle text) {
+    if (text < 1 || text > g_caption_count)
+        return "";
+    return g_captions[text - 1];
+}
+
+void caption_release(void*, Handle) {
+}
+
 struct KeyboardLog {
     int32_t opens;
     int32_t closes;
@@ -213,6 +237,267 @@ void test_text_and_dialog(Desktop* desktop, Window* host) {
     check(press(desktop, key::down) && desktop->focus == first, "down wraps inside the dialog");
     check(desktop->focus != above && desktop->focus != &edit->base, "the dialog keeps the focus");
     window_destroy(dialog);
+    // The log lives on this function's stack; later tests move the focus too.
+    desktop->on_focus = nullptr;
+    desktop->focus_user = nullptr;
+}
+
+void click_at(Desktop* desktop, const Window* window) {
+    Message message{};
+    message.code = MessageCode::left_down;
+    message.x = window->x + 1;
+    message.y = window->y + 1;
+    message.buttons = button_left;
+    desktop_route(desktop, &message);
+    message.code = MessageCode::left_up;
+    message.buttons = 0;
+    desktop_route(desktop, &message);
+}
+
+// F6 steps the regions that are showing. Tab stays in the one that has the
+// keyboard, and in a dialog. A disabled control, a control with no name and
+// a control with no area are not stops.
+void test_regions(Desktop* desktop) {
+    Window* frame = panel_create();
+    window_create(frame, "frame", 0, 0, 220, 160, nullptr, true);
+    frame->region = 1;
+    Window* frame_button = button_at(frame, "frame-button", 8, 8);
+
+    Window* console = panel_create();
+    window_create(console, "console", 16, 16, 180, 120, frame, true);
+    console->region = 2;
+    Window* first = button_at(console, "one", 24, 24);
+    Window* blank = button_at(console, "blank", 24, 48);
+    window_set_name(blank, "");
+    Window* flat = button_at(console, "flat", 24, 72);
+    window_set_width(flat, 0);
+    Window* second = button_at(console, "two", 80, 24);
+    Window* disabled = button_at(console, "disabled", 80, 48);
+    window_set_state(disabled, button_state::disabled);
+
+    Window* map = panel_create();
+    window_create(map, "map", 0, 200, 80, 40, nullptr, true);
+    map->region = 3;
+
+    desktop_set_focus(desktop, frame_button);
+    check(press(desktop, key::tab) && desktop->focus == frame_button, "Tab stays in the frame");
+    check(press(desktop, key::f6) && desktop->focus == first, "F6 moves to the console");
+    check(
+        press(desktop, key::tab) && desktop->focus == second, "Tab skips a blank and a flat stop"
+    );
+    check(
+        press(desktop, key::tab) && desktop->focus == first, "Tab wraps without repeating a stop"
+    );
+    click_at(desktop, disabled);
+    check(desktop->focus == first, "a click on a disabled control leaves the keyboard");
+    g_keys[key::shift] = 1;
+    check(press(desktop, key::f6) && desktop->focus == frame_button, "Shift+F6 moves back");
+    g_keys[key::shift] = 0;
+    check(press(desktop, key::f6) && desktop->focus == first, "F6 moves to the console again");
+    check(press(desktop, key::f6) && desktop->focus == map, "F6 moves to the map");
+    check(press(desktop, key::f6) && desktop->focus == frame_button, "F6 wraps to the frame");
+
+    Window* dialog = dialog_create();
+    window_create(dialog, "ask", 300, 8, 80, 64, nullptr, true);
+    Window* yes = button_at(dialog, "yes", 308, 16);
+    Window* no = button_at(dialog, "no", 308, 40);
+    desktop_set_focus(desktop, yes);
+    check(press(desktop, key::down) && desktop->focus == no, "down stays inside the dialog");
+    check(press(desktop, key::tab) && desktop->focus == yes, "Tab stays inside the dialog");
+    check(press(desktop, key::f6) && desktop->focus == yes, "F6 does not leave the dialog");
+    window_destroy(dialog);
+
+    Window* prompt = panel_create();
+    window_create(prompt, "prompt", 300, 100, 120, 40, nullptr, true);
+    prompt->modal = 1;
+    Window* choose = button_at(prompt, "choose", 308, 108);
+    Window* other = button_at(prompt, "other", 360, 108);
+    desktop_set_focus(desktop, choose);
+    check(press(desktop, key::right) && desktop->focus == other, "right stays in a modal panel");
+    check(press(desktop, key::tab) && desktop->focus == choose, "Tab stays in a modal panel");
+    check(press(desktop, key::f6) && desktop->focus == choose, "F6 does not leave a modal panel");
+    window_destroy(prompt);
+
+    window_destroy(frame);
+    window_destroy(map);
+}
+
+// Opening a dialog leaves the focus where it was. The first Tab or arrow
+// lands on the default answer. An unconfined desktop, with the keyboard on
+// nothing, does not take Tab. A button with a caption and no name is a stop,
+// and a click focuses it. F6 leaves a console that was stamped after the
+// keyboard moved.
+void test_open_and_names(Desktop* desktop) {
+    Window* credits = button_at(nullptr, "CreditsBtn", 8, 400);
+    desktop_set_focus(desktop, nullptr);
+    check(
+        !press(desktop, key::tab) && desktop->focus == nullptr,
+        "an unconfined desktop does not consume Tab"
+    );
+    window_destroy(credits);
+
+    Window* opener = button_at(nullptr, "Minimize_Button", 8, 420);
+    desktop_set_focus(desktop, opener);
+    Window* dialog = dialog_create();
+    window_create(dialog, "Matchmaking", 200, 200, 120, 80, nullptr, true);
+    dialog->modal = 1;
+    Window* activate = button_at(dialog, "Activate", 210, 248);
+    button_at(dialog, "Back", 210, 220);
+    check(desktop->focus == opener, "opening a dialog leaves the focus");
+    check(
+        press(desktop, key::tab) && desktop->focus == activate, "the first Tab lands on Activate"
+    );
+    desktop_set_focus(desktop, opener);
+    check(
+        press(desktop, key::down) && desktop->focus == activate, "the first arrow lands on Activate"
+    );
+    window_destroy(dialog);
+
+    Window* box = dialog_create();
+    window_create(box, "ask", 200, 300, 80, 40, nullptr, true);
+    Window* ok = button_at(box, "Ok", 208, 308);
+    desktop_set_focus(desktop, box);
+    check(
+        press(desktop, key::tab) && desktop->focus == ok, "the first Tab from the box lands on Ok"
+    );
+    window_destroy(box);
+
+    Window* pane = panel_create();
+    window_create(pane, "pane", 400, 180, 100, 60, nullptr, true);
+    pane->region = 1;
+    Window* named = button_at(pane, "named", 408, 188);
+    Window* search = button_create();
+    window_create(search, nullptr, 408, 210, 48, 16, pane, true);
+    search->ops->set_caption(search, "SEARCH", 0);
+    desktop_set_focus(desktop, named);
+    check(
+        press(desktop, key::tab) && desktop->focus == search, "a caption is enough to make a stop"
+    );
+    click_at(desktop, named);
+    click_at(desktop, search);
+    check(desktop->focus == search, "a click gives the keyboard to a captioned button");
+    window_destroy(pane);
+
+    Window* frame = panel_create();
+    window_create(frame, "frame-late", 0, 0, 80, 30, nullptr, true);
+    frame->region = 1;
+    Window* frame_button = button_at(frame, "frame-late-button", 4, 4);
+    Window* console = panel_create();
+    window_create(console, "console-late", 0, 40, 80, 30, nullptr, true);
+    Window* entry = button_at(console, "entry", 4, 44);
+    button_at(console, "ChatList", 40, 44);
+    Window* map = panel_create();
+    window_create(map, "map-late", 0, 80, 40, 20, nullptr, true);
+    map->region = 3;
+    map->focusable = 1;
+    desktop_set_focus(desktop, frame_button);
+    console->region = 2;
+    desktop->focus = entry;
+    desktop->keyboard_region = frame;
+    check(press(desktop, key::f6) && desktop->focus == map, "F6 leaves a just-stamped console");
+    window_destroy(frame);
+    window_destroy(console);
+    window_destroy(map);
+}
+
+// A box that hands the keyboard back into the frame leaves the frame
+// remembering the box's answer, and the box is then destroyed. A key that
+// finds the focus hidden must not read that answer. Nothing may land on a
+// window that is no longer on the desktop.
+void test_stale_opener(Desktop* desktop) {
+    Window* frame = panel_create();
+    window_create(frame, "stale-frame", 0, 300, 200, 100, nullptr, true);
+    frame->region = 1;
+    Window* search = button_at(frame, "stale-search", 8, 308);
+    Window* pane = panel_create();
+    window_create(pane, "stale-pane", 60, 300, 100, 60, frame, true);
+    Window* close = button_at(pane, "stale-close", 68, 308);
+    desktop_set_focus(desktop, search);
+    Window* box = dialog_create();
+    window_create(box, "stale-box", 300, 300, 80, 40, nullptr, true);
+    Window* ok = button_at(box, "Ok", 308, 308);
+    desktop_set_focus(desktop, box);
+    desktop_set_focus(desktop, ok);
+    desktop_set_focus(desktop, search);
+    window_destroy(box);
+    // A click on the pane's own close button, which then hides the pane, as
+    // matchmaking's Close does; the pane forgets its opener.
+    desktop_set_focus(desktop, close);
+    pane->focus_return = nullptr;
+    pane->visible = 0;
+    press(desktop, key::enter);
+    check(
+        desktop->focus == nullptr || desktop_holds(desktop, desktop->focus),
+        "a key after a hidden focus lands on a window the desktop holds, or none"
+    );
+    window_destroy(frame);
+}
+
+// F6 starts from nothing while a region is showing, so the war map is
+// reachable before anything has been clicked. A desktop with no region, and
+// Tab from nothing, are left alone as before. A click marks the pointer as
+// the last input, and a key clears the mark.
+void test_f6_from_nothing(Desktop* desktop) {
+    Window* lone = button_at(nullptr, "lone", 8, 440);
+    desktop->keyboard_region = nullptr;
+    desktop_set_focus(desktop, nullptr);
+    check(!press(desktop, key::f6) && desktop->focus == nullptr, "F6 with no region is left alone");
+    window_destroy(lone);
+
+    Window* frame = panel_create();
+    window_create(frame, "f6-frame", 0, 0, 120, 60, nullptr, true);
+    frame->region = 1;
+    Window* first = button_at(frame, "f6-first", 4, 4);
+    Window* map = panel_create();
+    window_create(map, "f6-map", 0, 80, 120, 40, nullptr, true);
+    map->region = 3;
+    Window* planet = button_at(map, "f6-planet", 4, 84);
+    desktop->keyboard_region = nullptr;
+    desktop_set_focus(desktop, nullptr);
+    check(
+        press(desktop, key::f6) && desktop->focus == first,
+        "F6 from nothing lands on the first region"
+    );
+    check(desktop->keyboard_travel == 1, "F6 marks keyboard travel");
+    desktop->keyboard_region = nullptr;
+    desktop_set_focus(desktop, nullptr);
+    g_keys[key::shift] = 1;
+    check(
+        press(desktop, key::f6) && desktop->focus == planet,
+        "Shift+F6 from nothing lands on the last region"
+    );
+    g_keys[key::shift] = 0;
+    desktop_set_focus(desktop, nullptr);
+    check(!press(desktop, key::tab) && desktop->focus == nullptr, "Tab from nothing is left alone");
+    click_at(desktop, planet);
+    check(
+        desktop->pointer_last == 1 && desktop->focus == planet,
+        "a click marks the pointer as the last input"
+    );
+    press(desktop, key::right);
+    check(desktop->pointer_last == 0, "a key clears the mark");
+    check(desktop->keyboard_travel == 1, "keyboard travel stays until Return");
+    // Right may leave the region. Return is tested on the planet, which is in one.
+    desktop_set_focus(desktop, planet);
+    check(
+        press(desktop, key::enter) && desktop->keyboard_travel == 0, "Return ends keyboard travel"
+    );
+    check(
+        press(desktop, key::f6) && desktop->keyboard_travel == 1, "F6 marks keyboard travel again"
+    );
+    Message move{};
+    move.code = MessageCode::mouse_move;
+    move.x = 12;
+    move.y = 12;
+    desktop_route(desktop, &move);
+    check(press(desktop, key::f6) && desktop->keyboard_travel == 1, "F6 restores keyboard travel");
+    desktop_route(desktop, &move);
+    check(desktop->keyboard_travel == 1, "a pointer move that stays put keeps keyboard travel");
+    move.x = 40;
+    desktop_route(desktop, &move);
+    check(desktop->keyboard_travel == 0, "a pointer move ends keyboard travel");
+    window_destroy(frame);
+    window_destroy(map);
 }
 
 } // namespace
@@ -227,6 +512,11 @@ int main() {
     services.desktop = &desktop;
     InputService input{nullptr, key_is_down};
     services.input = &input;
+    TextService texts{};
+    texts.create = caption_create;
+    texts.get = caption_get;
+    texts.release = caption_release;
+    services.texts = &texts;
     services_install(services);
 
     Window* host = gadget_create();
@@ -235,6 +525,10 @@ int main() {
 
     test_grid(&desktop, host);
     test_text_and_dialog(&desktop, host);
+    test_regions(&desktop);
+    test_open_and_names(&desktop);
+    test_stale_opener(&desktop);
+    test_f6_from_nothing(&desktop);
 
     window_destroy(host);
     desktop_release(&desktop);

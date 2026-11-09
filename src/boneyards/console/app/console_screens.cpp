@@ -129,6 +129,7 @@ constexpr KeyMapping k_key_map[] = {
     {0x4000004FU, oa::boneyards::key::right},
     {0x40000050U, oa::boneyards::key::left},
     {0x40000051U, oa::boneyards::key::down},
+    {0x4000003FU, oa::boneyards::key::f6}, // SDLK_F6
     {0x40000052U, oa::boneyards::key::up},
     {0x400000E0U, oa::boneyards::key::control},
     {0x400000E1U, oa::boneyards::key::shift},
@@ -1200,6 +1201,16 @@ bool strip_pointer_taken(
     return over || consumed;
 }
 
+// + and − zoom the war map. They are printable, so with the Boneyards open
+// they would be kept for a text field. A field that has the keyboard still
+// takes them as text; otherwise the planet that has it does.
+bool map_zoom_key(const ScreenInput& input) {
+    if (input.kind != ScreenInputKind::key_down && input.kind != ScreenInputKind::key_up)
+        return false;
+    return input.key == static_cast<uint32_t>('-') || input.key == static_cast<uint32_t>('+') ||
+           input.key == static_cast<uint32_t>('=');
+}
+
 // In frontend state 7 no TA panel takes input, so every input is consumed.
 int overlay_event(ScreenContext* ctx, void* user) {
     auto* state = static_cast<OverlayState*>(user);
@@ -1229,7 +1240,13 @@ int overlay_event(ScreenContext* ctx, void* user) {
         state->held_buttons |= button_bit(input.button);
     Message msg{};
     apply_key_modifiers(state, input);
-    const bool routed = translate(input, state->held_buttons, boneyards, &msg);
+    bool typing = boneyards;
+    if (typing && map_zoom_key(input) &&
+        !console::boneyards_status_widget_text_field(
+            state->widget, nullptr, nullptr, nullptr, nullptr, nullptr
+        ))
+        typing = false;
+    const bool routed = translate(input, state->held_buttons, typing, &msg);
     if (input.kind == ScreenInputKind::pointer_up)
         state->held_buttons &= ~button_bit(input.button);
     if (!routed) {

@@ -364,6 +364,16 @@ bool galaxy_load(
 /// @return the planet's index, or kNoPlanet when unknown
 int32_t galaxy_find_planet(const GalaxyView* view, int32_t id);
 
+/// Returns the capitol founded by the player's side.
+///
+/// The founding side is the one the planet was given, which a later allegiance
+/// does not replace. A side that is not Arm or Core has no capitol.
+///
+/// @param view the war map
+/// @param allegiance the player's side, 'A', 'C' or 'U', in either case
+/// @return the planet's index, or kNoPlanet when that side has no capitol
+int32_t galaxy_player_capitol(const GalaxyView* view, char allegiance);
+
 /// Recomputes a planet's visibility and view pixels, creating, moving or dropping its hotspot.
 ///
 /// @param view galaxy view

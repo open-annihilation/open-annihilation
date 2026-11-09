@@ -92,6 +92,9 @@ inline constexpr int32_t left = 0x192;
 inline constexpr int32_t up = 0x193;
 inline constexpr int32_t right = 0x194;
 inline constexpr int32_t down = 0x195;
+// F6 sits in the unused gap inside the navigation range, so a text field
+// treats it as a key and never inserts it.
+inline constexpr int32_t f6 = 0x196;
 inline constexpr int32_t shift = 0x197;
 inline constexpr int32_t control = 0x198;
 inline constexpr int32_t alt = 0x199;
@@ -222,6 +225,19 @@ struct Window {
     uint8_t modern_text;
     // Palette index of the modern ink. Meaningful while modern_text is 1.
     uint8_t modern_ink;
+    // 1 while this window is showing and is the only place the keyboard may
+    // land. Tab, the arrows and F6 stay inside it until it closes.
+    uint8_t modal{0};
+    // F6 order. 0 is not a region. The nearest ancestor with a number is the
+    // region a control belongs to, so a console inside the frame can be its
+    // own region.
+    uint8_t region{0};
+    // 0 is not one of a set. Radios that share a number are one stop, the
+    // one that is chosen. The arrows move inside the set.
+    uint8_t radio_group{0};
+    // The window that had the keyboard when this one took it. Closing hands
+    // the keyboard back while that window is still shown.
+    Window* focus_return{nullptr};
 };
 
 // Class names used by `is_class`.
@@ -1544,6 +1560,31 @@ void grid_box_fill(GridBox* grid);
 /// @param sound SoundService handle, or k_no_handle for none
 void window_set_state_sound(Window* self, int32_t state, Handle sound);
 
+/// Returns the next planet in one direction, nearest by place and weighted
+/// toward a linked planet.
+///
+/// A planet lies in the direction when the map steps that way are greater
+/// than zero and at least the steps to the side. A planet that shares a
+/// connector with `from` is taken ahead of one that does not. The nearest is
+/// the smallest sum of those steps. An equal sum keeps the earlier planet.
+///
+/// @param xs map position across for each planet, in map units
+/// @param ys map position down for each planet, in map units
+/// @param linked `linked[from * count + other]` is 1 when those planets
+///     share a line
+/// @param count how many planets
+/// @param from the planet the keyboard is on
+/// @param direction key::left, key::right, key::up or key::down
+/// @return the planet's index, or -1 when none lies that way
+int32_t nearest_planet(
+    const int32_t* xs,
+    const int32_t* ys,
+    const uint8_t* linked,
+    int32_t count,
+    int32_t from,
+    int32_t direction
+);
+
 // ---------------------------------------------------------------------------
 // Desktop: the root window manager (the first service slot)
 
@@ -1562,6 +1603,21 @@ struct Desktop {
     void* focus_user;
     // 1 while on_focus is running, so the callback cannot re-enter itself.
     uint8_t focus_notify;
+    // The region root that last had the keyboard. F6 steps from here.
+    Window* keyboard_region{nullptr};
+    // 1 when the last input routed was a pointer button, 0 after a key. A
+    // dialog the pointer closes leaves the keyboard where the click put it;
+    // one a key closes hands it back to its opener.
+    uint8_t pointer_last{0};
+    // 1 after Tab or F6, until Return or a pointer move. The war map's arrows
+    // stay on the planets only while this is set, which is while the focus
+    // ring is showing.
+    uint8_t keyboard_travel{0};
+    // The last pointer place routed, so a move that stays put does not end
+    // keyboard travel. The first place is only recorded.
+    int32_t pointer_x{0};
+    int32_t pointer_y{0};
+    uint8_t pointer_known{0};
 };
 
 /// Resets a desktop to an empty one covering a screen area.
@@ -1615,17 +1671,36 @@ void desktop_set_focus(Desktop* desktop, Window* window);
 void desktop_set_capture(Desktop* desktop, Window* window);
 /// Routes an input message to the window that should handle it.
 ///
-/// Key messages go to the focus first. A direction key the focus does not use
+/// Key messages go to the focus first. Tab and F6 are taken first only while
+/// a dialog is showing, or while the focus is inside a region; F6 is also
+/// taken while nothing has the keyboard and a region is showing. Tab then stays
+/// inside that dialog or region and wraps there. F6 and Shift+F6 move between
+/// the regions that are showing, starting from the region the focus is in; a
+/// dialog consumes F6 and does not leave. Elsewhere Tab is given to the focus,
+/// as it was before a region existed. A direction key the focus does not use
 /// moves the focus to the nearest control in that direction, wrapping around
 /// the screen; controls within ten pixels of a column are stepped vertically.
 /// With nothing focused, a direction key or Enter or Space focuses the first
 /// control in reading order and does not press it. While a dialog is showing,
-/// the direction keys stay inside that dialog. Any other message goes first
-/// to the capturing window, and is done if that handles it. A pointer move
-/// then goes to the deepest shown window under the pointer, which becomes the
-/// hover window if it accepts (the previous hover gets mouse_leave, the new
-/// one mouse_enter). Button messages (0x201-0x209) go to the window under the
-/// pointer, after moving the focus to that window's focus target. Other
+/// the direction keys and Tab stay inside that dialog. The first Tab,
+/// Shift+Tab or arrow, while the focus is outside the dialog or on its root,
+/// lands on its default answer and does not press it. Opening the dialog does
+/// not move the focus. A stop needs a name or a caption, an area, and a face
+/// that is not disabled, and each window is a stop once. A focus that is no
+/// longer shown is repaired before a key is dispatched, and only an opener the
+/// desktop still holds is given the keyboard back. Escape, while the
+/// focus is outside a dialog or on its root, is given to the dialog.
+/// Any other message goes first to the capturing window, and is done if that
+/// handles it. A pointer move then goes to the deepest shown window under the
+/// pointer, which becomes the hover window if it accepts (the previous hover
+/// gets mouse_leave, the new one mouse_enter). Button messages (0x201-0x209)
+/// go to the window under the pointer, after moving the focus to that
+/// window's focus target when it is shown, has a name or a caption, and has
+/// an area. A disabled face does not take the keyboard. A button message
+/// marks the pointer as the last input, and a key clears the mark. Taking Tab
+/// or F6 marks keyboard travel. Return, and a pointer move onto a new place,
+/// clears it. The first pointer place is only recorded, and a move that stays
+/// put does not clear it. Other
 /// messages, the wheel included, reach only the capture.
 ///
 /// @param[in,out] desktop desktop routing the message

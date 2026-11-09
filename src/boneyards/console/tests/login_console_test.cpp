@@ -790,6 +790,77 @@ void test_update_pass(Fixture* f) {
     );
     boneyards_status_widget_destroy(widget);
 }
+
+// Name, Tab, password, Return logs a member in. With Password disabled, Tab
+// from Username reaches LOGIN, and Return there logs a guest in. Return on
+// the chosen radio does the same.
+void test_login_keys(Fixture* f) {
+    const int32_t before = f->logins;
+    StatusWidget* widget = open(f);
+    if (widget == nullptr)
+        return;
+    Window* view = widget->system.main_frame->active_screen;
+    Window* name = at(view, 0x6f, 0x2c);
+    Window* password = at(view, 0x6f, 0x44);
+    Window* guest = caption(widget, view, "Guest Login");
+    Window* member = caption(widget, view, "Registered User");
+    Window* login = at(view, 0x6f, 0xf2);
+    window_set_state(guest, button_state::unpressed);
+    click(widget, guest);
+    check(password->states.current == button_state::disabled, "Guest Login disables Password");
+    {
+        ScopedServices scope(widget);
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(name), "GuestOne");
+        desktop_set_focus(&widget->desktop, name);
+    }
+    boneyards_status_widget_tick(widget);
+    key_down(widget, key::tab);
+    check(
+        widget->desktop.focus == login, "Tab from Username reaches LOGIN when Password is skipped"
+    );
+    key_down(widget, key::enter);
+    check(
+        f->logins == before + 1 &&
+            std::strcmp(widget->navigation->login.session_name, "GuestOne") == 0 &&
+            widget->navigation->login.session_password[0] == '\0',
+        "Return on LOGIN logs a guest in"
+    );
+
+    click(widget, member);
+    check(password->states.current != button_state::disabled, "Registered User shows Password");
+    {
+        ScopedServices scope(widget);
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(name), "MemberOne");
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(password), "");
+        desktop_set_focus(&widget->desktop, name);
+    }
+    boneyards_status_widget_tick(widget);
+    key_down(widget, key::tab);
+    check(widget->desktop.focus == password, "Tab from Username reaches Password");
+    {
+        ScopedServices scope(widget);
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(password), "secret");
+    }
+    key_down(widget, key::enter);
+    check(
+        f->logins == before + 2 &&
+            std::strcmp(widget->navigation->login.session_name, "MemberOne") == 0 &&
+            std::strcmp(widget->navigation->login.session_password, "secret") == 0,
+        "Name, Tab, password, Return logs a member in"
+    );
+    {
+        ScopedServices scope(widget);
+        desktop_set_focus(&widget->desktop, member);
+    }
+    boneyards_status_widget_tick(widget);
+    key_down(widget, key::enter);
+    check(
+        f->logins == before + 3 &&
+            std::strcmp(widget->navigation->login.session_password, "secret") == 0,
+        "Return on the chosen login radio logs in"
+    );
+    boneyards_status_widget_destroy(widget);
+}
 } // namespace
 
 int main() {
@@ -804,5 +875,6 @@ int main() {
     test_update(&fixture);
     test_update_pass(&fixture);
     test_login(&fixture);
+    test_login_keys(&fixture);
     return failures == 0 ? 0 : 1;
 }

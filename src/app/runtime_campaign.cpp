@@ -1664,6 +1664,16 @@ bool Runtime::press_briefing_default(bool escape) {
     return true;
 }
 
+void Runtime::page_briefing_text(bool forward) {
+    auto& pager = campaign_runtime().panel.pager;
+    if (!forward) {
+        if (pager.page <= 0)
+            return;
+        pager.page -= 2;
+    }
+    click_briefing_gadget("MOREBAR");
+}
+
 void Runtime::click_briefing_gadget(std::string name) {
     auto& state = campaign_runtime();
     const auto region = briefing_region();

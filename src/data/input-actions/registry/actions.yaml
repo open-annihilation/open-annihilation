@@ -2369,7 +2369,7 @@ actions:
   ui.screen-page-up:
     area: window
     order: 15
-    context: [oa-screens]
+    context: [oa-screens, menus]
     kind: repeat
     source: [OA]
     default: ["PageUp"]
@@ -2377,7 +2377,7 @@ actions:
   ui.screen-page-down:
     area: window
     order: 16
-    context: [oa-screens]
+    context: [oa-screens, menus]
     kind: repeat
     source: [OA]
     default: ["PageDown"]
@@ -2385,7 +2385,7 @@ actions:
   ui.screen-home:
     area: window
     order: 17
-    context: [oa-screens]
+    context: [oa-screens, menus]
     kind: repeat
     source: [OA]
     default: ["Home"]
@@ -2393,7 +2393,7 @@ actions:
   ui.screen-end:
     area: window
     order: 18
-    context: [oa-screens]
+    context: [oa-screens, menus]
     kind: repeat
     source: [OA]
     default: ["End"]

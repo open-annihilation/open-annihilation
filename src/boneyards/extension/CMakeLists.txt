@@ -363,6 +363,19 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
       set_tests_properties(native-boneyards-driver-login PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_boneyards_checks}"
         ENVIRONMENT "OA_BY_USER=;OA_BY_PASSWORD=;SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The side prompt and matchmaking, driven by keys. Login may still be
+      # clicked. Choosing the side, and Activate, are ui.key only.
+      add_test(NAME native-boneyards-keys-modal COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_keys_modal.py"
+        --native "$<TARGET_FILE:oa-game>" --game-dir "${oa_launcher_game_dir}"
+        --mod-dir "${CMAKE_BINARY_DIR}/coreprime"
+        --side-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/side_prompt.replay"
+        --beta-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/alpha_features_beta.replay"
+        --match-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/matchmaking.replay"
+        --scratch-root "${oa_boneyards_checks}")
+      set_tests_properties(native-boneyards-keys-modal PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_boneyards_checks}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Every lobby console, driven through MCP against four replays; an
       # ordinary account opens the Locator and QuickPlay, and the Beta
       # Tester's also opens Matchmaking. Each launch logs in as a registered
@@ -379,6 +392,17 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
         --beta-replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/alpha_features_beta.replay"
         --scratch-root "${oa_boneyards_checks}")
       set_tests_properties(native-mcp-lobby PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_boneyards_checks}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The war map by keyboard. Login may still be clicked. The planet is
+      # chosen with F6, the arrows and Return.
+      add_test(NAME native-boneyards-keys-war-map COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_keys_war_map.py"
+        --native "$<TARGET_FILE:oa-game>" --game-dir "${oa_launcher_game_dir}"
+        --mod-dir "${CMAKE_BINARY_DIR}/coreprime"
+        --replay "${open_annihilation_SOURCE_DIR}/src/boneyards/client/tests/data/alpha_planets.replay"
+        --scratch-root "${oa_boneyards_checks}")
+      set_tests_properties(native-boneyards-keys-war-map PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_boneyards_checks}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
     endif()

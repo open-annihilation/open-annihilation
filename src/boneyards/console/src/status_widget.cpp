@@ -916,6 +916,33 @@ void drop_main_frame(StatusWidget* widget) {
         release_window_graphics(widget);
 }
 
+// F6 order: the frame, the console that is open, then the war map. A hidden
+// console is not a region. Opening a console leaves the keyboard on the
+// button that opened it.
+constexpr uint8_t k_region_frame = 1;
+constexpr uint8_t k_region_console = 2;
+constexpr uint8_t k_region_map = 3;
+
+void stamp_keyboard_regions(StatusWidget* widget) {
+    MainFrame* frame = widget->system.main_frame;
+    if (frame == nullptr) {
+        widget->keyboard_console = -1;
+        return;
+    }
+    frame->base.region = k_region_frame;
+    for (int32_t i = 0; i < console_screen::none; ++i) {
+        Window* kept = frame->kept_screens[i];
+        if (kept != nullptr)
+            kept->region = 0;
+    }
+    if (frame->active_screen != nullptr && window_is_shown(frame->active_screen))
+        frame->active_screen->region = k_region_console;
+    if (frame->map_panel != nullptr)
+        frame->map_panel->base.region = k_region_map;
+
+    widget->keyboard_console = frame->console_screen;
+}
+
 void destroy_windows(StatusWidget* widget) {
     ConsoleSystem& system = widget->system;
     if (system.main_menu != nullptr)
@@ -1163,6 +1190,7 @@ void console_open_main_frame(StatusWidget* widget) {
             system.profile_image = profile_image_create();
         screens::function_button_fonts(&system.hat_fonts);
         system.main_frame = main_frame_create(widget);
+        stamp_keyboard_regions(widget);
     }
     if (system.chat_console_pending != 0)
         main_frame_reopen_chat(system.main_frame);
@@ -1364,6 +1392,7 @@ bool boneyards_status_widget_event(StatusWidget* widget, const Message& message)
     if (widget->toolkit != nullptr && !character &&
         (pressed || message.code == MessageCode::key_up))
         toolkit_set_key(widget->toolkit, message.key, pressed);
+    stamp_keyboard_regions(widget);
     const bool consumed = desktop_route(&widget->desktop, &message);
     if (widget->toolkit != nullptr) {
         if (want_shift && message.key != key::shift)
@@ -1544,8 +1573,10 @@ void boneyards_status_widget_tick(StatusWidget* widget) {
     service.pump(service.user);
     if (elapsed) {
         // The windows' cycle stands still while a launched battle is under way.
-        if (widget->system.chat_console_pending == 0)
+        if (widget->system.chat_console_pending == 0) {
+            stamp_keyboard_regions(widget);
             desktop_pulse(&widget->desktop);
+        }
         if (widget->toolkit != nullptr)
             toolkit_step_cursor(widget->toolkit);
     }

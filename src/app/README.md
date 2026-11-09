@@ -271,7 +271,7 @@ latched the closing key and drew a backdrop.
   opens (`note_family_opened` on load and on the in-game menu, and again in
   `present_family_ring` when what is showing has changed), unless Always
   show focus is on.
-  `note_family_tab` shows it, `note_family_return` hides it, and
+  `note_family_tab` shows it, for Tab, Shift+Tab and F6. `note_family_return` hides it, and
   `note_family_pointer` hides it when the pointer moves. Where a screen
   focuses nothing, the tree reports a first item (SINGLE on the main menu).
   The ring is drawn around that item on an original menu. On an extension's
@@ -1358,10 +1358,11 @@ at once: the map picker is its own screen.
   `place_block`, MORE MAPS…'s rule, at the button's own size. The screen's
   place also covers the room's focus marker round the button and the open
   card.
-- **Focus.** The button is pushed onto the screen's own Tab order. Tab
-  from the record just before it, and Shift+Tab from the one just after,
-  hand the focus over: the GUI's focus goes to none and the room's own
-  focus marker shows on the button. On SKIRMISH, Down from Difficulty and
+- **Focus.** The button is pushed onto the screen's own Tab order. On
+  the skirmish setup Tab from Select Map, and on NEWGAME and Any Mission
+  Tab from Difficulty, hand the focus over, and Shift+Tab from Start does
+  the same when no brain seat sits between them. The GUI's focus goes to
+  none and the room's own focus marker shows on the button. On SKIRMISH, Down from Difficulty and
   Up from the next record in
   its column do too, and the arrows hand the focus to the nearest record
   that way. On NEWGAME and Any Mission, Up and Down are not taken: they
@@ -1696,10 +1697,11 @@ stop for the keyboard.
   with its level, or the built-in player with the word the Difficulty
   button shows), or the right button anywhere on the Player button, opens
   the brain menu; the left button elsewhere on it keeps 3.1c's own press,
-  which cycles the row. Tab stops on the notch just after its Player
-  button, the arrows and a controller's L1, R1 and A reach it, and while
-  it has the focus the setup's own focus is none and the room's focus
-  marker shows on it. Y still opens Mutators.
+  which cycles the row. Tab stops on the notch just after that row's
+  Energy. Shift+Tab from the next row's Player button, or from Select Map
+  when that is the next stop, returns to it. The arrows and a controller's
+  L1, R1 and A reach it, and while it has the focus the setup's own focus
+  is none and the room's focus marker shows on it. Y still opens Mutators.
 - **The brain menu** is the room's list box under the button, or above it
   where there is no room below, moved in from the room's edges: the title
   "Computer player for this seat", the built-in player, whose level the
@@ -1738,7 +1740,7 @@ stop for the keyboard.
   at Firm on place 1. It requires the notch, `oa.brain-seat.1`, reading
   that label inside the right end of the row's own Player button; a second
   computer row reading the built-in player and the Difficulty button's
-  word, which cycling Difficulty changes; Tab from Player1 onto the notch
+  word, which cycling Difficulty changes; Tab from Energy1 onto the notch
   and on, and Shift+Tab back; Return opening the brain menu on Steady
   Commander at Firm, its next level stepping the seat to Bold and back,
   its Options... opening the picker, whose USE THIS keeps the brain with
@@ -1776,8 +1778,9 @@ screens are unchanged.
   Use for every computer seat. A row sets the campaign's seat at place 1,
   which every mission of the run starts with; Options... opens the brain
   picker on it.
-- **Focus.** Tab and Shift+Tab, and a controller's L1, R1 and A, reach the
-  button. Up and Down stay with the campaign and mission lists. The card
+- **Focus.** Tab from Mutators and Shift+Tab from Start reach the button,
+  and so do a controller's L1, R1 and A. Up and Down stay with the campaign
+  and mission lists. The card
   shows when the pointer rests on the button, and on the information key.
 - **Saves.** Once a campaign save has loaded, the campaign's seat becomes
   the brain, level and options that save seated on player 1. A save that

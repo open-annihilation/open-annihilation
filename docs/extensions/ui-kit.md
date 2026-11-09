@@ -773,7 +773,7 @@ The OA layer draws this same ring, `kit::draw_focus_ring`, around a gadget
 of the original menus and around an extension's window. It is hidden when
 a screen, a dialog, a page of the in-game panel or an extension window
 opens, unless `open-annihilation.access.always-show-focus` is 1.
-`note_family_tab` shows it, for Tab and Shift+Tab. `note_family_return`
+`note_family_tab` shows it, for Tab, Shift+Tab and F6. `note_family_return`
 hides it after Return, and `note_family_pointer` hides it when the pointer
 moves. An arrow moves the focus and leaves the ring as it is. On an
 extension's windows the ring is drawn only around the window that itself
