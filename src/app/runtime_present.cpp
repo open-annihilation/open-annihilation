@@ -836,7 +836,7 @@ void Runtime::compose_match_layers(renderer::Surface& frame) {
     );
     if (placed)
         PhoneHudAccess::blit_regions(*this, frame);
-    if (!radar_state_.display_image.rgb.empty() && oa::ui::frontend_dialogs::dialog_count() == 0 &&
+    if (!radar_state_.display_image.rgb.empty() &&
         !(director_ != nullptr && !director_->presentation.show_interface))
         blit_rect(
             frame,
@@ -896,6 +896,22 @@ bool Runtime::compose_match_dialog_layer() {
         oa::ui::frontend_dialogs::dialog_shade_below(
             match_hud_cpu_, root.x, root.y, root.width, root.height, match_palette_
         );
+        // Contacts stay at their displayed resolution while a dialog is
+        // open. Only the panel shaded below it may darken their picture;
+        // an unrelated panel must not replace the minimap's underlay.
+        if (!radar_state_.display_image.rgb.empty()) {
+            const auto shaded = oa::ui::display_layout::source_rect_to_canvas(
+                match_layout_, root.x, root.y, root.width, root.height
+            );
+            oa::ui::frontend_dialogs::dialog_shade_below(
+                radar_state_.display_image,
+                shaded.x - radar_state_.display_rect.x,
+                shaded.y - radar_state_.display_rect.y,
+                shaded.width,
+                shaded.height,
+                match_palette_
+            );
+        }
     }
     oa::ui::frontend_dialogs::dialog_draw_layer(
         static_cast<uint32_t>(match_layout_.width),
@@ -1085,7 +1101,6 @@ void Runtime::finish_match_layers(
 void Runtime::present_minimap_display() {
     auto& radar = radar_state_;
     if (!match_ || radar.display_image.rgb.empty() || match_hud_cpu_.rgb.empty() ||
-        oa::ui::frontend_dialogs::dialog_count() != 0 ||
         (director_ != nullptr && !director_->presentation.show_interface))
         return;
     ensure_streaming_texture(
