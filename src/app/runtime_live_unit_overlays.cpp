@@ -66,6 +66,29 @@ void Runtime::draw_live_unit_overlays() {
                 x - label_left, y - size.half_height - countdown_gap, std::to_string(count), 1
             );
     }
+    // Strategic dots keep the self-destruct countdown, as the classic view
+    // does, while health bars and squad digits leave the dots unobscured.
+    for (const auto& marker : match_models().draws.unit_markers) {
+        if (marker.unit == nullptr)
+            continue;
+        const auto id = marker.unit->id;
+        if (id == 0 || id >= slots.size() || painted[id] || !live_unit_bounds(id))
+            continue;
+        const auto count = match_->self_destruct_remaining(id);
+        if (count == 0)
+            continue;
+        const auto& position = marker.shown_position;
+        const auto frame = live_project_world(
+            position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+        );
+        const int x = frame.x - match_layout_.left;
+        const int y = frame.y - match_layout_.top + size.below_unit;
+        painted[id] = true;
+        const PanelText labels(*this);
+        draw_match_label(
+            x - label_left, y - size.half_height - countdown_gap, std::to_string(count), 1
+        );
+    }
 }
 
 } // namespace oa::app
