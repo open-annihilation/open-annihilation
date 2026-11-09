@@ -44,6 +44,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <span>
@@ -993,6 +994,49 @@ void test_decoded_frames_kept() {
     OA_CHECK(list.kept_decoded.size() == 1);
 }
 
+/// A new frame drops marker identities and presented positions without changing units.
+void test_unit_markers_cleared_between_frames() {
+    constexpr int32_t fixed_pixel = 65536;
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.owner_index = 1;
+    unit.position = {20 * fixed_pixel, 3 * fixed_pixel, 40 * fixed_pixel};
+    unit.health = 75;
+    unit.flags = OA_UNIT_FLAG_LIVE | OA_UNIT_FLAG_SELECTABLE;
+    unit.state_flags = OA_UNIT_STATE_ACTIVE;
+    const oa::Unit before = unit;
+    const oa::FixedVec3 shown{21 * fixed_pixel, 4 * fixed_pixel, 42 * fixed_pixel};
+    oa::app::WorldDrawList list;
+    OA_CHECK(list.unit_markers.empty());
+    list.unit_markers.reserve(2);
+    list.unit_markers.push_back({&unit, shown});
+    const auto capacity = list.unit_markers.capacity();
+    OA_CHECK(list.unit_markers.front().unit == &unit);
+    OA_CHECK(list.unit_markers.front().shown_position.x == shown.x);
+    OA_CHECK(list.unit_markers.front().shown_position.y == shown.y);
+    OA_CHECK(list.unit_markers.front().shown_position.z == shown.z);
+    OA_CHECK(std::memcmp(&unit, &before, sizeof(unit)) == 0);
+
+    oa::app::clear_world_draws(list);
+    OA_CHECK(list.unit_markers.empty());
+    OA_CHECK(list.unit_markers.capacity() == capacity);
+    OA_CHECK(std::memcmp(&unit, &before, sizeof(unit)) == 0);
+    // Switching back to markers must not retain the previous frame's unit or position.
+    oa::Unit next{};
+    next.id = 9;
+    list.unit_markers.push_back({&next, next.position});
+    OA_CHECK(list.unit_markers.size() == 1);
+    OA_CHECK(list.unit_markers.front().unit == &next);
+    OA_CHECK(list.unit_markers.front().shown_position.x == next.position.x);
+    OA_CHECK(list.unit_markers.front().shown_position.y == next.position.y);
+    OA_CHECK(list.unit_markers.front().shown_position.z == next.position.z);
+    oa::app::clear_world_draws(list);
+    oa::app::clear_world_draws(list);
+    OA_CHECK(list.unit_markers.empty());
+    OA_CHECK(list.unit_markers.capacity() == capacity);
+    OA_CHECK(std::memcmp(&unit, &before, sizeof(unit)) == 0);
+}
+
 /// Returns a frame whose pixels all differ: red the column, green the row,
 /// blue the two mixed.
 ///
@@ -1352,5 +1396,6 @@ int main() {
     test_frame_cache_order();
     test_ranged_frames();
     test_decoded_frames_kept();
+    test_unit_markers_cleared_between_frames();
     return oa::test::check_exit_status();
 }
