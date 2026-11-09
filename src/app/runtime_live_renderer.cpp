@@ -3,6 +3,7 @@
 
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
+#include "unit_bounds.hpp"
 #include "oa/app/camera_inversion.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "bench_timers.hpp"
@@ -32,7 +33,6 @@
 #include <limits>
 #include <span>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace oa::app {
@@ -94,7 +94,7 @@ struct Runtime::LiveRenderer {
     std::vector<uint8_t> rgba{};
     std::vector<std::array<float, 3>> projected{};
     std::vector<uint16_t> triangle_units{};
-    std::unordered_map<uint16_t, oa::Rect32> unit_bounds{};
+    UnitBounds unit_bounds{};
     /// The bounds of each model the card draws (Scene::cards), in the
     /// window's pixels, as a unit's are.
     std::vector<oa::Rect32> card_bounds{};
@@ -1207,22 +1207,13 @@ void Runtime::rebuild_live_picking() {
     live.picked_ground_vertices = ground;
     live.picked_projection = live.projection;
     live.triangle_units.assign(live.scene.vertices.size() / 3, 0);
-    live.unit_bounds.clear();
+    live.unit_bounds.begin_frame();
     for (const auto& range : live.scene.unit_ranges) {
         if (range.unit_id == 0 || range.vertex_count == 0 ||
             range.first_vertex + range.vertex_count > live.projected.size() ||
             !match_->unit_shown(match_view_player(), range.unit_id))
             continue;
-        auto [entry, inserted] = live.unit_bounds.try_emplace(
-            range.unit_id,
-            oa::Rect32{
-                std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::min(),
-                std::numeric_limits<int32_t>::min()
-            }
-        );
-        auto& bounds = entry->second;
+        auto& bounds = live.unit_bounds.touch(range.unit_id);
         for (std::size_t index = range.first_vertex;
              index < range.first_vertex + range.vertex_count;
              ++index) {
@@ -1257,10 +1248,7 @@ void Runtime::rebuild_live_picking() {
         live.card_bounds[at] = bounds;
         if (drawn.unit_id == 0 || !match_->unit_shown(match_view_player(), drawn.unit_id))
             continue;
-        const auto [entry, inserted] = live.unit_bounds.try_emplace(drawn.unit_id, bounds);
-        if (inserted)
-            continue;
-        auto& merged = entry->second;
+        auto& merged = live.unit_bounds.touch(drawn.unit_id);
         merged.x1 = std::min(merged.x1, bounds.x1);
         merged.y1 = std::min(merged.y1, bounds.y1);
         merged.x2 = std::max(merged.x2, bounds.x2);
@@ -1273,14 +1261,14 @@ std::optional<oa::Rect32> Runtime::live_unit_bounds(uint16_t id) const {
         id >= match_->world().slots.size())
         return std::nullopt;
     const auto found = live_renderer_->unit_bounds.find(id);
-    if (found == live_renderer_->unit_bounds.end())
+    if (found == nullptr)
         return std::nullopt;
     // A previously drawn unit can leave its slot before the next frame. Empty
     // slots have no model bounds and must never enter the visibility query.
     const auto& slot = match_->world().slots[id];
     if (!slot.unit || slot.record.type_index == 0 || !match_->unit_shown(match_view_player(), id))
         return std::nullopt;
-    return found->second;
+    return *found;
 }
 
 oa::present::world_renderer::ScreenPoint

@@ -1078,6 +1078,11 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-model-transform-cache-test PRIVATE oa-app-headers
     oa-present-model oa-sim-model-runtime oa-sim-effect-particles oa-test-support oa-options)
   add_test(NAME app-model-transform-cache COMMAND oa-app-model-transform-cache-test)
+  # Current-frame picking bounds, retained by bounded unit slot with exact
+  # duplicate-range merging and frame-stamp invalidation.
+  add_executable(oa-app-unit-bounds-test src/app/unit_bounds_test.cpp)
+  target_link_libraries(oa-app-unit-bounds-test PRIVATE oa-core-types oa-test-support oa-options)
+  add_test(NAME app-unit-bounds COMMAND oa-app-unit-bounds-test)
   # The settings dialog's word on the renderer: Hardware acceleration's
   # status for the machine's memory against the 2 GiB threshold, the
   # setting, the flags, the environment's driver, a shared game or a replay
