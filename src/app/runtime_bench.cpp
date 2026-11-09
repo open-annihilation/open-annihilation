@@ -11,6 +11,7 @@
 #include "bench_timers.hpp"
 #include "render_run.hpp"
 #include "full_presentation.hpp"
+#include "match_models.hpp"
 #include "oa/app/frame_coordinates.hpp"
 
 #include "oa/core/unit.h"
@@ -959,6 +960,43 @@ void Runtime::play_bench() {
         scene.card_models
     );
     std::printf("bench: GROUND revisions %.0f in %zu frames\n", totals.ground_revisions, frames);
+    if (view.require_gameplay && match_models_) {
+        const auto& models = *match_models_;
+        size_t deferred_draws{}, deferred_original{}, deferred_copies{}, cache_bytes{};
+        uint64_t cache_hits{}, cache_misses{}, cache_stores{}, cache_overflows{};
+        for (const auto& draw : models.draws.models)
+            deferred_draws += draw.model.state && draw.model.state->deferred_image.has_value();
+        for (const auto& unit : models.units)
+            deferred_original += unit.state.deferred_image.has_value();
+        for (const auto& unit : models.presentation.units)
+            deferred_copies += unit.state.deferred_image.has_value();
+        // A worker resets its counters per planning run, not per benchmark.
+        // Inactive workers can retain earlier counters; label the sum as
+        // retained state rather than claiming a measured-span total.
+        for (const auto& cache : models.transform_caches) {
+            cache_hits += cache.counts().hits;
+            cache_misses += cache.counts().misses;
+            cache_stores += cache.counts().stores;
+            cache_overflows += cache.counts().overflows;
+            cache_bytes += cache.storage_bytes();
+        }
+        std::printf(
+            "bench: NATIVE last_frame_planned_models %zu last_frame_deferred_draws %zu "
+            "retained_deferred_original_states %zu retained_deferred_copy_states %zu "
+            "retained_pose_workers %zu retained_pose_hits %llu retained_pose_misses %llu "
+            "retained_pose_stores %llu retained_pose_overflows %llu retained_pose_bytes %zu\n",
+            models.draws.models.size(),
+            deferred_draws,
+            deferred_original,
+            deferred_copies,
+            models.transform_caches.size(),
+            static_cast<unsigned long long>(cache_hits),
+            static_cast<unsigned long long>(cache_misses),
+            static_cast<unsigned long long>(cache_stores),
+            static_cast<unsigned long long>(cache_overflows),
+            cache_bytes
+        );
+    }
     std::printf(
         "bench: ATLAS terrain_packs %.1f a frame, atlas_resets %.0f in %zu frames\n",
         per_frame(totals.terrain_squares_packed),
