@@ -593,9 +593,11 @@ void Runtime::run_stage_lines(std::span<const StageLine> lines) {
                 view.centre_z - match_layout_.battlefield_height() / (2.0 * zoom)
             );
             const bool turned = view.yaw != 0 || view.pitch != 0;
-            if (turned || live_renderer_active()) {
-                const bool changed =
-                    turn_live_camera(static_cast<float>(view.yaw), static_cast<float>(view.pitch));
+            const float yaw = static_cast<float>(view.yaw);
+            const float pitch = static_cast<float>(view.pitch);
+            const auto angles = live_camera_angles();
+            if (angles[0] != yaw || angles[1] != pitch) {
+                const bool changed = turn_live_camera(yaw, pitch);
                 if (turned && !changed)
                     throw std::runtime_error(
                         where + ": the requested turned camera is unavailable"

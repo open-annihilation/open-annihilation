@@ -7,8 +7,10 @@
 // sees them (docs/capture.md).
 #include "oa/app/runtime.hpp"
 #include "battle_counts.hpp"
+#include "showcase_tour.hpp"
 #include "renderer_effect_sources.hpp"
 #include "oa/data/enhanced_mode.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/ui/console/game_fields.hpp"
 
@@ -19,6 +21,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -87,6 +90,30 @@ void report(const std::string& what) {
     std::fflush(stdout);
 }
 
+/// Loads a bounded presentation tour before the match starts.
+///
+/// @param path the camera file
+/// @param seconds the normal wall-clock duration of the showcase
+/// @return the parsed camera keyframes
+std::vector<ShowcaseKeyframe> read_showcase_tour(const fs::path& path, double seconds) {
+    if (path.empty())
+        return {};
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        fail("cannot read camera tour " + oa::platform::path_to_utf8(path));
+    std::array<char, max_showcase_tour_bytes + 1> text{};
+    input.read(text.data(), static_cast<std::streamsize>(text.size()));
+    if (input.bad() || input.gcount() > static_cast<std::streamsize>(max_showcase_tour_bytes))
+        fail("the camera tour cannot be read within its text limit");
+    std::vector<ShowcaseKeyframe> tour;
+    std::string error;
+    if (!parse_showcase_tour(
+            {text.data(), static_cast<std::size_t>(input.gcount())}, seconds, tour, error
+        ))
+        fail("camera tour " + oa::platform::path_to_utf8(path) + ": " + error);
+    return tour;
+}
+
 // The unit's standing move order.
 uint32_t move_order(const oa::Unit& unit) {
     return (unit.flags & OA_UNIT_FLAG_MOVE_ORDER_MASK) >> OA_UNIT_FLAG_MOVE_ORDER_SHIFT;
@@ -98,6 +125,12 @@ void Runtime::run_battle_showcase() {
     const bool staged = !options_.stage_file.empty();
     if (staged && (options_.headless_check || options_.fixed_clock))
         fail("a staged battle showcase needs the normal window and wall clock");
+    if (!staged && (options_.showcase_seconds || !options_.showcase_tour.empty()))
+        fail("a duration or camera tour needs an explicitly staged battle showcase");
+    const double battle_seconds = options_.showcase_seconds
+                                      ? static_cast<double>(*options_.showcase_seconds)
+                                      : kBattleSeconds;
+    const auto tour = read_showcase_tour(options_.showcase_tour, battle_seconds);
     bool running = true;
     bool stage_ready{};
     bool require_turned_view{};
@@ -274,6 +307,36 @@ void Runtime::run_battle_showcase() {
         std::to_string(options_.max_frames_per_second) + " frames a second, on " +
         std::to_string(drawing_threads) + " drawing thread" + (drawing_threads > 1 ? "s" : "")
     );
+    if (!tour.empty())
+        report(
+            "TOUR_READY keys " + std::to_string(tour.size()) + " wall_seconds " +
+            std::to_string(battle_seconds) + " file " +
+            oa::platform::path_to_utf8(options_.showcase_tour)
+        );
+    // Only presentation follows this clock. Unit orders, movement and the
+    // simulation's normal pacing remain those of the running match.
+    const auto place_tour_view = [&](const StageView& view) {
+        if (match_tracking_ || resource_panel_.locked_slot != 0)
+            fail("the camera tour needs unit tracking and shared-camera following released");
+        const float zoom = static_cast<float>(view.zoom);
+        if (zoom < least_match_zoom() || zoom > most_match_zoom())
+            fail("a camera tour zoom is outside this match's camera limits");
+        const double x = view.centre_x - match_layout_.battlefield_width() / (2.0 * zoom);
+        const double z = view.centre_z - match_layout_.battlefield_height() / (2.0 * zoom);
+        const auto current = match_view_place();
+        if (match_zoom_ != zoom || match_zoom_target_ != zoom || current[0] != x ||
+            current[1] != z) {
+            match_zoom_ = match_zoom_target_ = zoom;
+            place_match_view(x, z);
+        }
+        const float yaw = static_cast<float>(view.yaw);
+        const float pitch = static_cast<float>(view.pitch);
+        const auto angles = live_camera_angles();
+        // Retain the terrain-height pivot while only panning or zooming.
+        if (angles[0] != yaw || angles[1] != pitch)
+            std::ignore = turn_live_camera(yaw, pitch);
+        require_turned_view = yaw != 0 || pitch != 0;
+    };
     phase_times_ = {};
     work = 0.0;
     if (staged) {
@@ -287,7 +350,7 @@ void Runtime::run_battle_showcase() {
     if (staged)
         report(
             "STAGED_BATTLE_START sdl_ticks_ns " + std::to_string(battle_start_ns) + " tick " +
-            std::to_string(first_tick) + " duration_seconds " + std::to_string(kBattleSeconds) +
+            std::to_string(first_tick) + " duration_seconds " + std::to_string(battle_seconds) +
             " capture " + std::to_string(video_capture_ != nullptr)
         );
     double previous = start;
@@ -300,11 +363,34 @@ void Runtime::run_battle_showcase() {
     // Frames too long for the clock to catch up within the most ticks a
     // frame runs, which the match loses.
     std::size_t slow_frames = 0;
-    while (previous - start < kBattleSeconds) {
+    std::size_t next_tour_key = 0;
+    while (previous - start < battle_seconds) {
         const auto phases = phase_times_;
         const uint32_t tick = match_timing_.tick;
+        const double camera_elapsed = now() - start;
+        const auto tour_view = sample_showcase_tour(tour, camera_elapsed);
+        if (tour_view)
+            place_tour_view(*tour_view);
         frame();
         const double finished = now();
+        while (tour_view && next_tour_key < tour.size() &&
+               tour[next_tour_key].seconds <= camera_elapsed) {
+            const auto& key = tour[next_tour_key];
+            const auto place = match_view_place();
+            const auto angles = live_camera_angles();
+            report(
+                "TOUR_KEY " + std::to_string(next_tour_key) + " planned_seconds " +
+                std::to_string(key.seconds) + " elapsed_seconds " + std::to_string(camera_elapsed) +
+                " tick " + std::to_string(match_timing_.tick) + " centre " +
+                std::to_string(tour_view->centre_x) + "," + std::to_string(tour_view->centre_z) +
+                " requested_zoom " + std::to_string(tour_view->zoom) + " presented_zoom " +
+                std::to_string(match_zoom()) + " place " + std::to_string(place[0]) + "," +
+                std::to_string(place[1]) + " angles " + std::to_string(angles[0]) + "," +
+                std::to_string(angles[1]) + " drawn " + std::to_string(frame_draws_.units_drawn) +
+                " dots " + std::to_string(frame_draws_.units_as_dots)
+            );
+            ++next_tour_key;
+        }
         const PhaseTimes spent{
             phase_times_.simulation - phases.simulation,
             phase_times_.compose - phases.compose,
