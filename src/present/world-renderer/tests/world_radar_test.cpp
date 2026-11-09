@@ -666,6 +666,55 @@ void display_contacts_keep_native_positions() {
     OA_CHECK(scene.padding_untouched());
 }
 
+void display_contacts_keep_cores_clear_of_logo_borders() {
+    DisplayRadarScene scene;
+    Blips blips;
+    constexpr uint8_t transparent = 0xff;
+    constexpr uint8_t edge = 89;
+    std::array<std::array<uint8_t, 16>, 2> pixels{};
+    for (std::size_t owner = 0; owner < pixels.size(); ++owner) {
+        const auto color = scene.colors[owner];
+        pixels[owner] = {
+            transparent,
+            edge,
+            edge,
+            transparent,
+            edge,
+            color,
+            color,
+            edge,
+            edge,
+            color,
+            color,
+            edge,
+            transparent,
+            edge,
+            edge,
+            transparent
+        };
+        auto& frame = blips.frames[owner];
+        frame.width = frame.height = 4;
+        frame.origin_x = frame.origin_y = 1;
+        frame.data = pixels[owner].data();
+    }
+    // These are distinct old radar columns. The later logo's opaque edge
+    // covers one core column and its own core covers the other.
+    scene.unit(1, 0, 1000, 0, 5000);
+    scene.unit(2, 1, 1080, 0, 5000);
+    std::vector<uint8_t> coarse_pixels(126 * 126);
+    oa::Surface coarse{};
+    oa::present::init_surface(coarse, 126, 126, 126, coarse_pixels.data());
+    const wr::RadarSurfaces surfaces{&coarse, &scene.terrain, nullptr};
+    std::array<oa::RadarHotUnit, 8> hot{};
+    OA_CHECK(
+        wr::radar_compose_final(*scene.world, surfaces, blips.sprites(), scene.host(), hot) == 2
+    );
+    OA_CHECK(std::count(coarse_pixels.begin(), coarse_pixels.end(), scene.colors[0]) == 0);
+    OA_CHECK(scene.compose(blips) == 2);
+    OA_CHECK(scene.at(36, 184) == scene.colors[0]);
+    OA_CHECK(scene.at(39, 184) == scene.colors[1]);
+}
+
 void display_contacts_keep_twenty_thousand() {
     DisplayRadarScene scene(20001);
     Blips blips;
@@ -1224,6 +1273,7 @@ int main(int argc, char** argv) {
     compose_projectiles();
     draw_final_image();
     display_contacts_keep_native_positions();
+    display_contacts_keep_cores_clear_of_logo_borders();
     display_contacts_keep_twenty_thousand();
     display_contacts_share_colors_without_slot_bias();
     display_contacts_preserve_detection_and_live_filters();
