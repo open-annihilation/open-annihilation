@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "oa/base/game_math.hpp"
 #include "oa/sim/model_runtime/instance.hpp"
 #include "oa/sim/model_runtime/model_host.hpp"
 
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -17,6 +19,7 @@
 #include <new>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -121,6 +124,193 @@ bool same_transforms(const Instance& a, const Instance& b) {
                 return false;
     }
     return true;
+}
+
+int32_t scalar_low32(int64_t value) {
+    return std::bit_cast<int32_t>(static_cast<uint32_t>(value));
+}
+
+int32_t scalar_negate(int32_t value) {
+    return std::bit_cast<int32_t>(0U - std::bit_cast<uint32_t>(value));
+}
+
+// The scalar pair before the zero-coordinate shortcut: only angle zero
+// skips the exact products, binary64 sums and integer rounding.
+void scalar_old_pair(int32_t& a, int32_t& b, int16_t angle) {
+    if (angle == 0)
+        return;
+    const auto result = oa::base::game_math::rotate_pair(a, b, angle);
+    a = scalar_low32(std::llrint(result.first));
+    b = scalar_low32(std::llrint(result.second));
+}
+
+FixedVector3 scalar_old_rotation(FixedVector3 point, RotationWords words) {
+    scalar_old_pair(point.x, point.y, words.xy);
+    scalar_old_pair(point.y, point.z, words.yz);
+    scalar_old_pair(point.x, point.z, words.xz);
+    return point;
+}
+
+// Reconstructs the full geometry through the old scalar pair, without
+// Instance::rebuild_transforms or model_runtime::rotate_vector.
+Instance scalar_old_rebuild(const Instance& posed, RotationWords root) {
+    Instance result = posed;
+    const auto source_pieces = posed.pieces();
+    for (uint32_t index = 0; index < result.pieces().size(); ++index) {
+        auto& piece = result.pieces()[index];
+        const auto& object = posed.model().objects[piece.object_index];
+        piece.transform_marker = 0;
+        piece.transformed_vertices.clear();
+        for (const auto& point : object.vertices)
+            piece.transformed_vertices.push_back(
+                {scalar_negate(point.x), point.y, scalar_negate(point.z)}
+            );
+        piece.transformed_origin = {};
+        auto top = index;
+        while (source_pieces[top].parent != oa::sim::model_runtime::kNoPiece)
+            top = source_pieces[top].parent;
+        if (top != posed.root_piece())
+            continue;
+        for (auto current = index; current != oa::sim::model_runtime::kNoPiece;
+             current = source_pieces[current].parent) {
+            const auto& state = source_pieces[current];
+            const auto& source = posed.model().objects[state.object_index];
+            auto turn = state.rotation;
+            if (state.parent == oa::sim::model_runtime::kNoPiece) {
+                turn.xy = static_cast<int16_t>(turn.xy + root.xy);
+                turn.xz = static_cast<int16_t>(turn.xz + root.xz);
+                turn.yz = static_cast<int16_t>(turn.yz + root.yz);
+            }
+            const auto place = [&](FixedVector3& point) {
+                point = scalar_old_rotation(point, turn);
+                point.x = scalar_low32(
+                    int64_t{point.x} + scalar_negate(source.offset_from_parent.x) +
+                    state.translation.x
+                );
+                point.y = scalar_low32(
+                    int64_t{point.y} + source.offset_from_parent.y + state.translation.y
+                );
+                point.z = scalar_low32(
+                    int64_t{point.z} + scalar_negate(source.offset_from_parent.z) +
+                    state.translation.z
+                );
+            };
+            place(piece.transformed_origin);
+            for (auto& point : piece.transformed_vertices)
+                place(point);
+        }
+    }
+    return result;
+}
+
+void check_zero_pair_rotation() {
+    constexpr int32_t lowest = std::numeric_limits<int32_t>::min();
+    constexpr int32_t highest = std::numeric_limits<int32_t>::max();
+    constexpr std::array<std::array<int32_t, 2>, 13> pairs{{
+        {0, 0},
+        {0, 1},
+        {1, 0},
+        {0, -1},
+        {-1, 0},
+        {0, lowest},
+        {lowest, 0},
+        {0, highest},
+        {highest, 0},
+        {lowest, highest},
+        {lowest, lowest},
+        {65536, -32768},
+        {-12345678, 7654321},
+    }};
+    for (int32_t word = std::numeric_limits<int16_t>::min();
+         word <= std::numeric_limits<int16_t>::max();
+         ++word) {
+        const auto angle = static_cast<int16_t>(word);
+        for (const auto& pair : pairs) {
+            const std::array<FixedVector3, 3> points{
+                FixedVector3{pair[0], pair[1], 0},
+                FixedVector3{0, pair[0], pair[1]},
+                FixedVector3{pair[0], 0, pair[1]}
+            };
+            const std::array<RotationWords, 3> turns{
+                RotationWords{angle, 0, 0}, RotationWords{0, 0, angle}, RotationWords{0, angle, 0}
+            };
+            for (size_t plane = 0; plane < points.size(); ++plane)
+                require(
+                    same_vector(
+                        oa::sim::model_runtime::rotate_vector(points[plane], turns[plane]),
+                        scalar_old_rotation(points[plane], turns[plane])
+                    ),
+                    "a pair rotation differs from the old scalar arithmetic"
+                );
+        }
+        const RotationWords mixed{
+            angle, static_cast<int16_t>(word + 1), static_cast<int16_t>(word - 1)
+        };
+        for (const FixedVector3 point : {FixedVector3{}, FixedVector3{0, 0, lowest}})
+            require(
+                same_vector(
+                    oa::sim::model_runtime::rotate_vector(point, mixed),
+                    scalar_old_rotation(point, mixed)
+                ),
+                "successive pair rotations differ after initially zero coordinates"
+            );
+    }
+
+    // An eleven-level chain with a COB-reordered root, plus a root sibling
+    // whose geometry remains untransformed. Every piece includes zero and
+    // one-zero vertices, and offsets and translations cross signed limits.
+    constexpr size_t piece_count = 12, sibling = piece_count - 1;
+    constexpr uint32_t none = oa::formats::objects3d::kNoObject;
+    auto model = std::make_shared<oa::formats::objects3d::Model>();
+    model->objects.resize(piece_count);
+    std::array<std::string_view, piece_count> names{};
+    for (size_t index = 0; index < piece_count; ++index) {
+        auto& object = model->objects[index];
+        object.name = "part" + std::to_string(index);
+        object.parent = index == 0 || index == sibling ? none : uint32_t(index - 1);
+        object.first_child = index + 1 < sibling ? uint32_t(index + 1) : none;
+        object.next_sibling = index == 0 ? uint32_t(sibling) : none;
+        object.offset_from_parent =
+            index % 2 == 0 ? FixedVector3{} : FixedVector3{lowest, highest, 65536};
+        object.vertices = {{0, 0, 0}, {lowest, 0, 0}, {0, highest, lowest}, {65536, -32768, 2}};
+    }
+    for (size_t index = 0; index < names.size(); ++index)
+        names[index] = model->objects[piece_count - 1 - index].name;
+    auto instance = oa::sim::model_runtime::make_instance(model, 73, names);
+    require(instance.root_piece() != 0, "the scalar hierarchy fixture did not reorder its root");
+    for (uint32_t step = 0; step < 128; ++step) {
+        for (uint32_t index = 0; index < instance.pieces().size(); ++index) {
+            auto& piece = instance.pieces()[index];
+            const uint32_t bits = step * 2654435761U + index * 2246822519U;
+            piece.translation = {
+                std::bit_cast<int32_t>(bits),
+                index % 2 == 0 ? lowest : highest,
+                std::bit_cast<int32_t>(0U - bits)
+            };
+            piece.rotation = step % 3 == 0 ? RotationWords{}
+                                           : RotationWords{
+                                                 static_cast<int16_t>(bits),
+                                                 static_cast<int16_t>(bits >> 8),
+                                                 static_cast<int16_t>(bits >> 16)
+                                             };
+            piece.transform_marker = static_cast<uint16_t>(index + 1);
+        }
+        const RotationWords root{
+            static_cast<int16_t>(step * 977U),
+            std::numeric_limits<int16_t>::min(),
+            static_cast<int16_t>(0U - step * 257U)
+        };
+        const Instance expected = scalar_old_rebuild(instance, root);
+        instance.rebuild_transforms(root);
+        require(
+            same_transforms(instance, expected),
+            "a deep model rebuild differs from the old scalar hierarchy walk"
+        );
+        require(
+            instance.owner_token() == 73 && !instance.transforms_dirty(),
+            "the zero-pair shortcut changed instance ownership or dirty bookkeeping"
+        );
+    }
 }
 
 // The transforms a fresh instance in the same pose gets from its first,
@@ -720,6 +910,7 @@ int main() {
         );
         check_kept_transforms();
         check_reused_transforms();
+        check_zero_pair_rotation();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
