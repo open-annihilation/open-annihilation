@@ -467,7 +467,8 @@ class TickHost::GroundMissions {
             order.kind == ground::patrol_kind && record.extra.goal &&
             movement->navigation.goal == record.extra.goal.get() &&
             record.extra.goal->order == &order &&
-            ((order.raised_events | events) & sim::ground_orders::goal_event_mask) == 0) {
+            ((order.raised_events | events) &
+             (sim::ground_orders::goal_event_mask | ground::cancel_event)) == 0) {
             movement->project_slot();
             const auto expected =
                 sim::ground_orders::make_goal(order, movement->geometry, point, tolerance);
