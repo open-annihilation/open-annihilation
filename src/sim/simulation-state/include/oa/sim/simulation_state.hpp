@@ -105,6 +105,8 @@ struct CandidateFilter {
     /// Pass over a fully submerged unit: one whose last water state
     /// (Unit.last_occupy_code) is 3.
     bool skip_submerged{};
+    /// Pass over death-pending units and units with no positive health.
+    bool skip_dying{};
 };
 
 /// Finds the nearest candidate unit of the players a relation row admits.

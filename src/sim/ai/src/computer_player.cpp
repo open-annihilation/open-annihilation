@@ -5,6 +5,7 @@
 
 #include "computer_internal.hpp"
 #include "oa/base/game_math.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
 #include "oa/sim/simulation_state.hpp"
 
@@ -197,6 +198,12 @@ oa::Unit* nearest_enemy(
         relation[i] = host.allied(host.context, ai.player, i) ? 1 : 0;
     relation[OA_PLAYER_COUNT] = 1;
     sim::simulation_state::CandidateFilter filter{};
+    // A dying replacement would consume the strike's cooldown without a live target.
+    const auto& rules =
+        state != nullptr ? state->rules.rules() : data::match_rules::baseline_match_rules;
+    filter.skip_dying =
+        task.kind == TaskKind::strike && rules.setup.enhanced_mode.enabled &&
+        rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version;
     if (ai_rules(state).nearest_enemy_filter.rules ==
         data::match_rules::AiNearestEnemyFilterRules::skip_submerged) {
         filter.widened_flags = true;

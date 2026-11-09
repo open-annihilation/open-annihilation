@@ -83,6 +83,9 @@ oa::Unit* nearest_candidate_unit(
             const auto flags = unit.flags;
             if ((flags & OA_UNIT_FLAG_LIVE) == 0 || (unit.state_flags & OA_UNIT_STATE_CLOAKED) != 0)
                 continue;
+            if (filter.skip_dying &&
+                ((flags & OA_UNIT_FLAG_DEATH_PENDING) != 0 || unit.health <= 0))
+                continue;
             if (filter.widened_flags) {
                 if ((flags & widened_skip) != 0)
                     continue;

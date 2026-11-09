@@ -350,6 +350,35 @@ int main() {
         filtered.units[1].flags = OA_UNIT_FLAG_LIVE | OA_UNIT_FLAG_NOT_SELECTABLE;
         CHECK(nearest(true, false) == &filtered.units[2]);
     }
+    {
+        TestWorld dying(4, 1);
+        dying.player(0).in_use = 1;
+        dying.player(0).status = 1;
+        dying.range(0, 1, 3);
+        constexpr int16_t positive_health = 1;
+        for (uint32_t i = 1; i <= 3; ++i) {
+            dying.units[i].flags = OA_UNIT_FLAG_LIVE;
+            dying.units[i].health = positive_health;
+            dying.units[i].position = {static_cast<int32_t>(i) << 16, 0, 0};
+        }
+        dying.units[1].flags |= OA_UNIT_FLAG_DEATH_PENDING;
+        dying.units[2].health = 0;
+        // Existing callers still consider the nearest live body. A strike's
+        // opt-in filter skips both pending death and independently exhausted health.
+        CHECK(nearest_candidate_unit(*dying, open, 0, 0) == &dying.units[1]);
+        CandidateFilter filter{};
+        filter.skip_dying = true;
+        CHECK(nearest_candidate_unit(*dying, open, 0, 0, filter) == &dying.units[3]);
+        dying.units[1].flags = OA_UNIT_FLAG_LIVE;
+        dying.units[1].health = -positive_health;
+        CHECK(nearest_candidate_unit(*dying, open, 0, 0, filter) == &dying.units[3]);
+        dying.units[2].health = positive_health;
+        CHECK(nearest_candidate_unit(*dying, open, 0, 0, filter) == &dying.units[2]);
+        dying.units[2].flags |= OA_UNIT_FLAG_DEATH_PENDING;
+        dying.units[3].health = 0;
+        CHECK(nearest_candidate_unit(*dying, open, 0, 0, filter) == nullptr);
+        CHECK(nearest_candidate_unit(*dying, open, 0, 0) == &dying.units[1]);
+    }
     TestWorld tw(2, 2);
     auto& w = *tw;
     Fixture h;

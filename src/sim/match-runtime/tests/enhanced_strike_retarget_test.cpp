@@ -321,6 +321,130 @@ void live_target_does_not_add_command_refreshes() {
     battle.check_attack(battle.target, battle.regular_refresh_tick);
 }
 
+/// Describes a target that is still present but should not receive a fresh attack.
+enum class UnhealthyTarget { zero_health_pending, zero_health, pending_positive_health };
+
+/// Keeps an unhealthy target's body live until a unit tick performs its teardown.
+void mark_unhealthy_target(StrikeFixture& battle, uint16_t unit, UnhealthyTarget condition) {
+    auto& record = battle.fixture.match->spawn_slot(unit).record;
+    CHECK(record.type_index != 0 && (record.flags & OA_UNIT_FLAG_LIVE) != 0);
+    record.health = condition == UnhealthyTarget::pending_positive_health ? 1 : 0;
+    record.flags &= ~OA_UNIT_FLAG_DEATH_PENDING;
+    if (condition != UnhealthyTarget::zero_health)
+        record.flags |= OA_UNIT_FLAG_DEATH_PENDING;
+}
+
+/// Runs the actual native controller at a canonical tick without tearing units down.
+void run_controller_at(StrikeFixture& battle, uint32_t tick) {
+    battle.fixture.match->state().game.tick = tick;
+    battle.fixture.match->run_player_controller(computer_player);
+    CHECK(battle.fixture.match->fault() == nullptr);
+}
+
+/// Keeps earlier presets' selection of a still-live pending target unchanged.
+void earlier_presets_keep_the_pending_target_selection() {
+    for (uint32_t version = 0; version < retarget_version; ++version) {
+        StrikeFixture battle(version);
+        battle.run_until(target_loss_tick - 1);
+        mark_unhealthy_target(battle, battle.target, UnhealthyTarget::zero_health_pending);
+        battle.strike().next_tick = target_loss_tick;
+        run_controller_at(battle, target_loss_tick);
+        battle.check_attack(battle.target, target_loss_tick);
+        CHECK(battle.strike().next_tick == target_loss_tick + strike_refresh_ticks);
+        CHECK(battle.strike().attacking != 0);
+        const auto& record = battle.fixture.match->spawn_slot(battle.target).record;
+        CHECK(record.type_index != 0 && (record.flags & OA_UNIT_FLAG_DEATH_PENDING) != 0);
+    }
+}
+
+/// Uses one early strike batch to choose a healthy enemy before the old target tears down.
+void enhanced_strike_skips_unhealthy_live_target_bodies() {
+    constexpr std::array conditions = {
+        UnhealthyTarget::zero_health_pending,
+        UnhealthyTarget::zero_health,
+        UnhealthyTarget::pending_positive_health
+    };
+    for (const auto condition : conditions) {
+        StrikeFixture battle(retarget_version);
+        battle.run_until(target_loss_tick - 1);
+        mark_unhealthy_target(battle, battle.target, condition);
+        CHECK(battle.strike().next_tick > target_loss_tick);
+        run_controller_at(battle, target_loss_tick);
+        battle.check_attack(battle.replacement, target_loss_tick);
+        CHECK(battle.strike().next_tick == target_loss_tick + strike_refresh_ticks);
+        const auto bytes = retarget_bytes(battle.fixture);
+        CHECK(bytes.size() == state_byte_count);
+        CHECK(read_integer(bytes, schema_offset) == state_schema);
+        CHECK(read_integer(bytes, next_early_offset) == target_loss_tick + retarget_interval_ticks);
+        CHECK(read_integer(bytes, land_target_record, 2) == battle.replacement);
+        CHECK(bytes[land_target_record + target_binding_offset] == bound_binding);
+        CHECK(read_integer(bytes, land_target_record + target_issue_offset) == target_loss_tick);
+        CHECK(
+            read_integer(bytes, land_target_record + target_retry_offset) ==
+            target_loss_tick + retarget_interval_ticks
+        );
+        CHECK(
+            read_integer(bytes, land_target_record + native_next_tick_offset) ==
+            target_loss_tick + strike_refresh_ticks
+        );
+        CHECK(bytes[land_target_record + native_clock_valid_offset] == 1);
+        CHECK(bytes[land_target_record + native_attacking_offset] == 1);
+        std::array<sim::simulation_state::Order*, strike_members> issued_heads{};
+        for (std::size_t i = 0; i < battle.members.size(); ++i)
+            issued_heads[i] = battle.fixture.match->spawn_slot(battle.members[i]).unit->primary;
+        run_controller_at(battle, target_loss_tick);
+        for (std::size_t i = 0; i < battle.members.size(); ++i)
+            CHECK(
+                battle.fixture.match->spawn_slot(battle.members[i]).unit->primary == issued_heads[i]
+            );
+        CHECK(retarget_bytes(battle.fixture) == bytes);
+    }
+}
+
+/// Retries at the finite cooldown without reissuing an attack on pending bodies.
+void all_pending_targets_keep_retries_bounded_without_new_attacks() {
+    StrikeFixture battle(retarget_version);
+    battle.run_until(target_loss_tick - 1);
+    mark_unhealthy_target(battle, battle.target, UnhealthyTarget::zero_health_pending);
+    mark_unhealthy_target(battle, battle.replacement, UnhealthyTarget::zero_health_pending);
+    std::array<sim::simulation_state::Order*, strike_members> original_heads{};
+    for (std::size_t i = 0; i < battle.members.size(); ++i)
+        original_heads[i] = battle.fixture.match->spawn_slot(battle.members[i]).unit->primary;
+    uint32_t previous_deadline = battle.strike().next_tick;
+    std::optional<uint32_t> previous_attempt;
+    uint32_t attempts = 0;
+    for (uint32_t elapsed = 0; elapsed < retry_observation_ticks; ++elapsed) {
+        const uint32_t tick = target_loss_tick + elapsed;
+        run_controller_at(battle, tick);
+        const uint32_t deadline = battle.strike().next_tick;
+        if (deadline != previous_deadline) {
+            ++attempts;
+            if (previous_attempt)
+                CHECK(tick - *previous_attempt >= retarget_interval_ticks);
+            previous_attempt = tick;
+            previous_deadline = deadline;
+            CHECK(deadline == tick + strike_refresh_ticks);
+        }
+        CHECK(attempts <= 1 + elapsed / retarget_interval_ticks);
+        battle.check_attack(battle.target, battle.initial_issue_tick);
+        for (std::size_t i = 0; i < battle.members.size(); ++i)
+            CHECK(
+                battle.fixture.match->spawn_slot(battle.members[i]).unit->primary ==
+                original_heads[i]
+            );
+        const auto bytes = retarget_bytes(battle.fixture);
+        CHECK(bytes.size() == state_byte_count);
+        CHECK(read_integer(bytes, land_target_record, 2) == battle.target);
+        CHECK(bytes[land_target_record + target_binding_offset] == lost_binding);
+        CHECK(
+            read_integer(bytes, land_target_record + target_issue_offset) ==
+            battle.initial_issue_tick
+        );
+        CHECK(read_integer(bytes, land_target_record + native_next_tick_offset) == deadline);
+    }
+    CHECK(attempts == retry_observation_ticks / retarget_interval_ticks);
+}
+
 /// Bounds unsuccessful retarget attempts when no enemy remains.
 void no_enemy_does_not_retry_on_every_tick() {
     StrikeFixture battle(retarget_version);
@@ -853,6 +977,15 @@ int main() {
     failures +=
         run_case("dead target", dead_target_refreshes_the_squad_before_the_regular_deadline);
     failures += run_case("live target", live_target_does_not_add_command_refreshes);
+    failures += run_case(
+        "earlier pending-target selection", earlier_presets_keep_the_pending_target_selection
+    );
+    failures +=
+        run_case("healthy strike target", enhanced_strike_skips_unhealthy_live_target_bodies);
+    failures += run_case(
+        "pending targets retry cooldown",
+        all_pending_targets_keep_retries_bounded_without_new_attacks
+    );
     failures += run_case("no enemy", no_enemy_does_not_retry_on_every_tick);
     failures +=
         run_case("reused target slot", reusing_the_target_slot_still_requires_a_new_command);
