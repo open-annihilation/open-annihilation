@@ -148,7 +148,7 @@ console +stats 1
 console +BattleCounts 1
 ```
 
-`view` takes map X/Z, positive zoom, yaw and pitch in degrees. It changes no
+`view` takes map X and map-image row Z, positive zoom, yaw and pitch in degrees. It changes no
 unit orders and is refused in headless runs. The unit banner counts current
 typed, live, positive-health units from the canonical records on each draw;
 births, deaths and ownership changes therefore update the totals. These are
@@ -184,9 +184,9 @@ then pans north:
 
 ```text
 0 cut 5120 5120 0.25 20 -53
-60 cut 5120 7360 0.25 20 -32
-72 move 5120 7360 0.9 20 -32
-96 move 5120 2896 0.9 20 -32
+60 cut 5120 7291 0.25 20 -32
+72 move 5120 7291 0.9 20 -32
+96 move 5120 2827 0.9 20 -32
 ```
 
 The first time must be zero. Times strictly increase and fit within the
