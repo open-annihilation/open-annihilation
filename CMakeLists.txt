@@ -5386,6 +5386,10 @@ if(BUILD_TESTING)
     add_test(NAME mcp-server-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/mcp/oa_mcp_server.py --self-test)
     set_tests_properties(mcp-server-selftest PROPERTIES TIMEOUT 60)
+    # Benchmark receipt and line-order checks run without installed game data.
+    add_test(NAME native-bench-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_bench_test.py)
+    set_tests_properties(native-bench-selftest PROPERTIES TIMEOUT 60)
     # The engine's C, C++ and Objective-C sources are laid out as
     # .clang-format says, by the clang-format release that
     # tools/format/requirements.txt pins (tools/format_sources.py, whose
