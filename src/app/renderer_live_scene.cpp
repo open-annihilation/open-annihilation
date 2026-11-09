@@ -5508,6 +5508,68 @@ renderer_live_gpu::ShadowMap shadow_map_for(const Inputs& in) {
     return map;
 }
 
+/// One model vertex placed and projected lazily during a single draw.
+struct CardPlacedVertex {
+    CardCorner world{};
+    std::array<float, 3> picture{};
+    uint32_t world_draw{}, picture_draw{};
+};
+
+/// Bounded scratch shared by a model pass's successive draws. A material
+/// retry starts a new draw too, even when it reuses an instance's index.
+struct CardVertexCache {
+    static constexpr std::size_t maximum_points = 32768;
+    std::vector<CardPlacedVertex> vertices{};
+    uint32_t draw{};
+
+    /// Starts a distinct invocation, retaining only bounded vertex storage.
+    void begin(std::size_t points) {
+        if (++draw == 0) {
+            for (auto& vertex : vertices)
+                vertex.world_draw = vertex.picture_draw = 0;
+            draw = 1;
+        }
+        vertices.resize(std::min(points, maximum_points));
+    }
+
+    /// Places a local vertex with the draw's original float addition order.
+    CardCorner
+    world(std::size_t index, const float* positions, const std::array<float, 3>& origin) {
+        const auto placed = [&] {
+            const auto* point = positions + index * 3;
+            return CardCorner{origin[0] + point[0], origin[1] + point[1], origin[2] + point[2]};
+        };
+        if (index >= vertices.size())
+            return placed();
+        auto& vertex = vertices[index];
+        if (vertex.world_draw != draw) {
+            vertex.world = placed();
+            vertex.world_draw = draw;
+        }
+        return vertex.world;
+    }
+
+    /// Projects an accepted corner, retaining the original expression order.
+    std::array<float, 3>
+    picture(std::size_t index, const CardCorner& corner, const std::array<float, 12>& camera) {
+        const auto projected = [&] {
+            const float across =
+                camera[0] * corner.x + camera[1] * corner.height + camera[2] * corner.z + camera[3];
+            const float down =
+                camera[4] * corner.x + camera[5] * corner.height + camera[6] * corner.z + camera[7];
+            return std::array<float, 3>{across, down, 0};
+        };
+        if (index >= vertices.size())
+            return projected();
+        auto& vertex = vertices[index];
+        if (vertex.picture_draw != draw) {
+            vertex.picture = projected();
+            vertex.picture_draw = draw;
+        }
+        return vertex.picture;
+    }
+};
+
 /// Draws a model on the card where it can (Inputs::models_on_card): its
 /// type's triangles that its vertices would have listed, in their order,
 /// with the textures they would have taken, from its vertices placed as
@@ -5526,6 +5588,7 @@ renderer_live_gpu::ShadowMap shadow_map_for(const Inputs& in) {
 /// @param lights the nanolathe particles that light units' vertices
 /// @param[in,out] corners room for a polygon's corners
 /// @param[in,out] points room for its corners through the camera
+/// @param[in,out] vertices bounded per-invocation world and picture scratch
 /// @return false where the card cannot draw it, having added nothing
 bool draw_on_card(
     const Inputs& in,
@@ -5539,7 +5602,8 @@ bool draw_on_card(
     bool image,
     std::span<const std::array<float, 3>> lights,
     std::vector<CardCorner>& corners,
-    std::vector<std::array<float, 3>>& points
+    std::vector<std::array<float, 3>>& points,
+    CardVertexCache& vertices
 ) {
     auto& cards = pass.list.cards;
     const auto& reference = draw.model;
@@ -5597,6 +5661,7 @@ bool draw_on_card(
     const auto first_index = static_cast<uint32_t>(cards.indices.size());
     const auto& source = reference.instance->model();
     const float* positions = cards.positions.data() + first_position;
+    vertices.begin(cards.instances[instance].position_count);
     // The bounds the pick takes, through the camera as it projects vertices.
     const auto& camera = in.clip_projection;
     std::array<float, 4> bounds{
@@ -5611,7 +5676,7 @@ bool draw_on_card(
             0)
             continue;
         const auto& object = source.objects[type.objects[piece]];
-        const float* piece_positions = positions + std::size_t{type.piece_vertices[piece]} * 3;
+        const std::size_t first_point = type.piece_vertices[piece];
         const bool first = cards.piece_frames[first_piece + piece] != 0;
         for (uint32_t at = type.piece_polygons[piece]; at < type.piece_polygons[piece + 1]; ++at) {
             const auto& polygon = type.polygons[at];
@@ -5625,12 +5690,8 @@ bool draw_on_card(
                 continue;
             const auto& indices = object.primitives[polygon.primitive].vertex_indices;
             corners.clear();
-            for (const uint16_t index : indices) {
-                const float* point = piece_positions + std::size_t{index} * 3;
-                corners.push_back(
-                    {origin[0] + point[0], origin[1] + point[1], origin[2] + point[2]}
-                );
-            }
+            for (const uint16_t index : indices)
+                corners.push_back(vertices.world(first_point + index, positions, origin));
             if (back_facing_corners(std::span<const CardCorner>(corners), in.view_direction))
                 continue;
             const std::size_t count = (polygon.corners - 2) * 3;
@@ -5638,18 +5699,17 @@ bool draw_on_card(
             for (uint32_t corner = 0; corner < count; ++corner)
                 cards.indices.push_back(named | (polygon.record + corner));
             points.clear();
-            for (const auto& corner : corners) {
-                const float across = camera[0] * corner.x + camera[1] * corner.height +
-                                     camera[2] * corner.z + camera[3];
-                const float down = camera[4] * corner.x + camera[5] * corner.height +
-                                   camera[6] * corner.z + camera[7];
+            for (std::size_t corner = 0; corner < corners.size(); ++corner) {
+                const auto point =
+                    vertices.picture(first_point + indices[corner], corners[corner], camera);
+                const float across = point[0], down = point[1];
                 bounds = {
                     std::min(bounds[0], across),
                     std::min(bounds[1], down),
                     std::max(bounds[2], across),
                     std::max(bounds[3], down)
                 };
-                points.push_back({across, down, 0});
+                points.push_back(point);
             }
             for (std::size_t fan = 1; bounded && fan + 1 < points.size(); ++fan)
                 bounded = renderer_live_camera::triangle_hit_bounded(
@@ -5691,6 +5751,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     ModelMaterials materials{colors, textures};
     std::vector<CardCorner> card_corners;
     std::vector<std::array<float, 3>> card_points;
+    CardVertexCache card_vertices;
     std::unordered_map<const Sprite*, AtlasRect> bright_textures;
     PaletteBytes bright_palette = *in.palette;
     for (auto& channel : bright_palette)
@@ -5885,7 +5946,8 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     image,
                     nanolathe_lights,
                     card_corners,
-                    card_points
+                    card_points,
+                    card_vertices
                 )) {
                 ++list.drawn;
                 continue;
