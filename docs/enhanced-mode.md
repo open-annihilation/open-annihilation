@@ -437,41 +437,46 @@ future work while congestion and existing-view costs are addressed.
 
 ## Live 20,000-unit rendering checkpoint
 
-Sources `7e95c8d92` and `391f4e5da` measure the normal game window on the M5
-in Check builds (`-O2`, assertions enabled). Core Prime Industrial Area,
-seed 7, starts with exactly 10,000 units per side. Matching ARM and CORE
-commanders and troops occupy their own banks, with ordinary patrol orders,
-stock weapons and health, and a normal ARM computer player. The clock runs
-normally throughout.
+The native game window is measured on the M5 in Check builds (`-O2`,
+assertions enabled). Core Prime Industrial Area, seed 7, starts with exactly
+10,000 units per side. Matching ARM and CORE commanders and troops occupy
+their own banks, with ordinary patrol orders, stock weapons and health,
+and a normal ARM computer player. The clock runs normally throughout.
 
 Both views use Full rendering, anti-aliasing setting 4 and a physical
 1920×1018 output. The camera centres on `(5120, 5120)` at zoom 0.25;
 classic yaw/pitch are 0/0 and turned yaw/pitch are 20/-53. Each run requests
-900 warmup and 900 measured simulation ticks. Measurement ends at a frame
-boundary, yielding the tick spans below. Every measured loop presents a frame.
+900 warmup and 900 measured simulation ticks, ending at a frame boundary.
+
+The following native-window timings are provisional: foreground status was
+not established. Their cached application-active state did not require SDL
+input and keyboard focus, so they do not validate foreground gameplay FPS.
 
 | Source | View | Presented FPS | 1% low FPS | Simulation ticks/s | Frames | Measured ticks |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| `7e95c8d92` baseline | Classic 2.5D | 2.910 | 1.98 | 12.853 | 204 | 901 |
+| `7e95c8d92` | Classic 2.5D | 2.910 | 1.98 | 12.853 | 204 | 901 |
 | `391f4e5da` | Classic 2.5D | 5.510 | 4.36 | 24.632 | 202 | 903 |
-| `7e95c8d92` baseline | Turned 3D | 5.464 | 2.58 | 25.434 | 194 | 903 |
+| `7e95c8d92` | Turned 3D | 5.464 | 2.58 | 25.434 | 194 | 903 |
 | `391f4e5da` | Turned 3D | 9.878 | 7.56 | 30.000 | 297 | 902 |
 
 Both sides show movement in every reported interval and record firing,
-damage and death events during each measured window. The `391f4e5da` runs
-record 21,813 classic and 21,827 turned shots, with 302 death events each
-and no births. The requested game speed is 10; classic finishes at 9 and
-turned at 10. Rendering remains well below 60 FPS and the battle is not
-fully smooth, despite the turned run sustaining approximately 30 ticks/s.
-
-Observed mean classic Full staging/upload changes from 238.50 to 93.03 ms
-and first execution from 14.11 to 5.56 ms. Turned draw-list planning changes
-from 52.39 to 22.43 ms and Scene construction from 48.86 to 28.75 ms.
+damage and death events during each measured window, with no births.
 Other game checks reached sampled per-process CPU peaks of 46.4% and 48.5%
-during the baseline classic and turned runs. None was sampled during the
-`391f4e5da` runs; finite sampling does not prove an idle host. These are
-observed desktop results, not an isolated causal speedup estimate. The paused
-readback profiles above measure preparation and capture work, not gameplay FPS.
+during the earlier classic and turned runs; none was sampled during the
+`391f4e5da` runs. Finite sampling does not prove an idle host. These are
+observed desktop timings, not an isolated causal speedup estimate or evidence
+of smooth foreground play. Paused readback profiles above measure preparation
+and capture work, not gameplay FPS.
+
+Source `76fbc3b16` requires SDL input focus and ownership of SDL keyboard
+focus on every measured frame, alongside its existing Full-renderer,
+normal-clock and presentation checks. A separate operating-system monitor
+samples whether the game is active and frontmost. This stricter guard refused
+a subsequent attempt because the desktop session did not grant foreground
+focus; the monitor reported the game inactive and not frontmost. That attempt
+produced no FPS result. A verified foreground rerun remains pending until the
+session can grant focus. Version 4 remains current, and ray tracing stays
+deferred while congestion and existing-view costs are addressed.
 
 ## Remaining work
 
