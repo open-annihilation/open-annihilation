@@ -1700,23 +1700,52 @@ int main() {
             "--busy-combat needs --combat",
         "--busy-combat needs --combat"
     );
+    const auto staged_headless =
+        parse({"--headless-check", "--match-ticks", "60", "--stage", "s.stage"});
     expect(
-        parse({"--headless-check", "--match-ticks", "60", "--stage", "s.stage"}).stage_file ==
-                oa::app::fs::path("s.stage") &&
-            plain.stage_file.empty(),
+        staged_headless.stage_file == oa::app::fs::path("s.stage") &&
+            staged_headless.headless_check && staged_headless.fixed_clock &&
+            staged_headless.match_ticks == 60u && plain.stage_file.empty(),
         "--stage names the file a headless skirmish stages"
+    );
+    const auto staged_ticks = parse({"--match-ticks", "60", "--stage", "s.stage"});
+    expect(
+        staged_ticks.stage_file == staged_headless.stage_file && staged_ticks.match_ticks == 60u &&
+            !staged_ticks.headless_check,
+        "--stage preserves the staged --match-ticks launch without an explicit headless flag"
     );
     expect(
         rejection({"--headless-check", "--stage", "s.stage"}) ==
-            "--stage stages a headless skirmish of --match-ticks ticks",
+            "--stage needs a headless --match-ticks skirmish or --showcase skirmish-battle",
         "--stage needs --match-ticks"
     );
     expect(
         rejection(
             {"--headless-check", "--match-ticks", "60", "--load", "a.sav", "--stage", "s.stage"}
-        ) == "--stage stages a headless skirmish of --match-ticks ticks",
+        ) == "--stage needs a headless --match-ticks skirmish or --showcase skirmish-battle",
         "--stage does not stage a loaded game"
     );
+    for (const auto& arguments : std::vector<std::vector<const char*>>{
+             {"--stage", "s.stage"},
+             {"--bench", "low.bench", "--stage", "s.stage"},
+             {"--showcase", "arm-first-mission", "--stage", "s.stage"},
+             {"--showcase", "base-construction", "--stage", "s.stage"},
+             {"--showcase", "skirmish-battle", "--stage", "s.stage", "--headless-check"},
+             {"--showcase", "skirmish-battle", "--stage", "s.stage", "--load", "a.sav"},
+             {"--showcase",
+              "skirmish-battle",
+              "--stage",
+              "s.stage",
+              "--campaign",
+              "Arm Campaign",
+              "--mission",
+              "0"},
+         })
+        expect(
+            rejection(arguments) ==
+                "--stage needs a headless --match-ticks skirmish or --showcase skirmish-battle",
+            "--stage refuses other launches and conflicting showcase options"
+        );
     expect(
         parse({"--headless-check", "--match-ticks", "60", "--weapon-fire-check", "WIDE"})
                 .weapon_fire_check == "WIDE",
@@ -2699,6 +2728,73 @@ int main() {
             battle.combat_units == 40 && !battle.fixed_clock,
         "--showcase skirmish-battle plays a battle of --combat's armies on the real clock"
     );
+    const auto staged_battle = parse({"--showcase", "skirmish-battle", "--stage", "battle.stage"});
+    expect(
+        staged_battle.showcase == oa::app::Showcase::skirmish_battle &&
+            staged_battle.stage_file == oa::app::path_from_utf8("battle.stage") &&
+            staged_battle.unattended && staged_battle.seed == oa::app::kFixedRandomSeed &&
+            !staged_battle.headless_check && !staged_battle.fixed_clock &&
+            !staged_battle.match_ticks,
+        "a staged battle showcase keeps the normal application clock and window"
+    );
+    const auto captured_staged_battle = parse(
+        {"--stage",
+         "battle.stage",
+         "--capture-video",
+         "battle.mp4",
+         "--showcase",
+         "skirmish-battle"}
+    );
+    expect(
+        captured_staged_battle.stage_file == staged_battle.stage_file &&
+            captured_staged_battle.showcase == staged_battle.showcase &&
+            captured_staged_battle.capture_video == oa::app::path_from_utf8("battle.mp4") &&
+            !captured_staged_battle.headless_check && !captured_staged_battle.fixed_clock,
+        "a staged battle showcase can record video without becoming headless"
+    );
+    for (const auto& other :
+         std::vector<std::vector<const char*>>{{"--benchmark", "60"}, {"--check-navigation"}}) {
+        std::vector<const char*> arguments{
+            "--showcase", "skirmish-battle", "--stage", "battle.stage"
+        };
+        arguments.insert(arguments.end(), other.begin(), other.end());
+        expect(
+            rejection(arguments) == "--showcase plays in a window; it is not a check or benchmark",
+            "a staged battle showcase refuses checks and benchmarks"
+        );
+    }
+    expect(
+        rejection(
+            {"--showcase",
+             "skirmish-battle",
+             "--stage",
+             "battle.stage",
+             "--headless-check",
+             "--match-ticks",
+             "60"}
+        ) == "--showcase plays in a window; it is not a check or benchmark",
+        "the headless stage allowance does not admit a showcase"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--showcase",
+             "skirmish-battle",
+             "--stage",
+             "battle.stage"}
+        ) == "--battle-benchmark cannot be used with --stage",
+        "a staged showcase cannot bypass the battle benchmark's stage refusal"
+    );
+    for (const bool staged : {false, true}) {
+        std::vector<const char*> arguments{"--showcase", "skirmish-battle", "--match-ticks", "60"};
+        if (staged)
+            arguments.insert(arguments.end(), {"--stage", "battle.stage"});
+        expect(
+            rejection(arguments) == "--showcase cannot be used with --match-ticks",
+            "a showcase refuses a separate tick limit with or without a stage"
+        );
+    }
     expect(
         rejection({"--showcase", "skirmish"}) ==
             "--showcase knows arm-first-mission, skirmish-battle and base-construction",

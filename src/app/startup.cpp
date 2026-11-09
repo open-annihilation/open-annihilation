@@ -2148,9 +2148,16 @@ void write_startup_line(std::string_view text) {
     check_director_options(result);
     if (result.busy_combat && result.combat_units == 0)
         throw std::runtime_error("--busy-combat needs --combat");
-    if (!result.stage_file.empty() &&
-        (!result.match_ticks || !result.load_file.empty() || !result.campaign.empty()))
-        throw std::runtime_error("--stage stages a headless skirmish of --match-ticks ticks");
+    if (!result.stage_file.empty()) {
+        const bool legacy_headless_skirmish = result.match_ticks.has_value();
+        const bool showcase_skirmish = result.showcase == Showcase::skirmish_battle &&
+                                       !result.headless_check && !result.match_ticks;
+        if ((!legacy_headless_skirmish && !showcase_skirmish) || !result.load_file.empty() ||
+            !result.campaign.empty())
+            throw std::runtime_error(
+                "--stage needs a headless --match-ticks skirmish or --showcase skirmish-battle"
+            );
+    }
     if (!result.weapon_fire_check.empty() &&
         (!result.headless_check || !result.match_ticks || !result.load_file.empty() ||
          !result.campaign.empty()))
@@ -2327,8 +2334,14 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error(
             "--capture-video captures the game or a --showcase, not a check or benchmark"
         );
-    if (result.showcase != Showcase::none && check_run)
-        throw std::runtime_error("--showcase plays in a window; it is not a check or benchmark");
+    if (result.showcase != Showcase::none) {
+        if (check_run)
+            throw std::runtime_error(
+                "--showcase plays in a window; it is not a check or benchmark"
+            );
+        if (result.match_ticks)
+            throw std::runtime_error("--showcase cannot be used with --match-ticks");
+    }
     // A bench measures the application's own loop in its window, as a
     // player's frames are drawn and presented.
     if (!result.bench_file.empty()) {
