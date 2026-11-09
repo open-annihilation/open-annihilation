@@ -454,6 +454,37 @@ void Runtime::play_bench() {
         check_paused();
         check_population();
     }
+    if (view.require_gameplay) {
+        // Raising the normal SDL window may need another application frame
+        // before its real focus event arrives. Keep this grace outside the
+        // measured span; measured frames still fail immediately when away.
+        const double readiness_start = now();
+        const uint32_t readiness_tick = match_timing_.tick;
+        const bool was_away = window_away();
+        const bool raised = was_away && SDL_RaiseWindow(sdl_.window);
+        uint32_t readiness_frames{};
+        while (window_away() && now() - readiness_start < 1.0) {
+            aim(view.yaw);
+            frame();
+            ++readiness_frames;
+            if (screen_ != Screen::match || !match_)
+                fail("the match ended while waiting for benchmark focus");
+        }
+        std::printf(
+            "bench: READINESS away_before %u raised %u away_after %u frames %u "
+            "extra_ticks %u seconds %.6f tick %u application_active %u window_flags %llu\n",
+            unsigned(was_away),
+            unsigned(raised),
+            unsigned(window_away()),
+            readiness_frames,
+            match_timing_.tick - readiness_tick,
+            now() - readiness_start,
+            match_timing_.tick,
+            unsigned(application_active_),
+            static_cast<unsigned long long>(SDL_GetWindowFlags(sdl_.window))
+        );
+        std::fflush(stdout);
+    }
     const std::array<int32_t, 2> held_camera{match_camera_x_, match_camera_z_};
     const float held_zoom = match_zoom_;
     const auto held_angles = live_camera_angles();
@@ -465,8 +496,44 @@ void Runtime::play_bench() {
         if (!render_run_ || render_run_->device_lost || render_run_->present_false_logged ||
             window_away() || options_.fixed_clock || capture_frame_ || video_capture_ ||
             (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0 ||
-            match_timing_.requested_rate != oa::base::game_loop::normal_game_speed)
+            match_timing_.requested_rate != oa::base::game_loop::normal_game_speed) {
+            const auto flags = SDL_GetWindowFlags(sdl_.window);
+            std::printf(
+                "bench: GAMEPLAY_STATE tick %u render_run %u device_lost %u "
+                "present_false %u window_away %u application_active %u minimised %u "
+                "background %u away_held %u fixed_clock %u capture_frame %u video_capture %u "
+                "sim_flags %u paused %u menu_paused %u match_finished %u requested_rate %u "
+                "actual_rate %u window_flags %llu input_focus %u hidden %u minimized %u "
+                "keyboard_focus %u\n",
+                match_timing_.tick,
+                unsigned(bool(render_run_)),
+                unsigned(render_run_ && render_run_->device_lost),
+                unsigned(render_run_ && render_run_->present_false_logged),
+                unsigned(window_away()),
+                unsigned(application_active_),
+                unsigned(away_pause_.minimised),
+                unsigned(away_pause_.background),
+                unsigned(away_pause_.held),
+                unsigned(options_.fixed_clock),
+                unsigned(bool(capture_frame_)),
+                unsigned(bool(video_capture_)),
+                unsigned(match_->state().game.sim_run_flags),
+                unsigned(
+                    (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0
+                ),
+                unsigned(match_paused_),
+                unsigned(match_finished_),
+                unsigned(match_timing_.requested_rate),
+                unsigned(match_timing_.actual_rate),
+                static_cast<unsigned long long>(flags),
+                unsigned((flags & SDL_WINDOW_INPUT_FOCUS) != 0),
+                unsigned((flags & SDL_WINDOW_HIDDEN) != 0),
+                unsigned((flags & SDL_WINDOW_MINIMIZED) != 0),
+                unsigned(SDL_GetKeyboardFocus() == sdl_.window)
+            );
+            std::fflush(stdout);
             fail("gameplay lost its active, unpaused real-time presentation");
+        }
         if (!accelerated_presentation() || !full_presentation() ||
             live_renderer_active() != (view.yaw != 0 || view.pitch != 0) ||
             live_renderer_failed() || live_renderer_unavailable() ||
