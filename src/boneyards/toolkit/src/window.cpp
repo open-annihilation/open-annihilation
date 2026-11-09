@@ -202,7 +202,7 @@ bool window_plain_focus_lost(Window* self) {
 constinit const WindowOps k_window_ops = detail::plain_window_ops();
 
 void window_init(Window* self, const WindowOps* ops) {
-    std::memset(self, 0, sizeof(*self));
+    *self = Window{};
     self->ops = ops;
     self->focusable = 1;
     self->color = k_no_handle;

@@ -12711,7 +12711,7 @@ void a_pointer_move_leaves_the_next_key_on_the_clicked_row() {
     CHECK(dialog.focused == settings::first_row_control && dialog.focus_shown);
     CHECK(settings::dialog_pointer_move(dialog, 8, 8) == DialogAction::redraw);
     CHECK(dialog.pointer_hid_ring && dialog.focused == settings::first_row_control);
-    const auto& keys = geometry::place_rows(Page::controls, {}).rows[1].control_area;
+    const auto keys = geometry::place_rows(Page::controls, {}).rows[1].control_area;
     const Point on{keys.x + keys.width - 4, keys.y + keys.height / 2};
     static_cast<void>(settings::dialog_pointer_down(dialog, on.x, on.y));
     static_cast<void>(settings::dialog_pointer_up(dialog, on.x, on.y));

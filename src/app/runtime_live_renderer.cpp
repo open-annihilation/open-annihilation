@@ -2161,7 +2161,7 @@ void Runtime::draw_live_selection(bool selection_only) {
     // markers go here. The ordinary turned view stamps them with that overlay.
     if (selection_only) {
         if (oa::present::colour_vision::shape_cues_active() && match_) {
-            const auto stamp_marked = [&](uint32_t id) {
+            const auto stamp_marked = [&](uint16_t id) {
                 const auto& slots = match_->world().slots;
                 if (id == 0 || id >= slots.size())
                     return;

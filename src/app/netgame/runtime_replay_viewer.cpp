@@ -78,7 +78,7 @@ uint32_t milliseconds_between(
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count();
     if (elapsed <= 0)
         return 0;
-    if (elapsed > static_cast<decltype(elapsed)>(0xffffffffu))
+    if (elapsed > static_cast<std::chrono::milliseconds::rep>(0xffffffffu))
         return 0xffffffffu;
     return static_cast<uint32_t>(elapsed);
 }
