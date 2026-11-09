@@ -52,18 +52,21 @@ struct Setup {
     uint32_t version = battle_version;
     Driver driver = Driver::local;
     bool bridge{};
+    bool fine_bridge{};
 };
 
 Options options_for(const Setup& setup) {
     Options options;
-    options.sight_cells = setup.bridge ? 25 : 9;
+    options.sight_cells = setup.fine_bridge ? 385 : (setup.bridge ? 25 : 9);
     return options;
 }
 
-bool bridge_land(uint32_t x, uint32_t z) {
+bool bridge_land(uint32_t x, uint32_t z, bool fine_bridge = false) {
+    const auto neck_top = fine_bridge ? 5u : 6u;
+    const auto right_edge = fine_bridge ? 381u : 14u;
     return (
-        (((x >= 1 && x <= 4) || (x >= 11 && x <= 14)) && z >= 2 && z <= 13) ||
-        (x >= 5 && x <= 10 && z >= 6 && z <= 9)
+        (((x >= 1 && x <= 4) || (x >= 11 && x <= right_edge)) && z >= 2 && z <= 13) ||
+        (x >= 5 && x <= 10 && z >= neck_top && z <= neck_top + 3)
     );
 }
 
@@ -76,7 +79,7 @@ struct Scene {
 
     explicit Scene(const Setup& setup = {}) : fixture(options_for(setup)) {
         fixture.match.reset();
-        width = setup.bridge ? 24 : 384;
+        width = setup.bridge && !setup.fine_bridge ? 24 : 384;
         fixture.map.attribute_width = width;
         fixture.map.attribute_height = map_height;
         fixture.map.sea_level = sea_level;
@@ -86,10 +89,11 @@ struct Scene {
         fixture.altitude_cells.resize(size_t(width / 2) * (map_height / 2));
         for (uint32_t z = 0; z < map_height; ++z)
             for (uint32_t x = 0; x < width; ++x) {
-                const bool land = !setup.bridge || bridge_land(x, z) ||
-                                  (x != 0 && bridge_land(x - 1, z)) ||
-                                  (z != 0 && bridge_land(x, z - 1)) ||
-                                  (x != 0 && z != 0 && bridge_land(x - 1, z - 1));
+                const bool land =
+                    !setup.bridge || bridge_land(x, z, setup.fine_bridge) ||
+                    (x != 0 && bridge_land(x - 1, z, setup.fine_bridge)) ||
+                    (z != 0 && bridge_land(x, z - 1, setup.fine_bridge)) ||
+                    (x != 0 && z != 0 && bridge_land(x - 1, z - 1, setup.fine_bridge));
                 fixture.map.attributes[size_t(z) * width + x].height = land ? land_height : 0;
             }
         for (uint32_t z = 0; z < map_height; ++z)
@@ -161,10 +165,15 @@ struct Scene {
             if (owner == 0)
                 match().configure_outcomes(owner, allies, false);
         }
-        auto& unit = fixture.spawn(0, setup.bridge ? 48 : 64, 128);
+        const auto start_z = setup.fine_bridge ? 208 : 128;
+        auto& unit = fixture.spawn(0, setup.bridge ? 48 : 64, start_z);
         actor = unit.unit_index;
         match().place_unit_at(
-            actor, (setup.bridge ? 48 : 64) * pixel, land_height * pixel, 128 * pixel, ground_layer
+            actor,
+            (setup.bridge ? 48 : 64) * pixel,
+            land_height * pixel,
+            start_z * pixel,
+            ground_layer
         );
         unit.record.heading = east;
         destination = {(setup.bridge ? 224 : 6000) * pixel, 0, 128 * pixel};
@@ -531,6 +540,170 @@ void new_leg_and_cancellation_keep_normal_order_lifecycle() {
     CHECK(scene.unit().unit->primary == nullptr || scene.unit().unit->primary->kind != patrol_kind);
 }
 
+void a_real_pending_search_survives_only_the_continued_refresh() {
+    for (const auto version : {battle_version, legacy_version}) {
+        // Its FP2 neck has native legal origins at z=5..7, between the
+        // stride-four shared-field anchors. The fine native search must
+        // therefore handle this connected route instead of a coarse field.
+        Scene scene({version, Driver::local, true, true});
+        scene.destination = {6000 * pixel, 0, 64 * pixel};
+        // Two players divide this native Search setting: each receives four nodes.
+        scene.match().path_search_jobs().tick_credit = 8;
+        scene.begin();
+        ground::SearchRecord before{};
+        for (uint32_t tick = 0; tick < 120; ++tick) {
+            before = runtime::MatchTickAccess::active_path_search(scene.match());
+            if (before.unit != nullptr)
+                break;
+            scene.run();
+        }
+        if (before.unit != scene.unit().unit) {
+            const auto& navigation = scene.movement().navigation;
+            const auto& jobs = scene.match().path_search_jobs();
+            std::cerr << "Pending patrol worker: version=" << version
+                      << ", tick=" << scene.match().simulation().tick
+                      << ", active=" << (before.unit != nullptr) << ", count=" << navigation.count
+                      << ", flags=" << uint32_t(navigation.flags)
+                      << ", retry=" << navigation.last_search_tick
+                      << ", full searches=" << scene.match().enhanced_counters().full_route_searches
+                      << ", picks=" << jobs.job_picks[0] << '/' << jobs.job_picks[1]
+                      << ", worker budget=" << scene.match().path_search_worker().budget() << '\n';
+        }
+        CHECK(before.unit == scene.unit().unit);
+        CHECK(before.navigation == &scene.movement().navigation);
+        CHECK(before.goal == scene.movement().navigation.goal && before.movement_map != nullptr);
+        CHECK(scene.match().enhanced_counters().full_route_searches != 0);
+        const auto raised_events = scene.unit().unit->primary->raised_events;
+        CHECK(
+            (raised_events & (ground::arrived_event | ground::path_failed_event |
+                              ground::goal_replaced_event | cancel_event)) == 0
+        );
+        CHECK(
+            (raised_events &
+             (ground::search_goal_contact_flag | ground::search_seed_unresolved_flag)) != 0
+        );
+        const auto navigation = nav_state(scene.movement().navigation);
+        const auto worker_budget = scene.match().path_search_worker().budget();
+        const auto worker_start = scene.match().path_search_worker().start_cell();
+        const auto head = rule_bytes(scene.match(), "local-flow");
+        CHECK(refresh(scene) == next_phase);
+        const auto after = runtime::MatchTickAccess::active_path_search(scene.match());
+        if (version >= battle_version) {
+            CHECK(after.unit == before.unit && after.navigation == before.navigation);
+            CHECK(after.goal == before.goal && after.movement_map == before.movement_map);
+            CHECK(scene.match().path_search_worker().budget() == worker_budget);
+            CHECK(scene.match().path_search_worker().start_cell() == worker_start);
+            CHECK(nav_state(scene.movement().navigation) == navigation);
+            CHECK(rule_bytes(scene.match(), "local-flow") == head);
+            CHECK(scene.unit().unit->primary->raised_events == raised_events);
+        } else
+            CHECK(after.unit == nullptr && after.navigation == nullptr && after.goal == nullptr);
+        bool published{};
+        for (uint32_t tick = 0; tick < 600; ++tick) {
+            scene.run();
+            const auto& route = scene.movement().navigation;
+            if (ground::route_present(route) && !route.needs_search()) {
+                published = true;
+                break;
+            }
+        }
+        if (version >= battle_version)
+            CHECK(published);
+        std::cout << "Patrol queued search: version=" << version
+                  << ", start budget=" << worker_budget
+                  << ", job picks=" << scene.match().path_search_jobs().job_picks[0]
+                  << ", route count=" << scene.movement().navigation.count
+                  << ", published within 600 ticks=" << published << '\n';
+    }
+}
+
+void check_native_footprint(Scene& scene) {
+    const auto& body = scene.movement().geometry;
+    CHECK(
+        body.cell ==
+        (std::array<int16_t, 2>{scene.unit().record.cell_x, scene.unit().record.cell_z})
+    );
+    for (int16_t z = 0; z < body.footprint[1]; ++z)
+        for (int16_t x = 0; x < body.footprint[0]; ++x) {
+            const auto px = body.cell[0] + x;
+            const auto pz = body.cell[1] + z;
+            CHECK(px >= 0 && pz >= 0 && uint32_t(px) < scene.width && uint32_t(pz) < map_height);
+            CHECK(bridge_land(uint32_t(px), uint32_t(pz)));
+            const auto& plot = scene.match().spatial().plots[size_t(pz) * scene.width + size_t(px)];
+            CHECK(!plot.blocking_feature && plot.low_height >= sea_level);
+            CHECK(plot.ground == scene.actor);
+        }
+}
+
+void native_choke_crossing_and_arrival_keep_the_patrol_loop() {
+    for (const auto version : {legacy_version, battle_version}) {
+        Scene scene({version, Driver::local, true});
+        auto* initial_order = &scene.patrol();
+        bool crossed{}, rotated{}, next_leg{};
+        uint32_t crossing_tick{}, arrival_tick{};
+        for (uint32_t tick = 0; tick < 1200; ++tick) {
+            scene.run();
+            check_native_footprint(scene);
+            if (!crossed && scene.movement().geometry.cell[0] > 11) {
+                crossed = true;
+                crossing_tick = scene.match().simulation().tick;
+            }
+            if (crossed && scene.unit().unit->primary != initial_order) {
+                rotated = true;
+                if (arrival_tick == 0)
+                    arrival_tick = scene.match().simulation().tick;
+                const auto* goal = scene.movement().navigation.goal;
+                if (goal && goal->order == scene.unit().unit->primary && goal->cell[0] < 4) {
+                    next_leg = true;
+                    break;
+                }
+            }
+        }
+        CHECK(crossed && rotated && next_leg);
+        std::cout << "Patrol native choke: version=" << version << ", crossed=" << crossing_tick
+                  << ", next leg=" << arrival_tick << '\n';
+    }
+}
+
+void saved_patrol_reuses_its_restored_owned_goal() {
+    Scene source;
+    source.begin();
+    source.run(90);
+    saved_game::ScopedBank bank;
+    oa::data::persist::bank_open_account(bank.get(), "Units");
+    const auto count = saved_game::write_orders(source.match(), source.unit(), bank.get());
+    CHECK(count >= 2);
+    const auto saved_motion = source.movement().save_mobility();
+    const auto saved_position = source.movement().geometry.position;
+    const auto saved_heading = source.movement().geometry.heading;
+    const auto saved_pitch = source.movement().geometry.pitch;
+    const auto expected = goal_state(*source.movement().navigation.goal);
+    Scene loaded;
+    loaded.match().simulation().tick = source.match().simulation().tick;
+    // These are the unit restore's initial placement and mobility, before loaded ticks.
+    loaded.match().place_unit_at(
+        loaded.actor, saved_position[0], saved_position[1], saved_position[2], ground_layer
+    );
+    loaded.unit().record.heading = saved_heading;
+    loaded.unit().record.pitch = saved_pitch;
+    CHECK(loaded.match().restore_mobility(loaded.actor, saved_motion));
+    saved_game::restore_orders(loaded.match(), loaded.unit(), bank.get(), count);
+    const auto* restored = loaded.movement().navigation.goal;
+    CHECK(restored != nullptr && restored->order == loaded.unit().unit->primary);
+    CHECK(goal_state(*restored) == expected);
+    const auto navigation = nav_state(loaded.movement().navigation);
+    CHECK(refresh(loaded) == next_phase);
+    CHECK(loaded.movement().navigation.goal == restored);
+    CHECK(nav_state(loaded.movement().navigation) == navigation);
+    for (uint32_t tick = 0; tick < 180; ++tick) {
+        loaded.run();
+        CHECK(loaded.movement().navigation.goal == restored);
+        CHECK(goal_state(*restored) == expected);
+        CHECK(restored->order == loaded.unit().unit->primary);
+    }
+    CHECK(loaded.movement().geometry.position[0] > saved_position[0] + 100 * pixel);
+}
+
 } // namespace
 
 int main() {
@@ -553,5 +726,8 @@ int main() {
     run("foreign goal ownership", foreign_goal_and_foreign_order_are_not_retained);
     run("excluded drivers and layers", excluded_ground_states_use_the_previous_refresh);
     run("new leg and cancellation", new_leg_and_cancellation_keep_normal_order_lifecycle);
+    run("real pending path search", a_real_pending_search_survives_only_the_continued_refresh);
+    run("native choke and patrol arrival", native_choke_crossing_and_arrival_keep_the_patrol_loop);
+    run("saved patrol continuation", saved_patrol_reuses_its_restored_owned_goal);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
