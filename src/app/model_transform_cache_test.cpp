@@ -13,10 +13,56 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
+#include <new>
 #include <span>
 #include <string_view>
 #include <utility>
+
+namespace {
+
+thread_local bool fail_next_cache_allocation{};
+thread_local size_t failed_cache_allocations{};
+
+} // namespace
+
+/// Fails one requested ordinary allocation while testing snapshot recovery.
+void* operator new(size_t bytes) {
+    if (fail_next_cache_allocation) {
+        fail_next_cache_allocation = false;
+        ++failed_cache_allocations;
+        throw std::bad_alloc{};
+    }
+    if (void* result = std::malloc(bytes == 0 ? 1 : bytes))
+        return result;
+    throw std::bad_alloc{};
+}
+
+/// Routes ordinary array allocations through the same one-shot failure.
+void* operator new[](size_t bytes) {
+    return ::operator new(bytes);
+}
+
+/// Releases ordinary allocation storage.
+void operator delete(void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases array allocation storage.
+void operator delete[](void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases sized ordinary allocation storage.
+void operator delete(void* pointer, size_t) noexcept {
+    std::free(pointer);
+}
+
+/// Releases sized array allocation storage.
+void operator delete[](void* pointer, size_t) noexcept {
+    std::free(pointer);
+}
 
 namespace {
 
@@ -429,6 +475,60 @@ void test_admission_limits_and_many_unique_poses() {
     OA_CHECK(cache.storage_bytes() <= ModelTransformCache::storage_limit);
 }
 
+void test_failed_replacement_preserves_accounting_and_active_entry() {
+    auto active = make_instance(model_with(3), 11);
+    auto previous = make_instance(model_with(2), 22);
+    auto replacement = make_instance(model_with(4), 33);
+    const RotationWords root{31, -1729, 83};
+    pose(active, 13);
+    pose(previous, -37);
+    pose(replacement, 91);
+    active.rebuild_transforms(root);
+    previous.rebuild_transforms(root);
+    replacement.rebuild_transforms(root);
+    const auto replacement_oracle = rebuilt_afresh(replacement, root);
+
+    ModelTransformCache cache;
+    cache.begin_frame();
+    cache.remember(active, root);
+    const auto active_bytes = cache.storage_bytes();
+    cache.remember(previous, root);
+    OA_CHECK(cache.storage_bytes() > active_bytes);
+    OA_CHECK(cache.counts().stores == 2);
+
+    cache.begin_frame();
+    cache.remember(active, root);
+    failed_cache_allocations = 0;
+    fail_next_cache_allocation = true;
+    bool threw = false;
+    try {
+        cache.remember(replacement, root);
+    } catch (const std::bad_alloc&) {
+        threw = true;
+    }
+    fail_next_cache_allocation = false;
+    OA_CHECK(threw && failed_cache_allocations == 1);
+    OA_CHECK(cache.storage_bytes() == active_bytes);
+    OA_CHECK(cache.counts().stores == 1);
+    OA_CHECK(cache.reuse(active, root));
+    OA_CHECK(same_transforms(active, rebuilt_afresh(active, root)));
+    check_miss(cache, previous, root);
+    check_miss(cache, replacement, root);
+
+    cache.remember(replacement, root);
+    OA_CHECK(cache.counts().stores == 2 && cache.counts().overflows == 0);
+    OA_CHECK(cache.storage_bytes() == active_bytes + replacement.transform_storage_bytes());
+    OA_CHECK(cache.storage_bytes() <= ModelTransformCache::storage_limit);
+    OA_CHECK(cache.reuse(active, root));
+    OA_CHECK(cache.reuse(replacement, root));
+    OA_CHECK(same_transforms(replacement, replacement_oracle));
+    OA_CHECK(active.owner_token() == 11 && replacement.owner_token() == 33);
+    cache.begin_frame();
+    cache.remember(previous, root);
+    OA_CHECK(cache.reuse(previous, root));
+    OA_CHECK(cache.storage_bytes() <= ModelTransformCache::storage_limit);
+}
+
 } // namespace
 
 int main() {
@@ -438,5 +538,6 @@ int main() {
     test_complete_key_and_frame_invalidation();
     test_unbuilt_and_stale_sources_fall_back();
     test_admission_limits_and_many_unique_poses();
+    test_failed_replacement_preserves_accounting_and_active_entry();
     return oa::test::check_exit_status();
 }
