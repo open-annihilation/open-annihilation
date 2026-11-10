@@ -808,26 +808,22 @@ handling. In the eight-unit native queue regression, all units cross by tick
 492 under the original 900-tick deadline; version 6 still crosses by 712.
 
 Version 7 limits the synchronous wall-follow seed of an ordinary search to
-256 steps. A truncated seed enters the existing credited search with a true
-goal threshold; it reports neither contact nor failure solely because the
-seed stopped. Map preparation and clearing remain separate costs. Earlier
-presets keep their original seed behavior.
+256 steps. A truncated seed that made strict heuristic progress can guide
+the existing credited search to a partial route while retaining the actual
+goal. Consuming that guide requests another search; only actual goal
+containment signals arrival. A seed without progress keeps a zero threshold.
+Truncation alone reports neither contact nor failure. Map preparation and
+clearing remain separate costs. Earlier presets keep their original seed behavior.
 
 The bounded shared-route poll also identifies old, motionless, non-mobile
 fallbacks for ordinary search. One of every four existing credited cursor
 picks may serve one such unit per player per scan, ordered by search age and
 unit ID. An out-of-order pick preserves the ordinary cursor. Live identity,
 generation and owned goal geometry are rechecked before dispatch, which uses
-the same search budget and lifecycle. No new saved scheduler state is added;
-ordinary searches already rebuild from saved orders on load.
-
-Mature collision recovery retains its existing motion-age test and can also
-escape after 60 ticks without a registered footprint change. This exact
-version-7 rule uses the existing saved occupancy clock, after 30 blocked
-ticks and at the existing staggered attempt. Subcell motion can qualify;
-recent cell progress cannot. Candidate counts, waiting priority, terrain
-checks and swept collision vetoes remain unchanged. The native crossing
-fixtures retain their 255, 492 and 414 tick results.
+the same search budget and lifecycle. A separate runtime pick phase survives
+the heuristic's 150-scan usage reset, so sparse picks still reach their fourth
+slot. No new saved scheduler state is added; ordinary searches already
+rebuild from saved orders on load.
 
 Built-in rally moves retain an existing, owned, nonterminal ground march,
 including a patrol's waiting phase and complete queued return leg. Idle,
