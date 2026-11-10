@@ -83,7 +83,7 @@ struct Battle {
         auto& first = fixture.spawn(enemy, bridge ? 960 : 232, bridge ? 64 : 112);
         target = first.unit_index;
         hold_fire(first);
-        auto& second = fixture.spawn(enemy, bridge ? 1000 : 232, bridge ? 208 : 224);
+        auto& second = fixture.spawn(enemy, bridge ? 976 : 232, bridge ? 208 : 224);
         replacement = second.unit_index;
         hold_fire(second);
         if (bridge) {
@@ -377,6 +377,7 @@ struct CustomSeat {
     uint16_t actor{}, target{};
     bool issued{};
 
+    /// Gives the target its command from the custom controller's claimed turn.
     static bool play(void* context, runtime::Match& match, uint8_t) {
         auto& seat = *static_cast<CustomSeat*>(context);
         seat.issued = match.issue_attack_command(seat.actor, seat.target, false, nullptr);
