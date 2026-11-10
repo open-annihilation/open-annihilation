@@ -1121,6 +1121,53 @@ outputs, but did not reproduce the earlier 15 ms cold bounds phase. No
 uninitialized-storage optimization was added. The combined pathing and
 foreground battle measurements remain a separate gate.
 
+### Partial-guide and search-service checkpoint
+
+The retained search changes keep capped partial guides and a preferred-pick
+phase that survives heuristic resets. Two later experiments were removed
+after full-battle comparisons. Allowing collision recovery from footprint age
+improved a small jitter fixture but reduced ARM rear displacement from 28.63
+to 8.31 pixels in the matched battle. The ordinary motion-age recovery gate
+remains in use.
+
+A second experiment allowed two representative fields for disconnected
+destinations in one region. Over copied terrain, it delivered safe guides to
+all 150 captured ARM cases within 130 ticks. That did not predict the full
+battle: removing only this implementation increased CORE rear displacement
+from 21.11 to 47.98 pixels and north/south bridge-band unique crossers from
+12 CORE and 1 ARM to 18 and 9. ARM rear displacement changed from 29.25 to
+22.70 pixels, so whole-battle flow remains mixed. These counts describe the
+current Core Prime Industrial Area fixture, not a verification of the earlier
+Metal Heck image or the literal water-covered centre.
+
+The retained configuration completed 9,000 ticks with 9,658 CORE and 9,741
+ARM units alive, 604 actual deaths, three ARM births and no pending deaths.
+All 61 physical audit epochs passed, and command destinations retained the
+same 12,314 original points and 7,686 repaired sites. Process CPU time was
+12.507 ms mean, 15.934 ms p99 and 30.573 ms maximum, with no ticks over
+33.333 ms. The representative-field run measured 13.516, 28.810 and 38.905
+ms respectively, with seven slow ticks. Background host workloads differed;
+this comparison does not isolate a particular helper or allocation cost.
+Both consumed the same 18,190,336 expansion and seeding credits. The field
+experiment and its new fixtures were removed; its copied-cache proof remains
+an experiment, not a whole-battle success.
+
+The discarded field candidate's normal foreground measurements were 64.138
+FPS in the classic view and 53.670 FPS in the angled view, both at 30.002
+simulation ticks per second. These were uncaptured strategic-dot overviews
+on the external 1920-by-1018 display, Full Metal with AA4, seed 7 and 10,000
+units per side, with 900 warmup and 900 measured ticks. They are not FPS
+measurements of the restored configuration.
+
+The cold terrain-index cost remains variable. Earlier normal foreground
+runs measured 55–70 ms builds, while the later field candidate measured
+13.343 ms. An exact 613,332-triangle snapshot replay used the same 72-byte
+vertex stride, axes, floating-point controls and byte-identical hot callback
+but measured about 1.9 ms for parallel bounds. No subnormal or nonfinite
+coordinates were present. This does not establish a math or allocation fix;
+GPU load, residency and scheduling were not reproduced offline. No new
+floating-point, allocation or culling policy was adopted from that result.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
