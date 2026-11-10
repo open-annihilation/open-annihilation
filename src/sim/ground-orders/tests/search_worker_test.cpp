@@ -69,7 +69,7 @@ struct ScheduledRoute {
 ///
 /// @param tick_credit path nodes a tick (SearchPlayerJobState::tick_credit)
 /// @return the published route and the scans it took
-ScheduledRoute route_at_credit(int32_t tick_credit) {
+ScheduledRoute route_at_credit(int32_t tick_credit, uint32_t seed_step_limit = 0) {
     oa::sim::unit_spawn::LegacyWorld world(3);
     auto& mover = world.unit(1);
     mover.record.type_index = 1;
@@ -100,7 +100,8 @@ ScheduledRoute route_at_credit(int32_t tick_credit) {
         Navigation* route;
         MovementMap* map;
         ScheduledRoute result;
-    } context{&mover, &route, &map, {}};
+        uint32_t seed_step_limit;
+    } context{&mover, &route, &map, {}, seed_step_limit};
 
     SearchUnitAccess access;
     access.context = &context;
@@ -108,11 +109,13 @@ ScheduledRoute route_at_credit(int32_t tick_credit) {
         auto* ctx = static_cast<Context*>(c);
         return &u == ctx->mover ? ctx->route : nullptr;
     };
-    access.prepare = [](void* c, oa::sim::simulation_state::Unit&, SearchBegin&, MovementMap*& m) {
-        place(*static_cast<Context*>(c)->mover, 2, 2);
-        m = static_cast<Context*>(c)->map;
-        return true;
-    };
+    access.prepare =
+        [](void* c, oa::sim::simulation_state::Unit&, SearchBegin& b, MovementMap*& m) {
+            place(*static_cast<Context*>(c)->mover, 2, 2);
+            b.seed_step_limit = static_cast<Context*>(c)->seed_step_limit;
+            m = static_cast<Context*>(c)->map;
+            return true;
+        };
     access.publish =
         [](void* c, oa::sim::simulation_state::Unit&, Navigation&, std::span<const RoutePoint> r) {
             auto* ctx = static_cast<Context*>(c);
@@ -135,9 +138,100 @@ ScheduledRoute route_at_credit(int32_t tick_credit) {
     } while (!scheduler.controller.idle() && context.result.scans < 1000);
     return context.result;
 }
+
+/// Continues a capped wall detour through credited slices without accepting partial progress.
+void capped_wall_detours_continue_to_the_actual_goal() {
+    for (const uint32_t limit : {128u, 256u}) {
+        GridSampler sampler;
+        sampler.width = 32;
+        sampler.height = 768;
+        sampler.cells.assign(sampler.width * sampler.height, 3);
+        for (uint32_t z = 1; z < sampler.height - 1; ++z)
+            sampler.cells[z * sampler.width + 8] = 0;
+        MovementMap map(sampler.width, sampler.height, 1, 1, sampler);
+        fill(map);
+        const std::vector<uint16_t> seen((sampler.width / 2) * (sampler.height / 2), 0xffff);
+        oa::sim::unit_spawn::LegacyWorld world(2);
+        auto& unit = world.unit(1);
+        place(unit, 7, 384);
+        Navigation navigation;
+        oa::sim::simulation_state::Order order;
+        Goal goal;
+        goal.order = &order;
+        goal.cell = {24, 384};
+        SearchBegin begin;
+        begin.seed_step_limit = limit;
+        SearchWorker worker;
+        CHECK(
+            worker.begin(make_record(unit, navigation, goal, map), begin, seen) ==
+            SearchAdvance::in_progress
+        );
+        CHECK(worker.budget() == static_cast<int32_t>(limit));
+        CHECK(worker.threshold() == 0);
+        CHECK(worker.order_flags() == 0 && order.raised_events == 0);
+        CHECK((worker.cell(7, 383).flags & search_seed_bit) != 0);
+        CHECK((worker.cell(7, 385).flags & search_seed_bit) != 0);
+        CHECK((worker.cell(24, 384).flags & search_goal_bit) != 0);
+        CHECK(worker.heuristic(7, 383) > worker.heuristic(7, 384));
+        CHECK(worker.route().empty() && !worker.exhausted());
+        SearchAdvance status = SearchAdvance::in_progress;
+        for (uint32_t slice = 0; slice < 600 && status == SearchAdvance::in_progress; ++slice) {
+            status = worker.advance_slice();
+            CHECK(worker.budget() <= search_slice_expansions);
+        }
+        CHECK(status == SearchAdvance::succeeded);
+        CHECK(worker.finish_cell() == goal.cell);
+        CHECK(!worker.route().empty());
+        CHECK(worker.route().front() == (RoutePoint{120, 6152}));
+        CHECK(worker.route().back() == (RoutePoint{392, 6152}));
+        CHECK(worker.order_flags() == 0 && order.raised_events == 0);
+    }
+}
+
+/// Allows real contact on the last credited step and keeps the uncapped route unchanged.
+void seed_caps_distinguish_the_last_goal_step_from_truncation() {
+    std::vector<RoutePoint> legacy;
+    for (const uint32_t limit : {0u, 19u, 18u, 1u}) {
+        OpenSampler sampler;
+        MovementMap map(16, 16, 1, 1, sampler);
+        fill(map);
+        oa::sim::unit_spawn::LegacyWorld world(2);
+        auto& unit = world.unit(1);
+        place(unit, 1, 1);
+        Navigation navigation;
+        oa::sim::simulation_state::Order order;
+        Goal goal;
+        goal.order = &order;
+        goal.cell = {12, 9};
+        SearchBegin begin;
+        begin.seed_step_limit = limit;
+        SearchWorker worker;
+        CHECK(
+            worker.begin(make_record(unit, navigation, goal, map), begin, all_seen) ==
+            SearchAdvance::in_progress
+        );
+        const bool truncated = limit != 0 && limit < 19;
+        CHECK(worker.budget() == static_cast<int32_t>(truncated ? limit : 19));
+        CHECK(worker.threshold() == 0);
+        const auto expected = truncated ? 0u : search_goal_contact_flag;
+        CHECK(worker.order_flags() == expected && order.raised_events == expected);
+        CHECK((worker.cell(12, 9).flags & search_goal_bit) != 0);
+        SearchAdvance status = SearchAdvance::in_progress;
+        for (uint32_t slice = 0; slice < 20 && status == SearchAdvance::in_progress; ++slice)
+            status = worker.advance_slice();
+        CHECK(status == SearchAdvance::succeeded && worker.finish_cell() == goal.cell);
+        CHECK(!worker.route().empty() && worker.route().back() == (RoutePoint{200, 152}));
+        if (limit == 0)
+            legacy = worker.route();
+        else
+            CHECK(worker.route() == legacy);
+    }
+}
 } // namespace
 
 int main() {
+    capped_wall_detours_continue_to_the_actual_goal();
+    seed_caps_distinguish_the_last_goal_step_from_truncation();
     SearchCellGrid grid;
     grid.allocate(1, 1);
     CHECK(grid.width == 1 && grid.height == 1 && grid.count == 8 && grid.cells.size() == 8);
@@ -630,6 +724,13 @@ int main() {
         CHECK(base.published == 1 && largest.published == 1);
         CHECK(base.scans > largest.scans && largest.scans <= 2);
         CHECK(!base.points.empty() && base.points == largest.points);
+        const auto capped = route_at_credit(search_tick_credit, 32);
+        const auto capped_largest =
+            route_at_credit(oa::data::limits::highest_path_search_nodes, 32);
+        CHECK(capped.published == 1 && capped_largest.published == 1);
+        CHECK(capped.scans > capped_largest.scans);
+        CHECK(!capped.points.empty() && capped.points == capped_largest.points);
+        CHECK(capped.points.back() == (RoutePoint{968, 40}));
     }
 
     {
