@@ -7010,6 +7010,14 @@ void list_ground(
         ++work.hits;
         return;
     }
+    const auto old_cache = cache;
+    const bool compare_bounds =
+        old_cache.valid && old_cache.key.revision != 0 && key.revision != 0 &&
+        old_cache.key.vertices == key.vertices && old_cache.key.card == key.card &&
+        old_cache.key.card_axes == key.card_axes &&
+        old_cache.key.float_control == key.float_control &&
+        scene.ground_index_memory[0].bounds.size() == triangles &&
+        scene.ground_index_memory[1].bounds.size() == (card_axes != nullptr ? triangles : 0);
     GroundIndexBuild* diagnostic = nullptr;
     if (bench_timers::timers.on) {
         auto& records = work.diagnostics;
@@ -7085,10 +7093,19 @@ void list_ground(
     struct BoundSummary {
         double reach{};
         bool finite{true};
+        bool same{};
+    };
+
+    const auto same_bound = [](const std::array<float, 4>& a, const std::array<float, 4>& b) {
+        for (std::size_t coordinate = 0; coordinate < a.size(); ++coordinate)
+            if (std::bit_cast<uint32_t>(a[coordinate]) != std::bit_cast<uint32_t>(b[coordinate]))
+                return false;
+        return true;
     };
 
     const auto bounds = [&](std::size_t first, std::size_t last) {
         BoundSummary result;
+        result.same = compare_bounds;
         for (std::size_t triangle = first; triangle < last; ++triangle) {
             std::array<float, 4> world{none, -none, none, -none};
             std::array<double, 4> card{none, -none, none, -none};
@@ -7096,7 +7113,7 @@ void list_ground(
                 const auto& vertex = ground[triangle * 3 + corner];
                 if (!std::isfinite(vertex.x) || !std::isfinite(vertex.z) ||
                     !std::isfinite(vertex.height))
-                    return BoundSummary{0, false};
+                    return BoundSummary{0, false, false};
                 world = {
                     std::min(world[0], vertex.x),
                     std::max(world[1], vertex.x),
@@ -7122,14 +7139,22 @@ void list_ground(
                  std::abs(double{world[2]}),
                  std::abs(double{world[3]})}
             );
+            if (result.same && !same_bound(world_bounds[triangle], world))
+                result.same = false;
             world_bounds[triangle] = world;
-            if (card_axes != nullptr)
-                card_bounds[triangle] = {
+            if (card_axes != nullptr) {
+                const std::array<float, 4> bound{
                     static_cast<float>(card[0]),
                     static_cast<float>(card[1]),
                     static_cast<float>(card[2]),
                     static_cast<float>(card[3])
                 };
+                if (result.same && (!std::isfinite(bound[0]) || !std::isfinite(bound[1]) ||
+                                    !std::isfinite(bound[2]) || !std::isfinite(bound[3]) ||
+                                    !same_bound(card_bounds[triangle], bound)))
+                    result.same = false;
+                card_bounds[triangle] = bound;
+            }
         }
         return result;
     };
@@ -7151,10 +7176,28 @@ void list_ground(
         base::float_precision::restore_float_control(previous);
     });
     double reach{};
+    bool same = compare_bounds;
     for (uint32_t band = 0; band < bands; ++band) {
         if (!summaries[band].finite)
             return;
         reach = std::max(reach, summaries[band].reach);
+        same = same && summaries[band].same;
+    }
+    // Revision labels may change without changing any triangle's index
+    // bounds. Restore only an exactly identical ordered list and reach.
+    if (same &&
+        std::bit_cast<uint64_t>(reach) == std::bit_cast<uint64_t>(old_cache.layouts[0].reach) &&
+        (card_axes == nullptr ||
+         std::bit_cast<uint64_t>(reach) == std::bit_cast<uint64_t>(old_cache.layouts[1].reach))) {
+        indices.world.emplace(world_axes, scene.ground_index_memory[0], old_cache.layouts[0]);
+        if (card_axes)
+            indices.card.emplace(*card_axes, scene.ground_index_memory[1], old_cache.layouts[1]);
+        cache.key = key;
+        cache.layouts = old_cache.layouts;
+        cache.valid = true;
+        if (diagnostic)
+            diagnostic->completed = true;
+        return;
     }
     build_time.next(diagnostic ? &diagnostic->world_nanoseconds : nullptr);
     indices.world.emplace(world_axes, scene.ground_index_memory[0], reach);
