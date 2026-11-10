@@ -318,10 +318,7 @@ class NativeBenchReceiptTest(unittest.TestCase):
     def test_ground_build_rounding_and_cache_local_first_attempts_are_valid(self):
         """Rounded phase clocks and a later cache's first attempt remain valid diagnostics."""
         text = renderer_transcript().replace(build_record(), build_record(
-            bounds_ms="0.101", world_ms="0.201", card_ms="0.300", wall_ms="0.601"))
-        self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
-        text = renderer_transcript().replace("GROUND_INDEX builds 1 hits 1 triangles 8 wall_ms 0.600",
-                                             "GROUND_INDEX builds 1 hits 1 triangles 8 wall_ms 0.601")
+            bounds_ms="0.101", world_ms="0.200", card_ms="0.300", wall_ms="0.600"))
         self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
         # The log has no Scene identity. Another frame may build a new
         # cache whose own attempt count starts from zero again.
@@ -332,6 +329,9 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 "bench: GROUND_INDEX_FRAME 0 builds 1 hits 0 triangles 8 wall_ms 0.600\n" +
                 build_record(frame=0, revision=40))
         self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+        rounded = text.replace("GROUND_INDEX builds 2 hits 1 triangles 16 wall_ms 1.200",
+                               "GROUND_INDEX builds 2 hits 1 triangles 16 wall_ms 1.201")
+        self.assertEqual(bench.check_lines(result_for(rounded), True), rounded.splitlines())
         missing_first = text.replace(build_record(frame=0, revision=40) + "\n", "")
         self.assert_rejected(result_for(missing_first), bench.check_lines, True)
 
