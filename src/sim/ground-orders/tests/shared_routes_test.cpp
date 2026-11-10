@@ -1228,7 +1228,7 @@ void fine_routes_follow_the_requested_goal_branch_after_restore() {
 /// Charges branch traversal to the shared extraction quota and resets it on the next tick.
 void fine_goal_branch_traversal_spends_the_global_quota() {
     auto grid = winding_origin_grid(16, 80, 72);
-    const FlowLimits limits{1, 2304, 2048, 1024};
+    const FlowLimits limits{1, 2304, 2048, 16'384};
     FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
     const auto unit = unit_at(40, 24);
     const auto goal = circle(80, 72);
@@ -1241,10 +1241,10 @@ void fine_goal_branch_traversal_spends_the_global_quota() {
         return uint32_t(bytes[credit_offset]) | uint32_t(bytes[credit_offset + 1]) << 8 |
                uint32_t(bytes[credit_offset + 2]) << 16 | uint32_t(bytes[credit_offset + 3]) << 24;
     };
-    bool pending = false;
+    bool pending = false, charged_ancestry = false;
     uint32_t ready = 0;
     const auto initial_probes = grid.queries;
-    for (uint32_t attempt = 0; attempt < 32; ++attempt) {
+    for (uint32_t attempt = 0; attempt < 128; ++attempt) {
         const auto credits = remaining();
         const auto probes = grid.queries;
         std::array<RoutePoint, navigation_capacity> points{};
@@ -1260,10 +1260,10 @@ void fine_goal_branch_traversal_spends_the_global_quota() {
         CHECK(result == FlowResult::ready && count >= 2);
         if (result != FlowResult::ready)
             return;
-        CHECK(credits - remaining() > grid.queries - probes);
+        charged_ancestry |= credits - remaining() > grid.queries - probes;
         ++ready;
     }
-    CHECK(ready > 0 && pending);
+    CHECK(ready > 0 && pending && charged_ancestry);
     CHECK(grid.queries - initial_probes <= limits.route_probes_per_tick);
     cache.advance(2, 0, grid.sampler());
     CHECK(query(cache, grid, unit, goal) == FlowResult::ready);
@@ -1335,6 +1335,41 @@ void fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes() {
         CHECK(points[count - 1][0] < points[0][0]);
         CHECK(points[count - 1][0] >= 96 * 16 + 8);
         CHECK(std::abs(int32_t(points[count - 1][0]) - points[0][0]) <= 64 * 16);
+        for (uint32_t i = 1; i < count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+    }
+    CHECK(cache.counters().hits == 3);
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+}
+
+/// Leaves local prefixes available when the requested branch exceeds a fresh quota.
+void fine_goal_spines_larger_than_the_quota_keep_local_prefixes() {
+    Grid grid(192, 224);
+    for (uint32_t z = 0; z < 192; ++z)
+        grid.cells[z * grid.width + 20] = 0;
+    const FlowLimits limits{1, 10'752, 2048, 128};
+    FlowCache cache(192, 224, limits, FlowPreset::fine_regions);
+    const auto unit = unit_at(100, 192);
+    const auto seed = circle(16, 16), goal = circle(24, 16);
+    CHECK(query(cache, grid, unit, seed) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit, seed) == FlowResult::pending);
+    finish(cache, grid);
+    // The root-to-goal chord costs at most nine probes, but the same tree
+    // connects them by a detour with more than 128 ancestry links. Its first
+    // 32 horizontal source edges still fit the configured shared quota.
+    for (uint32_t tick = 40; tick <= 42; ++tick) {
+        cache.advance(tick, 0, grid.sampler());
+        const auto probes = grid.queries;
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto result = cache.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(grid.queries - probes <= limits.route_probes_per_tick);
+        CHECK(result == FlowResult::ready && count >= 2);
+        if (result != FlowResult::ready || count < 2)
+            return;
+        CHECK(points[count - 1][0] < points[0][0]);
+        CHECK(points[count - 1][1] == points[0][1]);
+        CHECK(points[count - 1] != (RoutePoint{392, 264}));
         for (uint32_t i = 1; i < count; ++i)
             CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
     }
@@ -2162,6 +2197,7 @@ int main() {
     fine_goal_branch_traversal_spends_the_global_quota();
     fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines();
     fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes();
+    fine_goal_spines_larger_than_the_quota_keep_local_prefixes();
     fine_route_grid_formats_are_distinct_and_restore_atomically();
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
