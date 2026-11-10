@@ -12,9 +12,10 @@
 
 namespace oa::sim::ground_orders {
 namespace {
-constexpr uint32_t magic = 0x3246414f, original_format = 1, regional_format = 2, stride = 4;
+constexpr uint32_t magic = 0x3246414f, original_format = 1, regional_format = 2, fine_format = 3;
+constexpr uint32_t original_stride = 4, fine_stride = 2;
 constexpr uint32_t original_region = 32, large_region = 96;
-constexpr uint32_t original_prefix_edges = 128, regional_prefix_edges = 16;
+constexpr uint32_t original_prefix_edges = 128, regional_prefix_edges = 16, fine_prefix_edges = 32;
 constexpr uint32_t visible_chord_probe_limit = 128;
 constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 64;
 constexpr std::size_t metadata_size = 80, key_size = 36;
@@ -155,14 +156,16 @@ bool known_segment_clear(
 int32_t connect_anchor(
     uint32_t columns,
     uint32_t rows,
+    uint32_t stride,
     int32_t x,
     int32_t z,
     const uint8_t* key,
     const FlowSampler& sampler,
     const uint8_t* directions = nullptr
 ) noexcept {
-    const int32_t centre_x = (x + 2) / static_cast<int32_t>(stride);
-    const int32_t centre_z = (z + 2) / static_cast<int32_t>(stride);
+    const auto half_stride = static_cast<int32_t>(stride / 2);
+    const int32_t centre_x = (x + half_stride) / static_cast<int32_t>(stride);
+    const int32_t centre_z = (z + half_stride) / static_cast<int32_t>(stride);
     for (uint32_t i = 0; i < 9; ++i) {
         const int32_t cx = centre_x + (i == 0 ? 0 : dx[i - 1]);
         const int32_t cz = centre_z + (i == 0 ? 0 : dz[i - 1]);
@@ -221,8 +224,10 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
 }
 
 FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits, FlowPreset preset)
-    : width_(width), height_(height), columns_(width / stride + (width % stride != 0)),
-      rows_(height / stride + (height % stride != 0)), work_per_tick_(limits.work_per_tick),
+    : width_(width), height_(height),
+      stride_(preset == FlowPreset::fine_regions ? fine_stride : original_stride),
+      columns_(width / stride_ + (width % stride_ != 0)),
+      rows_(height / stride_ + (height % stride_ != 0)), work_per_tick_(limits.work_per_tick),
       route_probes_per_tick_(limits.route_probes_per_tick) {
     const auto count = uint64_t{columns_} * rows_;
     if (count > 0 && count <= limits.total_cells && count <= std::numeric_limits<uint32_t>::max()) {
@@ -236,20 +241,24 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits, FlowPre
     restore_marks_ = std::make_unique<uint8_t[]>(cells_);
     put32(state_.get(), magic);
     put32(
-        state_.get() + 4, preset == FlowPreset::large_regions ? regional_format : original_format
+        state_.get() + 4,
+        preset == FlowPreset::fine_regions
+            ? fine_format
+            : (preset == FlowPreset::large_regions ? regional_format : original_format)
     );
     put32(state_.get() + 8, width_);
     put32(state_.get() + 12, height_);
     put32(state_.get() + 16, fields_);
     put32(state_.get() + 20, cells_);
     put32(state_.get() + 24, work_per_tick_);
-    put32(state_.get() + 28, stride);
+    put32(state_.get() + 28, stride_);
     put32(state_.get() + 56, route_probes_per_tick_);
     put32(state_.get() + 60, route_probes_per_tick_);
 }
 
 void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sampler) noexcept {
     auto* state = state_.get();
+    const auto stride = stride_;
     const auto previous_tick = get32(state + 32);
     put32(state + 32, tick);
     if (get32(state + 36) != revision) {
@@ -337,6 +346,7 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         const auto seed = connect_anchor(
             columns_,
             rows_,
+            stride,
             static_cast<int32_t>(get32(f + 40)),
             static_cast<int32_t>(get32(f + 44)),
             f + 4,
@@ -420,6 +430,7 @@ FlowResult FlowCache::route(
 ) noexcept {
     count = 0;
     auto* state = state_.get();
+    const auto stride = stride_;
     increment(state, 0);
     const auto fallback = [&]() {
         increment(state, 7);
@@ -432,9 +443,12 @@ FlowResult FlowCache::route(
         static_cast<uint32_t>(unit.cell_x) >= width_ ||
         static_cast<uint32_t>(unit.cell_z) >= height_)
         return fallback();
-    const bool regional = get32(state + 4) == regional_format;
+    const auto format = get32(state + 4);
+    const bool regional = format != original_format;
     const auto region = regional ? large_region : original_region;
-    const auto prefix_edges = regional ? regional_prefix_edges : original_prefix_edges;
+    const auto prefix_edges = format == fine_format
+                                  ? fine_prefix_edges
+                                  : (regional ? regional_prefix_edges : original_prefix_edges);
     const auto key = make_key(context, goal, region);
     if (!valid_key(key.data()) || context.static_revision != get32(state + 36))
         return fallback();
@@ -544,8 +558,9 @@ FlowResult FlowCache::route(
     if (budget.exhausted)
         return wait();
     const auto* directions = selected + metadata_size;
-    auto node =
-        connect_anchor(columns_, rows_, unit.cell_x, unit.cell_z, key.data(), bounded, directions);
+    auto node = connect_anchor(
+        columns_, rows_, stride, unit.cell_x, unit.cell_z, key.data(), bounded, directions
+    );
     if (node < 0)
         return budget.exhausted || phase == building ? wait() : fallback();
     // Validate every coarse edge afresh: newly learned static obstacles cannot
@@ -718,7 +733,7 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
         get32(bytes.data() + 60) > route_probes_per_tick_ || get32(bytes.data() + 48) > 1 ||
         (fields_ != 0 && get32(bytes.data() + 40) >= fields_))
         return false;
-    const bool regional = get32(state_.get() + 4) == regional_format;
+    const bool regional = get32(state_.get() + 4) != original_format;
     const auto valid_region = [&](const uint8_t* key) {
         return !regional || (uint64_t{get32(key + 28)} * large_region < width_ &&
                              uint64_t{get32(key + 32)} * large_region < height_);

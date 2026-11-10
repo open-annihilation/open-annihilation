@@ -44,9 +44,9 @@ struct FlowLimits {
     uint32_t route_probes_per_tick{65'536};
 };
 
-/// Selects immutable shared-route key, prefix and blocked-field behavior.
+/// Selects immutable shared-route grid, key, prefix and blocked-field behavior.
 /// The original preset retains the version-two match behavior and format.
-enum class FlowPreset : uint8_t { original, large_regions };
+enum class FlowPreset : uint8_t { original, large_regions, fine_regions };
 
 /// A movement class and a player's knowledge of the static map.
 struct FlowContext {
@@ -78,7 +78,7 @@ struct FlowCounters {
 
 /// Shares bounded reverse fields between nearby destinations of one movement class/player.
 ///
-/// A coarse node lies every four map cells. Every connection is checked at
+/// A coarse node lies every two or four map cells. Every connection is checked at
 /// footprint-cell resolution, including diagonal corner clearance. Narrow
 /// corridors that miss the coarse graph use the ordinary search. Fields are
 /// admitted only after a second matching request. Construction/clearing work
@@ -100,7 +100,7 @@ class FlowCache {
     /// @param width map width in footprint cells
     /// @param height map height in footprint cells
     /// @param limits maximum fields, total coarse cells and work per tick
-    /// @param preset immutable key, prefix and blocked-field policy
+    /// @param preset immutable grid, key, prefix and blocked-field policy
     FlowCache(uint32_t width, uint32_t height, FlowLimits limits, FlowPreset preset);
 
     /// Clears at most 65,536 direction bytes and spends the configured expansion budget.
@@ -151,7 +151,8 @@ class FlowCache {
 
     std::unique_ptr<uint8_t[]> state_{}, restore_marks_{};
     std::size_t state_size_{};
-    uint32_t width_{}, height_{}, columns_{}, rows_{}, cells_{}, fields_{}, work_per_tick_{};
+    uint32_t width_{}, height_{}, stride_{}, columns_{}, rows_{}, cells_{}, fields_{},
+        work_per_tick_{};
     uint32_t route_probes_per_tick_{};
 };
 
