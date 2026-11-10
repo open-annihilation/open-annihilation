@@ -3513,10 +3513,16 @@ void parallel_ground_indices_readback() {
     std::array<std::vector<uint8_t>, 2> pixels{};
     std::vector<uint8_t> unlifted;
     std::string error;
-    for (uint32_t frame = 0; frame < 6; ++frame) {
+    for (uint32_t frame = 0; frame < 8; ++frame) {
         sprite.surface_effect = frame >= 3;
         if (frame == 4)
             in.view_direction = {0.5F, 1, 0.5F};
+        if (frame == 6) {
+            // The serial reference constructs fresh buckets, while only the
+            // parallel scene's retained revision label differs from its query.
+            scenes[0].ground_index_cache.valid = false;
+            ++scenes[1].ground_index_cache.key.revision;
+        }
         for (std::size_t index = 0; index < scenes.size(); ++index) {
             in.pool = index == 0 ? nullptr : &pool;
             auto& scene = scenes[index];
@@ -3526,7 +3532,7 @@ void parallel_ground_indices_readback() {
                 OA_CHECK(scene.terrain_vertex_count >= 3 * 32'768);
             if (frame < 3)
                 OA_CHECK(scene.passes.ground_indices.builds == 0);
-            else if (frame < 5)
+            else if (frame < 5 || frame == 6)
                 OA_CHECK(scene.passes.ground_indices.builds == 1);
             else
                 OA_CHECK(scene.passes.ground_indices.hits == 1);
