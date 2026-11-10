@@ -1112,6 +1112,189 @@ bool segment_avoids_blocked_cells(const Grid& grid, RoutePoint from, RoutePoint 
     return true;
 }
 
+/// Carves one winding origin corridor with no shortcuts between its lanes.
+Grid winding_origin_grid(uint32_t row_step, uint32_t right, uint32_t last_row) {
+    Grid grid(96, 96);
+    std::fill(grid.cells.begin(), grid.cells.end(), 0);
+    constexpr uint32_t first = 8;
+    for (uint32_t z = first; z <= last_row; z += row_step) {
+        for (uint32_t x = first; x <= right; ++x)
+            grid.cells[z * grid.width + x] = 1;
+        if (z != last_row) {
+            const auto join = ((z - first) / row_step) % 2 == 0 ? right : first;
+            for (uint32_t row = z; row <= z + row_step; ++row)
+                grid.cells[row * grid.width + join] = 1;
+        }
+    }
+    return grid;
+}
+
+/// Follows the requested branch instead of returning toward a different shared seed.
+void fine_routes_follow_the_requested_goal_branch_after_restore() {
+    auto grid = winding_origin_grid(16, 80, 72);
+    const FlowLimits limits{1, 2304, 2048, 65'536};
+    const auto seed = circle(8, 8), goal = circle(80, 72);
+    const auto saved_goal = goal.cell;
+    const auto start = unit_at(40, 24);
+    FlowCache legacy(96, 96, limits, FlowPreset::large_regions);
+    CHECK(query(legacy, grid, start, seed) == FlowResult::fallback);
+    CHECK(query(legacy, grid, start, seed) == FlowResult::pending);
+    legacy.advance(1, 0, grid.sampler());
+    auto old_unit = start;
+    bool old_fallback = false, old_arrived = false;
+    for (uint32_t tick = 2; tick < 12; ++tick) {
+        legacy.advance(tick, 0, grid.sampler());
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto result = legacy.route(context(), old_unit, goal, points, count, grid.sampler());
+        if (result == FlowResult::fallback) {
+            old_fallback = true;
+            break;
+        }
+        CHECK(result == FlowResult::ready && count >= 2);
+        if (result != FlowResult::ready || count < 2)
+            return;
+        old_unit = unit_at(
+            static_cast<int16_t>((points[count - 1][0] - 8) / 16),
+            static_cast<int16_t>((points[count - 1][1] - 8) / 16)
+        );
+        old_arrived = old_unit.cell_x == goal.cell[0] && old_unit.cell_z == goal.cell[1];
+        if (old_arrived)
+            break;
+    }
+    CHECK(old_fallback && !old_arrived);
+    FlowCache fine(96, 96, limits, FlowPreset::fine_regions);
+    FlowCache loaded(96, 96, limits, FlowPreset::fine_regions);
+    CHECK(query(fine, grid, start, seed) == FlowResult::fallback);
+    CHECK(query(fine, grid, start, seed) == FlowResult::pending);
+    fine.advance(1, 0, grid.sampler());
+    auto unit = start;
+    bool saved = false, arrived = false;
+    uint32_t consumed = 0;
+    for (uint32_t tick = 2; tick < 16; ++tick) {
+        fine.advance(tick, 0, grid.sampler());
+        if (saved)
+            loaded.advance(tick, 0, grid.sampler());
+        std::array<RoutePoint, navigation_capacity> points{}, resumed{};
+        uint32_t count{}, resumed_count{};
+        const auto probes = grid.queries;
+        const auto before = fine.counters();
+        const auto result = fine.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(grid.queries - probes <= limits.route_probes_per_tick);
+        CHECK(result == FlowResult::ready && count >= 2);
+        if (result != FlowResult::ready || count < 2)
+            return;
+        if (saved) {
+            CHECK(
+                loaded.route(context(), unit, goal, resumed, resumed_count, grid.sampler()) ==
+                result
+            );
+            CHECK(count == resumed_count && points == resumed);
+            CHECK(
+                std::equal(
+                    fine.state_bytes().begin(),
+                    fine.state_bytes().end(),
+                    loaded.state_bytes().begin()
+                )
+            );
+        }
+        CHECK(fine.counters().fields_started == before.fields_started);
+        CHECK(fine.counters().invalidations == before.invalidations);
+        for (uint32_t i = 1; i < count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+        if (consumed == 0) {
+            CHECK(points[count - 1][1] > 24 * 16 + 8);
+            CHECK(points[count - 1] != (RoutePoint{1288, 1160}));
+            CHECK(std::abs(int32_t(points[count - 1][0]) - points[0][0]) <= 64 * 16);
+            CHECK(std::abs(int32_t(points[count - 1][1]) - points[0][1]) <= 64 * 16);
+            CHECK(loaded.restore(fine.state_bytes()));
+            saved = true;
+        }
+        ++consumed;
+        unit = unit_at(
+            static_cast<int16_t>((points[count - 1][0] - 8) / 16),
+            static_cast<int16_t>((points[count - 1][1] - 8) / 16)
+        );
+        CHECK(goal.cell == saved_goal && goal.shape == GoalShape::circle);
+        if (unit.cell_x == goal.cell[0] && unit.cell_z == goal.cell[1]) {
+            arrived = true;
+            break;
+        }
+    }
+    CHECK(saved && arrived && consumed >= 4);
+    CHECK(fine.counters().fields_started == 1 && fine.counters().invalidations == 0);
+}
+
+/// Charges branch traversal to the shared extraction quota and resets it on the next tick.
+void fine_goal_branch_traversal_spends_the_global_quota() {
+    auto grid = winding_origin_grid(16, 80, 72);
+    const FlowLimits limits{1, 2304, 2048, 1024};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    const auto unit = unit_at(40, 24);
+    const auto goal = circle(80, 72);
+    (void)query(cache, grid, unit, circle(8, 8));
+    (void)query(cache, grid, unit, circle(8, 8));
+    cache.advance(1, 0, grid.sampler());
+    const auto remaining = [&]() {
+        constexpr size_t credit_offset = 60;
+        const auto bytes = cache.state_bytes();
+        return uint32_t(bytes[credit_offset]) | uint32_t(bytes[credit_offset + 1]) << 8 |
+               uint32_t(bytes[credit_offset + 2]) << 16 | uint32_t(bytes[credit_offset + 3]) << 24;
+    };
+    bool pending = false;
+    uint32_t ready = 0;
+    const auto initial_probes = grid.queries;
+    for (uint32_t attempt = 0; attempt < 32; ++attempt) {
+        const auto credits = remaining();
+        const auto probes = grid.queries;
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto result = cache.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(remaining() <= credits);
+        CHECK(credits - remaining() >= grid.queries - probes);
+        if (result == FlowResult::pending) {
+            CHECK(count == 0);
+            pending = true;
+            break;
+        }
+        CHECK(result == FlowResult::ready && count >= 2);
+        if (result != FlowResult::ready)
+            return;
+        CHECK(credits - remaining() > grid.queries - probes);
+        ++ready;
+    }
+    CHECK(ready > 0 && pending);
+    CHECK(grid.queries - initial_probes <= limits.route_probes_per_tick);
+    cache.advance(2, 0, grid.sampler());
+    CHECK(query(cache, grid, unit, goal) == FlowResult::ready);
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+}
+
+/// Refuses absent goal branches and bounds work on a tree deeper than its local spine.
+void fine_goal_branches_refuse_unseen_blocked_and_overlong_spines() {
+    auto grid = winding_origin_grid(16, 80, 72);
+    grid.cells[32 * grid.width + 40] = 1;
+    const auto unit = unit_at(40, 24);
+    const auto seed = circle(8, 8), isolated = circle(40, 32);
+    const FlowLimits limits{1, 2304, 2048, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    (void)query(cache, grid, unit, seed);
+    (void)query(cache, grid, unit, seed);
+    cache.advance(1, 0, grid.sampler());
+    CHECK(query(cache, grid, unit, isolated) == FlowResult::fallback);
+    grid.cells[32 * grid.width + 40] = 0;
+    CHECK(query(cache, grid, unit, isolated) == FlowResult::fallback);
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+    auto deep_grid = winding_origin_grid(4, 88, 88);
+    FlowCache deep(96, 96, limits, FlowPreset::fine_regions);
+    const auto root = unit_at(8, 8);
+    (void)query(deep, deep_grid, root, seed);
+    (void)query(deep, deep_grid, root, seed);
+    deep.advance(1, 0, deep_grid.sampler());
+    CHECK(query(deep, deep_grid, root, circle(88, 88)) == FlowResult::fallback);
+    CHECK(deep.counters().fields_started == 1 && deep.counters().invalidations == 0);
+}
+
 /// Keeps a bridge passable around static blockers between stride-four rows.
 void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
     Grid grid(160, 64);
@@ -1928,6 +2111,9 @@ int main() {
     optional_visible_chords_obey_the_per_request_cap();
     original_preset_keeps_its_state_and_guides();
     route_presets_keep_distinct_formats_and_goal_regions();
+    fine_routes_follow_the_requested_goal_branch_after_restore();
+    fine_goal_branch_traversal_spends_the_global_quota();
+    fine_goal_branches_refuse_unseen_blocked_and_overlong_spines();
     fine_route_grid_formats_are_distinct_and_restore_atomically();
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
