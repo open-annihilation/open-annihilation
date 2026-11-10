@@ -496,7 +496,15 @@ void test_enhanced_mode_sector_round_trips() {
     require(decoded && *decoded == version, "Enhanced Mode version");
     require(encoded(*result.demo) == bytes, "Enhanced Mode sector round trip");
     for (const uint32_t one :
-         {uint32_t{1}, uint32_t{2}, uint32_t{3}, uint32_t{4}, uint32_t{5}, UINT32_MAX}) {
+         {uint32_t{1},
+          uint32_t{2},
+          uint32_t{3},
+          uint32_t{4},
+          uint32_t{5},
+          uint32_t{6},
+          uint32_t{7},
+          uint32_t{8},
+          UINT32_MAX}) {
         const auto encoded_version = tad::encode_enhanced_mode_sector(one);
         const tad::Sector round_trip{
             static_cast<uint32_t>(tad::SectorType::enhanced_mode), encoded_version

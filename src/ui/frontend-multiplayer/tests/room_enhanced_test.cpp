@@ -100,7 +100,7 @@ void classic_rooms_keep_their_start_rules() {
 }
 
 void matching_machines_can_start() {
-    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u})
+    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u})
         for (bool hosting : {false, true}) {
             Room room(hosting);
             room.presence(0, record(version));
@@ -186,6 +186,24 @@ void corridor_rooms_require_their_own_version() {
             );
             room.presence(0, record(5));
             expect(mp::lobby_enhanced_allow_start(room.lobby), "matching v5 peers may start");
+        }
+}
+
+/// Keeps distributed rules separate from every earlier preset in both room roles.
+void distributed_rooms_require_their_own_version() {
+    for (const bool hosting : {false, true})
+        for (const uint32_t previous : {1u, 2u, 3u, 4u, 5u, 6u}) {
+            Room room(hosting);
+            room.presence(0, record(previous));
+            room.presence(1, record(7));
+            expect(!mp::lobby_enhanced_allow_start(room.lobby), "v7 cannot upgrade earlier peers");
+            const char* problem = mp::lobby_enhanced_start_problem(room.lobby);
+            expect(
+                problem != nullptr && std::strstr(problem, "version") != nullptr,
+                "the v7 refusal names the version"
+            );
+            room.presence(0, record(7));
+            expect(mp::lobby_enhanced_allow_start(room.lobby), "matching v7 peers may start");
         }
 }
 
@@ -288,6 +306,7 @@ int main() {
     regional_rooms_do_not_upgrade_earlier_peers();
     swept_ground_rooms_require_their_own_version();
     corridor_rooms_require_their_own_version();
+    distributed_rooms_require_their_own_version();
     guests_do_not_silently_adopt_another_mode();
     watchers_agree_and_computers_use_their_machine();
     the_host_checks_every_machine_and_guests_check_the_host();
