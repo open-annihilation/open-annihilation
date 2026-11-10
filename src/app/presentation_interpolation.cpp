@@ -359,9 +359,7 @@ bool capture_and_compare_pose(
         captured = {pieces[index].translation, pieces[index].rotation, {}};
         const std::size_t at = index * 3;
         if (at + 2 < piece_turns.size()) {
-            captured.turn_per_tick = {
-                piece_turns[at], piece_turns[at + 1], piece_turns[at + 2]
-            };
+            captured.turn_per_tick = {piece_turns[at], piece_turns[at + 1], piece_turns[at + 2]};
         }
         if (compare && !changed)
             changed = !same_piece_pose(previous->pieces[index], captured);
@@ -478,8 +476,8 @@ void observe_unit(
     );
     motion.tick = tick;
     motion.continued = follows && pose_continues(motion.previous, motion.current);
-    motion.moved = motion.continued &&
-                   (!same_unit_root(motion.previous, motion.current) || pieces_changed);
+    motion.moved =
+        motion.continued && (!same_unit_root(motion.previous, motion.current) || pieces_changed);
     motion.pieces_moved = follows && pieces_changed;
 }
 
