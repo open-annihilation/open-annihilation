@@ -3459,6 +3459,109 @@ void frame_effect_material_readback() {
     OA_CHECK(reused_ground_index);
 }
 
+/// Cold parallel ground bounds preserve clipped surface effects on the real card.
+void parallel_ground_indices_readback() {
+    namespace live = oa::app::renderer_live_scene;
+    constexpr uint32_t target = 128, tiles = 96, cells = tiles * 2;
+    constexpr int32_t extent = tiles * 32, centre = extent / 2, fixed = 65536;
+    constexpr float scale = static_cast<float>(target) / extent;
+    oa::formats::tnt::Map map{};
+    map.attribute_width = map.attribute_height = cells;
+    map.tile_width = map.tile_height = tiles;
+    map.tile_count = 1;
+    map.attributes.resize(cells * cells);
+    for (uint32_t z = 0; z < cells; ++z)
+        for (uint32_t x = 0; x < cells; ++x)
+            map.attributes[z * cells + x].height = static_cast<uint8_t>(((x + z) & 1U) * 32);
+    map.tile_indices.assign(tiles * tiles, 0);
+    map.tile_palette_indices.assign(32 * 32, 1);
+    oa::PaletteBytes palette{};
+    const std::array<uint8_t, 3> ground{40, 60, 80}, effect{240, 90, 20};
+    std::copy(ground.begin(), ground.end(), palette.begin() + oa::palette_entry_bytes);
+    std::copy(effect.begin(), effect.end(), palette.begin() + 2 * oa::palette_entry_bytes);
+    oa::formats::gaf::RenderedFrame art{};
+    art.width = 256;
+    art.height = 512;
+    art.origin_x = 128;
+    art.origin_y = 384;
+    art.pixels.assign(256 * 512, 2);
+    art.coverage.assign(256 * 512, 1);
+    for (uint32_t z = 0; z < art.height; ++z)
+        for (uint32_t x = 0; x < art.width; ++x)
+            art.coverage[z * art.width + x] = static_cast<uint8_t>(
+                x > 8 && x + 8 < art.width && z > 8 && z + 8 < art.height && (x + z) % 11 != 0
+            );
+    oa::app::WorldDrawList draws{};
+    draws.sprites.push_back({&art, {centre, centre}});
+    auto& sprite = draws.sprites[0];
+    sprite.world_position = oa::FixedVec3{centre * fixed, 0, centre * fixed};
+    sprite.soft_effect = true;
+    sprite.effect_opacity = 0.7F;
+    draws.draws.push_back({oa::app::WorldDrawKind::blended_sprite, 0});
+    live::Inputs in{};
+    in.map = &map;
+    in.palette = &palette;
+    in.draws = &draws;
+    in.right = in.bottom = extent;
+    in.clip_width = in.clip_height = target;
+    in.clip_projection = {scale, 0, 0, 0, 0, -0.5F * scale, scale, 0, 0, 1, 0, 0};
+    in.view_direction = {0, 1, 0.5F};
+    in.sight.mapping = in.sight.line_of_sight = false;
+    oa::platform::job_pool::Pool pool{4};
+    std::array<live::Scene, 2> scenes{};
+    std::array<Context, 2> contexts{};
+    std::array<std::vector<uint8_t>, 2> pixels{};
+    std::vector<uint8_t> unlifted;
+    std::string error;
+    for (uint32_t frame = 0; frame < 6; ++frame) {
+        sprite.surface_effect = frame >= 3;
+        if (frame == 4)
+            in.view_direction = {0.5F, 1, 0.5F};
+        for (std::size_t index = 0; index < scenes.size(); ++index) {
+            in.pool = index == 0 ? nullptr : &pool;
+            auto& scene = scenes[index];
+            OA_CHECK(live::build(in, scene, error));
+            OA_CHECK(error.empty());
+            if (frame >= 2)
+                OA_CHECK(scene.terrain_vertex_count >= 3 * 32'768);
+            if (frame < 3)
+                OA_CHECK(scene.passes.ground_indices.builds == 0);
+            else if (frame < 5)
+                OA_CHECK(scene.passes.ground_indices.builds == 1);
+            else
+                OA_CHECK(scene.passes.ground_indices.hits == 1);
+            const auto result = render(
+                contexts[index],
+                scene.vertices,
+                scene.texture_rgba,
+                scene.texture_width,
+                scene.texture_height,
+                scene.texture_revision,
+                target,
+                target,
+                in.clip_projection,
+                pixels[index],
+                error,
+                2,
+                &scene.atlas_update,
+                &in.water,
+                &scene.card_ground
+            );
+            OA_CHECK(result == Result::success);
+            if (result != Result::success) {
+                std::fprintf(stderr, "parallel ground-index GPU readback: %s\n", error.c_str());
+                return;
+            }
+        }
+        OA_CHECK(pixels[0] == pixels[1]);
+        OA_CHECK(pixels[0].size() == target * target * channels);
+        if (frame == 2)
+            unlifted = pixels[0];
+        if (frame == 3)
+            OA_CHECK(pixels[0] != unlifted);
+    }
+}
+
 /// Four-thread strategic-marker bands preserve every pixel of the serial draw.
 void strategic_marker_bands_readback() {
     namespace live_scene = oa::app::renderer_live_scene;
@@ -3765,6 +3868,7 @@ int main() {
         card_shadows();
         scene_marker_readback();
         frame_effect_material_readback();
+        parallel_ground_indices_readback();
         large_marker_scene_readback();
         strategic_marker_bands_readback();
     }
