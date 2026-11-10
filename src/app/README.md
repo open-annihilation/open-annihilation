@@ -6025,7 +6025,8 @@ left alone, one that holds no packet is dropped, a replay's stream with no
 readable description is kept as `<name>.part.failed` and never put in
 `Recordings`, and a stream the disk would not read or write is left for a later
 start. A finished file takes the next free name rather than replace one
-(`place_file`). No recording holds a player's
+(`place_file`); on another volume it is copied with the permissions of any new file and none of the
+original's, and a copy that fails leaves no file. No recording holds a player's
 network address: the `.tad` is written with no sector 6. An extension built
 on network play says what it knows of a game it launched through
 `extension_api::Hooks::recorded_game`, which fills the replay's `game.kind` and

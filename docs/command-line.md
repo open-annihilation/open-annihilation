@@ -604,7 +604,10 @@ open-annihilation --skip-intro --mute --hardware-acceleration=full --resolution 
 ```
 
 The frame bench measures the game drawing a battle the same way on every
-build. It plays in the game's window, on the application's own loop, its
+build. It brings the game's window to the front and makes the game the
+active program, as a player opening it does, so that a game started
+from a shell or a test runner is not measured behind another program's
+windows. It plays in the game's window, on the application's own loop, its
 frames paced and presented as a player's are, in place of a player: the main
 menu, SINGLE, SKIRMISH and START, so the skirmish is the one the
 preferences set up (its map, sides and rules), with the view file's

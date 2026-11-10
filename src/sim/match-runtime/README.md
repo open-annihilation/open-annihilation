@@ -706,6 +706,11 @@ wind, both random streams, the squads, wrecks, rule-state tables and the
 campaign conditions. The sections and the writer and reader that make them
 are in `oa/sim/match_runtime/keyframe.hpp`; `docs/replays.md` lists every
 member of the match and says whether a keyframe keeps it, and why not.
+Records that are made on the stack and then copied in (a player's sighting
+counts and seen units, a wreck, a binding's movement record) are written with
+the bytes between their fields zero (`oa/sim/match_runtime/keyframe_padding.hpp`):
+as padding those bytes hold what the stack held, so two images of one state
+would differ there.
 
 A match that holds an order, a computer player, a radar picture kept for a
 player, or a unit or aircraft steered on this machine is refused with a

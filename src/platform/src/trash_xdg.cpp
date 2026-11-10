@@ -8,6 +8,7 @@
 
 #include "oa/platform/trash.hpp"
 
+#include "oa/platform/file_copy.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/system.hpp"
 
@@ -233,10 +234,24 @@ TrashMove move_to_trash(const std::filesystem::path& file) {
         failure.clear();
         fs::rename(file, destination, failure);
         if (failure == std::errc::cross_device_link) {
-            failure.clear();
-            fs::copy_file(file, destination, fs::copy_options::overwrite_existing, failure);
-            if (!failure)
+            // The claimed name is written into, so that it stays claimed to the end. A copy that
+            // fails removes it, and the claim with it.
+            failure = copy_file_contents(file, destination, CopyOnto::replace);
+            if (!failure) {
+                // The trashed file keeps the original's permissions where the trash's volume
+                // lets it, so that it comes back as it was; a volume that refuses them has
+                // taken the bytes all the same.
+                std::error_code permission_error;
+                const fs::perms kept_permissions = fs::status(file, permission_error).permissions();
+                if (!permission_error)
+                    fs::permissions(
+                        destination,
+                        kept_permissions & fs::perms::all,
+                        fs::perm_options::replace,
+                        permission_error
+                    );
                 fs::remove(file, failure);
+            }
         }
         if (failure) {
             drop_claim();

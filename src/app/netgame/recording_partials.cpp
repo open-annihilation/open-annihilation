@@ -6,6 +6,7 @@
 #include "oa/app/user_folder.hpp"
 #include "oa/data/saves/content_record.hpp"
 #include "oa/platform/files.hpp"
+#include "oa/session/demo/place_file.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -14,6 +15,7 @@
 #include <iterator>
 #include <string>
 #include <system_error>
+#include <tuple>
 #include <utility>
 
 namespace oa::app {
@@ -94,23 +96,6 @@ bool read_whole(const fs::path& path, std::vector<uint8_t>& bytes) {
         return false;
     bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     return !in.bad();
-}
-
-/// Puts a file where it goes, replacing what is there.
-///
-/// @param from the file
-/// @param to where it goes
-void move_replacing(const fs::path& from, const fs::path& to) {
-    std::error_code failure;
-    fs::remove(to, failure);
-    failure.clear();
-    fs::rename(from, to, failure);
-    if (!failure)
-        return;
-    failure.clear();
-    fs::copy_file(from, to, fs::copy_options::overwrite_existing, failure);
-    if (!failure)
-        fs::remove(from, failure);
 }
 
 /// Removes the files of a recording that is finished or dropped, the lock file apart.
@@ -254,7 +239,11 @@ demo::FinishResult finish_partial(const PartialFinish& finish) {
     if (fs::exists(finish.files.note, failure)) {
         fs::path note = result.placed;
         note += fs::path(std::string(oa::data::saves::content_note_suffix));
-        move_replacing(finish.files.note, note);
+        // The note goes beside the recording, which may be on another volume. One that cannot be
+        // placed is dropped with the recording's other files: the recording stands without it.
+        fs::path placed_note;
+        std::string refused;
+        std::ignore = demo::place_file(finish.files.note, note, true, placed_note, refused);
     }
     remove_files(finish.files);
     return result;

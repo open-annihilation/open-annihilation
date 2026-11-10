@@ -6,6 +6,7 @@
 #include "oa/core/world_image.hpp"
 #include "oa/formats/cob.hpp"
 #include "oa/sim/match_runtime.hpp"
+#include "oa/sim/match_runtime/keyframe_padding.hpp"
 #include "oa/sim/match_runtime/spawn_bridge.hpp"
 #include "oa/sim/script_state.hpp"
 
@@ -343,13 +344,51 @@ struct GroundRecord {
 static_assert(std::is_trivially_copyable_v<GroundRecord>);
 
 /// The mirrored sightings of a player as stored: the counts that matter and the lists' fronts.
+///
+/// The record is made on the stack, so it spells out its last bytes: as padding they held what the
+/// stack held, and two images of the same state differed there.
 struct SightingCounts {
     uint32_t seen{};
     uint32_t radar{};
     uint32_t pads{};
     uint32_t refreshed_tick{};
     uint8_t radar_fallback{};
+    std::array<uint8_t, 3> unused{};
 };
+
+static_assert(std::has_unique_object_representations_v<SightingCounts>);
+
+// The bytes between a seen unit's slot and its generation, written zero (write_records).
+using sim::detection::SightedUnit;
+static_assert(offsetof(SightedUnit, unit) == 0);
+static_assert(
+    sizeof(SightedUnit) == offsetof(SightedUnit, generation) + sizeof(SightedUnit::generation)
+);
+constexpr std::array<keyframe::Padding, 1> sighted_padding{{
+    {sizeof(SightedUnit::unit), offsetof(SightedUnit, generation) - sizeof(SightedUnit::unit)},
+}};
+static_assert(
+    sizeof(SightedUnit::unit) + sizeof(SightedUnit::generation) +
+        keyframe::padding_bytes(sighted_padding) ==
+    sizeof(SightedUnit)
+);
+
+// The bytes after a wreck's feature and after its pitch, written zero: a wreck is made on the
+// stack and copied into the list. Its fields and this padding fill it; a field added to a wreck
+// goes in the sum below.
+using Wreck = Match::Wreck;
+constexpr std::array<keyframe::Padding, 2> wreck_padding{{
+    {offsetof(Wreck, feature) + sizeof(Wreck::feature),
+     offsetof(Wreck, position) - offsetof(Wreck, feature) - sizeof(Wreck::feature)},
+    {offsetof(Wreck, pitch) + sizeof(Wreck::pitch),
+     offsetof(Wreck, cell_x) - offsetof(Wreck, pitch) - sizeof(Wreck::pitch)},
+}};
+static_assert(
+    sizeof(Wreck::feature) + sizeof(Wreck::position) + sizeof(Wreck::bank) + sizeof(Wreck::yaw) +
+        sizeof(Wreck::pitch) + sizeof(Wreck::cell_x) + sizeof(Wreck::cell_z) +
+        keyframe::padding_bytes(wreck_padding) ==
+    sizeof(Wreck)
+);
 
 /// A run of bytes of the game record that a keyframe does not carry: what the player's own
 /// settings and the clock write there, and no tick of a replay reads.
@@ -610,7 +649,12 @@ const char* KeyframeAccess::write(const Match& match, keyframe::Writer* out) {
     out->value(match.spatial_.tick);
     out->value(match.spatial_.fill_round);
     out->value(match.spatial_.last_filled);
-    out->list(std::span<const Match::Wreck>(match.wrecks_));
+    out->value(static_cast<uint32_t>(match.wrecks_.size()));
+    keyframe::write_records(
+        out,
+        std::span<const Wreck>(match.wrecks_),
+        std::span<const keyframe::Padding>(wreck_padding)
+    );
     for (const auto& player_groups : match.groups_) {
         out->value(static_cast<uint32_t>(player_groups.size()));
         for (const auto& [group, members] : player_groups) {
@@ -625,16 +669,20 @@ const char* KeyframeAccess::write(const Match& match, keyframe::Writer* out) {
             list.radar_count,
             list.pad_count,
             list.refreshed_tick,
-            list.radar_fallback
+            list.radar_fallback,
+            {}
         };
         out->value(counts);
         out->bytes(list.seen, counts.seen * sizeof(uint16_t));
         out->bytes(list.radar, counts.radar * sizeof(uint16_t));
         out->bytes(list.pads, counts.pads * sizeof(uint16_t));
         out->value(match.seen_before_count_[player]);
-        out->bytes(
-            match.seen_before_[player].get(),
-            match.seen_before_count_[player] * sizeof(sim::detection::SightedUnit)
+        keyframe::write_records(
+            out,
+            std::span<const SightedUnit>(
+                match.seen_before_[player].get(), match.seen_before_count_[player]
+            ),
+            std::span<const keyframe::Padding>(sighted_padding)
         );
     }
     out->value(static_cast<uint8_t>(match.rule_state_.count));

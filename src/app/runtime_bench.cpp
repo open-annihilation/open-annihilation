@@ -23,6 +23,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -177,6 +178,12 @@ bool Runtime::bench_ignores_event(const SDL_Event& event) const {
 void Runtime::play_bench() {
     if (sdl_.window == nullptr || sdl_.renderer == nullptr)
         fail("needs the game's window");
+    // The bench measures the window a player looks at, so it brings it to
+    // the front. On macOS 14 and later a game started from a shell or a test
+    // runner is not made the active program, and its window opens behind the
+    // front program's windows. There a covered window gets its next drawable
+    // back about once a second, and the frame waiting for it takes a second.
+    std::ignore = SDL_RaiseWindow(sdl_.window);
     bench::View view;
     if (std::string error; !bench::read_view(options_.bench_file, view, error))
         fail(error);
@@ -319,7 +326,9 @@ void Runtime::play_bench() {
              ms((phase_times_.upload - phases.upload) + (phase_times_.present - phases.present))}
         );
         previous = finished;
-        if (window_away())
+        // A window that never had the focus lost none, so the focus is read
+        // from the window itself.
+        if (window_away() || (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_INPUT_FOCUS) == 0)
             ++away_frames;
         const uint32_t span_ticks = match_timing_.tick - first_tick;
         if (!shot && (view.shot_ticks != 0 ? span_ticks >= view.shot_ticks

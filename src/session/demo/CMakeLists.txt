@@ -4,8 +4,8 @@
 # TA Demo (.tad) playback through the match's network receive path, and the
 # recording of a network game: its stream on disk and its replay (.oademo).
 add_library(oa-session-demo src/demo_clock.cpp src/demo_keyframe.cpp src/demo_playback.cpp
-  src/demo_recording.cpp src/demo_summary.cpp src/imported_recording.cpp src/recording_stream.cpp
-  src/replay_record.cpp)
+  src/demo_recording.cpp src/demo_summary.cpp src/imported_recording.cpp src/place_file.cpp
+  src/recording_stream.cpp src/replay_record.cpp)
 add_library(oa::session::demo ALIAS oa-session-demo)
 target_include_directories(oa-session-demo PUBLIC include)
 target_compile_features(oa-session-demo PUBLIC cxx_std_20)
@@ -13,7 +13,7 @@ target_link_libraries(oa-session-demo
   PUBLIC oa-formats-tad oa-formats-oademo oa-base-threads oa-netgame-match-runtime oa-netgame
     oa-ui-frontend-multiplayer
   PRIVATE oa-base-text oa-base-sha256 oa-base-zstd oa-options oa-formats-sqsh oa-data-mutators
-    oa-data-brain-library oa-present)
+    oa-data-brain-library oa-present oa-platform-shims)
 
 if(BUILD_TESTING)
   add_executable(oa-session-demo-test tests/demo_playback_test.cpp)
@@ -25,4 +25,10 @@ if(BUILD_TESTING)
   target_link_libraries(oa-session-demo-clock PRIVATE oa-session-demo)
   add_test(NAME session-demo-clock COMMAND oa-session-demo-clock)
   set_tests_properties(session-demo-clock PROPERTIES TIMEOUT 30)
+  # Putting a finished recording where it goes with the rename and the link refused, as across
+  # volumes: the copy that takes their place, the next free name, and a copy that fails.
+  add_executable(oa-session-demo-place-file tests/place_file_test.cpp)
+  target_link_libraries(oa-session-demo-place-file PRIVATE oa-session-demo oa-test-support)
+  add_test(NAME demo-place-file COMMAND oa-session-demo-place-file)
+  set_tests_properties(demo-place-file PROPERTIES TIMEOUT 30)
 endif()

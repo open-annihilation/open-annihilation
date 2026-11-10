@@ -8,6 +8,7 @@
 #include "oa/data/brain_library/seats.hpp"
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/formats/tad.hpp"
+#include "oa/session/demo/place_file.hpp"
 
 #include <algorithm>
 #include <array>
@@ -104,96 +105,6 @@ bool write_file(const fs::path& path, std::span<const uint8_t> bytes) {
         );
     out.flush();
     return static_cast<bool>(out);
-}
-
-/// Names the nth file of a name: the name itself for the first, then the stem with " (2)", " (3)"
-/// and so on before the extension.
-///
-/// @param to the name wanted
-/// @param copy 1 for the name itself
-/// @return the path
-fs::path numbered(const fs::path& to, int copy) {
-    if (copy <= 1)
-        return to;
-    fs::path stem = to.stem();
-    stem += " (" + std::to_string(copy) + ")";
-    stem += to.extension();
-    return to.parent_path() / stem;
-}
-
-/// Puts a finished file where it goes.
-///
-/// A file on another volume is copied and the original removed. With `replace`, an existing file
-/// is replaced. Without it nothing is replaced: the file takes the first name free, `to` itself or
-/// with " (2)", " (3)" and so on before its extension, and is made there exclusively where the
-/// file system can link a file, so that two copies of the game finishing at once never take one
-/// name.
-///
-/// @param from the finished file
-/// @param to where it goes
-/// @param replace whether a file that is there is replaced
-/// @param[out] placed where it went
-/// @param[out] error why it could not be placed
-/// @return false when it could not
-bool place_file(
-    const fs::path& from, const fs::path& to, bool replace, fs::path& placed, std::string& error
-) {
-    std::error_code failure;
-    fs::create_directories(to.parent_path(), failure);
-    failure.clear();
-    if (replace) {
-        fs::remove(to, failure);
-        failure.clear();
-        fs::rename(from, to, failure);
-        if (!failure) {
-            placed = to;
-            return true;
-        }
-        failure.clear();
-        fs::copy_file(from, to, fs::copy_options::overwrite_existing, failure);
-        if (failure) {
-            error = "the file cannot be moved into place: " + failure.message();
-            return false;
-        }
-        fs::remove(from, failure);
-        placed = to;
-        return true;
-    }
-    for (int copy = 1; copy < 10000; ++copy) {
-        const fs::path candidate = numbered(to, copy);
-        std::error_code exists_error;
-        if (fs::exists(candidate, exists_error))
-            continue;
-        // A link is made only where the name is free, whoever else is making it.
-        fs::create_hard_link(from, candidate, failure);
-        if (!failure) {
-            fs::remove(from, failure);
-            placed = candidate;
-            return true;
-        }
-        if (failure == std::errc::file_exists)
-            continue;
-        // A file system with no links: move it, as far as that can be told to be free.
-        failure.clear();
-        fs::rename(from, candidate, failure);
-        if (!failure) {
-            placed = candidate;
-            return true;
-        }
-        failure.clear();
-        fs::copy_file(from, candidate, fs::copy_options::none, failure);
-        if (!failure) {
-            fs::remove(from, failure);
-            placed = candidate;
-            return true;
-        }
-        if (failure == std::errc::file_exists)
-            continue;
-        error = "the file cannot be moved into place: " + failure.message();
-        return false;
-    }
-    error = "no name for the file is free";
-    return false;
 }
 
 /// The file a finished file is written to, beside its stream, before it is placed.

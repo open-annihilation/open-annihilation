@@ -1390,12 +1390,8 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
                     first = stop.id;
                     break;
                 }
-                if (first < 0) {
-                    for (const SeatButton& button : laid.buttons) {
-                        first = button.slot;
-                        break;
-                    }
-                }
+                if (first < 0 && !laid.buttons.empty())
+                    first = laid.buttons.front().slot;
                 if (first >= 0) {
                     focused_slot_ = first;
                     focus_ring_ = runtime_.oa_layer().always_show_focus();

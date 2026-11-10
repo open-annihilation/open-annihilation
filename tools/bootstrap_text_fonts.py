@@ -110,7 +110,9 @@ FREETYPE_INSTALLED = "lib/cmake/freetype/freetype-config.cmake"
 # HarfBuzz shapes Bengali and Devanagari. FreeType stays built without it
 # (FT_DISABLE_HARFBUZZ above), so the faces that are not shaped keep the
 # advances they have today. Core Text is off so a Mac does not shape
-# differently from the other platforms.
+# differently from the other platforms. tools/text-fonts/
+# harfbuzz_build_options.cmake, read after its project() call, lets the
+# release build link into a Debug program.
 HARFBUZZ_VERSION = "15.1.0"
 HARFBUZZ_SHA256 = "0fc7c565443a5f4be7da65ac5ee5bd737d9b158dc908708b7689a0a5796b0c8d"
 HARFBUZZ_URL = (
@@ -138,6 +140,7 @@ HARFBUZZ_OPTIONS = [
     "-DHB_BUILD_RASTER=OFF",
     "-DHB_BUILD_VECTOR=OFF",
     "-DHB_BUILD_GPU=OFF",
+    f"-DCMAKE_PROJECT_INCLUDE={(ROOT / 'tools' / 'text-fonts' / 'harfbuzz_build_options.cmake').as_posix()}",
 ]
 # What a HarfBuzz install prefix holds once complete.
 HARFBUZZ_INSTALLED = "lib/cmake/harfbuzz/harfbuzzConfig.cmake"

@@ -5,7 +5,7 @@
 # file/log streams, the log folder, the machine the game runs on and the
 # system's memory.
 add_library(oa-platform-shims src/allocator.cpp src/crash.cpp src/dataless.cpp src/files.cpp
-  src/file_clone.cpp src/lock.cpp src/log_files.cpp
+  src/file_clone.cpp src/file_copy.cpp src/lock.cpp src/log_files.cpp
   src/machine.cpp src/memory_status.cpp src/perf.cpp src/system.cpp src/system_memory.cpp)
 add_library(oa::platform::shims ALIAS oa-platform-shims)
 target_include_directories(oa-platform-shims PUBLIC include)
@@ -50,6 +50,13 @@ if(BUILD_TESTING)
   target_link_libraries(oa-platform-replace-file-test PRIVATE oa-platform-shims oa-test-support)
   add_test(NAME platform-replace-file COMMAND oa-platform-replace-file-test)
   set_tests_properties(platform-replace-file PROPERTIES TIMEOUT 30)
+  # Copying a file's bytes into a new file, as a move across volumes does: the
+  # bytes and a readable file come through, a taken name is kept or replaced as
+  # asked, and a copy that fails leaves no file.
+  add_executable(oa-platform-file-copy-test tests/file_copy_test.cpp)
+  target_link_libraries(oa-platform-file-copy-test PRIVATE oa-platform-shims oa-test-support)
+  add_test(NAME platform-file-copy COMMAND oa-platform-file-copy-test)
+  set_tests_properties(platform-file-copy PROPERTIES TIMEOUT 30)
   # A path's UTF-8 spelling and the path a spelling names: UTF-16 and UTF-8
   # both ways, text that is not UTF-8, and a folder whose names no one code
   # page holds, listed, opened and replaced.

@@ -5,8 +5,10 @@
 
 #include "oa/base/zstd/zstd.hpp"
 #include "oa/core/unit.h"
+#include "oa/sim/match_runtime/keyframe_padding.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -73,6 +75,50 @@ void difference_from(uint8_t* data, const uint8_t* base, std::size_t size) {
 
 static_assert(std::is_trivially_copyable_v<netgame::match::PacketLayer>);
 static_assert(std::is_trivially_copyable_v<netgame::MovementRecord>);
+
+// The bytes of a binding's movement record that no field holds, written zero: a record is reset
+// from one made on the stack, and an aircraft's goal is copied from a received delta, so they
+// hold what the stack held there. Its fields and this padding fill it; a field added to the
+// record goes in the sum below.
+using netgame::AirDriver;
+using netgame::AirSeekGoal;
+using netgame::AirTargetGoal;
+using netgame::GroundDriver;
+using netgame::MovementRecord;
+constexpr std::size_t ground_at = offsetof(MovementRecord, ground);
+constexpr std::size_t air_at = offsetof(MovementRecord, air);
+constexpr std::size_t target_at = air_at + offsetof(AirDriver, target);
+constexpr std::size_t seek_at = air_at + offsetof(AirDriver, seek);
+constexpr std::array<keyframe::Padding, 6> movement_padding{{
+    {offsetof(MovementRecord, flags) + sizeof(MovementRecord::flags),
+     offsetof(MovementRecord, speed) - offsetof(MovementRecord, flags) -
+         sizeof(MovementRecord::flags)},
+    {ground_at + offsetof(GroundDriver, flags) + sizeof(GroundDriver::flags),
+     offsetof(GroundDriver, path_count) - offsetof(GroundDriver, flags) -
+         sizeof(GroundDriver::flags)},
+    {air_at + offsetof(AirDriver, goal_kind) + sizeof(AirDriver::goal_kind),
+     offsetof(AirDriver, target) - offsetof(AirDriver, goal_kind) - sizeof(AirDriver::goal_kind)},
+    {target_at + offsetof(AirTargetGoal, flags) + sizeof(AirTargetGoal::flags),
+     offsetof(AirTargetGoal, query_point) - offsetof(AirTargetGoal, flags) -
+         sizeof(AirTargetGoal::flags)},
+    {seek_at + offsetof(AirSeekGoal, flag) + sizeof(AirSeekGoal::flag),
+     offsetof(AirSeekGoal, point) - offsetof(AirSeekGoal, flag) - sizeof(AirSeekGoal::flag)},
+    {seek_at + offsetof(AirSeekGoal, heading) + sizeof(AirSeekGoal::heading),
+     sizeof(AirSeekGoal) - offsetof(AirSeekGoal, heading) - sizeof(AirSeekGoal::heading)},
+}};
+static_assert(
+    sizeof(MovementRecord::driver) + sizeof(MovementRecord::remote_driver) +
+        sizeof(MovementRecord::flags) + sizeof(MovementRecord::speed) +
+        sizeof(GroundDriver::flags) + sizeof(GroundDriver::path_count) +
+        sizeof(GroundDriver::path) + sizeof(AirDriver::flags) + sizeof(AirDriver::goal_kind) +
+        sizeof(AirTargetGoal::flags) + sizeof(AirTargetGoal::query_point) +
+        sizeof(AirTargetGoal::target_unit) + sizeof(AirTargetGoal::arrival_radius) +
+        sizeof(AirTargetGoal::altitude) + sizeof(AirTargetGoal::bearing) +
+        sizeof(AirTargetGoal::position) + sizeof(AirSeekGoal::flag) + sizeof(AirSeekGoal::point) +
+        sizeof(AirSeekGoal::step) + sizeof(AirSeekGoal::heading) +
+        keyframe::padding_bytes(movement_padding) ==
+    sizeof(MovementRecord)
+);
 static_assert(std::is_trivially_copyable_v<PlaybackStats>);
 static_assert(std::is_trivially_copyable_v<FullRecordStats>);
 static_assert(std::is_trivially_copyable_v<FullRecordSample>);
@@ -91,9 +137,10 @@ bool write_session(DemoSession* session, keyframe::Writer* out, std::string* ref
     out->begin("net.packets", true);
     out->bytes(packets, sizeof *packets);
     out->begin("net.binding", true);
-    out->bytes(
-        session->binding.movement.data(),
-        session->binding.movement.size() * sizeof(netgame::MovementRecord)
+    keyframe::write_records(
+        out,
+        std::span<const MovementRecord>(session->binding.movement),
+        std::span<const keyframe::Padding>(movement_padding)
     );
     out->begin("demo.slots", true);
     out->bytes(session->placed_type.data(), session->placed_type.size() * sizeof(uint16_t));

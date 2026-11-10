@@ -7,9 +7,12 @@
 #include "combat_fixture.hpp"
 
 #include "oa/sim/match_runtime/keyframe.hpp"
+#include "oa/sim/match_runtime/keyframe_padding.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <iostream>
 #include <span>
@@ -96,6 +99,53 @@ void an_omitted_section_is_absent() {
     CHECK(!in.begin("units", true) && in.ok());
     CHECK(in.begin("rest") && in.value(&value) && value == 2);
     CHECK(in.finish());
+}
+
+/// Records written with their padding named are written with it zero, whatever it held, and their
+/// fields as they were: two records with the same fields are the same bytes.
+void records_are_written_without_their_padding() {
+    struct Padded {
+        uint8_t kind{};
+        uint32_t count{};
+        uint16_t slot{};
+    };
+
+    static_assert(sizeof(Padded) == 12);
+    constexpr std::array<keyframe::Padding, 2> padding{{
+        {offsetof(Padded, kind) + sizeof(Padded::kind),
+         offsetof(Padded, count) - offsetof(Padded, kind) - sizeof(Padded::kind)},
+        {offsetof(Padded, slot) + sizeof(Padded::slot),
+         sizeof(Padded) - offsetof(Padded, slot) - sizeof(Padded::slot)},
+    }};
+    static_assert(
+        sizeof(Padded::kind) + sizeof(Padded::count) + sizeof(Padded::slot) +
+            keyframe::padding_bytes(padding) ==
+        sizeof(Padded)
+    );
+    std::array<Padded, 2> held{};
+    const std::array<uint8_t, 2> fills{0xab, 0x5c};
+    for (std::size_t index = 0; index < held.size(); ++index) {
+        std::memset(reinterpret_cast<uint8_t*>(&held[index]), fills[index], sizeof(Padded));
+        held[index].kind = 3;
+        held[index].count = 0x01020304;
+        held[index].slot = 77;
+    }
+    keyframe::Writer writer;
+    writer.begin("records");
+    keyframe::write_records(
+        &writer, std::span<const Padded>(held), std::span<const keyframe::Padding>(padding)
+    );
+    const Image image(writer);
+    // The mark, then the two records.
+    CHECK(image.varying.size() >= 2 * sizeof(Padded));
+    const auto* first = image.varying.data() + image.varying.size() - 2 * sizeof(Padded);
+    CHECK(std::memcmp(first, first + sizeof(Padded), sizeof(Padded)) == 0);
+    Padded back{};
+    std::memcpy(&back, first, sizeof back);
+    CHECK(back.kind == 3 && back.count == 0x01020304 && back.slot == 77);
+    for (const keyframe::Padding& gap : padding)
+        for (std::size_t at = gap.offset; at < gap.offset + gap.size; ++at)
+            CHECK(first[at] == 0);
 }
 
 /// A reader that does not find what it asks for stops, and says what it was reading.
@@ -212,6 +262,7 @@ int main() {
     try {
         sections_read_back_in_order();
         an_omitted_section_is_absent();
+        records_are_written_without_their_padding();
         a_reader_refuses_what_does_not_fit();
         a_match_comes_back_as_it_was();
         a_match_that_cannot_be_kept_is_refused();

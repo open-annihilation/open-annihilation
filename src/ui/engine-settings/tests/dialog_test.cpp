@@ -7169,8 +7169,10 @@ void a_narrowed_strip_takes_a_click_at_its_drawn_centre(const settings::DialogFo
     CHECK(found->control_area.width < designed);
     dialog.scroll[static_cast<std::size_t>(Page::accessibility)] =
         std::max(found->top - placed.sizes.first_row_top, int32_t{0});
+    // Keep the scrolled section: speak points into its rows.
+    const geometry::ShownSection scrolled = geometry::shown_section(dialog, &fonts);
     const geometry::Row* speak = nullptr;
-    for (const geometry::Row& row : geometry::shown_section(dialog, &fonts).open.rows.rows) {
+    for (const geometry::Row& row : scrolled.open.rows.rows) {
         if (row.setting == Setting::speak_chat)
             speak = &row;
     }

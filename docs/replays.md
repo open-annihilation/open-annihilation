@@ -129,6 +129,9 @@ folder (`Recordings/default` without a mod). The content note
 `<file>.oa-content` is written beside it, as it is beside a recorder's
 file ([Saves, recordings and films](saves.md)). A file `--net-record` or
 `--record-game` names is written where it is named, replacing what is there.
+The folder may be on another drive or a network share, including one that
+refuses to set permissions: the file is copied there as any new file is made
+there, and a recording that cannot be written leaves no file at the name.
 
 **While the game goes.** The recording is streamed to
 `Recordings/.replays/partial/<mod id>` from its start: the header, the
@@ -849,7 +852,11 @@ Four things the inventory found differ from what the plan expected:
 An effect emitter and a smoke puff are written without the bytes the compiler
 leaves between their fields, which hold what the last write to the slot left,
 so that two moments of one run in which the replay holds the same state are
-the same bytes. Most records keep the compiler's padding, and the match's
+the same bytes. So are the records made on the stack and then copied in: a
+player's sighting counts and seen units, a wreck, and the network binding's
+movement record of each unit. Their padding held what the stack held there,
+and the address sanitizer's build, which moves the stack from call to call,
+made the check's state line differ in them while every digest was the same. Most records keep the compiler's padding, and the match's
 sections hold this run's addresses: an aircraft's driver and goal point at its
 unit and goal records, the packet layer points at its transport and the game's
 player table, and a unit's spatial record points at its type's yard map. An
