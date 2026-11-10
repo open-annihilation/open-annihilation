@@ -7,6 +7,7 @@
 #include <bit>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 #define CHECK(x)                                                                                   \
@@ -227,11 +228,245 @@ void seed_caps_distinguish_the_last_goal_step_from_truncation() {
             CHECK(worker.route() == legacy);
     }
 }
+
+/// Records the units examined when no navigator needs a full job.
+struct PickTrace {
+    std::vector<uint32_t> visited;
+    uint32_t preferred_calls{};
+    uint32_t preferred_index{7};
+    bool offers{true};
+};
+
+/// Makes eight eligible units whose ids also name their list order.
+void prepare_pick_world(oa::sim::unit_spawn::LegacyWorld& world) {
+    world.range(0, 1, 8);
+    auto& player = world.simulation().players[0];
+    player.present = true;
+    player.status = 1;
+    for (uint16_t slot = 1; slot <= 8; ++slot) {
+        auto& unit = world.unit(slot);
+        unit.record.id = slot;
+        unit.record.type_index = 1;
+        unit.record.movement = 1;
+        unit.record.owner_index = 0;
+    }
+}
+
+/// Reads a trace's offer without allocating anything in the scheduler.
+SearchUnitAccess trace_access(PickTrace& trace, bool preferred) {
+    SearchUnitAccess access;
+    access.context = &trace;
+    access.navigator = [](void* c, oa::sim::simulation_state::Unit& unit) -> Navigation* {
+        static_cast<PickTrace*>(c)->visited.push_back(unit.record.id);
+        return nullptr;
+    };
+    if (preferred)
+        access.preferred_unit = [](void* c, uint8_t player, uint32_t tick, uint32_t& index) {
+            auto& held = *static_cast<PickTrace*>(c);
+            CHECK(player == 0 && tick >= 100);
+            ++held.preferred_calls;
+            index = held.preferred_index;
+            return held.offers;
+        };
+    return access;
+}
+
+/// Compares the runtime scheduler state, excluding padding and active workers.
+bool same_jobs(const SearchPlayerJobState& first, const SearchPlayerJobState& second) {
+    return first.round_robin == second.round_robin && first.unit_cursor == second.unit_cursor &&
+           first.credit == second.credit && first.job_picks == second.job_picks &&
+           first.player_heuristic == second.player_heuristic &&
+           first.refresh_tick == second.refresh_tick && first.tick_credit == second.tick_credit &&
+           first.base_heuristic == second.base_heuristic && first.slice_cost == second.slice_cost &&
+           first.active_heuristic == second.active_heuristic;
+}
+
+/// Borrows only a fourth credited pick while preserving the ordinary next unit.
+void preferred_picks_preserve_ordinary_cursor_order() {
+    oa::sim::unit_spawn::LegacyWorld world(9);
+    prepare_pick_world(world);
+    auto& players = world.simulation().players;
+    PickTrace trace;
+    const auto access = trace_access(trace, true);
+    SearchScheduler scheduler;
+    scheduler.jobs.tick_credit = 10;
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 100, {}, access) == 10);
+    CHECK((trace.visited == std::vector<uint32_t>{2, 3, 4, 8, 5, 6, 7, 8, 1, 2}));
+    CHECK(trace.preferred_calls == 1);
+    CHECK(scheduler.jobs.unit_cursor[0] == 1);
+    CHECK(scheduler.jobs.credit[0] == 0 && scheduler.jobs.job_picks[0] == 10);
+    CHECK(scheduler.controller.idle());
+
+    // A preferred unit that is already next advances the cursor once.
+    trace = PickTrace{};
+    trace.preferred_index = 1;
+    scheduler.jobs = SearchPlayerJobState{};
+    scheduler.jobs.job_picks[0] = 3;
+    scheduler.jobs.tick_credit = 1;
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 101, {}, access) == 1);
+    CHECK((trace.visited == std::vector<uint32_t>{2}));
+    CHECK(trace.preferred_calls == 1 && scheduler.jobs.unit_cursor[0] == 1);
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 102, {}, access) == 1);
+    CHECK((trace.visited == std::vector<uint32_t>{2, 3}));
+    CHECK(trace.preferred_calls == 1 && scheduler.jobs.unit_cursor[0] == 2);
+}
+
+/// Keeps rejected offers equivalent to a null callback through resets and wrap.
+void rejected_preferred_picks_keep_the_ordinary_state() {
+    oa::sim::unit_spawn::LegacyWorld world(9);
+    prepare_pick_world(world);
+    auto& players = world.simulation().players;
+    for (uint32_t mode = 0; mode < 3; ++mode) {
+        PickTrace ordinary, rejected;
+        rejected.offers = mode != 0;
+        rejected.preferred_index = mode == 2 ? 6 : 100;
+        if (mode == 2)
+            world.unit(7).record.owner_index = 1;
+        const auto old_access = trace_access(ordinary, false);
+        const auto rejected_access = trace_access(rejected, true);
+        SearchScheduler old_scan, new_scan;
+        old_scan.jobs.tick_credit = new_scan.jobs.tick_credit = 9;
+        old_scan.jobs.job_picks[0] = new_scan.jobs.job_picks[0] =
+            std::numeric_limits<int32_t>::max() - 3;
+        for (uint32_t scan = 0; scan < 151; ++scan) {
+            CHECK(
+                scan_player_jobs(old_scan, players, 1, 8, 100 + scan, {}, old_access) ==
+                scan_player_jobs(new_scan, players, 1, 8, 100 + scan, {}, rejected_access)
+            );
+            CHECK(same_jobs(old_scan.jobs, new_scan.jobs));
+            CHECK(ordinary.visited == rejected.visited);
+        }
+        CHECK(rejected.preferred_calls > 0);
+        world.unit(7).record.owner_index = 0;
+    }
+
+    // Runtime counter continuation reproduces the choice. A new scheduler,
+    // as after rebuilding searches, starts its ordinary phase from zero.
+    PickTrace first, continued;
+    const auto first_access = trace_access(first, true);
+    const auto continued_access = trace_access(continued, true);
+    SearchScheduler original, resumed;
+    original.jobs.tick_credit = 3;
+    CHECK(scan_player_jobs(original, players, 1, 8, 100, {}, first_access) == 3);
+    resumed.jobs = original.jobs;
+    original.jobs.tick_credit = resumed.jobs.tick_credit = 5;
+    first.visited.clear();
+    CHECK(scan_player_jobs(original, players, 1, 8, 101, {}, first_access) == 5);
+    CHECK(scan_player_jobs(resumed, players, 1, 8, 101, {}, continued_access) == 5);
+    CHECK(first.visited == continued.visited && same_jobs(original.jobs, resumed.jobs));
+    PickTrace rebuilt;
+    const auto rebuilt_access = trace_access(rebuilt, true);
+    SearchScheduler restarted;
+    restarted.jobs.tick_credit = 3;
+    CHECK(scan_player_jobs(restarted, players, 1, 8, 102, {}, rebuilt_access) == 3);
+    CHECK(rebuilt.preferred_calls == 0);
+    CHECK((rebuilt.visited == std::vector<uint32_t>{2, 3, 4}));
+}
+
+/// Starts a preferred job through the normal readiness and work accounting.
+void preferred_jobs_keep_the_active_unit_goal_and_work_debt() {
+    oa::sim::unit_spawn::LegacyWorld world(9);
+    prepare_pick_world(world);
+    auto& players = world.simulation().players;
+    auto& mover = world.unit(8);
+    OpenSampler sampler;
+    MovementMap map(16, 16, 1, 1, sampler);
+    fill(map);
+    oa::sim::simulation_state::Order order;
+    Goal goal;
+    goal.order = &order;
+    goal.cell = {12, 9};
+    Navigation route;
+    route.goal = &goal;
+    route.flags = search_pending_flag;
+
+    struct Context {
+        oa::sim::simulation_state::Unit* mover;
+        Navigation* route;
+        MovementMap* map;
+        uint32_t offers{};
+        uint32_t prepared{};
+        uint32_t published{};
+        bool prepare_ok{true};
+        bool offer{true};
+    } context{&mover, &route, &map};
+
+    SearchUnitAccess access;
+    access.context = &context;
+    access.preferred_unit = [](void* c, uint8_t player, uint32_t, uint32_t& index) {
+        auto& held = *static_cast<Context*>(c);
+        CHECK(player == 0);
+        ++held.offers;
+        index = 7;
+        return held.offer;
+    };
+    access.navigator = [](void* c, oa::sim::simulation_state::Unit& unit) -> Navigation* {
+        auto& held = *static_cast<Context*>(c);
+        return &unit == held.mover ? held.route : nullptr;
+    };
+    access.prepare =
+        [](void* c, oa::sim::simulation_state::Unit& unit, SearchBegin&, MovementMap*& m) {
+            auto& held = *static_cast<Context*>(c);
+            CHECK(&unit == held.mover);
+            ++held.prepared;
+            place(unit, 1, 1);
+            m = held.map;
+            return held.prepare_ok;
+        };
+    access.publish = [](void* c,
+                        oa::sim::simulation_state::Unit& unit,
+                        Navigation& navigation,
+                        std::span<const RoutePoint> points) {
+        auto& held = *static_cast<Context*>(c);
+        CHECK(&unit == held.mover && &navigation == held.route);
+        CHECK(navigation.goal != nullptr && navigation.goal->order != nullptr);
+        CHECK(!points.empty());
+        ++held.published;
+    };
+    SearchScheduler scheduler;
+    scheduler.jobs.job_picks[0] = 3;
+    scheduler.jobs.tick_credit = 1;
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 100, all_seen, access) == 1);
+    CHECK(context.offers == 1 && context.prepared == 1);
+    CHECK(scheduler.jobs.unit_cursor[0] == 0);
+    CHECK(route.last_search_tick == 100);
+    CHECK(scheduler.worker.budget() == 19);
+    CHECK(scheduler.jobs.credit[0] == 1 - 101 - 19);
+    CHECK(scheduler.controller.active().unit == &mover);
+    CHECK(scheduler.controller.active().navigation == &route);
+    CHECK(scheduler.controller.active().goal == &goal);
+    context.offer = false;
+    for (uint32_t tick = 101; !scheduler.controller.idle() && tick < 150; ++tick) {
+        scheduler.jobs.credit.fill(0);
+        CHECK(scan_player_jobs(scheduler, players, 1, 8, tick, all_seen, access) >= 1);
+    }
+    CHECK(scheduler.controller.idle() && context.published == 1);
+    CHECK(context.offers == 1 && context.prepared == 1);
+    CHECK(scheduler.jobs.unit_cursor[0] == 0);
+    scheduler.jobs.credit.fill(0);
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 150, all_seen, access) == 1);
+    CHECK(scheduler.jobs.unit_cursor[0] == 1);
+
+    // Failed preparation takes its normal launch debt and retry stamp too.
+    scheduler.jobs = SearchPlayerJobState{};
+    scheduler.jobs.job_picks[0] = 3;
+    scheduler.jobs.tick_credit = 1;
+    route.last_search_tick = 0;
+    context.offer = true;
+    context.prepare_ok = false;
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 200, all_seen, access) == 1);
+    CHECK(scheduler.controller.idle() && scheduler.jobs.unit_cursor[0] == 0);
+    CHECK(route.last_search_tick == 200 && scheduler.jobs.credit[0] == 1 - 101);
+    CHECK(context.prepared == 2 && context.published == 1);
+}
 } // namespace
 
 int main() {
     capped_wall_detours_continue_to_the_actual_goal();
     seed_caps_distinguish_the_last_goal_step_from_truncation();
+    preferred_picks_preserve_ordinary_cursor_order();
+    rejected_preferred_picks_keep_the_ordinary_state();
+    preferred_jobs_keep_the_active_unit_goal_and_work_debt();
     SearchCellGrid grid;
     grid.allocate(1, 1);
     CHECK(grid.width == 1 && grid.height == 1 && grid.count == 8 && grid.cells.size() == 8);
