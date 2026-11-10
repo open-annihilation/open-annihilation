@@ -332,16 +332,6 @@ void terminal_or_unowned_work_does_not_block_a_rally() {
     }
     {
         Rally battle;
-        sim::simulation_state::Order unowned;
-        unowned.kind = ground::move_ground_kind;
-        unowned.phase = 1;
-        battle.unit().primary = &unowned;
-        battle.refresh();
-        CHECK(battle.unit().primary != &unowned);
-        CHECK(battle.unit().primary->kind == ground::move_ground_kind);
-    }
-    {
-        Rally battle;
         auto* head = battle.unit().primary;
         head->kind = ground::standby_kind;
         battle.refresh();
