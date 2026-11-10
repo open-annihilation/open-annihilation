@@ -365,6 +365,23 @@ void test_parallel_history() {
                 CHECK(before[saved++] == *actor.script->vm().export_state(identity).state);
         }
     }
+    // At least two outer bands make the pool busy. Only one calls the
+    // capture helper; its nested bands run synchronously on that thread.
+    const auto expected_nested = scalar_capture(batches[0], 4);
+    app::UnitCaptureTotals actual_nested;
+    bool entry_control_preserved = false;
+    const auto nested_caller_control = fp::save_float_control();
+    jobs::run_bands(&four, 2, [&](uint32_t band) {
+        if (band != 0)
+            return;
+        const auto entry_control = fp::save_float_control();
+        actual_nested = app::capture_unit_poses(batches[4], 4, scratch[3], &four);
+        entry_control_preserved = fp::float_control_matches(entry_control);
+    });
+    CHECK(same_totals(expected_nested, actual_nested));
+    CHECK(entry_control_preserved && fp::float_control_matches(nested_caller_control));
+    for (const auto& actor : actors)
+        CHECK(same_history(actor->histories[0], actor->histories[4]));
     fp::restore_float_control(original_control);
     CHECK(fp::float_control_matches(original_control));
     app::UnitCaptureScratch empty_scratch;
