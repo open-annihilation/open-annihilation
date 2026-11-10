@@ -1320,7 +1320,7 @@ void fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes() {
     CHECK(query(cache, grid, unit, seed) == FlowResult::pending);
     finish(cache, grid);
     // The seed and requested goal share a region. Their clear diagonal
-    // requires217probes, while a local route around the wall fits128.
+    // requires 217 probes, while a local route around the wall fits 128.
     for (uint32_t tick = 40; tick <= 42; ++tick) {
         cache.advance(tick, 0, grid.sampler());
         const auto probes = grid.queries;
