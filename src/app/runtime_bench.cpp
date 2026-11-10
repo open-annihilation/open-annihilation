@@ -1059,6 +1059,15 @@ void Runtime::play_bench() {
         }
     if (view.stage_timers && frames != 0)
         print_slowest_frames(samples, frame_totals);
+    if (view.stage_timers)
+        for (std::size_t kind = 0; kind < bench_timers::material_kind_count; ++kind)
+            std::printf(
+                "bench: MATERIAL %s insertions %.0f texels %.0f row_texels %.0f\n",
+                bench_timers::material_kind_names[kind].data(),
+                totals.persistent_materials[kind],
+                totals.persistent_texels[kind],
+                totals.persistent_row_texels[kind]
+            );
     if (view.frame_log)
         for (std::size_t index = 0; index < frames; ++index) {
             const auto& sample = frame_totals[index];
@@ -1085,6 +1094,15 @@ void Runtime::play_bench() {
                 materials,
                 stages.c_str()
             );
+            for (std::size_t kind = 0; kind < bench_timers::material_kind_count; ++kind)
+                std::printf(
+                    "bench: MATERIAL_FRAME %zu %s insertions %.0f texels %.0f row_texels %.0f\n",
+                    index,
+                    bench_timers::material_kind_names[kind].data(),
+                    sample.persistent_materials[kind],
+                    sample.persistent_texels[kind],
+                    sample.persistent_row_texels[kind]
+                );
         }
     std::fflush(stdout);
     bench_timers::reset(false);

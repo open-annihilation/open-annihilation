@@ -611,7 +611,8 @@ AtlasRect material(
     Fog fog,
     bool light_mask = false,
     FlashStrength flash_strength = FlashStrength::full,
-    bool alpha_coverage = false
+    bool alpha_coverage = false,
+    bench_timers::MaterialKind kind = bench_timers::MaterialKind::surface
 ) {
     auto& scene = pass.scene;
     const std::size_t count = static_cast<std::size_t>(width) * height;
@@ -645,6 +646,7 @@ AtlasRect material(
     uint32_t row_x = scene.next_x;
     uint32_t row_y = scene.next_y;
     uint32_t row_height = scene.row_height;
+    const uint32_t rows_before = scene.next_y + scene.row_height;
     if (row_x + width > scene.texture_width) {
         row_x = 0;
         row_y += row_height;
@@ -703,6 +705,13 @@ AtlasRect material(
     }
     scene.materials.emplace(digest, rect);
     scene.packed_material_area += uint64_t{width} * height;
+    const uint32_t rows_after =
+        square ? scene.next_y + scene.row_height : row_y + std::max(row_height, height);
+    bench_timers::count_persistent_material(
+        kind,
+        uint64_t{width} * height,
+        uint64_t{rows_after - std::min(rows_before, rows_after)} * scene.texture_width
+    );
     ++scene.texture_revision;
     if (square) {
         scene.atlas_update.regions.push_back({rect.x, rect.y, rect.width, rect.height});
@@ -823,7 +832,8 @@ AtlasRect frame_material(
             Fog::black,
             false,
             FlashStrength::full,
-            alpha_coverage
+            alpha_coverage,
+            bench_timers::MaterialKind::shadow
         );
         scene.packed_material_area = packed;
         return rect;
@@ -7193,7 +7203,12 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
                 frame.transparency_index,
                 sprite.shadow ? Fog::black : Fog::seen,
                 light_mask,
-                in.draws->flash_strength
+                in.draws->flash_strength,
+                false,
+                sprite.shadow                             ? bench_timers::MaterialKind::shadow
+                : light_mask                              ? bench_timers::MaterialKind::light
+                : sprite.world_position && !sprite.on_map ? bench_timers::MaterialKind::effect
+                                                          : bench_timers::MaterialKind::scenery
             );
         const auto rect = *cached;
         // Scenery keeps its colours under the water. An opaque frame also
@@ -7213,7 +7228,11 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
                     frame.pixels,
                     frame.coverage,
                     frame.transparency_index,
-                    Fog::seen
+                    Fog::seen,
+                    false,
+                    FlashStrength::full,
+                    false,
+                    bench_timers::MaterialKind::scenery
                 );
             grey_rect = cached_grey;
         }

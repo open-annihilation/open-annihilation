@@ -62,6 +62,23 @@ enum class Stage : uint8_t {
 /// Stages the timers measure.
 inline constexpr std::size_t stage_count = static_cast<std::size_t>(Stage::count);
 
+/// The source of a material inserted into the persistent scene atlas.
+enum class MaterialKind : uint8_t {
+    surface, ///< model, projectile and particle surfaces
+    scenery, ///< map-bound or unanchored sprite art
+    effect,  ///< world-anchored effect art
+    light,   ///< sprite light masks
+    shadow,  ///< sprite shadows and unit shadows spilled from frame rows
+    count
+};
+
+/// Material classes counted independently of their drawing passes.
+inline constexpr std::size_t material_kind_count = static_cast<std::size_t>(MaterialKind::count);
+/// Stable names for persistent-material measurements.
+inline constexpr std::array<std::string_view, material_kind_count> material_kind_names{
+    "surface", "scenery", "effect", "light", "shadow"
+};
+
 /// A stage's name in the bench's lines, and whether it is part of the stage
 /// listed before it.
 struct StageName {
@@ -117,6 +134,11 @@ struct Totals {
     /// packed, and their texels.
     std::array<double, stage_count> materials_packed{};
     std::array<double, stage_count> texels_packed{};
+    /// Successful persistent insertions, their texels, and the atlas's full-row
+    /// span added by each insertion; a row may also hold other classes or terrain.
+    std::array<double, material_kind_count> persistent_materials{};
+    std::array<double, material_kind_count> persistent_texels{};
+    std::array<double, material_kind_count> persistent_row_texels{};
     double terrain_squares_packed{}; ///< terrain tiles packed into the atlas
     double atlas_emptied{};          ///< frames whose atlas was emptied to fit
     double atlas_rows_uploaded{};    ///< atlas rows sent to the card
@@ -137,6 +159,14 @@ struct Totals {
             now.materials_packed[stage] - before.materials_packed[stage];
         growth.texels_packed[stage] = now.texels_packed[stage] - before.texels_packed[stage];
     }
+    for (std::size_t kind = 0; kind < material_kind_count; ++kind) {
+        growth.persistent_materials[kind] =
+            now.persistent_materials[kind] - before.persistent_materials[kind];
+        growth.persistent_texels[kind] =
+            now.persistent_texels[kind] - before.persistent_texels[kind];
+        growth.persistent_row_texels[kind] =
+            now.persistent_row_texels[kind] - before.persistent_row_texels[kind];
+    }
     growth.terrain_squares_packed = now.terrain_squares_packed - before.terrain_squares_packed;
     growth.atlas_emptied = now.atlas_emptied - before.atlas_emptied;
     growth.atlas_rows_uploaded = now.atlas_rows_uploaded - before.atlas_rows_uploaded;
@@ -154,6 +184,11 @@ inline void add_totals(Totals& sum, const Totals& more) noexcept {
         sum.milliseconds[stage] += more.milliseconds[stage];
         sum.materials_packed[stage] += more.materials_packed[stage];
         sum.texels_packed[stage] += more.texels_packed[stage];
+    }
+    for (std::size_t kind = 0; kind < material_kind_count; ++kind) {
+        sum.persistent_materials[kind] += more.persistent_materials[kind];
+        sum.persistent_texels[kind] += more.persistent_texels[kind];
+        sum.persistent_row_texels[kind] += more.persistent_row_texels[kind];
     }
     sum.terrain_squares_packed += more.terrain_squares_packed;
     sum.atlas_emptied += more.atlas_emptied;
@@ -334,6 +369,20 @@ inline void count_terrain_square() noexcept {
 inline void count_atlas_emptied() noexcept {
     if (timers.on)
         timers.totals.atlas_emptied += 1;
+}
+
+/// Counts a successful persistent insertion on the frame's packing thread.
+/// @param kind the material's source
+/// @param texels its width times height
+/// @param row_texels the full-row atlas span newly occupied by this insertion
+inline void
+count_persistent_material(MaterialKind kind, uint64_t texels, uint64_t row_texels) noexcept {
+    if (!timers.on)
+        return;
+    const auto index = static_cast<std::size_t>(kind);
+    timers.totals.persistent_materials[index] += 1;
+    timers.totals.persistent_texels[index] += static_cast<double>(texels);
+    timers.totals.persistent_row_texels[index] += static_cast<double>(row_texels);
 }
 
 /// Counts the atlas rows a frame sends to the card.

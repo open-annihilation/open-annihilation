@@ -3,6 +3,7 @@
 
 // Live terrain preserves painted coordinates, visibility and bounded atlas reuse.
 #include "renderer_live_scene.hpp"
+#include "bench_timers.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_water_surface.hpp"
 #include "renderer_aircraft_shadow.hpp"
@@ -2104,6 +2105,81 @@ void sprite_material_lifetime() {
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     color = triangle_color(fixture.scene, fixture.scene.vertices.size() - 3);
     OA_CHECK(color[0] == 0 && color[1] == 0 && color[2] == 0);
+}
+
+/// Persistent counters distinguish the first packing source and charge cache misses only.
+void persistent_material_sources() {
+    namespace timers = oa::app::bench_timers;
+    Fixture fixture;
+    std::fill_n(fixture.palette.begin() + 3 * oa::palette_entry_bytes, 3, 70);
+    std::fill_n(fixture.palette.begin() + 4 * oa::palette_entry_bytes, 3, 130);
+    std::array<oa::formats::gaf::RenderedFrame, 4> frames{};
+    constexpr std::array<uint8_t, 4> colors{ground_index, alternate_index, 110, 3};
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    for (std::size_t index = 0; index < frames.size(); ++index) {
+        auto& frame = frames[index];
+        frame.width = frame.height = 4;
+        frame.pixels.assign(16, colors[index]);
+        frame.coverage.assign(16, 1);
+        fixture.draws.sprites.push_back({&frame, {4, 4}});
+    }
+    fixture.draws.sprites[0].on_map = true;
+    fixture.draws.sprites[1].world_position = oa::FixedVec3{8 * fixed, 8 * fixed, 16 * fixed};
+    fixture.draws.sprites[2].world_position = oa::FixedVec3{8 * fixed, 0, 16 * fixed};
+    fixture.draws.sprites[3].shadow = true;
+    fixture.draws.shadow_level = oa::present::model::shadow_full_level;
+    fixture.draws.draws.push_back({oa::app::WorldDrawKind::lit_sprite, 2});
+    timers::reset(true);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto first = timers::timers.totals;
+    const auto kind = [](timers::MaterialKind value) { return static_cast<std::size_t>(value); };
+    OA_CHECK(first.persistent_materials[kind(timers::MaterialKind::surface)] == 0);
+    OA_CHECK(first.persistent_materials[kind(timers::MaterialKind::scenery)] == 2);
+    for (const auto value : {
+             timers::MaterialKind::effect, timers::MaterialKind::light, timers::MaterialKind::shadow
+         }) {
+        OA_CHECK(first.persistent_materials[kind(value)] == 1);
+        OA_CHECK(first.persistent_texels[kind(value)] == 16);
+    }
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto reused = timers::totals_since(timers::timers.totals, first);
+    for (std::size_t index = 0; index < timers::material_kind_count; ++index) {
+        OA_CHECK(reused.persistent_materials[index] == 0);
+        OA_CHECK(reused.persistent_texels[index] == 0);
+        OA_CHECK(reused.persistent_row_texels[index] == 0);
+    }
+    frames[1].pixels[0] = 3;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto changed = timers::totals_since(timers::timers.totals, first);
+    OA_CHECK(changed.persistent_materials[kind(timers::MaterialKind::effect)] == 1);
+    OA_CHECK(changed.persistent_texels[kind(timers::MaterialKind::effect)] == 16);
+    auto sum = first;
+    timers::add_totals(sum, changed);
+    OA_CHECK(sum.persistent_materials == timers::timers.totals.persistent_materials);
+    OA_CHECK(sum.persistent_texels == timers::timers.totals.persistent_texels);
+    OA_CHECK(sum.persistent_row_texels == timers::timers.totals.persistent_row_texels);
+    timers::reset(false);
+    fixture.scene = {};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(timers::timers.totals.persistent_materials == timers::Totals{}.persistent_materials);
+
+    // A wide mask starts a new skyline row: the counter includes its row's
+    // unused columns, rather than reporting those as painted texels.
+    Fixture wide;
+    oa::formats::gaf::RenderedFrame mask{};
+    mask.width = 2000;
+    mask.height = 200;
+    mask.pixels.assign(400'000, 110);
+    mask.coverage.assign(400'000, 1);
+    wide.draws.sprites.push_back({&mask, {4, 4}});
+    wide.draws.draws.push_back({oa::app::WorldDrawKind::lit_sprite, 0});
+    timers::reset(true);
+    OA_CHECK(live::build(wide.inputs, wide.scene, wide.error));
+    const auto light = kind(timers::MaterialKind::light);
+    OA_CHECK(timers::timers.totals.persistent_materials[light] == 1);
+    OA_CHECK(timers::timers.totals.persistent_texels[light] == 400'000);
+    OA_CHECK(timers::timers.totals.persistent_row_texels[light] == 200 * 2048);
+    timers::reset(false);
 }
 
 /// Cropped ground sprites retain overlapping cell edges and ignore wholly unseen art.
@@ -6677,6 +6753,7 @@ int main() {
     animated_frames_follow_classic_tiers();
     terrain_decals();
     sprite_material_lifetime();
+    persistent_material_sources();
     cropped_ground_sprites();
     building_foundations();
     foundations_cut_once();
