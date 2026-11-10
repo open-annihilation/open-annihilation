@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ai.hpp"
-#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/match_rules/difficulty_names.hpp"
 #include "oa/sim/combat_state.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
@@ -1344,6 +1343,7 @@ struct RecruitFake : Fake {
 
 /// Holds a real built-in strike tick over hundreds of waiting canonical units.
 struct RecruitRun {
+    static constexpr uint32_t distributed_version = 7;
     static constexpr uint8_t player = 1;
     static constexpr uint16_t first = 10;
     static constexpr uint32_t refresh = 300;
@@ -1471,7 +1471,7 @@ struct RecruitRun {
 
 /// Admits at most 256 new members per ordinary land or naval dispatch.
 void test_distributed_strike_recruitment_budget() {
-    constexpr uint32_t version = oa::data::enhanced_mode::distributed_battle_flow_version;
+    constexpr uint32_t version = RecruitRun::distributed_version;
     for (const bool naval : {false, true}) {
         RecruitRun run(version, 600, 4, naval);
         run.dispatch(300, 256);
@@ -1509,8 +1509,7 @@ void test_distributed_strike_recruitment_budget() {
 
 /// Leaves the old 5000 recruits plus the separate empty-squad seed unchanged.
 void test_earlier_recruitment_keeps_its_seed_and_limit() {
-    for (uint32_t version = 0; version < oa::data::enhanced_mode::distributed_battle_flow_version;
-         ++version) {
+    for (uint32_t version = 0; version < RecruitRun::distributed_version; ++version) {
         RecruitRun run(version, 5002, 0);
         run.dispatch(300, 5001);
         check(
@@ -1522,7 +1521,7 @@ void test_earlier_recruitment_keeps_its_seed_and_limit() {
 
 /// Reads the current source membership after a waiting slot becomes a builder.
 void test_recruitment_rereads_reused_source_slots() {
-    RecruitRun run(oa::data::enhanced_mode::distributed_battle_flow_version, 600, 4);
+    RecruitRun run(RecruitRun::distributed_version, 600, 4);
     run.dispatch(300, 256);
     const auto reused = run.waiting().front();
     run.fake.set_squad(reused, -1);
