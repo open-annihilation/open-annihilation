@@ -2485,7 +2485,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   that keep a picture, the capture and the checks among them, get the
   standard tier's draw (`ensure_screen_world`), since the world layer
   holds no picture, but for the dialogs drawn over a picture of the paused
-  match, which keep the card's (`compose_shown_match`). Between the frame and the overlay, the effects pass
+  match, which keep the card's (`compose_shown_match`). A frame whose
+  painters covered the whole battlefield, as the open megamap does
+  (`draw_megamap`, `note_full_world_covered`), builds and runs no card
+  frame and no effects pass: the overlay alone is laid on the
+  battlefield, at its corner, and the frame counts towards no stage of
+  Full's first frames. Between the frame and the overlay, the effects pass
   (`full_effects::compose`) works within the lights' bounds. Light alone,
   the weapons', the nanolathes' and the wrecks', is painted over opaque
   black on the processor and added by the card (`full_effects::Pass::light`),
@@ -5243,8 +5248,11 @@ battlefield it opens over, so a frame under it draws at the zoom in the
 accelerated tier too (`megamap_shown`, `world_scaling`) and the megamap is
 presented as the processor composes it, never through the card's
 magnification of the scene it hides; in the Full tier it covers the
-canvas. `native-render-tiers-visual-rules` runs the render tiers check
-under a profile that turns the visual rules on and checks these overlays
+canvas, and the card draws none of the battlefield under it: the overlay
+alone is laid on the battlefield (`note_full_world_covered`,
+`present_full_match_layers`), and the first frame after it closes draws
+the battlefield whole again. `native-render-tiers-visual-rules` runs the
+render tiers check under a profile that turns the visual rules on and checks these overlays
 in the standard and accelerated tiers, and in the Full tier after its own
 cases (`check_visual_rule_overlays`), with the megamap opening only while
 the Mouse wheel zoom setting is off and closing when it is turned on.

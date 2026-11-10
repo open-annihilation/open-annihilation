@@ -23,9 +23,12 @@
 // exact halvings; the processor's anti-aliasing never runs. The processor
 // paints the interface and, onto an overlay canvas cleared to a key colour
 // outside the palette, everything the painters after the fog paint; the
-// overlay is laid over the card's picture 1:1. The planner, the HUD, the
-// painters and the readers that keep a picture run as in the Basic tier.
-// It is reached only when the tier decided for the frame is Full.
+// overlay is laid over the card's picture 1:1; on a frame whose painters
+// covered the whole battlefield, as the open megamap does, the card draws
+// none of the battlefield and the overlay alone is laid there. The planner,
+// the HUD, the painters and the readers that keep a picture run as in the
+// Basic tier. It is reached only when the tier decided for the frame is
+// Full.
 #include "oa/app/runtime.hpp"
 
 #include "full_fog.hpp"
@@ -992,6 +995,7 @@ void Runtime::free_full_match_state() noexcept {
     full.projectile_shadow_source = nullptr;
     full.fog = {};
     full.canvas_drawn = false;
+    full.world_covered = false;
 }
 
 bool Runtime::full_presentation() const noexcept {
@@ -1062,6 +1066,7 @@ void Runtime::free_full_match_textures() noexcept {
     full.models.close(full.executor);
     full.world_quads.clear();
     full.drawn = false;
+    full.drawn_covered = false;
 }
 
 void Runtime::free_full_presentation() noexcept {
@@ -1647,6 +1652,38 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // (finish_match_layers).
         if (hud_layer && !oa::ui::display_layout::placed_mode(match_layout_))
             draw_accelerated_hud_strips();
+
+        // A battlefield the painters covered whole, as the open megamap
+        // covers it, hides all the card would draw there: the card draws
+        // none of it, and the overlay alone is laid on the battlefield, at
+        // its corner, since what covers it stays still while the view
+        // moves between pixels. The frame counts towards no stage of
+        // Full's first frames, since the card drew none of Full's frame.
+        if (full.world_covered) {
+            const SDL_FRect world{
+                static_cast<float>(match_layout_.left),
+                static_cast<float>(match_layout_.top),
+                static_cast<float>(bf_w),
+                static_cast<float>(bf_h)
+            };
+            draw_one_to_one(
+                sdl_.renderer, full.overlay_texture, nullptr, &world, one_to_one_scale_mode()
+            );
+            full.drawn = true;
+            full.drawn_covered = true;
+            full.drawn_zoom = zoom;
+            full.drawn_quads = 0;
+            full.drawn_fog_quads = 0;
+            full.drawn_world_quads = 0;
+            full.drawn_batches = 0;
+            full.drawn_through_target = false;
+            full.build_ns = 0;
+            full.stage_ns = 0;
+            full.execute_ns = 0;
+            ++full.frames;
+            finish_match_layers(frame_format, dialogs, upload_start, present_start);
+            return true;
+        }
 
         // The card's frame: the terrain from the pages, by the level rule at
         // the zoom, and everything over it.
@@ -2525,6 +2562,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 render_run_->paths_drawn | path_bit(renderer_state::AcceleratedPath::full)
             );
         full.drawn = true;
+        full.drawn_covered = false;
         full.drawn_zoom = zoom;
         full.drawn_quads = quads;
         full.drawn_fog_quads = fog_quads;

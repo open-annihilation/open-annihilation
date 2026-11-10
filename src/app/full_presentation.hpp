@@ -419,6 +419,11 @@ struct Runtime::FullPresentation {
     /// through whichever surface holds them while they paint
     /// (paints_full_canvas); null before the canvas is cleared.
     const uint8_t* canvas_pixels{};
+    /// The canvas frame's painters covered the whole battlefield with
+    /// pixels of their own, as the open megamap does, so the card draws
+    /// none of it (note_full_world_covered); each canvas frame starts
+    /// without.
+    bool world_covered{};
     /// Reused upload of the world after optional lighting and heat distortion.
     full_effects::Upload effects_upload;
     TiledTexture overlay_texture;
@@ -433,6 +438,9 @@ struct Runtime::FullPresentation {
 
     // What the last Full match frame drew, for the checks and the statistics.
     bool drawn{}; ///< the last match frame presented was drawn by the card
+    /// The last match frame presented laid the overlay alone over a
+    /// battlefield it covered whole, the card drawing none of it.
+    bool drawn_covered{};
     float drawn_zoom{};
     full_terrain::TerrainDrawPlan plan{};
     uint32_t drawn_quads{};       ///< terrain quads

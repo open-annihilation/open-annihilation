@@ -11,7 +11,9 @@
 // its shadow, outline and letter edges the card's; the building being placed drawn over its
 // site at the scene's draw scale, or by the card; the megamap opening only
 // with the Mouse wheel zoom setting off and closing when it is turned on;
-// the megamap presented as the processor composes it; text in the modern
+// the megamap presented as the processor composes it, in the Full tier with
+// the card drawing none of the battlefield under it and, once it closes,
+// the battlefield as it was before it opened; text in the modern
 // fonts with the chat's backdrop presented as composed, what of it lies
 // beside the backdrop the card's in the Full tier; and a named screenshot
 // keeping the standard tier's picture.
@@ -802,13 +804,38 @@ void Runtime::check_visual_rule_overlays(
             const std::span<const float> zooms = level == HardwareAcceleration::full
                                                      ? std::span<const float>(full_megamap_zooms)
                                                      : std::span<const float>(megamap_zooms);
+            const bool card = level == HardwareAcceleration::full;
             for (const float zoom : zooms) {
                 at_zoom(zoom);
+                // In the Full tier, the battlefield before the megamap opens,
+                // which the first frame after it closes is to show again.
+                const auto before = card ? drawn() : Drawn{};
                 set_megamap_open(true);
                 const auto read = drawn();
+                // The card draws none of the battlefield the megamap covers.
+                if (card && (!full_->drawn || !full_->drawn_covered || full_->drawn_batches != 0))
+                    fail(
+                        "the card drew the battlefield under the megamap " + tier_name(level) +
+                        " at zoom " + zoom_name(zoom)
+                    );
                 renderer::Surface composed;
                 compose_match_frame(composed);
                 set_megamap_open(false);
+                if (card) {
+                    const auto after = drawn();
+                    if (!full_->drawn || full_->drawn_covered)
+                        fail(
+                            "the card did not draw the battlefield once the megamap closed at "
+                            "zoom " +
+                            zoom_name(zoom)
+                        );
+                    if (battlefield_of(after).rgb != battlefield_of(before).rgb)
+                        fail(
+                            "the first frame after the megamap closed " + tier_name(level) +
+                            " at zoom " + zoom_name(zoom) +
+                            " does not show the battlefield as it was before it opened"
+                        );
+                }
                 if (read.frame.width != composed.width || read.frame.height != composed.height)
                     fail("the presented frame and the composition differ in size over the megamap");
                 int most = 0;
@@ -838,7 +865,10 @@ void Runtime::check_visual_rule_overlays(
         std::cout << "render tiers check: visual rules: the megamap is presented as composed at "
                      "zoom 0.5 and 2.5, "
                   << names_of(accelerated)
-                  << (checks(HardwareAcceleration::full) ? ", and at the full tier's floor" : "")
+                  << (checks(HardwareAcceleration::full)
+                          ? ", and at the full tier's floor, where the card draws none of the "
+                            "battlefield under it and, once it closes, the battlefield as it was"
+                          : "")
                   << '\n';
     }
     if (rules.megamap.enabled)
