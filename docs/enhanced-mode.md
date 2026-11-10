@@ -1199,6 +1199,72 @@ measured 13.266 ms, including 4.592 ms of bounds work, without changing the
 renderer implementation between these runs. The angled view remains below
 the 60 FPS target, and rear-army flow remains mixed. Ray tracing is deferred.
 
+### Root capture and script dispatch checkpoint
+
+Experimental preset 7 now captures only root movement while the graphics policy
+draws every unit as a strategic dot. Unit scripts, motion, queries and combat
+continue to run. Returning to models immediately captures the current rig,
+including while paused; piece interpolation resumes after the next complete
+tick endpoint. That first interval uses the current piece poses, without
+inventing earlier animation. Off, earlier presets, director rendering and
+debug order lines retain complete capture. Renderer selection stays independent.
+
+A component check used 20,000 distinct procedural VM/model instances with
+310,000 pieces and four total threads. Six paired blocks of eight captures
+measured 1.791 ms mean wall time for complete capture and 0.264 ms for root
+capture. First model priming measured a 2.342 ms median and 4.269 ms maximum;
+priming with retained storage measured a 1.501 ms median. Root endpoints,
+current rigs, sampled VM state and immutable inputs passed comparison. These
+measure capture work, not a stock-map frame or gameplay FPS. Benchmark parsing
+also accepts a same-tick rig capture with zero new root captures, while keeping
+its frame, aggregate and triplet bounds.
+
+The VM avoids dispatching already-stopped context slots. Active contexts,
+sleeping and waiting contexts, budgets, immediate callbacks and piece motion
+keep their existing order and behavior. A 528-tick comparison reduced context
+entries from 4,224 to 152 with identical state, results and callback traces.
+This removes empty work without skipping scripts.
+
+A fresh retained build at source `c6b50e170` completed the same 9,000-tick
+battle and reproduced world `5e61a009313942ed` and all 38 deterministic files
+byte for byte. Earlier-preset compatibility and all physical checks passed.
+Process CPU time measured 11.925 ms mean, 15.934 ms p99 and 25.064 ms maximum,
+with zero ticks above 33.333 ms. Wall time reached 36.156 ms, with one tick
+above that budget. The host was not isolated and the diagnostic observer now
+also records resources and bounded head traces; these timings do not isolate
+the VM change's contribution. Rear displacement and crossing indicators are
+unchanged from the retained production repeat.
+
+Three additional local-steering trials passed focused and physical checks
+but failed the whole-battle flow criteria. All three were reverted:
+
+| Trial | CORE rear NET | ARM rear NET | Inward crossing indicator, CORE / ARM |
+| --- | --- | --- | --- |
+| Retained physics | 47.98 | 22.70 | 18 / 9 |
+| Retain progressing unfinished passing legs | 29.57 | 16.32 | 14 / 3 |
+| Extend completed passing history | 34.73 | 36.09 | 15 / 4 |
+| Reject passing targets in the current cell | 16.89 | 15.30 | 14 / 8 |
+
+NET is mean world displacement during the final 300 ticks for the fixed
+original rear cohorts. The crossing indicator checks inward X=5120 side
+changes every tick in the north/south bridge bands, across the original
+20,000-slot domain with generation changes tracked. It excludes births
+outside that domain and does not establish complete bridge traversal or a
+crossing of the literal map centre. The scene remains Core Prime Industrial
+Area, not Metal Heck.
+
+One sampled ARM unit repeated a moving loop inside a single footprint cell
+every 60 ticks. Rejecting its in-cell targets removed the loop but left it
+stationary; the whole army also moved less. That result requires better
+physical-blocker evidence, rather than treating fewer local turns as better
+flow. The current retained build includes none of those three steering
+policies.
+
+The Mac remained locked for the new foreground runs. The earlier FPS table
+belongs to source `0a40ac526`; it is not a measurement of `c6b50e170`. Actual
+FPS in both views and the 60 FPS target remain unverified for the new build.
+Ray tracing remains deferred.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
