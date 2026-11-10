@@ -811,6 +811,15 @@ without delaying capture or changing interpolation history. CPU reference
 tests and windowless Metal comparisons check image equivalence; performance
 must still be measured in the full battle. Ray tracing remains deferred.
 
+Warmed unit-pose histories can be captured independently on the existing
+drawing pool, with a synchronous join before rendering or script queries.
+Slot validation, faults and cold-history handling stay on the calling thread.
+Workers use preallocated rate storage and the caller's floating-point control.
+A paired 20,000-instance capture check measured 3.816 ms for the original
+serial capture and 1.785 ms with four total threads, including the caller.
+Complete histories and rates matched. This excludes validation, simulation
+and drawing, so it does not establish the full-frame gain.
+
 ### Combined battle checkpoint
 
 Source `ad3cb4085` was compared with the unchanged `e4d7b3d6` rules-6
