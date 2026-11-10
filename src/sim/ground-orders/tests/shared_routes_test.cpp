@@ -2002,17 +2002,29 @@ void fine_representatives_require_known_live_anchors() {
 void fine_representatives_validate_the_actual_source_pose() {
     Grid grid(96, 96);
     std::fill(grid.cells.begin(), grid.cells.end(), 0);
+    for (uint32_t z = 8; z <= 10; ++z)
+        grid.cells[z * grid.width + 8] = grid.cells[z * grid.width + 12] = 1;
+    for (uint32_t x = 8; x <= 12; ++x)
+        grid.cells[10 * grid.width + x] = 1;
     for (uint32_t x = 38; x <= 40; ++x)
         grid.cells[20 * grid.width + x] = 1;
     for (uint32_t x = 37; x <= 40; ++x)
         grid.cells[21 * grid.width + x] = 1;
+    // This detour admits the second component before checking its off-centre actor.
+    for (uint32_t z = 20; z <= 26; ++z)
+        grid.cells[z * grid.width + 40] = grid.cells[z * grid.width + 48] = 1;
+    for (uint32_t x = 40; x <= 48; ++x)
+        grid.cells[26 * grid.width + x] = 1;
     const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
     FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    build_first_representative(cache, grid);
     const auto goal = circle(40, 20);
     auto unit = unit_at(37, 21);
-    CHECK(query(cache, grid, unit, goal) == FlowResult::fallback);
-    CHECK(query(cache, grid, unit, goal) == FlowResult::pending);
-    advance_representative(cache, grid, 1);
+    CHECK(representative_route(cache, grid, unit_at(48, 20), goal) != FlowResult::ready);
+    CHECK(representative_route(cache, grid, unit_at(48, 20), goal) == FlowResult::pending);
+    for (uint32_t tick = 62; tick <= 65; ++tick)
+        advance_representative(cache, grid, tick);
+    CHECK(cache.counters().fields_started == 2);
     CHECK(representative_route(cache, grid, unit, goal) == FlowResult::ready);
     CHECK(segment_avoids_blocked_cells(grid, {600, 344}, {648, 328}));
     unit.position.z -= 7 << 16;
@@ -2021,25 +2033,39 @@ void fine_representatives_validate_the_actual_source_pose() {
     // unsafe native chord. Neither a direct shortcut nor a new field is valid.
     CHECK((unit.position.z >> 20) == unit.cell_z);
     CHECK(representative_route(cache, grid, unit, goal) == FlowResult::fallback);
-    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+    CHECK(cache.counters().fields_started == 2 && cache.counters().invalidations == 0);
+    CHECK(representative_route(cache, grid, unit_at(8, 8), circle(12, 8)) == FlowResult::ready);
 }
 
 /// A clear goal plot is insufficient when another plot under its footprint blocks.
 void fine_representatives_validate_the_complete_goal_footprint() {
     auto grid = representative_islands();
+    for (uint32_t z = 8; z < 12; ++z)
+        for (uint32_t x = 8; x < 14; ++x)
+            if (x < 10 || x >= 12 || z >= 10)
+                grid.cells[z * grid.width + x] = 1;
     const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
     FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    const auto first_unit = unit_at(8, 8, 2);
+    const auto first_goal = circle(12, 8);
+    CHECK(query(cache, grid, first_unit, first_goal, context(1)) == FlowResult::fallback);
+    CHECK(query(cache, grid, first_unit, first_goal, context(1)) == FlowResult::pending);
+    for (uint32_t tick = 1; tick <= 61; ++tick)
+        advance_representative(cache, grid, tick);
+    CHECK(query(cache, grid, first_unit, first_goal, context(1)) == FlowResult::ready);
     const auto unit = unit_at(36, 20, 2);
     const auto goal = circle(84, 20);
-    CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit, goal, context(1)) != FlowResult::ready);
     CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::pending);
-    for (uint32_t tick = 1; tick <= 50; ++tick)
+    for (uint32_t tick = 62; tick <= 110; ++tick)
         advance_representative(cache, grid, tick);
+    CHECK(cache.counters().fields_started == 2);
     CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::ready);
     grid.cells[20 * grid.width + 85] = 0;
     CHECK(grid.cells[20 * grid.width + 84] == 1);
     CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::fallback);
-    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+    CHECK(cache.counters().fields_started == 2 && cache.counters().invalidations == 0);
+    CHECK(query(cache, grid, first_unit, first_goal, context(1)) == FlowResult::ready);
 }
 
 /// An extra representative seeds the known anchor that made its admission usable.
