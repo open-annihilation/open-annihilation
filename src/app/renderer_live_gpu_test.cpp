@@ -3313,6 +3313,148 @@ void scene_marker_readback() {
     }
 }
 
+/// Frame-local effects match persistent art on the real card, including filtered edges and row updates.
+void frame_effect_material_readback() {
+    namespace live_scene = oa::app::renderer_live_scene;
+    constexpr uint32_t edge = 128;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    oa::formats::tnt::Map map{};
+    map.attribute_width = map.attribute_height = 8;
+    map.tile_width = map.tile_height = 4;
+    map.tile_count = 1;
+    map.attributes.resize(64);
+    map.tile_indices.assign(16, 0);
+    map.tile_palette_indices.assign(32 * 32, 1);
+    oa::PaletteBytes palette{};
+    constexpr std::array<std::array<uint8_t, 3>, 3> colors{
+        {{40, 60, 80}, {240, 90, 20}, {20, 170, 240}}
+    };
+    for (std::size_t index = 0; index < colors.size(); ++index)
+        std::copy(
+            colors[index].begin(),
+            colors[index].end(),
+            palette.begin() + (index + 1) * oa::palette_entry_bytes
+        );
+    std::array<oa::formats::gaf::RenderedFrame, 2> art{};
+    art[0].width = art[0].height = 12;
+    art[0].origin_x = 6;
+    art[0].origin_y = 12;
+    art[0].pixels.assign(144, 2);
+    art[0].coverage.assign(144, 1);
+    for (uint32_t y = 0; y < 12; ++y)
+        for (uint32_t x = 0; x < 12; ++x) {
+            const auto at = y * 12 + x;
+            art[0].pixels[at] = static_cast<uint8_t>(2 + (x + y) % 2);
+            art[0].coverage[at] = static_cast<uint8_t>(x != 0 && y != 0 && x != 11 && y != 11);
+        }
+    art[1].width = art[1].height = 24;
+    art[1].origin_x = art[1].origin_y = 12;
+    art[1].pixels.assign(24 * 24, 100);
+    art[1].coverage.assign(24 * 24, 1);
+    oa::app::WorldDrawList draws{};
+    draws.sprites.push_back({&art[0], {40, 52}});
+    draws.sprites[0].world_position = oa::FixedVec3{40 * fixed + fixed / 4, 8 * fixed, 56 * fixed};
+    draws.sprites[0].soft_effect = true;
+    draws.sprites[0].effect_scale = 1.25F;
+    draws.sprites[0].effect_opacity = 0.7F;
+    draws.sprites.push_back({&art[1], {44, 52}});
+    draws.sprites[1].world_position = oa::FixedVec3{44 * fixed, 0, 52 * fixed};
+    draws.sprites.push_back(draws.sprites[1]);
+    draws.sprites[2].world_position->x += 4 * fixed;
+    draws.draws.push_back({oa::app::WorldDrawKind::blended_sprite, 0});
+    draws.draws.push_back({oa::app::WorldDrawKind::lit_sprite, 1});
+    draws.draws.push_back({oa::app::WorldDrawKind::lit_sprite, 2});
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 0);
+    oa::Unit unit{};
+    unit.position = {52 * fixed, 0, 56 * fixed};
+    oa::UnitDef definition{};
+    draws.models.resize(1);
+    draws.models[0].model.unit = &unit;
+    draws.models[0].model.state = &state;
+    draws.models[0].model.def = &definition;
+    draws.models[0].plan.linked.drawn = true;
+    draws.models[0].plan.model.from_image = true;
+    live_scene::Inputs inputs{};
+    inputs.map = &map;
+    inputs.palette = &palette;
+    inputs.draws = &draws;
+    inputs.right = inputs.bottom = edge;
+    inputs.clip_width = inputs.clip_height = edge;
+    inputs.clip_projection = classic_projection;
+    inputs.view_direction = {0, 1, 0.5F};
+    inputs.sight.mapping = inputs.sight.line_of_sight = false;
+    inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    const auto readback = [&](live_scene::Scene& scene,
+                              Context& context,
+                              std::vector<uint8_t>& pixels,
+                              uint32_t frame,
+                              bool partial) {
+        std::string error;
+        const bool built = live_scene::build(inputs, scene, error);
+        OA_CHECK(built);
+        if (!built) {
+            std::fprintf(stderr, "effect scene build: %s\n", error.c_str());
+            return false;
+        }
+        const uint64_t revision = partial
+                                      ? scene.texture_revision
+                                      : 100'000 + uint64_t{frame} * 100 + scene.texture_revision;
+        const auto result = render(
+            context,
+            scene.vertices,
+            scene.texture_rgba,
+            scene.texture_width,
+            scene.texture_height,
+            revision,
+            edge,
+            edge,
+            inputs.clip_projection,
+            pixels,
+            error,
+            1,
+            partial ? &scene.atlas_update : nullptr,
+            &inputs.water,
+            &scene.card_ground
+        );
+        OA_CHECK(result == Result::success);
+        if (result != Result::success)
+            std::fprintf(stderr, "effect scene GPU readback: %s\n", error.c_str());
+        return result == Result::success;
+    };
+    live_scene::Scene warm{};
+    warm.frame_rows = 64;
+    Context warm_context{};
+    Context reference_context{};
+    std::array<std::vector<uint8_t>, 2> pixels{};
+    std::vector<uint8_t> first{};
+    for (uint32_t frame = 0; frame < 12; ++frame) {
+        art[0].pixels[13] = static_cast<uint8_t>(2 + frame % 2);
+        art[1].pixels[12 * 24 + 12] = static_cast<uint8_t>(80 + frame * 2);
+        state.image.pixels[8 + frame % 8] ^= 1;
+        draws.flash_strength =
+            frame % 2 ? oa::app::FlashStrength::reduced : oa::app::FlashStrength::full;
+        if (frame == 6)
+            palette[oa::palette_entry_bytes] += 7;
+        live_scene::Scene reference{};
+        if (!readback(warm, warm_context, pixels[0], frame, true) ||
+            !readback(reference, reference_context, pixels[1], frame, false))
+            return;
+        OA_CHECK(warm.sprite_count == 3 && warm.shadow_count == 1);
+        OA_CHECK(warm.passes.effect_materials.size() == 3);
+        OA_CHECK(warm.passes.effect_materials[0].has_value());
+        OA_CHECK(warm.passes.effect_materials[1] == warm.passes.effect_materials[2]);
+        OA_CHECK(pixels[0].size() == edge * edge * channels);
+        OA_CHECK(pixels[0] == pixels[1]);
+        if (frame == 0)
+            first = pixels[0];
+    }
+    OA_CHECK(pixels[0] != first);
+}
+
 /// A synthetic twenty-thousand-unit scene reaches the real GPU, with one
 /// nonoverlapping five-pixel marker and canonical pick range per unit.
 void large_marker_scene_readback() {
@@ -3507,6 +3649,7 @@ int main() {
         card_models();
         card_shadows();
         scene_marker_readback();
+        frame_effect_material_readback();
         large_marker_scene_readback();
     }
     SDL_Quit();
