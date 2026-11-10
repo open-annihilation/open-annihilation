@@ -4557,11 +4557,7 @@ void strategic_unit_markers_on_threads() {
     in.clip_width = in.clip_height = 128;
     in.unit_marker_pixels = 5;
     in.sea_level = 3;
-    OA_CHECK(
-        camera::projection(
-            {20, -53, true}, {16, 0, 16, 64, 64, 0.25F}, in.clip_projection
-        )
-    );
+    OA_CHECK(camera::projection({20, -53, true}, {16, 0, 16, 64, 64, 0.25F}, in.clip_projection));
     for (std::size_t owner = 0; owner < in.owner_colors.size(); ++owner)
         in.owner_colors[owner] = {
             static_cast<uint8_t>(20 + owner * 7),
@@ -4604,11 +4600,8 @@ void strategic_unit_markers_on_threads() {
     OA_CHECK(battle.scene.passes.marker_bands.size() == 4);
     OA_CHECK(battle.scene.unit_ranges.size() == population);
     OA_CHECK(battle.scene.model_count == population);
-    OA_CHECK(
-        battle.scene.vertices.size() == battle.scene.terrain_vertex_count + population * 6
-    );
-    for (std::size_t index = 0;
-         index < std::min(battle.scene.unit_ranges.size(), units.size());
+    OA_CHECK(battle.scene.vertices.size() == battle.scene.terrain_vertex_count + population * 6);
+    for (std::size_t index = 0; index < std::min(battle.scene.unit_ranges.size(), units.size());
          ++index) {
         const auto& range = battle.scene.unit_ranges[index];
         OA_CHECK(range.unit_id == units[index].id && range.vertex_count == 6);

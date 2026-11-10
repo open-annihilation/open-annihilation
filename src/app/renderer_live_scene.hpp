@@ -481,6 +481,9 @@ struct PassLists {
     /// retains the ordinary persistent-material path.
     std::vector<std::optional<AtlasRect>> effect_materials{};
     PassList models{};
+    /// Consecutive strategic-marker ranges listed independently when their
+    /// ordinary white material is already persistent. No source pointer is kept.
+    std::vector<PassList> marker_bands{};
     PassList projectiles{};
     /// The effect cards standing up, by band of the cards' draws.
     std::vector<PassList> cards{};

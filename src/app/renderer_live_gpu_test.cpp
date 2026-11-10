@@ -3459,6 +3459,117 @@ void frame_effect_material_readback() {
     OA_CHECK(reused_ground_index);
 }
 
+/// Four-thread strategic-marker bands preserve every pixel of the serial draw.
+void strategic_marker_bands_readback() {
+    namespace live_scene = oa::app::renderer_live_scene;
+    constexpr uint32_t columns = 200, rows = 100, spacing = 8;
+    constexpr uint32_t population = columns * rows;
+    constexpr uint32_t width = columns * spacing, height = rows * spacing;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    constexpr std::array<float, 12> projection{1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0};
+    oa::formats::tnt::Map map;
+    map.attribute_width = width / 16;
+    map.attribute_height = height / 16;
+    map.tile_width = width / 32;
+    map.tile_height = height / 32;
+    map.tile_count = 1;
+    map.attributes.resize(map.attribute_width * map.attribute_height);
+    map.tile_indices.assign(map.tile_width * map.tile_height, 0);
+    map.tile_palette_indices.assign(32 * 32, 1);
+    oa::PaletteBytes palette{};
+    palette[oa::palette_entry_bytes] = 24;
+    palette[oa::palette_entry_bytes + 1] = 36;
+    palette[oa::palette_entry_bytes + 2] = 48;
+    std::vector<oa::Unit> units(population);
+    oa::app::WorldDrawList draws;
+    draws.unit_markers.resize(population);
+    draws.shown_map_width = width;
+    draws.shown_map_height = height;
+    live_scene::Inputs inputs;
+    inputs.map = &map;
+    inputs.palette = &palette;
+    inputs.draws = &draws;
+    inputs.right = width;
+    inputs.bottom = height;
+    inputs.clip_width = width;
+    inputs.clip_height = height;
+    inputs.clip_projection = projection;
+    inputs.sight.mapping = inputs.sight.line_of_sight = false;
+    inputs.owner_colors[0] = {255, 96, 0};
+    inputs.owner_colors[1] = {0, 160, 255};
+    oa::platform::job_pool::Pool pool(4);
+    live_scene::Scene serial, parallel;
+    std::array<Context, 2> contexts;
+    std::array<std::vector<uint8_t>, 2> pixels;
+    std::vector<uint8_t> first;
+    std::string error;
+    bool used_bands = false;
+    for (uint32_t frame = 0; frame < 6; ++frame) {
+        for (uint32_t index = 0; index < population; ++index) {
+            auto& unit = units[index];
+            unit.id = static_cast<uint16_t>(index + 1);
+            unit.owner_index = static_cast<uint8_t>(index % 2);
+            const int32_t quarter = static_cast<int32_t>(frame % 3) * fixed / 4;
+            const oa::FixedVec3 shown{
+                static_cast<int32_t>(index % columns * spacing) * fixed + 9 * fixed / 2 + quarter,
+                0,
+                static_cast<int32_t>(index / columns * spacing) * fixed + 9 * fixed / 2
+            };
+            draws.unit_markers[index].unit = &unit;
+            draws.unit_markers[index].shown_position = shown;
+        }
+        if (frame == 3) {
+            palette[oa::palette_entry_bytes] += 11;
+            inputs.owner_colors[0] = {180, 240, 80};
+        }
+        for (std::size_t version = 0; version < 2; ++version) {
+            inputs.pool = version == 0 ? nullptr : &pool;
+            auto& scene = version == 0 ? serial : parallel;
+            const bool built = live_scene::build(inputs, scene, error);
+            OA_CHECK(built);
+            if (!built) {
+                std::fprintf(stderr, "strategic marker bands Scene: %s\n", error.c_str());
+                return;
+            }
+            if (version == 1) {
+                OA_CHECK(
+                    frame == 0 ? scene.passes.marker_bands.empty()
+                               : scene.passes.marker_bands.size() == pool.threads()
+                );
+                used_bands |= !scene.passes.marker_bands.empty();
+            }
+            OA_CHECK(scene.model_count == population && scene.unit_ranges.size() == population);
+            const auto result = render(
+                contexts[version],
+                scene.vertices,
+                scene.texture_rgba,
+                scene.texture_width,
+                scene.texture_height,
+                scene.texture_revision,
+                width,
+                height,
+                projection,
+                pixels[version],
+                error,
+                1,
+                &scene.atlas_update,
+                &inputs.water,
+                &scene.card_ground
+            );
+            OA_CHECK(result == Result::success);
+            if (result != Result::success) {
+                std::fprintf(stderr, "strategic marker bands GPU: %s\n", error.c_str());
+                return;
+            }
+        }
+        OA_CHECK(pixels[0].size() == width * height * channels);
+        OA_CHECK(pixels[0] == pixels[1]);
+        if (frame == 0)
+            first = pixels[0];
+    }
+    OA_CHECK(used_bands && pixels[0] != first);
+}
+
 /// A synthetic twenty-thousand-unit scene reaches the real GPU, with one
 /// nonoverlapping five-pixel marker and canonical pick range per unit.
 void large_marker_scene_readback() {
@@ -3655,6 +3766,7 @@ int main() {
         scene_marker_readback();
         frame_effect_material_readback();
         large_marker_scene_readback();
+        strategic_marker_bands_readback();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

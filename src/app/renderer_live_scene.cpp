@@ -6023,6 +6023,64 @@ bool draw_on_card(
     return true;
 }
 
+/// Lists one strategic marker using only the immutable frame inputs.
+/// @param in the frame
+/// @param[in,out] pass the marker's exclusive output list
+/// @param index the marker's position in WorldDrawList::unit_markers
+/// @param[in,out] white_material the ordinary marker material, found once
+/// @param white_palette the marker's fixed white palette
+void strategic_marker(
+    const Inputs& in,
+    Pass& pass,
+    std::size_t index,
+    std::optional<AtlasRect>& white_material,
+    const PaletteBytes& white_palette
+) {
+    const auto& marker = in.draws->unit_markers[index];
+    const auto* unit = marker.unit;
+    if (unit == nullptr || unit->id == 0 || unit->attach_parent != 0 ||
+        !(pass.scene.unit_marker_radius > 0))
+        return;
+    const auto& position = marker.shown_position;
+    const float x = position.x / fixed_scale;
+    const float y = position.y / fixed_scale;
+    const float z = position.z / fixed_scale;
+    const float fog_z = z - y * height_lift;
+    if (fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(fog_z)) == Fog::black)
+        return;
+    UnitDetail detail{};
+    // Strategic dots sit above their terrain or water receiver;
+    // an aircraft retains its displayed altitude. No record moves.
+    detail.center = {
+        x,
+        std::max(
+            {y,
+             float(in.sea_level),
+             height_at(*in.map, static_cast<int32_t>(x), static_cast<int32_t>(z))}
+        ),
+        z
+    };
+    detail.brightness = brightness_at(in.sight, x, fog_z);
+    unit_marker(in, pass, detail, *unit, white_material, white_palette);
+    return;
+}
+
+/// Lists a consecutive marker range with an already persistent white material.
+void marker_range(
+    const Inputs& in,
+    Pass& pass,
+    std::size_t first,
+    std::size_t last,
+    AtlasRect white,
+    const PaletteBytes& palette
+) {
+    std::optional<AtlasRect> material = white;
+    for (auto index = first; index < last; ++index) {
+        begin_draw(pass, in.draws->models.size() + index);
+        strategic_marker(in, pass, index, material, palette);
+    }
+}
+
 /// Uses the actual animated, rotated model vertices prepared for this frame.
 ///
 /// @param in the frame
@@ -6089,33 +6147,9 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     for (std::size_t draw_index = first; draw_index < last; ++draw_index) {
         begin_draw(pass, draw_index);
         if (draw_index >= in.draws->models.size()) {
-            const auto& marker = in.draws->unit_markers[draw_index - in.draws->models.size()];
-            const auto* unit = marker.unit;
-            if (unit == nullptr || unit->id == 0 || unit->attach_parent != 0 ||
-                !(pass.scene.unit_marker_radius > 0))
-                continue;
-            const auto& position = marker.shown_position;
-            const float x = position.x / fixed_scale;
-            const float y = position.y / fixed_scale;
-            const float z = position.z / fixed_scale;
-            const float fog_z = z - y * height_lift;
-            if (fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(fog_z)) ==
-                Fog::black)
-                continue;
-            UnitDetail detail{};
-            // Strategic dots sit above their terrain or water receiver;
-            // an aircraft retains its displayed altitude. No record moves.
-            detail.center = {
-                x,
-                std::max(
-                    {y,
-                     float(in.sea_level),
-                     height_at(*in.map, static_cast<int32_t>(x), static_cast<int32_t>(z))}
-                ),
-                z
-            };
-            detail.brightness = brightness_at(in.sight, x, fog_z);
-            unit_marker(in, pass, detail, *unit, white_material, white_palette);
+            strategic_marker(
+                in, pass, draw_index - in.draws->models.size(), white_material, white_palette
+            );
             continue;
         }
         const auto& draw = in.draws->models[draw_index];
@@ -8158,6 +8192,8 @@ class PassTimes {
             bench_timers::add_nanoseconds(Stage::foundations, passes.ground[band].nanoseconds);
         bench_timers::add_nanoseconds(Stage::foundations, foundations + ground_listing);
         add(Stage::models, passes.models);
+        for (const auto& band : passes.marker_bands)
+            add(Stage::models, band);
         add(Stage::projectiles, passes.projectiles);
         for (std::size_t band = 0; band < ground_card_bands; ++band)
             add(Stage::sprites, passes.cards[band]);
@@ -8258,6 +8294,47 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
     plan_unit_detail(in, scene);
+    // The ordinary model pass packs a missing marker material in its
+    // original order. Only its already persistent rectangle may be read
+    // concurrently, after detail planning has kept the full-model policy.
+    PaletteBytes marker_palette{};
+    marker_palette[0] = marker_palette[1] = marker_palette[2] = 255;
+    std::optional<AtlasRect> marker_white;
+    constexpr std::size_t markers_per_band = 512;
+    std::size_t marker_bands = 0;
+    if (in.pool != nullptr && !scene.unit_detail_active && scene.unit_marker_radius > 0) {
+        marker_bands =
+            std::min<std::size_t>(in.pool->threads(), draws.unit_markers.size() / markers_per_band);
+        if (marker_bands > 1) {
+            constexpr std::array<uint8_t, 1> pixel{0};
+            const auto digest = material_digest(
+                scene,
+                marker_palette,
+                1,
+                1,
+                pixel,
+                {},
+                -1,
+                Fog::seen,
+                false,
+                FlashStrength::full,
+                false
+            );
+            if (const auto found = scene.materials.find(digest); found != scene.materials.end())
+                marker_white = found->second;
+        }
+    }
+    if (!marker_white)
+        marker_bands = 0;
+    try {
+        passes.marker_bands.resize(marker_bands);
+    } catch (const std::bad_alloc&) {
+        passes.marker_bands.clear();
+        marker_bands = 0;
+    }
+    for (auto& band : passes.marker_bands)
+        clear_list(band, 0);
+    const auto models_end = marker_bands != 0 ? draws.models.size() : model_draws;
     for (auto* list :
          {&passes.shadow_packing,
           &passes.effect_packing,
@@ -8472,18 +8549,37 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         pass.shared_ground = &standing_ground;
         pass.ground_lock = &standing_ground_lock;
     };
-    const auto bands = static_cast<uint32_t>(pass_bands + ahead_bands);
+    const auto bands = static_cast<uint32_t>(pass_bands + marker_bands + ahead_bands);
     auto& ahead = scene.ground_ahead;
     const auto ahead_draw = ground_draw(ahead.source);
     const std::size_t first_ahead = ahead.bands_drawn;
+    const auto marker_control = base::float_precision::save_float_control();
     platform::job_pool::run_bands(in.pool, bands, [&](uint32_t band) {
-        if (band >= pass_bands) {
-            draw_ground_band(ahead_draw, ahead.bands[first_ahead + band - pass_bands], timing);
+        if (band >= pass_bands + marker_bands) {
+            draw_ground_band(
+                ahead_draw, ahead.bands[first_ahead + band - pass_bands - marker_bands], timing
+            );
+        } else if (band >= pass_bands) {
+            const auto index = band - pass_bands;
+            const auto first = draws.unit_markers.size() * index / marker_bands;
+            const auto last = draws.unit_markers.size() * (index + 1) / marker_bands;
+            const auto previous = base::float_precision::save_float_control();
+            base::float_precision::restore_float_control(marker_control);
+            run_beside(
+                scene,
+                passes.marker_bands[index],
+                draws.models.size() + last,
+                timing,
+                [&](Pass& pass) {
+                    marker_range(in, pass, first, last, *marker_white, marker_palette);
+                }
+            );
+            base::float_precision::restore_float_control(previous);
         } else if (band == 0) {
             if (scene.unit_detail_active)
                 return;
-            run_beside(scene, passes.models, model_draws, timing, [&](Pass& pass) {
-                models(in, pass, 0, model_draws);
+            run_beside(scene, passes.models, models_end, timing, [&](Pass& pass) {
+                models(in, pass, 0, models_end);
             });
         } else if (band == 1 || band >= first_standing_band) {
             const std::size_t index = band == 1 ? 0 : band - first_standing_band + 1;
@@ -8641,11 +8737,32 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const std::size_t models_first = listed;
     const auto take_models = [&] {
         take_list(
-            scene, passes.models, model_draws, listed, timing, [&](Pass& pass, std::size_t from) {
-                models(in, pass, from, model_draws);
+            scene, passes.models, models_end, listed, timing, [&](Pass& pass, std::size_t from) {
+                models(in, pass, from, models_end);
             }
         );
         listed += passes.models.cards.vertices;
+        for (std::size_t band = 0; band < marker_bands; ++band) {
+            const auto end =
+                draws.models.size() + draws.unit_markers.size() * (band + 1) / marker_bands;
+            take_list(
+                scene,
+                passes.marker_bands[band],
+                end,
+                listed,
+                timing,
+                [&](Pass& pass, std::size_t from) {
+                    marker_range(
+                        in,
+                        pass,
+                        from - draws.models.size(),
+                        end - draws.models.size(),
+                        *marker_white,
+                        marker_palette
+                    );
+                }
+            );
+        }
     };
     const auto take_effects = [&] {
         take_list(
@@ -8736,6 +8853,16 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         range.first_vertex += models_first;
         scene.unit_ranges.push_back(range);
     }
+    uint32_t markers_drawn{};
+    for (const auto& band : passes.marker_bands) {
+        const auto first = scene.vertices.size();
+        join(band.vertices);
+        for (auto range : band.unit_ranges) {
+            range.first_vertex += first;
+            scene.unit_ranges.push_back(range);
+        }
+        markers_drawn += band.drawn;
+    }
     // The models drawn on the card, among the models' vertices.
     auto& on_card = passes.models.cards;
     for (auto& run : on_card.runs)
@@ -8758,7 +8885,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     }
     join(passes.particles.vertices);
     scene.shadow_count = shadows + scene.cards.cast_depths;
-    scene.model_count = passes.models.drawn;
+    scene.model_count = passes.models.drawn + markers_drawn;
     scene.sprite_count = ground_cards + standing_cards;
     scene.particle_count = passes.particles.drawn;
     scene.nano_particle_count = passes.particles.nano_particles;
