@@ -14,6 +14,9 @@
 // a draw between ticks works on copies of the unit records and model
 // instances, and never writes the match's own. The debug grid's random
 // numbers are kept from a tick's first draw for its later draws.
+// Root-only observations keep unit motion without sampling their rigs. When
+// models resume, their pieces show the current captured pose until another
+// full observation supplies the earlier endpoint needed for interpolation.
 #pragma once
 
 #include "oa/core/projectile.h"
@@ -199,6 +202,25 @@ void capture_unit_pose(
 /// @return true when a frame between the two may show the unit between them
 [[nodiscard]] bool pose_continues(const UnitPose& previous, const UnitPose& current) noexcept;
 
+/// Places only a unit record's position and orientation between its root poses.
+///
+/// @param previous the root pose at the tick before
+/// @param current the root pose at the current tick
+/// @param fraction the part of the way, 0 to whole_tick
+/// @param[in,out] record a copy of the unit's record; other fields stay unchanged
+void blend_unit_root_pose(
+    const UnitPose& previous, const UnitPose& current, uint32_t fraction, oa::Unit& record
+);
+
+/// Places a model copy's pieces at a captured current pose without interpolation.
+///
+/// Only corresponding pieces' translations and rotations are written. Their
+/// flags and the instance's transforms stay unchanged; the caller rebuilds them.
+///
+/// @param pose the captured current pose
+/// @param[in,out] instance the model copy
+void place_current_unit_pieces(const UnitPose& pose, oa::sim::model_runtime::Instance& instance);
+
 /// Places copies of a unit's record and model instance part of the way from
 /// one pose to the next.
 ///
@@ -263,6 +285,11 @@ struct UnitMotion {
     /// than its record (on its playout) shows its pieces between them even
     /// when it jumped.
     bool pieces_moved{};
+    bool rig_valid{true}; ///< the current pose's piece fields and rates were captured
+    /// The current rig was captured after root-only observations, without a
+    /// previous rig endpoint; draws use its current pieces until the next full tick.
+    bool rig_primed{};
+    std::size_t root_piece_count{}; ///< the piece count at the last root capture
     UnitPose previous{};
     UnitPose current{};
     // The copies a draw between ticks draws, and their own draw state: the
@@ -276,6 +303,25 @@ struct UnitMotion {
 // The slot list grows by moving its motions.
 static_assert(std::is_nothrow_move_constructible_v<UnitMotion>);
 
+/// Notes a unit's root pose without reading or copying its pieces or rates.
+///
+/// Root continuity follows observe_unit, including the instance's piece count.
+/// A new root observation invalidates rig history but retains its storage; a
+/// repeated tick of the same generation changes nothing, including a valid rig.
+///
+/// @param[in,out] motion the slot's motion
+/// @param tick the match's tick
+/// @param instance_generation the slot's SlotRuntime::instance_generation
+/// @param unit the unit record
+/// @param instance its model instance; only its piece count is read
+void observe_unit_root(
+    UnitMotion& motion,
+    uint32_t tick,
+    uint32_t instance_generation,
+    const oa::Unit& unit,
+    const oa::sim::model_runtime::Instance& instance
+);
+
 /// Notes a unit's pose at a tick.
 ///
 /// A unit of another instance generation than the one noted starts afresh,
@@ -285,6 +331,9 @@ static_assert(std::is_nothrow_move_constructible_v<UnitMotion>);
 /// changes nothing, including piece rates changed by a script query later
 /// during that same tick. Visible piece changes are compared while capturing
 /// the current pose; changing rates alone does not mark a piece as moved.
+/// After a root-only observation, the current rig is captured without making
+/// up an earlier rig pose. A same-tick capture preserves both root endpoints
+/// and their continuity flags; the following full tick supplies two rig endpoints.
 ///
 /// @param[in,out] motion the slot's motion
 /// @param tick the match's tick

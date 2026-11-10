@@ -331,25 +331,29 @@ bool same_piece_pose(const PiecePose& a, const PiecePose& b) noexcept {
            a.rotation.xz == b.rotation.xz && a.rotation.yz == b.rotation.yz;
 }
 
-/// Captures a pose and compares pieces while their fields are already in hand.
+/// Captures a unit record's root without touching its piece storage.
 /// @param unit the unit record
-/// @param instance its model instance
-/// @param[out] pose the current pose; its piece list keeps its memory
-/// @param piece_turns three turn-per-tick words per piece, in xy, xz, yz order
-/// @param previous the previous pose, or null when no tick continues
-/// @return true when equally sized piece lists differ in translation or rotation
-bool capture_and_compare_pose(
-    const oa::Unit& unit,
-    const oa::sim::model_runtime::Instance& instance,
-    UnitPose& pose,
-    std::span<const int32_t> piece_turns,
-    const UnitPose* previous
-) {
+/// @param[out] pose the pose whose root fields are written
+void capture_unit_root(const oa::Unit& unit, UnitPose& pose) noexcept {
     pose.position = unit.position;
     pose.heading = unit.heading;
     pose.pitch = unit.pitch;
     pose.bank = unit.bank;
     pose.attach_parent = unit.attach_parent;
+}
+
+/// Captures pieces and compares their fields while they are already in hand.
+/// @param instance its model instance
+/// @param[out] pose the pose; its root stays unchanged and its pieces keep memory
+/// @param piece_turns three turn-per-tick words per piece, in xy, xz, yz order
+/// @param previous the previous pose, or null when no tick continues
+/// @return true when equally sized piece lists differ in translation or rotation
+bool capture_and_compare_pieces(
+    const oa::sim::model_runtime::Instance& instance,
+    UnitPose& pose,
+    std::span<const int32_t> piece_turns,
+    const UnitPose* previous
+) {
     const auto pieces = instance.pieces();
     pose.pieces.resize(pieces.size());
     const bool compare = previous != nullptr && previous->pieces.size() == pieces.size();
@@ -365,6 +369,40 @@ bool capture_and_compare_pose(
             changed = !same_piece_pose(previous->pieces[index], captured);
     }
     return changed;
+}
+
+/// Captures the full pose, comparing its pieces with an earlier endpoint.
+/// @param unit the unit record
+/// @param instance its model instance
+/// @param[out] pose the current pose
+/// @param piece_turns three turn-per-tick words per piece, in xy, xz, yz order
+/// @param previous the previous pose, or null when no tick continues
+/// @return true when equally sized piece lists differ in translation or rotation
+bool capture_and_compare_pose(
+    const oa::Unit& unit,
+    const oa::sim::model_runtime::Instance& instance,
+    UnitPose& pose,
+    std::span<const int32_t> piece_turns,
+    const UnitPose* previous
+) {
+    capture_unit_root(unit, pose);
+    return capture_and_compare_pieces(instance, pose, piece_turns, previous);
+}
+
+/// Captures a current rig without changing the root history it now accompanies.
+/// @param[in,out] motion the slot's motion
+/// @param instance its current model instance
+/// @param piece_turns three turn-per-tick words per piece, in xy, xz, yz order
+void prime_unit_rig(
+    UnitMotion& motion,
+    const oa::sim::model_runtime::Instance& instance,
+    std::span<const int32_t> piece_turns
+) {
+    std::ignore = capture_and_compare_pieces(instance, motion.current, piece_turns, nullptr);
+    motion.rig_valid = true;
+    motion.rig_primed = true;
+    motion.pieces_moved = false;
+    motion.blended_draw = 0;
 }
 
 } // namespace
@@ -396,6 +434,26 @@ bool pose_continues(const UnitPose& previous, const UnitPose& current) noexcept 
            !jumps(previous.position.z, current.position.z);
 }
 
+void blend_unit_root_pose(
+    const UnitPose& previous, const UnitPose& current, uint32_t fraction, oa::Unit& record
+) {
+    record.position = blend_point(previous.position, current.position, fraction);
+    record.heading = static_cast<uint16_t>(blend_angle(
+        static_cast<int16_t>(previous.heading), static_cast<int16_t>(current.heading), fraction
+    ));
+    record.pitch = blend_angle(previous.pitch, current.pitch, fraction);
+    record.bank = blend_angle(previous.bank, current.bank, fraction);
+}
+
+void place_current_unit_pieces(const UnitPose& pose, oa::sim::model_runtime::Instance& instance) {
+    auto pieces = instance.pieces();
+    const std::size_t count = std::min(pieces.size(), pose.pieces.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        pieces[index].translation = pose.pieces[index].translation;
+        pieces[index].rotation = pose.pieces[index].rotation;
+    }
+}
+
 void blend_unit_pose(
     const UnitPose& previous,
     const UnitPose& current,
@@ -404,12 +462,7 @@ void blend_unit_pose(
     oa::sim::model_runtime::Instance& instance,
     uint32_t ticks
 ) {
-    record.position = blend_point(previous.position, current.position, fraction);
-    record.heading = static_cast<uint16_t>(blend_angle(
-        static_cast<int16_t>(previous.heading), static_cast<int16_t>(current.heading), fraction
-    ));
-    record.pitch = blend_angle(previous.pitch, current.pitch, fraction);
-    record.bank = blend_angle(previous.bank, current.bank, fraction);
+    blend_unit_root_pose(previous, current, fraction, record);
     blend_unit_pieces(previous, current, fraction, instance, ticks);
 }
 
@@ -444,6 +497,44 @@ void blend_unit_pieces(
     }
 }
 
+void observe_unit_root(
+    UnitMotion& motion,
+    uint32_t tick,
+    uint32_t instance_generation,
+    const oa::Unit& unit,
+    const oa::sim::model_runtime::Instance& instance
+) {
+    const std::size_t count = instance.pieces().size();
+    if (!motion.seen || motion.instance_generation != instance_generation) {
+        motion.instance_generation = instance_generation;
+        motion.state = {};
+        motion.blended_draw = 0;
+        capture_unit_root(unit, motion.current);
+        motion.tick = tick;
+        motion.seen = true;
+        motion.continued = false;
+        motion.moved = false;
+    } else {
+        if (tick == motion.tick)
+            return;
+        const bool follows = batch_ticks(motion.tick, tick) != 0;
+        if (follows)
+            std::swap(motion.previous, motion.current);
+        capture_unit_root(unit, motion.current);
+        motion.tick = tick;
+        motion.continued = follows && motion.root_piece_count == count &&
+                           motion.previous.attach_parent == motion.current.attach_parent &&
+                           !jumps(motion.previous.position.x, motion.current.position.x) &&
+                           !jumps(motion.previous.position.y, motion.current.position.y) &&
+                           !jumps(motion.previous.position.z, motion.current.position.z);
+        motion.moved = motion.continued && !same_unit_root(motion.previous, motion.current);
+    }
+    motion.pieces_moved = false;
+    motion.rig_valid = false;
+    motion.rig_primed = false;
+    motion.root_piece_count = count;
+}
+
 void observe_unit(
     UnitMotion& motion,
     uint32_t tick,
@@ -464,6 +555,15 @@ void observe_unit(
         motion.continued = false;
         motion.moved = false;
         motion.pieces_moved = false;
+        motion.rig_valid = true;
+        motion.rig_primed = false;
+        motion.root_piece_count = instance.pieces().size();
+        return;
+    }
+    if (!motion.rig_valid) {
+        if (tick != motion.tick)
+            observe_unit_root(motion, tick, instance_generation, unit, instance);
+        prime_unit_rig(motion, instance, piece_turns);
         return;
     }
     if (tick == motion.tick)
@@ -479,6 +579,8 @@ void observe_unit(
     motion.moved =
         motion.continued && (!same_unit_root(motion.previous, motion.current) || pieces_changed);
     motion.pieces_moved = follows && pieces_changed;
+    motion.rig_primed = false;
+    motion.root_piece_count = instance.pieces().size();
 }
 
 void forget_unit(UnitMotion& motion) noexcept {
