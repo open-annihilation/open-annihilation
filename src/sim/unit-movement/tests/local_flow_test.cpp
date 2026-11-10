@@ -180,6 +180,271 @@ Fixed distance(std::array<Fixed, 3> from, std::array<Fixed, 3> to) {
     return oa::base::game_math::distance(to[0] - from[0], to[2] - from[2]);
 }
 
+/// Keeps complete physical footprints on a small translated map, including signed origins.
+struct FootprintExitGrid : Host {
+    static constexpr int16_t width = 24;
+    std::array<uint16_t, width * width> occupants{};
+    std::array<bool, width * width> walls{};
+    std::array<Unit, 5> units{};
+    std::array<std::array<int16_t, 2>, maximum_queries_per_choice> queried_cells{};
+    uint64_t occupancy_queries{};
+    size_t count{1};
+    int16_t left{}, top{};
+
+    FootprintExitGrid(
+        std::array<int16_t, 2> cell, std::array<int16_t, 2> footprint, std::array<Fixed, 3> position
+    )
+        : left(cell[0] - 8), top(cell[1] - 8) {
+        auto& mover = units[0];
+        mover.id = 1;
+        mover.cell = cell;
+        mover.footprint = footprint;
+        mover.position = position;
+        mover.heading = east;
+        mover.flags = 1;
+        mover.type.maximum_speed = 2 * fixed_one;
+        place(mover);
+    }
+
+    size_t index(int16_t x, int16_t z) const {
+        return size_t(int32_t(z) - top) * width + size_t(int32_t(x) - left);
+    }
+
+    bool inside(std::array<int16_t, 2> cell, std::array<int16_t, 2> footprint) const {
+        return cell[0] >= left && cell[1] >= top &&
+               int32_t(cell[0]) + footprint[0] <= left + width &&
+               int32_t(cell[1]) + footprint[1] <= top + width;
+    }
+
+    void place(const Unit& unit) {
+        OA_CHECK(inside(unit.cell, unit.footprint));
+        for (int16_t z = 0; z < unit.footprint[1]; ++z)
+            for (int16_t x = 0; x < unit.footprint[0]; ++x) {
+                auto& occupant = occupants[index(unit.cell[0] + x, unit.cell[1] + z)];
+                OA_CHECK(occupant == 0);
+                occupant = uint16_t(unit.id);
+            }
+    }
+
+    void add_blocker(std::array<int16_t, 2> cell) {
+        OA_CHECK(count < units.size());
+        auto& blocker = units[count++];
+        blocker.id = int16_t(count);
+        blocker.cell = cell;
+        blocker.footprint = units[0].footprint;
+        blocker.position = {
+            (cell[0] * 16 + blocker.footprint[0] * 8) * fixed_one,
+            0,
+            (cell[1] * 16 + blocker.footprint[1] * 8) * fixed_one
+        };
+        blocker.heading = west;
+        blocker.flags = 1;
+        blocker.type.maximum_speed = 2 * fixed_one;
+        place(blocker);
+    }
+
+    bool can_occupy(const Unit& unit, std::array<int16_t, 2> cell, uint8_t layer) override {
+        if (occupancy_queries < queried_cells.size())
+            queried_cells[size_t(occupancy_queries)] = cell;
+        ++occupancy_queries;
+        if (layer != 1 || !inside(cell, unit.footprint))
+            return false;
+        for (int16_t z = 0; z < unit.footprint[1]; ++z)
+            for (int16_t x = 0; x < unit.footprint[0]; ++x) {
+                const auto at = index(cell[0] + x, cell[1] + z);
+                if (walls[at] || (occupants[at] && occupants[at] != unit.id))
+                    return false;
+            }
+        return true;
+    }
+
+    LocalFlowProbe probe() {
+        return {
+            this, [](void* context, const Unit& mover, std::array<int16_t, 2> cell, uint8_t layer) {
+                const auto& grid = *static_cast<FootprintExitGrid*>(context);
+                if (layer != 1 || !grid.inside(cell, mover.footprint))
+                    return LocalFlowBlocker{LocalFlowObstacle::stationary};
+                uint16_t moving{};
+                for (int16_t z = 0; z < mover.footprint[1]; ++z)
+                    for (int16_t x = 0; x < mover.footprint[0]; ++x) {
+                        const auto at = grid.index(cell[0] + x, cell[1] + z);
+                        if (grid.walls[at])
+                            return LocalFlowBlocker{LocalFlowObstacle::stationary};
+                        const auto id = grid.occupants[at];
+                        if (id && id != mover.id && (!moving || id < moving))
+                            moving = id;
+                    }
+                return moving ? LocalFlowBlocker{LocalFlowObstacle::moving, moving, west, 10}
+                              : LocalFlowBlocker{};
+            }
+        };
+    }
+
+    void remove_occupancy(Unit&) override { std::abort(); }
+
+    void insert_occupancy(Unit&) override { std::abort(); }
+
+    void update_spatial_membership(Unit&) override { std::abort(); }
+};
+
+/// Tests the native half-open footprint-origin interval without rounding the candidate.
+bool target_in_origin(
+    const Unit& unit, const std::array<Fixed, 3>& target, std::array<int16_t, 2> origin
+) {
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        const int64_t lower =
+            (int64_t(origin[axis]) * 16 + 8 * (unit.footprint[axis] - 1)) * fixed_one;
+        const auto position = target[axis == 0 ? 0 : 2];
+        if (position < lower || position >= lower + cell_width)
+            return false;
+    }
+    return true;
+}
+
+void test_local_head_targets_leave_their_footprint_origin() {
+    for (const auto footprint : {std::array<int16_t, 2>{1, 1}, {2, 2}, {3, 3}, {2, 3}})
+        for (const auto cell : {std::array<int16_t, 2>{302, 173}, {-1, -2}})
+            for (const bool close_north : {false, true}) {
+                const std::array<Fixed, 3> position{
+                    Fixed((int64_t(cell[0] + 1) * 16 + 8 * (footprint[0] - 1)) * fixed_one - 1),
+                    0,
+                    Fixed((int64_t(cell[1] + 1) * 16 + 8 * (footprint[1] - 1)) * fixed_one - 1)
+                };
+                FootprintExitGrid grid(cell, footprint, position);
+                auto& mover = grid.units[0];
+                grid.add_blocker({int16_t(cell[0] - footprint[0]), cell[1]});
+                grid.walls[grid.index(cell[0] + footprint[0], cell[1])] = true;
+                grid.walls[grid.index(cell[0], cell[1] + footprint[1])] = true;
+                if (close_north)
+                    grid.walls[grid.index(cell[0] + footprint[0] - 1, cell[1] - 1)] = true;
+                Movement motion{};
+                motion.flags = 1;
+                motion.last_motion_tick = 19;
+                const std::array<Fixed, 3> destination{
+                    position[0] - 376 * fixed_one, 0, position[2] - 120 * fixed_one
+                };
+                auto original_probe = grid.probe();
+                OA_CHECK(!original_probe.require_cell_exit);
+                LocalFlowCounters original_counters{}, explicit_counters{}, exit_counters{};
+                const auto original = choose_local_flow(
+                    mover, motion, destination, 20, grid, original_probe, original_counters
+                );
+                OA_CHECK(original.adjusted && original.mobile_blocked && !original.reverse);
+                OA_CHECK(target_in_origin(mover, original.target, cell));
+                OA_CHECK(grid.occupancy_queries == 0);
+                original_probe.require_cell_exit = false;
+                const auto explicit_original = choose_local_flow(
+                    mover, motion, destination, 20, grid, original_probe, explicit_counters
+                );
+                OA_CHECK(explicit_original.target == original.target);
+                OA_CHECK(
+                    explicit_original.adjusted == original.adjusted &&
+                    explicit_original.reverse == original.reverse &&
+                    explicit_original.mobile_blocked == original.mobile_blocked
+                );
+                OA_CHECK(
+                    explicit_counters.probes == original_counters.probes &&
+                    explicit_counters.yielded_ticks == original_counters.yielded_ticks &&
+                    explicit_counters.steering_adjustments == original_counters.steering_adjustments
+                );
+                OA_CHECK(
+                    explicit_counters.moving_blockers == original_counters.moving_blockers &&
+                    explicit_counters.blocked_ticks == original_counters.blocked_ticks &&
+                    explicit_counters.deferred_replans == original_counters.deferred_replans
+                );
+                OA_CHECK(grid.occupancy_queries == 0);
+                auto exiting = grid.probe();
+                exiting.require_cell_exit = true;
+                const auto decision =
+                    choose_local_flow(mover, motion, destination, 20, grid, exiting, exit_counters);
+                OA_CHECK(decision.mobile_blocked);
+                OA_CHECK(exit_counters.probes <= maximum_queries_per_choice);
+                OA_CHECK(grid.occupancy_queries <= maximum_queries_per_choice);
+                if (close_north) {
+                    OA_CHECK(!decision.adjusted && !decision.reverse);
+                    OA_CHECK(decision.target == destination);
+                } else {
+                    OA_CHECK(decision.adjusted && !decision.reverse);
+                    OA_CHECK(
+                        target_in_origin(mover, decision.target, {cell[0], int16_t(cell[1] - 1)})
+                    );
+                    OA_CHECK(distance(mover.position, decision.target) > cell_width);
+                    // Move the source within this origin so the same unobstructed
+                    // candidate ends just before, at and just after its lower edge.
+                    const auto delta_z = original.target[2] - mover.position[2];
+                    const auto lower_z =
+                        Fixed((int64_t(cell[1]) * 16 + 8 * (footprint[1] - 1)) * fixed_one);
+                    for (const Fixed epsilon : {Fixed{-1}, Fixed{0}, Fixed{1}}) {
+                        mover.position[2] = lower_z - delta_z + epsilon;
+                        OA_CHECK(target_in_origin(mover, mover.position, cell));
+                        auto boundary_destination = destination;
+                        boundary_destination[2] = mover.position[2] - 120 * fixed_one;
+                        LocalFlowCounters before{}, after{};
+                        const auto ordinary = choose_local_flow(
+                            mover, motion, boundary_destination, 20, grid, original_probe, before
+                        );
+                        OA_CHECK(ordinary.adjusted && ordinary.target[2] == lower_z + epsilon);
+                        grid.occupancy_queries = 0;
+                        const auto checked = choose_local_flow(
+                            mover, motion, boundary_destination, 20, grid, exiting, after
+                        );
+                        OA_CHECK(
+                            checked.adjusted && !target_in_origin(mover, checked.target, cell)
+                        );
+                        if (epsilon < 0) {
+                            OA_CHECK(checked.target == ordinary.target);
+                            OA_CHECK(after.probes == before.probes);
+                        } else {
+                            OA_CHECK(checked.target != ordinary.target);
+                            OA_CHECK(distance(mover.position, checked.target) > cell_width);
+                        }
+                        OA_CHECK(after.probes <= maximum_queries_per_choice);
+                    }
+                }
+            }
+}
+
+void test_same_origin_reverse_fallback_uses_the_exit_gate() {
+    constexpr std::array<int16_t, 2> cell{302, 173};
+    FootprintExitGrid grid(cell, {2, 2}, {318119350, 0, 181927937});
+    auto& mover = grid.units[0];
+    mover.heading = 3979;
+    grid.add_blocker({300, 173});
+    grid.add_blocker({304, 173});
+    grid.add_blocker({302, 171});
+    grid.add_blocker({302, 175});
+    Movement motion{};
+    motion.flags = 5;
+    motion.speed = 58982;
+    motion.last_motion_tick = 8704;
+    const std::array<Fixed, 3> destination{4976 * fixed_one, 0, 2416 * fixed_one};
+    LocalFlowCounters original_counters{}, exiting_counters{};
+    const auto original =
+        choose_local_flow(mover, motion, destination, 8705, grid, grid.probe(), original_counters);
+    OA_CHECK(original.adjusted && original.mobile_blocked && original.reverse);
+    OA_CHECK(target_in_origin(mover, original.target, cell));
+    OA_CHECK((original.target[0] >> 16) == 4848 && (original.target[2] >> 16) == 2791);
+    const auto original_queries = grid.occupancy_queries;
+    const auto queried_cells = grid.queried_cells;
+    grid.occupancy_queries = 0;
+    grid.queried_cells = {};
+    auto exiting = grid.probe();
+    exiting.require_cell_exit = true;
+    const auto decision =
+        choose_local_flow(mover, motion, destination, 8705, grid, exiting, exiting_counters);
+    OA_CHECK(decision.mobile_blocked && !decision.adjusted && !decision.reverse);
+    OA_CHECK(decision.target == destination);
+    // The old reverse leg made no footprint query: both runs tested the same blocked exits.
+    OA_CHECK(grid.occupancy_queries == original_queries && grid.queried_cells == queried_cells);
+    OA_CHECK(exiting_counters.probes == original_counters.probes);
+    OA_CHECK(exiting_counters.moving_blockers == original_counters.moving_blockers);
+    OA_CHECK(exiting_counters.yielded_ticks == original_counters.yielded_ticks);
+    OA_CHECK(
+        exiting_counters.steering_adjustments == 0 && original_counters.steering_adjustments == 1
+    );
+    OA_CHECK(exiting_counters.probes <= maximum_queries_per_choice);
+}
+
 void test_sequential_progress_preserves_tick_start_priority() {
     for (const uint32_t earlier_progress_tick : {uint32_t{19}, uint32_t{5}}) {
         Grid grid;
@@ -751,6 +1016,8 @@ void test_counterflow_crossing_and_choke() {
 } // namespace
 
 int main() {
+    test_local_head_targets_leave_their_footprint_origin();
+    test_same_origin_reverse_fallback_uses_the_exit_gate();
     test_priority_and_stationary_obstacles();
     test_units_turning_together_keep_their_route();
     test_verified_queue_keeps_native_target_until_recovery();
