@@ -94,6 +94,36 @@ bool advance(Fixture& fixture, Terrain& terrain, uint64_t& probes) {
     );
 }
 
+/// Calls the same production geometry with the moving check's lower plot budget.
+bool advance_moving(Fixture& fixture, Terrain& terrain, uint64_t& probes) {
+    return runtime::try_advance_visible_corner(
+        fixture.unit,
+        fixture.navigation,
+        terrain.width,
+        terrain.height,
+        terrain,
+        probes,
+        runtime::moving_route_corner_maximum_plots
+    );
+}
+
+/// Records the unmodified native bytes of one goal, order or unit.
+template <class Value>
+std::array<uint8_t, sizeof(Value)> object_bytes(const Value& value) {
+    std::array<uint8_t, sizeof(Value)> bytes{};
+    std::memcpy(bytes.data(), &value, bytes.size());
+    return bytes;
+}
+
+/// Gives P1 a reverse incoming leg while keeping it near the actual pose.
+void configure_reverse_hook(Fixture& fixture) {
+    const auto x = static_cast<int16_t>(fixture.unit.position[0] >> 16);
+    const auto z = static_cast<int16_t>(fixture.unit.position[2] >> 16);
+    fixture.navigation.points[0] = {static_cast<int16_t>(x + 64), z};
+    fixture.navigation.points[1] = {static_cast<int16_t>(x + 16), static_cast<int16_t>(z + 8)};
+    fixture.navigation.points[2] = {static_cast<int16_t>(x + 64), static_cast<int16_t>(z + 64)};
+}
+
 /// Removes one corner and leaves every mission, retry and trailing point intact.
 void test_exact_route_mutation_and_diagonal_origins() {
     for (const uint32_t count : {3u, 4u, uint32_t(ground::navigation_capacity)}) {
@@ -346,6 +376,229 @@ void test_extreme_fixed_coordinates() {
     OA_CHECK(terrain.origins.empty() && probes == previous_probes);
 }
 
+/// Uses actual subpixel proximity and a strictly reversing hook, never heading.
+void test_moving_proximity_and_hook_geometry() {
+    constexpr uint32_t due_tick = 22;
+    constexpr uint16_t actor = 9;
+    Fixture fixture;
+    configure_reverse_hook(fixture);
+    fixture.navigation.points[1] = {200, 168};
+    const auto before = bytes_of(fixture.navigation);
+    OA_CHECK(
+        runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, due_tick, actor)
+    );
+    fixture.unit.position[0] -= 1;
+    OA_CHECK(
+        !runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, due_tick, actor)
+    );
+    fixture.unit.position[0] += 2;
+    OA_CHECK(
+        runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, due_tick, actor)
+    );
+    OA_CHECK(bytes_of(fixture.navigation) == before);
+    fixture.unit.position[0] = 168 * fixed_one;
+    fixture.navigation.points[1] = {192, 192};
+    OA_CHECK(
+        !runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, due_tick, actor)
+    );
+    fixture.navigation.points[1] = {184, 184};
+    for (const uint16_t heading : {uint16_t{0}, uint16_t{32768}}) {
+        fixture.unit.heading = heading;
+        OA_CHECK(
+            runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, due_tick, actor)
+        );
+    }
+
+    // A normal forward bend and an exact right angle are not reversing hooks.
+    fixture.navigation.points[0] = {104, 168};
+    fixture.navigation.points[1] = {184, 176};
+    OA_CHECK(
+        !runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, due_tick, actor)
+    );
+    fixture.navigation.points[0] = {168, 144};
+    fixture.navigation.points[2] = {216, 160};
+    OA_CHECK(
+        !runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, due_tick, actor)
+    );
+
+    for (unsigned failure = 0; failure < 5; ++failure) {
+        Fixture invalid;
+        configure_reverse_hook(invalid);
+        switch (failure) {
+        case 0:
+            invalid.navigation.goal = nullptr;
+            break;
+        case 1:
+            invalid.navigation.flags &= uint8_t(~ground::route_present_flag);
+            break;
+        case 2:
+            invalid.navigation.count = 2;
+            break;
+        case 3:
+            invalid.navigation.count = ground::navigation_capacity + 1;
+            break;
+        case 4:
+            invalid.navigation.points[0] = invalid.navigation.points[1];
+            break;
+        }
+        const auto untouched = bytes_of(invalid.navigation);
+        OA_CHECK(!runtime::live_route_corner_moving_due(
+            invalid.unit, invalid.navigation, due_tick, actor
+        ));
+        OA_CHECK(bytes_of(invalid.navigation) == untouched);
+    }
+
+    Fixture wide;
+    wide.unit.position = {INT32_MAX, 0, INT32_MAX};
+    wide.navigation.points[0] = {INT16_MIN, INT16_MIN};
+    wide.navigation.points[1] = {INT16_MAX, INT16_MAX};
+    wide.navigation.points[2] = {INT16_MIN, INT16_MIN};
+    OA_CHECK(runtime::live_route_corner_moving_due(wide.unit, wide.navigation, due_tick, actor));
+    wide.unit.position = {INT32_MIN, 0, INT32_MIN};
+    OA_CHECK(!runtime::live_route_corner_moving_due(wide.unit, wide.navigation, due_tick, actor));
+}
+
+/// Samples repeated near-corner windows without aliasing a 120-tick orbit phase.
+void test_moving_phase_does_not_alias_corner_windows() {
+    Fixture fixture;
+    configure_reverse_hook(fixture);
+    OA_CHECK(runtime::moving_route_corner_period == 31);
+    OA_CHECK(runtime::moving_route_corner_maximum_plots == 64);
+    for (uint16_t unit = 0; unit < 20000; ++unit) {
+        uint32_t due{};
+        for (uint32_t tick = 0; tick < 31; ++tick)
+            due +=
+                runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, tick, unit);
+        OA_CHECK(due == 1);
+    }
+    constexpr uint16_t actor = 9;
+    uint32_t moving_checks{}, old_checks{};
+    for (uint32_t tick = 0; tick < 31 * 120; ++tick) {
+        const auto phase = tick % 120;
+        const bool near = phase >= 30 && phase < 35;
+        fixture.unit.position[0] = (near ? 168 : 1000) * fixed_one;
+        moving_checks +=
+            runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, tick, actor);
+        if (near)
+            old_checks += runtime::live_route_corner_due(31, tick, actor);
+    }
+    OA_CHECK(moving_checks == 5 && old_checks == 0);
+    fixture.unit.position[0] = 168 * fixed_one;
+    constexpr auto last_tick = std::numeric_limits<uint32_t>::max();
+    constexpr auto offset = static_cast<uint16_t>(31 - last_tick % 31);
+    OA_CHECK(
+        runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, last_tick, offset)
+    );
+}
+
+/// Enforces 64 full-footprint plots before the first actual terrain query.
+void test_moving_plot_budget_and_default_compatibility() {
+    for (const auto footprint :
+         {Origin{1, 1}, Origin{2, 2}, Origin{2, 8}, Origin{8, 2}, Origin{8, 8}}) {
+        const auto area = uint32_t(footprint[0]) * uint32_t(footprint[1]);
+        const auto limit = std::min(runtime::live_route_corner_maximum_origins, 64 / area);
+        for (const bool over : {false, true}) {
+            Fixture fixture(footprint[0], footprint[1]);
+            configure_span(fixture, static_cast<int16_t>(limit - (over ? 0 : 1)), 0);
+            if (!over && limit == 1)
+                ++fixture.navigation.points[2][0];
+            const auto before = bytes_of(fixture.navigation);
+            Terrain terrain;
+            terrain.width = footprint[0];
+            terrain.height = footprint[1];
+            uint64_t probes = previous_probes;
+            OA_CHECK(advance_moving(fixture, terrain, probes) == !over);
+            if (over) {
+                OA_CHECK(bytes_of(fixture.navigation) == before);
+                OA_CHECK(terrain.origins.empty() && terrain.physical_cells.empty());
+                OA_CHECK(probes == previous_probes);
+            } else {
+                OA_CHECK(terrain.origins.size() == limit);
+                OA_CHECK(terrain.physical_cells.size() == limit * area);
+                OA_CHECK(terrain.physical_cells.size() <= 64);
+                OA_CHECK(probes == previous_probes + limit);
+            }
+        }
+        Fixture diagonal(footprint[0], footprint[1]);
+        const auto ties = static_cast<int16_t>((limit - 1) / 3 + 1);
+        configure_span(diagonal, ties, ties);
+        const auto before = bytes_of(diagonal.navigation);
+        Terrain terrain;
+        terrain.width = footprint[0];
+        terrain.height = footprint[1];
+        uint64_t probes = previous_probes;
+        OA_CHECK(!advance_moving(diagonal, terrain, probes));
+        OA_CHECK(bytes_of(diagonal.navigation) == before);
+        OA_CHECK(terrain.origins.empty() && probes == previous_probes);
+    }
+
+    Fixture original;
+    configure_span(original, 16, 0);
+    Terrain old_terrain;
+    uint64_t probes{};
+    OA_CHECK(advance(original, old_terrain, probes));
+    OA_CHECK(old_terrain.physical_cells.size() == 68);
+    Fixture restricted;
+    configure_span(restricted, 16, 0);
+    Terrain moving_terrain;
+    probes = previous_probes;
+    OA_CHECK(!advance_moving(restricted, moving_terrain, probes));
+    OA_CHECK(moving_terrain.origins.empty() && probes == previous_probes);
+}
+
+/// Preserves goal, order and retry state on success and keeps fog failures atomic.
+void test_moving_fractional_chord_lifecycle() {
+    for (unsigned failure = 0; failure < 3; ++failure) {
+        Fixture fixture;
+        configure_reverse_hook(fixture);
+        fixture.unit.position[0] += 15 * fixed_one;
+        fixture.unit.position[2] += fixed_one;
+        oa::sim::simulation_state::Order order{};
+        order.kind = 6;
+        order.phase = 3;
+        order.wake_tick = 987654;
+        order.wait_events = ground::arrived_event | ground::path_failed_event;
+        order.raised_events = ground::search_seed_unresolved_flag;
+        fixture.goal.order = &order;
+        fixture.goal.cell = {55, 77};
+        fixture.goal.tolerance = 32;
+        fixture.goal.radius_squared = 4;
+        const auto before_goal = object_bytes(fixture.goal);
+        const auto before_order = object_bytes(order);
+        const auto before_unit = object_bytes(fixture.unit);
+        const auto before = bytes_of(fixture.navigation);
+        const auto old_route = fixture.navigation;
+        Terrain terrain;
+        if (failure == 1)
+            terrain.blocked = Origin{13, 12};
+        else if (failure == 2)
+            terrain.unknown = Origin{11, 10};
+        uint64_t probes = previous_probes;
+        OA_CHECK(runtime::live_route_corner_moving_due(fixture.unit, fixture.navigation, 22, 9));
+        OA_CHECK(advance_moving(fixture, terrain, probes) == (failure == 0));
+        OA_CHECK(object_bytes(fixture.goal) == before_goal);
+        OA_CHECK(object_bytes(order) == before_order);
+        OA_CHECK(object_bytes(fixture.unit) == before_unit);
+        OA_CHECK(probes == previous_probes + terrain.origins.size());
+        OA_CHECK(terrain.physical_cells.size() <= 64);
+        if (failure != 0) {
+            OA_CHECK(bytes_of(fixture.navigation) == before);
+            if (failure == 2)
+                OA_CHECK(terrain.physical_cells.empty());
+        } else {
+            OA_CHECK(fixture.navigation.goal == old_route.goal);
+            OA_CHECK(fixture.navigation.last_search_tick == old_route.last_search_tick);
+            OA_CHECK(fixture.navigation.flags == (old_route.flags | ground::route_changed_flag));
+            OA_CHECK(fixture.navigation.count == old_route.count - 1);
+            OA_CHECK(fixture.navigation.points[0] == (ground::RoutePoint{183, 169}));
+            for (uint32_t at = 1; at + 1 < old_route.count; ++at)
+                OA_CHECK(fixture.navigation.points[at] == old_route.points[at + 1]);
+            for (size_t at = old_route.count - 1; at < old_route.points.size(); ++at)
+                OA_CHECK(fixture.navigation.points[at] == old_route.points[at]);
+        }
+    }
+}
+
 /// Exercises the real phase helper across the full unit cohort and tick wrap.
 void test_phase_and_maturity() {
     for (uint16_t unit = 0; unit < 20000; ++unit) {
@@ -373,6 +626,10 @@ int main() {
     test_origin_and_rectangular_footprint_budgets();
     test_invalid_inputs_make_no_queries();
     test_extreme_fixed_coordinates();
+    test_moving_proximity_and_hook_geometry();
+    test_moving_phase_does_not_alias_corner_windows();
+    test_moving_plot_budget_and_default_compatibility();
+    test_moving_fractional_chord_lifecycle();
     test_phase_and_maturity();
     return oa::test::check_exit_status();
 }
