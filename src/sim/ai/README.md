@@ -55,17 +55,6 @@ pass to the next.
   straggler-shedding order are unchanged. Earlier presets retain the limit
   of 5,000 recruits plus an optional first member. This uses canonical
   membership and keeps no pending queue or extra saved state.
-- Experimental preset 7 splits the land strike into up to sixteen spatial
-  fronts. The native enemy nearest the strike centroid supplies the fallback
-  and attack direction. The larger X or Z component selects the approach
-  axis, with ties selecting X; strips lie on its perpendicular world axis.
-  Each occupied strip chooses the native nearest eligible enemy from its
-  member centroid. The native fallback search and one additional enemy pass
-  examine candidates, with at most sixteen ranks per candidate in that second
-  pass. All scratch storage is fixed; the plan keeps no saved state. The
-  original unit order, one attack callback per member and native command
-  acceptance remain in effect. Earlier presets, disabled Enhanced Mode and
-  naval or aircraft tasks keep their original target selection.
 - A pick whose unit name holds `MAKENUKE` or `MAKEANTI` is a round for the
   builder's first weapon. The structures task queues it with `order_factory`,
   and so does the construction task, which places no site for it: the match
@@ -75,9 +64,6 @@ pass to the next.
 ## Tests
 
 `ai-computer-player` builds and scores with the fixture profiles.
-`ai-strike-front-targets` compares spatial plans with the native target search,
-including a 20,000-unit scene, mirrored approaches, candidate filters, ties,
-fallbacks, canonical-state preservation and allocation-free planning.
 `computer_profile_lines` is checked by `sim-brains-profile`, including one
 pass over every installed `ai/*.txt` file.
 
@@ -91,13 +77,4 @@ them.
 The distributed recruitment bound can take more strike dispatches to gather
 a large army. It does not cap the existing squad's attack commands when a
 target changes, or the cost of examining and shedding its stragglers.
-
-The spatial fronts use a cardinal approximation to the attack direction,
-not terrain corridors or visibility. They retain the native candidate rules,
-which can select an unseen noncloaked enemy, and may choose the same target
-for several fronts. A changed target still replaces its native order and
-can restart route work. Fixed scratch bounds only the planner's storage;
-the unchanged attack callback can allocate orders. Whole-battle movement,
-combat, route churn and tick cost must be measured before this experimental
-policy is promoted.
 
