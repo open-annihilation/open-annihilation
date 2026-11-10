@@ -282,7 +282,9 @@ static_assert(std::is_nothrow_move_constructible_v<UnitMotion>);
 /// with draw state of its own. At a tick up to most_batch_ticks after the
 /// one noted (batch_ticks), the noted pose becomes the previous one; at any
 /// other new tick the unit has no previous pose. The tick noted already
-/// changes nothing.
+/// changes nothing, including piece rates changed by a script query later
+/// during that same tick. Visible piece changes are compared while capturing
+/// the current pose; changing rates alone does not mark a piece as moved.
 ///
 /// @param[in,out] motion the slot's motion
 /// @param tick the match's tick

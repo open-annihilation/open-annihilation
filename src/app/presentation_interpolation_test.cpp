@@ -251,6 +251,85 @@ void test_unit_motion() {
     CHECK(motion.instance.pieces().empty());
 }
 
+/// Checks every piece axis and keeps captured rates changed later in the same tick.
+void test_piece_capture_changes() {
+    constexpr uint32_t first_tick = 40;
+    constexpr int32_t moved_by = 1234;
+    const std::array<int32_t, 6> rates{11, -22, 33, -44, 55, -66};
+    const std::array<int32_t, 6> later_rates{77, -88, 99, -111, 122, -133};
+    const std::array<int32_t, 6> query_rates{144, -155, 166, -177, 188, -199};
+    for (std::size_t piece = 0; piece < 2; ++piece) {
+        for (uint32_t axis = 0; axis < 6; ++axis) {
+            auto instance = oa::sim::model_runtime::make_instance(turret_model());
+            oa::app::UnitMotion motion;
+            const auto unit = unit_at(100, 100, 0);
+            oa::app::observe_unit(motion, first_tick, 1, unit, instance, rates);
+            auto& changed = instance.pieces()[piece];
+            switch (axis) {
+            case 0:
+                changed.translation.x = moved_by;
+                break;
+            case 1:
+                changed.translation.y = moved_by;
+                break;
+            case 2:
+                changed.translation.z = moved_by;
+                break;
+            case 3:
+                changed.rotation.xy = moved_by;
+                break;
+            case 4:
+                changed.rotation.xz = moved_by;
+                break;
+            case 5:
+                changed.rotation.yz = moved_by;
+                break;
+            }
+            oa::app::observe_unit(motion, first_tick + 1, 1, unit, instance, rates);
+            CHECK(motion.continued && motion.moved && motion.pieces_moved);
+            CHECK(!oa::app::poses_equal(motion.previous, motion.current));
+            CHECK(same(motion.previous.position, unit.position));
+            CHECK(same(motion.current.position, unit.position));
+            const auto captured = motion.current.pieces;
+            for (std::size_t index = 0; index < captured.size(); ++index) {
+                CHECK(captured[index].translation.x == instance.pieces()[index].translation.x);
+                CHECK(captured[index].translation.y == instance.pieces()[index].translation.y);
+                CHECK(captured[index].translation.z == instance.pieces()[index].translation.z);
+                CHECK(captured[index].rotation.xy == instance.pieces()[index].rotation.xy);
+                CHECK(captured[index].rotation.xz == instance.pieces()[index].rotation.xz);
+                CHECK(captured[index].rotation.yz == instance.pieces()[index].rotation.yz);
+                CHECK(captured[index].turn_per_tick[0] == rates[index * 3]);
+                CHECK(captured[index].turn_per_tick[1] == rates[index * 3 + 1]);
+                CHECK(captured[index].turn_per_tick[2] == rates[index * 3 + 2]);
+            }
+            // Rates do not move a piece until its actual rotation changes.
+            oa::app::observe_unit(motion, first_tick + 2, 1, unit, instance, later_rates);
+            CHECK(motion.continued && !motion.moved && !motion.pieces_moved);
+            CHECK(oa::app::poses_equal(motion.previous, motion.current));
+            // An immediate script query can change a rate without advancing
+            // the match tick. Re-observing that tick keeps its first capture.
+            instance.pieces()[piece].translation.x += moved_by;
+            oa::app::observe_unit(motion, first_tick + 2, 1, unit, instance, query_rates);
+            CHECK(motion.continued && !motion.moved && !motion.pieces_moved);
+            for (std::size_t index = 0; index < captured.size(); ++index) {
+                CHECK(motion.current.pieces[index].translation.x == captured[index].translation.x);
+                CHECK(motion.current.pieces[index].turn_per_tick[0] == later_rates[index * 3]);
+                CHECK(motion.current.pieces[index].turn_per_tick[1] == later_rates[index * 3 + 1]);
+                CHECK(motion.current.pieces[index].turn_per_tick[2] == later_rates[index * 3 + 2]);
+            }
+            // Different piece lists have no corresponding visible motion.
+            const auto empty = oa::sim::model_runtime::make_instance(nullptr);
+            oa::app::observe_unit(motion, first_tick + 3, 1, unit, empty, {});
+            CHECK(!motion.continued && !motion.moved && !motion.pieces_moved);
+            CHECK(motion.current.pieces.empty());
+            oa::app::observe_unit(motion, first_tick + 3, 2, unit, instance, query_rates);
+            CHECK(!motion.continued && !motion.moved && !motion.pieces_moved);
+            CHECK(motion.current.pieces.size() == 2);
+            CHECK(motion.current.pieces[piece].turn_per_tick[0] == query_rates[piece * 3]);
+        }
+    }
+}
+
 void test_fast_spin() {
     // More than half a revolution in one tick. The short way from 0 to the
     // wrapped angle turns backwards; the spin goes on forwards.
@@ -453,6 +532,7 @@ int main() {
     test_blends();
     test_instance_fits_unit();
     test_unit_motion();
+    test_piece_capture_changes();
     test_fast_spin();
     test_shots();
     test_debris();

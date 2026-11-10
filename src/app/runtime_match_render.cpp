@@ -964,19 +964,27 @@ build_preview_bands(const model_render::ModelRef& model, uint32_t pulse_tick, bo
 /// Writes each piece's turn per tick into `turns`, three words a piece in
 /// xy, xz, yz order. A unit with no script leaves them zero. Script axis 0
 /// is the yz word, axis 1 the xz word and axis 2 the xy word.
-void piece_turn_words(oa::sim::match_runtime::UnitInstance& instance, std::vector<int32_t>& turns) {
+/// @param instance the unit's current model and script instance
+/// @param[out] turns turn words in the model's rotation order
+/// @return the number of VM triplet reads, zero for an instance without a script
+uint64_t
+piece_turn_words(oa::sim::match_runtime::UnitInstance& instance, std::vector<int32_t>& turns) {
     const auto count = instance.model().pieces().size();
-    turns.assign(count * 3, 0);
+    turns.resize(count * 3);
     auto* script = instance.script();
-    if (script == nullptr)
-        return;
+    if (script == nullptr) {
+        std::fill(turns.begin(), turns.end(), 0);
+        return 0;
+    }
     for (std::size_t piece = 0; piece < count; ++piece) {
         const auto at = piece * 3;
         const auto index = static_cast<uint32_t>(piece);
-        turns[at] = script->piece_turn_speed(index, 2);
-        turns[at + 1] = script->piece_turn_speed(index, 1);
-        turns[at + 2] = script->piece_turn_speed(index, 0);
+        const auto speeds = script->piece_turn_speeds(index);
+        turns[at] = speeds[2];
+        turns[at + 1] = speeds[1];
+        turns[at + 2] = speeds[0];
     }
+    return count;
 }
 
 } // namespace
@@ -1057,6 +1065,9 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
     const uint32_t slots = world.record.unit_slot_count;
     if (presentation.units.size() < slots)
         presentation.units.resize(slots);
+    uint64_t captured_units = 0;
+    uint64_t captured_pieces = 0;
+    uint64_t speed_triplets = 0;
     for (uint32_t slot = 1; slot < slots; ++slot) {
         auto& motion = presentation.units[slot];
         const oa::Unit& record = world.record.units[slot];
@@ -1090,7 +1101,7 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
         if (motion.seen && motion.instance_generation == runtime->instance_generation &&
             motion.tick == tick)
             continue;
-        piece_turn_words(*runtime->instance, presentation.piece_turns);
+        speed_triplets += piece_turn_words(*runtime->instance, presentation.piece_turns);
         observe_unit(
             motion,
             tick,
@@ -1099,7 +1110,10 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
             runtime->instance->model(),
             presentation.piece_turns
         );
+        ++captured_units;
+        captured_pieces += instance.pieces().size();
     }
+    bench_timers::count_pose_capture(captured_units, captured_pieces, speed_triplets);
     observe_shots(presentation.shots, tick, match.projectiles());
     const auto& effects = match.effects();
     observe_debris(presentation.debris, tick, effects.debris);

@@ -310,11 +310,40 @@ bool instance_fits_unit(
     return pieces == 0 || (model != nullptr && pieces == model->objects.size());
 }
 
-void capture_unit_pose(
+namespace {
+
+/// Tells whether the position, orientation and carrier of two poses match.
+/// @param a the first pose
+/// @param b the second pose
+/// @return true when every root field matches
+bool same_unit_root(const UnitPose& a, const UnitPose& b) noexcept {
+    return same_point(a.position, b.position) && a.heading == b.heading && a.pitch == b.pitch &&
+           a.bank == b.bank && a.attach_parent == b.attach_parent;
+}
+
+/// Tells whether the visible placement of two pieces matches, ignoring spin rates.
+/// @param a the first piece pose
+/// @param b the second piece pose
+/// @return true when every translation and rotation matches
+bool same_piece_pose(const PiecePose& a, const PiecePose& b) noexcept {
+    return a.translation.x == b.translation.x && a.translation.y == b.translation.y &&
+           a.translation.z == b.translation.z && a.rotation.xy == b.rotation.xy &&
+           a.rotation.xz == b.rotation.xz && a.rotation.yz == b.rotation.yz;
+}
+
+/// Captures a pose and compares pieces while their fields are already in hand.
+/// @param unit the unit record
+/// @param instance its model instance
+/// @param[out] pose the current pose; its piece list keeps its memory
+/// @param piece_turns three turn-per-tick words per piece, in xy, xz, yz order
+/// @param previous the previous pose, or null when no tick continues
+/// @return true when equally sized piece lists differ in translation or rotation
+bool capture_and_compare_pose(
     const oa::Unit& unit,
     const oa::sim::model_runtime::Instance& instance,
     UnitPose& pose,
-    std::span<const int32_t> piece_turns
+    std::span<const int32_t> piece_turns,
+    const UnitPose* previous
 ) {
     pose.position = unit.position;
     pose.heading = unit.heading;
@@ -323,30 +352,39 @@ void capture_unit_pose(
     pose.attach_parent = unit.attach_parent;
     const auto pieces = instance.pieces();
     pose.pieces.resize(pieces.size());
+    const bool compare = previous != nullptr && previous->pieces.size() == pieces.size();
+    bool changed = false;
     for (std::size_t index = 0; index < pieces.size(); ++index) {
-        pose.pieces[index] = {pieces[index].translation, pieces[index].rotation, {}};
+        auto& captured = pose.pieces[index];
+        captured = {pieces[index].translation, pieces[index].rotation, {}};
         const std::size_t at = index * 3;
         if (at + 2 < piece_turns.size()) {
-            pose.pieces[index].turn_per_tick = {
+            captured.turn_per_tick = {
                 piece_turns[at], piece_turns[at + 1], piece_turns[at + 2]
             };
         }
+        if (compare && !changed)
+            changed = !same_piece_pose(previous->pieces[index], captured);
     }
+    return changed;
+}
+
+} // namespace
+
+void capture_unit_pose(
+    const oa::Unit& unit,
+    const oa::sim::model_runtime::Instance& instance,
+    UnitPose& pose,
+    std::span<const int32_t> piece_turns
+) {
+    std::ignore = capture_and_compare_pose(unit, instance, pose, piece_turns, nullptr);
 }
 
 bool poses_equal(const UnitPose& a, const UnitPose& b) noexcept {
-    if (!same_point(a.position, b.position) || a.heading != b.heading || a.pitch != b.pitch ||
-        a.bank != b.bank || a.attach_parent != b.attach_parent ||
-        a.pieces.size() != b.pieces.size())
+    if (!same_unit_root(a, b) || a.pieces.size() != b.pieces.size())
         return false;
     for (std::size_t index = 0; index < a.pieces.size(); ++index) {
-        const auto& first = a.pieces[index];
-        const auto& second = b.pieces[index];
-        if (first.translation.x != second.translation.x ||
-            first.translation.y != second.translation.y ||
-            first.translation.z != second.translation.z ||
-            first.rotation.xy != second.rotation.xy || first.rotation.xz != second.rotation.xz ||
-            first.rotation.yz != second.rotation.yz)
+        if (!same_piece_pose(a.pieces[index], b.pieces[index]))
             return false;
     }
     return true;
@@ -408,33 +446,6 @@ void blend_unit_pieces(
     }
 }
 
-namespace {
-
-/// Tells whether two poses have the same piece list with some piece placed
-/// otherwise.
-///
-/// @param a a pose
-/// @param b another pose
-/// @return true when the piece lists are as long and a piece's translation
-///     or rotation differs
-bool pieces_differ(const UnitPose& a, const UnitPose& b) noexcept {
-    if (a.pieces.size() != b.pieces.size())
-        return false;
-    for (std::size_t index = 0; index < a.pieces.size(); ++index) {
-        const auto& first = a.pieces[index];
-        const auto& second = b.pieces[index];
-        if (first.translation.x != second.translation.x ||
-            first.translation.y != second.translation.y ||
-            first.translation.z != second.translation.z ||
-            first.rotation.xy != second.rotation.xy || first.rotation.xz != second.rotation.xz ||
-            first.rotation.yz != second.rotation.yz)
-            return true;
-    }
-    return false;
-}
-
-} // namespace
-
 void observe_unit(
     UnitMotion& motion,
     uint32_t tick,
@@ -462,11 +473,14 @@ void observe_unit(
     const bool follows = batch_ticks(motion.tick, tick) != 0;
     if (follows)
         std::swap(motion.previous, motion.current);
-    capture_unit_pose(unit, instance, motion.current, piece_turns);
+    const bool pieces_changed = capture_and_compare_pose(
+        unit, instance, motion.current, piece_turns, follows ? &motion.previous : nullptr
+    );
     motion.tick = tick;
     motion.continued = follows && pose_continues(motion.previous, motion.current);
-    motion.moved = motion.continued && !poses_equal(motion.previous, motion.current);
-    motion.pieces_moved = follows && pieces_differ(motion.previous, motion.current);
+    motion.moved = motion.continued &&
+                   (!same_unit_root(motion.previous, motion.current) || pieces_changed);
+    motion.pieces_moved = follows && pieces_changed;
 }
 
 void forget_unit(UnitMotion& motion) noexcept {
