@@ -17,6 +17,7 @@
 // refused. A stepped clock holds an order until a step runs it, the way a
 // speed change waits to be felt.
 #include "oa/app/play_host.hpp"
+#include "group_order_distribution.hpp"
 
 #include "oa/app/runtime.hpp"
 #include "oa/app/enhanced_mode.hpp"
@@ -1034,14 +1035,42 @@ struct PlayHostAccess {
             const bool repair_formation =
                 enhanced.enabled &&
                 enhanced.version == oa::data::enhanced_mode::battle_flow_version;
+            const bool distribute_formation =
+                shaped && enhanced.enabled &&
+                enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version;
             const auto& spawned = app.match_->world();
             if (shaped) {
                 for (uint16_t id : ids)
                     oa::sim::gameplay_input::add_to_group_centre(centre, spawned.slots[id].record);
             }
-            for (uint16_t id : ids) {
+            std::vector<oa::sim::gameplay_input::SelectionOrder> planned;
+            if (distribute_formation) {
+                using Order = oa::sim::gameplay_input::UnitOrder;
+                planned.reserve(ids.size());
+                for (const uint16_t id : ids) {
+                    const auto& actor = spawned.slots[id].record;
+                    auto position = asked;
+                    auto order = Order::none;
+                    if (app.match_->ground_runtime(id) != nullptr) {
+                        position = oa::sim::gameplay_input::group_order_point(centre, actor, asked);
+                        const auto* definition =
+                            oa::world_unit_def_of(&app.match_->state(), &actor);
+                        if (definition && (definition->flags & OA_UNIT_DEF_FLAG_CAN_FLY) == 0)
+                            order = request.kind == PlayOrderKind::move ? Order::move_ground
+                                    : (definition->abilities & OA_UNIT_DEF_ABILITY_CAN_REPAIR) != 0
+                                        ? Order::repair_patrol
+                                        : Order::patrol;
+                    }
+                    planned.push_back({&actor, order, position});
+                }
+                app.distribute_group_order_destinations(planned, raw);
+            }
+            for (size_t index = 0; index < ids.size(); ++index) {
+                const uint16_t id = ids[index];
                 oa::sim::ground_orders::Point destination = raw;
-                if (shaped && app.match_->ground_runtime(id) != nullptr) {
+                if (distribute_formation) {
+                    destination = point_of(planned[index].position);
+                } else if (shaped && app.match_->ground_runtime(id) != nullptr) {
                     const oa::FixedVec3 shifted = oa::sim::gameplay_input::group_order_point(
                         centre, spawned.slots[id].record, asked
                     );

@@ -5,6 +5,7 @@
 // radar scrolls, mouse look, and the orders the pointer gives the selection
 // with the queued-order cancel.
 #include "group_order_bounds.hpp"
+#include "group_order_distribution.hpp"
 #include "group_order_static.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/enhanced_mode.hpp"
@@ -13,6 +14,7 @@
 #include <SDL3/SDL.h>
 #include <bit>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <iostream>
 #include <optional>
@@ -324,11 +326,9 @@ std::string_view Runtime::issue_selection_orders(
     );
     const auto& enhanced = match_->rules().setup.enhanced_mode;
     if (ground && enhanced.enabled &&
-        enhanced.version == oa::data::enhanced_mode::battle_flow_version)
-        for (uint32_t index = 0; index < count; ++index)
-            orders[index].position = fixed_point(group_order_destination(
-                *orders[index].actor, orders[index].order, orders[index].position, *ground
-            ));
+        (enhanced.version == oa::data::enhanced_mode::battle_flow_version ||
+         enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version))
+        distribute_group_order_destinations({orders.data(), count}, *ground);
     std::optional<oa::sim::ground_orders::Point> target_point;
     if (bound != 0) {
         const auto& slot = match_->world().slots[bound];
@@ -593,8 +593,10 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
     const bool ground_order = order == input::UnitOrder::move_ground ||
                               order == input::UnitOrder::patrol ||
                               order == input::UnitOrder::repair_patrol;
-    const bool bounded_ground = ground_order && enhanced.enabled &&
-                                enhanced.version == oa::data::enhanced_mode::battle_flow_version;
+    const bool bounded_ground =
+        ground_order && enhanced.enabled &&
+        (enhanced.version == oa::data::enhanced_mode::battle_flow_version ||
+         enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version);
     if (!bounded_ground)
         return order_point(formation);
     const auto bounded = bounded_group_order_point(
@@ -633,6 +635,77 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
         world.game.map_pixel_height,
         true
     ));
+}
+
+void Runtime::distribute_group_order_destinations(
+    std::span<input::SelectionOrder> orders, const oa::sim::ground_orders::Point& point
+) {
+    if (!match_)
+        return;
+    const auto& enhanced = match_->rules().setup.enhanced_mode;
+    if (!enhanced.enabled)
+        return;
+    if (enhanced.version != oa::data::enhanced_mode::distributed_battle_flow_version) {
+        if (enhanced.version == oa::data::enhanced_mode::battle_flow_version)
+            for (auto& order : orders)
+                order.position = fixed_point(
+                    group_order_destination(*order.actor, order.order, order.position, point)
+                );
+        return;
+    }
+    GroupDestinationHooks hooks{};
+    hooks.context = this;
+    hooks.movement = [](void* context,
+                        const oa::Unit& actor,
+                        oa::sim::spatial_state::CellClassifier& movement) noexcept {
+        const auto& app = *static_cast<const Runtime*>(context);
+        if (actor.type_index >= app.offline_type_fields_.size())
+            return false;
+        const auto* ground = std::as_const(*app.match_).ground_runtime(actor.id);
+        const auto& fields = app.offline_type_fields_[actor.type_index];
+        const auto* metadata = fields.runtime_metadata;
+        if (ground == nullptr || metadata == nullptr || !fields.movement_class ||
+            *fields.movement_class == 0 || ground->movement_class != *fields.movement_class)
+            return false;
+        movement.footprint_x = actor.footprint_x;
+        movement.footprint_z = actor.footprint_z;
+        movement.max_water_depth = metadata->max_water_depth;
+        movement.min_water_depth = metadata->min_water_depth;
+        movement.max_land_slope = metadata->max_slope;
+        movement.bad_land_slope = metadata->bad_slope;
+        movement.max_water_slope = metadata->max_water_slope;
+        movement.bad_water_slope = metadata->bad_water_slope;
+        return true;
+    };
+    const auto& world = match_->state();
+    const auto report = distribute_group_order_points(
+        orders,
+        fixed_point(point),
+        std::as_const(*match_).spatial(),
+        world.game.map_pixel_width,
+        world.game.map_pixel_height,
+        hooks
+    );
+    std::printf(
+        "group destinations: units %zu preserved %u repaired %u assigned %u unassigned %u "
+        "unsupported %u classes %u origins %u cells %u reservation_cells %u scratch_bytes %u "
+        "frontiers %u abandoned %u "
+        "exhausted %u\n",
+        orders.size(),
+        report.preserved,
+        report.repaired,
+        report.assigned,
+        report.repaired - report.assigned,
+        report.unsupported,
+        report.classes,
+        report.origins,
+        report.cells,
+        report.reservation_cells,
+        report.scratch_bytes,
+        report.frontiers,
+        static_cast<unsigned>(report.abandoned),
+        static_cast<unsigned>(report.exhausted)
+    );
 }
 
 } // namespace oa::app
