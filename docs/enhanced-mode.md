@@ -779,6 +779,15 @@ have a distinct format; earlier presets retain their original grids and
 formats. This corrects the sampled static connectivity failure, but a full
 battle must still validate construction latency and actual unit movement.
 
+A nearby shared-route anchor can also point backward and repeatedly pull a
+moving unit into a loop. Version 7 checks these reverse hooks on a staggered
+31-tick cadence, removing one corner only when the unit's actual footprint
+has a fully known clear path to the following point. The extra check is
+limited to 64 terrain plots, preserves the goal and active search, and keeps
+the final occupancy veto. Ordinary forward corners keep their existing
+handling. In the eight-unit native queue regression, all units cross by tick
+492 under the original 900-tick deadline; version 6 still crosses by 712.
+
 Built-in rally moves retain an existing, owned, nonterminal ground march,
 including a patrol's waiting phase and complete queued return leg. Idle,
 arrived, interrupted and unsupported orders still receive normal rally
