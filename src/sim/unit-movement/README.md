@@ -72,9 +72,8 @@ full-footprint origin cell. A short reverse target inside that cell needs no
 new occupancy query and can repeat while every surrounding exit is occupied.
 The transient `LocalFlowProbe::require_cell_exit` option skips these targets
 before clearance and keeps the existing 16-then-32-world-unit candidate order,
-including the final reverse candidate. Existing clearance checks and query
-limits remain in effect, with no additional retained state. The default is
-false, preserving earlier presets. A target in another cell
+including the final reverse candidate. It adds no queries or retained state;
+the default is false, preserving earlier presets. A target in another cell
 does not guarantee that the unit reaches that cell: the five-unit completion
 radius and target plane still apply, and final collision checks remain solid.
 The boxed native fixture checks repeated refusal without promising escape or
