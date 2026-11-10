@@ -5,6 +5,7 @@
 #include "match_state.hpp"
 #include "enhanced_state.hpp"
 #include "target_query.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/weapon_execution/interceptor.hpp"
 #include "oa/sim/unit_health/paralysis.hpp"
 #include "oa/sim/weapon_execution/retaliation.hpp"
@@ -26,6 +27,10 @@ int16_t high_word(uint32_t value) {
 }
 
 constexpr uint32_t fire_at_will = 2u << OA_UNIT_FLAG_FIRE_ORDER_SHIFT;
+/// Target loss, mission abort and cancellation prevent continuing an AI attack.
+constexpr uint32_t interrupted_attack_events = 0x1080a;
+constexpr uint8_t ground_occupancy = 1;
+constexpr uint8_t last_attack_chase_phase = 3;
 
 /// Finds the slot whose view is a unit: the slot at the unit's id, or, when
 /// that slot views another unit, the slot found by walking the pool. Each
@@ -544,6 +549,52 @@ bool Match::issue_attack_command(
         host.resolve_order(sim::combat_state::attack_order_kind, request, aimed, nullptr);
     if (kind == 0)
         return false;
+    const auto& enhanced = rules().setup.enhanced_mode;
+    if (enhanced.enabled &&
+        enhanced.version ==
+            static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version) &&
+        enhanced_ != nullptr && enhanced_->ai_retarget.builtin_dispatch && !queue &&
+        point == nullptr && kind == attack_chase_kind && from.unit->owner != nullptr &&
+        from.unit->owner->record.index == enhanced_->ai_retarget.builtin_player &&
+        sim::simulation_state::locally_simulated(*from.unit) && from.record.attach_parent == 0 &&
+        from.unit->type != nullptr && (from.unit->type->flags & OA_UNIT_DEF_FLAG_CAN_FLY) == 0 &&
+        (from.record.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) == ground_occupancy &&
+        oa::unit_is_live_target(from.record.flags) && from.record.health > 0 &&
+        (from.record.flags & OA_UNIT_FLAG_DEATH_PENDING) == 0) {
+        auto* current = runtime_order(from.unit->primary);
+        auto* movement = ground_runtime(source_index);
+        auto& target = slots_.at(target_index);
+        constexpr uint32_t interrupted_goal_events = sim::ground_orders::arrived_event |
+                                                     sim::ground_orders::path_failed_event |
+                                                     sim::ground_orders::goal_replaced_event;
+        if (current != nullptr && current->unit == from.unit && current->order.next == nullptr &&
+            current->order.kind == kind && current->order.phase <= last_attack_chase_phase &&
+            current->attack.leash == 0 && current->attack.target == target.unit &&
+            current->construction.target == target.unit &&
+            (current->extra.command_flags & command_has_target) != 0 &&
+            (current->extra.command_flags & command_has_point) == 0 &&
+            (current->order.raised_events &
+             (interrupted_attack_events | interrupted_goal_events)) == 0 &&
+            oa::unit_is_live_target(target.record.flags) && target.record.health > 0 &&
+            (target.record.flags & OA_UNIT_FLAG_DEATH_PENDING) == 0 && movement != nullptr &&
+            !movement->mirrored_driver) {
+            const auto* goal = current->extra.goal.get();
+            const auto& search = search_.controller.active();
+            const bool same_goal = movement->navigation.goal == goal &&
+                                   (goal == nullptr || goal->order == &current->order);
+            const bool same_search =
+                search.unit == nullptr ||
+                (search.unit != from.unit && search.navigation != &movement->navigation) ||
+                (goal != nullptr && search.unit == from.unit &&
+                 search.navigation == &movement->navigation && search.goal == goal);
+            if (same_goal && same_search) {
+                // A periodic AI refresh keeps a live chase's approach, weapons
+                // and native route work rather than tearing them down to restart.
+                enhanced_->remember_ai_attack(*this, source_index, target_index);
+                return true;
+            }
+        }
+    }
     // The order keeps the target only when its kind takes one: a Suppress
     // order on an allied unit fires at the point alone.
     const bool issued =
