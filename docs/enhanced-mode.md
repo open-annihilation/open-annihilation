@@ -772,12 +772,22 @@ geometric goal gaps from actual route distance.
 
 Version 7 uses a two-cell shared graph. Wrecks can leave a passable gap that
 the earlier four-cell graph misses, sending whole cohorts back to the slower
-individual search. The finer graph keeps the existing total-cell, clearing,
-expansion and extraction budgets, so fewer fields fit at once. Its 32-edge
-prefixes cover the same distance as the earlier 16-edge guides. Saved fields
+individual search. The finer graph permits up to 64 fields within an
+8,388,608-node storage limit allocated before ticks. Clearing, expansion and
+extraction budgets remain unchanged. Its 32-edge prefixes cover the same
+distance as the earlier 16-edge guides. Saved fields
 have a distinct format; earlier presets retain their original grids and
 formats. This corrects the sampled static connectivity failure, but a full
 battle must still validate construction latency and actual unit movement.
+
+Newly completed fine fields stay available for at least 60 ticks before
+admission can evict them. This gives the two-army workload time to poll a
+finished route; it does not guarantee every possible participant layout
+finishes its poll in that interval. The maximum cache state is 41,951,360
+bytes. At 642 by 648 map cells it uses 33,289,600 bytes, plus 104,004 bytes
+of restore-validation scratch. Unreleased version-7 pilot saves with the
+earlier cache bounds are refused rather than silently losing navigation
+state. Off and versions 1–6 keep their previous state formats and bounds.
 
 A nearby shared-route anchor can also point backward and repeatedly pull a
 moving unit into a loop. Version 7 checks these reverse hooks on a staggered
@@ -878,6 +888,49 @@ freshly rebuilt graph; neither a stale field nor an exhausted extraction
 budget caused this failure. A two-cell graph reconnected every sampled
 origin on that same map. These are connectivity checks, not a replacement
 for measuring the subsequent battle.
+
+### Finer-grid and parallel-capture checkpoint
+
+Source `349fdeef6` combined the two-cell graph, reverse-anchor recovery and
+parallel pose capture. Both presets completed a fresh 9,000-tick comparison.
+Version 6 retained the exact earlier world digest, random streams and
+recorded trajectories. Version 7 passed all 61 complete physical audit
+epochs and retained the same legal command destinations, but still failed
+its flow gate: centre-corridor crossings fell from 130 unique units to eight,
+and final-300-tick mean rear displacement was 23.32 pixels for CORE and
+9.72 for ARM, versus 42.70 and 23.00 in the reference. All 191 stationary
+rear units had statically reachable arrival areas.
+
+At the final tick, all 20 fine fields were still building. The common key
+needed by all 798 sampled ARM rear units was absent; 604 CORE rear units
+also lacked their field. These observations motivated the larger bounded
+cache and completed-field protection above. Their full-battle effect still
+requires a new measurement. Periodic refresh work also competes for the
+unchanged construction budget.
+
+Whole-grant process CPU p99 changed from 19.647 to 22.153 ms and the maximum
+from 93.971 to 32.563 ms; ticks exceeding 33.333 ms fell from two to zero.
+Mean process CPU rose from 12.202 to 13.769 ms. Wall-time ticks exceeding
+33.333 ms increased from 28 to 54. The slowest wall tick took 219.369 ms
+while using 22.105 ms of process CPU. Process CPU includes worker and
+background threads; these figures do not establish uninterrupted 30 Hz play.
+
+Fresh uncaptured foreground runs used the same cameras, Full Metal AA 4,
+strategic-dot overview, display and 900-plus-900-tick contract as above.
+Both accepted runs passed native and operating-system focus checks. Two
+earlier classic attempts failed focus checks and contribute no FPS result.
+
+| View | Reference FPS / ticks per second | `349fdeef6` FPS / ticks per second | Reference / candidate interval p99 |
+| --- | --- | --- | --- |
+| Classic 2.5D | 60.154 / 29.994 | 63.481 / 29.991 | 30.52 / 30.34 ms |
+| Turned 3D | 27.425 / 29.843 | 50.895 / 30.017 | 134.16 / 31.77 ms |
+
+The turned-view maximum interval fell from 233.22 to 42.75 ms, with zero
+atlas resets. The classic maximum rose from 39.73 to 48.67 ms. These are
+combined engine and changed-battle observations, not an isolated renderer
+comparison. The later cache-capacity changes are not measured by these
+foreground results. Smooth movement and sustained 60 FPS in 3D remain unmet;
+version 4 stays the supplied default and ray tracing remains deferred.
 
 ## Remaining work
 
