@@ -772,7 +772,7 @@ geometric goal gaps from actual route distance.
 
 Version 7 uses a two-cell shared graph. Wrecks can leave a passable gap that
 the earlier four-cell graph misses, sending whole cohorts back to the slower
-individual search. The finer graph permits up to 64 fields within an
+individual search. The finer graph permits up to 80 fields within an
 8,388,608-node storage limit allocated before ticks. Clearing, expansion and
 extraction budgets remain unchanged. Its 32-edge prefixes cover the same
 distance as the earlier 16-edge guides. Saved fields
@@ -783,8 +783,8 @@ battle must still validate construction latency and actual unit movement.
 Newly completed fine fields stay available for at least 60 ticks before
 admission can evict them. This gives the two-army workload time to poll a
 finished route; it does not guarantee every possible participant layout
-finishes its poll in that interval. The maximum cache state is 41,951,360
-bytes. At 642 by 648 map cells it uses 33,289,600 bytes, plus 104,004 bytes
+finishes its poll in that interval. The cache-state bound is 41,952,640
+bytes. At 642 by 648 map cells it uses 41,611,200 bytes, plus 104,004 bytes
 of restore-validation scratch. Unreleased version-7 pilot saves with the
 earlier cache bounds are refused rather than silently losing navigation
 state. Off and versions 1–6 keep their previous state formats and bounds.
