@@ -789,6 +789,15 @@ of restore-validation scratch. Unreleased version-7 pilot saves with the
 earlier cache bounds are refused rather than silently losing navigation
 state. Off and versions 1–6 keep their previous state formats and bounds.
 
+When the first destination in a region cannot connect directly to a later
+unit's goal, version 7 can follow that goal's branch of the existing tree.
+It reads at most 512 ancestor nodes, turns at the shared ancestor and keeps
+the ordinary 32-edge prefix limit. Published edges are rechecked against
+current passability and player knowledge. Ancestor links share the existing
+65,536 extraction credits with cell queries. Unsupported branches retain
+ordinary prefix delivery; an optional check larger than the configured
+budget cannot suppress that prefix forever. This adds no saved fields.
+
 A nearby shared-route anchor can also point backward and repeatedly pull a
 moving unit into a loop. Version 7 checks these reverse hooks on a staggered
 31-tick cadence, removing one corner only when the unit's actual footprint
@@ -941,6 +950,45 @@ combined engine and changed-battle observations, not an isolated renderer
 comparison. The later cache-capacity changes are not measured by these
 foreground results. Smooth movement and sustained 60 FPS in 3D remain unmet;
 version 4 stays the supplied default and ray tracing remains deferred.
+
+### Route-capacity checkpoint
+
+Source `89a336682` retained 80 fine fields and protected newly completed
+fields. Its fresh version-6 1,800-tick prefix matched the previous roster,
+orders, world state, census, random streams and common observation epochs.
+The version-7 battle completed 9,000 ticks with no physical audit errors,
+the same legal destination assignments and no protective stop.
+
+All 133 units in the originally stationary ARM cohort survived and moved
+during the final 300 ticks; all acquired a nonzero search timestamp. None of
+the 796 surviving original rear ARM units was stationary throughout that
+interval. Seven of 798 CORE rear units remained stationary, versus four in
+the earlier version-6 reference. Mean rear displacement was 33.41 pixels for
+CORE and 31.64 for ARM, versus 23.32 and 9.72 in the smaller-cache pilot and
+42.70 and 23.00 in the version-6 reference. Considerable circulation remains;
+movement alone is not proof of an efficient route or a successful attack.
+
+Copied-cache diagnosis found three stationary CORE units whose reachable
+goals lay on a different branch from the regional seed. The requested-goal
+connection above returns valid goalward paths for all three captured cases,
+including fractional-footprint and continuation checks. The other four had
+no free adjacent full-footprint origin and held the same guide proposed by
+the cache. These checks do not establish the outcome of a new full battle.
+
+Whole-grant process CPU averaged 12.905 ms, with 16.623 ms p99 and 26.942 ms
+maximum; no process-CPU tick exceeded 33.333 ms. Wall p99 was 17.213 ms and
+the maximum 59.617 ms, with seven ticks over that budget. The final 300 ticks
+had a 22.962 ms wall maximum. These are native-grant measurements, not a new
+foreground FPS result. The marker and requested-goal changes after this
+checkpoint still need their combined battle measurement.
+
+The crossing metric used in these comparisons covers the north and south
+bridge bands at the map's central X plane, not its literal middle point.
+On the current Core Prime Industrial Area fixture, native terrain at world
+position 5,120 by 5,120 is too deep for either stock ground class, including
+a diagnostic one-cell footprint. No unit footprint or map was changed.
+That coordinate test does not identify a bridge in an earlier Metal Heck
+picture; matching the map and camera is necessary before diagnosing it.
 
 ## Remaining work
 
