@@ -413,9 +413,165 @@ void test_parallel_history() {
     CHECK(same_totals({}, app::capture_unit_poses({}, 1, empty_scratch, &four)));
 }
 
+/// The engine hack follows exactly the opted-in preset and existing global policy.
+void test_capture_policy() {
+    oa::data::match_rules::MatchRules rules;
+    for (const bool enabled : {false, true})
+        for (int32_t version = 0; version <= 8; ++version) {
+            rules.setup.enhanced_mode.enabled = enabled;
+            rules.setup.enhanced_mode.version = version;
+            CHECK(app::unit_pose_capture(rules, false) == app::UnitPoseCapture::full);
+            const auto expected =
+                enabled && version == 7 ? app::UnitPoseCapture::root : app::UnitPoseCapture::full;
+            CHECK(app::unit_pose_capture(rules, true) == expected);
+        }
+}
+
+/// Root capture does not touch scripts; a same-tick model request primes the actual rig.
+void test_root_capture_and_query_transition() {
+    constexpr uint32_t identity = 719;
+    Host host;
+    const auto program = make_program(2);
+    runtime::ScriptInstance script(program.source, program.shared, host, 1000);
+    auto saved = script.vm().export_state(identity);
+    CHECK(saved.ok());
+    if (!saved.ok())
+        return;
+    for (auto& piece : saved.state->pieces) {
+        piece.axes[0].turn_speed_per_tick = 21;
+        piece.axes[1].turn_speed_per_tick = -11;
+        piece.axes[2].turn_speed_per_tick = 31;
+    }
+    CHECK(!script.vm().import_state(*saved.state));
+    auto instance = oa::sim::model_runtime::make_instance(make_model(3));
+    oa::Unit unit{};
+    unit.position = {100 * 65536, 0, 100 * 65536};
+    app::UnitMotion motion;
+    app::UnitCaptureScratch scratch;
+    app::UnitCaptureItem item{&motion, &unit, &instance, &script, 1};
+    const std::span<const app::UnitCaptureItem> items(&item, 1);
+    const auto before = *script.vm().export_state(identity).state;
+    const auto host_calls = host.calls.load();
+    auto total = app::capture_unit_poses(items, 10, scratch, nullptr, app::UnitPoseCapture::root);
+    CHECK(same_totals(total, {1, 0, 0}));
+    CHECK(!motion.rig_valid && !motion.rig_primed);
+    CHECK(motion.current.pieces.empty() && motion.previous.pieces.empty());
+    CHECK(scratch.serial_turns.empty() && scratch.bands.empty());
+    unit.position.x += 4 * 65536;
+    unit.heading = 1200;
+    total = app::capture_unit_poses(items, 11, scratch, nullptr, app::UnitPoseCapture::root);
+    CHECK(same_totals(total, {1, 0, 0}));
+    CHECK(motion.continued && motion.moved && !motion.pieces_moved);
+    CHECK(host.calls.load() == host_calls);
+    CHECK(before == *script.vm().export_state(identity).state);
+    const auto previous_root = motion.previous;
+    const auto current_root = motion.current;
+    // A real query changes a rate without advancing the simulation tick.
+    std::array<int32_t, 4> arguments{};
+    CHECK(script.query("Stop", arguments));
+    CHECK(script.piece_turn_speed(0, 1) == 0);
+    instance.pieces()[0].rotation.xy = 1234;
+    instance.pieces()[0].translation.y = 456;
+    const auto after_query = *script.vm().export_state(identity).state;
+    const auto query_host_calls = host.calls.load();
+    total = app::capture_unit_poses(items, 11, scratch);
+    CHECK(same_totals(total, {0, 3, 3}));
+    CHECK(motion.tick == 11 && motion.continued && motion.moved);
+    CHECK(motion.rig_valid && motion.rig_primed && !motion.pieces_moved);
+    CHECK(same_pose(previous_root, motion.previous));
+    CHECK(same_point(current_root.position, motion.current.position));
+    CHECK(current_root.heading == motion.current.heading);
+    CHECK(motion.current.pieces[0].rotation.xy == 1234);
+    CHECK(motion.current.pieces[0].translation.y == 456);
+    CHECK(motion.current.pieces[0].turn_per_tick[0] == 31);
+    CHECK(motion.current.pieces[0].turn_per_tick[1] == 0);
+    CHECK(motion.current.pieces[0].turn_per_tick[2] == 21);
+    CHECK(motion.current.pieces[2].turn_per_tick[0] == 0);
+    CHECK(host.calls.load() == query_host_calls);
+    CHECK(after_query == *script.vm().export_state(identity).state);
+    // A paused, same-tick redraw keeps the prime rather than reading later
+    // query changes or fabricating a previous spin endpoint.
+    instance.pieces()[0].rotation.xy = 2345;
+    total = app::capture_unit_poses(items, 11, scratch);
+    CHECK(same_totals(total, {}));
+    auto drawn = oa::sim::model_runtime::make_instance(make_model(3));
+    auto drawn_unit = unit;
+    app::blend_unit_root_pose(motion.previous, motion.current, app::whole_tick / 2, drawn_unit);
+    app::place_current_unit_pieces(motion.current, drawn);
+    CHECK(drawn_unit.position.x == 102 * 65536);
+    CHECK(drawn.pieces()[0].rotation.xy == 1234);
+    total = app::capture_unit_poses(items, 12, scratch);
+    CHECK(same_totals(total, {1, 3, 3}));
+    CHECK(motion.rig_valid && !motion.rig_primed);
+    CHECK(motion.previous.pieces[0].rotation.xy == 1234);
+    CHECK(motion.current.pieces[0].rotation.xy == 2345);
+}
+
+/// Warm Dots histories use workers without allocating rig buffers or rate scratch.
+void test_parallel_roots_without_rig_storage() {
+    constexpr std::size_t count = 1025;
+    const auto model = make_model(3);
+    std::vector<std::unique_ptr<Actor>> actors;
+    actors.reserve(count);
+    std::array<std::vector<app::UnitCaptureItem>, 2> batches;
+    for (auto& batch : batches)
+        batch.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        auto actor = std::make_unique<Actor>();
+        actor->model = oa::sim::model_runtime::make_instance(model);
+        actor->record.position = {static_cast<int32_t>(index * 1200), 0, 4000};
+        for (std::size_t version = 0; version < batches.size(); ++version)
+            batches[version].push_back(
+                {&actor->histories[version], &actor->record, &actor->model, nullptr, 1}
+            );
+        actors.push_back(std::move(actor));
+    }
+    jobs::Pool pool(4);
+    std::array<app::UnitCaptureScratch, 2> scratch;
+    for (const uint32_t tick : {1U, 2U}) {
+        for (auto& actor : actors)
+            actor->record.position.z += 700;
+        const auto serial = app::capture_unit_poses(
+            batches[0], tick, scratch[0], nullptr, app::UnitPoseCapture::root
+        );
+        const auto parallel = app::capture_unit_poses(
+            batches[1], tick, scratch[1], &pool, app::UnitPoseCapture::root
+        );
+        CHECK(same_totals(serial, {count, 0, 0}));
+        CHECK(same_totals(serial, parallel));
+        for (const auto& actor : actors) {
+            CHECK(same_history(actor->histories[0], actor->histories[1]));
+            for (std::size_t version = 0; version < 2; ++version) {
+                const auto& motion = actor->histories[version];
+                CHECK(!motion.rig_valid && motion.root_piece_count == 3);
+                CHECK(
+                    motion.current.pieces.capacity() == 0 && motion.previous.pieces.capacity() == 0
+                );
+            }
+        }
+    }
+    CHECK(scratch[0].serial_turns.capacity() == 0);
+    CHECK(scratch[1].bands.size() == 4);
+    for (const auto& band : scratch[1].bands)
+        CHECK(band.turns.capacity() == 0);
+    // Immediate model transition captures every rig, while root counters
+    // remain zero because this simulation tick already has its endpoint.
+    const auto prime = app::capture_unit_poses(batches[1], 2, scratch[1], &pool);
+    CHECK(same_totals(prime, {0, count * 3, 0}));
+    for (const auto& actor : actors)
+        CHECK(actor->histories[1].rig_valid && actor->histories[1].rig_primed);
+    const auto next = app::capture_unit_poses(batches[1], 3, scratch[1], &pool);
+    CHECK(same_totals(next, {count, count * 3, 0}));
+    for (const auto& actor : actors)
+        CHECK(actor->histories[1].rig_valid && !actor->histories[1].rig_primed);
+}
+
 } // namespace
 
 int main() {
     test_parallel_history();
+    test_capture_policy();
+    test_root_capture_and_query_transition();
+    test_parallel_roots_without_rig_storage();
     return failures == 0 ? 0 : 1;
 }

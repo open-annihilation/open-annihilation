@@ -14,6 +14,8 @@ namespace {
 
 /// Fewest units assigned to a drawing band before capture uses workers.
 constexpr std::size_t units_per_capture_band = 256;
+/// The explicitly opted-in match preset; future versions keep complete capture.
+constexpr int32_t root_only_rules_version = 7;
 
 /// Adds completed capture work without touching the global frame timers.
 void add(UnitCaptureTotals& total, const UnitCaptureTotals& more) noexcept {
@@ -23,11 +25,18 @@ void add(UnitCaptureTotals& total, const UnitCaptureTotals& more) noexcept {
 }
 
 /// Takes the original signed turn triplets and captures one unit's history.
-UnitCaptureTotals
-capture_one(const UnitCaptureItem& item, uint32_t tick, std::vector<int32_t>& turns) {
+UnitCaptureTotals capture_one(
+    const UnitCaptureItem& item, uint32_t tick, std::vector<int32_t>& turns, UnitPoseCapture fields
+) {
     auto& motion = *item.motion;
-    if (motion.seen && motion.instance_generation == item.generation && motion.tick == tick)
+    const bool same_root =
+        motion.seen && motion.instance_generation == item.generation && motion.tick == tick;
+    if (same_root && (fields == UnitPoseCapture::root || motion.rig_valid))
         return {};
+    if (fields == UnitPoseCapture::root) {
+        observe_unit_root(motion, tick, item.generation, *item.unit, *item.instance);
+        return {1, 0, 0};
+    }
     const auto count = item.instance->pieces().size();
     turns.resize(count * 3);
     if (item.script == nullptr)
@@ -40,7 +49,8 @@ capture_one(const UnitCaptureItem& item, uint32_t tick, std::vector<int32_t>& tu
             turns[piece * 3 + 2] = rates[0];
         }
     observe_unit(motion, tick, item.generation, *item.unit, *item.instance, turns);
-    return {1, count, item.script != nullptr ? count : 0};
+    // A same-tick model transition captures a rig, not a second root endpoint.
+    return {same_root ? 0U : 1U, count, item.script != nullptr ? count : 0};
 }
 
 /// Restores the worker's settings after using the capture caller's settings.
@@ -57,16 +67,25 @@ struct CaptureFloatControl {
 
 } // namespace
 
+UnitPoseCapture
+unit_pose_capture(const oa::data::match_rules::MatchRules& rules, bool global_dots) noexcept {
+    const auto& enhanced = rules.setup.enhanced_mode;
+    return global_dots && enhanced.enabled && enhanced.version == root_only_rules_version
+               ? UnitPoseCapture::root
+               : UnitPoseCapture::full;
+}
+
 UnitCaptureTotals capture_unit_poses(
     std::span<const UnitCaptureItem> items,
     uint32_t tick,
     UnitCaptureScratch& scratch,
-    oa::platform::job_pool::Pool* pool
+    oa::platform::job_pool::Pool* pool,
+    UnitPoseCapture fields
 ) {
     const auto serial = [&] {
         UnitCaptureTotals totals;
         for (const auto& item : items)
-            add(totals, capture_one(item, tick, scratch.serial_turns));
+            add(totals, capture_one(item, tick, scratch.serial_turns, fields));
         return totals;
     };
     const auto wanted = std::min<std::size_t>(
@@ -81,9 +100,11 @@ UnitCaptureTotals capture_unit_poses(
         // Only allocation-free, already initialized histories go to workers.
         // Cold captures retain the serial order and warm both alternating buffers.
         if (!motion.seen || motion.instance_generation != item.generation ||
-            motion.current.pieces.capacity() < count || motion.previous.pieces.capacity() < count)
+            (fields == UnitPoseCapture::full && (motion.current.pieces.capacity() < count ||
+                                                 motion.previous.pieces.capacity() < count)))
             return serial();
-        most_pieces = std::max(most_pieces, count);
+        if (fields == UnitPoseCapture::full)
+            most_pieces = std::max(most_pieces, count);
     }
     try {
         scratch.bands.resize(wanted);
@@ -105,7 +126,7 @@ UnitCaptureTotals capture_unit_poses(
             const auto end = items.size() * (index + 1) / wanted;
             for (auto at = begin; at < end; ++at)
                 try {
-                    add(band.totals, capture_one(items[at], tick, band.turns));
+                    add(band.totals, capture_one(items[at], tick, band.turns, fields));
                 } catch (...) {
                     band.failure = std::current_exception();
                     band.failed_item = at;

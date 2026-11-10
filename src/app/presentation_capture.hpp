@@ -15,6 +15,17 @@
 
 namespace oa::app {
 
+/// The presentation fields needed by a categorical global Dots frame or models.
+enum class UnitPoseCapture { full, root };
+
+/// Selects root-only capture for the explicitly enabled version-7 preset's Dots.
+/// Other presets and rendered model frames keep complete rig history.
+/// @param rules the match's resolved rules
+/// @param global_dots the existing graphics policy draws every unit as a dot
+/// @return the fields this observation captures
+[[nodiscard]] UnitPoseCapture
+unit_pose_capture(const oa::data::match_rules::MatchRules& rules, bool global_dots) noexcept;
+
 /// One validated unit's canonical inputs and exclusive presentation history.
 /// Pointers are non-null except script, and each motion occurs at most once.
 /// Inputs remain unchanged until capture_unit_poses returns.
@@ -26,7 +37,8 @@ struct UnitCaptureItem {
     uint32_t generation{};
 };
 
-/// The actual work completed by a unit-pose capture.
+/// The actual work completed by a unit-pose capture. Units count new root
+/// endpoints; a same-tick rig prime adds pieces and triplets without another unit.
 struct UnitCaptureTotals {
     uint64_t units{}, pieces{}, triplets{};
 };
@@ -57,12 +69,14 @@ struct UnitCaptureScratch {
 /// @param tick the tick captured, unchanged for the entire call
 /// @param[in,out] scratch reusable rate storage
 /// @param pool drawing workers; null captures on the caller alone
+/// @param fields root-only capture never reads script rates or piece poses
 /// @return counts of units, model pieces and logical VM triplet reads captured
 [[nodiscard]] UnitCaptureTotals capture_unit_poses(
     std::span<const UnitCaptureItem> items,
     uint32_t tick,
     UnitCaptureScratch& scratch,
-    oa::platform::job_pool::Pool* pool = nullptr
+    oa::platform::job_pool::Pool* pool = nullptr,
+    UnitPoseCapture fields = UnitPoseCapture::full
 );
 
 } // namespace oa::app

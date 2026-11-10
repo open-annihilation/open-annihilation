@@ -202,6 +202,37 @@ bool unit_or_cargo_moved(const MatchModels& models, const oa::World& world, uint
     return false;
 }
 
+/// Tells whether a model or any attached descendant needs its current-rig copy.
+/// The walk stays within the validated unit pool and allocates no traversal list.
+/// @param models the match's renderer state
+/// @param world the match's World
+/// @param slot the drawn unit's slot
+/// @return true when a current-only rig occurs in the attachment tree
+bool unit_or_cargo_primed(const MatchModels& models, const oa::World& world, uint16_t slot) {
+    const auto* root = oa::world_unit_at(&world, slot);
+    const auto* at = root;
+    const auto& histories = models.presentation.units;
+    const uint64_t limit = uint64_t{world.unit_slot_count} * 2;
+    for (uint64_t visited = 0; at != nullptr && visited < limit; ++visited) {
+        const auto index = oa::world_unit_slot(&world, at);
+        if (index < histories.size() && histories[index].rig_primed)
+            return true;
+        if (const auto* child = oa::world_unit(&world, at->attach_first_child)) {
+            at = child;
+            continue;
+        }
+        while (at != root && at != nullptr && at->attach_next == 0) {
+            if (++visited >= limit)
+                return false;
+            at = oa::world_unit(&world, at->attach_parent);
+        }
+        if (at == root || at == nullptr)
+            break;
+        at = oa::world_unit(&world, at->attach_next);
+    }
+    return false;
+}
+
 /// Places the copies a unit draws from for the draw being drawn: its record
 /// and model instance, placed between its two poses when it moved, and on
 /// its playout where it has a pose there (presented_unit).
@@ -223,7 +254,16 @@ void place_unit_copies(
     // The copies keep their transforms from their last draw, which the
     // rebuild before this draw works out again only where the pose differs.
     motion.instance.take_pose(instance);
-    if (motion.moved)
+    if (motion.rig_primed) {
+        // A Dots-to-model transition has no earlier piece endpoint. Keep
+        // root interpolation, but display the captured current rig without
+        // inferring a previous rotation or spinning around a fabricated one.
+        if (motion.moved)
+            blend_unit_root_pose(
+                motion.previous, motion.current, presentation.fraction, motion.record
+            );
+        place_current_unit_pieces(motion.current, motion.instance);
+    } else if (motion.moved)
         blend_unit_pose(
             motion.previous,
             motion.current,
@@ -1028,7 +1068,10 @@ FixedVec3 shown_unit_position(const MatchModels& models, const oa::World& world,
 }
 
 void observe_match_tick(
-    MatchModels& models, oa::sim::match_runtime::Match& match, oa::platform::job_pool::Pool* pool
+    MatchModels& models,
+    oa::sim::match_runtime::Match& match,
+    oa::platform::job_pool::Pool* pool,
+    bool global_dots
 ) {
     const uint32_t tick = match.simulation().tick;
     auto& presentation = models.presentation;
@@ -1039,6 +1082,7 @@ void observe_match_tick(
         presentation.seen = true;
     }
     auto& world = match.world();
+    const auto fields = unit_pose_capture(match.rules(), global_dots);
     const uint32_t slots = world.record.unit_slot_count;
     if (presentation.units.size() < slots)
         presentation.units.resize(slots);
@@ -1058,7 +1102,7 @@ void observe_match_tick(
         work.triplets += captured.triplets;
     };
     const auto flush_serial = [&] {
-        add_work(capture_unit_poses(captures, tick, presentation.capture_scratch));
+        add_work(capture_unit_poses(captures, tick, presentation.capture_scratch, nullptr, fields));
         captures.clear();
     };
     for (uint32_t slot = 1; slot < slots; ++slot) {
@@ -1098,7 +1142,7 @@ void observe_match_tick(
             continue;
         }
         if (motion.seen && motion.instance_generation == runtime->instance_generation &&
-            motion.tick == tick)
+            motion.tick == tick && (fields == UnitPoseCapture::root || motion.rig_valid))
             continue;
         const UnitCaptureItem item{
             &motion, &record, &instance, runtime->instance->script(), runtime->instance_generation
@@ -1106,8 +1150,8 @@ void observe_match_tick(
         const auto count = instance.pieces().size();
         if (!serial &&
             (!motion.seen || motion.instance_generation != runtime->instance_generation ||
-             motion.current.pieces.capacity() < count ||
-             motion.previous.pieces.capacity() < count)) {
+             (fields == UnitPoseCapture::full && (motion.current.pieces.capacity() < count ||
+                                                  motion.previous.pieces.capacity() < count)))) {
             // New or growing histories retain the original serial allocation
             // and reset order; a later warmed frame can use the drawing pool.
             flush_serial();
@@ -1115,13 +1159,17 @@ void observe_match_tick(
         }
         if (serial)
             add_work(capture_unit_poses(
-                std::span<const UnitCaptureItem>(&item, 1), tick, presentation.capture_scratch
+                std::span<const UnitCaptureItem>(&item, 1),
+                tick,
+                presentation.capture_scratch,
+                nullptr,
+                fields
             ));
         else
             captures.push_back(item);
     }
     if (!serial)
-        add_work(capture_unit_poses(captures, tick, presentation.capture_scratch, pool));
+        add_work(capture_unit_poses(captures, tick, presentation.capture_scratch, pool, fields));
     bench_timers::count_pose_capture(work.units, work.pieces, work.triplets);
     observe_shots(presentation.shots, tick, match.projectiles());
     const auto& effects = match.effects();
@@ -1135,7 +1183,14 @@ void Runtime::place_tracking_camera() {
     if (oa::world_unit_at(&world, tracked_match_unit_) == nullptr)
         return;
     auto& models = match_models();
-    observe_match_tick(models, *match_, draw_pool_.get());
+    const auto& graphics = engine_settings();
+    const bool dots =
+        live_renderer_active()
+            ? graphics.zoomed_out_units == oa::ui::engine_settings::ZoomedOutUnits::dots &&
+                  match_zoom() < oa::ui::engine_settings::zoomed_out_zoom(graphics.zoomed_out_after)
+            : dots_frame();
+    // Explicit debug queries keep the full snapshot at its original instant.
+    observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
     const FixedVec3 shown = shown_unit_position(
         models, world, tracked_match_unit_, tick_fraction(presentation_alpha())
     );
@@ -1610,8 +1665,15 @@ bool Runtime::draw_match_surface() {
     // The frame's place between the ticks. Each draw notes the tick the
     // match is on first, so that the poses of the tick before are at hand.
     auto& models = match_models();
-    observe_match_tick(models, *match_, draw_pool_.get());
+    observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
     auto& presentation = models.presentation;
+    const bool primed_rigs =
+        !dots && unit_pose_capture(match_->rules(), true) == UnitPoseCapture::root &&
+        std::any_of(
+            presentation.units.begin(), presentation.units.end(), [](const UnitMotion& unit) {
+                return unit.rig_primed;
+            }
+        );
     presentation.fraction = tick_fraction(presentation_alpha());
     // The moment the units of other machines' players are drawn at on their
     // playout, which the pointer then picks against.
@@ -2608,6 +2670,7 @@ bool Runtime::draw_match_surface() {
             // near its simulated place and moved on ahead of it between
             // records.
             plan.from_copies =
+                (primed_rigs && unit_or_cargo_primed(models, world_record, unit_index)) ||
                 (between_ticks && unit_or_cargo_moved(models, world_record, unit_index)) ||
                 plan.pose.has_value();
         }
