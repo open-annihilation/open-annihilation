@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ai.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/match_rules/difficulty_names.hpp"
 #include "oa/sim/combat_state.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
@@ -10,6 +11,7 @@
 #include "oa/platform/files.hpp"
 #include "oa/test/scratch_directory.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -1285,6 +1287,266 @@ void test_attack_wave_size() {
     }
 }
 
+/// Extends the fake's canonical unit storage without its fixed 64-slot order arrays.
+struct RecruitFake : Fake {
+    std::vector<std::string> running;
+    std::vector<uint16_t> joined;
+
+    /// Rebinds the canonical world after growing its owned unit vector.
+    explicit RecruitFake(uint32_t count) : running(count, "idle") {
+        units.resize(count);
+        world.units = units.data();
+        world.unit_slot_count = count;
+    }
+
+    /// Returns the extended fake from the original host's base-class context.
+    static RecruitFake& self(void* context) { return *static_cast<RecruitFake*>(fake_of(context)); }
+
+    /// Logs native callback order and keeps large-slot order state inside bounds.
+    ComputerHost host() {
+        auto result = host_for(*this);
+        result.primary_order = [](void* context, uint16_t unit, uint8_t* preserve, uint8_t* flags) {
+            if (preserve != nullptr)
+                *preserve = 0;
+            if (flags != nullptr)
+                *flags = 0;
+            return self(context).running[unit] != "idle";
+        };
+        result.secondary_order = [](void*, uint16_t) { return false; };
+        result.set_squad = [](void* context, uint16_t unit, Squad squad) {
+            auto& fake = self(context);
+            fake.joined.push_back(unit);
+            fake.set_squad(unit, static_cast<int>(squad));
+        };
+        result.order_attack = [](void* context, uint16_t unit, uint16_t target) {
+            auto& fake = self(context);
+            fake.orders.push_back({"attack", unit, target, {}, false});
+            fake.running[unit] = "attack";
+            return true;
+        };
+        result.order_move =
+            [](void* context, uint16_t unit, const oa::FixedVec3* point, bool queue) {
+                auto& fake = self(context);
+                fake.orders.push_back({"move", unit, 0, *point, queue});
+                fake.running[unit] = "move";
+                return true;
+            };
+        result.order_patrol =
+            [](void* context, uint16_t unit, const oa::FixedVec3* point, bool queue) {
+                auto& fake = self(context);
+                fake.orders.push_back({"patrol", unit, 0, *point, queue});
+                fake.running[unit] = "patrol";
+                return true;
+            };
+        return result;
+    }
+};
+
+/// Holds a real built-in strike tick over hundreds of waiting canonical units.
+struct RecruitRun {
+    static constexpr uint8_t player = 1;
+    static constexpr uint16_t first = 10;
+    static constexpr uint32_t refresh = 300;
+    RecruitFake fake;
+    MatchRules rules{};
+    ComputerPlayers state{};
+    ComputerHost host{};
+    Squad destination{}, source{};
+
+    /// Clumps every candidate at the existing squad's centre, within safe integer ranges.
+    RecruitRun(uint32_t version, uint32_t sources, uint32_t existing, bool naval = false)
+        : fake(first + sources + existing + 2),
+          destination(naval ? Squad::naval_strike : Squad::land_strike),
+          source(naval ? Squad::navy : Squad::land_army) {
+        fake.player(0, OA_PLAYER_STATUS_LOCAL, 1, first - 1);
+        fake.player(player, OA_PLAYER_STATUS_COMPUTER, first, first + sources + existing);
+        rules.setup.enhanced_mode.enabled = version != 0;
+        rules.setup.enhanced_mode.version = version;
+        state.rules.match = &rules;
+        describe_catalog(state);
+        host = fake.host();
+        check(computer_players_configure(&state, "", kBuildLists), "recruit budget: configure");
+        auto& enemy =
+            fake.spawn(1, 0, ARMLLT, 900, 900, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+        enemy.health = 1000;
+        for (uint32_t index = 0; index < sources + existing; ++index) {
+            const auto slot = static_cast<uint16_t>(first + index);
+            auto& unit =
+                fake.spawn(slot, player, naval ? ARMPT : ARMPW, 300, 300, OA_UNIT_FLAG_HAS_WEAPONS);
+            unit.id = slot;
+            unit.health = 1000;
+            fake.set_squad(slot, static_cast<int>(index < existing ? destination : source));
+            fake.running[slot] = index < existing ? "attack" : index % 2 == 0 ? "patrol" : "idle";
+        }
+        check(computer_players_initialize(&state, host), "recruit budget: initialize");
+        auto& controller = state.players[player];
+        controller.sort_countdown = 100000;
+        for (auto& task : controller.tasks)
+            task.kind = TaskKind::none;
+        controller.tasks[static_cast<uint32_t>(destination)] = {
+            TaskKind::strike, destination, refresh, 0, 1, 20000, source, 1
+        };
+        fake.orders.clear();
+        fake.joined.clear();
+    }
+
+    /// Frees the catalog and controller tables after their host has finished.
+    ~RecruitRun() { computer_players_release(&state); }
+
+    /// Returns the waiting source in the native host's current iteration order.
+    std::vector<uint16_t> waiting() { return fake.squads[{player, static_cast<int>(source)}]; }
+
+    /// Returns current strike members without changing their native vector order.
+    std::vector<uint16_t> members() { return fake.squads[{player, static_cast<int>(destination)}]; }
+
+    /// Runs the actual ordinary scheduled task dispatch.
+    void tick(uint32_t at) {
+        fake.world.game.tick = at;
+        computer_player_tick_orders(&state, host, player);
+    }
+
+    /// Checks stable admissions, unjoined order state and slot-ordered attack callbacks.
+    void dispatch(uint32_t at, std::size_t admitted) {
+        const auto candidates = waiting();
+        const auto previous_members = members();
+        const auto previous_orders = fake.running;
+        const auto random_before = fake.roll;
+        fake.orders.clear();
+        fake.joined.clear();
+        tick(at);
+        check(fake.joined.size() == admitted, "recruit budget: exact admission count");
+        check(admitted <= candidates.size(), "recruit budget: enough live candidates");
+        if (admitted <= candidates.size()) {
+            std::vector<uint16_t> expected;
+            if (previous_members.empty() && admitted != 0) {
+                // Seeding takes the first source member. The native host's
+                // swap/pop puts its last member first for the following scan.
+                expected.push_back(candidates.front());
+                if (admitted > 1)
+                    expected.push_back(candidates.back());
+                for (std::size_t index = 1; expected.size() < admitted; ++index)
+                    expected.push_back(candidates[index]);
+            } else {
+                expected.assign(candidates.begin(), candidates.begin() + admitted);
+            }
+            check(fake.joined == expected, "recruit budget: source iteration order preserved");
+        }
+        const auto current_members = members();
+        check(
+            current_members.size() == previous_members.size() + admitted,
+            "recruit budget: every existing strike member remains"
+        );
+        for (const auto slot : previous_members)
+            check(
+                std::find(current_members.begin(), current_members.end(), slot) !=
+                    current_members.end(),
+                "recruit budget: an existing member was not removed"
+            );
+        for (const auto slot : waiting())
+            check(
+                fake.running[slot] == previous_orders[slot],
+                "recruit budget: unrecruited patrol and idle orders are unchanged"
+            );
+        std::vector<uint16_t> attacks;
+        for (const auto& order : fake.orders) {
+            check(
+                order.kind == "attack" && order.arg == 1 && !order.queue,
+                "recruit budget: only normal attacks are dispatched"
+            );
+            attacks.push_back(order.unit);
+        }
+        auto expected_attacks = current_members;
+        std::sort(expected_attacks.begin(), expected_attacks.end());
+        check(
+            attacks == expected_attacks, "recruit budget: attack callbacks retain unit-slot order"
+        );
+        check(fake.roll == random_before, "recruit budget: no scheduling random draw added");
+        check(
+            state.players[player].tasks[static_cast<uint32_t>(destination)].next_tick ==
+                at + refresh,
+            "recruit budget: native strike deadline unchanged"
+        );
+    }
+};
+
+/// Admits at most 256 new members per ordinary land or naval dispatch.
+void test_distributed_strike_recruitment_budget() {
+    constexpr uint32_t version = oa::data::enhanced_mode::distributed_battle_flow_version;
+    for (const bool naval : {false, true}) {
+        RecruitRun run(version, 600, 4, naval);
+        run.dispatch(300, 256);
+        const auto waiting = run.waiting();
+        const auto members = run.members();
+        run.fake.orders.clear();
+        run.fake.joined.clear();
+        run.tick(599);
+        check(
+            run.fake.joined.empty() && run.fake.orders.empty(),
+            "recruit budget: nothing joins before the next native deadline"
+        );
+        check(
+            run.waiting() == waiting && run.members() == members,
+            "recruit budget: membership waits for the next dispatch"
+        );
+        run.dispatch(600, 256);
+        run.dispatch(900, 88);
+        check(
+            run.waiting().empty() && run.members().size() == 604,
+            "recruit budget: all waiting members eventually join"
+        );
+    }
+    RecruitRun empty(version, 600, 0);
+    empty.dispatch(300, 256);
+    empty.dispatch(600, 256);
+    empty.dispatch(900, 88);
+    RecruitRun existing(version, 0, 600);
+    existing.dispatch(300, 0);
+    check(
+        existing.fake.orders.size() == 600,
+        "recruit budget: the admission cap does not truncate existing strike orders"
+    );
+}
+
+/// Leaves the old 5000 recruits plus the separate empty-squad seed unchanged.
+void test_earlier_recruitment_keeps_its_seed_and_limit() {
+    for (uint32_t version = 0; version < oa::data::enhanced_mode::distributed_battle_flow_version;
+         ++version) {
+        RecruitRun run(version, 5002, 0);
+        run.dispatch(300, 5001);
+        check(
+            run.waiting().size() == 1 && run.members().size() == 5001,
+            "recruit budget: earlier presets retain the separate seed and 5000 joins"
+        );
+    }
+}
+
+/// Reads the current source membership after a waiting slot becomes a builder.
+void test_recruitment_rereads_reused_source_slots() {
+    RecruitRun run(oa::data::enhanced_mode::distributed_battle_flow_version, 600, 4);
+    run.dispatch(300, 256);
+    const auto reused = run.waiting().front();
+    run.fake.set_squad(reused, -1);
+    auto& builder = run.fake.spawn(reused, RecruitRun::player, ARMCK, 300, 300, 0);
+    builder.id = reused;
+    builder.health = 1000;
+    run.fake.set_squad(reused, static_cast<int>(Squad::builders));
+    run.fake.running[reused] = "idle";
+    run.dispatch(600, 256);
+    check(
+        std::find(run.fake.joined.begin(), run.fake.joined.end(), reused) == run.fake.joined.end(),
+        "recruit budget: the replacement builder is not admitted from stale membership"
+    );
+    check(
+        run.fake.running[reused] == "idle" && run.fake.units[reused].type_index == ARMCK,
+        "recruit budget: the replacement's idle order remains unchanged"
+    );
+    run.dispatch(900, 87);
+    check(
+        run.waiting().empty() && run.members().size() == 603,
+        "recruit budget: all remaining live source members join without the reused slot"
+    );
+}
+
 // The aircraft task's run, with the wing and base given.
 struct AirRun {
     Fake fake;
@@ -1518,6 +1780,9 @@ int main(int argc, char** argv) {
     test_factory_tick_filter();
     test_builder_withhold_threshold();
     test_attack_wave_size();
+    test_distributed_strike_recruitment_budget();
+    test_earlier_recruitment_keeps_its_seed_and_limit();
+    test_recruitment_rereads_reused_source_slots();
     test_patrol_group_size();
     test_patrol_null_enemy_skip();
     test_squad_assignment();
