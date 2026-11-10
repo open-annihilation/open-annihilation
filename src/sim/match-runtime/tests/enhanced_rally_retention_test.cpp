@@ -420,7 +420,29 @@ void manual_queued_and_custom_commands_keep_their_semantics() {
         auto& appended =
             battle.match().issue_ground_move(battle.actor, {96 * pixel, 0, 96 * pixel}, true);
         CHECK(!battle.match().order_refused(appended));
-        CHECK(battle.unit().primary == head && head->next == tail && tail->next == &appended);
+        CHECK(battle.unit().primary == head && head->next != nullptr);
+        const std::array topology{head, head->next, head->next->next};
+        CHECK(topology[2] != nullptr && topology[2]->next == nullptr);
+        CHECK(std::find(topology.begin(), topology.end(), tail) != topology.end());
+        CHECK(std::find(topology.begin(), topology.end(), &appended) != topology.end());
+        std::array<runtime::Match::OrderRecordView, 3> before{};
+        CHECK(battle.match().queue_records(battle.actor, false, before.data(), before.size()) == 3);
+        battle.refresh();
+        CHECK(battle.unit().primary == topology[0]);
+        CHECK(topology[0]->next == topology[1] && topology[1]->next == topology[2]);
+        CHECK(topology[2]->next == nullptr);
+        std::array<runtime::Match::OrderRecordView, 3> after{};
+        CHECK(battle.match().queue_records(battle.actor, false, after.data(), after.size()) == 3);
+        for (std::size_t index = 0; index < before.size(); ++index) {
+            CHECK(after[index].kind == before[index].kind);
+            CHECK(after[index].point == before[index].point);
+            CHECK(after[index].target == before[index].target);
+            CHECK(after[index].issue_tick == before[index].issue_tick);
+            CHECK(after[index].phase == before[index].phase);
+            CHECK(after[index].preserve_flags == before[index].preserve_flags);
+            CHECK(after[index].command_flags == before[index].command_flags);
+            CHECK(after[index].flags == before[index].flags);
+        }
     }
     {
         Rally battle;
