@@ -11,11 +11,26 @@
 
 namespace oa::sim::match_runtime {
 
+/// Excludes dying visual actors from the preferred search's reserved share.
+///
+/// @param unit current canonical unit record
+/// @return whether the unit is alive with a movement object
+[[nodiscard]] inline bool preferred_search_unit_is_live(const oa::Unit& unit) noexcept {
+    return unit.type_index != 0 && unit.movement != 0 && unit.health > 0 &&
+           oa::unit_is_live_target(unit.flags);
+}
+
 /// Tests an actual shared-route fallback for an old, physically motionless search.
 ///
 /// Desired speed may remain nonzero against a static wall; the last actual
 /// movement tick distinguishes that case from a moving unit. Mobile queues
 /// retain the ordinary cursor's share of the existing search budget.
+///
+/// @param navigation current native navigator after the shared fallback
+/// @param movement current native motion and last actual movement tick
+/// @param traffic current local traffic classification
+/// @param tick current simulation tick
+/// @return whether old unmoving search work may take a preferred credited pick
 [[nodiscard]] inline bool preferred_fallback_search(
     const sim::ground_orders::Navigation& navigation,
     const sim::unit_movement::Movement& movement,
@@ -30,6 +45,10 @@ namespace oa::sim::match_runtime {
 }
 
 /// Keeps an offered search bound to the same owned native Goal geometry.
+///
+/// @param a current native Goal
+/// @param b Goal geometry captured by the bounded poll
+/// @return whether ownership and every geometric field remain unchanged
 [[nodiscard]] inline bool same_preferred_search_goal(
     const sim::ground_orders::Goal& a, const sim::ground_orders::Goal& b
 ) noexcept {

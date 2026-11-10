@@ -431,7 +431,7 @@ void Match::advance_path_search() {
                 // Returning no job lets the cursor visit other units. Do
                 // not consume the ordinary search's 60-tick retry stamp.
                 if (result == sim::ground_orders::FlowResult::fallback && ctx.collecting &&
-                    traffic &&
+                    preferred_search_unit_is_live(unit.record) && traffic &&
                     preferred_fallback_search(
                         navigation, runtime->movement, *traffic, ctx.match->simulation_.tick
                     )) {
@@ -532,8 +532,7 @@ void Match::advance_path_search() {
                 return false;
             auto& unit = units[candidate.unit_index];
             if (&unit != candidate.unit || unit.record.id != candidate.stable_id ||
-                unit.record.owner_index != player || unit.record.type_index == 0 ||
-                unit.record.movement == 0 || (unit.record.flags & OA_UNIT_FLAG_LIVE) == 0)
+                unit.record.owner_index != player || !preferred_search_unit_is_live(unit.record))
                 return false;
             auto* slot = (*ctx.find)(unit);
             auto* runtime = slot ? ctx.match->ground_runtime(slot->unit_index) : nullptr;

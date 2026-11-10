@@ -15,6 +15,7 @@ namespace {
 using oa::sim::ground_orders::RoutePoint;
 using oa::sim::match_runtime::is_route_prefix;
 using oa::sim::match_runtime::preferred_fallback_search;
+using oa::sim::match_runtime::preferred_search_unit_is_live;
 using oa::sim::match_runtime::same_preferred_search_goal;
 
 void check(
@@ -109,6 +110,26 @@ void saved_battle_routes_keep_their_existing_backbone() {
 }
 
 void captured_stationary_fallbacks_keep_their_native_search_eligibility() {
+    oa::Unit actor{};
+    actor.type_index = 1;
+    actor.movement = 1;
+    actor.health = 1;
+    actor.flags = OA_UNIT_FLAG_LIVE;
+    OA_CHECK(preferred_search_unit_is_live(actor));
+    actor.flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    OA_CHECK(!preferred_search_unit_is_live(actor));
+    actor.flags = OA_UNIT_FLAG_LIVE;
+    actor.health = 0;
+    OA_CHECK(!preferred_search_unit_is_live(actor));
+    actor.health = 1;
+    actor.flags = 0;
+    OA_CHECK(!preferred_search_unit_is_live(actor));
+    actor.flags = OA_UNIT_FLAG_LIVE;
+    actor.movement = 0;
+    OA_CHECK(!preferred_search_unit_is_live(actor));
+    actor.movement = 1;
+    actor.type_index = 0;
+    OA_CHECK(!preferred_search_unit_is_live(actor));
     oa::sim::simulation_state::Order order;
     oa::sim::ground_orders::Goal goal;
     goal.order = &order;
