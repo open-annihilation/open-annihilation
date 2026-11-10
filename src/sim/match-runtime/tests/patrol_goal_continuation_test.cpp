@@ -581,10 +581,14 @@ void a_real_pending_search_survives_only_the_continued_refresh() {
         );
         const auto worker_budget = scene.match().path_search_worker().budget();
         if (version == distributed_version) {
-            // The bounded prepass must enter real A* without inventing the
-            // contact/unreachable observations of the complete legacy walk.
+            // This long route makes real heuristic progress before the cap.
+            // Its partial guide must retain the Goal without inventing the
+            // contact/unreachable observations of a complete legacy walk.
             CHECK(worker_budget == 256);
-            CHECK(scene.match().path_search_worker().threshold() == 0);
+            const auto& worker = scene.match().path_search_worker();
+            const auto start = worker.start_cell();
+            CHECK(worker.threshold() > 0);
+            CHECK(worker.threshold() < worker.heuristic(start[0], start[1]));
             CHECK(
                 (raised_events &
                  (ground::search_goal_contact_flag | ground::search_seed_unresolved_flag)) == 0
@@ -623,6 +627,16 @@ void a_real_pending_search_survives_only_the_continued_refresh() {
         }
         if (version >= battle_version)
             CHECK(published);
+        if (version == distributed_version && published) {
+            CHECK(scene.movement().navigation.goal == before.goal);
+            CHECK(scene.unit().unit->primary == before.goal->order);
+            CHECK(!ground::goal_contains_unit(*before.goal, scene.movement().geometry));
+            CHECK(
+                (scene.unit().unit->primary->raised_events &
+                 (ground::arrived_event | ground::path_failed_event | ground::goal_replaced_event |
+                  cancel_event)) == 0
+            );
+        }
         std::cout << "Patrol queued search: version=" << version
                   << ", start budget=" << worker_budget
                   << ", job picks=" << scene.match().path_search_jobs().job_picks[0]
