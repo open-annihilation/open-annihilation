@@ -28,10 +28,8 @@ constexpr uint32_t visible_chord_probe_limit = 128;
 constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 64;
 constexpr std::size_t metadata_size = 80, key_size = 36;
 constexpr uint32_t empty = 0, clearing = 1, building = 2, complete = 3, failed = 4;
-constexpr uint32_t clean = 0, static_changed = 1, demand_blocked = 2;
 constexpr size_t dirty_offset = 68, dirty_since_offset = 72, completed_tick_offset = 76;
 constexpr uint32_t refresh_period = 30, completed_refresh_grace = 60;
-constexpr uint32_t background_refresh_slots = 4;
 constexpr uint32_t completed_admission_grace = 60;
 constexpr uint8_t root = 0xfd, unseen = 0xff;
 constexpr uint32_t clear_bytes_per_tick = 65'536, clear_slice = 4'096;
@@ -285,8 +283,8 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
             // Returned connections are checked against the current map. An
             // unrelated wreck must not discard an entire useful tree/frontier.
             put32(f + 12, revision);
-            if (get32(f + dirty_offset) == clean) {
-                put32(f + dirty_offset, static_changed);
+            if (get32(f + dirty_offset) == 0) {
+                put32(f + dirty_offset, 1);
                 // The map changed since this cache's last advance. Using
                 // that saved boundary also keeps a same-tick load pass and
                 // the original match's next regular pass equivalent.
@@ -311,28 +309,20 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         return;
     // A removed obstacle can make a retained route unnecessarily long or open
     // a previously unreachable corridor. Refresh at most one completed dirty
-    // tree per period. Fine fields prefer demanded blocked branches, reserving
-    // every fourth slot for background changes. Never interrupt a building
-    // frontier; let every completed tree serve routes before refreshing it.
+    // tree per period, oldest first. Never interrupt a building frontier, and
+    // let every newly completed tree serve routes before it can be refreshed.
     if (tick % refresh_period == 0) {
         uint8_t* oldest = nullptr;
-        uint32_t oldest_age = 0, oldest_priority = 0;
-        const bool demand_refresh = get32(state + 4) == fine_format;
-        const bool prefer_demand = (tick / refresh_period) % background_refresh_slots != 0;
+        uint32_t oldest_age = 0;
         for (uint32_t i = 0; i < fields_; ++i) {
             auto* f = field(state, cells_, i);
-            const auto dirty = get32(f + dirty_offset);
-            if (get32(f) != complete || dirty == clean ||
+            if (get32(f) != complete || get32(f + dirty_offset) == 0 ||
                 tick - get32(f + completed_tick_offset) < completed_refresh_grace)
                 continue;
             const auto age = tick - get32(f + dirty_since_offset);
-            const uint32_t priority =
-                demand_refresh && ((dirty == demand_blocked) == prefer_demand);
-            if (!oldest || priority > oldest_priority ||
-                (priority == oldest_priority && age > oldest_age)) {
+            if (!oldest || age > oldest_age) {
                 oldest = f;
                 oldest_age = age;
-                oldest_priority = priority;
             }
         }
         if (oldest)
@@ -776,13 +766,8 @@ FlowResult FlowCache::route(
             if (regional) {
                 // Preserve the other legal branches and unfinished work.
                 // The bounded dirty-field refresh replaces this tree later.
-                const auto dirty = get32(selected + dirty_offset);
-                if (format == fine_format) {
-                    if (dirty == clean)
-                        put32(selected + dirty_since_offset, get32(state + 32));
-                    put32(selected + dirty_offset, demand_blocked);
-                } else if (dirty == clean) {
-                    put32(selected + dirty_offset, static_changed);
+                if (get32(selected + dirty_offset) == 0) {
+                    put32(selected + dirty_offset, 1);
                     put32(selected + dirty_since_offset, get32(state + 32));
                 }
             } else {
@@ -845,8 +830,6 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
         (fields_ != 0 && get32(bytes.data() + 40) >= fields_))
         return false;
     const bool regional = get32(state_.get() + 4) != original_format;
-    const auto maximum_dirty =
-        get32(state_.get() + 4) == fine_format ? demand_blocked : static_changed;
     const auto valid_region = [&](const uint8_t* key) {
         return !regional || (uint64_t{get32(key + 28)} * large_region < width_ &&
                              uint64_t{get32(key + 32)} * large_region < height_);
@@ -860,7 +843,7 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
     for (uint32_t i = 0; i < fields_; ++i) {
         const auto* f = field(bytes.data(), cells_, i);
         const auto phase = get32(f);
-        if (phase > failed || get32(f + dirty_offset) > maximum_dirty ||
+        if (phase > failed || get32(f + dirty_offset) > 1 ||
             (phase != empty && !valid_key(f + 4)) || get32(f + 52) > cells_ ||
             get32(f + 56) > get32(f + 60) || get32(f + 60) > cells_)
             return false;

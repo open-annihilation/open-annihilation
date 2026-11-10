@@ -789,16 +789,6 @@ of restore-validation scratch. Unreleased version-7 pilot saves with the
 earlier cache bounds are refused rather than silently losing navigation
 state. Off and versions 1–6 keep their previous state formats and bounds.
 
-A live rejection of a stored fine-tree edge marks that field for a demand
-refresh. Three of every four existing refresh slots prefer these fields;
-the fourth prefers background terrain changes. Each slot falls back to the
-other class when necessary, then selects the oldest eligible field with a
-stable index tie-break. Completion grace, one refresh per 30 ticks and all
-construction and extraction budgets stay unchanged. This reuses saved dirty
-metadata without adding fields; earlier formats retain their old scheduling.
-Rebuilding a field still takes bounded construction time and does not bypass
-current collision or passability checks.
-
 When the first destination in a region cannot connect directly to a later
 unit's goal, version 7 can follow that goal's branch of the existing tree.
 It reads at most 512 ancestor nodes, turns at the shared ancestor and keeps
@@ -1050,6 +1040,38 @@ The turned view still contains one interval over 50 ms and does not sustain
 isolated marker-rendering gain or a close-up model benchmark. Version 7
 remains experimental, version 4 remains the supplied default, and ray
 tracing remains deferred.
+
+### Rejected demand-refresh checkpoint
+
+Source `bf1d09c08` tested preferential refresh of fields whose stored edges
+had failed live validation, with every fourth refresh slot reserved for
+background changes. A copied-cache comparison delivered clear guides for
+three captured ARM cases 740 ticks earlier without increasing work limits.
+That check advanced only the cache over frozen terrain, not the battle.
+
+The subsequent 9,000-tick battle passed all physical and destination audits
+but failed the flow comparison. Stationary rear survivors increased from
+four CORE and three ARM to sixteen and eight. Fourteen were waiting for
+unvisited anchors in building fields and three hit stale stored edges.
+Four more had no statically clear arrival origin for their current goals;
+the remaining three had usable guides. Rear displacement changed from
+29.97 to 20.07 pixels for CORE and from 27.28 to 39.05 for ARM. North/south
+bridge-band unique crossings remained ten and one.
+
+Both runs consumed exactly 18,190,336 expansion and seeding credits.
+The candidate performed fewer periodic refreshes, while nonempty admission
+replacements increased from 88 to 307. Its building fields were recently
+requested; cold fields alone do not explain these waits. The demand-refresh
+policy and its new saved dirty state were reverted. The retained simulation
+matches the requested-goal checkpoint above. Version 7 remains experimental.
+
+Build-only terrain-index diagnostics remain available in benchmark logs.
+They record prior validity, exact cache keys, cache-instance build attempts
+and elapsed bounds/world/card construction spans. Records are bounded,
+collected after drawing jobs join and printed after measurement. They change
+neither rendering decisions nor the existing frame-log schema. The last
+accepted foreground FPS figures above predate these diagnostics; no FPS
+result is inferred for the rejected candidate.
 
 ## Remaining work
 

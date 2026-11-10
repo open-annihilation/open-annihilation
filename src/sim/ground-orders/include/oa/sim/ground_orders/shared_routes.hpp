@@ -105,8 +105,6 @@ class FlowCache {
 
     /// Clears at most 65,536 direction bytes and spends the configured expansion budget.
     /// Seed connections consume expansion credits; clearing uses contiguous slices.
-    /// Fine fields prioritize blocked tree connections, reserving every fourth
-    /// refresh slot for background changes among eligible completed trees.
     ///
     /// @param tick deterministic simulation tick
     /// @param static_revision current buildings/features/terrain revision
