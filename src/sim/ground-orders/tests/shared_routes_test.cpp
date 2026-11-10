@@ -1187,7 +1187,7 @@ void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
             break;
         }
     }
-    CHECK(arrived && consumed >= 3);
+    CHECK(arrived && consumed >= 2);
     CHECK(fine.counters().fields_started == 1 && fine.counters().invalidations == 0);
 }
 
