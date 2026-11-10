@@ -85,8 +85,8 @@ struct FlowCounters {
 /// is divided between ticks; building fields are never evicted by new goals.
 /// Fine regions may retain two representatives for one regional key. A second
 /// uses empty or failed storage when completed trees do not cover a known goal;
-/// it shares the same construction and extraction budgets. Unknown or blocked
-/// goal centres and full representative tables fall back to native search.
+/// it shares the same construction and extraction budgets. Optional selection
+/// uses native fallback for unknown or blocked goal centres or full tables.
 /// The state is canonical byte storage with no pointers and may be saved, but
 /// is owner-local navigation state and must not enter shared simulation hashes.
 class FlowCache {

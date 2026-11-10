@@ -209,6 +209,28 @@ RoutePoint point_at(int32_t x, int32_t z, const FlowContext& context) noexcept {
     };
 }
 
+// Stored coverage is a bounded lookup; live proof remains in the optional selector.
+bool has_anchor_coverage(
+    uint32_t columns,
+    uint32_t rows,
+    uint32_t stride,
+    int32_t x,
+    int32_t z,
+    const uint8_t* directions
+) noexcept {
+    const int32_t centre_x = (x + static_cast<int32_t>(stride / 2)) / static_cast<int32_t>(stride);
+    const int32_t centre_z = (z + static_cast<int32_t>(stride / 2)) / static_cast<int32_t>(stride);
+    for (uint32_t i = 0; i < 9; ++i) {
+        const int32_t cx = centre_x + (i == 0 ? 0 : dx[i - 1]);
+        const int32_t cz = centre_z + (i == 0 ? 0 : dz[i - 1]);
+        if (cx >= 0 && cz >= 0 && static_cast<uint32_t>(cx) < columns &&
+            static_cast<uint32_t>(cz) < rows &&
+            directions[static_cast<uint32_t>(cz) * columns + static_cast<uint32_t>(cx)] != unseen)
+            return true;
+    }
+    return false;
+}
+
 // Fine representatives connect the actual pose, not just its origin-cell centre.
 int32_t connect_unit_anchor(
     uint32_t columns,
@@ -567,6 +589,13 @@ FlowResult FlowCache::route(
             return fallback();
         representatives[representative_count++] = f;
     }
+    const bool representative_path =
+        format == fine_format && representative_count != 0 &&
+        (representative_count > 1 ||
+         (get32(selected) == complete &&
+          !has_anchor_coverage(
+              columns_, rows_, stride, goal.cell[0], goal.cell[1], selected + metadata_size
+          )));
     const auto admit = [&](bool extra_representative) {
         uint8_t* admitted = nullptr;
         for (uint32_t i = 0; i < admission_count; ++i) {
@@ -633,7 +662,7 @@ FlowResult FlowCache::route(
             return false;
         shortcut_tested = true;
         const bool clear =
-            format == fine_format
+            representative_path
                 ? known_segment_clear(
                       bounded,
                       key.data(),
@@ -655,7 +684,7 @@ FlowResult FlowCache::route(
         increment(state, 1);
         return true;
     };
-    if (format == fine_format && get32(selected) != clearing && get32(selected) != failed) {
+    if (representative_path && get32(selected) != clearing && get32(selected) != failed) {
         // Clear native lanes need no representative selection or extra credits.
         if (shortcut()) {
             put32(selected + 64, get32(state + 32));
@@ -664,7 +693,7 @@ FlowResult FlowCache::route(
         if (budget.exhausted)
             return wait();
     }
-    if (format == fine_format && representative_count != 0) {
+    if (representative_path) {
         if (get32(state + 60) == 0)
             return wait();
         // A circle may have other valid arrival cells. This cache only seeds
@@ -674,12 +703,7 @@ FlowResult FlowCache::route(
             ) != 1)
             return budget.exhausted ? wait() : fallback();
     }
-    const bool exact_single_seed = representative_count == 1 &&
-                                   get32(selected + 40) == static_cast<uint32_t>(goal.cell[0]) &&
-                                   get32(selected + 44) == static_cast<uint32_t>(goal.cell[1]);
-    const bool choose_representative = format == fine_format && representative_count != 0 &&
-                                       !exact_single_seed &&
-                                       (representative_count > 1 || get32(selected) == complete);
+    const bool choose_representative = representative_path;
     const auto representative_spent = entry_credits - get32(state + 60);
     const bool selection_fits_fresh_quota =
         uint64_t{representative_selection_credits} + representative_spent <= route_probes_per_tick_;
@@ -775,7 +799,7 @@ FlowResult FlowCache::route(
         return wait();
     const auto* directions = selected + metadata_size;
     auto node =
-        format == fine_format
+        representative_path
             ? connect_unit_anchor(columns_, rows_, unit, context, key.data(), bounded, directions)
             : connect_anchor(
                   columns_, rows_, stride, unit.cell_x, unit.cell_z, key.data(), bounded, directions
@@ -881,7 +905,7 @@ FlowResult FlowCache::route(
             const bool can_test = probes <= get32(state + 60);
             const bool clear =
                 can_test &&
-                (format == fine_format
+                (representative_path
                      ? known_segment_clear(
                            bounded,
                            key.data(),
