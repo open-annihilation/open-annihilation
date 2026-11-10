@@ -4498,6 +4498,286 @@ void strategic_unit_marker_population() {
         );
 }
 
+/// Compares marker frames, including upload rectangles and geometry drawn on the card.
+/// @param actual the scene drawn with marker bands
+/// @param expected the scene drawn on one thread
+void check_marker_frames(const live::Scene& actual, const live::Scene& expected) {
+    OA_CHECK(same_frame(actual, expected));
+    OA_CHECK(
+        std::equal(
+            actual.atlas_update.regions.begin(),
+            actual.atlas_update.regions.end(),
+            expected.atlas_update.regions.begin(),
+            expected.atlas_update.regions.end(),
+            [](const auto& a, const auto& b) {
+                return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+            }
+        )
+    );
+    OA_CHECK(actual.cards.positions == expected.cards.positions);
+    OA_CHECK(actual.cards.indices == expected.cards.indices);
+    OA_CHECK(actual.cards.piece_frames == expected.cards.piece_frames);
+    OA_CHECK(actual.cards.textures == expected.cards.textures);
+    OA_CHECK(
+        std::equal(
+            actual.cards.units.begin(),
+            actual.cards.units.end(),
+            expected.cards.units.begin(),
+            expected.cards.units.end(),
+            [](const live::CardUnit& a, const live::CardUnit& b) {
+                return a.unit_id == b.unit_id && a.vertex == b.vertex && a.instance == b.instance &&
+                       a.type == b.type && a.first_index == b.first_index &&
+                       a.index_count == b.index_count && a.left == b.left && a.top == b.top &&
+                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded;
+            }
+        )
+    );
+    if (!actual.cards.units.empty() || !expected.cards.units.empty()) {
+        const auto a = card_frame(actual);
+        const auto b = card_frame(expected);
+        OA_CHECK(a.units == b.units);
+        OA_CHECK(a.vertices.size() == b.vertices.size());
+        if (a.vertices.size() == b.vertices.size() && !a.vertices.empty())
+            OA_CHECK(
+                std::memcmp(
+                    a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(a.vertices[0])
+                ) == 0
+            );
+    }
+}
+
+/// Marker workers keep exact geometry, atlas updates and picking identities through moving armies.
+void strategic_unit_markers_on_threads() {
+    namespace camera = oa::app::renderer_live_camera;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    constexpr uint32_t population = 20000;
+    Fixture battle;
+    auto& in = battle.inputs;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.clip_width = in.clip_height = 128;
+    in.unit_marker_pixels = 5;
+    in.sea_level = 3;
+    OA_CHECK(
+        camera::projection(
+            {20, -53, true}, {16, 0, 16, 64, 64, 0.25F}, in.clip_projection
+        )
+    );
+    for (std::size_t owner = 0; owner < in.owner_colors.size(); ++owner)
+        in.owner_colors[owner] = {
+            static_cast<uint8_t>(20 + owner * 7),
+            static_cast<uint8_t>(220 - owner * 3),
+            static_cast<uint8_t>(40 + owner * 5)
+        };
+    std::vector<oa::Unit> units(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = static_cast<uint8_t>(index % in.owner_colors.size());
+        unit.position = {
+            static_cast<int32_t>(8 + index % 16) * fixed,
+            static_cast<int32_t>(index % 7) * fixed / 3 - 2 * fixed,
+            static_cast<int32_t>(8 + (index / 16) % 16) * fixed
+        };
+        if (index % 7 == 0)
+            unit.state_flags = OA_UNIT_STATE_CLOAKED;
+        battle.draws.unit_markers.push_back({&unit, unit.position});
+    }
+    const auto canonical = units;
+    oa::platform::job_pool::Pool one{1}, four{4};
+    live::Scene ordinary;
+    const auto compare = [&](bool banded) {
+        in.pool = &one;
+        OA_CHECK(live::build(in, ordinary, battle.error));
+        OA_CHECK(battle.error.empty());
+        in.pool = &four;
+        OA_CHECK(live::build(in, battle.scene, battle.error));
+        OA_CHECK(battle.error.empty());
+        OA_CHECK(!ordinary.unit_detail_active && !battle.scene.unit_detail_active);
+        OA_CHECK(ordinary.passes.marker_bands.empty());
+        OA_CHECK(battle.scene.passes.marker_bands.empty() != banded);
+        check_marker_frames(battle.scene, ordinary);
+    };
+    // A missing white material keeps the original packing order. Its next
+    // frame uses real worker bands, rather than comparing two serial paths.
+    compare(false);
+    compare(true);
+    OA_CHECK(battle.scene.passes.marker_bands.size() == 4);
+    OA_CHECK(battle.scene.unit_ranges.size() == population);
+    OA_CHECK(battle.scene.model_count == population);
+    OA_CHECK(
+        battle.scene.vertices.size() == battle.scene.terrain_vertex_count + population * 6
+    );
+    for (std::size_t index = 0;
+         index < std::min(battle.scene.unit_ranges.size(), units.size());
+         ++index) {
+        const auto& range = battle.scene.unit_ranges[index];
+        OA_CHECK(range.unit_id == units[index].id && range.vertex_count == 6);
+        OA_CHECK(range.first_vertex == battle.scene.terrain_vertex_count + index * 6);
+    }
+    for (const bool on_card : {true, false}) {
+        in.models_on_card = on_card;
+        for (auto& marker : battle.draws.unit_markers) {
+            marker.shown_position.x += fixed / 7;
+            marker.shown_position.z -= fixed / 11;
+        }
+        in.owner_colors[1] = {240, 30, 120};
+        battle.palette[alternate_index * oa::palette_entry_bytes] += 1;
+        compare(true);
+        OA_CHECK(battle.scene.cards.units.empty());
+    }
+    const int rounding = std::fegetround();
+    if (rounding != -1 && std::fesetround(FE_UPWARD) == 0) {
+        compare(true);
+        OA_CHECK(std::fesetround(rounding) == 0);
+        compare(true);
+    }
+    // Every copied band owns its buffers; neither a copy nor a move may
+    // retain a pointer into the source Scene's lists.
+    {
+        auto copied = battle.scene;
+        in.pool = &four;
+        OA_CHECK(live::build(in, copied, battle.error));
+        in.pool = &one;
+        OA_CHECK(live::build(in, ordinary, battle.error));
+        check_marker_frames(copied, ordinary);
+        battle.scene = std::move(copied);
+    }
+    compare(true);
+    const auto all = battle.draws.unit_markers;
+    oa::Unit unnamed{}, attached{};
+    attached.id = 60000;
+    attached.attach_parent = units[0].id;
+    battle.draws.unit_markers[0].unit = nullptr;
+    battle.draws.unit_markers[4999].unit = &unnamed;
+    battle.draws.unit_markers[5000].unit = &attached;
+    battle.draws.unit_markers[9999].shown_position = {30000 * fixed, 0, 30000 * fixed};
+    compare(true);
+    OA_CHECK(battle.scene.unit_ranges.size() == population - 4);
+    in.sight.mapping = in.sight.line_of_sight = true;
+    battle.coverage[0] = 0;
+    compare(true);
+    battle.mapped[0] = 0;
+    compare(true);
+    OA_CHECK(battle.scene.unit_ranges.empty() && battle.scene.model_count == 0);
+    battle.mapped[0] = battle.coverage[0] = viewer_bit;
+    battle.draws.unit_markers = all;
+    compare(true);
+    // A cold material cache, a small tail and an empty tail all clear the
+    // retained worker lists before the next full army uses them again.
+    ordinary.materials.clear();
+    battle.scene.materials.clear();
+    compare(false);
+    compare(true);
+    battle.draws.unit_markers.resize(1023);
+    compare(false);
+    battle.draws.unit_markers.resize(1024);
+    battle.draws.unit_markers.back() = all[1023];
+    compare(true);
+    OA_CHECK(battle.scene.passes.marker_bands.size() == 2);
+    battle.draws.unit_markers.clear();
+    compare(false);
+    OA_CHECK(battle.scene.unit_ranges.empty());
+    OA_CHECK(battle.scene.vertices.size() == battle.scene.terrain_vertex_count);
+    battle.draws.unit_markers = all;
+    compare(true);
+    const auto projection = in.clip_projection;
+    in.clip_projection[0] = std::numeric_limits<float>::quiet_NaN();
+    compare(false);
+    OA_CHECK(battle.scene.unit_ranges.empty());
+    in.clip_projection = projection;
+    compare(true);
+    OA_CHECK(std::memcmp(units.data(), canonical.data(), units.size() * sizeof(units[0])) == 0);
+}
+
+/// Real model geometry stays before marker bands and projectile geometry stays after them.
+void strategic_unit_marker_mixed_passes() {
+    namespace camera = oa::app::renderer_live_camera;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr std::size_t population = 2048;
+    Fixture battle;
+    auto& in = battle.inputs;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.clip_width = in.clip_height = 128;
+    in.unit_marker_pixels = 5;
+    in.owner_colors[0] = {255, 80, 20};
+    OA_CHECK(camera::projection({}, {16, 0, 16, 64, 64, 1}, in.clip_projection));
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {4 * fixed, 0, 0}, {0, 4 * fixed, 0}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(1);
+    prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+    prepared.objects[0].primitives[0].color = alternate_index;
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    oa::Unit model_unit{};
+    model_unit.id = 60000;
+    model_unit.flags = OA_UNIT_FLAG_BUILDING;
+    model_unit.position = {8 * fixed, 0, 12 * fixed};
+    battle.draws.models.resize(1);
+    auto& model = battle.draws.models[0];
+    model.model.unit = &model_unit;
+    model.model.instance = &instance;
+    model.model.prepared = &prepared;
+    model.plan.linked.drawn = true;
+    std::vector<oa::Unit> units(population);
+    for (std::size_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.position = {
+            static_cast<int32_t>(8 + index % 16) * fixed,
+            0,
+            static_cast<int32_t>(8 + index / 16 % 16) * fixed
+        };
+        battle.draws.unit_markers.push_back({&unit, unit.position});
+    }
+    oa::app::ProjectileDraw shot{};
+    shot.object = shot.child = &source->objects[0];
+    shot.prepared = shot.child_prepared = &prepared.objects[0];
+    shot.position = {4 * fixed, 4 * fixed, 12 * fixed};
+    battle.draws.projectiles.push_back(shot);
+    oa::platform::job_pool::Pool one{1}, four{4};
+    live::Scene ordinary;
+    for (const bool on_card : {false, true}) {
+        in.models_on_card = on_card;
+        for (uint32_t frame = 0; frame < 3; ++frame) {
+            if (frame == 2) {
+                model.shown_position = oa::FixedVec3{9 * fixed, 0, 13 * fixed};
+                battle.palette[alternate_index * oa::palette_entry_bytes] += 1;
+            }
+            in.pool = &one;
+            OA_CHECK(live::build(in, ordinary, battle.error));
+            in.pool = &four;
+            OA_CHECK(live::build(in, battle.scene, battle.error));
+            OA_CHECK(!ordinary.unit_detail_active && !battle.scene.unit_detail_active);
+            check_marker_frames(battle.scene, ordinary);
+            OA_CHECK(battle.scene.cards.units.empty() != on_card);
+            if (frame != 0) {
+                OA_CHECK(battle.scene.passes.marker_bands.size() == 4);
+                OA_CHECK(battle.scene.model_count == population + 1);
+                const auto expanded = card_frame(battle.scene);
+                const auto expected = battle.scene.terrain_vertex_count + 3 + population * 6 + 6;
+                OA_CHECK(expanded.vertices.size() == expected && expanded.units.size() == expected);
+                if (expanded.vertices.size() != expected || expanded.units.size() != expected)
+                    continue;
+                OA_CHECK(expanded.units[battle.scene.terrain_vertex_count] == model_unit.id);
+                const auto first_marker = battle.scene.terrain_vertex_count + 3;
+                for (std::size_t index = 0; index < population; ++index)
+                    OA_CHECK(expanded.units[first_marker + index * 6] == units[index].id);
+                for (std::size_t vertex = expanded.vertices.size() - 6;
+                     vertex < expanded.vertices.size();
+                     ++vertex)
+                    OA_CHECK(expanded.units[vertex] == 0);
+            }
+        }
+    }
+}
+
 /// Shared posed vertices preserve exact source values, retries and bounded memory.
 void shared_model_positions() {
     namespace models = oa::formats::objects3d;
@@ -7170,6 +7450,8 @@ int main() {
     strategic_unit_markers_without_models();
     strategic_unit_marker_visibility();
     strategic_unit_marker_population();
+    strategic_unit_markers_on_threads();
+    strategic_unit_marker_mixed_passes();
     projected_unit_detail();
     shared_unit_detail_bounds();
     shared_unit_detail_texture_visibility();
