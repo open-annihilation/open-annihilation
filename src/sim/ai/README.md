@@ -3,7 +3,7 @@
 The built-in computer player. It sorts a player's units into squads, runs
 one task per squad, and chooses what a builder makes from the AI profile
 and the match's strategic strengths. A seat that chose a brain does not
-run this player. A seat that did not plays exactly as before.
+run this player. Match rules select any changes to the built-in player.
 
 ## Entry points
 
@@ -48,6 +48,13 @@ pass to the next.
   a builder. An id that is 0 or not below the type count is skipped. The
   list keeps `build_list_kept` plus one entries.
 - Downloadable types are skipped when the campaign flag is set.
+- Experimental Enhanced preset 7 admits at most 256 new members to one
+  strike task per dispatch, including the first member of an empty squad.
+  The remaining source members keep their squads and existing orders until
+  a later dispatch recruits them. Existing strike members and the native
+  straggler-shedding order are unchanged. Earlier presets retain the limit
+  of 5,000 recruits plus an optional first member. This uses canonical
+  membership and keeps no pending queue or extra saved state.
 - A pick whose unit name holds `MAKENUKE` or `MAKEANTI` is a round for the
   builder's first weapon. The structures task queues it with `order_factory`,
   and so does the construction task, which places no site for it: the match
@@ -66,4 +73,8 @@ The line walk does not apply weights or limits, and it does not repeat a
 downloadable type's own lines. The built-in player does both. The strategic
 strengths belong to the match: this module reads them and does not refresh
 them.
+
+The distributed recruitment bound can take more strike dispatches to gather
+a large army. It does not cap the existing squad's attack commands when a
+target changes, or the cost of examining and shedding its stragglers.
 
