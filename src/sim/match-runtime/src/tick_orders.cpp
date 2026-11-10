@@ -187,12 +187,13 @@ Match::issue_ground_move(uint16_t index, const sim::ground_orders::Point& destin
             sim::ground_orders::arrived_event | sim::ground_orders::path_failed_event |
             sim::ground_orders::goal_replaced_event | rally_cancel_event;
         const bool active_kind =
-            current != nullptr &&
-            ((current->order.kind == sim::ground_orders::move_ground_kind &&
-              current->order.phase == active_move_phase) ||
-             (current->order.kind == patrol_kind && current->order.phase == active_patrol_phase) ||
-             (current->order.kind == repair_patrol_kind &&
-              current->order.phase == active_move_phase));
+            current != nullptr && ((current->order.kind == sim::ground_orders::move_ground_kind &&
+                                    current->order.phase == active_move_phase) ||
+                                   (current->order.kind == patrol_kind &&
+                                    (current->order.phase == active_move_phase ||
+                                     current->order.phase == active_patrol_phase)) ||
+                                   (current->order.kind == repair_patrol_kind &&
+                                    current->order.phase == active_move_phase));
         if (active_kind && current->unit == &unit &&
             (current->extra.command_flags & command_overlay) == 0 &&
             (current->extra.command_flags & command_has_point) != 0 &&
