@@ -775,14 +775,17 @@ int32_t scan_player_jobs(
             const auto next_cursor =
                 static_cast<std::size_t>(cursor) + 1 == units.size() ? uint32_t{0} : cursor + 1;
             auto selected = next_cursor;
-            if (access.preferred_unit && !preferred_asked[player] &&
-                state.job_picks[player] % preferred_pick_period == 0) {
-                preferred_asked[player] = true;
-                uint32_t offered{};
-                if (access.preferred_unit(access.context, player, tick, offered) &&
-                    static_cast<std::size_t>(offered) < units.size() &&
-                    units[offered].record.owner_index == player)
-                    selected = offered;
+            if (access.preferred_unit) {
+                auto& phase = scheduler.preferred_pick_phase[player];
+                phase = static_cast<uint8_t>((phase + 1) % preferred_pick_period);
+                if (!preferred_asked[player] && phase == 0) {
+                    preferred_asked[player] = true;
+                    uint32_t offered{};
+                    if (access.preferred_unit(access.context, player, tick, offered) &&
+                        static_cast<std::size_t>(offered) < units.size() &&
+                        units[offered].record.owner_index == player)
+                        selected = offered;
+                }
             }
             // An out-of-order pick borrows this credit, not the ordinary
             // cursor's next unit. A coincident choice consumes that unit once.

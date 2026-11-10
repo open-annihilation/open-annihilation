@@ -393,6 +393,8 @@ struct SearchScheduler {
     SearchPlayerJobState jobs;
     SearchController controller;
     SearchWorker worker;
+    /// Runtime pick phase, independent of the heuristic's usage-count reset.
+    std::array<uint8_t, search_player_slots> preferred_pick_phase{};
 };
 
 /// Spends the per-tick path search budget.
