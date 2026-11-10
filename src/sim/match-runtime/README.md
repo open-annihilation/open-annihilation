@@ -719,7 +719,7 @@ distance as the earlier 16-edge prefix. The shared cell-storage limit and
 per-tick expansion and extraction budgets are unchanged, so large maps hold
 fewer fields rather than allocating an unbounded cache. Recorded presets
 0 through 6 keep their existing formats and routing behavior. Save restore
-rejects a shared-field format belonging to another preset.
+rejects a shared-field grid or format that does not match the selected preset.
 
 An independent scan polls at most 1,024 unit slots per simulation tick,
 divided among active players, using tick-derived ranges. It does not spend
