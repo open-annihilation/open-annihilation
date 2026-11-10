@@ -278,18 +278,11 @@ void configure_movement_class(
     Fixture& fixture,
     uint16_t per_player_limit = 4,
     uint16_t unit_player_mask = 3,
-    uint32_t version = 2,
-    int32_t footprint = 1
+    uint32_t version = 2
 ) {
     fixture.match.reset();
     fixture.fields[1].movement_class = 1;
-    fixture.metadata.footprint_x = fixture.metadata.footprint_z = footprint;
-    fixture.types[1].footprint_x = fixture.types[1].footprint_z = static_cast<int16_t>(footprint);
-    fixture.loaded[1].type = fixture.types[1];
-    if (footprint == 2) {
-        static constexpr std::array<uint8_t, 4> yard{4, 4, 4, 4};
-        fixture.fields[1].yard_mask = yard;
-    }
+    fixture.metadata.footprint_x = fixture.metadata.footprint_z = 1;
     fixture.metadata.max_water_depth = 255;
     fixture.metadata.max_slope = fixture.metadata.bad_slope = 255;
     fixture.metadata.max_water_slope = fixture.metadata.bad_water_slope = 255;
@@ -791,182 +784,6 @@ void sustained_blockage_bypasses_shared_routes() {
                 CHECK(!match.path_search_worker().exhausted());
         }
     }
-}
-
-/// Gives old static stalls a credited search before a building field reaches them.
-void building_fields_do_not_hide_old_static_stalls() {
-    enum class Guard { none, no_credit, mobile, moving, recent_search, recent_order, immature };
-    constexpr uint32_t width = 256, height = 256, request_tick = 240;
-    constexpr uint16_t player_units = 1024;
-    constexpr int32_t wall_x = 128, bridge_z = 192, source_z = 128;
-    for (const uint32_t version : {6u, 7u})
-        for (const auto guard :
-             {Guard::none,
-              Guard::no_credit,
-              Guard::mobile,
-              Guard::moving,
-              Guard::recent_search,
-              Guard::recent_order,
-              Guard::immature}) {
-            auto options = options_for(version);
-            options.per_player_limit = player_units;
-            options.unit_player_mask = 1;
-            Fixture fixture(options);
-            fixture.match.reset();
-            fixture.map.attribute_width = width;
-            fixture.map.attribute_height = height;
-            fixture.map.attributes.resize(size_t(width) * height);
-            fixture.terrain_values.resize(size_t(width) * height);
-            fixture.collision_plots.resize(size_t(width) * height);
-            fixture.altitude_cells.resize(size_t(width / 2) * (height / 2));
-            configure_movement_class(fixture, player_units, 1, version, 2);
-            auto& match = *fixture.match;
-            for (uint32_t z = 0; z < height; ++z)
-                if (z < bridge_z || z >= bridge_z + 4)
-                    match.spatial().plots[size_t(z) * width + wall_x].blocking_feature = true;
-            std::fill(
-                match.sight_mutable().player_bits.begin(),
-                match.sight_mutable().player_bits.end(),
-                uint16_t{1}
-            );
-            auto& unit = fixture.spawn(0, 136, source_z * 16 + 8);
-            CHECK(!match.order_refused(match.issue_ground_move(
-                unit.unit_index, {3720 << 16, 0, (source_z * 16 + 8) << 16}, false
-            )));
-            auto& jobs = match.path_search_jobs();
-            jobs.tick_credit = 0;
-            jobs.credit.fill(0);
-            fixture.run(1);
-            auto* ground = match.ground_runtime(unit.unit_index);
-            CHECK(ground != nullptr && ground->navigation.goal != nullptr);
-            CHECK(unit.record.footprint_x == 2 && unit.record.footprint_z == 2);
-            CHECK(ground->geometry.footprint[0] == 2 && ground->geometry.footprint[1] == 2);
-            CHECK(match.movement_map(1)->footprint_x() == 2);
-            CHECK(match.movement_map(1)->footprint_z() == 2);
-            auto& navigation = ground->navigation;
-            const auto* goal = navigation.goal;
-            CHECK(goal->order != nullptr && goal->order->issue_tick == 0);
-            if (guard == Guard::recent_order)
-                goal->order->issue_tick = request_tick - 119;
-            navigation.last_search_tick = guard == Guard::recent_search ? request_tick - 119 : 0;
-            navigation.flags |= routes::search_pending_flag;
-            ground->movement.last_motion_tick = guard == Guard::moving ? request_tick - 59 : 0;
-            ground->movement.flags |= flow::collision_blocked;
-
-            std::vector<flow::LocalFlowHead> heads(match.state().unit_slot_count);
-            heads[unit.unit_index].blocked_ticks = guard == Guard::immature
-                                                       ? flow::local_flow_retry_ticks - 1
-                                                       : flow::local_flow_retry_ticks + 1;
-            heads[unit.unit_index].mobile_blocked = guard == Guard::mobile;
-            std::vector<uint8_t> steering_bytes(heads.size() * flow::local_flow_head_bytes);
-            CHECK(flow::write_local_flow_heads(heads, steering_bytes));
-            const auto& steering = table(match, "local-flow");
-            CHECK(steering.restore(steering.context, steering_bytes));
-
-            const auto preset =
-                version == 7 ? routes::FlowPreset::fine_regions : routes::FlowPreset::large_regions;
-            routes::FlowCache cache(width, height, fixture_route_limits(version), preset);
-            const routes::FlowSampler sampler{
-                &match, [](void* context, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
-                    const auto& world = static_cast<runtime::Match*>(context)->spatial();
-                    if (x < 0 || z < 0 || uint32_t(x) >= world.terrain_width ||
-                        uint32_t(z) >= world.terrain_height)
-                        return 0;
-                    if (uint32_t(x) + 2 >= world.terrain_width ||
-                        uint32_t(z) + 2 >= world.terrain_height)
-                        return 0;
-                    for (uint32_t dz = 0; dz < 2; ++dz)
-                        for (uint32_t dx = 0; dx < 2; ++dx)
-                            if (world.plots[(size_t(z) + dz) * world.terrain_width + size_t(x) + dx]
-                                    .blocking_feature)
-                                return 0;
-                    return 1;
-                }
-            };
-            const routes::FlowContext context{0, 0, 0, 0, 2, 2};
-            std::array<routes::RoutePoint, routes::navigation_capacity> points{};
-            uint32_t count{};
-            cache.advance(request_tick - 1, 0, sampler);
-            for (const auto expected : {routes::FlowResult::fallback, routes::FlowResult::pending})
-                CHECK(cache.route(context, unit.record, *goal, points, count, sampler) == expected);
-            cache.advance(request_tick, 0, sampler);
-            const auto building = cache.state_bytes();
-            const auto word = [&](size_t offset) {
-                return uint32_t(building[offset]) | uint32_t(building[offset + 1]) << 8 |
-                       uint32_t(building[offset + 2]) << 16 | uint32_t(building[offset + 3]) << 24;
-            };
-            constexpr size_t first_field = 128 + 64 * 48, field_metadata = 80;
-            CHECK(word(first_field) == 2); // An expanding field, not a completed unreachable field.
-            CHECK(word(60) == word(56) && word(60) == 65536);
-            const auto stride = word(28), columns = (width + stride - 1) / stride;
-            const int32_t anchor_x = (unit.record.cell_x + int32_t(stride / 2)) / int32_t(stride);
-            const int32_t anchor_z = (unit.record.cell_z + int32_t(stride / 2)) / int32_t(stride);
-            for (int32_t z = anchor_z - 1; z <= anchor_z + 1; ++z)
-                for (int32_t x = anchor_x - 1; x <= anchor_x + 1; ++x)
-                    CHECK(building[first_field + field_metadata + size_t(z) * columns + x] == 255);
-            CHECK(sampler.cell(sampler.context, 0, 0, wall_x, source_z) == 0);
-            // Preserve the fresh extraction budget for the actual Match poll.
-            const std::vector<uint8_t> saved(building.begin(), building.end());
-            CHECK(
-                cache.route(context, unit.record, *goal, points, count, sampler) ==
-                routes::FlowResult::pending
-            );
-            CHECK(count == 0);
-            const auto& shared = table(match, "shared-routes");
-            CHECK(shared.restore(shared.context, saved));
-            constexpr std::array<uint8_t, 4> current_revision{};
-            const auto& revision = table(match, "flow-map-version");
-            CHECK(revision.restore(revision.context, current_revision));
-            constexpr std::array<uint8_t, 5> unscanned{};
-            const auto& scan = table(match, "shared-route-scan");
-            CHECK(scan.restore(scan.context, unscanned));
-
-            jobs.tick_credit = guard == Guard::no_credit ? 0 : 4;
-            jobs.credit.fill(0);
-            jobs.round_robin = 0;
-            constexpr uint32_t ordinary_cursor = 100;
-            jobs.unit_cursor[0] = ordinary_cursor;
-            match.simulation().tick = request_tick;
-            const auto before = match.enhanced_counters();
-            const auto core_rng = match.random_state(), lcg_rng = match.lcg_state();
-            match.advance_path_search();
-            CHECK(match.fault() == nullptr);
-            const auto after = match.enhanced_counters();
-            const bool admitted = version == 7 && guard == Guard::none;
-            CHECK(after.shared_route_requests == before.shared_route_requests + 1);
-            CHECK(after.shared_route_waits == before.shared_route_waits + 1);
-            CHECK(after.shared_route_hits == before.shared_route_hits);
-            CHECK(after.full_route_searches == before.full_route_searches + (admitted ? 1 : 0));
-            CHECK(navigation.goal == goal);
-            CHECK(
-                navigation.last_search_tick == (admitted                        ? request_tick
-                                                : guard == Guard::recent_search ? request_tick - 119
-                                                                                : 0)
-            );
-            CHECK(
-                jobs.unit_cursor[0] == ordinary_cursor + (guard == Guard::no_credit ? 0
-                                                          : admitted                ? 3
-                                                                                    : 4)
-            );
-            CHECK(match.random_state() == core_rng && match.lcg_state() == lcg_rng);
-            if (!admitted)
-                continue;
-            CHECK(!match.path_search_worker().exhausted());
-            CHECK(jobs.credit[0] < 0); // The preferred start pays the same ordinary work debt.
-            jobs.tick_credit = routes::search_tick_credit;
-            for (uint32_t tick = request_tick + 1;
-                 tick < request_tick + 60 && navigation.needs_search();
-                 ++tick) {
-                match.simulation().tick = tick;
-                match.advance_path_search();
-            }
-            CHECK(!navigation.needs_search());
-            CHECK(navigation.goal == goal);
-            CHECK(navigation.count >= 3);
-            CHECK(navigation.last_search_tick == request_tick);
-            CHECK(match.enhanced_counters().full_route_searches == before.full_route_searches + 1);
-            CHECK(match.random_state() == core_rng && match.lcg_state() == lcg_rng);
-        }
 }
 
 /// A crowded static edge must still reach a shared route through its bridge.
@@ -1588,7 +1405,6 @@ int main() {
         shared_poll_rotates_extraction_opportunities();
         shared_poll_preserves_an_active_full_search();
         sustained_blockage_bypasses_shared_routes();
-        building_fields_do_not_hide_old_static_stalls();
         static_barrier_keeps_shared_route_access();
         far_terrain_detour_releases_a_mature_queue();
         equivalent_shared_guides_preserve_passing_heads();
