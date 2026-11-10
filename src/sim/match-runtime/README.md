@@ -734,6 +734,16 @@ so the shared probe budget does not always favour the first army. A mature
 replacement that only follows a geometric prefix of the live guide leaves
 its local passing head and ordinary dynamic search available.
 
+Preset 7 also checks a nearby reverse anchor while its unit is moving. A
+short step back toward a shared-field anchor can otherwise make a unit
+circle outside the native waypoint capture radius, even at full speed.
+Only incoming and outgoing legs with a negative dot product qualify;
+ordinary forward corners keep their existing behavior. Checks are staggered
+every 31 ticks, require the actual pose within 32 pixels of the anchor, and
+spend at most 64 full-footprint plot queries. The next leg must be entirely
+known and statically clear before one anchor is removed. Goal ownership,
+search state and the ordinary occupancy veto stay in place.
+
 Local traffic heads temporarily steer around mobile ground units, including
 idle units, while preserving the original navigator and final occupancy veto.
 Visible static barriers are classified before traffic. After 30 consecutive
