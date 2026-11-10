@@ -17,6 +17,13 @@ constexpr uint32_t original_stride = 4, fine_stride = 2;
 constexpr uint32_t original_region = 32, large_region = 96;
 constexpr uint32_t original_prefix_edges = 128, regional_prefix_edges = 16, fine_prefix_edges = 32;
 constexpr size_t goal_branch_capacity = 512;
+constexpr uint32_t fine_anchor_offset = fine_stride + fine_stride / 2;
+constexpr uint32_t fine_anchor_probe_bound = 9 * (1 + 3 * fine_anchor_offset);
+constexpr uint32_t fine_region_offset = large_region + fine_stride;
+constexpr uint32_t fine_region_probe_bound = 1 + 3 * fine_region_offset;
+constexpr uint32_t fine_edge_probe_bound = 1 + 3 * fine_stride;
+constexpr uint32_t fine_corner_probe_bound =
+    1 + 3 * (fine_anchor_offset + fine_prefix_edges * fine_stride + fine_region_offset);
 constexpr uint32_t visible_chord_probe_limit = 128;
 constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 64;
 constexpr std::size_t metadata_size = 80, key_size = 36;
@@ -521,6 +528,7 @@ FlowResult FlowCache::route(
         return wait();
     if (get32(state + 60) == 0)
         return wait();
+    const auto entry_credits = get32(state + 60);
 
     struct ProbeBudget {
         const FlowSampler* sampler;
@@ -581,10 +589,19 @@ FlowResult FlowCache::route(
         const auto root_dz = static_cast<uint32_t>(std::abs(int32_t(goal.cell[1]) - root_z));
         const auto root_probes =
             uint64_t{1} + std::max(root_dx, root_dz) + uint64_t{2} * std::min(root_dx, root_dz);
-        // An intrinsically oversized optional chord must leave ordinary
-        // prefixes available instead of exhausting the same quota every tick.
-        const bool can_test_root = root_probes <= route_probes_per_tick_;
-        if (can_test_root && root_probes > get32(state + 60))
+        const auto prefix_probes =
+            uint64_t{fine_prefix_edges} *
+                (std::max(root_probes, uint64_t{fine_region_probe_bound}) + fine_edge_probe_bound) +
+            fine_corner_probe_bound + visible_chord_probe_limit;
+        const auto branch_probes =
+            root_probes + fine_anchor_probe_bound + goal_branch_capacity + prefix_probes;
+        const auto remaining_credits = get32(state + 60);
+        const auto spent_credits = entry_credits - remaining_credits;
+        // Reserve a whole bounded ancestry and ordinary prefix. Include this
+        // call's source work when deciding whether any fresh quota can fit it.
+        // Intrinsically smaller quotas retain their ordinary prefix opportunity.
+        const bool can_test_root = branch_probes + spent_credits <= route_probes_per_tick_;
+        if (can_test_root && branch_probes > remaining_credits)
             return wait();
         if (can_test_root &&
             !line_clear(bounded, key.data(), root_x, root_z, goal.cell[0], goal.cell[1])) {
