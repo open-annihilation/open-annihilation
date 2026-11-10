@@ -1307,6 +1307,42 @@ void fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines() {
     CHECK(deep.counters().fields_started == 1 && deep.counters().invalidations == 0);
 }
 
+/// Keeps local progress when the root's optional goal chord cannot fit any fresh quota.
+void fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes() {
+    Grid grid(320, 128);
+    for (uint32_t z = 0; z <= 80; ++z)
+        grid.cells[z * grid.width + 240] = 0;
+    const FlowLimits limits{1, 10'240, 2048, 128};
+    FlowCache cache(320, 128, limits, FlowPreset::fine_regions);
+    const auto unit = unit_at(250, 80);
+    const auto seed = circle(8, 8), goal = circle(80, 80);
+    CHECK(query(cache, grid, unit, seed) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit, seed) == FlowResult::pending);
+    finish(cache, grid);
+    // The seed and requested goal share a region. Their clear diagonal
+    // requires217probes, while a local route around the wall fits128.
+    for (uint32_t tick = 40; tick <= 42; ++tick) {
+        cache.advance(tick, 0, grid.sampler());
+        const auto probes = grid.queries;
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto result = cache.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(grid.queries - probes <= limits.route_probes_per_tick);
+        CHECK(result == FlowResult::ready && count >= 2);
+        if (result != FlowResult::ready || count < 2)
+            return;
+        CHECK(points[count - 1] != (RoutePoint{1288, 1288}));
+        CHECK(points[count - 1][0] < points[0][0]);
+        CHECK(points[count - 1][0] >= 96 * 16 + 8);
+        CHECK(points[count - 1][1] >= 82 * 16 + 8);
+        CHECK(std::abs(int32_t(points[count - 1][0]) - points[0][0]) <= 64 * 16);
+        for (uint32_t i = 1; i < count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+    }
+    CHECK(cache.counters().hits == 3);
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+}
+
 /// Keeps a bridge passable around static blockers between stride-four rows.
 void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
     Grid grid(160, 64);
@@ -2126,6 +2162,7 @@ int main() {
     fine_routes_follow_the_requested_goal_branch_after_restore();
     fine_goal_branch_traversal_spends_the_global_quota();
     fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines();
+    fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes();
     fine_route_grid_formats_are_distinct_and_restore_atomically();
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
