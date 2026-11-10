@@ -7644,7 +7644,12 @@ bool prepare_frame_effects(const Inputs& in, Scene& scene, bool find_surface_que
         if (standing && ready_prefix) {
             if (!cached.rectangle)
                 ready_prefix = false;
-            else if (sprite.surface_effect && !submerged)
+            // Another sprite worker may round the fixed height differently.
+            // A fixed height at or above sea level guarantees its query too.
+            else if (
+                sprite.surface_effect && !submerged &&
+                int64_t{sprite.world_position->y} >= int64_t{in.sea_level} * 65536
+            )
                 surface_query = true;
         }
     }
