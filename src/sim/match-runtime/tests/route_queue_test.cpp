@@ -572,6 +572,169 @@ void prepare_route(Scene& scene, uint16_t id, int32_t x, int32_t z, uint32_t age
     state.navigation.last_search_tick = 0;
 }
 
+void restore_head(Scene& scene, uint16_t id, const movement::LocalFlowHead& head) {
+    auto& match = scene.match();
+    std::vector<movement::LocalFlowHead> heads(match.state().unit_slot_count);
+    for (const auto other : scene.all_units())
+        if (const auto* current = match.local_flow_head(other))
+            heads[other] = *current;
+    heads[id] = head;
+    std::vector<uint8_t> bytes(heads.size() * movement::local_flow_head_bytes);
+    CHECK(movement::write_local_flow_heads(heads, bytes));
+    const auto* table = runtime::find_rule_state(match.rule_state(), "local-flow");
+    CHECK(table && table->restore && table->restore(table->context, bytes));
+}
+
+enum class HeadControl { progressing, stalled, off_leg, changed_goal, changed_prefix };
+
+void unfinished_head_counterfixture(uint32_t version, HeadControl control) {
+    Scene scene(version, false, true);
+    auto& match = scene.match();
+    const auto leader = scene.queue[0], follower = scene.queue[1];
+    CHECK(
+        !match.order_refused(match.issue_ground_move(follower, {208 * pixel, 0, 48 * pixel}, false))
+    );
+    CHECK(
+        !match.order_refused(match.issue_ground_move(leader, {208 * pixel, 0, 48 * pixel}, false))
+    );
+    scene.run();
+    match.simulation().tick = 56;
+    prepare_route(scene, leader, 120 * pixel - 1, 144, 10);
+    prepare_route(scene, follower, 88 * pixel - 1, 144, 30);
+    // The front mobile unit and the southern gate select a real northward
+    // passing leg, including the controller's original goal identity.
+    match.place_unit_at(scene.gate, 88 * pixel - 1, land_height * pixel, 176 * pixel, ground_layer);
+    auto& gate = scene.ground(scene.gate);
+    gate.project_slot();
+    gate.movement.speed = 0;
+    gate.movement.velocity = {};
+    movement::LocalFlowHead waiting{};
+    waiting.mobile_blocked = true;
+    waiting.blocked_ticks = movement::local_flow_retry_ticks + 1;
+    restore_head(scene, follower, waiting);
+    scene.run();
+    const auto selected = *match.local_flow_head(follower);
+    CHECK(selected.active && selected.count == 3 && selected.goal_key != 0);
+    CHECK(selected.points[1][1] < selected.points[0][1]);
+    auto& rear = scene.ground(follower);
+    CHECK(rear.navigation.goal != nullptr);
+    auto goal = *rear.navigation.goal;
+    auto* const primary = match.spawn_slot(follower).unit->primary;
+    match.stop_orders(leader);
+    scene.ground(leader).navigation = {};
+    scene.ground(leader).movement.speed = 0;
+    scene.ground(leader).movement.velocity = {};
+    int32_t middle_x = (int32_t(selected.points[0][0]) + selected.points[1][0]) * pixel / 2;
+    int32_t middle_z = (int32_t(selected.points[0][1]) + selected.points[1][1]) * pixel / 2;
+    if (control == HeadControl::off_leg) {
+        middle_x = (int32_t(selected.points[0][0]) - 8) * pixel;
+        middle_z = int32_t(selected.points[0][1]) * pixel;
+    }
+    match.place_unit_at(follower, middle_x, land_height * pixel, middle_z, ground_layer);
+    const std::array<movement::Fixed, 3> target{
+        int32_t(selected.points[1][0]) * pixel, 0, int32_t(selected.points[1][1]) * pixel
+    };
+    rear.project_slot();
+    match.spawn_slot(follower).record.heading =
+        movement::aim_angles(rear.geometry.position, target).heading;
+    rear.project_slot();
+    rear.movement.speed = maximum_speed;
+    rear.movement.velocity = movement::aim_velocity(rear.geometry.heading, 0, maximum_speed);
+    rear.movement.turn = 0;
+    rear.navigation.last_search_tick = 85;
+    match.simulation().tick = 85;
+    restore_head(scene, follower, selected);
+    const auto before = rear.geometry.position;
+    scene.run();
+    CHECK(rear.geometry.position != before);
+    CHECK(rear.movement.last_motion_tick == 86);
+    const auto distance_to_target = [&](const auto& position) {
+        const int64_t dx = int64_t(position[0]) - target[0];
+        const int64_t dz = int64_t(position[2]) - target[2];
+        return dx * dx + dz * dz;
+    };
+    CHECK(distance_to_target(rear.geometry.position) < distance_to_target(before));
+    const int64_t leg_x = int32_t(selected.points[1][0]) - selected.points[0][0];
+    const int64_t leg_z = int32_t(selected.points[1][1]) - selected.points[0][1];
+    CHECK(
+        (int64_t(rear.geometry.position[0]) - before[0]) * leg_x +
+            (int64_t(rear.geometry.position[2]) - before[2]) * leg_z >
+        0
+    );
+    auto head = *match.local_flow_head(follower);
+    CHECK(head.active && head.points[1] == selected.points[1]);
+    CHECK(!movement::local_flow_head_reached(rear.geometry, head));
+    head.blocked_ticks = movement::local_flow_retry_ticks + 1;
+    restore_head(scene, follower, head);
+    if (control == HeadControl::stalled)
+        rear.movement.last_motion_tick = 57;
+    if (control == HeadControl::changed_goal) {
+        ++rear.navigation.goal->cell[0];
+        goal = *rear.navigation.goal;
+    }
+    if (control == HeadControl::changed_prefix)
+        rear.navigation.points[2] = {224, 48};
+    rear.navigation.last_search_tick = 86;
+    CHECK((87 + follower) % movement::local_flow_retry_ticks == 0);
+    const ground::RoutePoint checkpoint{
+        static_cast<int16_t>(rear.geometry.position[0] >> 16),
+        static_cast<int16_t>(rear.geometry.position[2] >> 16)
+    };
+    scene.run();
+    const auto after = *match.local_flow_head(follower);
+    CHECK(match.spawn_slot(follower).unit->primary == primary);
+    CHECK(rear.navigation.goal && same_goal(*rear.navigation.goal, goal));
+    CHECK(rear.navigation.goal->order == primary);
+    CHECK(rear.navigation.last_search_tick == 86);
+    std::cout << "Unfinished passing head: version=" << version
+              << ", control=" << static_cast<unsigned>(control)
+              << ", retained=" << (after.active && after.points[1] == selected.points[1])
+              << ", old target=" << selected.points[1][0] << ',' << selected.points[1][1]
+              << ", new target=" << after.points[1][0] << ',' << after.points[1][1]
+              << ", active=" << after.active << '\n';
+    if (version == distributed_version && control == HeadControl::progressing) {
+        CHECK(after.active && after.points[1] == selected.points[1]);
+        CHECK(after.points[0] == checkpoint && after.points[2] == selected.points[2]);
+        CHECK(after.tick == match.simulation().tick);
+        // Clear the ordinary mobile traffic, then finish this exact passing
+        // target and resume the still-owned mission through real movement.
+        match.place_unit_at(leader, 240 * pixel, land_height * pixel, 240 * pixel, ground_layer);
+        match.place_unit_at(
+            scene.gate, 304 * pixel, land_height * pixel, 240 * pixel, ground_layer
+        );
+        bool completed{};
+        for (uint32_t tick = 0; tick < 40 && !completed; ++tick) {
+            scene.run();
+            const auto* current = match.local_flow_head(follower);
+            CHECK(current && current->points[1] == after.points[1]);
+            CHECK(current->points[2] == after.points[2]);
+            CHECK(rear.navigation.goal && same_goal(*rear.navigation.goal, goal));
+            CHECK(rear.navigation.goal->order == primary);
+            completed = !current->active && current->count == movement::local_flow_completed_count;
+        }
+        CHECK(completed && movement::local_flow_head_reached(rear.geometry, after));
+        CHECK(ground::route_present(rear.navigation) && rear.navigation.count >= 2);
+        bool arrived = ground::goal_contains_unit(goal, rear.geometry);
+        for (uint32_t tick = 0; tick < 400 && !arrived; ++tick) {
+            scene.run();
+            arrived = ground::goal_contains_unit(goal, rear.geometry);
+        }
+        CHECK(arrived);
+    } else
+        CHECK(!after.active || after.points[1] != selected.points[1]);
+}
+
+void unfinished_heads_keep_only_compatible_progress() {
+    for (const auto version : {battle_version, distributed_version})
+        for (const auto control :
+             {HeadControl::progressing,
+              HeadControl::stalled,
+              HeadControl::off_leg,
+              HeadControl::changed_goal,
+              HeadControl::changed_prefix})
+            unfinished_head_counterfixture(version, control);
+}
+
 PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2) {
     Scene scene(version, false, true);
     auto& match = scene.match();
@@ -734,7 +897,7 @@ void historical_profiles_do_not_read_route_coherence() {
 }
 
 void print_legacy_trace() {
-    for (uint32_t version = 0; version < battle_version; ++version)
+    for (uint32_t version = 0; version <= battle_version; ++version)
         for (const auto control :
              {Pipeline::matched,
               Pipeline::different_goal,
@@ -772,6 +935,18 @@ int main(int argc, char** argv) {
             std::cerr << name << ": " << error.what() << '\n';
         }
     };
+    if (argc == 2 && std::strcmp(argv[1], "--unfinished-head-counterfixture") == 0) {
+        for (const auto version : {battle_version, distributed_version})
+            for (const auto control :
+                 {HeadControl::progressing,
+                  HeadControl::stalled,
+                  HeadControl::off_leg,
+                  HeadControl::changed_goal,
+                  HeadControl::changed_prefix})
+                run("unfinished passing head",
+                    [&] { unfinished_head_counterfixture(version, control); });
+        return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
     for (const auto version : {battle_version, distributed_version}) {
         const auto run_version = [&](const char* name, void (*test)(uint32_t)) {
             run(name, [&] { test(version); });
@@ -793,5 +968,6 @@ int main(int argc, char** argv) {
         );
     }
     run("historical profile coherence", historical_profiles_do_not_read_route_coherence);
+    run("unfinished passing head", unfinished_heads_keep_only_compatible_progress);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
