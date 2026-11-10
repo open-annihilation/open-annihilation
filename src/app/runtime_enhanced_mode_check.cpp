@@ -354,12 +354,14 @@ void Runtime::check_enhanced_mode() {
                         expect_orders(kind, expected, 1);
                         clear_orders();
                     }
+                    using HeldStage = decltype(stage_);
+                    const auto delete_stage = stage_.get_deleter();
                     struct RestoreStage {
-                        std::unique_ptr<StageState>& current;
-                        std::unique_ptr<StageState> saved{};
+                        HeldStage& current;
+                        HeldStage saved{nullptr, nullptr};
                         ~RestoreStage() { current = std::move(saved); }
                     } restore_stage{stage_, std::move(stage_)};
-                    stage_ = std::make_unique<StageState>();
+                    stage_ = HeldStage{new StageState{}, delete_stage};
                     for (const auto id : actors) {
                         const auto& actor = world.units[id];
                         stage_->groups["pair"].push_back({id, actor.owner_index, actor.type_index});
