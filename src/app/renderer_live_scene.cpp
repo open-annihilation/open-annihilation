@@ -99,7 +99,12 @@ class OutOfRoom : public std::runtime_error {
 class AtlasFull : public OutOfRoom {
   public:
 
-    AtlasFull() : OutOfRoom("experimental material atlas is full") {}
+    /// Names a persistent material whose height must fit outside frame rows.
+    /// @param height its texel height, or zero when terrain ran out of room
+    explicit AtlasFull(uint32_t height = 0)
+        : OutOfRoom("experimental material atlas is full"), material_height(height) {}
+
+    uint32_t material_height{};
 };
 
 /// A ground packed ahead of the frame that takes it that would have to
@@ -594,6 +599,74 @@ uint64_t material_digest(
     return digest;
 }
 
+/// Writes exactly the palette, coverage, fog and flash representation of a material.
+/// @param[in,out] scene the atlas
+/// @param rect the material's destination
+/// @param palette its palette bytes
+/// @param pixels its row-major indices
+/// @param coverage its row-major coverage, or empty for its transparent index
+/// @param transparent its transparent index, or minus one for none
+/// @param fog its material fog mode
+/// @param light_mask its indices name flash light-table rows
+/// @param flash_strength the flash brightness choice
+/// @param alpha_coverage its coverage bytes hold alpha values
+void write_material(
+    Scene& scene,
+    const AtlasRect& rect,
+    const PaletteBytes& palette,
+    std::span<const uint8_t> pixels,
+    std::span<const uint8_t> coverage,
+    int32_t transparent,
+    Fog fog,
+    bool light_mask,
+    FlashStrength flash_strength,
+    bool alpha_coverage
+) {
+    const bool black = fog == Fog::black && !light_mask;
+    if (black)
+        write_black(scene, rect, pixels, coverage, transparent, alpha_coverage);
+    for (uint32_t y = 0; y < rect.height && !black; ++y) {
+        for (uint32_t x = 0; x < rect.width; ++x) {
+            const auto source = static_cast<std::size_t>(y) * rect.width + x;
+            const auto target =
+                (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x + x) *
+                channels;
+            const auto color = static_cast<std::size_t>(pixels[source]) * palette_entry_bytes;
+            const bool covered =
+                coverage.empty() ? pixels[source] != transparent : coverage[source] != 0;
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                uint8_t value = palette[color + channel];
+                if (fog == Fog::grey)
+                    value = static_cast<uint8_t>(
+                        (uint32_t{palette[color]} + palette[color + 1] + palette[color + 2]) / 6
+                    );
+                if (fog == Fog::black)
+                    value = 0;
+                scene.texture_rgba[target + channel] = value;
+            }
+            scene.texture_rgba[target + 3] = static_cast<uint8_t>(
+                alpha_coverage && !coverage.empty() ? coverage[source] : (covered ? 255 : 0)
+            );
+            // Transparent texels carry zero RGB so filtered effect edges interpolate premultiplied colour.
+            if (!covered)
+                std::fill_n(scene.texture_rgba.data() + target, 3, 0);
+            if (light_mask) {
+                // Flash bytes name light-table rows, not palette colours. The
+                // spatial pass approximates relighting with a translucent mask.
+                constexpr float maximum_flash_opacity = 0.55F;
+                const int32_t row = pixels[source] - present::shade_ramp_base;
+                const bool valid = covered && row >= 0 && row < present::ramp_table_rows;
+                const int32_t strength = flash_strength == FlashStrength::reduced ? row / 2 : row;
+                const float alpha =
+                    valid ? maximum_flash_opacity * strength / (present::ramp_table_rows - 1)
+                          : 0.0F;
+                std::fill_n(scene.texture_rgba.data() + target, 3, 255);
+                scene.texture_rgba[target + 3] = static_cast<uint8_t>(std::lround(alpha * 255));
+            }
+        }
+    }
+}
+
 std::optional<AtlasRect> material_square(Scene& scene, uint32_t width, uint32_t height);
 
 /// Packs palette pixels with coverage and fog, sharing identical materials
@@ -619,7 +692,6 @@ AtlasRect material(
     if (width == 0 || height == 0 || pixels.size() < count ||
         (!coverage.empty() && coverage.size() < count))
         throw std::runtime_error("experimental scene received an invalid material");
-    const bool black = fog == Fog::black && !light_mask;
     if (!coverage.empty())
         coverage = coverage.first(count);
     const uint64_t digest = material_digest(
@@ -658,51 +730,21 @@ AtlasRect material(
         if (scene.moving_packing)
             square = material_square(scene, width, height);
         if (!square)
-            throw AtlasFull();
+            throw AtlasFull(height);
     }
     const AtlasRect rect{square ? square->x : row_x, square ? square->y : row_y, width, height};
-    if (black)
-        write_black(scene, rect, pixels, coverage, transparent, alpha_coverage);
-    for (uint32_t y = 0; y < height && !black; ++y) {
-        for (uint32_t x = 0; x < width; ++x) {
-            const auto source = static_cast<std::size_t>(y) * width + x;
-            const auto target =
-                (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x + x) *
-                channels;
-            const auto color = static_cast<std::size_t>(pixels[source]) * palette_entry_bytes;
-            const bool covered =
-                coverage.empty() ? pixels[source] != transparent : coverage[source] != 0;
-            for (std::size_t channel = 0; channel < 3; ++channel) {
-                uint8_t value = palette[color + channel];
-                if (fog == Fog::grey)
-                    value = static_cast<uint8_t>(
-                        (uint32_t{palette[color]} + palette[color + 1] + palette[color + 2]) / 6
-                    );
-                if (fog == Fog::black)
-                    value = 0;
-                scene.texture_rgba[target + channel] = value;
-            }
-            scene.texture_rgba[target + 3] = static_cast<uint8_t>(
-                alpha_coverage && !coverage.empty() ? coverage[source] : (covered ? 255 : 0)
-            );
-            // Transparent texels carry zero RGB so filtered effect edges interpolate premultiplied colour.
-            if (!covered)
-                std::fill_n(scene.texture_rgba.data() + target, 3, 0);
-            if (light_mask) {
-                // Flash bytes name light-table rows, not palette colours. The
-                // spatial pass approximates relighting with a translucent mask.
-                constexpr float maximum_flash_opacity = 0.55F;
-                const int32_t row = pixels[source] - present::shade_ramp_base;
-                const bool valid = covered && row >= 0 && row < present::ramp_table_rows;
-                const int32_t strength = flash_strength == FlashStrength::reduced ? row / 2 : row;
-                const float alpha =
-                    valid ? maximum_flash_opacity * strength / (present::ramp_table_rows - 1)
-                          : 0.0F;
-                std::fill_n(scene.texture_rgba.data() + target, 3, 255);
-                scene.texture_rgba[target + 3] = static_cast<uint8_t>(std::lround(alpha * 255));
-            }
-        }
-    }
+    write_material(
+        scene,
+        rect,
+        palette,
+        pixels,
+        coverage,
+        transparent,
+        fog,
+        light_mask,
+        flash_strength,
+        alpha_coverage
+    );
     scene.materials.emplace(digest, rect);
     scene.packed_material_area += uint64_t{width} * height;
     const uint32_t rows_after =
@@ -772,6 +814,47 @@ void write_frame_material(
     note_rows(scene, scene.atlas_update.frame_first_row, scene.atlas_update.frame_end_row, rect);
 }
 
+/// Tries the frame's reserved rows without spilling into persistent storage.
+/// @param[in,out] pass the calling thread's packing pass
+/// @param[in,out] frame the frame's shared skyline and previous order
+/// @param digest the exact material digest
+/// @param width the material's texel width
+/// @param height its texel height
+/// @param[out] written its bytes differ from the rectangle's previous contents
+/// @return its frame-local rectangle, or nothing when its rows cannot hold it
+std::optional<AtlasRect> frame_rectangle(
+    Pass& pass, FramePacking& frame, uint64_t digest, uint32_t width, uint32_t height, bool& written
+) {
+    auto& scene = pass.scene;
+    written = false;
+    uint32_t x = frame.next_x;
+    uint32_t y = frame.next_y;
+    uint32_t row_height = frame.row_height;
+    if (x + width > scene.texture_width) {
+        x = 0;
+        y += row_height;
+        row_height = 0;
+    }
+    frame.row_demand = std::max(frame.row_demand, y + height);
+    if (width > scene.texture_width || y + height > scene.frame_rows ||
+        scene.frame_rows >= scene.texture_height)
+        return std::nullopt;
+    ++pass.list.materials_packed;
+    pass.list.texels_packed += uint64_t{width} * height;
+    frame.next_x = x + width;
+    frame.next_y = y;
+    frame.row_height = std::max(row_height, height);
+    const AtlasRect rect{x, kept_rows(scene) + y, width, height};
+    frame.materials.emplace(digest, rect);
+    const std::size_t index = frame.packed++;
+    if (index < frame.order.size() && frame.order[index] == digest)
+        return rect;
+    frame.order.resize(index);
+    frame.order.push_back(digest);
+    written = true;
+    return rect;
+}
+
 /// Packs a black material that changes from frame to frame, the shadow a
 /// unit casts from its picture, into the rows kept for the frame's own
 /// materials (Scene::frame_rows); with the other materials when those rows
@@ -808,52 +891,26 @@ AtlasRect frame_material(
     if (const auto found = frame.materials.find(digest); found != frame.materials.end())
         return found->second;
     frame.material_area += uint64_t{width} * height;
-    uint32_t x = frame.next_x;
-    uint32_t y = frame.next_y;
-    uint32_t row_height = frame.row_height;
-    if (x + width > scene.texture_width) {
-        x = 0;
-        y += row_height;
-        row_height = 0;
-    }
-    if (width > scene.texture_width || y + height > scene.frame_rows ||
-        scene.frame_rows >= scene.texture_height) {
-        frame.spilled_area += uint64_t{width} * height;
-        // Measured with the frame's own materials, not twice.
-        const uint64_t packed = scene.packed_material_area;
-        const auto rect = material(
-            pass,
-            *scene.frame_palette,
-            width,
-            height,
-            coverage,
-            coverage,
-            -1,
-            Fog::black,
-            false,
-            FlashStrength::full,
-            alpha_coverage,
-            bench_timers::MaterialKind::shadow
-        );
-        scene.packed_material_area = packed;
-        return rect;
-    }
-    ++pass.list.materials_packed;
-    pass.list.texels_packed += uint64_t{width} * height;
-    frame.next_x = x + width;
-    frame.next_y = y;
-    frame.row_height = std::max(row_height, height);
-    const AtlasRect rect{x, kept_rows(scene) + y, width, height};
-    frame.materials.emplace(digest, rect);
-    // Each material's place follows from the sizes of those packed before
-    // it this frame, all of them in its digest: one packed in the same
-    // place by an earlier frame, after the same ones, is still there.
-    const std::size_t index = frame.packed++;
-    if (index < frame.order.size() && frame.order[index] == digest)
-        return rect;
-    frame.order.resize(index);
-    frame.order.push_back(digest);
-    written = true;
+    if (const auto rect = frame_rectangle(pass, frame, digest, width, height, written))
+        return *rect;
+    frame.spilled_area += uint64_t{width} * height;
+    // Measured with the frame's own materials, not twice.
+    const uint64_t packed = scene.packed_material_area;
+    const auto rect = material(
+        pass,
+        *scene.frame_palette,
+        width,
+        height,
+        coverage,
+        coverage,
+        -1,
+        Fog::black,
+        false,
+        FlashStrength::full,
+        alpha_coverage,
+        bench_timers::MaterialKind::shadow
+    );
+    scene.packed_material_area = packed;
     return rect;
 }
 
@@ -7107,6 +7164,188 @@ float surface_effect_lift(
     return lift;
 }
 
+/// Applies the same visibility and crop tests before sprite material packing and drawing.
+/// @param in the frame
+/// @param sprite the card being considered
+/// @param light_mask its indices name light-table rows
+/// @param ground_pass the card is drawn on terrain rather than standing up
+/// @return whether its current pass can draw it
+bool sprite_drawn(const Inputs& in, const SpriteDraw& sprite, bool light_mask, bool ground_pass) {
+    const bool submerged_effect = sprite.world_position && !sprite.on_map &&
+                                  sprite.world_position->y / fixed_scale < in.sea_level;
+    if (sprite.frame == nullptr ||
+        (sprite.terrain_decal || sprite.shadow || (light_mask && !submerged_effect)) != ground_pass)
+        return false;
+    const auto& frame = *sprite.frame;
+    const int32_t x = in.camera_x + sprite.place.x;
+    const int32_t y = in.camera_y + sprite.place.y;
+    const auto fog = fog_at(in.sight, x, y);
+    if ((fog == Fog::black || (light_mask && fog != Fog::seen)) && !ground_pass)
+        return false;
+    if (ground_pass) {
+        if (sprite.shadow && in.draws->shadow_level == 0)
+            return false;
+        const float left = float(x) - frame.origin_x;
+        const float top = float(y) - frame.origin_y;
+        const float right = left + frame.width;
+        const float bottom = top + frame.height;
+        const float crop_left = std::floor(float(in.left) / cell_edge) * cell_edge;
+        const float crop_top = std::floor(float(in.top) / cell_edge) * cell_edge;
+        const float crop_right = std::ceil(float(in.right) / cell_edge) * cell_edge;
+        const float crop_bottom = std::ceil(float(in.bottom) / cell_edge) * cell_edge;
+        if (right <= crop_left || bottom <= crop_top || left >= crop_right || top >= crop_bottom)
+            return false;
+        // A black origin can overlap mapped ground. Match decal's cell fog
+        // tests rather than discarding its still-visible edge.
+        bool mapped = false;
+        const int32_t first_x = static_cast<int32_t>(
+            std::max({0.0F, crop_left, std::floor(left / cell_edge) * cell_edge})
+        );
+        const int32_t first_y = static_cast<int32_t>(
+            std::max({0.0F, crop_top, std::floor(top / cell_edge) * cell_edge})
+        );
+        const float last_x =
+            std::min({right, crop_right, float(in.map->attribute_width * cell_edge)});
+        const float last_y =
+            std::min({bottom, crop_bottom, float(in.map->attribute_height * cell_edge)});
+        for (int32_t row = first_y; row < last_y && !mapped; row += cell_edge)
+            for (int32_t column = first_x; column < last_x; column += cell_edge)
+                if (fog_at(in.sight, column, row) != Fog::black) {
+                    mapped = true;
+                    break;
+                }
+        if (!mapped)
+            return false;
+    }
+    return true;
+}
+
+/// Keeps one immutable lookup for each eligible frame and light-mask variant.
+struct PreparedEffectMaterial {
+    bool visited{};
+    std::optional<AtlasRect> rectangle{};
+};
+
+/// Packs world effects beside unit shadows before any sprite worker reads the atlas.
+/// @param in the frame's immutable draw list and art
+/// @param[in,out] scene the shared frame rows and per-draw rectangle table
+void prepare_frame_effects(const Inputs& in, Scene& scene) {
+    // Above this bound, every draw retains the ordinary material path.
+    constexpr std::size_t maximum_effect_draws = 65'536;
+    auto& passes = scene.passes;
+    auto& rectangles = passes.effect_materials;
+    const auto& sprites = in.draws->sprites;
+    rectangles.clear();
+    if (sprites.size() > maximum_effect_draws)
+        return;
+    rectangles.resize(sprites.size());
+    std::vector<bool> lights(sprites.size());
+    for (const auto& draw : in.draws->draws)
+        if (draw.kind == WorldDrawKind::lit_sprite && draw.index < lights.size())
+            lights[draw.index] = true;
+    std::unordered_map<const formats::gaf::RenderedFrame*, std::array<PreparedEffectMaterial, 2>>
+        prepared;
+    std::unordered_map<uint64_t, std::optional<AtlasRect>> digests;
+    auto& frame = passes.frame;
+    uint32_t wanted_x = frame.next_x;
+    uint32_t wanted_y = frame.next_y;
+    uint32_t wanted_height = frame.row_height;
+    Pass pass{scene, passes.effect_packing, false, 0};
+    for (std::size_t index = 0; index < sprites.size(); ++index) {
+        const auto& sprite = sprites[index];
+        if (!sprite.world_position || sprite.on_map || sprite.shadow || !sprite.frame)
+            continue;
+        const bool light = lights[index];
+        const bool submerged = sprite.world_position->y / fixed_scale < in.sea_level;
+        const bool ground = sprite.terrain_decal || (light && !submerged);
+        if (!sprite_drawn(in, sprite, light, ground))
+            continue;
+        auto& cached = prepared[sprite.frame][light ? 1 : 0];
+        if (!cached.visited) {
+            cached.visited = true;
+            const auto& art = *sprite.frame;
+            // A taller picture cannot fit the bounded frame arena. Keep its
+            // existing persistent path, including its atlas-room fallback.
+            if (art.height > maximum_atlas_edge / 2)
+                continue;
+            const uint64_t count = uint64_t{art.width} * art.height;
+            if (art.width == 0 || art.height == 0 || art.pixels.size() < count ||
+                (!art.coverage.empty() && art.coverage.size() < count))
+                throw std::runtime_error("experimental scene received an invalid material");
+            if (art.width > scene.texture_width || art.height > scene.texture_height)
+                throw std::runtime_error("experimental material is larger than its atlas");
+            const auto coverage =
+                std::span<const uint8_t>(art.coverage)
+                    .first(art.coverage.empty() ? 0 : static_cast<std::size_t>(count));
+            const uint64_t digest = material_digest(
+                scene,
+                *in.palette,
+                art.width,
+                art.height,
+                art.pixels,
+                coverage,
+                art.transparency_index,
+                Fog::seen,
+                light,
+                in.draws->flash_strength,
+                false
+            );
+            if (const auto found = scene.materials.find(digest); found != scene.materials.end()) {
+                // Retain already cached art without moving its texels. New
+                // animation variants use the frame rows rather than growing it.
+                cached.rectangle = found->second;
+            } else if (
+                const auto found = frame.materials.find(digest); found != frame.materials.end()
+            ) {
+                cached.rectangle = found->second;
+            } else if (const auto found = digests.find(digest); found != digests.end()) {
+                cached.rectangle = found->second;
+            } else {
+                frame.material_area += count;
+                frame.effect_area += count;
+                if (wanted_x + art.width > scene.texture_width) {
+                    wanted_x = 0;
+                    wanted_y += wanted_height;
+                    wanted_height = 0;
+                }
+                wanted_x += art.width;
+                wanted_height = std::max<uint32_t>(wanted_height, art.height);
+                frame.row_demand = std::max(frame.row_demand, wanted_y + wanted_height);
+                bool written{};
+                cached.rectangle =
+                    frame_rectangle(pass, frame, digest, art.width, art.height, written);
+                if (cached.rectangle) {
+                    if (written) {
+                        write_material(
+                            scene,
+                            *cached.rectangle,
+                            *in.palette,
+                            art.pixels,
+                            coverage,
+                            art.transparency_index,
+                            Fog::seen,
+                            light,
+                            in.draws->flash_strength,
+                            false
+                        );
+                        ++scene.texture_revision;
+                        note_rows(
+                            scene,
+                            scene.atlas_update.frame_first_row,
+                            scene.atlas_update.frame_end_row,
+                            *cached.rectangle
+                        );
+                    }
+                } else {
+                    frame.spilled_area += count;
+                }
+                digests.emplace(digest, cached.rectangle);
+            }
+        }
+        rectangles[index] = cached.rectangle;
+    }
+}
+
 /// Lifts sprites into upright cutouts preserving their classic pixel placement.
 ///
 /// @param in the frame
@@ -7140,58 +7379,21 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
         begin_draw(pass, index);
         const auto& sprite = in.draws->sprites[index];
         const bool light_mask = light_masks[index];
-        const bool submerged_effect = sprite.world_position && !sprite.on_map &&
-                                      sprite.world_position->y / fixed_scale < in.sea_level;
-        if (sprite.frame == nullptr || (sprite.terrain_decal || sprite.shadow ||
-                                        (light_mask && !submerged_effect)) != ground_pass)
+        if (!sprite_drawn(in, sprite, light_mask, ground_pass))
             continue;
         const auto& frame = *sprite.frame;
         const int32_t x = in.camera_x + sprite.place.x;
         const int32_t y = in.camera_y + sprite.place.y;
-        const auto fog = fog_at(in.sight, x, y);
-        if ((fog == Fog::black || (light_mask && fog != Fog::seen)) && !ground_pass)
-            continue;
-        if (ground_pass) {
-            if (sprite.shadow && in.draws->shadow_level == 0)
-                continue;
-            const float left = float(x) - frame.origin_x;
-            const float top = float(y) - frame.origin_y;
-            const float right = left + frame.width;
-            const float bottom = top + frame.height;
-            const float crop_left = std::floor(float(in.left) / cell_edge) * cell_edge;
-            const float crop_top = std::floor(float(in.top) / cell_edge) * cell_edge;
-            const float crop_right = std::ceil(float(in.right) / cell_edge) * cell_edge;
-            const float crop_bottom = std::ceil(float(in.bottom) / cell_edge) * cell_edge;
-            if (right <= crop_left || bottom <= crop_top || left >= crop_right ||
-                top >= crop_bottom)
-                continue;
-            // A black origin can overlap mapped ground. Match decal's cell fog
-            // tests rather than discarding its still-visible edge.
-            bool mapped = false;
-            const int32_t first_x = static_cast<int32_t>(
-                std::max({0.0F, crop_left, std::floor(left / cell_edge) * cell_edge})
-            );
-            const int32_t first_y = static_cast<int32_t>(
-                std::max({0.0F, crop_top, std::floor(top / cell_edge) * cell_edge})
-            );
-            const float last_x =
-                std::min({right, crop_right, float(in.map->attribute_width * cell_edge)});
-            const float last_y =
-                std::min({bottom, crop_bottom, float(in.map->attribute_height * cell_edge)});
-            for (int32_t row = first_y; row < last_y && !mapped; row += cell_edge)
-                for (int32_t column = first_x; column < last_x; column += cell_edge)
-                    if (fog_at(in.sight, column, row) != Fog::black) {
-                        mapped = true;
-                        break;
-                    }
-            if (!mapped)
-                continue;
-        }
+        const bool submerged_effect = sprite.world_position && !sprite.on_map &&
+                                      sprite.world_position->y / fixed_scale < in.sea_level;
         constexpr unsigned shadow_material = 1;
         constexpr unsigned light_material = 2;
         const unsigned variant =
             (sprite.shadow ? shadow_material : 0) | (light_mask ? light_material : 0);
         auto& cached = prepared[sprite.frame][variant];
+        if (!cached && sprite.world_position && !sprite.on_map && !sprite.shadow &&
+            index < scene.passes.effect_materials.size())
+            cached = scene.passes.effect_materials[index];
         if (!cached)
             cached = material(
                 pass,
@@ -7885,6 +8087,7 @@ class PassTimes {
             );
         }
         add(Stage::shadows, passes.shadow_packing);
+        add(Stage::sprites, passes.effect_packing);
         for (std::size_t band = 0; band < shadow_bands; ++band) {
             add(Stage::shadows, passes.shadows[band]);
             bench_timers::add_nanoseconds(Stage::shadows, passes.shadow_bands[band].nanoseconds);
@@ -7994,7 +8197,11 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     find_card_types(in, scene.card_types);
     plan_unit_detail(in, scene);
     for (auto* list :
-         {&passes.shadow_packing, &passes.models, &passes.projectiles, &passes.particles})
+         {&passes.shadow_packing,
+          &passes.effect_packing,
+          &passes.models,
+          &passes.projectiles,
+          &passes.particles})
         clear_list(*list, 0);
     PassTimes times(scene, timing);
     // The cards laid on the ground, in bands of their draws.
@@ -8152,6 +8359,8 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     frame.order.assign(scene.frame.order.begin(), scene.frame.order.end());
     frame.packed = 0;
     frame.material_area = frame.spilled_area = 0;
+    frame.effect_area = 0;
+    frame.row_demand = 0;
     frame.aircraft_shadows.clear();
     passes.frame_writes.clear();
     std::size_t stop_band = shadow_bands;
@@ -8178,6 +8387,9 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         }
     }
     passes.shadow_packing.nanoseconds += pass_clock(timing) - start;
+    start = pass_clock(timing);
+    prepare_frame_effects(in, scene);
+    passes.effect_packing.nanoseconds += pass_clock(timing) - start;
     // Every pass at once, the longest first, then the ground ahead.
     const auto shadows_drawn = [&](std::size_t band) {
         return band < stop_band    ? passes.shadow_bands[band].pictures.size()
@@ -8299,6 +8511,8 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     std::swap(scene.frame.packed, frame.packed);
     std::swap(scene.frame.material_area, frame.material_area);
     std::swap(scene.frame.spilled_area, frame.spilled_area);
+    std::swap(scene.frame.effect_area, frame.effect_area);
+    std::swap(scene.frame.row_demand, frame.row_demand);
     std::swap(scene.frame.aircraft_shadows, frame.aircraft_shadows);
     write_frame_materials(in, scene);
     if (stop_band < shadow_bands) {
@@ -8520,16 +8734,20 @@ void card_ground(Scene& scene) {
 ///
 /// @param[in,out] scene the atlas
 void grow_frame_rows(Scene& scene) {
-    if (scene.frame.spilled_area == 0 || scene.frame_rows == 0)
+    if (scene.frame.spilled_area == 0 || (scene.frame_rows == 0 && scene.frame.effect_area == 0))
         return;
     const uint64_t step_area = uint64_t{scene.texture_width} * frame_row_step;
-    const uint64_t wanted = (scene.frame.spilled_area * 2 + step_area - 1) / step_area;
+    const uint64_t area_rows =
+        (scene.frame.spilled_area * 2 + step_area - 1) / step_area * frame_row_step;
+    const uint64_t skyline_rows =
+        (uint64_t{scene.frame.row_demand} + frame_row_step - 1) / frame_row_step * frame_row_step;
+    const uint64_t wanted =
+        std::max(area_rows, skyline_rows - std::min(skyline_rows, uint64_t{scene.frame_rows}));
     const uint32_t packed = std::min(scene.next_y + scene.row_height, kept_rows(scene));
     const uint32_t free_steps = (kept_rows(scene) - packed) / frame_row_step;
-    const uint32_t most =
-        maximum_atlas_edge / 2 - std::min(scene.frame_rows, maximum_atlas_edge / 2);
-    const auto rows =
-        std::min<uint64_t>({wanted * frame_row_step, uint64_t{free_steps} * frame_row_step, most});
+    const uint32_t limit = scene.texture_height / 2 / frame_row_step * frame_row_step;
+    const uint32_t most = limit - std::min(scene.frame_rows, limit);
+    const auto rows = std::min<uint64_t>({wanted, uint64_t{free_steps} * frame_row_step, most});
     if (rows == 0)
         return;
     scene.frame_rows += static_cast<uint32_t>(rows);
@@ -8631,6 +8849,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         constexpr uint32_t attempts = 4;
         bool emptied = scene.next_x == 0 && scene.next_y == 0 && scene.materials.empty() &&
                        scene.terrain_materials.empty();
+        bool frame_rows_released = false;
         // A moving camera's ground may reach beyond the picture's margin
         // until its triangles do not fit.
         bool widen = true;
@@ -8658,6 +8877,12 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.frame.packed = 0;
             scene.frame.material_area = 0;
             scene.frame.spilled_area = 0;
+            scene.frame.effect_area = 0;
+            scene.frame.row_demand = 0;
+            scene.passes.frame.material_area = 0;
+            scene.passes.frame.spilled_area = 0;
+            scene.passes.frame.effect_area = 0;
+            scene.passes.frame.row_demand = 0;
             scene.frame.aircraft_shadows.clear();
             scene.texture_rgba.resize(
                 static_cast<std::size_t>(scene.texture_width) * scene.texture_height * channels
@@ -8735,23 +8960,41 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                     scene.terrain_square_limit, cells / (static_cast<uint64_t>(step) * step) / 2
                 );
                 step *= 2;
-            } catch (const AtlasFull&) {
+            } catch (const AtlasFull& full) {
                 scene.ground_ahead.active = false;
                 scene.moving_packing = holding;
                 bench_timers::count_atlas_emptied();
-                if (++attempt == attempts)
+                // A persistent picture that still cannot fit a freshly packed
+                // atlas gets one bounded retry with its original room. Do not
+                // spend the ordinary detail-reduction attempts on that retry.
+                const bool release_frame_rows =
+                    !frame_rows_released && emptied && scene.frame_rows != 0 &&
+                    (full.material_height != 0 || attempt + 1 == attempts);
+                if (release_frame_rows)
+                    frame_rows_released = true;
+                else if (++attempt == attempts)
                     throw;
                 // The rows kept for the frame's own materials hold half as
                 // much again as a frame packs, as the terrain leaves the
                 // other materials room.
-                const uint64_t frame_need =
-                    std::max(scene.last_frame_material_area, scene.frame.material_area);
+                const uint64_t frame_need = std::max(
+                    {scene.last_frame_material_area,
+                     scene.frame.material_area,
+                     scene.passes.frame.material_area}
+                );
+                const uint32_t row_demand =
+                    std::max(scene.frame.row_demand, scene.passes.frame.row_demand);
+                const uint32_t frame_limit = frame_rows_released ? 0 : maximum_atlas_edge / 2;
                 const auto frame_rows = std::min(
-                    maximum_atlas_edge / 2,
-                    static_cast<uint32_t>(
-                        (frame_need / 2 * 3 + uint64_t{maximum_atlas_edge} * frame_row_step - 1) /
-                        (uint64_t{maximum_atlas_edge} * frame_row_step)
-                    ) * frame_row_step
+                    frame_limit,
+                    std::max(
+                        static_cast<uint32_t>(
+                            (frame_need / 2 * 3 + uint64_t{maximum_atlas_edge} * frame_row_step -
+                             1) /
+                            (uint64_t{maximum_atlas_edge} * frame_row_step)
+                        ) * frame_row_step,
+                        (row_demand + frame_row_step - 1) / frame_row_step * frame_row_step
+                    )
                 );
                 scene.frame_rows = frame_rows;
                 scene.frame.order.clear();
@@ -8759,8 +9002,13 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 // Otherwise the atlas is emptied for it, and the frame plans
                 // from the room it would start with had none been
                 // remembered, as the frames before it did.
-                if (emptied && scene.texture_width == maximum_atlas_edge &&
-                    scene.texture_height == maximum_atlas_edge) {
+                if (release_frame_rows) {
+                    // Try this ground with the persistent path's original room
+                    // before reducing its detail further.
+                } else if (
+                    emptied && scene.texture_width == maximum_atlas_edge &&
+                    scene.texture_height == maximum_atlas_edge
+                ) {
                     room = std::min(room, planned_area(demand, plan)) / 2;
                     plan = plan_terrain(demand, room, holding);
                 } else if (room != starting_room) {

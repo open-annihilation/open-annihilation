@@ -2151,8 +2151,9 @@ void persistent_material_sources() {
     frames[1].pixels[0] = 3;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     const auto changed = timers::totals_since(timers::timers.totals, first);
-    OA_CHECK(changed.persistent_materials[kind(timers::MaterialKind::effect)] == 1);
-    OA_CHECK(changed.persistent_texels[kind(timers::MaterialKind::effect)] == 16);
+    OA_CHECK(changed.persistent_materials[kind(timers::MaterialKind::effect)] == 0);
+    OA_CHECK(changed.persistent_texels[kind(timers::MaterialKind::effect)] == 0);
+    OA_CHECK(fixture.scene.frame.effect_area == 16);
     auto sum = first;
     timers::add_totals(sum, changed);
     OA_CHECK(sum.persistent_materials == timers::timers.totals.persistent_materials);
@@ -3047,6 +3048,248 @@ void frame_rows_grow_for_spilled_shadows() {
     OA_CHECK(scene.frame.materials.begin()->second.y == scene.texture_height - 32);
     OA_CHECK(scene.materials.size() == materials);
     OA_CHECK(scene.frame_rows == 32);
+}
+
+/// Compares emitted geometry and sampled colors while allowing different atlas rectangles.
+/// @param a the frame-local material scene
+/// @param b the ordinary persistent-material reference
+void same_effect_picture(const live::Scene& a, const live::Scene& b) {
+    OA_CHECK(a.vertices.size() == b.vertices.size());
+    OA_CHECK(a.terrain_vertex_count == b.terrain_vertex_count);
+    OA_CHECK(a.shadow_count == b.shadow_count && a.sprite_count == b.sprite_count);
+    OA_CHECK(a.model_count == b.model_count);
+    if (a.vertices.size() != b.vertices.size())
+        return;
+    for (std::size_t index = 0; index < a.vertices.size(); ++index) {
+        auto left = a.vertices[index];
+        auto right = b.vertices[index];
+        left.u = left.v = right.u = right.v = 0;
+        if (left.terrain_size > 0)
+            left.terrain_x = left.terrain_y = right.terrain_x = right.terrain_y = 0;
+        OA_CHECK(std::memcmp(&left, &right, sizeof(left)) == 0);
+    }
+    for (std::size_t first = 0; first + 2 < a.vertices.size(); first += 3)
+        OA_CHECK(triangle_color(a, first) == triangle_color(b, first));
+}
+
+/// Compares every RGBA texel of one transient picture with its persistent reference.
+/// @param actual the frame-local atlas
+/// @param rectangle its material rectangle
+/// @param expected the cold persistent reference atlas
+void same_effect_texels(
+    const live::Scene& actual, const live::AtlasRect& rectangle, const live::Scene& expected
+) {
+    const auto material =
+        std::find_if(expected.materials.begin(), expected.materials.end(), [&](const auto& entry) {
+            return entry.second.width == rectangle.width && entry.second.height == rectangle.height;
+        });
+    OA_CHECK(material != expected.materials.end());
+    if (material == expected.materials.end())
+        return;
+    const auto& other = material->second;
+    for (uint32_t row = 0; row < rectangle.height; ++row) {
+        const auto from = (std::size_t{rectangle.y + row} * actual.texture_width + rectangle.x) * 4;
+        const auto reference = (std::size_t{other.y + row} * expected.texture_width + other.x) * 4;
+        OA_CHECK(
+            std::memcmp(
+                actual.texture_rgba.data() + from,
+                expected.texture_rgba.data() + reference,
+                std::size_t{rectangle.width} * 4
+            ) == 0
+        );
+    }
+}
+
+/// Colored and light variants share reserved rows safely with animated unit shadows.
+void frame_rows_hold_effects() {
+    namespace timers = oa::app::bench_timers;
+    Fixture fixture;
+    fixture.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0, 0};
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 64;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    std::array<oa::formats::gaf::RenderedFrame, 2> art{};
+    art[0].width = art[0].height = 200;
+    art[0].pixels.assign(40'000, 110);
+    art[0].coverage.assign(40'000, 1);
+    art[0].coverage[2] = 0;
+    art[1].width = 16;
+    art[1].height = 8;
+    art[1].pixels.assign(128, ground_index);
+    art[1].coverage.assign(128, 1);
+    art[1].coverage[0] = 0;
+    for (std::size_t index = 0; index < 3; ++index) {
+        fixture.draws.sprites.push_back({&art[index == 1 ? 1 : 0], {4, 4}});
+        fixture.draws.sprites.back().world_position =
+            oa::FixedVec3{8 * fixed, index == 1 ? 8 * fixed : 0, 16 * fixed};
+        fixture.draws.draws.push_back(
+            {index == 1 ? oa::app::WorldDrawKind::sprite : oa::app::WorldDrawKind::lit_sprite,
+             static_cast<uint32_t>(index)}
+        );
+    }
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 1);
+    oa::Unit unit{};
+    unit.position = {3 * fixed, 0, 8 * fixed};
+    oa::UnitDef definition{};
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.state = &state;
+    draw.model.def = &definition;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    fixture.scene.texture_width = fixture.scene.texture_height = 4096;
+    fixture.scene.frame_rows = 256;
+    timers::reset(true);
+    uint64_t ground{};
+    for (uint32_t frame = 0; frame < 48; ++frame) {
+        art[0].pixels[0] = static_cast<uint8_t>(80 + frame % 31);
+        art[0].pixels[1] = static_cast<uint8_t>(80 + frame / 31);
+        art[1].pixels[3] = static_cast<uint8_t>(ground_index + frame % 2);
+        state.image.pixels[4] = static_cast<uint8_t>(frame % 2);
+        fixture.draws.flash_strength =
+            frame % 2 ? oa::app::FlashStrength::reduced : oa::app::FlashStrength::full;
+        fixture.draws.sprites[1].effect_opacity = frame % 2 ? 0.4F : 1.0F;
+        fixture.draws.sprites[1].effect_scale = frame % 2 ? 0.5F : 1.0F;
+        const auto before = timers::timers.totals;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        const auto packed = timers::totals_since(timers::timers.totals, before);
+        for (const auto value : {timers::MaterialKind::effect, timers::MaterialKind::light})
+            OA_CHECK(packed.persistent_materials[static_cast<std::size_t>(value)] == 0);
+        OA_CHECK(packed.atlas_emptied == 0);
+        OA_CHECK(fixture.scene.frame.effect_area == 40'128);
+        OA_CHECK(fixture.scene.passes.effect_materials.size() == 3);
+        OA_CHECK(fixture.scene.passes.effect_materials[0].has_value());
+        OA_CHECK(fixture.scene.passes.effect_materials[1].has_value());
+        OA_CHECK(
+            fixture.scene.passes.effect_materials[0] == fixture.scene.passes.effect_materials[2]
+        );
+        for (const auto& [first_key, first] : fixture.scene.frame.materials)
+            for (const auto& [second_key, second] : fixture.scene.frame.materials)
+                if (first_key != second_key)
+                    OA_CHECK(
+                        first.x + first.width <= second.x || second.x + second.width <= first.x ||
+                        first.y + first.height <= second.y || second.y + second.height <= first.y
+                    );
+        if (frame < 2)
+            ground = fixture.scene.ground_revision;
+        OA_CHECK(fixture.scene.ground_revision == ground);
+        live::Scene reference{};
+        reference.texture_width = reference.texture_height = 4096;
+        OA_CHECK(live::build(fixture.inputs, reference, fixture.error));
+        same_effect_picture(fixture.scene, reference);
+        if (fixture.scene.passes.effect_materials[0] && fixture.scene.passes.effect_materials[1]) {
+            same_effect_texels(fixture.scene, *fixture.scene.passes.effect_materials[0], reference);
+            same_effect_texels(fixture.scene, *fixture.scene.passes.effect_materials[1], reference);
+        }
+        OA_CHECK(
+            unit.position.x == 3 * fixed && unit.position.y == 0 && unit.position.z == 8 * fixed
+        );
+    }
+    const auto revision = fixture.scene.texture_revision;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_revision == revision);
+    OA_CHECK(
+        fixture.scene.atlas_update.frame_first_row == fixture.scene.atlas_update.frame_end_row
+    );
+    timers::reset(false);
+}
+
+/// A tall flash starts the frame arena before persistent animation variants accumulate.
+void frame_rows_begin_for_tall_effects() {
+    Fixture fixture;
+    fixture.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0, 0};
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 64;
+    oa::formats::gaf::RenderedFrame flash{};
+    flash.width = flash.height = 200;
+    flash.pixels.assign(40'000, 110);
+    flash.coverage.assign(40'000, 1);
+    fixture.draws.sprites.push_back({&flash, {4, 4}});
+    fixture.draws.sprites[0].world_position = oa::FixedVec3{8 * 65536, 0, 16 * 65536};
+    fixture.draws.draws.push_back({oa::app::WorldDrawKind::lit_sprite, 0});
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.frame_rows == 208);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    const auto materials = fixture.scene.materials.size();
+    const auto ground = fixture.scene.ground_revision;
+    fixture.draws.sprites.resize(128, fixture.draws.sprites[0]);
+    for (uint32_t index = 1; index < 128; ++index)
+        fixture.draws.draws.push_back({oa::app::WorldDrawKind::lit_sprite, index});
+    flash.pixels[0] = 80;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.frame_rows == 208);
+    OA_CHECK(fixture.scene.frame.effect_area == 40'000);
+    OA_CHECK(fixture.scene.frame.spilled_area == 0);
+    OA_CHECK(fixture.scene.materials.size() == materials);
+    OA_CHECK(fixture.scene.ground_revision == ground);
+    OA_CHECK(fixture.scene.atlas_update.first_row == fixture.scene.atlas_update.end_row);
+    for (const auto& rectangle : fixture.scene.passes.effect_materials)
+        OA_CHECK(rectangle == fixture.scene.passes.effect_materials[0]);
+}
+
+/// Over-cap lists and pictures too tall for frame rows retain the ordinary material path.
+void frame_effect_fallbacks() {
+    Fixture fixture;
+    oa::formats::gaf::RenderedFrame art{};
+    art.width = art.height = 4;
+    art.pixels.assign(16, ground_index);
+    art.coverage.assign(16, 1);
+    fixture.draws.sprites.resize(65'537);
+    fixture.draws.sprites[0] = {&art, {4, 4}};
+    fixture.draws.sprites[0].world_position = oa::FixedVec3{8 * 65536, 8 * 65536, 16 * 65536};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.passes.effect_materials.empty());
+    OA_CHECK(fixture.scene.frame.effect_area == 0);
+    OA_CHECK(fixture.scene.sprite_count == 1);
+    fixture.draws.sprites.resize(1);
+    art.pixels[0] = alternate_index;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.passes.effect_materials.size() == 1);
+    art.pixels[1] = alternate_index;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.passes.effect_materials[0].has_value());
+    // A valid picture taller than the half-atlas arena must still fit the
+    // persistent path after a previous frame reserved many transient rows.
+    Fixture tall;
+    art.width = 16;
+    art.height = 2050;
+    art.pixels.assign(32'800, ground_index);
+    art.coverage.assign(32'800, 1);
+    tall.draws.sprites.push_back({&art, {4, 4}});
+    tall.draws.sprites[0].world_position = oa::FixedVec3{8 * 65536, 8 * 65536, 16 * 65536};
+    tall.map.attribute_width = tall.map.attribute_height = 128;
+    tall.map.attributes.assign(128 * 128, {});
+    tall.map.tile_width = tall.map.tile_height = 64;
+    tall.map.tile_count = 4096;
+    tall.map.tile_indices.resize(4096);
+    for (uint16_t index = 0; index < 4096; ++index)
+        tall.map.tile_indices[index] = index;
+    tall.map.tile_palette_indices.assign(4096 * 32 * 32, ground_index);
+    tall.inputs.right = tall.inputs.bottom = 2048;
+    tall.inputs.sight.mapping = tall.inputs.sight.line_of_sight = false;
+    tall.scene.texture_width = tall.scene.texture_height = 4096;
+    tall.scene.frame_rows = 2048;
+    tall.scene.last_frame_material_area = 8 * 1024 * 1024;
+    OA_CHECK(live::build(tall.inputs, tall.scene, tall.error));
+    OA_CHECK(!tall.scene.out_of_room);
+    OA_CHECK(tall.scene.frame_rows == 0);
+    OA_CHECK(tall.scene.sprite_count == 1);
+    OA_CHECK(!tall.scene.passes.effect_materials[0]);
+    live::Scene reference{};
+    reference.texture_width = reference.texture_height = 4096;
+    OA_CHECK(live::build(tall.inputs, reference, tall.error));
+    same_effect_picture(tall.scene, reference);
+    // Culled malformed art must not be decoded by the preparation pass.
+    art.pixels.clear();
+    tall.inputs.sight.mapping = tall.inputs.sight.line_of_sight = true;
+    tall.mapped[0] = 0;
+    OA_CHECK(live::build(tall.inputs, tall.scene, tall.error));
+    OA_CHECK(tall.scene.sprite_count == 0);
 }
 
 /// Tells whether two scenes built the same frame: the same vertices in the
@@ -6763,6 +7006,9 @@ int main() {
     cached_unit_shadows();
     frame_rows_hold_unit_shadows();
     frame_rows_grow_for_spilled_shadows();
+    frame_rows_hold_effects();
+    frame_rows_begin_for_tall_effects();
+    frame_effect_fallbacks();
     passes_on_threads();
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();

@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -306,8 +307,8 @@ struct GroundIndexMemory {
 };
 
 /// The frame's own materials, packed into the rows the atlas keeps for them
-/// (Scene::frame_rows): the shadows units cast from their pictures, packed
-/// afresh each frame.
+/// (Scene::frame_rows): the shadows units cast from their pictures and new
+/// colored effect variants, packed afresh each frame.
 struct FramePacking {
     uint32_t next_x{};
     uint32_t next_y{}; ///< counted from the first of Scene::frame_rows
@@ -325,6 +326,11 @@ struct FramePacking {
     /// The area of this frame's own materials packed with the other
     /// materials for want of room in the rows.
     uint64_t spilled_area{};
+    /// Unique colored effect texels requested from the frame rows.
+    uint64_t effect_area{};
+    /// Height reached by the packing requests, including the skyline of
+    /// colored variants that do not fit their reserved rows yet.
+    uint32_t row_demand{};
     /// The frame's blurred aircraft silhouettes, by their picture and blur.
     std::unordered_map<uint64_t, AtlasRect> aircraft_shadows{};
 };
@@ -433,6 +439,11 @@ struct PassLists {
     FramePacking frame{};
     std::vector<FrameWrite> frame_writes{};
     PassList shadow_packing{};
+    /// Colored effects packed into the same frame rows before the workers.
+    PassList effect_packing{};
+    /// Each transient effect's immutable rectangle for this frame; none
+    /// retains the ordinary persistent-material path.
+    std::vector<std::optional<AtlasRect>> effect_materials{};
     PassList models{};
     PassList projectiles{};
     /// The effect cards standing up, by band of the cards' draws.
@@ -453,10 +464,10 @@ struct Scene {
     uint32_t next_y{};
     uint32_t row_height{};
     /// Rows at the atlas's foot kept for the materials that change from
-    /// frame to frame, the shadows units cast from their pictures: packed
+    /// frame to frame, unit shadows and colored effects: packed
     /// afresh each frame, they never fill the rows the ground and the other
-    /// materials keep. None until the atlas is first emptied at its
-    /// largest, which sizes them for the frame's own materials.
+    /// materials keep. They begin in unused rows after a colored effect
+    /// spills, or when the atlas is emptied for the frame's materials.
     uint32_t frame_rows{};
     /// The frame's own materials packed into frame_rows.
     FramePacking frame{};
