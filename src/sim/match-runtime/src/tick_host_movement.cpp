@@ -254,24 +254,11 @@ void TickHost::movement_tick(oa::Unit& record) {
                 const bool completed_head =
                     flow_head->active && flow_head->goal_key == goal_key &&
                     sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head);
-                // A return to the original route can separate passing legs.
-                // Keep compatible completed history for one ordinary retry
-                // interval; mature recovery retains its reverse escape.
-                const auto completion_age = match.simulation_.tick - flow_head->tick;
-                const bool retained_completion =
-                    !recover && !flow_head->active &&
-                    flow_head->count == sim::unit_movement::local_flow_completed_count &&
-                    completion_age > 1 &&
-                    completion_age <= sim::unit_movement::local_flow_retry_ticks &&
-                    match.rules().setup.enhanced_mode.version ==
-                        data::enhanced_mode::distributed_battle_flow_version &&
-                    u.primary != nullptr && g.navigation.goal->order == u.primary &&
-                    g.navigation.count >= 3 && flow_head->points[2] == g.navigation.points[2];
-                const bool recent_completion =
-                    flow_head->goal_key == goal_key &&
-                    (retained_completion || sim::unit_movement::local_flow_completed_last_tick(
-                                                *flow_head, match.simulation_.tick
-                                            ));
+                // One tick on the original route can separate two local choices.
+                const bool recent_completion = flow_head->goal_key == goal_key &&
+                                               sim::unit_movement::local_flow_completed_last_tick(
+                                                   *flow_head, match.simulation_.tick
+                                               );
                 if (flow_head->active && (flow_head->goal_key != goal_key || completed_head ||
                                           (recover && !advanced_corner))) {
                     flow_head->active = false;
