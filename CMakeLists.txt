@@ -433,6 +433,10 @@ add_library(oa::app::view_rules ALIAS oa-app-view-rules)
 target_link_libraries(oa-app-view-rules PUBLIC oa-app-headers oa-data-mod-profile oa-sim-match-runtime
   oa-ui-frontend-state oa-present-world-renderer oa-ui-engine-settings
   PRIVATE oa-ui-frontend-multiplayer oa-ui-key-bindings oa-options)
+add_library(oa-app-group-order-distribution src/app/group_order_distribution.cpp)
+add_library(oa::app::group_order_distribution ALIAS oa-app-group-order-distribution)
+target_link_libraries(oa-app-group-order-distribution PUBLIC oa-app-headers
+  oa-sim-gameplay-input oa-sim-ground-orders PRIVATE oa-options)
 if(BUILD_TESTING)
   add_executable(oa-app-view-rules-test src/app/view_rules_test.cpp)
   target_link_libraries(oa-app-view-rules-test PRIVATE oa-app-view-rules oa-test-support oa-options)
@@ -446,6 +450,10 @@ if(BUILD_TESTING)
   add_executable(oa-app-group-order-static-match-test src/app/group_order_static_match_test.cpp)
   target_link_libraries(oa-app-group-order-static-match-test PRIVATE oa-sim-gameplay-input oa-sim-match-runtime oa-data-enhanced-mode oa-test-match oa-test-support oa-options)
   add_test(NAME app-group-order-static-match COMMAND oa-app-group-order-static-match-test)
+  add_executable(oa-app-group-order-distribution-test src/app/group_order_distribution_test.cpp)
+  target_link_libraries(oa-app-group-order-distribution-test PRIVATE oa-app-group-order-distribution
+    oa-test-support oa-options)
+  add_test(NAME app-group-order-distribution COMMAND oa-app-group-order-distribution-test)
   add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
   target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
   add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
@@ -1569,6 +1577,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-battle-benchmark
   oa-app-user-folder
   oa-app-view-rules
+  oa-app-group-order-distribution
   oa-app-window-icon
   oa-app-video-capture oa-app-render-host
   oa-ui-frontend-renderer oa-ui-gui-input oa-ui-frontend-state oa-audio-sdl
