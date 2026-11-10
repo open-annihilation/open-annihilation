@@ -586,7 +586,8 @@ bool Match::issue_attack_command(
                 search.unit == nullptr ||
                 (search.unit != from.unit && search.navigation != &movement->navigation) ||
                 (goal != nullptr && search.unit == from.unit &&
-                 search.navigation == &movement->navigation && search.goal == goal);
+                 search.navigation == &movement->navigation && search.goal == goal &&
+                 search.movement_map != nullptr);
             if (same_goal && same_search) {
                 // A periodic AI refresh keeps a live chase's approach, weapons
                 // and native route work rather than tearing them down to restart.
