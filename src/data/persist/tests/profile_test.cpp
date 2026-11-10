@@ -61,17 +61,18 @@ void profile_round_trips() {
     bank_destroy(&bank);
 }
 
-/// Keeps the largest distributed route table intact through both bank encodings.
+/// Keeps the distributed route table's upper bound intact through both bank encodings.
 void large_rule_state_tables_round_trip() {
     constexpr std::size_t header_and_admissions = 3200;
-    constexpr std::size_t fields = 64;
+    constexpr std::size_t maximum_fields = 80;
     constexpr std::size_t metadata_per_field = 80;
-    constexpr std::size_t nodes_per_field = 131072;
+    constexpr std::size_t maximum_nodes = 8 * 1024 * 1024;
     constexpr std::size_t bytes_per_node = 5;
-    constexpr std::size_t table_bytes =
-        header_and_admissions + fields * (metadata_per_field + nodes_per_field * bytes_per_node);
+    constexpr std::size_t table_bytes = header_and_admissions +
+                                        maximum_fields * metadata_per_field +
+                                        maximum_nodes * bytes_per_node;
     constexpr std::size_t boundary = 32 * 1024 * 1024;
-    static_assert(table_bytes == 41951360 && table_bytes > boundary);
+    static_assert(table_bytes == 41952640 && table_bytes > boundary);
     const SavedProfile profile{"large-state", "7", 1, std::string(64, '7'), std::string(64, 'f')};
     constexpr std::array<uint8_t, 5> neighbour{9, 2, 6, 5, 3};
     for (const bool compressible : {true, false}) {
