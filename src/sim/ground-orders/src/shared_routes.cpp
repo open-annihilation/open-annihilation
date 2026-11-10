@@ -17,7 +17,6 @@ constexpr uint32_t original_stride = 4, fine_stride = 2;
 constexpr uint32_t original_region = 32, large_region = 96;
 constexpr uint32_t original_prefix_edges = 128, regional_prefix_edges = 16, fine_prefix_edges = 32;
 constexpr size_t goal_branch_capacity = 512;
-constexpr size_t fine_representatives = 2;
 constexpr uint32_t fine_anchor_offset = fine_stride + fine_stride / 2;
 constexpr uint32_t fine_anchor_probe_bound = 9 * (1 + 3 * fine_anchor_offset);
 constexpr uint32_t fine_region_offset = large_region + fine_stride;
@@ -26,10 +25,6 @@ constexpr uint32_t fine_edge_probe_bound = 1 + 3 * fine_stride;
 constexpr uint32_t fine_corner_probe_bound =
     1 + 3 * (fine_anchor_offset + fine_prefix_edges * fine_stride + fine_region_offset);
 constexpr uint32_t visible_chord_probe_limit = 128;
-constexpr uint32_t representative_selection_credits =
-    6 * (fine_anchor_probe_bound + 9) + fine_anchor_probe_bound +
-    fine_prefix_edges * (fine_region_probe_bound + fine_edge_probe_bound) +
-    fine_corner_probe_bound + visible_chord_probe_limit;
 constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 64;
 constexpr std::size_t metadata_size = 80, key_size = 36;
 constexpr uint32_t empty = 0, clearing = 1, building = 2, complete = 3, failed = 4;
@@ -208,62 +203,6 @@ RoutePoint point_at(int32_t x, int32_t z, const FlowContext& context) noexcept {
         static_cast<int16_t>((z * 2 + static_cast<int32_t>(context.footprint_z)) * 8)
     };
 }
-
-// Stored coverage is a bounded lookup; live proof remains in the optional selector.
-bool has_anchor_coverage(
-    uint32_t columns,
-    uint32_t rows,
-    uint32_t stride,
-    int32_t x,
-    int32_t z,
-    const uint8_t* directions
-) noexcept {
-    const int32_t centre_x = (x + static_cast<int32_t>(stride / 2)) / static_cast<int32_t>(stride);
-    const int32_t centre_z = (z + static_cast<int32_t>(stride / 2)) / static_cast<int32_t>(stride);
-    for (uint32_t i = 0; i < 9; ++i) {
-        const int32_t cx = centre_x + (i == 0 ? 0 : dx[i - 1]);
-        const int32_t cz = centre_z + (i == 0 ? 0 : dz[i - 1]);
-        if (cx >= 0 && cz >= 0 && static_cast<uint32_t>(cx) < columns &&
-            static_cast<uint32_t>(cz) < rows &&
-            directions[static_cast<uint32_t>(cz) * columns + static_cast<uint32_t>(cx)] != unseen)
-            return true;
-    }
-    return false;
-}
-
-// Fine representatives connect the actual pose, not just its origin-cell centre.
-int32_t connect_unit_anchor(
-    uint32_t columns,
-    uint32_t rows,
-    const oa::Unit& unit,
-    const FlowContext& context,
-    const uint8_t* key,
-    const FlowSampler& sampler,
-    const uint8_t* directions = nullptr
-) noexcept {
-    const int32_t centre_x = (int32_t(unit.cell_x) + fine_stride / 2) / fine_stride;
-    const int32_t centre_z = (int32_t(unit.cell_z) + fine_stride / 2) / fine_stride;
-    for (uint32_t i = 0; i < 9; ++i) {
-        const int32_t cx = centre_x + (i == 0 ? 0 : dx[i - 1]);
-        const int32_t cz = centre_z + (i == 0 ? 0 : dz[i - 1]);
-        if (cx < 0 || cz < 0 || static_cast<uint32_t>(cx) >= columns ||
-            static_cast<uint32_t>(cz) >= rows)
-            continue;
-        const auto index = static_cast<uint32_t>(cz) * columns + static_cast<uint32_t>(cx);
-        if (directions && directions[index] == unseen)
-            continue;
-        if (known_segment_clear(
-                sampler,
-                key,
-                unit,
-                context,
-                point_at(cx * fine_stride, cz * fine_stride, context),
-                fine_anchor_probe_bound / 9
-            ))
-            return static_cast<int32_t>(index);
-    }
-    return -1;
-}
 } // namespace
 
 bool static_flow_passable(
@@ -413,24 +352,6 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
             continue;
         // Seeding performs line tests, so it consumes an expansion credit.
         ++work;
-        bool known_seed = false;
-        if (get32(state + 4) == fine_format) {
-            for (uint32_t other_index = 0; other_index < fields_; ++other_index) {
-                const auto* other = field(state, cells_, other_index);
-                if (other != f && get32(other) != empty &&
-                    std::memcmp(other + 4, f + 4, key_size) == 0) {
-                    known_seed = true;
-                    break;
-                }
-            }
-        }
-        const FlowSampler known_sampler{
-            const_cast<FlowSampler*>(&sampler),
-            [](void* c, uint32_t movement_class, uint32_t player, int32_t x, int32_t z) -> uint8_t {
-                const auto& inner = *static_cast<FlowSampler*>(c);
-                return inner.cell && inner.cell(inner.context, movement_class, player, x, z) == 1;
-            }
-        };
         const auto seed = connect_anchor(
             columns_,
             rows_,
@@ -438,7 +359,7 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
             static_cast<int32_t>(get32(f + 40)),
             static_cast<int32_t>(get32(f + 44)),
             f + 4,
-            known_seed ? known_sampler : sampler
+            sampler
         );
         if (seed < 0) {
             put32(f, failed);
@@ -540,10 +461,73 @@ FlowResult FlowCache::route(
     const auto key = make_key(context, goal, region);
     if (!valid_key(key.data()) || context.static_revision != get32(state + 36))
         return fallback();
+    uint8_t* selected = nullptr;
+    for (uint32_t i = 0; i < fields_; ++i) {
+        auto* f = field(state, cells_, i);
+        if (get32(f) != empty && same_key(f + 4, key)) {
+            selected = f;
+            break;
+        }
+    }
+    if (!selected) {
+        uint8_t* admitted = nullptr;
+        for (uint32_t i = 0; i < admission_count; ++i) {
+            auto* entry = state + header_size + i * admission_size;
+            if (get32(entry + 40) != 0 && same_key(entry, key)) {
+                admitted = entry;
+                break;
+            }
+        }
+        if (!admitted) {
+            const auto cursor = get32(state + 44) % admission_count;
+            admitted = state + header_size + cursor * admission_size;
+            std::memcpy(admitted, key.data(), key_size);
+            put32(admitted + 36, get32(state + 32));
+            put32(admitted + 40, 1);
+            put32(state + 44, (cursor + 1) % admission_count);
+            return fallback();
+        }
+        // Singleton destinations use ordinary A*. Only repeated regions buy a field.
+        put32(admitted + 40, 2);
+        uint32_t oldest = std::numeric_limits<uint32_t>::max();
+        for (uint32_t i = 0; i < fields_; ++i) {
+            auto* f = field(state, cells_, i);
+            const auto phase = get32(f);
+            if (phase == empty) {
+                selected = f;
+                break;
+            }
+            // A completed fine field must survive a delayed cohort's poll
+            // before another destination can reuse its bounded storage.
+            if (format == fine_format && phase == complete &&
+                get32(state + 32) - get32(f + completed_tick_offset) < completed_admission_grace)
+                continue;
+            if ((phase == complete || phase == failed) && get32(f + 64) <= oldest) {
+                oldest = get32(f + 64);
+                selected = f;
+            }
+        }
+        if (!selected)
+            return fallback();
+        std::memset(selected, 0, metadata_size);
+        put32(selected, clearing);
+        std::memcpy(selected + 4, key.data(), key_size);
+        put32(selected + 40, static_cast<uint32_t>(goal.cell[0]));
+        put32(selected + 44, static_cast<uint32_t>(goal.cell[1]));
+        increment(state, 2);
+    }
+    put32(selected + 64, get32(state + 32));
+    const auto phase = get32(selected);
+    if (phase == failed)
+        return fallback();
     const auto wait = [&]() {
         increment(state, 5);
         return FlowResult::pending;
     };
+    if (phase == clearing)
+        return wait();
+    if (get32(state + 60) == 0)
+        return wait();
     const auto entry_credits = get32(state + 60);
 
     struct ProbeBudget {
@@ -567,243 +551,32 @@ FlowResult FlowCache::route(
                        : 0;
         }
     };
-    const FlowSampler known{
-        const_cast<FlowSampler*>(&bounded),
-        [](void* c, uint32_t movement_class, uint32_t player, int32_t x, int32_t z) -> uint8_t {
-            const auto& inner = *static_cast<FlowSampler*>(c);
-            return inner.cell(inner.context, movement_class, player, x, z) == 1;
-        }
-    };
-    std::array<uint8_t*, fine_representatives> representatives{};
-    size_t representative_count{};
-    uint8_t* selected = nullptr;
-    for (uint32_t i = 0; i < fields_; ++i) {
-        auto* f = field(state, cells_, i);
-        if (get32(f) == empty || !same_key(f + 4, key))
-            continue;
-        if (!selected)
-            selected = f;
-        if (format != fine_format)
-            break;
-        if (representative_count == representatives.size())
-            return fallback();
-        representatives[representative_count++] = f;
-    }
-    const bool representative_path =
-        format == fine_format && representative_count != 0 &&
-        (representative_count > 1 ||
-         (get32(selected) == complete &&
-          !has_anchor_coverage(
-              columns_, rows_, stride, goal.cell[0], goal.cell[1], selected + metadata_size
-          )));
-    const auto admit = [&](bool extra_representative) {
-        uint8_t* admitted = nullptr;
-        for (uint32_t i = 0; i < admission_count; ++i) {
-            auto* entry = state + header_size + i * admission_size;
-            if (get32(entry + 40) != 0 && same_key(entry, key)) {
-                admitted = entry;
-                break;
-            }
-        }
-        if (!admitted) {
-            const auto cursor = get32(state + 44) % admission_count;
-            admitted = state + header_size + cursor * admission_size;
-            std::memcpy(admitted, key.data(), key_size);
-            put32(admitted + 36, get32(state + 32));
-            put32(admitted + 40, 1);
-            put32(state + 44, (cursor + 1) % admission_count);
-            return false;
-        }
-        // Repeated regional demand buys bounded storage, not a per-unit goal key.
-        put32(admitted + 40, 2);
-        selected = nullptr;
-        uint32_t oldest = std::numeric_limits<uint32_t>::max();
-        for (uint32_t i = 0; i < fields_; ++i) {
-            auto* f = field(state, cells_, i);
-            const auto phase = get32(f);
-            if (extra_representative && phase != empty && same_key(f + 4, key))
-                continue;
-            if (phase == empty) {
-                selected = f;
-                break;
-            }
-            if (extra_representative && phase != failed)
-                continue;
-            // Extra representatives never evict a useful completed field.
-            // Normal region admission retains its existing LRU and grace.
-            if (format == fine_format && phase == complete &&
-                get32(state + 32) - get32(f + completed_tick_offset) < completed_admission_grace)
-                continue;
-            if ((phase == complete || phase == failed) && get32(f + 64) <= oldest) {
-                oldest = get32(f + 64);
-                selected = f;
-            }
-        }
-        if (!selected)
-            return false;
-        std::memset(selected, 0, metadata_size);
-        put32(selected, clearing);
-        std::memcpy(selected + 4, key.data(), key_size);
-        put32(selected + 40, static_cast<uint32_t>(goal.cell[0]));
-        put32(selected + 44, static_cast<uint32_t>(goal.cell[1]));
-        increment(state, 2);
-        return true;
-    };
-    if (!selected && !admit(false))
-        return fallback();
-
-    const auto goal_dx = static_cast<uint32_t>(std::abs(int32_t{goal.cell[0]} - unit.cell_x));
-    const auto goal_dz = static_cast<uint32_t>(std::abs(int32_t{goal.cell[1]} - unit.cell_z));
-    const auto shortcut_probes =
-        uint64_t{1} + std::max(goal_dx, goal_dz) + uint64_t{2} * std::min(goal_dx, goal_dz);
-    bool shortcut_tested{};
-    const auto shortcut = [&]() {
-        if (shortcut_probes > get32(state + 60))
-            return false;
-        shortcut_tested = true;
-        const bool clear =
-            representative_path
-                ? known_segment_clear(
-                      bounded,
-                      key.data(),
-                      unit,
-                      context,
-                      point_at(goal.cell[0], goal.cell[1], context),
-                      static_cast<uint32_t>(shortcut_probes)
-                  )
-                : line_clear(
-                      bounded, key.data(), unit.cell_x, unit.cell_z, goal.cell[0], goal.cell[1]
-                  );
-        if (!clear)
-            return false;
-        points[0] = {
-            static_cast<int16_t>(unit.position.x >> 16), static_cast<int16_t>(unit.position.z >> 16)
-        };
-        points[1] = point_at(goal.cell[0], goal.cell[1], context);
-        count = 2;
-        increment(state, 1);
-        return true;
-    };
-    if (representative_path && get32(selected) != clearing && get32(selected) != failed) {
-        // Clear native lanes need no representative selection or extra credits.
-        if (shortcut()) {
-            put32(selected + 64, get32(state + 32));
-            return FlowResult::ready;
-        }
-        if (budget.exhausted)
-            return wait();
-    }
-    if (representative_path) {
-        if (get32(state + 60) == 0)
-            return wait();
-        // A circle may have other valid arrival cells. This cache only seeds
-        // its requested centre; native search handles an unknown or blocked one.
-        if (bounded.cell(
-                bounded.context, context.movement_class, context.player, goal.cell[0], goal.cell[1]
-            ) != 1)
-            return budget.exhausted ? wait() : fallback();
-    }
-    const bool choose_representative = representative_path;
-    const auto representative_spent = entry_credits - get32(state + 60);
-    const bool selection_fits_fresh_quota =
-        uint64_t{representative_selection_credits} + representative_spent <= route_probes_per_tick_;
-    if (choose_representative && selection_fits_fresh_quota) {
-        if (get32(state + 60) < representative_selection_credits)
-            return wait();
-        const auto anchor = [&](int32_t x, int32_t z, const uint8_t* directions) {
-            // Account for nearest-nine direction lookups as well as live chords.
-            const auto remaining = get32(state + 60);
-            if (remaining < 9) {
-                budget.exhausted = true;
-                return int32_t{-1};
-            }
-            put32(state + 60, remaining - 9);
-            return connect_anchor(columns_, rows_, stride, x, z, key.data(), known, directions);
-        };
-        const auto source_anchor = [&](const uint8_t* directions) {
-            const auto remaining = get32(state + 60);
-            if (remaining < 9) {
-                budget.exhausted = true;
-                return int32_t{-1};
-            }
-            put32(state + 60, remaining - 9);
-            return connect_unit_anchor(
-                columns_, rows_, unit, context, key.data(), known, directions
-            );
-        };
-        uint8_t* goal_covered = nullptr;
-        uint8_t* in_progress = nullptr;
-        uint8_t* failed_seed = nullptr;
-        selected = nullptr;
-        for (size_t i = 0; i < representative_count; ++i) {
-            auto* candidate = representatives[i];
-            const auto candidate_phase = get32(candidate);
-            const bool same_seed = get32(candidate + 40) == static_cast<uint32_t>(goal.cell[0]) &&
-                                   get32(candidate + 44) == static_cast<uint32_t>(goal.cell[1]);
-            if (candidate_phase == clearing || candidate_phase == building) {
-                if (!in_progress || same_seed)
-                    in_progress = candidate;
-            }
-            if (candidate_phase == failed) {
-                if (same_seed)
-                    failed_seed = candidate;
-                continue;
-            }
-            if (candidate_phase == clearing)
-                continue;
-            const auto* directions = candidate + metadata_size;
-            if (anchor(goal.cell[0], goal.cell[1], directions) < 0)
-                continue;
-            if (!goal_covered)
-                goal_covered = candidate;
-            if (source_anchor(directions) >= 0) {
-                selected = candidate;
-                break;
-            }
-        }
-        if (budget.exhausted)
-            return wait();
-        if (!selected)
-            selected = goal_covered ? goal_covered : in_progress;
-        if (!selected && failed_seed)
-            return fallback(); // A failed seed waits for the ordinary revision invalidation.
-        if (!selected) {
-            // Complete-tree noncoverage is not a physical reachability proof.
-            // A new seed is admitted only from live known source/goal anchors.
-            if (representative_count >= representatives.size() ||
-                anchor(goal.cell[0], goal.cell[1], nullptr) < 0 || source_anchor(nullptr) < 0)
-                return budget.exhausted ? wait() : fallback();
-            if (!admit(true))
-                return fallback();
-        }
-    } else if (choose_representative && representative_count > 1) {
-        // A fresh small quota cannot afford optional selection. Let ordinary
-        // native search work rather than returning Pending every fresh tick.
-        return fallback();
-    }
-    put32(selected + 64, get32(state + 32));
-    const auto phase = get32(selected);
-    if (phase == failed)
-        return fallback();
-    if (phase == clearing || get32(state + 60) == 0)
-        return wait();
     // A shared region is a search-work key, not a formation destination.
     // Keep each unit's own unobstructed lane before consulting the regional
     // tree or snapping its start to a coarse anchor. The same probe budget
     // bounds this test, and unknown terrain keeps the sampler's fog rules.
     // Reserve the full supercover cost before trying: a long optional ray
     // must not exhaust a small budget on every tick and starve local prefixes.
-    if (!shortcut_tested && shortcut())
+    const auto goal_dx = static_cast<uint32_t>(std::abs(int32_t{goal.cell[0]} - unit.cell_x));
+    const auto goal_dz = static_cast<uint32_t>(std::abs(int32_t{goal.cell[1]} - unit.cell_z));
+    const auto shortcut_probes =
+        uint64_t{1} + std::max(goal_dx, goal_dz) + uint64_t{2} * std::min(goal_dx, goal_dz);
+    if (shortcut_probes <= get32(state + 60) &&
+        line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, goal.cell[0], goal.cell[1])) {
+        points[0] = {
+            static_cast<int16_t>(unit.position.x >> 16), static_cast<int16_t>(unit.position.z >> 16)
+        };
+        points[1] = point_at(goal.cell[0], goal.cell[1], context);
+        count = 2;
+        increment(state, 1);
         return FlowResult::ready;
+    }
     if (budget.exhausted)
         return wait();
     const auto* directions = selected + metadata_size;
-    auto node =
-        representative_path
-            ? connect_unit_anchor(columns_, rows_, unit, context, key.data(), bounded, directions)
-            : connect_anchor(
-                  columns_, rows_, stride, unit.cell_x, unit.cell_z, key.data(), bounded, directions
-              );
+    auto node = connect_anchor(
+        columns_, rows_, stride, unit.cell_x, unit.cell_z, key.data(), bounded, directions
+    );
     if (node < 0)
         return budget.exhausted || phase == building ? wait() : fallback();
     std::array<uint32_t, goal_branch_capacity> goal_branch;
@@ -902,20 +675,8 @@ FlowResult FlowCache::route(
             // required arrival point when its next corner is already visible.
             // A short hook here can otherwise turn a stock unit away from the
             // following leg or pull a whole queue onto one occupied cell.
-            const bool can_test = probes <= get32(state + 60);
-            const bool clear =
-                can_test &&
-                (representative_path
-                     ? known_segment_clear(
-                           bounded,
-                           key.data(),
-                           unit,
-                           context,
-                           points[2],
-                           static_cast<uint32_t>(probes)
-                       )
-                     : line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, to_x, to_z));
-            if (clear) {
+            if (probes <= get32(state + 60) &&
+                line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, to_x, to_z)) {
                 std::move(points.begin() + 2, points.begin() + count, points.begin() + 1);
                 --count;
                 can_prune_corner = regional;
@@ -1082,16 +843,6 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
     for (uint32_t i = 0; i < fields_; ++i) {
         const auto* f = field(bytes.data(), cells_, i);
         const auto phase = get32(f);
-        if (get32(bytes.data() + 4) == fine_format && phase != empty) {
-            size_t matching = 1;
-            for (uint32_t previous = 0; previous < i; ++previous) {
-                const auto* other = field(bytes.data(), cells_, previous);
-                if (get32(other) != empty && std::memcmp(other + 4, f + 4, key_size) == 0)
-                    ++matching;
-            }
-            if (matching > fine_representatives)
-                return false;
-        }
         if (phase > failed || get32(f + dirty_offset) > 1 ||
             (phase != empty && !valid_key(f + 4)) || get32(f + 52) > cells_ ||
             get32(f + 56) > get32(f + 60) || get32(f + 60) > cells_)
@@ -1111,14 +862,6 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
             if (seed >= cells_ || get32(f + 52) != cells_ || tail == 0 ||
                 (phase == building && head == tail) || (phase == complete && head != tail))
                 return false;
-            if (get32(bytes.data() + 4) == fine_format) {
-                const auto centre_x = (get32(f + 40) + stride_ / 2) / stride_;
-                const auto centre_z = (get32(f + 44) + stride_ / 2) / stride_;
-                const auto root_x = seed % columns_, root_z = seed / columns_;
-                if (std::abs(int64_t(root_x) - centre_x) > 1 ||
-                    std::abs(int64_t(root_z) - centre_z) > 1)
-                    return false;
-            }
             const auto* directions = f + metadata_size;
             if (directions[seed] != root)
                 return false;

@@ -798,14 +798,6 @@ current passability and player knowledge. Ancestor links share the existing
 ordinary prefix delivery; an optional check larger than the configured
 budget cannot suppress that prefix forever. This adds no saved fields.
 
-A region may contain disconnected terrain. Version 7 retains at most two
-representative fields for that region and chooses one with known connections
-to the requested goal and the unit's actual fixed-point footprint. An extra
-representative uses only empty or failed storage; useful fields keep their
-slots. Construction and extraction retain their existing budgets. Unsupported
-connections use ordinary search, and earlier presets keep their original
-field selection.
-
 A nearby shared-route anchor can also point backward and repeatedly pull a
 moving unit into a loop. Version 7 checks these reverse hooks on a staggered
 31-tick cadence, removing one corner only when the unit's actual footprint

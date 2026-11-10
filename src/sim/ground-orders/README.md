@@ -183,29 +183,6 @@ footprint pose, including both sides of exact corner crossings. This optional
 ray uses at most 128 probes per request within the existing per-tick extraction
 budget.
 
-`FlowPreset::fine_regions` retains format 3, two-cell anchors, 96-cell regions
-and up to 32 parent edges per prefix. It may keep at most two independently
-seeded fields for the same movement-class/player/region key. Completed fields
-are selected through live known source and requested-goal connections when
-multiple representatives exist or a completed tree lacks all requested-goal
-anchors. Those connections use the actual fixed-point footprint pose. Ordinary
-single covered fields retain their prior visibility, phase and prefix behavior. A completed tree that lacks
-such a goal connection may admit one additional seed into empty or failed
-storage. Existing representatives and useful unrelated completed fields are
-preserved. An unfinished sibling blocks further admission, and a full pair or
-full table uses ordinary native search. This is bounded stored-tree coverage,
-not a claim that an actor can reach its goal. Optional representative selection uses native fallback for blocked or unknown
-goal centres, including circles with other valid arrival cells.
-
-Representative selection charges anchor inspection and live cell probes to the
-existing extraction credits, with space reserved for an ordinary prefix. An
-intrinsically small configured quota uses ordinary fallback instead of waiting
-forever for optional selection. Field and cell limits, clearing and expansion
-work, the ordinary dirty refresh schedule, and the save layout stay unchanged.
-Fine-format restore limits each key to two nonempty fields and checks each
-built root against its saved seed's nearest nine anchors. Formats 1 and 2 keep
-their existing selection and restore behavior.
-
 ## Verification
 
 The native test exercises handler→goal→initial route→steering→arrival, plus
