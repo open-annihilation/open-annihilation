@@ -1203,10 +1203,17 @@ void Runtime::rebuild_live_picking() {
             }
         }
     );
+    live.triangle_units.resize(triangles);
+    // Terrain has no unit ranges. Kept terrain therefore keeps its zero IDs.
+    const std::size_t first_cleared = ground_held ? std::min(ground / 3, triangles) : 0;
+    std::fill(
+        live.triangle_units.begin() + static_cast<std::ptrdiff_t>(first_cleared),
+        live.triangle_units.end(),
+        0
+    );
     live.picked_ground_revision = live.scene.ground_revision;
     live.picked_ground_vertices = ground;
     live.picked_projection = live.projection;
-    live.triangle_units.assign(live.scene.vertices.size() / 3, 0);
     live.unit_bounds.begin_frame();
     for (const auto& range : live.scene.unit_ranges) {
         if (range.unit_id == 0 || range.vertex_count == 0 ||
