@@ -255,6 +255,38 @@ void check_battle_flow_identity() {
     }
 }
 
+/// Keeps repaired-destination distribution separate from retained battle-flow rules.
+void check_distributed_battle_flow_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto battle =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::battle_flow_version);
+    const auto distributed = enhanced::resolve_profile(
+        bytes(text), "base", {}, enhanced::distributed_battle_flow_version
+    );
+    OA_CHECK(battle.resolution && distributed.resolution);
+    if (!battle.resolution || !distributed.resolution)
+        return;
+    OA_CHECK(
+        enhanced::rules_version(distributed.resolution->profile.rules) ==
+        enhanced::distributed_battle_flow_version
+    );
+    OA_CHECK(distributed.resolution->profile.sim_hash != battle.resolution->profile.sim_hash);
+    OA_CHECK(distributed.resolution->profile.full_hash != battle.resolution->profile.full_hash);
+    OA_CHECK(distributed.resolution->profile.limits == battle.resolution->profile.limits);
+    auto prior = distributed.resolution->profile.rules;
+    prior.setup.enhanced_mode.version = enhanced::battle_flow_version;
+    OA_CHECK(prior == battle.resolution->profile.rules);
+    auto canonical = distributed.resolution->canonical;
+    constexpr std::string_view distributed_rule = "\"setup.enhanced-mode\":{\"version\":7}";
+    constexpr std::string_view battle_rule = "\"setup.enhanced-mode\":{\"version\":6}";
+    const auto version_at = canonical.find(distributed_rule);
+    OA_CHECK(version_at != std::string::npos);
+    if (version_at != std::string::npos) {
+        canonical.replace(version_at, distributed_rule.size(), battle_rule);
+        OA_CHECK(canonical == battle.resolution->canonical);
+    }
+}
+
 /// Preserves the original version selected by a bare profile switch.
 void check_profile_default_version() {
     const std::string text = std::string{mod_text} + "  setup.enhanced-mode: true\n";
@@ -333,7 +365,7 @@ void check_enhanced_capacity() {
 void check_refusals() {
     const profiles::ResolveOptions options{};
     for (const uint32_t version :
-         {enhanced::battle_flow_version + 1, std::numeric_limits<uint32_t>::max()}) {
+         {enhanced::distributed_battle_flow_version + 1, std::numeric_limits<uint32_t>::max()}) {
         const auto result = enhanced::resolve_profile(bytes(mod_text), "chosen", options, version);
         OA_CHECK(!result.resolution);
         OA_CHECK(!result.errors.empty());
@@ -384,8 +416,10 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::swept_ground_version));
     OA_CHECK(enhanced::supported_version(enhanced::corridor_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::battle_flow_version));
+    OA_CHECK(enhanced::supported_version(enhanced::distributed_battle_flow_version));
+    OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
-    OA_CHECK(!enhanced::supported_version(enhanced::battle_flow_version + 1));
+    OA_CHECK(!enhanced::supported_version(enhanced::distributed_battle_flow_version + 1));
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
     check_off_identity();
     check_versioned_identity();
@@ -393,6 +427,7 @@ int main() {
     check_swept_ground_identity();
     check_corridor_identity();
     check_battle_flow_identity();
+    check_distributed_battle_flow_identity();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();

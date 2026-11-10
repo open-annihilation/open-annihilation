@@ -28,7 +28,12 @@ Version 5 reserves a separate identity for
 advisory corridor lanes. That version requires
 the matching flow behavior to be integrated and validated before adoption;
 version metadata alone does not provide it. Versions 1, 2, 3 and 4 keep
-their original canonical profiles and hashes. Graphics settings are
+their original canonical profiles and hashes. `battle_flow_version` is six:
+its rules retain patrol goals, bounded early AI retargeting, and short-grace
+route queues. `distributed_battle_flow_version` is seven, retaining those
+features while distributing repaired group destinations. Versions 6 and 7
+remain explicit experimental choices; the new-game default remains 4.
+Graphics settings are
 independent and never enter this module.
 
 A profile that writes `setup.enhanced-mode: true` still resolves to version
@@ -48,6 +53,6 @@ lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
 `data-enhanced-mode` checks pinned Off, version-1, version-2, version-3 and
-version-4 canonical and simulation hashes, distinct version-5 identity,
+version-4 canonical and simulation hashes, distinct version-5, version-6 and version-7 identities,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.

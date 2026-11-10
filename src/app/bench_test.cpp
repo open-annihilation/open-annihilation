@@ -128,7 +128,7 @@ void rules_requests_preserve_defaults_and_require_enhanced_mode() {
     OA_CHECK(bench::validate_started_rules(defaults, 4, error));
     OA_CHECK(defaults.rules_version == 0);
 
-    for (const uint32_t version : std::array<uint32_t, 3>{0, 4, 6}) {
+    for (const uint32_t version : std::array<uint32_t, 4>{0, 4, 6, 7}) {
         bench::View view;
         OA_CHECK(bench::parse_view("rules_version " + std::to_string(version), view, error));
         OA_CHECK(view.rules_version == version);
@@ -145,6 +145,7 @@ void rules_requests_preserve_defaults_and_require_enhanced_mode() {
     OA_CHECK(bench::validate_started_rules(explicit_zero, 0, error));
     OA_CHECK(bench::validate_started_rules(explicit_zero, 4, error));
     OA_CHECK(bench::validate_started_rules(explicit_zero, 6, error));
+    OA_CHECK(bench::validate_started_rules(explicit_zero, 7, error));
     OA_CHECK(explicit_zero.rules_version == 0);
 }
 
@@ -152,10 +153,10 @@ void rules_requests_preserve_defaults_and_require_enhanced_mode() {
 /// requests and unsupported actual rules are refused independently.
 void started_rules_must_match_explicit_requests() {
     std::string error;
-    for (const uint32_t requested : std::array<uint32_t, 2>{4, 6}) {
+    for (const uint32_t requested : std::array<uint32_t, 3>{4, 6, 7}) {
         bench::View view;
         view.rules_version = requested;
-        for (const uint32_t actual : std::array<uint32_t, 3>{0, 4, 6}) {
+        for (const uint32_t actual : std::array<uint32_t, 4>{0, 4, 6, 7}) {
             OA_CHECK(bench::validate_started_rules(view, actual, error) == (requested == actual));
             if (requested != actual)
                 OA_CHECK(error == "the skirmish's Enhanced Mode rules differ from rules_version");
@@ -164,15 +165,15 @@ void started_rules_must_match_explicit_requests() {
     }
 
     bench::View unsupported;
-    unsupported.rules_version = 7;
+    unsupported.rules_version = 8;
     OA_CHECK(!bench::validate_rules_request(unsupported, true, error));
     OA_CHECK(error == "rules_version is unsupported");
     OA_CHECK(!bench::validate_rules_request(unsupported, false, error));
     OA_CHECK(error == "rules_version is unsupported");
-    for (const uint32_t requested : std::array<uint32_t, 3>{0, 4, 6}) {
+    for (const uint32_t requested : std::array<uint32_t, 4>{0, 4, 6, 7}) {
         bench::View view;
         view.rules_version = requested;
-        OA_CHECK(!bench::validate_started_rules(view, 7, error));
+        OA_CHECK(!bench::validate_started_rules(view, 8, error));
         OA_CHECK(error == "the skirmish's Enhanced Mode rules version is unsupported");
         OA_CHECK(view.rules_version == requested);
     }
