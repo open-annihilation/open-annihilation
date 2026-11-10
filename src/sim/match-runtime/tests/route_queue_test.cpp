@@ -572,6 +572,188 @@ void prepare_route(Scene& scene, uint16_t id, int32_t x, int32_t z, uint32_t age
     state.navigation.last_search_tick = 0;
 }
 
+void restore_head(Scene& scene, uint16_t id, const movement::LocalFlowHead& head) {
+    auto& match = scene.match();
+    std::vector<movement::LocalFlowHead> heads(match.state().unit_slot_count);
+    for (const auto other : scene.all_units())
+        if (const auto* current = match.local_flow_head(other))
+            heads[other] = *current;
+    heads[id] = head;
+    std::vector<uint8_t> bytes(heads.size() * movement::local_flow_head_bytes);
+    CHECK(movement::write_local_flow_heads(heads, bytes));
+    const auto* table = runtime::find_rule_state(match.rule_state(), "local-flow");
+    CHECK(table && table->restore && table->restore(table->context, bytes));
+}
+
+std::unique_ptr<Scene> passing_scene(uint32_t version) {
+    auto holder = std::make_unique<Scene>(version, false, true);
+    auto& scene = *holder;
+    auto& match = scene.match();
+    const auto leader = scene.queue[0], follower = scene.queue[1];
+    CHECK(
+        !match.order_refused(match.issue_ground_move(follower, {208 * pixel, 0, 48 * pixel}, false))
+    );
+    CHECK(
+        !match.order_refused(match.issue_ground_move(leader, {208 * pixel, 0, 48 * pixel}, false))
+    );
+    scene.run();
+    match.simulation().tick = 56;
+    prepare_route(scene, leader, 120 * pixel - 1, 144, 10);
+    prepare_route(scene, follower, 88 * pixel - 1, 144, 30);
+    match.stop_orders(leader);
+    auto& front = scene.ground(leader);
+    front.navigation = {};
+    front.movement.speed = 0;
+    front.movement.velocity = {};
+    // The front mobile unit and a side gate select a real passing leg,
+    // including the controller's original goal identity.
+    match.place_unit_at(scene.gate, 88 * pixel - 1, land_height * pixel, 176 * pixel, ground_layer);
+    auto& gate = scene.ground(scene.gate);
+    gate.project_slot();
+    gate.movement.speed = 0;
+    gate.movement.velocity = {};
+    movement::LocalFlowHead waiting{};
+    waiting.mobile_blocked = true;
+    waiting.blocked_ticks = movement::local_flow_retry_ticks + 1;
+    restore_head(scene, follower, waiting);
+    scene.run();
+    return holder;
+}
+
+enum class CompletionControl {
+    recent,
+    boundary,
+    expired,
+    changed_goal,
+    changed_prefix,
+    forward_rejoin,
+    mature_dead_end
+};
+
+void completed_head_counterfixture(uint32_t version, CompletionControl control) {
+    auto holder = passing_scene(version);
+    auto& scene = *holder;
+    auto& match = scene.match();
+    const auto leader = scene.queue[0], follower = scene.queue[1];
+    const auto selected = *match.local_flow_head(follower);
+    CHECK(selected.active && selected.count == 3 && selected.goal_key != 0);
+    CHECK(selected.points[1][0] == selected.points[0][0]);
+    CHECK(selected.points[1][1] < selected.points[0][1]);
+    auto& rear = scene.ground(follower);
+    CHECK(rear.navigation.goal != nullptr);
+    auto goal = *rear.navigation.goal;
+    auto* const primary = match.spawn_slot(follower).unit->primary;
+    match.place_unit_at(
+        follower,
+        int32_t(selected.points[1][0]) * pixel,
+        land_height * pixel,
+        (int32_t(selected.points[1][1]) + 6) * pixel,
+        ground_layer
+    );
+    rear.project_slot();
+    match.spawn_slot(follower).record.heading = 0;
+    rear.project_slot();
+    rear.movement.speed = maximum_speed;
+    rear.movement.velocity = movement::aim_velocity(0, 0, maximum_speed);
+    rear.movement.turn = 0;
+    rear.navigation.last_search_tick = 83;
+    match.simulation().tick = 83;
+    restore_head(scene, follower, selected);
+    CHECK(!movement::local_flow_head_reached(rear.geometry, selected));
+    scene.run();
+    CHECK(rear.movement.last_motion_tick == 84);
+    CHECK(movement::local_flow_head_reached(rear.geometry, selected));
+    scene.run();
+    auto completed = *match.local_flow_head(follower);
+    CHECK(!completed.active && completed.count == movement::local_flow_completed_count);
+    CHECK(completed.tick == 85 && completed.points == selected.points);
+    // The history and its completion timestamp came from actual caller ticks.
+    // Clear traffic while the canonical-route interval advances that history.
+    match.place_unit_at(leader, 240 * pixel, land_height * pixel, 240 * pixel, ground_layer);
+    match.place_unit_at(scene.gate, 304 * pixel, land_height * pixel, 240 * pixel, ground_layer);
+    completed.blocked_ticks = movement::local_flow_retry_ticks + 1;
+    restore_head(scene, follower, completed);
+    scene.run();
+    if (control != CompletionControl::mature_dead_end)
+        scene.run();
+    uint32_t choice_tick = control == CompletionControl::mature_dead_end ? 87 : 88;
+    if (control == CompletionControl::boundary)
+        choice_tick = 115;
+    if (control == CompletionControl::expired)
+        choice_tick = 116;
+    match.simulation().tick = choice_tick - 1;
+    CHECK(match.local_flow_head(follower)->tick == 85);
+    const int32_t x = (int32_t(rear.geometry.cell[0]) * 16 + 16) * pixel;
+    const int32_t z =
+        std::min(rear.geometry.position[2], (int32_t(selected.points[1][1]) - 1) * pixel);
+    match.place_unit_at(follower, x, land_height * pixel, z, ground_layer);
+    rear.project_slot();
+    CHECK(movement::local_flow_head_reached(rear.geometry, selected));
+    const int32_t front_gap = control == CompletionControl::forward_rejoin ? 64 : 32;
+    match.place_unit_at(leader, x + front_gap * pixel, land_height * pixel, z, ground_layer);
+    if (control == CompletionControl::mature_dead_end)
+        match.place_unit_at(scene.gate, x, land_height * pixel, z - 32 * pixel, ground_layer);
+    auto marker = *match.local_flow_head(follower);
+    marker.blocked_ticks =
+        control == CompletionControl::mature_dead_end ? movement::local_flow_retry_ticks + 1 : 1;
+    restore_head(scene, follower, marker);
+    if (control == CompletionControl::mature_dead_end)
+        rear.movement.last_motion_tick = choice_tick - movement::local_flow_retry_ticks;
+    if (control == CompletionControl::changed_goal) {
+        ++rear.navigation.goal->cell[0];
+        goal = *rear.navigation.goal;
+    }
+    if (control == CompletionControl::changed_prefix)
+        rear.navigation.points[2] = {224, 48};
+    rear.navigation.last_search_tick = choice_tick - 1;
+    const auto navigation_points = rear.navigation.points;
+    CHECK(
+        movement::local_flow_recovery_due(marker, choice_tick, follower) ==
+        (control == CompletionControl::mature_dead_end)
+    );
+    scene.run();
+    const auto after = *match.local_flow_head(follower);
+    CHECK(after.active && after.count == 3);
+    CHECK(match.spawn_slot(follower).unit->primary == primary);
+    CHECK(rear.navigation.goal && same_goal(*rear.navigation.goal, goal));
+    CHECK(rear.navigation.goal->order == primary);
+    CHECK(rear.navigation.last_search_tick == choice_tick - 1);
+    CHECK(rear.navigation.points == navigation_points);
+    const bool guarded = version == distributed_version && (control == CompletionControl::recent ||
+                                                            control == CompletionControl::boundary);
+    std::cout << "Completed passing head: version=" << version
+              << ", control=" << static_cast<unsigned>(control)
+              << ", age=" << choice_tick - marker.tick << ", target=" << after.points[1][0] << ','
+              << after.points[1][1] << '\n';
+    if (guarded)
+        CHECK(int32_t(after.points[1][1]) * pixel < z);
+    else
+        CHECK(int32_t(after.points[1][1]) * pixel > z);
+    if (control == CompletionControl::forward_rejoin)
+        CHECK(int32_t(after.points[1][0]) * pixel > x);
+    if (control == CompletionControl::mature_dead_end) {
+        bool escaped{};
+        for (uint32_t tick = 0; tick < 60 && !escaped; ++tick) {
+            scene.run();
+            escaped = rear.geometry.position[2] > z + 8 * pixel;
+        }
+        CHECK(escaped);
+    }
+}
+
+void completed_heads_keep_only_recent_compatible_history() {
+    for (const auto version : {battle_version, distributed_version})
+        for (const auto control :
+             {CompletionControl::recent,
+              CompletionControl::boundary,
+              CompletionControl::expired,
+              CompletionControl::changed_goal,
+              CompletionControl::changed_prefix,
+              CompletionControl::forward_rejoin,
+              CompletionControl::mature_dead_end})
+            completed_head_counterfixture(version, control);
+}
+
 PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2) {
     Scene scene(version, false, true);
     auto& match = scene.match();
@@ -734,7 +916,7 @@ void historical_profiles_do_not_read_route_coherence() {
 }
 
 void print_legacy_trace() {
-    for (uint32_t version = 0; version < battle_version; ++version)
+    for (uint32_t version = 0; version <= battle_version; ++version)
         for (const auto control :
              {Pipeline::matched,
               Pipeline::different_goal,
@@ -772,6 +954,21 @@ int main(int argc, char** argv) {
             std::cerr << name << ": " << error.what() << '\n';
         }
     };
+    if (argc == 2 && std::strcmp(argv[1], "--completed-head-counterfixture") == 0) {
+        for (const auto version : {battle_version, distributed_version})
+            for (const auto control :
+                 {CompletionControl::recent,
+                  CompletionControl::boundary,
+                  CompletionControl::expired,
+                  CompletionControl::changed_goal,
+                  CompletionControl::changed_prefix,
+                  CompletionControl::forward_rejoin,
+                  CompletionControl::mature_dead_end})
+                run("completed passing head",
+                    [&] { completed_head_counterfixture(version, control); });
+        return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     for (const auto version : {battle_version, distributed_version}) {
         const auto run_version = [&](const char* name, void (*test)(uint32_t)) {
             run(name, [&] { test(version); });
@@ -793,5 +990,6 @@ int main(int argc, char** argv) {
         );
     }
     run("historical profile coherence", historical_profiles_do_not_read_route_coherence);
+    run("completed passing head", completed_heads_keep_only_recent_compatible_history);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
