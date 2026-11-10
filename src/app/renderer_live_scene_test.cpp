@@ -4086,6 +4086,42 @@ void ground_index_bounds_revision_reuse() {
     pair.build();
     OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
     OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 0);
+    // The last fixed-point value below this sea rounds onto its surface
+    // in one environment and remains submerged in the other. Its actual
+    // caller keeps that choice, including whether it queries the ground.
+    std::fenv_t original{};
+    if (std::fegetenv(&original) == 0) {
+        fixture.inputs.sea_level = 512;
+        fixture.draws.sprites[0].world_position->y = 512 * 65536 - 1;
+        for (const auto rounding : {FE_TONEAREST, FE_DOWNWARD}) {
+            if (std::fesetround(rounding) != 0)
+                continue;
+            std::fenv_t requested{};
+            if (std::fegetenv(&requested) != 0)
+                continue;
+            cache.valid = pair.ordinary.ground_index_cache.valid = false;
+            fixture.inputs.pool = &pair.one;
+            OA_CHECK(live::build(fixture.inputs, pair.ordinary, fixture.error));
+            fixture.inputs.pool = &pair.four;
+            bool built = false, restored = false;
+            oa::platform::job_pool::run_bands(&pair.four, 2, [&](uint32_t band) noexcept {
+                if (band != 0)
+                    return;
+                std::fenv_t before{};
+                if (std::fegetenv(&before) != 0)
+                    return;
+                if (std::fesetenv(&requested) == 0)
+                    built = live::build(fixture.inputs, fixture.scene, fixture.error);
+                restored = std::fesetenv(&before) == 0;
+            });
+            OA_CHECK(built && restored && fixture.error.empty());
+            OA_CHECK(same_frame(fixture.scene, pair.ordinary));
+            const uint64_t expected_builds = rounding == FE_TONEAREST ? 1 : 0;
+            OA_CHECK(fixture.scene.passes.ground_indices.builds == expected_builds);
+            OA_CHECK(pair.ordinary.passes.ground_indices.builds == expected_builds);
+        }
+        OA_CHECK(std::fesetenv(&original) == 0);
+    }
     timers::reset(false);
 }
 
