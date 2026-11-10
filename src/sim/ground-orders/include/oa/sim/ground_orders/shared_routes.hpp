@@ -116,6 +116,7 @@ class FlowCache {
     /// Pending suppresses a full search without consuming its retry timestamp.
     /// Extraction shares a separate per-tick cell-probe budget. Exhaustion
     /// returns pending so large cohorts cannot burst unbounded validation work.
+    /// Fine regional fields charge bounded goal-branch links to the same budget.
     /// Ready writes at least two points; a route may be a prefix when the output
     /// fills. Every returned edge is checked against current static knowledge.
     ///

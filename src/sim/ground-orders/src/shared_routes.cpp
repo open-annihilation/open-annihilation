@@ -16,6 +16,7 @@ constexpr uint32_t magic = 0x3246414f, original_format = 1, regional_format = 2,
 constexpr uint32_t original_stride = 4, fine_stride = 2;
 constexpr uint32_t original_region = 32, large_region = 96;
 constexpr uint32_t original_prefix_edges = 128, regional_prefix_edges = 16, fine_prefix_edges = 32;
+constexpr size_t goal_branch_capacity = 512;
 constexpr uint32_t visible_chord_probe_limit = 128;
 constexpr std::size_t header_size = 128, admission_size = 48, admission_count = 64;
 constexpr std::size_t metadata_size = 80, key_size = 36;
@@ -570,6 +571,49 @@ FlowResult FlowCache::route(
     );
     if (node < 0)
         return budget.exhausted || phase == building ? wait() : fallback();
+    std::array<uint32_t, goal_branch_capacity> goal_branch;
+    size_t goal_branch_count{};
+    if (format == fine_format) {
+        const auto seed = get32(selected + 48);
+        const auto root_x = static_cast<int32_t>(seed % columns_) * static_cast<int32_t>(stride);
+        const auto root_z = static_cast<int32_t>(seed / columns_) * static_cast<int32_t>(stride);
+        if (!line_clear(bounded, key.data(), root_x, root_z, goal.cell[0], goal.cell[1])) {
+            if (budget.exhausted)
+                return wait();
+            auto goal_node = connect_anchor(
+                columns_, rows_, stride, goal.cell[0], goal.cell[1], key.data(), bounded, directions
+            );
+            if (budget.exhausted)
+                return wait();
+            bool reached_root = false;
+            while (goal_node >= 0 && goal_branch_count < goal_branch.size()) {
+                goal_branch[goal_branch_count++] = static_cast<uint32_t>(goal_node);
+                const auto direction = directions[goal_node];
+                if (direction == root) {
+                    reached_root = true;
+                    break;
+                }
+                if (direction >= 8)
+                    break;
+                const auto remaining = get32(state + 60);
+                if (remaining == 0)
+                    return wait();
+                // Goal ancestry shares the same per-tick credits as static
+                // probes. Every link is bounded even before it is published.
+                put32(state + 60, remaining - 1);
+                const int32_t parent_x = goal_node % static_cast<int32_t>(columns_) + dx[direction];
+                const int32_t parent_z = goal_node / static_cast<int32_t>(columns_) + dz[direction];
+                if (parent_x < 0 || parent_z < 0 || static_cast<uint32_t>(parent_x) >= columns_ ||
+                    static_cast<uint32_t>(parent_z) >= rows_)
+                    break;
+                goal_node = parent_z * static_cast<int32_t>(columns_) + parent_x;
+            }
+            // A distant or undiscovered goal branch must not suppress a useful
+            // ordinary prefix from the already discovered part of this tree.
+            if (!reached_root)
+                goal_branch_count = 0;
+        }
+    }
     // Validate every coarse edge afresh: newly learned static obstacles cannot
     // leak a stale route, even when the player's knowledge epoch stayed zero.
     points[0] = {
@@ -638,9 +682,23 @@ FlowResult FlowCache::route(
     };
     uint8_t previous = unseen;
     for (uint32_t walked = 0; walked < prefix_edges; ++walked) {
-        const auto direction = directions[node];
-        if (direction == root || (static_cast<uint32_t>(x) / region == get32(key.data() + 28) &&
-                                  static_cast<uint32_t>(z) / region == get32(key.data() + 32))) {
+        auto direction = directions[node];
+        const auto branch_end = goal_branch.begin() + goal_branch_count;
+        const auto branch = std::find(goal_branch.begin(), branch_end, static_cast<uint32_t>(node));
+        const bool at_requested_anchor = branch != branch_end && branch == goal_branch.begin();
+        if (branch != branch_end && branch != goal_branch.begin()) {
+            const auto child_direction = directions[*(branch - 1)];
+            if (child_direction >= 8) {
+                count = 0;
+                return fallback();
+            }
+            // At the shared ancestor, follow the requested goal's branch
+            // outward instead of continuing toward the region's first seed.
+            direction = static_cast<uint8_t>((child_direction + 4) % 8);
+        }
+        if (direction == root || at_requested_anchor ||
+            (static_cast<uint32_t>(x) / region == get32(key.data() + 28) &&
+             static_cast<uint32_t>(z) / region == get32(key.data() + 32))) {
             if (line_clear(bounded, key.data(), x, z, goal.cell[0], goal.cell[1])) {
                 const auto corner = point_at(x, z, context);
                 if (points[count - 1] != corner) {
@@ -658,7 +716,7 @@ FlowResult FlowCache::route(
                     return ready();
                 }
             }
-            if (direction == root) {
+            if (direction == root || at_requested_anchor) {
                 count = 0;
                 return budget.exhausted ? wait() : fallback();
             }
