@@ -15,6 +15,7 @@ namespace {
 using oa::sim::ground_orders::RoutePoint;
 using oa::sim::match_runtime::is_route_prefix;
 using oa::sim::match_runtime::preferred_fallback_search;
+using oa::sim::match_runtime::preferred_pending_search;
 using oa::sim::match_runtime::preferred_search_unit_is_live;
 using oa::sim::match_runtime::same_preferred_search_goal;
 
@@ -194,6 +195,33 @@ void captured_stationary_fallbacks_keep_their_native_search_eligibility() {
     navigation.last_search_tick = std::numeric_limits<uint32_t>::max() - 200;
     OA_CHECK(preferred_fallback_search(navigation, movement, traffic, 20));
 }
+
+void pending_candidates_require_mature_collisions_and_old_orders() {
+    oa::sim::simulation_state::Order order;
+    oa::sim::ground_orders::Goal goal;
+    goal.order = &order;
+    oa::sim::ground_orders::Navigation navigation;
+    navigation.goal = &goal;
+    oa::sim::unit_movement::LocalFlowHead traffic;
+    constexpr uint32_t tick = 9000, old_order = tick - 120;
+    order.issue_tick = old_order;
+    traffic.blocked_ticks = oa::sim::unit_movement::local_flow_retry_ticks;
+    OA_CHECK(preferred_pending_search(navigation, traffic, tick));
+    --traffic.blocked_ticks;
+    OA_CHECK(!preferred_pending_search(navigation, traffic, tick));
+    ++traffic.blocked_ticks;
+    ++order.issue_tick;
+    OA_CHECK(!preferred_pending_search(navigation, traffic, tick));
+    order.issue_tick = old_order;
+    goal.order = nullptr;
+    OA_CHECK(!preferred_pending_search(navigation, traffic, tick));
+    goal.order = &order;
+    navigation.goal = nullptr;
+    OA_CHECK(!preferred_pending_search(navigation, traffic, tick));
+    navigation.goal = &goal;
+    order.issue_tick = std::numeric_limits<uint32_t>::max() - 99;
+    OA_CHECK(preferred_pending_search(navigation, traffic, 20));
+}
 } // namespace
 
 int main() {
@@ -202,5 +230,6 @@ int main() {
     malformed_counts_and_coordinate_bounds();
     saved_battle_routes_keep_their_existing_backbone();
     captured_stationary_fallbacks_keep_their_native_search_eligibility();
+    pending_candidates_require_mature_collisions_and_old_orders();
     return oa::test::check_exit_status();
 }
