@@ -1111,6 +1111,125 @@ bool segment_avoids_blocked_cells(const Grid& grid, RoutePoint from, RoutePoint 
     return true;
 }
 
+/// Keeps a bridge passable around static blockers between stride-four rows.
+void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
+    Grid grid(160, 64);
+    constexpr uint32_t bridge_column = 80, bridge_row = 26;
+    for (uint32_t z = 0; z < grid.height; ++z)
+        if (z != bridge_row)
+            grid.cells[z * grid.width + bridge_column] = 0;
+    const FlowLimits limits{1, 2560, 64, 256};
+    FlowCache coarse(160, 64, limits, FlowPreset::large_regions);
+    FlowCache fine(160, 64, limits, FlowPreset::fine_regions);
+    FlowCache loaded(160, 64, limits, FlowPreset::fine_regions);
+    auto unit = unit_at(8, 16);
+    const auto goal = circle(144, 16);
+    const auto saved_goal = goal.cell;
+    for (auto* cache : {&coarse, &fine}) {
+        CHECK(query(*cache, grid, unit, goal) == FlowResult::fallback);
+        CHECK(query(*cache, grid, unit, goal) == FlowResult::pending);
+        cache->advance(1, 0, grid.sampler());
+    }
+    CHECK(loaded.restore(fine.state_bytes()));
+    for (uint32_t tick = 2; tick < 100; ++tick) {
+        const auto before = fine.counters();
+        coarse.advance(tick, 0, grid.sampler());
+        fine.advance(tick, 0, grid.sampler());
+        loaded.advance(tick, 0, grid.sampler());
+        CHECK(fine.counters().cells_expanded - before.cells_expanded <= limits.work_per_tick);
+        CHECK(fine.counters().cells_cleared - before.cells_cleared <= 65'536);
+        CHECK(
+            std::equal(
+                fine.state_bytes().begin(), fine.state_bytes().end(), loaded.state_bytes().begin()
+            )
+        );
+    }
+    CHECK(query(coarse, grid, unit, goal) == FlowResult::fallback);
+    bool arrived = false;
+    uint32_t consumed = 0;
+    for (uint32_t tick = 100; tick < 112; ++tick) {
+        fine.advance(tick, 0, grid.sampler());
+        loaded.advance(tick, 0, grid.sampler());
+        std::array<RoutePoint, navigation_capacity> points{}, resumed{};
+        uint32_t count{}, resumed_count{};
+        auto probes = grid.queries;
+        const auto result = fine.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(grid.queries - probes <= limits.route_probes_per_tick);
+        probes = grid.queries;
+        CHECK(
+            loaded.route(context(), unit, goal, resumed, resumed_count, grid.sampler()) == result
+        );
+        CHECK(grid.queries - probes <= limits.route_probes_per_tick);
+        CHECK(count == resumed_count && points == resumed);
+        CHECK(
+            std::equal(
+                fine.state_bytes().begin(), fine.state_bytes().end(), loaded.state_bytes().begin()
+            )
+        );
+        CHECK(result == FlowResult::ready && count >= 2);
+        if (result != FlowResult::ready || count < 2)
+            return;
+        for (uint32_t i = 1; i < count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+        if (consumed == 0) {
+            CHECK(points[count - 1] != (RoutePoint{2312, 264}));
+            CHECK(std::abs(int32_t(points[count - 1][0]) - points[0][0]) <= 64 * 16);
+            CHECK(std::abs(int32_t(points[count - 1][1]) - points[0][1]) <= 64 * 16);
+        }
+        ++consumed;
+        unit = unit_at(
+            static_cast<int16_t>((points[count - 1][0] - 8) / 16),
+            static_cast<int16_t>((points[count - 1][1] - 8) / 16)
+        );
+        CHECK(goal.cell == saved_goal && goal.shape == GoalShape::circle);
+        if (unit.cell_x == goal.cell[0] && unit.cell_z == goal.cell[1]) {
+            arrived = true;
+            break;
+        }
+    }
+    CHECK(arrived && consumed >= 3);
+    CHECK(fine.counters().fields_started == 1 && fine.counters().invalidations == 0);
+}
+
+/// Refuses incompatible grid formats without changing the destination cache.
+void fine_route_grid_formats_are_distinct_and_restore_atomically() {
+    Grid grid(128, 128);
+    const FlowLimits limits{2, 8192, 64, 256};
+    FlowCache original(128, 128, limits);
+    FlowCache regional(128, 128, limits, FlowPreset::large_regions);
+    FlowCache fine(128, 128, limits, FlowPreset::fine_regions);
+    constexpr size_t format_offset = 4, stride_offset = 28;
+    CHECK(original.state_bytes()[format_offset] == 1);
+    CHECK(regional.state_bytes()[format_offset] == 2);
+    CHECK(fine.state_bytes()[format_offset] == 3);
+    CHECK(original.state_bytes()[stride_offset] == 4);
+    CHECK(regional.state_bytes()[stride_offset] == 4);
+    CHECK(fine.state_bytes()[stride_offset] == 2);
+    CHECK(query(fine, grid, unit_at(4, 4), circle(40, 40)) == FlowResult::fallback);
+    CHECK(query(fine, grid, unit_at(4, 4), circle(80, 80)) == FlowResult::pending);
+    CHECK(fine.counters().fields_started == 1);
+    const std::vector<uint8_t> saved(fine.state_bytes().begin(), fine.state_bytes().end());
+    const std::vector<uint8_t> old_bytes(
+        original.state_bytes().begin(), original.state_bytes().end()
+    );
+    const std::vector<uint8_t> regional_bytes(
+        regional.state_bytes().begin(), regional.state_bytes().end()
+    );
+    CHECK(!fine.restore(old_bytes) && !fine.restore(regional_bytes));
+    CHECK(!original.restore(saved) && !regional.restore(saved));
+    CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
+    CHECK(std::equal(old_bytes.begin(), old_bytes.end(), original.state_bytes().begin()));
+    CHECK(std::equal(regional_bytes.begin(), regional_bytes.end(), regional.state_bytes().begin()));
+    auto forged = saved;
+    forged[stride_offset] = 4;
+    CHECK(!fine.restore(forged));
+    CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
+    forged = saved;
+    forged[format_offset] = 2;
+    CHECK(!fine.restore(forged));
+    CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
+}
+
 /// Delivers a legal nearby prefix while a stale connection farther away waits for repair.
 void regional_prefixes_continue_to_the_original_goal_after_restore() {
     Grid grid(512, 128);
@@ -1643,6 +1762,8 @@ int main() {
     optional_visible_chords_obey_the_per_request_cap();
     original_preset_keeps_its_state_and_guides();
     route_presets_keep_distinct_formats_and_goal_regions();
+    fine_route_grid_formats_are_distinct_and_restore_atomically();
+    fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
     regional_prefixes_continue_to_the_original_goal_after_restore();
