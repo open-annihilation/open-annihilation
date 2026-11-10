@@ -1270,24 +1270,36 @@ void fine_goal_branch_traversal_spends_the_global_quota() {
     CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
 }
 
-/// Refuses absent goal branches and bounds work on a tree deeper than its local spine.
-void fine_goal_branches_refuse_unseen_blocked_and_overlong_spines() {
+/// Preserves useful approaches while bounding unavailable requested-goal branches.
+void fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines() {
     auto grid = winding_origin_grid(16, 80, 72);
     grid.cells[32 * grid.width + 40] = 1;
     const auto unit = unit_at(40, 24);
+    const auto root = unit_at(8, 8);
     const auto seed = circle(8, 8), isolated = circle(40, 32);
     const FlowLimits limits{1, 2304, 2048, 65'536};
     FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
     (void)query(cache, grid, unit, seed);
     (void)query(cache, grid, unit, seed);
     cache.advance(1, 0, grid.sampler());
-    CHECK(query(cache, grid, unit, isolated) == FlowResult::fallback);
+    CHECK(query(cache, grid, root, isolated) == FlowResult::fallback);
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(
+        cache.route(context(), unit, isolated, points, count, grid.sampler()) == FlowResult::ready
+    );
+    CHECK(count >= 2);
+    if (count >= 2) {
+        CHECK(points[count - 1] != (RoutePoint{648, 520}));
+        CHECK(points[count - 1][1] < 24 * 16 + 8);
+        for (uint32_t i = 1; i < count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+    }
     grid.cells[32 * grid.width + 40] = 0;
-    CHECK(query(cache, grid, unit, isolated) == FlowResult::fallback);
+    CHECK(query(cache, grid, root, isolated) == FlowResult::fallback);
     CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
     auto deep_grid = winding_origin_grid(4, 88, 88);
     FlowCache deep(96, 96, limits, FlowPreset::fine_regions);
-    const auto root = unit_at(8, 8);
     (void)query(deep, deep_grid, root, seed);
     (void)query(deep, deep_grid, root, seed);
     deep.advance(1, 0, deep_grid.sampler());
@@ -2113,7 +2125,7 @@ int main() {
     route_presets_keep_distinct_formats_and_goal_regions();
     fine_routes_follow_the_requested_goal_branch_after_restore();
     fine_goal_branch_traversal_spends_the_global_quota();
-    fine_goal_branches_refuse_unseen_blocked_and_overlong_spines();
+    fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines();
     fine_route_grid_formats_are_distinct_and_restore_atomically();
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
