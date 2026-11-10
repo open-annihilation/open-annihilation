@@ -372,6 +372,20 @@ struct SearchUnitAccess {
         OccupancyRectangle& rectangle,
         uint32_t& changed_tick
     ){};
+    /// Offers one unit before the ordinary cursor, or none when null.
+    ///
+    /// Called at most once per player per scan, on every fourth credited
+    /// cursor pick. The returned index addresses the player's current unit
+    /// span, which the callback must not change. An out-of-order choice does
+    /// not move the ordinary cursor. The usual search readiness, preparation
+    /// and work charges still apply.
+    ///
+    /// @param context SearchUnitAccess::context
+    /// @param player the credited player slot
+    /// @param tick current game tick
+    /// @param[out] unit_index an index in the player's current unit span
+    /// @return true to offer the indexed unit, false for the ordinary cursor
+    bool (*preferred_unit)(void* context, uint8_t player, uint32_t tick, uint32_t& unit_index){};
 };
 
 // The path search: player job state, the active job record and its worker.
@@ -392,6 +406,8 @@ struct SearchScheduler {
 /// reached. The scan ends early when no player has credit left to pick, or the
 /// picked player has no unit list, no units, or a cursor past its units; a job
 /// the controller refuses to start costs its 100 all the same.
+/// An optional preferred-unit callback may replace one of every four cursor
+/// picks, at most once per player per scan, within the same work budget.
 ///
 /// @param[in,out] scheduler job state, controller and worker
 /// @param players player slots with their unit lists

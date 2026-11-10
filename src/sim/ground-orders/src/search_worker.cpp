@@ -10,6 +10,8 @@
 namespace oa::sim::ground_orders {
 namespace {
 
+constexpr int32_t preferred_pick_period = 4;
+
 int32_t wrap_neg(int32_t value) noexcept {
     return static_cast<int32_t>(0u - static_cast<uint32_t>(value));
 }
@@ -745,6 +747,7 @@ int32_t scan_player_jobs(
         budget = wrap_add(budget, state.credit[player]);
     }
 
+    std::array<bool, search_player_slots> preferred_asked{};
     int32_t steps = 0;
     while (budget > 0) {
         state.slice_cost = 0;
@@ -769,13 +772,24 @@ int32_t scan_player_jobs(
             auto& cursor = state.unit_cursor[player];
             if (static_cast<std::size_t>(cursor) >= units.size())
                 break;
-            // Step to the next unit, wrapping from the last unit to the first.
-            if (static_cast<std::size_t>(cursor) + 1 == units.size())
-                cursor = 0;
-            else
-                ++cursor;
+            const auto next_cursor =
+                static_cast<std::size_t>(cursor) + 1 == units.size() ? uint32_t{0} : cursor + 1;
+            auto selected = next_cursor;
+            if (access.preferred_unit && !preferred_asked[player] &&
+                state.job_picks[player] % preferred_pick_period == 0) {
+                preferred_asked[player] = true;
+                uint32_t offered{};
+                if (access.preferred_unit(access.context, player, tick, offered) &&
+                    static_cast<std::size_t>(offered) < units.size() &&
+                    units[offered].record.owner_index == player)
+                    selected = offered;
+            }
+            // An out-of-order pick borrows this credit, not the ordinary
+            // cursor's next unit. A coincident choice consumes that unit once.
+            if (selected == next_cursor)
+                cursor = next_cursor;
             state.slice_cost +=
-                try_start_job(scheduler, units[cursor], player, tick, sight_grid, access);
+                try_start_job(scheduler, units[selected], player, tick, sight_grid, access);
         } else
             state.slice_cost = continue_job(scheduler, access);
         budget = wrap_sub(budget, state.slice_cost);
