@@ -1017,6 +1017,134 @@ void regional_blocked_edge_keeps_an_unaffected_branch_ready() {
     CHECK(query(cache, grid, south, goal) == FlowResult::ready);
 }
 
+/// Prioritizes rejected guides without adding refresh work or starving benign changes.
+void fine_blocked_guides_get_bounded_refresh_priority_and_background_slots() {
+    struct Scenario {
+        uint32_t boundary;
+        bool block_low, block_high;
+        uint32_t selected;
+    };
+
+    for (const auto scenario : {
+             Scenario{150, false, true, 1},  // Demand before an older-index benign tree.
+             Scenario{240, false, true, 0},  // Every fourth slot reserves background work.
+             Scenario{180, false, false, 0}, // No demand: ordinary slots still refresh benign work.
+             Scenario{
+                 240, true, true, 0
+             },                           // No benign tree: reserved slot serves demand, index tie.
+             Scenario{0, false, true, 0}, // Completion/dirty ages survive uint32 tick wrap.
+         }) {
+        Grid grid(320, 64);
+        const FlowLimits limits{2, 10'240, 512, 65'536};
+        FlowCache cache(320, 64, limits, FlowPreset::fine_regions);
+        FlowCache loaded(320, 64, limits, FlowPreset::fine_regions);
+        FlowCache legacy(320, 64, limits, FlowPreset::large_regions);
+        const auto low = unit_at(20, 10), high = unit_at(220, 10);
+        const auto low_goal = circle(10, 10), high_goal = circle(210, 10);
+        for (auto* c : {&cache, &legacy}) {
+            CHECK(query(*c, grid, low, low_goal) == FlowResult::fallback);
+            CHECK(query(*c, grid, low, low_goal) == FlowResult::pending);
+            CHECK(query(*c, grid, high, high_goal) == FlowResult::fallback);
+            CHECK(query(*c, grid, high, high_goal) == FlowResult::pending);
+            for (uint32_t before = 149; before > 1; --before)
+                c->advance(scenario.boundary - before, 0, grid.sampler());
+        }
+        const auto read32 = [](std::span<const uint8_t> bytes, size_t at) {
+            return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 |
+                   uint32_t(bytes[at + 2]) << 16 | uint32_t(bytes[at + 3]) << 24;
+        };
+        const auto field_at = [&](const FlowCache& c, uint32_t index) {
+            return 128 + 64 * 48 + size_t(index) * (80 + size_t(read32(c.state_bytes(), 20)) * 5);
+        };
+        for (uint32_t z = 8; z <= 12; ++z) {
+            if (scenario.block_low)
+                grid.cells[z * grid.width + 18] = 0;
+            if (scenario.block_high)
+                grid.cells[z * grid.width + 218] = 0;
+        }
+        for (auto* c : {&cache, &legacy}) {
+            c->advance(scenario.boundary - 1, 1, grid.sampler());
+            CHECK(
+                query(*c, grid, low, low_goal, context(0, 1)) ==
+                (scenario.block_low ? FlowResult::fallback : FlowResult::ready)
+            );
+            CHECK(
+                query(*c, grid, high, high_goal, context(0, 1)) ==
+                (scenario.block_high ? FlowResult::fallback : FlowResult::ready)
+            );
+        }
+        const auto expected_low = scenario.block_low ? 2u : 1u;
+        const auto expected_high = scenario.block_high ? 2u : 1u;
+        CHECK(read32(cache.state_bytes(), field_at(cache, 0) + 68) == expected_low);
+        CHECK(read32(cache.state_bytes(), field_at(cache, 1) + 68) == expected_high);
+        CHECK(read32(legacy.state_bytes(), field_at(legacy, 0) + 68) == 1);
+        CHECK(read32(legacy.state_bytes(), field_at(legacy, 1) + 68) == 1);
+        // A later revision must not erase the observed service denial or its age.
+        cache.advance(scenario.boundary - 1, 2, grid.sampler());
+        legacy.advance(scenario.boundary - 1, 2, grid.sampler());
+        CHECK(read32(cache.state_bytes(), field_at(cache, 0) + 68) == expected_low);
+        CHECK(read32(cache.state_bytes(), field_at(cache, 1) + 68) == expected_high);
+        CHECK(read32(cache.state_bytes(), field_at(cache, 1) + 72) == scenario.boundary - 2);
+        CHECK(loaded.restore(cache.state_bytes()));
+        // Fine fields accept the named demand state, never arbitrary new values.
+        auto invalid = std::vector<uint8_t>(cache.state_bytes().begin(), cache.state_bytes().end());
+        invalid[field_at(cache, 1) + 68] = 3;
+        CHECK(!loaded.restore(invalid));
+        CHECK(
+            std::equal(
+                cache.state_bytes().begin(), cache.state_bytes().end(), loaded.state_bytes().begin()
+            )
+        );
+        const auto before = cache.counters();
+        cache.advance(scenario.boundary, 2, grid.sampler());
+        loaded.advance(scenario.boundary, 2, grid.sampler());
+        legacy.advance(scenario.boundary, 2, grid.sampler());
+        CHECK(cache.counters().fields_started == before.fields_started + 1);
+        CHECK(cache.counters().invalidations == before.invalidations + 1);
+        CHECK(cache.counters().cells_expanded - before.cells_expanded <= limits.work_per_tick);
+        CHECK(cache.counters().cells_cleared - before.cells_cleared <= 65'536);
+        CHECK(read32(cache.state_bytes(), field_at(cache, scenario.selected) + 68) == 0);
+        CHECK(read32(cache.state_bytes(), field_at(cache, scenario.selected) + 76) == 0);
+        CHECK(
+            read32(cache.state_bytes(), field_at(cache, 1 - scenario.selected) + 68) ==
+            (scenario.selected ? expected_low : expected_high)
+        );
+        // Legacy formats keep their original age/index selection and boolean codec.
+        CHECK(read32(legacy.state_bytes(), field_at(legacy, 0) + 68) == 0);
+        CHECK(read32(legacy.state_bytes(), field_at(legacy, 1) + 68) == 1);
+        FlowCache legacy_loaded(320, 64, limits, FlowPreset::large_regions);
+        auto legacy_invalid =
+            std::vector<uint8_t>(legacy.state_bytes().begin(), legacy.state_bytes().end());
+        legacy_invalid[field_at(legacy, 1) + 68] = 2;
+        CHECK(!legacy_loaded.restore(legacy_invalid));
+        bool low_repaired = !scenario.block_low, high_repaired = !scenario.block_high;
+        for (uint32_t after = 0; after <= 40; ++after) {
+            const auto tick = scenario.boundary + after;
+            const auto work_before = cache.counters();
+            cache.advance(tick, 2, grid.sampler());
+            loaded.advance(tick, 2, grid.sampler());
+            CHECK(
+                cache.counters().cells_expanded - work_before.cells_expanded <= limits.work_per_tick
+            );
+            CHECK(cache.counters().cells_cleared - work_before.cells_cleared <= 65'536);
+            const auto low_result = query(cache, grid, low, low_goal, context(0, 2));
+            const auto high_result = query(cache, grid, high, high_goal, context(0, 2));
+            CHECK(low_result == query(loaded, grid, low, low_goal, context(0, 2)));
+            CHECK(high_result == query(loaded, grid, high, high_goal, context(0, 2)));
+            low_repaired |= low_result == FlowResult::ready;
+            high_repaired |= high_result == FlowResult::ready;
+            CHECK(
+                std::equal(
+                    cache.state_bytes().begin(),
+                    cache.state_bytes().end(),
+                    loaded.state_bytes().begin()
+                )
+            );
+        }
+        CHECK(low_repaired && high_repaired);
+    }
+}
+
 /// Lets a dirty frontier finish, then repairs its blocked branch after restore.
 void regional_blocked_building_edge_resumes_and_refreshes() {
     Grid grid(128, 128);
@@ -2243,6 +2371,7 @@ int main() {
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
+    fine_blocked_guides_get_bounded_refresh_priority_and_background_slots();
     regional_prefixes_continue_to_the_original_goal_after_restore();
     visible_first_corner_does_not_require_a_short_anchor_turn();
     a_blocked_first_corner_keeps_the_start_anchor();
