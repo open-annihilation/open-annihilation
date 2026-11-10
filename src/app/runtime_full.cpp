@@ -431,8 +431,11 @@ run_full_function_test(card::Executor& executor, SDL_Renderer* renderer, bool so
 }
 
 /// Converts the overlay canvas by its key colour into ARGB8888 words, and
-/// uploads the bands that hold paint now or held it at the last upload, so
-/// that the texture holds this frame's overlay whatever came before.
+/// uploads the bands that changed since the last upload and hold paint now
+/// or held it then, so that the texture holds this frame's overlay whatever
+/// came before. Only the bands that differ from the canvas uploaded last
+/// are converted, while the key and the gamma stay as they were; a texture
+/// not yet uploaded takes every band.
 ///
 /// @param canvas the painted canvas, RGB24 at the battlefield's size
 /// @param key the colour the canvas was cleared to
@@ -441,8 +444,10 @@ run_full_function_test(card::Executor& executor, SDL_Renderer* renderer, bool so
 /// @param gamma the display gamma's table; null for none
 /// @param pool the drawing threads
 /// @param[in,out] overlay the words, the battlefield's size
+/// @param[in,out] source the canvas the words were converted from, with its
+///        key and gamma, and the bands this upload converted
 /// @param[in,out] opaque_bands the bands that hold an opaque pixel now
-/// @param[in,out] uploaded_bands the bands uploaded last
+/// @param[in,out] uploaded_bands the bands whose rows of the texture hold paint
 /// @param[in,out] uploaded the texture holds an uploaded overlay
 /// @param[in,out] texture the overlay's texture, made for the size
 void upload_keyed_overlay(
@@ -453,19 +458,52 @@ void upload_keyed_overlay(
     const std::array<uint8_t, 256>* gamma,
     oa::platform::job_pool::Pool* pool,
     std::vector<uint8_t>& overlay,
+    FullOverlaySource& source,
     std::vector<uint8_t>& opaque_bands,
     std::vector<uint8_t>& uploaded_bands,
     bool& uploaded,
     TiledTexture& texture
 ) {
     const std::size_t pitch = std::size_t{bf_w} * card::texel_bytes;
-    convert_rgb24_keyed_overlay_argb(
-        canvas, key, bf_w, bf_h, overlay.data(), pitch, gamma, opaque_bands, pool
-    );
+    const std::size_t canvas_bytes = std::size_t{bf_w} * bf_h * 3U;
+    auto& changed_bands = source.changed_bands;
+    changed_bands.resize(opaque_bands.size());
+    const bool whole = !uploaded;
+    const bool same_terms = !whole && source.canvas.size() == canvas_bytes && source.key == key &&
+                            source.gamma_on == (gamma != nullptr) &&
+                            (gamma == nullptr || source.gamma == *gamma);
+    if (same_terms) {
+        convert_changed_rgb24_keyed_overlay_argb(
+            canvas,
+            source.canvas.data(),
+            key,
+            bf_w,
+            bf_h,
+            overlay.data(),
+            pitch,
+            gamma,
+            opaque_bands,
+            changed_bands,
+            pool
+        );
+    } else {
+        convert_rgb24_keyed_overlay_argb(
+            canvas, key, bf_w, bf_h, overlay.data(), pitch, gamma, opaque_bands, pool
+        );
+        source.canvas.assign(canvas, canvas + canvas_bytes);
+        source.key = key;
+        source.gamma_on = gamma != nullptr;
+        if (gamma != nullptr)
+            source.gamma = *gamma;
+        std::fill(changed_bands.begin(), changed_bands.end(), uint8_t{1});
+    }
     const auto bands = static_cast<uint32_t>(opaque_bands.size());
     const auto stale = [&](uint32_t band) {
-        return !uploaded || opaque_bands[band] != 0 || uploaded_bands[band] != 0;
+        return whole ||
+               (changed_bands[band] != 0 && (opaque_bands[band] != 0 || uploaded_bands[band] != 0));
     };
+    // An upload that throws part way leaves the texture to be uploaded whole.
+    uploaded = false;
     for (uint32_t band = 0; band < bands;) {
         if (!stale(band)) {
             ++band;
@@ -483,6 +521,8 @@ void upload_keyed_overlay(
         );
         band = end;
     }
+    // A band not uploaded is unchanged, or was and is clear: the texture
+    // holds paint in the bands the canvas does.
     uploaded_bands = opaque_bands;
     uploaded = true;
 }
@@ -1060,6 +1100,7 @@ void Runtime::free_full_match_textures() noexcept {
     full.overlay = {};
     full.opaque_bands = {};
     full.uploaded_bands = {};
+    full.overlay_source = {};
     full.overlay_uploaded = false;
     // The stages' pages and targets go with the match too.
     full.destroy_sprite_card_pages();
@@ -1627,8 +1668,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             match_hud_tex_, match_hud_cpu_, accelerated_.hud_revision, &spare_match_hud_
         );
         // What the painters painted on the canvas, by its key, uploaded in
-        // the bands that hold it now or held it at the last upload, so the
-        // texture holds this frame's overlay whatever came before.
+        // the bands that changed and hold it now or held it at the last
+        // upload, so the texture holds this frame's overlay whatever came
+        // before.
         const auto overlay_start = std::chrono::steady_clock::now();
         upload_keyed_overlay(
             match_world_cpu_.rgb.data(),
@@ -1638,6 +1680,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             gamma,
             draw_pool_.get(),
             full.overlay,
+            full.overlay_source,
             full.opaque_bands,
             full.uploaded_bands,
             full.overlay_uploaded,
