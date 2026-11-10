@@ -4,6 +4,8 @@
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
+#include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 
 #include <algorithm>
@@ -64,6 +66,11 @@ constexpr uint8_t order_target_seen = 0x20;
 constexpr uint32_t cancel_reach = 0x100000;
 // Whole pixels a snapped click may lie from a queued order's point.
 constexpr uint32_t snapped_cancel_reach = 8;
+/// A torn-down mission must accept the next rally command normally.
+constexpr uint32_t rally_cancel_event = 2;
+constexpr uint8_t rally_ground_occupancy = 1;
+constexpr uint8_t active_move_phase = 1;
+constexpr uint8_t active_patrol_phase = 2;
 
 /// Tells whether the command resolver picks the VTOL construction, repair
 /// and reclaim missions for this unit.
@@ -161,6 +168,77 @@ Match::issue_ground_move(uint16_t index, const sim::ground_orders::Point& destin
         );
     if (!unit.record.type_index || !ground_runtime(index))
         return refused_order();
+    const auto& enhanced = rules().setup.enhanced_mode;
+    if (!queue && enhanced.enabled &&
+        enhanced.version ==
+            static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version) &&
+        enhanced_ != nullptr && enhanced_->ai_retarget.builtin_dispatch && unit.owner != nullptr &&
+        unit.owner->record.index == enhanced_->ai_retarget.builtin_player &&
+        (unit.record.squad == static_cast<int32_t>(sim::ai::Squad::land_army) ||
+         unit.record.squad == static_cast<int32_t>(sim::ai::Squad::navy)) &&
+        sim::simulation_state::locally_simulated(unit) && unit.record.attach_parent == 0 &&
+        unit.type != nullptr && (unit.type->flags & OA_UNIT_DEF_FLAG_CAN_FLY) == 0 &&
+        (unit.record.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) == rally_ground_occupancy &&
+        oa::unit_is_live_target(unit.record.flags) && unit.record.health > 0 &&
+        (unit.record.flags & OA_UNIT_FLAG_DEATH_PENDING) == 0) {
+        auto* current = runtime_order(unit.primary);
+        auto* movement = ground_runtime(index);
+        constexpr uint32_t interrupted_goal_events =
+            sim::ground_orders::arrived_event | sim::ground_orders::path_failed_event |
+            sim::ground_orders::goal_replaced_event | rally_cancel_event;
+        const bool active_kind =
+            current != nullptr &&
+            ((current->order.kind == sim::ground_orders::move_ground_kind &&
+              current->order.phase == active_move_phase) ||
+             (current->order.kind == patrol_kind && current->order.phase == active_patrol_phase) ||
+             (current->order.kind == repair_patrol_kind &&
+              current->order.phase == active_move_phase));
+        if (active_kind && current->unit == &unit &&
+            (current->extra.command_flags & command_overlay) == 0 &&
+            (current->extra.command_flags & command_has_point) != 0 &&
+            current->attack.target == nullptr && current->construction.target == nullptr &&
+            (current->order.raised_events & interrupted_goal_events) == 0 &&
+            current->extra.goal != nullptr && !movement->mirrored_driver) {
+            const auto* goal = current->extra.goal.get();
+            const auto& search = search_.controller.active();
+            const bool same_goal =
+                movement->navigation.goal == goal && goal->order == &current->order &&
+                !sim::ground_orders::goal_contains(*goal, unit.record.cell_x, unit.record.cell_z);
+            const bool search_refers_to_unit =
+                search.unit == &unit || search.navigation == &movement->navigation;
+            const bool same_search =
+                !search_refers_to_unit ||
+                (search.unit == &unit && search.navigation == &movement->navigation &&
+                 search.goal == goal && search.movement_map != nullptr) ||
+                (search.unit == nullptr && !movement->navigation.needs_search());
+            bool owned_queue = true;
+            const sim::simulation_state::Order* seen[overlay_order_budget]{};
+            std::size_t count = 0;
+            auto* queued = unit.primary;
+            while (owned_queue && queued != nullptr && count < overlay_order_budget) {
+                for (std::size_t previous = 0; previous < count; ++previous)
+                    if (seen[previous] == queued)
+                        owned_queue = false;
+                if (!owned_queue)
+                    break;
+                const auto* owned = runtime_order(queued);
+                if (owned == nullptr || owned->unit != &unit ||
+                    (owned->order.flags & flags_secondary) != 0) {
+                    owned_queue = false;
+                    break;
+                }
+                seen[count++] = queued;
+                queued = owned->order.next;
+            }
+            owned_queue = owned_queue && queued == nullptr;
+            if (same_goal && same_search && owned_queue) {
+                // Only rally tasks issue built-in moves to land-army or navy
+                // members. Keep their active march and complete patrol queue
+                // instead of collapsing every destination onto the centroid.
+                return current->order;
+            }
+        }
+    }
     auto entry = std::make_unique<RuntimeOrder>();
     if (enhanced_ && enhanced_->order_ownership)
         (void)enhanced_->order_ownership->fresh(&entry->order);
