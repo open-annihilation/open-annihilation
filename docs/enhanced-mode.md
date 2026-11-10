@@ -1140,7 +1140,7 @@ from 21.11 to 47.98 pixels and north/south bridge-band unique crossers from
 current Core Prime Industrial Area fixture, not a verification of the earlier
 Metal Heck image or the literal water-covered centre.
 
-The retained configuration completed 9,000 ticks with 9,658 CORE and 9,741
+In the isolated overlay run, the retained configuration completed 9,000 ticks with 9,658 CORE and 9,741
 ARM units alive, 604 actual deaths, three ARM births and no pending deaths.
 All 61 physical audit epochs passed, and command destinations retained the
 same 12,314 original points and 7,686 repaired sites. Process CPU time was
@@ -1167,6 +1167,37 @@ but measured about 1.9 ms for parallel bounds. No subnormal or nonfinite
 coordinates were present. This does not establish a math or allocation fix;
 GPU load, residency and scheduling were not reproduced offline. No new
 floating-point, allocation or culling policy was adopted from that result.
+
+### Retained production repeat
+
+A fresh production build at source `0a40ac526` repeated the same 9,000-tick
+battle. Its final world digest was `5e61a009313942ed`; all 38 deterministic
+output files matched the accepted no-field run byte for byte. The earlier
+preset's 1,800-tick compatibility prefix also matched. The generated-source
+inventory was extended for this freeze; the earlier freeze's missing generated
+server-source bytes cannot be reconstructed from its pinned object files.
+
+The fresh repeat measured 16.213 ms mean, 30.391 ms p99 and 42.388 ms maximum
+process CPU time, with 22 ticks above 33.333 ms and an 82.456 ms wall maximum.
+Identical recorded behavior did not produce identical timings. The host was
+not isolated, and residency, scheduling and thermal causes remain unproved.
+The earlier overlay's zero slow ticks therefore do not establish sustained
+headroom on this laptop.
+
+Fresh normal foreground runs used that production build, with no observer,
+capture or readback, and the same AA4, resolution, zoom and strategic-dot
+settings described above. Both passed native and OS focus guards through
+all 900 measured ticks after 900 warmup ticks.
+
+| View | FPS | Simulation ticks per second | Interval p99 / maximum |
+| --- | --- | --- | --- |
+| Classic 2.5D overview | 64.707 | 30.003 | 27.69 / 39.66 ms |
+| Angled 3D overview | 56.025 | 30.013 | 29.12 / 38.58 ms |
+
+Neither run had an interval over 50 ms. The angled view's cold index build
+measured 13.266 ms, including 4.592 ms of bounds work, without changing the
+renderer implementation between these runs. The angled view remains below
+the 60 FPS target, and rear-army flow remains mixed. Ray tracing is deferred.
 
 ## Remaining work
 
