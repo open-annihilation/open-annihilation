@@ -7,6 +7,7 @@
 #include "enhanced_state.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "route_prefix.hpp"
+#include "preferred_search_candidate.hpp"
 #include "oa/sim/ground_orders/shared_routes.hpp"
 
 #include <algorithm>
@@ -19,6 +20,7 @@ namespace {
 // Ticks between a player slot's deadlines: the local slot's outcome checks,
 // the slot's economy settlement and the viewpoint's contact scan.
 constexpr uint32_t player_update_period = 30;
+constexpr uint32_t distributed_seed_step_limit = 256;
 } // namespace
 
 void Match::tick() {
@@ -238,6 +240,9 @@ bool Match::prepare_search_job(
     begin.occupancy = occupancy_feed_;
     begin.world_width = spatial_.terrain_width;
     begin.world_height = spatial_.terrain_height;
+    if (rules().setup.enhanced_mode.enabled &&
+        rules().setup.enhanced_mode.version == data::enhanced_mode::distributed_battle_flow_version)
+        begin.seed_step_limit = distributed_seed_step_limit;
     map = &*klass->map;
     return true;
 }
@@ -301,12 +306,33 @@ void Match::advance_path_search() {
         return nullptr;
     };
 
+    struct PreferredCandidate {
+        sim::simulation_state::Unit* unit{};
+        sim::ground_orders::Goal* goal{};
+        sim::ground_orders::Goal geometry{};
+        uint32_t unit_index{}, generation{}, age{};
+        uint16_t stable_id{};
+    };
+
     struct Context {
         Match* match;
         decltype(find_slot)* find;
         const sim::ground_orders::FlowSampler* sampler;
         bool shared_routes;
-    } context{this, &find_slot, &flow_sampler, shared_routes};
+        bool preferred_searches;
+        bool collecting{};
+        uint32_t polled_index{};
+        std::array<PreferredCandidate, OA_PLAYER_COUNT> candidates{};
+        sim::simulation_state::Unit* preferred_dispatch{};
+        sim::ground_orders::Goal* preferred_goal{};
+    } context{
+        this,
+        &find_slot,
+        &flow_sampler,
+        shared_routes,
+        shared_routes && rules().setup.enhanced_mode.version ==
+                             data::enhanced_mode::distributed_battle_flow_version
+    };
 
     sim::ground_orders::SearchUnitAccess access;
     access.context = &context;
@@ -318,6 +344,16 @@ void Match::advance_path_search() {
         if (!runtime || runtime->mirrored_driver || !runtime->movement_class)
             return nullptr;
         auto& navigation = runtime->navigation;
+        if (ctx.preferred_dispatch == &unit) {
+            ctx.preferred_dispatch = nullptr;
+            const auto* goal = ctx.preferred_goal;
+            ctx.preferred_goal = nullptr;
+            // This credited pick already has a validated fallback from this
+            // tick's poll. Exhausted shared credits must not turn a second
+            // query into Pending and suppress the admitted ordinary search.
+            if (navigation.goal == goal)
+                return &navigation;
+        }
         const auto* traffic = ctx.shared_routes && ctx.match->enhanced_->local_flow_heads
                                   ? &ctx.match->enhanced_->local_flow_heads[slot->unit_index]
                                   : nullptr;
@@ -394,6 +430,30 @@ void Match::advance_path_search() {
                 }
                 // Returning no job lets the cursor visit other units. Do
                 // not consume the ordinary search's 60-tick retry stamp.
+                if (result == sim::ground_orders::FlowResult::fallback && ctx.collecting &&
+                    traffic &&
+                    preferred_fallback_search(
+                        navigation, runtime->movement, *traffic, ctx.match->simulation_.tick
+                    )) {
+                    const auto owner = unit.record.owner_index;
+                    const auto* owned = ctx.match->runtime_order(navigation.goal->order);
+                    if (owner < ctx.candidates.size() && owned && owned->unit == &unit) {
+                        const auto age = ctx.match->simulation_.tick - navigation.last_search_tick;
+                        auto& candidate = ctx.candidates[owner];
+                        if (!candidate.unit || age > candidate.age ||
+                            (age == candidate.age && unit.record.id < candidate.stable_id)) {
+                            candidate = {
+                                &unit,
+                                navigation.goal,
+                                *navigation.goal,
+                                ctx.polled_index,
+                                ctx.match->bridge_->runtime(*slot).instance_generation,
+                                age,
+                                unit.record.id
+                            };
+                        }
+                    }
+                }
                 if (result == sim::ground_orders::FlowResult::pending && !mature_collision)
                     return nullptr;
             }
@@ -460,6 +520,40 @@ void Match::advance_path_search() {
         if (auto* slot = (*ctx.find)(unit))
             changed_tick = ctx.match->spatial_units_[slot->unit_index].object_tick;
     };
+    if (context.preferred_searches)
+        access.preferred_unit = [](void* c, uint8_t player, uint32_t tick, uint32_t& index) {
+            auto& ctx = *static_cast<Context*>(c);
+            if (player >= ctx.candidates.size() || player >= ctx.match->simulation_.players.size())
+                return false;
+            const auto candidate = ctx.candidates[player];
+            ctx.candidates[player] = {};
+            auto& units = ctx.match->simulation_.players[player].units;
+            if (!candidate.unit || candidate.unit_index >= units.size())
+                return false;
+            auto& unit = units[candidate.unit_index];
+            if (&unit != candidate.unit || unit.record.id != candidate.stable_id ||
+                unit.record.owner_index != player || unit.record.type_index == 0 ||
+                unit.record.movement == 0 || (unit.record.flags & OA_UNIT_FLAG_LIVE) == 0)
+                return false;
+            auto* slot = (*ctx.find)(unit);
+            auto* runtime = slot ? ctx.match->ground_runtime(slot->unit_index) : nullptr;
+            if (!runtime || runtime->mirrored_driver || !runtime->movement_class ||
+                ctx.match->bridge_->runtime(*slot).instance_generation != candidate.generation ||
+                runtime->navigation.goal != candidate.goal ||
+                !same_preferred_search_goal(*candidate.goal, candidate.geometry))
+                return false;
+            const auto* owned = ctx.match->runtime_order(candidate.goal->order);
+            if (!ctx.match->enhanced_->local_flow_heads)
+                return false;
+            const auto& traffic = ctx.match->enhanced_->local_flow_heads[slot->unit_index];
+            if (!owned || owned->unit != &unit ||
+                !preferred_fallback_search(runtime->navigation, runtime->movement, traffic, tick))
+                return false;
+            index = candidate.unit_index;
+            ctx.preferred_dispatch = &unit;
+            ctx.preferred_goal = candidate.goal;
+            return true;
+        };
     if (shared_routes) {
         auto& scan = enhanced_->shared_route_scan_state;
         uint32_t previous_tick = 0;
@@ -476,6 +570,7 @@ void Match::advance_path_search() {
                     active_slots[active_players++] = player;
             constexpr uint32_t shared_units_per_tick = 1024;
             const auto per_player = shared_units_per_tick / std::max(active_players, uint32_t{1});
+            context.collecting = context.preferred_searches;
             for (uint32_t seat = 0; seat < active_players; ++seat) {
                 // Extraction shares a bounded probe budget. Rotate its first
                 // claimant so a large army cannot always exhaust it before
@@ -493,13 +588,17 @@ void Match::advance_path_search() {
                 );
                 const auto count = std::min(record.units.size(), size_t(per_player));
                 for (size_t offset = 0; offset < count; ++offset) {
-                    auto& unit = record.units[(first + offset) % record.units.size()];
+                    const auto index = (first + offset) % record.units.size();
+                    auto& unit = record.units[index];
                     if (!search_.controller.idle() && search_.controller.active().unit == &unit)
                         continue;
-                    if (unit.record.type_index != 0 && unit.record.movement != 0)
+                    if (unit.record.type_index != 0 && unit.record.movement != 0) {
+                        context.polled_index = static_cast<uint32_t>(index);
                         (void)access.navigator(access.context, unit);
+                    }
                 }
             }
+            context.collecting = false;
         }
     }
     auto& game = simulation_.record.game;
