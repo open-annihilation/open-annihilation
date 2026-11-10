@@ -50,21 +50,20 @@ using MemorySampler = bool (*)(void* context, MemorySample* out);
 /// @return false when the host cannot report any counters
 bool sample_process_memory(void* context, MemorySample* out) noexcept;
 
-/// What this process's live allocations hold on the host's heap.
+/// The host allocator's in-use counts for this process.
 struct HostHeapUse {
-    uint64_t bytes{}; ///< bytes allocated and not yet freed
+    uint64_t bytes{}; ///< allocator-reported capacity in use, including allocation padding
     /// blocks allocated and not yet freed; 0 where the host does not count them
     uint64_t blocks{};
 };
 
-/// Samples what this process's live allocations hold on the host's heap: the
-/// blocks malloc and operator new have handed out and not had back. It leaves
-/// out the free memory the allocator keeps for later allocations, which the
-/// working set counts and which grows and shrinks with the order and timing of
-/// past allocations, so a count that grows means memory that was never given
-/// back. On Linux it also counts the freed blocks each thread's cache keeps
-/// for its next allocations, which the GNU C library counts as in use: the
-/// cache fills over many allocations, and the tunable
+/// Samples the host allocator's in-use counts, rather than requested payload
+/// sizes. Capacity can exceed the request: on macOS a smaller live allocation
+/// can reuse an oversized freed block without shrinking it. Changing capacity
+/// alone therefore does not establish that earlier owners kept their blocks.
+/// Free memory held for later allocations is excluded, except on Linux where
+/// the GNU C library also counts each thread's freed cached blocks as in use.
+/// That cache fills over many allocations, and the tunable
 /// glibc.malloc.tcache_count=0 turns it off.
 ///
 /// Every heap of the process is counted on Windows, every malloc zone on macOS

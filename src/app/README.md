@@ -4550,15 +4550,17 @@ once its feed lists it, unless the player has chosen another
 (`LibraryHost::select_kept`), and the list keeps its scroll while that
 entry is where it was; otherwise its row is brought into view
 (`ScreenState::reveal_row`). `--check-mod-switch` (`native-mod-switch`,
-`runtime_mod_switch_check.cpp`) switches ten times between No Mod and two
+`runtime_mod_switch_check.cpp`) switches thirteen times between No Mod and two
 test profiles through that same path, on the dummy video driver's window,
-and requires what the host heap holds in live allocations as the last
-round's runs reach the main menu (`oa::platform::sample_host_heap_use`) to
-stay within 64 KiB of the first round's after the first start that played
-the same mods. Runs that play the same mod hold the same blocks; the working
-set, which it prints beside them, also counts the free memory the allocator
-keeps, which grows over the switches by an amount that changes from one
-start of the check to the next.
+and samples the host heap after each runtime has built its main menu,
+before its event loop and the next switch
+(`oa::platform::sample_host_heap_use`). The last three runs must stay within
+128 KiB of the second round after the first start that played the same
+mods. The macOS CTest disables the allocator's large-block cache for this
+check: otherwise a smaller live object can reuse an oversized freed frame,
+changing its counted capacity while the requested objects stay the same.
+The working set printed beside the live heap also counts free memory the
+allocator keeps, which can vary between starts and is not compared.
 
 A mod folder whose profile plays but whose game files are missing is never
 refused (`runtime_mod_warning.cpp`). `Runtime::mod_start_gaps` finds what

@@ -2432,12 +2432,12 @@ if(OA_BUILD_PLATFORM)
         TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_icloud_wait_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
-      # The Library switches the mod ten times, between no mod and two test
+      # The Library switches the mod thirteen times, between no mod and two test
       # profiles it writes into the player's own Mods folder: each switch
       # stores the mod and builds the game afresh on the same window, which
       # plays the mod chosen, shown as played; what the heap holds
       # as the last round's runs reach the main menu stays level with the
-      # first round's after the first start.
+      # second round's after the first start.
       set(oa_mod_switch_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-switch")
       file(MAKE_DIRECTORY "${oa_mod_switch_dir}")
       add_test(NAME native-mod-switch COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -2447,6 +2447,11 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-mod-switch PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_mod_switch_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      if(APPLE)
+        # A freed frame can back a smaller live allocation without shrinking.
+        # Keep its oversized capacity out of this retained-allocation check.
+        set_property(TEST native-mod-switch APPEND PROPERTY ENVIRONMENT "MallocLargeCache=0")
+      endif()
       # Two map packs written into the player's own Maps folder: one whose
       # map fits, listed after the base maps, mounted alone when it is chosen,
       # unmounted for a base map, played for 30 ticks with its files readable

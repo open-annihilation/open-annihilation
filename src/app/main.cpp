@@ -911,7 +911,7 @@ constexpr std::size_t kModSwitchTurns = 3;
 /// same mod hold the same blocks, to within the length of a few strings
 /// and what the allocator's own bookkeeping varies by from one machine to
 /// the next (up to 100 KiB on the regression Mac), so a leak of 22 KiB or
-/// more a switch exceeds it over the six switches between the runs
+/// more a switch exceeds it over at least six switches between the runs
 /// compared.
 constexpr uint64_t kModSwitchHeapNoise = uint64_t{128} * 1024;
 
@@ -921,12 +921,10 @@ class ModSwitchMemory {
   public:
 
     /// Paints the progress dialog off the screen before the first run is
-    /// sampled. The dialog keeps its fonts, the glyphs it drew and the app
-    /// icon from its first showing, when a step of a start lasts longer than
-    /// long_work_show_after_ms, for the rest of the process. A start slowed
-    /// by a loaded machine would otherwise first show it in a later round,
-    /// and the heap would step up by that much once, as if a switch kept
-    /// memory. The heap it takes is logged.
+    /// sampled. Its canvas and font stack are released when this returns;
+    /// its decoded app icon stays in memory. Painting ahead keeps that first
+    /// decode out of later rounds if a slow start first shows the dialog
+    /// then. The change in the heap's use is logged.
     ///
     /// @param window the game's window
     /// @param renderer its renderer
@@ -946,8 +944,8 @@ class ModSwitchMemory {
             std::cout << "mod switch check: the progress dialog was painted before the first run\n";
     }
 
-    /// Notes the host heap's use as a run starts on the main menu, with the
-    /// working set beside it.
+    /// Notes the host heap's use after the runtime has built its main menu,
+    /// before its event loop and mod-switch check, with the working set beside it.
     ///
     /// @param run the soft restarts before it
     void sample(uint32_t run) {
@@ -966,8 +964,8 @@ class ModSwitchMemory {
     }
 
     /// Compares each run of the last round of switches with the run of the
-    /// second round that played the same mod, six switches earlier: none may
-    /// hold more than kModSwitchHeapNoise more on the host heap, as a run
+    /// second round that played the same mod, six or nine switches earlier.
+    /// None may hold more than kModSwitchHeapNoise more on the host heap, as a run
     /// would that kept what an earlier run allocated. The first start is
     /// left out: it holds blocks of its own, which the first switch frees.
     /// So is the first round after it: on some machines the allocator is
@@ -1800,7 +1798,7 @@ void refuse_unusable_brains(const Options& options) {
 /// @param game_files the import's folders, the preferences and the recovery,
 ///     where the platform brings game files in
 /// @param lookup_log --trace-lookups' log; null without it
-/// @param switch_memory --check-mod-switch's working sets
+/// @param switch_memory --check-mod-switch's heap samples
 /// @param[in,out] carried what the run before left for this run: the Library
 ///     to open again; what this run leaves for the next
 /// @return the run's exit status, or kSoftRestartStatus when SWITCH ended it
