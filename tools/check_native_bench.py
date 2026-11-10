@@ -291,8 +291,10 @@ def check_renderer_records(result, lines, frames, timers):
             require(cursor < end, "missing POSE_FRAME")
             match = read(POSE_FRAME, cursor)
             values = [int(match.group(n)) for n in (2, 3, 4)]
-            require(int(match.group(1)) == frame and values[2] <= values[1] and
-                    (values[0] != 0 or values[1:] == [0, 0]), "invalid pose frame")
+            # A model-view return can prime the current rig after this tick's
+            # root was captured by Dots, so piece work need not add a root.
+            require(int(match.group(1)) == frame and values[2] <= values[1],
+                    "invalid pose frame")
             sums["POSE"] = [a + b for a, b in zip(sums["POSE"], values)]
             cursor += 1
         if present["MATERIAL"]:

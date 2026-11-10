@@ -228,6 +228,27 @@ class NativeBenchReceiptTest(unittest.TestCase):
                     self.assertEqual(bench.check_renderer_records(
                         result, text.splitlines(), 3, True), transcript(timers=True).splitlines())
 
+    def test_pose_roots_and_same_tick_rig_primes_are_counted_independently(self):
+        """Dots roots have no pieces; a later paused model prime adds no second root."""
+        text = renderer_transcript(("POSE",)).replace(
+            "POSE units 3 pieces 4 vm_triplets 4", "POSE units 3 pieces 8 vm_triplets 6"
+        ).replace(
+            "POSE_FRAME 0 units 0 pieces 0 vm_triplets 0",
+            "POSE_FRAME 0 units 0 pieces 4 vm_triplets 2"
+        )
+        self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+        # The existing last row is a root-only capture: units 1, pieces 0.
+        self.assertIn("bench: POSE_FRAME 2 units 1 pieces 0 vm_triplets 0", text)
+        for before, after in (
+            ("POSE_FRAME 0 units 0 pieces 4 vm_triplets 2",
+             "POSE_FRAME 0 units 0 pieces 4 vm_triplets 5"),
+            ("POSE_FRAME 2 units 1 pieces 0 vm_triplets 0",
+             "POSE_FRAME 2 units 1 pieces 0 vm_triplets 1"),
+        ):
+            with self.subTest(after=after):
+                self.assert_rejected(result_for(text.replace(before, after)), bench.check_lines,
+                                     True, message="invalid pose frame")
+
     def test_renderer_summaries_and_frame_rows_must_be_complete_and_ordered(self):
         """A present family has exactly one complete summary and rows for every frame in order."""
         original = renderer_transcript().splitlines()
