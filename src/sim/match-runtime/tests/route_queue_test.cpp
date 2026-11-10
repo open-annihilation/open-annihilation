@@ -388,8 +388,13 @@ WaveResult native_wave(uint32_t version, bool wide = false, bool distinct_goals 
             goals.push_back(*scene.ground(id).navigation.goal);
         CHECK(goals[0].cell == (std::array<int16_t, 2>{20, 4}));
         CHECK(goals[1].cell == (std::array<int16_t, 2>{18, 4}));
-        CHECK(navigation.points[1] == (ground::RoutePoint{208, 144}));
-        CHECK(navigation.points[2] == (ground::RoutePoint{208, 80}));
+        if (version == distributed_version) {
+            CHECK(navigation.points[1] == (ground::RoutePoint{176, 144}));
+            CHECK(navigation.points[2] == (ground::RoutePoint{208, 112}));
+        } else {
+            CHECK(navigation.points[1] == (ground::RoutePoint{208, 144}));
+            CHECK(navigation.points[2] == (ground::RoutePoint{208, 80}));
+        }
         std::cout << "Distinct native goals: leader=" << goals[0].cell[0] << ',' << goals[0].cell[1]
                   << ", follower=" << goals[1].cell[0] << ',' << goals[1].cell[1] << '\n';
     }
