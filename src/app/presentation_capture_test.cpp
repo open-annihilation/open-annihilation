@@ -203,6 +203,27 @@ bool same_totals(const app::UnitCaptureTotals& a, const app::UnitCaptureTotals& 
     return a.units == b.units && a.pieces == b.pieces && a.triplets == b.triplets;
 }
 
+/// Changes only the supported denormal controls, leaving all other settings alone.
+/// @param enabled whether the supported units flush denormal values to zero
+void set_flush_to_zero(bool enabled) {
+    auto control = fp::save_float_control();
+#if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
+    constexpr uint32_t flush = 0x8000U;
+    control.vector_unit = (control.vector_unit & ~flush) | (enabled ? flush : 0);
+#if defined(__x86_64__) || defined(_M_X64)
+    // Every x86-64 processor supports DAZ; some 32-bit SSE processors do not.
+    constexpr uint32_t denormals_are_zero = 0x0040U;
+    control.vector_unit =
+        (control.vector_unit & ~denormals_are_zero) | (enabled ? denormals_are_zero : 0);
+#endif
+#endif
+#if defined(__aarch64__) || defined(_M_ARM64) || (defined(__arm__) && defined(__ARM_FP))
+    constexpr uint64_t flush = 0x01000000U;
+    control.arm_unit = (control.arm_unit & ~flush) | (enabled ? flush : 0);
+#endif
+    fp::restore_float_control(control);
+}
+
 void test_parallel_history() {
     constexpr std::size_t count = 1025; // Four bands and a remainder at the pool's threshold.
     constexpr uint32_t identity = 719;
@@ -324,6 +345,7 @@ void test_parallel_history() {
             host_calls.push_back(actor->host.calls.load());
         }
         CHECK(std::fesetround(step % 2 ? FE_DOWNWARD : FE_UPWARD) == 0);
+        set_flush_to_zero(step % 2 != 0);
         const auto caller_control = fp::save_float_control();
         const auto expected = scalar_capture(batches[0], tick);
         for (std::size_t version = 0; version < pools.size(); ++version) {
@@ -374,9 +396,12 @@ void test_parallel_history() {
     jobs::run_bands(&four, 2, [&](uint32_t band) {
         if (band != 0)
             return;
+        const auto original_entry_control = fp::save_float_control();
+        set_flush_to_zero(true);
         const auto entry_control = fp::save_float_control();
         actual_nested = app::capture_unit_poses(batches[4], 4, scratch[3], &four);
         entry_control_preserved = fp::float_control_matches(entry_control);
+        fp::restore_float_control(original_entry_control);
     });
     CHECK(same_totals(expected_nested, actual_nested));
     CHECK(entry_control_preserved && fp::float_control_matches(nested_caller_control));
