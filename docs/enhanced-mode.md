@@ -770,6 +770,15 @@ the first pilot still reduced rear progress. Movement measurements must keep
 the original rear cohorts, report changing goal episodes, and distinguish
 geometric goal gaps from actual route distance.
 
+Version 7 uses a two-cell shared graph. Wrecks can leave a passable gap that
+the earlier four-cell graph misses, sending whole cohorts back to the slower
+individual search. The finer graph keeps the existing total-cell, clearing,
+expansion and extraction budgets, so fewer fields fit at once. Its 32-edge
+prefixes cover the same distance as the earlier 16-edge guides. Saved fields
+have a distinct format; earlier presets retain their original grids and
+formats. This corrects the sampled static connectivity failure, but a full
+battle must still validate construction latency and actual unit movement.
+
 Built-in rally moves retain an existing, owned, nonterminal ground march,
 including a patrol's waiting phase and complete queued return leg. Idle,
 arrived, interrupted and unsupported orders still receive normal rally
@@ -841,6 +850,16 @@ that interval increased from 12 to 133. These were predominantly chases
 whose last native reach check rejected the target; they must not be described
 as a successful combat standoff. Version 7 remains experimental while
 static-edge route delivery and sustained rear movement are corrected.
+
+A diagnostic replay reproduced that run's exact world and 27 deterministic
+observation streams. All 133 stationary ARM rear units had fine-grid paths
+through the final terrain, but none connected through the four-cell graph.
+Their 2,120 recorded shared requests returned 133 pending and 1,987 fallback
+results, with no usable publication. The saved field exactly matched a
+freshly rebuilt graph; neither a stale field nor an exhausted extraction
+budget caused this failure. A two-cell graph reconnected every sampled
+origin on that same map. These are connectivity checks, not a replacement
+for measuring the subsequent battle.
 
 ## Remaining work
 
