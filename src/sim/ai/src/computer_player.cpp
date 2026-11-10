@@ -4,12 +4,14 @@
 #include "oa/sim/ai.hpp"
 
 #include "computer_internal.hpp"
+#include "strike_front_targets.hpp"
 #include "oa/base/game_math.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
 #include "oa/sim/simulation_state.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
@@ -178,6 +180,12 @@ bool home_centroid(
            squad_centroid(host, ai, Squad::builders, out);
 }
 
+/// Retains the original native candidate conditions for a transient front plan.
+struct EnemyCandidates {
+    std::array<uint8_t, OA_PLAYER_COUNT + 1> relation{};
+    sim::simulation_state::CandidateFilter filter{};
+};
+
 /// Finds the nearest live unit of any player the controller is not allied with.
 ///
 /// Under ai.nearest-enemy-filter's skip-submerged rules the search also passes over units
@@ -189,6 +197,7 @@ bool home_centroid(
 /// @param ai the player's controller
 /// @param task the task searching: its source squad says whether it recruits from the navy
 /// @param at reference point, 16.16 world coordinates
+/// @param[out] selected optional copy of the original candidate relation and filter
 /// @return the unit, or null
 /// @quirk Under skip-submerged only the naval strike finds fully submerged units: every
 ///        other task that searches, the aircraft task among them, passes over them.
@@ -197,7 +206,8 @@ oa::Unit* nearest_enemy(
     const ComputerHost& host,
     const ComputerPlayer& ai,
     const ComputerTask& task,
-    const oa::FixedVec3& at
+    const oa::FixedVec3& at,
+    EnemyCandidates* selected = nullptr
 ) noexcept {
     uint8_t relation[OA_PLAYER_COUNT + 1]{};
     for (uint8_t i = 0; i < OA_PLAYER_COUNT; ++i)
@@ -215,6 +225,10 @@ oa::Unit* nearest_enemy(
         data::match_rules::AiNearestEnemyFilterRules::skip_submerged) {
         filter.widened_flags = true;
         filter.skip_submerged = task.source_squad != Squad::navy;
+    }
+    if (selected != nullptr) {
+        std::copy(std::begin(relation), std::end(relation), selected->relation.begin());
+        selected->filter = filter;
     }
     return sim::simulation_state::nearest_candidate_unit(*host.world, relation, at.x, at.z, filter);
 }
@@ -260,6 +274,54 @@ void order_squad(
             (void)host.order_attack(host.context, slot, target);
             break;
         }
+    }
+}
+
+/// Attacks from up to sixteen lateral groups without changing unit callback order.
+///
+/// The native target remains the fallback. Only the land strike of the distributed
+/// preset calls this; the other strike and every earlier preset keep order_squad.
+/// The plan reads the world's enemies once more, after the native fallback search,
+/// and never calls an order as a test of a candidate.
+///
+/// @param host alliances, world and attack callbacks
+/// @param ai the player's controller
+/// @param task land strike task
+/// @param center strike centroid, 16.16 world coordinates
+/// @param fallback native nearest enemy selected for the whole strike
+/// @param selected original relation and filter used to select the fallback
+void order_strike_fronts(
+    const ComputerHost& host,
+    const ComputerPlayer& ai,
+    const ComputerTask& task,
+    const oa::FixedVec3& center,
+    const oa::Unit& fallback,
+    const EnemyCandidates& selected
+) noexcept {
+    StrikeFrontTargets targets{};
+    plan_strike_front_targets(
+        *host.world,
+        ai.player,
+        task.squad,
+        center,
+        fallback,
+        selected.relation,
+        selected.filter,
+        targets
+    );
+    const auto& player = host.world->game.players[ai.player];
+    uint32_t count = 0;
+    auto* units = oa::world_player_units(host.world, &player, &count);
+    if (units == nullptr)
+        return;
+    for (uint32_t index = 0; index < count; ++index) {
+        const auto& unit = units[index];
+        if (unit.type_index == 0 || unit.squad != static_cast<int32_t>(task.squad))
+            continue;
+        const auto* target = strike_front_target(targets, unit);
+        const auto slot = static_cast<uint16_t>(oa::world_unit_slot(host.world, &unit));
+        const auto aimed = static_cast<uint16_t>(oa::world_unit_slot(host.world, target));
+        (void)host.order_attack(host.context, slot, aimed);
     }
 }
 
@@ -386,6 +448,13 @@ void run_strike(
     task.attacking = 1;
     oa::FixedVec3 center{};
     (void)squad_centroid(host, ai, task.squad, &center);
+    if (distributed && task.squad == Squad::land_strike && task.source_squad == Squad::land_army) {
+        EnemyCandidates selected{};
+        const auto* target = nearest_enemy(state, host, ai, task, center, &selected);
+        if (target != nullptr)
+            order_strike_fronts(host, ai, task, center, *target, selected);
+        return;
+    }
     const auto* target = nearest_enemy(state, host, ai, task, center);
     if (target == nullptr)
         return;

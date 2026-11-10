@@ -1290,6 +1290,7 @@ void test_attack_wave_size() {
 struct RecruitFake : Fake {
     std::vector<std::string> running;
     std::vector<uint16_t> joined;
+    uint32_t allied_calls{};
 
     /// Rebinds the canonical world after growing its owned unit vector.
     explicit RecruitFake(uint32_t count) : running(count, "idle") {
@@ -1581,6 +1582,121 @@ void test_recruitment_budget_does_not_limit_rally_callbacks() {
     );
 }
 
+/// Distributes only the experimental land strike while retaining native callback order.
+void test_distributed_land_strike_targets() {
+    constexpr uint32_t members = 16;
+    constexpr uint32_t first_tick = 300;
+    constexpr std::array<int32_t, 4> enemy_z{320, 160, 480, 640};
+    for (uint32_t rule_case = 0; rule_case <= RecruitRun::distributed_version + 1; ++rule_case) {
+        const bool restored_disabled = rule_case == RecruitRun::distributed_version + 1;
+        const auto version = restored_disabled ? RecruitRun::distributed_version : rule_case;
+        for (const bool naval : {false, true}) {
+            if (restored_disabled && naval)
+                continue;
+            RecruitRun run(version, 0, members, naval);
+            if (restored_disabled)
+                run.rules.setup.enhanced_mode.enabled = false;
+            run.host.allied = [](void* context, uint8_t player, uint8_t other) {
+                auto& fake = RecruitFake::self(context);
+                ++fake.allied_calls;
+                return fake.allies[player][other];
+            };
+            for (uint16_t index = 0; index < enemy_z.size(); ++index) {
+                auto& enemy = run.fake.spawn(
+                    static_cast<uint16_t>(index + 1),
+                    0,
+                    ARMLLT,
+                    200,
+                    enemy_z[index],
+                    OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS
+                );
+                enemy.health = 1000;
+            }
+            for (uint32_t index = 0; index < members; ++index) {
+                auto& unit = run.fake.units[RecruitRun::first + index];
+                unit.position.x = 600 * 65536;
+                unit.position.z = static_cast<int32_t>(160 + 32 * index) * 65536;
+            }
+            auto& membership =
+                run.fake.squads[{RecruitRun::player, static_cast<int>(run.destination)}];
+            std::reverse(membership.begin(), membership.end());
+            const auto random_before = run.fake.roll;
+            run.tick(first_tick);
+            std::vector<uint16_t> callbacks;
+            std::vector<int32_t> targets;
+            for (const auto& order : run.fake.orders) {
+                check(
+                    order.kind == "attack" && !order.queue, "front targets: native attack boundary"
+                );
+                callbacks.push_back(order.unit);
+                targets.push_back(order.arg);
+            }
+            auto expected = run.members();
+            std::sort(expected.begin(), expected.end());
+            check(
+                callbacks == expected && callbacks.size() == members,
+                "front targets: exactly one callback per actor in native player-unit order"
+            );
+            check(run.fake.joined.empty(), "front targets: planning does not change membership");
+            check(run.fake.roll == random_before, "front targets: planning adds no random draw");
+            check(
+                run.fake.allied_calls == OA_PLAYER_COUNT,
+                "front targets: planning reuses the original native alliance callbacks"
+            );
+            check(
+                run.state.players[RecruitRun::player]
+                        .tasks[static_cast<uint32_t>(run.destination)]
+                        .next_tick == first_tick + RecruitRun::refresh,
+                "front targets: planning retains the native task deadline"
+            );
+            if (version == RecruitRun::distributed_version && !restored_disabled && !naval) {
+                std::sort(targets.begin(), targets.end());
+                const auto end = std::unique(targets.begin(), targets.end());
+                check(
+                    std::distance(targets.begin(), end) == enemy_z.size(),
+                    "front targets: separated land fronts choose the four eligible enemies"
+                );
+            } else {
+                check(
+                    targets.size() == members &&
+                        std::all_of(
+                            targets.begin(), targets.end(), [](int32_t id) { return id == 1; }
+                        ),
+                    "front targets: earlier presets and naval strikes keep the native target"
+                );
+            }
+        }
+    }
+}
+
+/// Leaves rejected attacks with the native boundary instead of probing or retrying targets.
+void test_distributed_front_rejections_are_not_retried() {
+    constexpr uint32_t members = 16;
+    RecruitRun run(RecruitRun::distributed_version, 0, members);
+    run.host.order_attack = [](void* context, uint16_t unit, uint16_t target) {
+        auto& fake = RecruitFake::self(context);
+        fake.orders.push_back({"attack", unit, target, {}, false});
+        return false;
+    };
+    const auto random_before = run.fake.roll;
+    run.tick(300);
+    check(
+        run.fake.orders.size() == members,
+        "front targets: rejection adds neither a probe callback nor a fallback retry"
+    );
+    check(
+        std::all_of(
+            run.fake.orders.begin(),
+            run.fake.orders.end(),
+            [](const auto& order) {
+                return order.kind == "attack" && order.arg == 1 && !order.queue;
+            }
+        ),
+        "front targets: degenerate front retains the actual native fallback"
+    );
+    check(run.fake.roll == random_before, "front targets: rejection does not draw random numbers");
+}
+
 // The aircraft task's run, with the wing and base given.
 struct AirRun {
     Fake fake;
@@ -1818,6 +1934,8 @@ int main(int argc, char** argv) {
     test_earlier_recruitment_keeps_its_seed_and_limit();
     test_recruitment_rereads_reused_source_slots();
     test_recruitment_budget_does_not_limit_rally_callbacks();
+    test_distributed_land_strike_targets();
+    test_distributed_front_rejections_are_not_retried();
     test_patrol_group_size();
     test_patrol_null_enemy_skip();
     test_squad_assignment();

@@ -20,4 +20,8 @@ if(BUILD_TESTING)
     oa-formats-hpi oa-test-game-data)
   add_test(NAME ai-computer-player COMMAND oa-ai-computer-player-test)
   oa_add_game_data_test(ai-computer-player-data oa-ai-computer-player-test --data)
+
+  add_executable(oa-ai-strike-front-targets-test tests/strike_front_targets_test.cpp)
+  target_link_libraries(oa-ai-strike-front-targets-test PRIVATE oa-sim-ai oa-sim-simulation-state)
+  add_test(NAME ai-strike-front-targets COMMAND oa-ai-strike-front-targets-test)
 endif()
