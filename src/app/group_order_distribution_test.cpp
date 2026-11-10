@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -38,6 +39,24 @@ oa::FixedVec3 point(int32_t x, int32_t z, int32_t y = 17) {
 /// Compares every destination bit, including its signed height.
 bool same(const oa::FixedVec3& left, const oa::FixedVec3& right) {
     return left.x == right.x && left.y == right.y && left.z == right.z;
+}
+
+/// Stores a signed canonical source position in the packed unsigned words.
+void source_position(oa::Unit& unit, const oa::FixedVec3& source) {
+    unit.position = {
+        std::bit_cast<uint32_t>(source.x),
+        std::bit_cast<uint32_t>(source.y),
+        std::bit_cast<uint32_t>(source.z)
+    };
+}
+
+/// Compares destination sets independently of actor assignment or issue order.
+std::vector<std::array<int32_t, 3>> site_set(std::span<const input::SelectionOrder> orders) {
+    std::vector<std::array<int32_t, 3>> result;
+    for (const auto& order : orders)
+        result.push_back({order.position.x, order.position.y, order.position.z});
+    std::sort(result.begin(), result.end());
+    return result;
 }
 
 /// Builds an eligible canonical ground actor with its own stable identifier.
@@ -576,6 +595,237 @@ void planning_does_not_mutate_the_world_or_actor_records() {
     OA_CHECK(representation(units) == actors_before);
     OA_CHECK(representation(scene.movement) == movement_before);
 }
+
+/// Checks explicit lateral assignments to the same five cardinal native sites.
+void check_five_source_mapping(
+    const std::array<oa::FixedVec3, 5>& sources,
+    const std::array<std::array<int32_t, 2>, 5>& expected,
+    int32_t direction_x,
+    int32_t direction_z
+) {
+    Scene scene;
+    const auto click = point(328, 296, -31);
+    std::array<oa::Unit, 5> units{};
+    for (std::size_t index = 0; index < units.size(); ++index) {
+        units[index] = actor(static_cast<uint16_t>(index + 1), 1, 1);
+        source_position(units[index], sources[index]);
+    }
+    const auto actors_before = representation(units);
+    constexpr std::array<std::size_t, 5> issue_order{4, 1, 3, 0, 2};
+    std::array<input::SelectionOrder, 5> orders{};
+    for (std::size_t index = 0; index < orders.size(); ++index)
+        orders[index] = {&units[issue_order[index]], input::UnitOrder::patrol, point(-64, -64)};
+    const auto before = orders;
+    const auto report = scene.resolve(orders, click);
+    OA_CHECK(report.preserved == 0 && report.repaired == 5 && report.assigned == 5);
+    OA_CHECK(!report.abandoned && !report.exhausted);
+    OA_CHECK(report.forward_x == direction_x && report.forward_z == direction_z);
+    OA_CHECK(report.sort_comparisons > 0 && report.rematched <= report.assigned);
+    std::vector<std::array<int32_t, 3>> cardinal_sites;
+    for (const auto& pixels : std::array<std::array<int32_t, 2>, 5>{
+             {{328, 296}, {312, 296}, {344, 296}, {328, 280}, {328, 312}}
+         }) {
+        const auto at = point(pixels[0], pixels[1], -31);
+        cardinal_sites.push_back({at.x, at.y, at.z});
+    }
+    std::sort(cardinal_sites.begin(), cardinal_sites.end());
+    OA_CHECK(site_set(orders) == cardinal_sites);
+    for (std::size_t index = 0; index < orders.size(); ++index) {
+        const auto& order = orders[index];
+        const auto& pixels = expected[order.actor->id - 1];
+        OA_CHECK(same(order.position, point(pixels[0], pixels[1], -31)));
+        OA_CHECK(order.actor == before[index].actor && order.order == before[index].order);
+        check_candidate(order, click, scene);
+        for (std::size_t previous = 0; previous < index; ++previous)
+            check_disjoint(order, orders[previous]);
+    }
+    auto permuted = before;
+    std::reverse(permuted.begin(), permuted.end());
+    const auto repeated = scene.resolve(permuted, click);
+    OA_CHECK(site_set(permuted) == cardinal_sites);
+    OA_CHECK(repeated.forward_x == report.forward_x && repeated.forward_z == report.forward_z);
+    OA_CHECK(repeated.origins == report.origins && repeated.cells == report.cells);
+    OA_CHECK(repeated.reservation_cells == report.reservation_cells);
+    for (const auto& order : permuted) {
+        const auto& pixels = expected[order.actor->id - 1];
+        OA_CHECK(same(order.position, point(pixels[0], pixels[1], -31)));
+    }
+    OA_CHECK(representation(units) == actors_before);
+}
+
+/// Keeps lateral order when reversed IDs approach from either horizontal side.
+void lateral_rank_follows_horizontal_sources_in_both_directions() {
+    constexpr std::array<std::array<int32_t, 2>, 5> expected{
+        {{328, 312}, {344, 296}, {328, 296}, {312, 296}, {328, 280}}
+    };
+    for (const int32_t x : {120, 520}) {
+        const std::array sources{
+            point(x, 328), point(x, 312), point(x, 296), point(x, 280), point(x, 264)
+        };
+        check_five_source_mapping(sources, expected, 328 - x, 0);
+    }
+}
+
+/// Uses the vertical approach's perpendicular axis rather than actor IDs.
+void lateral_rank_follows_vertical_sources_in_both_directions() {
+    constexpr std::array<std::array<int32_t, 2>, 5> expected{
+        {{344, 296}, {328, 280}, {328, 296}, {328, 312}, {312, 296}}
+    };
+    for (const int32_t z : {96, 496}) {
+        const std::array sources{
+            point(360, z), point(344, z), point(328, z), point(312, z), point(296, z)
+        };
+        check_five_source_mapping(sources, expected, 0, 296 - z);
+    }
+}
+
+/// Uses both integer direction components for a diagonal approach.
+void lateral_rank_uses_the_full_diagonal_projection() {
+    constexpr std::array<std::array<int32_t, 2>, 5> expected{
+        {{328, 312}, {312, 296}, {328, 296}, {344, 296}, {328, 280}}
+    };
+    const std::array sources{
+        point(96, 128), point(112, 112), point(128, 96), point(144, 80), point(160, 64)
+    };
+    check_five_source_mapping(sources, expected, 200, 200);
+    const std::array signed_sources{
+        point(-32, 32), point(-16, 16), point(0, 0), point(16, -16), point(32, -32)
+    };
+    check_five_source_mapping(signed_sources, expected, 328, 296);
+}
+
+/// Retains subpixel source ordering in both perpendicular and forward projections.
+void spatial_sort_keeps_full_fixed_point_source_bits() {
+    constexpr std::array<std::array<int32_t, 2>, 5> expected{
+        {{328, 312}, {344, 296}, {328, 296}, {312, 296}, {328, 280}}
+    };
+    for (const bool lateral : {true, false}) {
+        std::array<oa::FixedVec3, 5> sources{};
+        for (std::size_t index = 0; index < sources.size(); ++index) {
+            sources[index] = point(120, 296);
+            const auto fraction = static_cast<int32_t>(sources.size() - index - 1);
+            if (lateral)
+                sources[index].z += fraction;
+            else
+                sources[index].x += fraction;
+        }
+        check_five_source_mapping(sources, expected, 208, 0);
+    }
+}
+
+/// Breaks coincident-source ties by ID and uses positive X for a zero direction.
+void coincident_sources_and_zero_direction_have_stable_ties() {
+    constexpr std::array<std::array<int32_t, 2>, 5> expected{
+        {{328, 280}, {312, 296}, {328, 296}, {344, 296}, {328, 312}}
+    };
+    std::array<oa::FixedVec3, 5> sources{};
+    sources.fill(point(120, 296));
+    check_five_source_mapping(sources, expected, 208, 0);
+    sources.fill(point(328, 296));
+    check_five_source_mapping(sources, expected, 1, 0);
+}
+
+/// Includes a preserved actor's signed canonical position in the command direction.
+void direction_uses_all_command_actors_before_rematching() {
+    Scene scene;
+    const auto click = point(328, 296);
+    std::array units{actor(1, 1, 1), actor(2, 1, 1), actor(3, 1, 1)};
+    source_position(units[0], point(120, 280));
+    source_position(units[1], point(120, 312));
+    source_position(units[2], point(624, -4));
+    const oa::FixedVec3 valid{640 * pixel + 73, -777, 496 * pixel + 91};
+    std::array orders{
+        input::SelectionOrder{&units[0], input::UnitOrder::patrol, point(-64, -64)},
+        input::SelectionOrder{&units[1], input::UnitOrder::patrol, point(-96, -96)},
+        input::SelectionOrder{&units[2], input::UnitOrder::patrol, valid}
+    };
+    const auto report = scene.resolve(orders, click);
+    OA_CHECK(report.preserved == 1 && report.repaired == 2 && report.assigned == 2);
+    OA_CHECK(report.forward_x == 40 && report.forward_z == 100);
+    OA_CHECK(same(orders[0].position, click));
+    OA_CHECK(same(orders[1].position, point(312, 296)));
+    OA_CHECK(same(orders[2].position, valid));
+    check_disjoint(orders[0], orders[1]);
+}
+
+/// Permutes only admitted IDs, keeping later actors at their capacity fallback.
+void spatial_sort_retains_the_global_id_admitted_subset() {
+    Scene scene;
+    scene.block(0, 0, default_width, default_height);
+    scene.block(5, 5, 7, 6, false);
+    const auto click = point(88, 88, -17);
+    std::array units{actor(3, 1, 1), actor(1, 1, 1), actor(2, 1, 1)};
+    source_position(units[0], point(-40, 88));
+    source_position(units[1], point(-40, 104));
+    source_position(units[2], point(-40, 72));
+    std::array orders{
+        input::SelectionOrder{&units[0], input::UnitOrder::patrol, point(-64, -64)},
+        input::SelectionOrder{&units[1], input::UnitOrder::patrol, point(-96, -96)},
+        input::SelectionOrder{&units[2], input::UnitOrder::patrol, point(-128, -128)}
+    };
+    const auto report = scene.resolve(orders, click);
+    OA_CHECK(report.repaired == 3 && report.assigned == 2 && report.exhausted);
+    OA_CHECK(report.forward_x == 128 && report.forward_z == 0);
+    OA_CHECK(same(orders[0].position, click));
+    OA_CHECK(same(orders[1].position, point(104, 88, -17)));
+    OA_CHECK(same(orders[2].position, click));
+    check_disjoint(orders[1], orders[2]);
+}
+
+/// Retains each complete key's site set while matching its actors geometrically.
+void spatial_rematching_stays_within_complete_movement_and_order_keys() {
+    Scene scene;
+    scene.amphibious_second_type = true;
+    const auto click = point(328, 296, -41);
+    std::array<oa::Unit, 7> units{};
+    for (std::size_t index = 0; index < units.size(); ++index) {
+        units[index] = actor(static_cast<uint16_t>(index + 1), 1, 1);
+        source_position(units[index], point(120, index < 3 ? 312 : 280));
+    }
+    units[1].type_index = units[4].type_index = 2;
+    source_position(units.back(), point(120, 296));
+    const auto valid = point(640, 496, -19);
+    std::array<input::SelectionOrder, 7> orders{};
+    for (std::size_t index = 0; index < 6; ++index)
+        orders[index] = {
+            &units[index],
+            index % 3 == 2 ? input::UnitOrder::move_ground : input::UnitOrder::patrol,
+            point(-64, -64)
+        };
+    orders.back() = {&units.back(), input::UnitOrder::patrol, valid};
+    const auto before = orders;
+    const auto first = scene.resolve(orders, click);
+    OA_CHECK(first.preserved == 1 && first.repaired == 6 && first.assigned == 6);
+    OA_CHECK(first.classes == 3 && first.forward_x == 208 && first.forward_z == 0);
+    OA_CHECK(same(orders.back().position, valid));
+    auto changed_units = units;
+    for (std::size_t index = 0; index < 6; ++index)
+        source_position(changed_units[index], point(120, index < 3 ? 280 : 312));
+    auto permuted = before;
+    for (auto& order : permuted)
+        order.actor = &changed_units[order.actor->id - 1];
+    std::reverse(permuted.begin(), permuted.end());
+    const auto second = scene.resolve(permuted, click);
+    OA_CHECK(second.preserved == first.preserved && second.assigned == first.assigned);
+    OA_CHECK(second.classes == first.classes && second.origins == first.origins);
+    OA_CHECK(second.cells == first.cells && second.reservation_cells == first.reservation_cells);
+    OA_CHECK(second.forward_x == first.forward_x && second.forward_z == first.forward_z);
+    OA_CHECK(site_set(permuted) == site_set(orders));
+    std::array<oa::FixedVec3, 7> changed_destinations{};
+    for (const auto& order : permuted)
+        changed_destinations[order.actor->id - 1] = order.position;
+    for (std::size_t index = 0; index < 3; ++index) {
+        OA_CHECK(same(changed_destinations[index], orders[index + 3].position));
+        OA_CHECK(same(changed_destinations[index + 3], orders[index].position));
+    }
+    OA_CHECK(same(changed_destinations.back(), valid));
+    for (std::size_t index = 0; index < orders.size(); ++index) {
+        if (index < 6)
+            check_candidate(orders[index], click, scene);
+        for (std::size_t previous = 0; previous < index; ++previous)
+            check_disjoint(orders[index], orders[previous]);
+    }
+}
 } // namespace
 
 int main() {
@@ -594,5 +844,13 @@ int main() {
     large_limits_do_not_expand_the_class_storage();
     reservations_include_rectangles_with_centres_outside_the_window();
     planning_does_not_mutate_the_world_or_actor_records();
+    lateral_rank_follows_horizontal_sources_in_both_directions();
+    lateral_rank_follows_vertical_sources_in_both_directions();
+    lateral_rank_uses_the_full_diagonal_projection();
+    spatial_sort_keeps_full_fixed_point_source_bits();
+    coincident_sources_and_zero_direction_have_stable_ties();
+    direction_uses_all_command_actors_before_rematching();
+    spatial_sort_retains_the_global_id_admitted_subset();
+    spatial_rematching_stays_within_complete_movement_and_order_keys();
     return oa::test::check_exit_status();
 }
