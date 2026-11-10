@@ -3676,6 +3676,289 @@ void ground_index_build_record_storage() {
     OA_CHECK(timers::timers.ground_index_builds.dropped == 0);
 }
 
+/// Keeps a real saddle-shaped map large enough for several bounds bands, using one tile's art.
+struct GroundIndexThreadsFixture {
+    Fixture fixture{};
+    live::Scene ordinary{};
+    oa::formats::gaf::RenderedFrame art{};
+    oa::platform::job_pool::Pool one{1}, four{4};
+
+    /// Presents the whole map in a small target without reducing its ground detail.
+    GroundIndexThreadsFixture() {
+        constexpr uint32_t tiles = 96;
+        constexpr int32_t pixels = static_cast<int32_t>(tiles) * tile_edge;
+        constexpr int32_t center = pixels / 2;
+        auto& map = fixture.map;
+        map.attribute_width = map.attribute_height = tiles * 2;
+        map.tile_width = map.tile_height = tiles;
+        map.tile_indices.assign(tiles * tiles, 0);
+        map.attributes.resize(map.attribute_width * map.attribute_height);
+        for (uint32_t y = 0; y < map.attribute_height; ++y)
+            for (uint32_t x = 0; x < map.attribute_width; ++x)
+                map.attributes[y * map.attribute_width + x].height = ((x + y) & 1U) * 32;
+        auto& in = fixture.inputs;
+        in.sight.mapping = in.sight.line_of_sight = false;
+        in.right = in.bottom = pixels;
+        in.clip_width = in.clip_height = 128;
+        in.detail_scale = 1;
+        constexpr float scale = 128.0F / pixels;
+        in.clip_projection = {scale, 0, 0, 0, 0, -0.5F * scale, scale, 0, 0, 1, 0, 0};
+        in.view_direction = {0.25F, 1, 0.5F};
+        art.width = art.height = 8;
+        art.origin_x = 4;
+        art.origin_y = 8;
+        art.pixels.assign(64, alternate_index);
+        art.coverage.assign(64, 1);
+        fixture.draws.sprites.push_back({&art, {center, center}});
+        fixture.draws.sprites[0].world_position = oa::FixedVec3{center * 65536, 0, center * 65536};
+    }
+
+    /// Compares complete rendered frames on one and four drawing threads.
+    void build() {
+        fixture.inputs.pool = &one;
+        OA_CHECK(live::build(fixture.inputs, ordinary, fixture.error));
+        OA_CHECK(fixture.error.empty());
+        fixture.inputs.pool = &four;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.error.empty());
+        OA_CHECK(same_frame(fixture.scene, ordinary));
+    }
+
+    /// Requires the same owned bounds, bucket order and restored scalar layout.
+    void check_indices() const {
+        const auto& actual = fixture.scene;
+        OA_CHECK(actual.ground_index_cache.valid && ordinary.ground_index_cache.valid);
+        OA_CHECK(
+            actual.ground_index_cache.key.vertices == ordinary.ground_index_cache.key.vertices
+        );
+        OA_CHECK(
+            actual.ground_index_cache.key.card_axes == ordinary.ground_index_cache.key.card_axes
+        );
+        for (std::size_t index = 0; index < actual.ground_index_memory.size(); ++index) {
+            const auto& a = actual.ground_index_memory[index];
+            const auto& b = ordinary.ground_index_memory[index];
+            OA_CHECK(a.bounds.size() == b.bounds.size());
+            if (a.bounds.size() == b.bounds.size() && !a.bounds.empty())
+                OA_CHECK(
+                    std::memcmp(
+                        a.bounds.data(), b.bounds.data(), a.bounds.size() * sizeof(a.bounds[0])
+                    ) == 0
+                );
+            OA_CHECK(
+                a.starts == b.starts && a.triangles == b.triangles && a.oversized == b.oversized
+            );
+            OA_CHECK(
+                std::equal(
+                    a.buckets.begin(),
+                    a.buckets.end(),
+                    b.buckets.begin(),
+                    b.buckets.end(),
+                    [](const auto& left, const auto& right) {
+                        return left.bucket == right.bucket && left.columns == right.columns &&
+                               left.rows == right.rows;
+                    }
+                )
+            );
+            const auto& layout = actual.ground_index_cache.layouts[index];
+            const auto& other = ordinary.ground_index_cache.layouts[index];
+            OA_CHECK(
+                layout.low == other.low && layout.high == other.high && layout.reach == other.reach
+            );
+            OA_CHECK(layout.edge == other.edge && layout.inverse_edge == other.inverse_edge);
+            OA_CHECK(
+                layout.columns == other.columns && layout.rows == other.rows &&
+                layout.listed_reach == other.listed_reach
+            );
+        }
+    }
+};
+
+/// Cold bounds workers preserve actual demand, material replay and exact index contents.
+void ground_index_bounds_on_threads() {
+    namespace timers = oa::app::bench_timers;
+    timers::reset(true);
+    GroundIndexThreadsFixture pair;
+    auto& fixture = pair.fixture;
+    auto& in = fixture.inputs;
+    auto& sprite = fixture.draws.sprites[0];
+    for (uint32_t frame = 0; frame < 3; ++frame)
+        pair.build();
+    OA_CHECK(fixture.scene.terrain_vertex_count >= 3 * 32768);
+    OA_CHECK(fixture.scene.ground_kept && pair.ordinary.ground_kept);
+    OA_CHECK(pair.four.threads() >= 2);
+    const auto unused = [&] {
+        pair.build();
+        OA_CHECK(fixture.scene.ground_index_cache.attempts == 0);
+        OA_CHECK(pair.ordinary.ground_index_cache.attempts == 0);
+        OA_CHECK(fixture.scene.passes.ground_indices.builds == 0);
+        OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 0);
+    };
+    sprite.surface_effect = true;
+    sprite.world_position->y = -65536;
+    unused();
+    sprite.world_position->y = 0;
+    sprite.terrain_decal = true;
+    unused();
+    sprite.terrain_decal = false;
+    const auto* art = sprite.frame;
+    sprite.frame = nullptr;
+    unused();
+    sprite.frame = art;
+    in.sight.mapping = in.sight.line_of_sight = true;
+    fixture.coverage[0] = fixture.mapped[0] = 0;
+    unused();
+    in.sight.mapping = in.sight.line_of_sight = false;
+    fixture.coverage[0] = fixture.mapped[0] = viewer_bit;
+    sprite.surface_effect = false;
+    sprite.on_map = true;
+    for (uint32_t frame = 0; frame < 3; ++frame)
+        unused();
+    // A malformed scenery material fails before its surface query. Frame
+    // effect packing deliberately leaves this on-map sprite to its pass.
+    sprite.surface_effect = true;
+    pair.art.pixels.clear();
+    in.pool = &pair.one;
+    OA_CHECK(!live::build(in, pair.ordinary, fixture.error));
+    const auto ordinary_error = fixture.error;
+    in.pool = &pair.four;
+    OA_CHECK(!live::build(in, fixture.scene, fixture.error));
+    OA_CHECK(!ordinary_error.empty() && fixture.error == ordinary_error);
+    OA_CHECK(fixture.scene.ground_index_cache.attempts == 0);
+    OA_CHECK(pair.ordinary.ground_index_cache.attempts == 0);
+    // A repaired new material must replay packing before its first query.
+    pair.art.pixels.assign(64, ground_index);
+    pair.build();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    OA_CHECK(fixture.scene.ground_index_cache.attempts == 1);
+    pair.check_indices();
+    sprite.on_map = false;
+    for (uint32_t frame = 0; frame < 2; ++frame) {
+        fixture.scene.ground_index_cache.valid = false;
+        pair.ordinary.ground_index_cache.valid = false;
+        pair.build();
+        OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+        OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 1);
+        pair.check_indices();
+    }
+    pair.build();
+    OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
+    OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 0);
+    // A late eligible sprite crosses a card-band boundary. Reversing the
+    // list changes drawing order without changing the resulting index.
+    const auto surface = sprite;
+    fixture.draws.sprites.assign(70, surface);
+    for (auto& draw : fixture.draws.sprites)
+        draw.surface_effect = false;
+    fixture.draws.sprites[65].surface_effect = true;
+    for (uint32_t order = 0; order < 2; ++order) {
+        fixture.scene.ground_index_cache.valid = false;
+        pair.ordinary.ground_index_cache.valid = false;
+        pair.build();
+        OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+        pair.check_indices();
+        std::reverse(fixture.draws.sprites.begin(), fixture.draws.sprites.end());
+    }
+    fixture.draws.sprites.assign(1, surface);
+    // These cards still request the index before their height/coverage
+    // early exits, even when they cannot contribute visible ground lift.
+    fixture.draws.sprites[0].world_position->y = 1000 * 65536;
+    fixture.scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid = false;
+    pair.build();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    fixture.draws.sprites[0] = surface;
+    std::fill(pair.art.coverage.begin(), pair.art.coverage.end(), 0);
+    fixture.scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid = false;
+    pair.build();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    std::fill(pair.art.coverage.begin(), pair.art.coverage.end(), 1);
+    pair.build();
+    // Only one outer band owns the Scene, while the other reserves the
+    // pool. Every nested bounds job must finish on its actual caller.
+    fixture.scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid = false;
+    in.pool = &pair.one;
+    OA_CHECK(live::build(in, pair.ordinary, fixture.error));
+    in.pool = &pair.four;
+    bool busy_built = false;
+    oa::platform::job_pool::run_bands(&pair.four, 2, [&](uint32_t band) noexcept {
+        if (band == 0)
+            busy_built = live::build(in, fixture.scene, fixture.error);
+    });
+    OA_CHECK(busy_built && fixture.error.empty());
+    OA_CHECK(same_frame(fixture.scene, pair.ordinary));
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    pair.check_indices();
+    // A nonfinite point in a later bounds band leaves the bundle invalid
+    // and listed. The actual sprite query must not retry that same failure.
+    constexpr std::size_t broken_vertex = 3 * 16384 + 1;
+    OA_CHECK(fixture.scene.ground_vertices.size() > broken_vertex);
+    OA_CHECK(pair.ordinary.ground_vertices.size() > broken_vertex);
+    if (fixture.scene.ground_vertices.size() > broken_vertex &&
+        pair.ordinary.ground_vertices.size() > broken_vertex) {
+        const auto x = fixture.scene.ground_vertices[broken_vertex].x;
+        const auto other_x = pair.ordinary.ground_vertices[broken_vertex].x;
+        const auto before = fixture.scene.ground_index_cache.attempts;
+        const auto other_before = pair.ordinary.ground_index_cache.attempts;
+        fixture.scene.ground_vertices[broken_vertex].x = std::numeric_limits<float>::quiet_NaN();
+        pair.ordinary.ground_vertices[broken_vertex].x = std::numeric_limits<float>::quiet_NaN();
+        fixture.scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid = false;
+        in.pool = &pair.one;
+        const bool ordinary_built = live::build(in, pair.ordinary, fixture.error);
+        const auto ordinary_failure = fixture.error;
+        in.pool = &pair.four;
+        const bool parallel_built = live::build(in, fixture.scene, fixture.error);
+        OA_CHECK(parallel_built == ordinary_built && fixture.error == ordinary_failure);
+        OA_CHECK(!fixture.scene.ground_index_cache.valid);
+        OA_CHECK(!pair.ordinary.ground_index_cache.valid);
+        OA_CHECK(fixture.scene.ground_index_cache.attempts == before + 1);
+        OA_CHECK(pair.ordinary.ground_index_cache.attempts == other_before + 1);
+        OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+        const auto& records = fixture.scene.passes.ground_indices.diagnostics;
+        OA_CHECK(records.size == 1);
+        if (records.size == 1)
+            OA_CHECK(!records.records[0].completed);
+        fixture.scene.ground_vertices[broken_vertex].x = x;
+        pair.ordinary.ground_vertices[broken_vertex].x = other_x;
+        pair.build();
+        pair.check_indices();
+    }
+    // A busy pool's actual caller may be a worker. Give that caller the
+    // same nondefault environment as the reference and restore it afterward.
+    std::fenv_t original{};
+    if (std::fegetenv(&original) == 0) {
+        if (std::fesetround(FE_UPWARD) == 0) {
+            std::fenv_t requested{};
+            if (std::fegetenv(&requested) == 0) {
+                fixture.scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid =
+                    false;
+                in.pool = &pair.one;
+                OA_CHECK(live::build(in, pair.ordinary, fixture.error));
+                const auto expected_control = pair.ordinary.ground_index_cache.key.float_control;
+                OA_CHECK(std::fesetenv(&original) == 0);
+                in.pool = &pair.four;
+                bool built = false, retained = false, restored = false;
+                oa::platform::job_pool::run_bands(&pair.four, 2, [&](uint32_t band) noexcept {
+                    if (band != 0)
+                        return;
+                    std::fenv_t worker_before{};
+                    if (std::fegetenv(&worker_before) != 0)
+                        return;
+                    if (std::fesetenv(&requested) == 0) {
+                        built = live::build(in, fixture.scene, fixture.error);
+                        retained = std::fegetround() == FE_UPWARD;
+                    }
+                    restored = std::fesetenv(&worker_before) == 0;
+                });
+                OA_CHECK(built && retained && restored);
+                OA_CHECK(same_frame(fixture.scene, pair.ordinary));
+                OA_CHECK(fixture.scene.ground_index_cache.key.float_control == expected_control);
+                pair.check_indices();
+            }
+        }
+        OA_CHECK(std::fesetenv(&original) == 0);
+    }
+    timers::reset(false);
+}
+
 /// Builds matching scene histories while the reference surveys afresh on every frame.
 struct TerrainDemandPair {
     Fixture fixture{};
@@ -7618,6 +7901,7 @@ int main() {
     ground_index_reuse();
     ground_index_build_diagnostics();
     ground_index_build_record_storage();
+    ground_index_bounds_on_threads();
     passes_on_threads();
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();
