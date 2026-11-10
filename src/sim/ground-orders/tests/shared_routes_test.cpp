@@ -1819,6 +1819,31 @@ void fine_optional_representative_rejects_an_intrinsically_small_quota() {
     }
 }
 
+/// An affordable known shortcut keeps its full quota instead of paying a duplicate goal probe.
+void fine_exact_quota_shortcuts_keep_their_full_probe_budget() {
+    Grid grid(128, 128);
+    const FlowLimits limits{1, 4096, 2048, 128};
+    FlowCache cache(128, 128, limits, FlowPreset::fine_regions);
+    const auto unit = unit_at(0, 0);
+    const auto goal = circle(63, 32);
+    CHECK(query(cache, grid, unit, goal) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit, goal) == FlowResult::pending);
+    finish(cache, grid);
+    for (uint32_t tick = 40; tick <= 42; ++tick) {
+        cache.advance(tick, 0, grid.sampler());
+        const auto before = grid.queries;
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        CHECK(
+            cache.route(context(), unit, goal, points, count, grid.sampler()) == FlowResult::ready
+        );
+        CHECK(count == 2);
+        CHECK(points[0] == (RoutePoint{8, 8}) && points[1] == (RoutePoint{1016, 520}));
+        CHECK(grid.queries - before <= limits.route_probes_per_tick);
+    }
+    CHECK(cache.counters().hits == 3 && cache.counters().fields_started == 1);
+}
+
 /// A failed unrelated slot is reusable; a retained same-key tree is not a victim.
 void fine_extra_representative_reuses_failed_storage() {
     auto grid = representative_islands();
@@ -2732,6 +2757,7 @@ int main() {
     fine_single_field_preserves_its_disconnected_component();
     fine_unfinished_representative_blocks_extra_admissions();
     fine_optional_representative_rejects_an_intrinsically_small_quota();
+    fine_exact_quota_shortcuts_keep_their_full_probe_budget();
     fine_extra_representative_reuses_failed_storage();
     fine_representatives_resume_together_and_reject_a_third_saved_sibling();
     fine_representatives_require_known_live_anchors();
