@@ -577,7 +577,17 @@ FlowResult FlowCache::route(
         const auto seed = get32(selected + 48);
         const auto root_x = static_cast<int32_t>(seed % columns_) * static_cast<int32_t>(stride);
         const auto root_z = static_cast<int32_t>(seed / columns_) * static_cast<int32_t>(stride);
-        if (!line_clear(bounded, key.data(), root_x, root_z, goal.cell[0], goal.cell[1])) {
+        const auto root_dx = static_cast<uint32_t>(std::abs(int32_t(goal.cell[0]) - root_x));
+        const auto root_dz = static_cast<uint32_t>(std::abs(int32_t(goal.cell[1]) - root_z));
+        const auto root_probes =
+            uint64_t{1} + std::max(root_dx, root_dz) + uint64_t{2} * std::min(root_dx, root_dz);
+        // An intrinsically oversized optional chord must leave ordinary
+        // prefixes available instead of exhausting the same quota every tick.
+        const bool can_test_root = root_probes <= route_probes_per_tick_;
+        if (can_test_root && root_probes > get32(state + 60))
+            return wait();
+        if (can_test_root &&
+            !line_clear(bounded, key.data(), root_x, root_z, goal.cell[0], goal.cell[1])) {
             if (budget.exhausted)
                 return wait();
             auto goal_node = connect_anchor(
@@ -587,6 +597,12 @@ FlowResult FlowCache::route(
                 return wait();
             bool reached_root = false;
             while (goal_node >= 0 && goal_branch_count < goal_branch.size()) {
+                const auto remaining = get32(state + 60);
+                if (remaining == 0)
+                    return wait();
+                // Charge each ancestry node, including the root, so bounded
+                // membership comparisons share the static-probe work credits.
+                put32(state + 60, remaining - 1);
                 goal_branch[goal_branch_count++] = static_cast<uint32_t>(goal_node);
                 const auto direction = directions[goal_node];
                 if (direction == root) {
@@ -595,12 +611,6 @@ FlowResult FlowCache::route(
                 }
                 if (direction >= 8)
                     break;
-                const auto remaining = get32(state + 60);
-                if (remaining == 0)
-                    return wait();
-                // Goal ancestry shares the same per-tick credits as static
-                // probes. Every link is bounded even before it is published.
-                put32(state + 60, remaining - 1);
                 const int32_t parent_x = goal_node % static_cast<int32_t>(columns_) + dx[direction];
                 const int32_t parent_z = goal_node / static_cast<int32_t>(columns_) + dz[direction];
                 if (parent_x < 0 || parent_z < 0 || static_cast<uint32_t>(parent_x) >= columns_ ||
