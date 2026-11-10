@@ -601,11 +601,15 @@ FlowResult FlowCache::route(
         // call's source work when deciding whether any fresh quota can fit it.
         // Intrinsically smaller quotas retain their ordinary prefix opportunity.
         const bool can_test_root = branch_probes + spent_credits <= route_probes_per_tick_;
-        if (can_test_root && branch_probes > remaining_credits)
+        if (can_test_root && root_probes > remaining_credits)
             return wait();
         if (can_test_root &&
             !line_clear(bounded, key.data(), root_x, root_z, goal.cell[0], goal.cell[1])) {
             if (budget.exhausted)
+                return wait();
+            // A clear root chord needs no ancestry. Reserve the larger branch
+            // work only after the chord proves that a goal branch is needed.
+            if (branch_probes - root_probes > get32(state + 60))
                 return wait();
             auto goal_node = connect_anchor(
                 columns_, rows_, stride, goal.cell[0], goal.cell[1], key.data(), bounded, directions
