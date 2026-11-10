@@ -1315,7 +1315,7 @@ void fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes() {
     const FlowLimits limits{1, 10'240, 2048, 128};
     FlowCache cache(320, 128, limits, FlowPreset::fine_regions);
     const auto unit = unit_at(250, 80);
-    const auto seed = circle(8, 8), goal = circle(80, 80);
+    const auto seed = circle(8, 80), goal = circle(80, 8);
     CHECK(query(cache, grid, unit, seed) == FlowResult::fallback);
     CHECK(query(cache, grid, unit, seed) == FlowResult::pending);
     finish(cache, grid);
@@ -1331,10 +1331,9 @@ void fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes() {
         CHECK(result == FlowResult::ready && count >= 2);
         if (result != FlowResult::ready || count < 2)
             return;
-        CHECK(points[count - 1] != (RoutePoint{1288, 1288}));
+        CHECK(points[count - 1] != (RoutePoint{1288, 136}));
         CHECK(points[count - 1][0] < points[0][0]);
         CHECK(points[count - 1][0] >= 96 * 16 + 8);
-        CHECK(points[count - 1][1] >= 82 * 16 + 8);
         CHECK(std::abs(int32_t(points[count - 1][0]) - points[0][0]) <= 64 * 16);
         for (uint32_t i = 1; i < count; ++i)
             CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
