@@ -28,6 +28,7 @@ namespace movement = oa::sim::unit_movement;
 
 constexpr int32_t pixel = 65536;
 constexpr uint32_t battle_version = oa::data::enhanced_mode::battle_flow_version;
+constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
 constexpr uint32_t legacy_version = 4;
 constexpr uint32_t map_height = 24;
 constexpr uint8_t land_height = 60;
@@ -455,7 +456,7 @@ WaveResult native_wave(uint32_t version, bool wide = false, bool distinct_goals 
             show(scene.queue[index], crossed[index]);
         show(scene.gate, -1);
     }
-    if (version == battle_version) {
+    if (version == battle_version || version == distributed_version) {
         CHECK(!result.bypass);
         CHECK(result.crossed);
         if (distinct_goals)
@@ -468,27 +469,27 @@ WaveResult native_wave(uint32_t version, bool wide = false, bool distinct_goals 
     return result;
 }
 
-void a_real_native_wave_waits_then_crosses_the_mouth() {
+void a_real_native_wave_waits_then_crosses_the_mouth(uint32_t version) {
     const auto legacy = native_wave(legacy_version);
-    const auto enhanced = native_wave(battle_version);
+    const auto enhanced = native_wave(version);
     CHECK(legacy.contact && legacy.bypass);
     CHECK(enhanced.contact && !enhanced.bypass && enhanced.crossed);
 }
 
-void eight_real_units_cross_after_the_ordinary_gate_leaves() {
-    const auto result = native_wave(battle_version, true);
+void eight_real_units_cross_after_the_ordinary_gate_leaves(uint32_t version) {
+    const auto result = native_wave(version, true);
     CHECK(result.contact && !result.bypass && result.crossed);
 }
 
-void distinct_native_goals_share_the_two_corner_queue() {
+void distinct_native_goals_share_the_two_corner_queue(uint32_t version) {
     const auto legacy = native_wave(legacy_version, false, true);
-    const auto enhanced = native_wave(battle_version, false, true);
+    const auto enhanced = native_wave(version, false, true);
     CHECK(legacy.contact && legacy.bypass);
     CHECK(enhanced.contact && !enhanced.bypass && enhanced.crossed && enhanced.arrived);
 }
 
-void a_permanent_native_gate_releases_mature_recovery() {
-    Scene scene(battle_version);
+void a_permanent_native_gate_releases_mature_recovery(uint32_t version) {
+    Scene scene(version);
     scene.begin();
     for (uint32_t tick = 0; tick < 600 && !genuine_contact(scene); ++tick)
         scene.run();
@@ -683,10 +684,10 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
     return result;
 }
 
-void actual_pipeline_rejects_incompatible_or_unowned_routes() {
-    const auto matched = pipeline(battle_version, Pipeline::matched);
+void actual_pipeline_rejects_incompatible_or_unowned_routes(uint32_t version) {
+    const auto matched = pipeline(version, Pipeline::matched);
     CHECK(matched.mobile && !matched.active);
-    const auto different_goal = pipeline(battle_version, Pipeline::different_goal);
+    const auto different_goal = pipeline(version, Pipeline::different_goal);
     CHECK(different_goal.mobile && !different_goal.active);
     CHECK(pipeline(legacy_version, Pipeline::matched).active);
     for (const auto control :
@@ -696,22 +697,22 @@ void actual_pipeline_rejects_incompatible_or_unowned_routes() {
           Pipeline::cancelled_leader,
           Pipeline::retargeted_leader,
           Pipeline::incompatible_blocker}) {
-        const auto result = pipeline(battle_version, control);
+        const auto result = pipeline(version, control);
         CHECK(result.mobile && result.active);
     }
-    const auto all_match = pipeline(battle_version, Pipeline::all_blockers_matched);
+    const auto all_match = pipeline(version, Pipeline::all_blockers_matched);
     CHECK(all_match.mobile && !all_match.active);
-    const auto mature = pipeline(battle_version, Pipeline::matched, 31);
+    const auto mature = pipeline(version, Pipeline::matched, 31);
     CHECK(mature.mobile && mature.active);
 }
 
-void dying_or_nonpositive_units_do_not_hold_the_queue() {
+void dying_or_nonpositive_units_do_not_hold_the_queue(uint32_t version) {
     for (const auto control :
          {Pipeline::dying_leader,
           Pipeline::nonpositive_leader,
           Pipeline::dying_follower,
           Pipeline::nonpositive_follower}) {
-        const auto result = pipeline(battle_version, control);
+        const auto result = pipeline(version, control);
         if (control == Pipeline::dying_leader || control == Pipeline::nonpositive_leader) {
             CHECK(!result.leader_live);
             CHECK(result.active);
@@ -758,7 +759,7 @@ int main(int argc, char** argv) {
         return EXIT_SUCCESS;
     }
     uint32_t failures{};
-    const auto run = [&failures](const char* name, void (*test)()) {
+    const auto run = [&failures](const char* name, const auto& test) {
         try {
             test();
         } catch (const std::exception& error) {
@@ -766,13 +767,26 @@ int main(int argc, char** argv) {
             std::cerr << name << ": " << error.what() << '\n';
         }
     };
-    run("native two-unit queue", a_real_native_wave_waits_then_crosses_the_mouth);
-    run("native eight-unit queue", eight_real_units_cross_after_the_ordinary_gate_leaves);
-    run("distinct native goals on shared corners",
-        distinct_native_goals_share_the_two_corner_queue);
-    run("permanent native gate", a_permanent_native_gate_releases_mature_recovery);
-    run("actual pipeline coherence", actual_pipeline_rejects_incompatible_or_unowned_routes);
-    run("dying or nonpositive queue actors", dying_or_nonpositive_units_do_not_hold_the_queue);
+    for (const auto version : {battle_version, distributed_version}) {
+        const auto run_version = [&](const char* name, void (*test)(uint32_t)) {
+            run(name, [&] { test(version); });
+        };
+        run_version("native two-unit queue", a_real_native_wave_waits_then_crosses_the_mouth);
+        run_version(
+            "native eight-unit queue", eight_real_units_cross_after_the_ordinary_gate_leaves
+        );
+        run_version(
+            "distinct native goals on shared corners",
+            distinct_native_goals_share_the_two_corner_queue
+        );
+        run_version("permanent native gate", a_permanent_native_gate_releases_mature_recovery);
+        run_version(
+            "actual pipeline coherence", actual_pipeline_rejects_incompatible_or_unowned_routes
+        );
+        run_version(
+            "dying or nonpositive queue actors", dying_or_nonpositive_units_do_not_hold_the_queue
+        );
+    }
     run("historical profile coherence", historical_profiles_do_not_read_route_coherence);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
