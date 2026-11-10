@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -41,13 +40,9 @@ bool same(const oa::FixedVec3& left, const oa::FixedVec3& right) {
     return left.x == right.x && left.y == right.y && left.z == right.z;
 }
 
-/// Stores a signed canonical source position in the packed unsigned words.
+/// Stores every signed fixed-point source coordinate unchanged.
 void source_position(oa::Unit& unit, const oa::FixedVec3& source) {
-    unit.position = {
-        std::bit_cast<uint32_t>(source.x),
-        std::bit_cast<uint32_t>(source.y),
-        std::bit_cast<uint32_t>(source.z)
-    };
+    unit.position = source;
 }
 
 /// Compares destination sets independently of actor assignment or issue order.
