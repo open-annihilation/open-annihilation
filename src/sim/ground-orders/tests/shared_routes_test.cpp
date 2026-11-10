@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <vector>
 
 using namespace oa::sim::ground_orders;
@@ -1230,6 +1231,98 @@ void fine_route_grid_formats_are_distinct_and_restore_atomically() {
     CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
 }
 
+/// Gives delayed cohorts a full polling window before a new destination can evict their tree.
+void fine_completed_fields_keep_a_polling_window_after_restore() {
+    const auto check_window = [](uint32_t completed_tick) {
+        Grid grid(128, 32);
+        const FlowLimits limits{1, 1024, 2048, 1024};
+        FlowCache fine(128, 32, limits, FlowPreset::fine_regions);
+        FlowCache loaded(128, 32, limits, FlowPreset::fine_regions);
+        const auto unit = unit_at(8, 16);
+        const auto hot = circle(40, 16), cold = circle(112, 16);
+        CHECK(query(fine, grid, unit, hot) == FlowResult::fallback);
+        CHECK(query(fine, grid, unit, hot) == FlowResult::pending);
+        fine.advance(completed_tick, 0, grid.sampler());
+        constexpr size_t first_field = 128 + 64 * 48;
+        constexpr uint8_t complete_phase = 3;
+        CHECK(fine.state_bytes()[first_field] == complete_phase);
+        CHECK(query(fine, grid, unit, cold) == FlowResult::fallback);
+        CHECK(query(fine, grid, unit, cold) == FlowResult::fallback);
+        CHECK(fine.counters().fields_started == 1);
+        CHECK(loaded.restore(fine.state_bytes()));
+        constexpr uint32_t polling_window = 60;
+        for (uint32_t age = 1; age < polling_window; ++age) {
+            const auto tick = completed_tick + age;
+            const auto before = fine.counters();
+            fine.advance(tick, 0, grid.sampler());
+            loaded.advance(tick, 0, grid.sampler());
+            CHECK(query(fine, grid, unit, cold) == FlowResult::fallback);
+            CHECK(query(loaded, grid, unit, cold) == FlowResult::fallback);
+            CHECK(fine.counters().fields_started == 1);
+            CHECK(fine.counters().cells_expanded == before.cells_expanded);
+            CHECK(fine.counters().cells_cleared == before.cells_cleared);
+            CHECK(
+                std::equal(
+                    fine.state_bytes().begin(),
+                    fine.state_bytes().end(),
+                    loaded.state_bytes().begin()
+                )
+            );
+        }
+        // This cohort has not polled since it admitted the field. Its route
+        // survives repeated competing requests until the end of the window.
+        CHECK(query(fine, grid, unit, hot) == FlowResult::ready);
+        CHECK(query(loaded, grid, unit, hot) == FlowResult::ready);
+        fine.advance(completed_tick + polling_window, 0, grid.sampler());
+        loaded.advance(completed_tick + polling_window, 0, grid.sampler());
+        CHECK(query(fine, grid, unit, cold) == FlowResult::pending);
+        CHECK(query(loaded, grid, unit, cold) == FlowResult::pending);
+        CHECK(query(fine, grid, unit, hot) == FlowResult::fallback);
+        CHECK(query(loaded, grid, unit, hot) == FlowResult::fallback);
+        CHECK(fine.counters().fields_started == 2);
+        CHECK(
+            std::equal(
+                fine.state_bytes().begin(), fine.state_bytes().end(), loaded.state_bytes().begin()
+            )
+        );
+    };
+    check_window(1);
+    check_window(std::numeric_limits<uint32_t>::max() - 20);
+}
+
+/// Preserves immediate legacy replacement and does not reserve failed fine fields.
+void old_presets_and_failed_fields_keep_immediate_replacement() {
+    const FlowLimits limits{1, 1024, 2048, 1024};
+    const auto unit = unit_at(8, 16);
+    const auto first = circle(40, 16), second = circle(112, 16);
+    for (const auto preset : {FlowPreset::original, FlowPreset::large_regions}) {
+        Grid grid(128, 32);
+        FlowCache cache(128, 32, limits, preset);
+        CHECK(query(cache, grid, unit, first) == FlowResult::fallback);
+        CHECK(query(cache, grid, unit, first) == FlowResult::pending);
+        cache.advance(1, 0, grid.sampler());
+        CHECK(query(cache, grid, unit, first) == FlowResult::ready);
+        CHECK(query(cache, grid, unit, second) == FlowResult::fallback);
+        CHECK(query(cache, grid, unit, second) == FlowResult::pending);
+        CHECK(cache.counters().fields_started == 2);
+        CHECK(query(cache, grid, unit, first) == FlowResult::fallback);
+    }
+    Grid grid(128, 32);
+    for (uint32_t z = 0; z < grid.height; ++z)
+        for (uint32_t x = 104; x < grid.width; ++x)
+            grid.cells[z * grid.width + x] = 0;
+    FlowCache failed(128, 32, limits, FlowPreset::fine_regions);
+    CHECK(query(failed, grid, unit, second) == FlowResult::fallback);
+    CHECK(query(failed, grid, unit, second) == FlowResult::pending);
+    failed.advance(1, 0, grid.sampler());
+    constexpr size_t first_field = 128 + 64 * 48;
+    constexpr uint8_t failed_phase = 4;
+    CHECK(failed.state_bytes()[first_field] == failed_phase);
+    CHECK(query(failed, grid, unit, first) == FlowResult::fallback);
+    CHECK(query(failed, grid, unit, first) == FlowResult::pending);
+    CHECK(failed.counters().fields_started == 2);
+}
+
 /// Delivers a legal nearby prefix while a stale connection farther away waits for repair.
 void regional_prefixes_continue_to_the_original_goal_after_restore() {
     Grid grid(512, 128);
@@ -1764,6 +1857,8 @@ int main() {
     route_presets_keep_distinct_formats_and_goal_regions();
     fine_route_grid_formats_are_distinct_and_restore_atomically();
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
+    fine_completed_fields_keep_a_polling_window_after_restore();
+    old_presets_and_failed_fields_keep_immediate_replacement();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
     regional_prefixes_continue_to_the_original_goal_after_restore();
