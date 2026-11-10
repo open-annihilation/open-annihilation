@@ -1270,8 +1270,8 @@ void fine_goal_branch_traversal_spends_the_global_quota() {
     CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
 }
 
-/// Preserves useful approaches while bounding unavailable requested-goal branches.
-void fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines() {
+/// A completed tree cannot guide a disconnected goal or an unavailable ancestry.
+void fine_goal_branches_reject_disconnected_and_unavailable_spines() {
     auto grid = winding_origin_grid(16, 80, 72);
     grid.cells[32 * grid.width + 40] = 1;
     const auto unit = unit_at(40, 24);
@@ -1286,15 +1286,10 @@ void fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines() {
     std::array<RoutePoint, navigation_capacity> points{};
     uint32_t count{};
     CHECK(
-        cache.route(context(), unit, isolated, points, count, grid.sampler()) == FlowResult::ready
+        cache.route(context(), unit, isolated, points, count, grid.sampler()) ==
+        FlowResult::fallback
     );
-    CHECK(count >= 2);
-    if (count >= 2) {
-        CHECK(points[count - 1] != (RoutePoint{648, 520}));
-        CHECK(points[count - 1][1] < 24 * 16 + 8);
-        for (uint32_t i = 1; i < count; ++i)
-            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
-    }
+    CHECK(count == 0); // The sole completed field must not steer toward its own unrelated seed.
     grid.cells[32 * grid.width + 40] = 0;
     CHECK(query(cache, grid, root, isolated) == FlowResult::fallback);
     CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
@@ -1623,6 +1618,403 @@ void old_presets_and_failed_fields_keep_immediate_replacement() {
     CHECK(query(failed, grid, unit, first) == FlowResult::fallback);
     CHECK(query(failed, grid, unit, first) == FlowResult::pending);
     CHECK(failed.counters().fields_started == 2);
+}
+
+/// Three disconnected native components whose destinations share one region key.
+Grid representative_islands() {
+    Grid grid(96, 96);
+    std::fill(grid.cells.begin(), grid.cells.end(), 0);
+    const auto open = [&](uint32_t left, uint32_t top, uint32_t right, uint32_t bottom) {
+        for (auto z = top; z < bottom; ++z)
+            for (auto x = left; x < right; ++x)
+                grid.cells[z * grid.width + x] = 1;
+    };
+    // A five-node stride-two tree, with a blocked chord between its endpoints.
+    open(8, 8, 9, 11);
+    open(8, 10, 13, 11);
+    open(12, 8, 13, 11);
+    // The second component needs a long detour around the end of a wall.
+    open(32, 4, 92, 92);
+    for (uint32_t z = 4; z < 82; ++z)
+        grid.cells[z * grid.width + 60] = 0;
+    // A third component must not purchase a third representative of the key.
+    open(4, 48, 20, 52);
+    open(16, 48, 20, 68);
+    open(4, 64, 20, 68);
+    return grid;
+}
+
+constexpr size_t representative_first_field = 128 + 64 * 48;
+constexpr uint32_t representative_cells = 48 * 48;
+constexpr size_t representative_field_bytes = 80 + representative_cells * 5;
+
+uint32_t representative_read32(std::span<const uint8_t> bytes, size_t at) {
+    return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 | uint32_t(bytes[at + 2]) << 16 |
+           uint32_t(bytes[at + 3]) << 24;
+}
+
+void representative_write32(std::span<uint8_t> bytes, size_t at, uint32_t value) {
+    for (uint32_t i = 0; i < 4; ++i)
+        bytes[at + i] = static_cast<uint8_t>(value >> (i * 8));
+}
+
+std::vector<uint8_t> representative_field_snapshot(const FlowCache& cache, size_t index) {
+    const auto bytes = cache.state_bytes();
+    const auto first = representative_first_field + index * representative_field_bytes;
+    std::vector<uint8_t> result(
+        bytes.begin() + first, bytes.begin() + first + representative_field_bytes
+    );
+    // Successful old-component requests may update its recency, but nothing else.
+    std::fill(result.begin() + 64, result.begin() + 68, 0);
+    return result;
+}
+
+void advance_representative(FlowCache& cache, Grid& grid, uint32_t tick, uint32_t work = 64) {
+    const auto before = cache.counters();
+    cache.advance(tick, 0, grid.sampler());
+    CHECK(cache.counters().cells_expanded - before.cells_expanded <= work);
+    CHECK(cache.counters().cells_cleared - before.cells_cleared <= 65'536);
+}
+
+FlowResult
+representative_route(FlowCache& cache, Grid& grid, const oa::Unit& unit, const Goal& goal) {
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    const auto before = grid.queries;
+    const auto result = cache.route(context(), unit, goal, points, count, grid.sampler());
+    CHECK(grid.queries - before <= 65'536);
+    CHECK(
+        (result == FlowResult::ready && count >= 2) || (result != FlowResult::ready && count == 0)
+    );
+    if (result == FlowResult::ready)
+        for (uint32_t i = 1; i < count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+    return result;
+}
+
+void build_first_representative(FlowCache& cache, Grid& grid) {
+    const auto unit = unit_at(8, 8);
+    const auto goal = circle(12, 8);
+    CHECK(representative_route(cache, grid, unit, goal) == FlowResult::fallback);
+    CHECK(representative_route(cache, grid, unit, goal) == FlowResult::pending);
+    for (uint32_t tick = 1; tick <= 61; ++tick)
+        advance_representative(cache, grid, tick);
+    const auto bytes = cache.state_bytes();
+    CHECK(representative_read32(bytes, representative_first_field) == 3);
+    CHECK(representative_read32(bytes, representative_first_field + 60) == 5);
+    CHECK(representative_route(cache, grid, unit, goal) == FlowResult::ready);
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+}
+
+/// A tiny completed island must not monopolize a large disconnected cohort's key.
+void fine_regions_retain_two_disconnected_representatives() {
+    auto grid = representative_islands();
+    const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    build_first_representative(cache, grid);
+    const auto retained = representative_field_snapshot(cache, 0);
+    const auto first_unit = unit_at(8, 8), second_unit = unit_at(36, 20);
+    const auto first_goal = circle(12, 8), second_goal = circle(84, 20);
+    const auto original_goal = second_goal.cell;
+    CHECK(representative_route(cache, grid, second_unit, second_goal) != FlowResult::ready);
+    CHECK(representative_route(cache, grid, second_unit, second_goal) == FlowResult::pending);
+    CHECK(cache.counters().fields_started == 2);
+    bool saw_pending = false, saw_ready = false;
+    for (uint32_t tick = 62; tick <= 110; ++tick) {
+        advance_representative(cache, grid, tick);
+        CHECK(representative_route(cache, grid, first_unit, first_goal) == FlowResult::ready);
+        const auto result = representative_route(cache, grid, second_unit, second_goal);
+        saw_pending |= result == FlowResult::pending;
+        saw_ready |= result == FlowResult::ready;
+        // Flanking requests during the unfinished tree share its admission.
+        if (!saw_ready) {
+            CHECK(
+                representative_route(cache, grid, unit_at(6, 50), circle(6, 66)) !=
+                FlowResult::ready
+            );
+            CHECK(
+                representative_route(
+                    cache, grid, second_unit, circle(static_cast<int16_t>(80 + tick % 4 * 2), 24)
+                ) != FlowResult::fallback
+            );
+        }
+        CHECK(cache.counters().fields_started == 2);
+        CHECK(representative_field_snapshot(cache, 0) == retained);
+    }
+    CHECK(saw_pending && saw_ready);
+    for (uint32_t tick = 111; tick <= 120; ++tick) {
+        advance_representative(cache, grid, tick);
+        CHECK(representative_route(cache, grid, second_unit, second_goal) == FlowResult::ready);
+        CHECK(representative_route(cache, grid, first_unit, first_goal) == FlowResult::ready);
+        CHECK(
+            representative_route(cache, grid, unit_at(6, 50), circle(6, 66)) == FlowResult::fallback
+        );
+    }
+    CHECK(second_goal.cell == original_goal);
+    CHECK(cache.counters().fields_started == 2 && cache.counters().invalidations == 0);
+    CHECK(
+        representative_read32(
+            cache.state_bytes(), representative_first_field + 2 * representative_field_bytes
+        ) == 0
+    );
+}
+
+/// Exhausted storage falls back without rerooting the already useful component.
+void fine_single_field_preserves_its_disconnected_component() {
+    auto grid = representative_islands();
+    const FlowLimits limits{1, representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    build_first_representative(cache, grid);
+    const auto retained = representative_field_snapshot(cache, 0);
+    for (uint32_t tick = 62; tick <= 90; ++tick) {
+        advance_representative(cache, grid, tick);
+        CHECK(
+            representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) ==
+            FlowResult::fallback
+        );
+        CHECK(representative_route(cache, grid, unit_at(8, 8), circle(12, 8)) == FlowResult::ready);
+        CHECK(representative_field_snapshot(cache, 0) == retained);
+    }
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+}
+
+/// An unfinished first representative blocks extra admissions before the cap is reached.
+void fine_unfinished_representative_blocks_extra_admissions() {
+    auto grid = representative_islands();
+    const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    CHECK(
+        representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::fallback
+    );
+    CHECK(
+        representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::pending
+    );
+    for (uint32_t tick = 0; tick < 8; ++tick) {
+        if (tick != 0)
+            advance_representative(cache, grid, tick);
+        CHECK(representative_route(cache, grid, unit_at(8, 8), circle(12, 8)) != FlowResult::ready);
+        CHECK(
+            representative_route(cache, grid, unit_at(6, 50), circle(6, 66)) != FlowResult::ready
+        );
+        CHECK(cache.counters().fields_started == 1);
+    }
+    CHECK(representative_read32(cache.state_bytes(), representative_first_field) == 2);
+}
+
+/// A quota too small for optional representative selection must not wait forever.
+void fine_optional_representative_rejects_an_intrinsically_small_quota() {
+    auto grid = representative_islands();
+    const FlowLimits limits{4, 4 * representative_cells, 64, 128};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    CHECK(query(cache, grid, unit_at(8, 8), circle(12, 8)) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit_at(8, 8), circle(12, 8)) == FlowResult::pending);
+    for (uint32_t tick = 1; tick <= 65; ++tick) {
+        advance_representative(cache, grid, tick);
+        if (tick >= 61) {
+            const auto before = grid.queries;
+            CHECK(query(cache, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::fallback);
+            CHECK(grid.queries - before <= limits.route_probes_per_tick);
+            CHECK(cache.counters().fields_started == 1);
+        }
+    }
+}
+
+/// A failed unrelated slot is reusable; a retained same-key tree is not a victim.
+void fine_extra_representative_reuses_failed_storage() {
+    auto grid = representative_islands();
+    const FlowLimits limits{2, 2 * representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    build_first_representative(cache, grid);
+    const auto retained = representative_field_snapshot(cache, 0);
+    auto other_player = context();
+    other_player.player = 1;
+    CHECK(query(cache, grid, unit_at(8, 8), circle(28, 28), other_player) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit_at(8, 8), circle(28, 28), other_player) == FlowResult::pending);
+    advance_representative(cache, grid, 62);
+    CHECK(
+        representative_read32(
+            cache.state_bytes(), representative_first_field + representative_field_bytes
+        ) == 4
+    );
+    CHECK(representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) != FlowResult::ready);
+    CHECK(
+        representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::pending
+    );
+    CHECK(cache.counters().fields_started == 3);
+    for (uint32_t tick = 63; tick <= 110; ++tick)
+        advance_representative(cache, grid, tick);
+    CHECK(representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::ready);
+    CHECK(representative_route(cache, grid, unit_at(8, 8), circle(12, 8)) == FlowResult::ready);
+    CHECK(representative_field_snapshot(cache, 0) == retained);
+}
+
+/// Duplicate-key representatives resume their pending frontier and request order exactly.
+void fine_representatives_resume_together_and_reject_a_third_saved_sibling() {
+    auto grid = representative_islands();
+    const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
+    FlowCache original(96, 96, limits, FlowPreset::fine_regions);
+    FlowCache loaded(96, 96, limits, FlowPreset::fine_regions);
+    build_first_representative(original, grid);
+    CHECK(
+        representative_route(original, grid, unit_at(36, 20), circle(84, 20)) != FlowResult::ready
+    );
+    CHECK(
+        representative_route(original, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::pending
+    );
+    advance_representative(original, grid, 62);
+    CHECK(
+        representative_read32(
+            original.state_bytes(), representative_first_field + representative_field_bytes
+        ) == 2
+    );
+    // A periodic refresh can restart the old tree while its sibling still builds.
+    auto both_building =
+        std::vector<uint8_t>(original.state_bytes().begin(), original.state_bytes().end());
+    representative_write32(both_building, representative_first_field, 2);
+    representative_write32(both_building, representative_first_field + 56, 0);
+    representative_write32(both_building, representative_first_field + 76, 0);
+    CHECK(loaded.restore(both_building));
+    CHECK(loaded.restore(original.state_bytes()));
+    bool saw_ready = false;
+    for (uint32_t tick = 63; tick <= 110; ++tick) {
+        advance_representative(original, grid, tick);
+        advance_representative(loaded, grid, tick);
+        for (uint32_t cohort = 0; cohort < 3; ++cohort) {
+            const auto unit = cohort == 0 ? unit_at(8, 8) : unit_at(36, 20);
+            const auto goal = cohort == 0   ? circle(12, 8)
+                              : cohort == 1 ? circle(84, 20)
+                                            : circle(82, 24);
+            std::array<RoutePoint, navigation_capacity> points{}, resumed{};
+            uint32_t count{}, resumed_count{};
+            const auto result =
+                original.route(context(), unit, goal, points, count, grid.sampler());
+            CHECK(
+                loaded.route(context(), unit, goal, resumed, resumed_count, grid.sampler()) ==
+                result
+            );
+            CHECK(count == resumed_count && points == resumed);
+            if (cohort == 1)
+                saw_ready |= result == FlowResult::ready;
+            if (result == FlowResult::ready)
+                for (uint32_t i = 1; i < count; ++i)
+                    CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+        }
+        CHECK(
+            std::equal(
+                original.state_bytes().begin(),
+                original.state_bytes().end(),
+                loaded.state_bytes().begin()
+            )
+        );
+    }
+    CHECK(saw_ready && original.counters().fields_started == 2);
+    auto malformed =
+        std::vector<uint8_t>(original.state_bytes().begin(), original.state_bytes().end());
+    const auto second = representative_first_field + representative_field_bytes;
+    const auto third = second + representative_field_bytes;
+    std::copy(malformed.begin() + second, malformed.begin() + third, malformed.begin() + third);
+    const auto before =
+        std::vector<uint8_t>(loaded.state_bytes().begin(), loaded.state_bytes().end());
+    CHECK(!loaded.restore(malformed));
+    CHECK(std::equal(before.begin(), before.end(), loaded.state_bytes().begin()));
+    malformed.assign(original.state_bytes().begin(), original.state_bytes().end());
+    representative_write32(malformed, representative_first_field + 40, 40);
+    CHECK(!loaded.restore(malformed)); // The root cannot represent this distant saved seed.
+    CHECK(std::equal(before.begin(), before.end(), loaded.state_bytes().begin()));
+}
+
+/// Visited coarse bytes cannot substitute for known native source/goal connections.
+void fine_representatives_require_known_live_anchors() {
+    auto grid = representative_islands();
+    const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    build_first_representative(cache, grid);
+    CHECK(representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) != FlowResult::ready);
+    CHECK(
+        representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::pending
+    );
+    for (uint32_t tick = 62; tick <= 110; ++tick)
+        advance_representative(cache, grid, tick);
+    CHECK(representative_route(cache, grid, unit_at(36, 20), circle(84, 20)) == FlowResult::ready);
+    auto blocked_centre = circle(30, 20);
+    blocked_centre.tolerance = 64;
+    blocked_centre.radius_squared = 16;
+    CHECK(grid.cells[20 * grid.width + 32] == 1); // A legal arrival lies inside the circle.
+    CHECK(
+        representative_route(cache, grid, unit_at(36, 20), blocked_centre) == FlowResult::fallback
+    );
+
+    struct Knowledge {
+        Grid* grid;
+        int32_t x, z;
+    } knowledge{&grid, 84, 20};
+
+    const FlowSampler sampler{
+        &knowledge, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) -> uint8_t {
+            const auto& k = *static_cast<Knowledge*>(p);
+            const auto base = k.grid->sampler();
+            const auto value = base.cell(base.context, klass, player, x, z);
+            return value && x == k.x && z == k.z ? 2 : value;
+        }
+    };
+    const auto unknown_query = [&](const oa::Unit& unit) {
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        CHECK(
+            cache.route(context(), unit, circle(84, 20), points, count, sampler) ==
+            FlowResult::fallback
+        );
+        CHECK(count == 0);
+    };
+    unknown_query(unit_at(36, 20));
+    knowledge.x = 36;
+    unknown_query(unit_at(36, 20));
+    CHECK(cache.counters().fields_started == 2 && cache.counters().invalidations == 0);
+    CHECK(representative_route(cache, grid, unit_at(8, 8), circle(12, 8)) == FlowResult::ready);
+}
+
+/// Native off-centre anchor chords can cross a wall missed by cell-centre chords.
+void fine_representatives_validate_the_actual_source_pose() {
+    Grid grid(96, 96);
+    std::fill(grid.cells.begin(), grid.cells.end(), 0);
+    for (uint32_t x = 38; x <= 40; ++x)
+        grid.cells[20 * grid.width + x] = 1;
+    for (uint32_t x = 37; x <= 40; ++x)
+        grid.cells[21 * grid.width + x] = 1;
+    const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    const auto goal = circle(40, 20);
+    auto unit = unit_at(37, 21);
+    CHECK(query(cache, grid, unit, goal) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit, goal) == FlowResult::pending);
+    advance_representative(cache, grid, 1);
+    CHECK(representative_route(cache, grid, unit, goal) == FlowResult::ready);
+    CHECK(segment_avoids_blocked_cells(grid, {600, 344}, {648, 328}));
+    unit.position.z -= 7 << 16;
+    CHECK(!segment_avoids_blocked_cells(grid, {600, 337}, {648, 328}));
+    // The footprint still belongs to (37,21), but every visited anchor has an
+    // unsafe native chord. Neither a direct shortcut nor a new field is valid.
+    CHECK((unit.position.z >> 20) == unit.cell_z);
+    CHECK(representative_route(cache, grid, unit, goal) == FlowResult::fallback);
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
+}
+
+/// A clear goal plot is insufficient when another plot under its footprint blocks.
+void fine_representatives_validate_the_complete_goal_footprint() {
+    auto grid = representative_islands();
+    const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    const auto unit = unit_at(36, 20, 2);
+    const auto goal = circle(84, 20);
+    CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::pending);
+    for (uint32_t tick = 1; tick <= 50; ++tick)
+        advance_representative(cache, grid, tick);
+    CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::ready);
+    grid.cells[20 * grid.width + 85] = 0;
+    CHECK(grid.cells[20 * grid.width + 84] == 1);
+    CHECK(query(cache, grid, unit, goal, context(1)) == FlowResult::fallback);
+    CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
 }
 
 /// Resumes full-budget fields whose active frontier uses indices above 65,535.
@@ -2232,7 +2624,7 @@ int main() {
     route_presets_keep_distinct_formats_and_goal_regions();
     fine_routes_follow_the_requested_goal_branch_after_restore();
     fine_goal_branch_traversal_spends_the_global_quota();
-    fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines();
+    fine_goal_branches_reject_disconnected_and_unavailable_spines();
     fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes();
     fine_goal_spines_larger_than_the_quota_keep_local_prefixes();
     fine_clear_root_chords_keep_prefixes_with_partly_spent_quota();
@@ -2240,6 +2632,15 @@ int main() {
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
     old_presets_and_failed_fields_keep_immediate_replacement();
+    fine_regions_retain_two_disconnected_representatives();
+    fine_single_field_preserves_its_disconnected_component();
+    fine_unfinished_representative_blocks_extra_admissions();
+    fine_optional_representative_rejects_an_intrinsically_small_quota();
+    fine_extra_representative_reuses_failed_storage();
+    fine_representatives_resume_together_and_reject_a_third_saved_sibling();
+    fine_representatives_require_known_live_anchors();
+    fine_representatives_validate_the_actual_source_pose();
+    fine_representatives_validate_the_complete_goal_footprint();
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
