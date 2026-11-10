@@ -139,6 +139,9 @@ struct Totals {
     std::array<double, material_kind_count> persistent_materials{};
     std::array<double, material_kind_count> persistent_texels{};
     std::array<double, material_kind_count> persistent_row_texels{};
+    double ground_index_builds{}, ground_index_hits{}, ground_index_triangles{};
+    double ground_index_wall_ms{}; ///< inclusive elapsed time of completed index builds
+    double pose_capture_units{}, pose_capture_pieces{}, pose_vm_speed_triplets{};
     double terrain_squares_packed{}; ///< terrain tiles packed into the atlas
     double atlas_emptied{};          ///< frames whose atlas was emptied to fit
     double atlas_rows_uploaded{};    ///< atlas rows sent to the card
@@ -172,6 +175,13 @@ struct Totals {
     growth.atlas_rows_uploaded = now.atlas_rows_uploaded - before.atlas_rows_uploaded;
     growth.whole_atlas_uploads = now.whole_atlas_uploads - before.whole_atlas_uploads;
     growth.ground_revisions = now.ground_revisions - before.ground_revisions;
+    growth.ground_index_builds = now.ground_index_builds - before.ground_index_builds;
+    growth.ground_index_hits = now.ground_index_hits - before.ground_index_hits;
+    growth.ground_index_triangles = now.ground_index_triangles - before.ground_index_triangles;
+    growth.ground_index_wall_ms = now.ground_index_wall_ms - before.ground_index_wall_ms;
+    growth.pose_capture_units = now.pose_capture_units - before.pose_capture_units;
+    growth.pose_capture_pieces = now.pose_capture_pieces - before.pose_capture_pieces;
+    growth.pose_vm_speed_triplets = now.pose_vm_speed_triplets - before.pose_vm_speed_triplets;
     return growth;
 }
 
@@ -195,6 +205,13 @@ inline void add_totals(Totals& sum, const Totals& more) noexcept {
     sum.atlas_rows_uploaded += more.atlas_rows_uploaded;
     sum.whole_atlas_uploads += more.whole_atlas_uploads;
     sum.ground_revisions += more.ground_revisions;
+    sum.ground_index_builds += more.ground_index_builds;
+    sum.ground_index_hits += more.ground_index_hits;
+    sum.ground_index_triangles += more.ground_index_triangles;
+    sum.ground_index_wall_ms += more.ground_index_wall_ms;
+    sum.pose_capture_units += more.pose_capture_units;
+    sum.pose_capture_pieces += more.pose_capture_pieces;
+    sum.pose_vm_speed_triplets += more.pose_vm_speed_triplets;
 }
 
 /// The scene of the last frame the turned view drew.
@@ -383,6 +400,35 @@ count_persistent_material(MaterialKind kind, uint64_t texels, uint64_t row_texel
     timers.totals.persistent_materials[index] += 1;
     timers.totals.persistent_texels[index] += static_cast<double>(texels);
     timers.totals.persistent_row_texels[index] += static_cast<double>(row_texels);
+}
+
+/// Adds completed worker index work after the frame's workers have joined.
+/// @param builds index bundles rebuilt from geometry
+/// @param hits retained index bundles reused
+/// @param triangles triangles read by rebuilds
+/// @param nanoseconds inclusive wall time of those builds
+inline void count_ground_indices(
+    uint64_t builds, uint64_t hits, uint64_t triangles, uint64_t nanoseconds
+) noexcept {
+    if (!timers.on)
+        return;
+    timers.totals.ground_index_builds += static_cast<double>(builds);
+    timers.totals.ground_index_hits += static_cast<double>(hits);
+    timers.totals.ground_index_triangles += static_cast<double>(triangles);
+    timers.totals.ground_index_wall_ms += static_cast<double>(nanoseconds) / 1.0e6;
+}
+
+/// Counts poses actually captured and the bulk VM speed reads they required.
+/// @param units newly captured unit poses
+/// @param pieces model pieces in those poses
+/// @param vm_speed_triplets actual script speed-triplet reads, including out-of-range zeros
+inline void
+count_pose_capture(uint64_t units, uint64_t pieces, uint64_t vm_speed_triplets) noexcept {
+    if (!timers.on)
+        return;
+    timers.totals.pose_capture_units += static_cast<double>(units);
+    timers.totals.pose_capture_pieces += static_cast<double>(pieces);
+    timers.totals.pose_vm_speed_triplets += static_cast<double>(vm_speed_triplets);
 }
 
 /// Counts the atlas rows a frame sends to the card.
