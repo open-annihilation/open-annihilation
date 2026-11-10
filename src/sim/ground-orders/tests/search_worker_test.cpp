@@ -281,6 +281,34 @@ bool same_jobs(const SearchPlayerJobState& first, const SearchPlayerJobState& se
            first.active_heuristic == second.active_heuristic;
 }
 
+/// Offers the fourth sparse pick even when heuristic usage resets between picks.
+void preferred_pick_phase_survives_heuristic_resets() {
+    oa::sim::unit_spawn::LegacyWorld world(9);
+    prepare_pick_world(world);
+    auto& players = world.simulation().players;
+    PickTrace trace;
+    const auto access = trace_access(trace, true);
+    SearchScheduler scheduler;
+    scheduler.jobs.tick_credit = 1;
+    for (uint32_t pick = 0; pick < 4; ++pick) {
+        scheduler.jobs.refresh_tick = search_scale_period - 1;
+        CHECK(scan_player_jobs(scheduler, players, 1, 8, 100 + pick, {}, access) == 1);
+        CHECK(scheduler.jobs.job_picks[0] == 1);
+        if (pick < 3)
+            CHECK(trace.preferred_calls == 0);
+    }
+    CHECK(trace.preferred_calls == 1);
+    CHECK((trace.visited == std::vector<uint32_t>{2, 3, 4, 8}));
+    CHECK(scheduler.preferred_pick_phase[0] == 0);
+    CHECK(scheduler.jobs.unit_cursor[0] == 3);
+    scheduler.preferred_pick_phase.fill(3);
+    const auto ordinary = trace_access(trace, false);
+    scheduler.jobs.refresh_tick = search_scale_period - 1;
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 104, {}, ordinary) == 1);
+    for (const auto phase : scheduler.preferred_pick_phase)
+        CHECK(phase == 3);
+}
+
 /// Borrows only a fourth credited pick while preserving the ordinary next unit.
 void preferred_picks_preserve_ordinary_cursor_order() {
     oa::sim::unit_spawn::LegacyWorld world(9);
@@ -302,6 +330,7 @@ void preferred_picks_preserve_ordinary_cursor_order() {
     trace.preferred_index = 1;
     scheduler.jobs = SearchPlayerJobState{};
     scheduler.jobs.job_picks[0] = 3;
+    scheduler.preferred_pick_phase[0] = 3;
     scheduler.jobs.tick_credit = 1;
     CHECK(scan_player_jobs(scheduler, players, 1, 8, 101, {}, access) == 1);
     CHECK((trace.visited == std::vector<uint32_t>{2}));
@@ -349,6 +378,7 @@ void rejected_preferred_picks_keep_the_ordinary_state() {
     original.jobs.tick_credit = 3;
     CHECK(scan_player_jobs(original, players, 1, 8, 100, {}, first_access) == 3);
     resumed.jobs = original.jobs;
+    resumed.preferred_pick_phase = original.preferred_pick_phase;
     original.jobs.tick_credit = resumed.jobs.tick_credit = 5;
     first.visited.clear();
     CHECK(scan_player_jobs(original, players, 1, 8, 101, {}, first_access) == 5);
@@ -425,6 +455,7 @@ void preferred_jobs_keep_the_active_unit_goal_and_work_debt() {
     };
     SearchScheduler scheduler;
     scheduler.jobs.job_picks[0] = 3;
+    scheduler.preferred_pick_phase[0] = 3;
     scheduler.jobs.tick_credit = 1;
     CHECK(scan_player_jobs(scheduler, players, 1, 8, 100, all_seen, access) == 1);
     CHECK(context.offers == 1 && context.prepared == 1);
@@ -450,6 +481,7 @@ void preferred_jobs_keep_the_active_unit_goal_and_work_debt() {
     // Failed preparation takes its normal launch debt and retry stamp too.
     scheduler.jobs = SearchPlayerJobState{};
     scheduler.jobs.job_picks[0] = 3;
+    scheduler.preferred_pick_phase[0] = 3;
     scheduler.jobs.tick_credit = 1;
     route.last_search_tick = 0;
     context.offer = true;
@@ -463,6 +495,7 @@ void preferred_jobs_keep_the_active_unit_goal_and_work_debt() {
     // their order-owned Goals are rebuilt on new unit storage.
     scheduler.jobs = SearchPlayerJobState{};
     scheduler.jobs.job_picks[0] = 3;
+    scheduler.preferred_pick_phase[0] = 3;
     scheduler.jobs.tick_credit = 1;
     route.last_search_tick = 0;
     context.prepare_ok = true;
@@ -497,6 +530,7 @@ void preferred_jobs_keep_the_active_unit_goal_and_work_debt() {
 } // namespace
 
 int main() {
+    preferred_pick_phase_survives_heuristic_resets();
     capped_wall_detours_continue_to_the_actual_goal();
     seed_caps_distinguish_the_last_goal_step_from_truncation();
     preferred_picks_preserve_ordinary_cursor_order();
