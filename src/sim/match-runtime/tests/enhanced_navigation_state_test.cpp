@@ -39,6 +39,15 @@ Options options_for(uint32_t version) {
     return options;
 }
 
+routes::FlowLimits fixture_route_limits(uint32_t version) {
+    auto limits = routes::FlowLimits{};
+    if (version == oa::data::enhanced_mode::distributed_battle_flow_version) {
+        limits.fields = 80;
+        limits.total_cells = 8 * 1024 * 1024;
+    }
+    return limits;
+}
+
 const runtime::RuleStateTable& table(runtime::Match& match, const char* name) {
     const auto* found = runtime::find_rule_state(match.rule_state(), name);
     CHECK(found != nullptr);
@@ -67,7 +76,7 @@ void install_pending_field(runtime::Match& match) {
     routes::FlowCache cache(
         16,
         16,
-        routes::FlowLimits{},
+        fixture_route_limits(match.rules().setup.enhanced_mode.version),
         match.rules().setup.enhanced_mode.version ==
                 oa::data::enhanced_mode::distributed_battle_flow_version
             ? routes::FlowPreset::fine_regions
@@ -320,21 +329,31 @@ void configure_movement_class(
     CHECK(fixture.match->movement_map(1) != nullptr);
 }
 
-/// The denser graph retains 64 fields within its recorded, bounded node storage.
+/// Fine storage can hold the battle's working set without increasing expansion work.
 void shared_field_storage_is_bounded_per_preset() {
-    constexpr uint32_t width = 1024, height = 512;
-    for (const uint32_t version :
-         {oa::data::enhanced_mode::battle_flow_version,
-          oa::data::enhanced_mode::distributed_battle_flow_version}) {
-        Fixture fixture(options_for(version));
+    struct StorageCase {
+        uint32_t version, width, height, fields;
+        size_t bytes;
+    };
+
+    constexpr auto old = oa::data::enhanced_mode::battle_flow_version;
+    constexpr auto fine_version = oa::data::enhanced_mode::distributed_battle_flow_version;
+    constexpr std::array<StorageCase, 4> cases{
+        {{old, 642, 648, 64, 8'354'560},
+         {fine_version, 642, 648, 80, 41'611'200},
+         {old, 1024, 512, 64, 10'494'080},
+         {fine_version, 1024, 512, 64, 41'951'360}}
+    };
+    for (const auto& c : cases) {
+        Fixture fixture(options_for(c.version));
         fixture.match.reset();
-        fixture.map.attribute_width = width;
-        fixture.map.attribute_height = height;
-        fixture.map.attributes.resize(size_t(width) * height);
-        fixture.terrain_values.resize(size_t(width) * height);
-        fixture.collision_plots.resize(size_t(width) * height);
-        fixture.altitude_cells.resize(size_t(width / 2) * (height / 2));
-        configure_movement_class(fixture, 1, 1, version);
+        fixture.map.attribute_width = c.width;
+        fixture.map.attribute_height = c.height;
+        fixture.map.attributes.resize(size_t(c.width) * c.height);
+        fixture.terrain_values.resize(size_t(c.width) * c.height);
+        fixture.collision_plots.resize(size_t(c.width) * c.height);
+        fixture.altitude_cells.resize(size_t(c.width / 2) * (c.height / 2));
+        configure_movement_class(fixture, 1, 1, c.version);
         auto& match = *fixture.match;
         const auto& shared = table(match, "shared-routes");
         const auto bytes = bytes_of(shared);
@@ -342,14 +361,16 @@ void shared_field_storage_is_bounded_per_preset() {
             return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 |
                    uint32_t(bytes[at + 2]) << 16 | uint32_t(bytes[at + 3]) << 24;
         };
-        const bool fine = version == oa::data::enhanced_mode::distributed_battle_flow_version;
+        const bool fine = c.version == fine_version;
         const uint32_t stride = fine ? 2 : 4;
-        const uint32_t cells = (width / stride) * (height / stride);
+        const uint32_t cells =
+            ((c.width + stride - 1) / stride) * ((c.height + stride - 1) / stride);
         CHECK(word(4) == (fine ? 3u : 2u));
-        CHECK(word(16) == 64 && word(20) == cells && word(28) == stride);
+        CHECK(word(16) == c.fields && word(20) == cells && word(28) == stride);
         CHECK(word(24) == 2048 && word(56) == 65536);
-        CHECK(bytes.size() == 128 + 64 * 48 + 64 * (80 + size_t(cells) * 5));
-        CHECK(bytes.size() == (fine ? 41'951'360u : 10'494'080u));
+        CHECK(bytes.size() == 128 + 64 * 48 + c.fields * (80 + size_t(cells) * 5));
+        CHECK(bytes.size() == c.bytes);
+        CHECK(uint64_t(c.fields) * cells <= (fine ? 8'388'608u : 2'097'152u));
         const auto core_rng = match.random_state(), lcg_rng = match.lcg_state();
         CHECK(shared.restore(shared.context, bytes));
         CHECK(bytes_of(shared) == bytes);
@@ -362,7 +383,7 @@ void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, boo
     routes::FlowCache cache(
         16,
         16,
-        routes::FlowLimits{},
+        fixture_route_limits(match.rules().setup.enhanced_mode.version),
         match.rules().setup.enhanced_mode.version ==
                 oa::data::enhanced_mode::distributed_battle_flow_version
             ? routes::FlowPreset::fine_regions

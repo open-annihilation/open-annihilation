@@ -715,7 +715,7 @@ Experimental preset 7 uses a distinct shared-field format with nodes every
 two terrain cells. A wreck can block every four-cell anchor across a bridge
 while leaving a ground unit enough room to pass between them; the finer
 graph retains those lanes. Its 32-edge prefix covers the same terrain
-distance as the earlier 16-edge prefix. Preset 7 allows at most 64 fields
+distance as the earlier 16-edge prefix. Preset 7 allows at most 80 fields
 and 8,388,608 stored nodes, about 40 MiB of raw field state at the
 largest allocation. The per-tick expansion and extraction budgets stay
 unchanged. A completed field gets 60 ticks of residence before a new key can
