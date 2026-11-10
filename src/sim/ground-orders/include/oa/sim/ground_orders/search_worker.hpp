@@ -73,6 +73,8 @@ struct SearchBegin {
     // Game.map_width / map_height. Zero copies the movement-map dimensions.
     uint32_t world_width{};
     uint32_t world_height{};
+    // Maximum charged seed-walk steps; zero retains the map-sized legacy bound.
+    uint32_t seed_step_limit{};
 };
 
 /// Tests whether a wall-follow cell crossed the axis-aligned path from the start to the nearest goal cell.
@@ -280,8 +282,10 @@ class SearchWorker {
     );
     /// Walks from the start toward the nearest goal, following walls both ways, and marks the path as seed cells.
     ///
+    /// @param step_limit maximum charged seed-walk steps, zero for the map-sized bound
+    /// @param[out] capped whether the configured limit stopped the walk
     /// @return the lowest heuristic seen on the walk, 0 when it reached a goal cell
-    int32_t seed_wall_follow();
+    int32_t seed_wall_follow(uint32_t step_limit, bool& capped);
     /// Clears the route for a failed job.
     void fail_empty();
     /// Returns a search-map cell without a bounds check.

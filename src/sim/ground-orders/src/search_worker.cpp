@@ -359,7 +359,8 @@ uint32_t SearchWorker::expand_best() {
     return 0;
 }
 
-int32_t SearchWorker::seed_wall_follow() {
+int32_t SearchWorker::seed_wall_follow(uint32_t step_limit, bool& capped) {
+    capped = false;
     auto min_cost = heuristic(start_[0], start_[1]);
     if (classify(start_[0], start_[1]) < 1)
         return min_cost;
@@ -367,6 +368,10 @@ int32_t SearchWorker::seed_wall_follow() {
     auto current_z = static_cast<int32_t>(start_[1]);
     const auto seed_limit = static_cast<int32_t>(width_ * height_ * 8u + 8u);
     while (true) {
+        if (step_limit != 0 && static_cast<uint32_t>(budget_) >= step_limit) {
+            capped = true;
+            return min_cost;
+        }
         ++budget_;
         if (budget_ > seed_limit)
             return min_cost;
@@ -408,6 +413,10 @@ int32_t SearchWorker::seed_wall_follow() {
         auto left_dir = heading;
         auto right_dir = heading;
         while (true) {
+            if (step_limit != 0 && static_cast<uint32_t>(budget_) >= step_limit) {
+                capped = true;
+                return min_cost;
+            }
             ++budget_;
             if (budget_ > seed_limit)
                 return min_cost;
@@ -567,13 +576,16 @@ SearchAdvance SearchWorker::begin(
         fail_empty();
         return SearchAdvance::failed;
     }
-    const auto seed = seed_wall_follow();
-    threshold_ = seed;
-    if (seed == 0) {
+    bool seed_capped{};
+    const auto seed = seed_wall_follow(begin.seed_step_limit, seed_capped);
+    // A truncated seed is not an arrival or a failed search. Only ordinary
+    // goal-cost zero cells may finish the credited search that follows it.
+    threshold_ = seed_capped ? 0 : seed;
+    if (!seed_capped && seed == 0) {
         order_flags_ |= search_goal_contact_flag;
         if (record_.goal->order)
             record_.goal->order->raised_events |= search_goal_contact_flag;
-    } else {
+    } else if (!seed_capped) {
         order_flags_ |= search_seed_unresolved_flag;
         if (record_.goal->order)
             record_.goal->order->raised_events |= search_seed_unresolved_flag;
