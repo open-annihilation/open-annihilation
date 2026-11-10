@@ -2017,6 +2017,102 @@ void fine_representatives_validate_the_complete_goal_footprint() {
     CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
 }
 
+/// An extra representative seeds the known anchor that made its admission usable.
+void fine_extra_representative_seeds_a_known_full_footprint_anchor() {
+    auto grid = representative_islands();
+    // Widen the first island for the same two-by-two movement class as the new cohort.
+    for (uint32_t z = 8; z < 12; ++z)
+        for (uint32_t x = 8; x < 14; ++x)
+            if (x < 10 || x >= 12 || z >= 10)
+                grid.cells[z * grid.width + x] = 1;
+    grid.cells[23 * grid.width + 85] = 0;
+    const FlowSampler knowledge{
+        &grid, [](void* p, uint32_t klass, uint32_t, int32_t x, int32_t z) -> uint8_t {
+            auto& g = *static_cast<Grid*>(p);
+            ++g.queries;
+            if (klass != 1 || x < 0 || z < 0 || x + 2 > int32_t(g.width) ||
+                z + 2 > int32_t(g.height))
+                return 0;
+            bool unknown = false;
+            for (int32_t dz = 0; dz < 2; ++dz)
+                for (int32_t dx = 0; dx < 2; ++dx) {
+                    const auto cx = x + dx, cz = z + dz;
+                    if (cx == 85 && cz == 23)
+                        unknown = true;
+                    else if (g.cells[uint32_t(cz) * g.width + uint32_t(cx)] == 0)
+                        return 0;
+                }
+            return unknown ? 2 : 1;
+        }
+    };
+    const auto ctx = context(1);
+    const FlowLimits limits{4, 4 * representative_cells, 64, 65'536};
+    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    const auto first_unit = unit_at(8, 8, 2);
+    const auto first_goal = circle(12, 8), goal = circle(83, 21);
+    auto unit = unit_at(36, 20, 2);
+    const auto route = [&](const oa::Unit& actor, const Goal& destination) {
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto result = cache.route(ctx, actor, destination, points, count, knowledge);
+        CHECK(
+            (result == FlowResult::ready && count >= 2) ||
+            (result != FlowResult::ready && count == 0)
+        );
+        return result;
+    };
+    CHECK(route(first_unit, first_goal) == FlowResult::fallback);
+    CHECK(route(first_unit, first_goal) == FlowResult::pending);
+    for (uint32_t tick = 1; tick <= 61; ++tick)
+        cache.advance(tick, 0, knowledge);
+    CHECK(route(first_unit, first_goal) == FlowResult::ready);
+    CHECK(knowledge.cell(knowledge.context, 1, 0, 83, 21) == 1);
+    CHECK(knowledge.cell(knowledge.context, 1, 0, 84, 22) == 2); // Nearest coarse anchor.
+    CHECK(knowledge.cell(knowledge.context, 1, 0, 82, 24) == 1); // Later known anchor.
+    CHECK(route(unit, goal) != FlowResult::ready);
+    CHECK(route(unit, goal) == FlowResult::pending);
+    cache.advance(62, 0, knowledge);
+    const auto second_field = representative_first_field + representative_field_bytes;
+    const auto root = representative_read32(cache.state_bytes(), second_field + 48);
+    CHECK(root % 48 * 2 == 82 && root / 48 * 2 == 24);
+    CHECK(
+        knowledge.cell(knowledge.context, 1, 0, int32_t(root % 48 * 2), int32_t(root / 48 * 2)) == 1
+    );
+    for (uint32_t tick = 63; tick <= 110; ++tick)
+        cache.advance(tick, 0, knowledge);
+    // Independently build the actual full-footprint mask, including the unseen wall.
+    Grid origins(96, 96);
+    const auto actual = grid.sampler();
+    for (uint32_t z = 0; z < origins.height; ++z)
+        for (uint32_t x = 0; x < origins.width; ++x)
+            origins.cells[z * origins.width + x] = actual.cell(actual.context, 1, 0, x, z);
+    bool arrived = false;
+    for (uint32_t tick = 111; tick <= 118; ++tick) {
+        cache.advance(tick, 0, knowledge);
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto result = cache.route(ctx, unit, goal, points, count, knowledge);
+        CHECK(result == FlowResult::ready && count >= 2);
+        if (result != FlowResult::ready || count < 2)
+            break;
+        for (uint32_t i = 1; i < count; ++i) {
+            // The independent mask stores footprint origins; shift its centre convention.
+            const RoutePoint from{int16_t(points[i - 1][0] - 8), int16_t(points[i - 1][1] - 8)};
+            const RoutePoint to{int16_t(points[i][0] - 8), int16_t(points[i][1] - 8)};
+            CHECK(segment_avoids_blocked_cells(origins, from, to));
+        }
+        unit = unit_at(
+            int16_t((points[count - 1][0] - 16) / 16), int16_t((points[count - 1][1] - 16) / 16), 2
+        );
+        if (unit.cell_x == goal.cell[0] && unit.cell_z == goal.cell[1]) {
+            arrived = true;
+            break;
+        }
+    }
+    CHECK(arrived && cache.counters().fields_started == 2);
+    CHECK(route(first_unit, first_goal) == FlowResult::ready);
+}
+
 /// Resumes full-budget fields whose active frontier uses indices above 65,535.
 void maximum_fine_fields_restore_active_wide_frontiers() {
     Grid grid(1024, 512);
@@ -2641,6 +2737,7 @@ int main() {
     fine_representatives_require_known_live_anchors();
     fine_representatives_validate_the_actual_source_pose();
     fine_representatives_validate_the_complete_goal_footprint();
+    fine_extra_representative_seeds_a_known_full_footprint_anchor();
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
