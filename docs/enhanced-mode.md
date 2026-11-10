@@ -839,6 +839,16 @@ serial capture and 1.785 ms with four total threads, including the caller.
 Complete histories and rates matched. This excludes validation, simulation
 and drawing, so it does not establish the full-frame gain.
 
+Strategic markers can also be listed in ordered bands on the drawing pool
+once their ordinary white material is already persistent and adaptive model
+budgeting is inactive. Full models, reflections and card handling keep their
+existing pass. The joined vertices, picking ranges and material order are
+checked against the original renderer, including windowless GPU pixels.
+A same-input 20,000-marker Scene check measured 1.059 to 0.511 ms with four
+total drawing threads; a one-thread control added about 0.026 ms. This is
+Scene construction timing, not gameplay FPS. The model-stage timer sums the
+parallel bands' durations and must not be read as their critical path.
+
 ### Combined battle checkpoint
 
 Source `ad3cb4085` was compared with the unchanged `e4d7b3d6` rules-6
