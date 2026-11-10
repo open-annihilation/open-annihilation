@@ -25,6 +25,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -3290,6 +3291,154 @@ void frame_effect_fallbacks() {
     tall.mapped[0] = 0;
     OA_CHECK(live::build(tall.inputs, tall.scene, tall.error));
     OA_CHECK(tall.scene.sprite_count == 0);
+}
+
+/// Retained terrain indices match cache-cleared queries through geometry, camera and FP changes.
+void ground_index_reuse() {
+    namespace timers = oa::app::bench_timers;
+    timers::reset(true);
+    Fixture fixture;
+    fixture.map.attribute_width = fixture.map.attribute_height = 8;
+    fixture.map.attributes.assign(64, {});
+    fixture.map.tile_width = fixture.map.tile_height = 4;
+    fixture.map.tile_indices.assign(16, 0);
+    fixture.inputs.right = fixture.inputs.bottom = 128;
+    fixture.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0, 0};
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 128;
+    fixture.inputs.view_direction = {0, 1, 0.5F};
+    std::array<uint16_t, 16> coverage{};
+    std::array<uint16_t, 16> mapped{};
+    coverage.fill(1);
+    mapped.fill(viewer_bit);
+    fixture.inputs.sight.coverage = coverage;
+    fixture.inputs.sight.player_bits = mapped;
+    fixture.inputs.sight.width = fixture.inputs.sight.height = 4;
+    oa::formats::gaf::RenderedFrame art{};
+    art.width = art.height = 8;
+    art.origin_x = 4;
+    art.origin_y = 8;
+    art.pixels.assign(64, alternate_index);
+    art.coverage.assign(64, 1);
+    fixture.draws.sprites.push_back({&art, {48, 48}});
+    fixture.draws.sprites[0].world_position = oa::FixedVec3{48 * 65536, 0, 48 * 65536};
+    fixture.draws.sprites[0].surface_effect = true;
+    live::Scene reference{};
+    const auto compare = [&]() {
+        reference.ground_index_cache.valid = false;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(live::build(fixture.inputs, reference, fixture.error));
+        same_effect_picture(fixture.scene, reference);
+        OA_CHECK(reference.passes.ground_indices.builds == 1);
+        OA_CHECK(reference.passes.ground_indices.hits == 0);
+    };
+    const auto warmed = [&]() {
+        compare();
+        compare();
+        compare();
+        OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
+        OA_CHECK(fixture.scene.passes.ground_indices.builds == 0);
+        OA_CHECK(fixture.scene.passes.ground_indices.triangles == 0);
+        OA_CHECK(fixture.scene.ground_index_cache.valid);
+    };
+    warmed();
+    const auto retained = fixture.scene.ground_index_cache.key.revision;
+    fixture.inputs.view_direction = {0.5F, 1, 0.5F};
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    OA_CHECK(fixture.scene.ground_index_cache.key.revision == retained);
+    warmed();
+    const auto before_height = fixture.scene.ground_index_cache.key.revision;
+    fixture.map.attributes[3 * 8 + 3].height = 12;
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    warmed();
+    OA_CHECK(fixture.scene.ground_index_cache.key.revision != before_height);
+    coverage[15] = 0;
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    warmed();
+    fixture.palette[alternate_index * oa::palette_entry_bytes] += 3;
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    warmed();
+    oa::Unit building{};
+    building.flags = OA_UNIT_FLAG_BUILDING;
+    building.footprint_x = building.footprint_z = 2;
+    building.position = {48 * 65536, 8 * 65536, 48 * 65536};
+    fixture.draws.models.resize(1);
+    fixture.draws.models[0].model.unit = &building;
+    fixture.draws.models[0].plan.linked.drawn = true;
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    OA_CHECK(!fixture.scene.ground_index_cache.valid);
+    warmed();
+    const auto cut = fixture.scene.ground_index_cache.key.revision;
+    building.position.x += 16 * 65536;
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    OA_CHECK(!fixture.scene.ground_index_cache.valid);
+    warmed();
+    OA_CHECK(fixture.scene.ground_index_cache.key.revision != cut);
+    const int rounding = std::fegetround();
+    if (rounding != -1 && std::fesetround(FE_UPWARD) == 0) {
+        compare();
+        OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+        warmed();
+        const auto altered_control = fixture.scene.ground_index_cache.key.float_control;
+        OA_CHECK(std::fesetround(rounding) == 0);
+        compare();
+        OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+        warmed();
+        OA_CHECK(fixture.scene.ground_index_cache.key.float_control != altered_control);
+    }
+    // Copying or moving a Scene retains owned buffers, never a GroundIndex
+    // pointing at the other Scene's memory.
+    auto copied = fixture.scene;
+    OA_CHECK(live::build(fixture.inputs, copied, fixture.error));
+    OA_CHECK(copied.passes.ground_indices.hits == 1);
+    same_effect_picture(copied, fixture.scene);
+    fixture.scene = std::move(copied);
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
+    // The same indices are safe when sprite bands execute on pool workers.
+    oa::platform::job_pool::Pool pool{3};
+    fixture.inputs.pool = &pool;
+    warmed();
+    const auto totals = timers::timers.totals;
+    OA_CHECK(totals.ground_index_builds > 0 && totals.ground_index_hits > 0);
+    OA_CHECK(totals.ground_index_triangles > 0 && totals.ground_index_wall_ms > 0);
+    const auto delta = timers::totals_since(totals, timers::Totals{});
+    timers::Totals summed{};
+    timers::add_totals(summed, delta);
+    OA_CHECK(summed.ground_index_builds == totals.ground_index_builds);
+    OA_CHECK(summed.ground_index_hits == totals.ground_index_hits);
+    OA_CHECK(summed.ground_index_triangles == totals.ground_index_triangles);
+    OA_CHECK(summed.ground_index_wall_ms == totals.ground_index_wall_ms);
+    // A failed nonfinite rebuild cannot expose a previously valid bundle.
+    auto clean = fixture.scene;
+    fixture.inputs.pool = nullptr;
+    fixture.inputs.view_direction = {-0.5F, 1, 0.5F};
+    fixture.scene.cut_ground[0].x = std::numeric_limits<float>::quiet_NaN();
+    std::ignore = live::build(fixture.inputs, fixture.scene, fixture.error);
+    OA_CHECK(!fixture.scene.ground_index_cache.valid);
+    fixture.scene = std::move(clean);
+    timers::reset(false);
+
+    Fixture empty;
+    empty.map.attribute_width = empty.map.attribute_height = 1;
+    empty.map.attributes.resize(1);
+    empty.inputs.right = empty.inputs.bottom = 0;
+    empty.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0, 0};
+    empty.inputs.clip_width = empty.inputs.clip_height = 32;
+    empty.draws.sprites.push_back({&art, {4, 4}});
+    empty.draws.sprites[0].world_position = oa::FixedVec3{4 * 65536, 0, 8 * 65536};
+    empty.draws.sprites[0].surface_effect = true;
+    for (uint32_t frame = 0; frame < 3; ++frame)
+        OA_CHECK(live::build(empty.inputs, empty.scene, empty.error));
+    OA_CHECK(empty.scene.terrain_vertex_count == 0);
+    OA_CHECK(empty.scene.passes.ground_indices.hits == 1);
+    OA_CHECK(empty.scene.ground_index_cache.layouts[0].columns == 0);
+    OA_CHECK(empty.scene.ground_index_cache.layouts[0].rows == 0);
 }
 
 /// Tells whether two scenes built the same frame: the same vertices in the
@@ -7009,6 +7158,7 @@ int main() {
     frame_rows_hold_effects();
     frame_rows_begin_for_tall_effects();
     frame_effect_fallbacks();
+    ground_index_reuse();
     passes_on_threads();
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();

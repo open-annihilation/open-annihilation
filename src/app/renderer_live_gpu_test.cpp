@@ -3355,6 +3355,7 @@ void frame_effect_material_readback() {
     draws.sprites.push_back({&art[0], {40, 52}});
     draws.sprites[0].world_position = oa::FixedVec3{40 * fixed + fixed / 4, 8 * fixed, 56 * fixed};
     draws.sprites[0].soft_effect = true;
+    draws.sprites[0].surface_effect = true;
     draws.sprites[0].effect_scale = 1.25F;
     draws.sprites[0].effect_opacity = 0.7F;
     draws.sprites.push_back({&art[1], {44, 52}});
@@ -3431,6 +3432,7 @@ void frame_effect_material_readback() {
     Context reference_context{};
     std::array<std::vector<uint8_t>, 2> pixels{};
     std::vector<uint8_t> first{};
+    bool reused_ground_index = false;
     for (uint32_t frame = 0; frame < 12; ++frame) {
         art[0].pixels[13] = static_cast<uint8_t>(2 + frame % 2);
         art[1].pixels[12 * 24 + 12] = static_cast<uint8_t>(80 + frame * 2);
@@ -3444,6 +3446,7 @@ void frame_effect_material_readback() {
             !readback(reference, reference_context, pixels[1], frame, false))
             return;
         OA_CHECK(warm.sprite_count == 3 && warm.shadow_count == 1);
+        reused_ground_index = reused_ground_index || warm.passes.ground_indices.hits != 0;
         OA_CHECK(warm.passes.effect_materials.size() == 3);
         OA_CHECK(warm.passes.effect_materials[0].has_value());
         OA_CHECK(warm.passes.effect_materials[1] == warm.passes.effect_materials[2]);
@@ -3453,6 +3456,7 @@ void frame_effect_material_readback() {
             first = pixels[0];
     }
     OA_CHECK(pixels[0] != first);
+    OA_CHECK(reused_ground_index);
 }
 
 /// A synthetic twenty-thousand-unit scene reaches the real GPU, with one

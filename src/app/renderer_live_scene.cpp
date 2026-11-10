@@ -6786,6 +6786,21 @@ class GroundIndex {
         starts[0] = 0;
     }
 
+    /// Restores the scalar layout beside the same owned index buffers.
+    /// @param axes the index's exact query axes
+    /// @param memory its retained bounds and bucket lists
+    /// @param layout the layout computed from those buffers
+    GroundIndex(const Axes& axes, GroundIndexMemory& memory, const GroundIndexLayout& layout)
+        : axes_(axes), memory_(&memory), reach_(layout.reach), low_(layout.low), high_(layout.high),
+          edge_(layout.edge), inverse_edge_(layout.inverse_edge), columns_(layout.columns),
+          rows_(layout.rows), listed_reach_(layout.listed_reach) {}
+
+    /// Returns the scalar layout of the owned index buffers.
+    /// @return the exact state required by the restoring constructor
+    [[nodiscard]] GroundIndexLayout layout() const {
+        return {reach_, low_, high_, edge_, inverse_edge_, columns_, rows_, listed_reach_};
+    }
+
     /// @return the axes the triangles are listed along
     [[nodiscard]] const Axes& axes() const { return axes_; }
 
@@ -6895,7 +6910,8 @@ class GroundIndex {
 
 /// The ground indices of a sprite pass, listed together when first needed.
 struct GroundIndices {
-    bool listed{}; ///< list_ground has run for the pass
+    uint64_t revision{}; ///< a known retained geometry, zero for an uncached ground
+    bool listed{};       ///< list_ground has run for the pass
     /// The axes card lists along: the camera-facing cards' across and above.
     GroundIndex::Axes card_axes{};
     /// The triangles along world x and z; none when a ground vertex lies
@@ -6926,6 +6942,42 @@ void list_ground(
     if (card_axes != nullptr)
         indices.card_axes = *card_axes;
     const std::size_t triangles = ground.size() / 3;
+    const auto control = base::float_precision::save_float_control();
+    GroundIndexKey key{
+        indices.revision,
+        ground.size(),
+        {},
+        {control.older_unit, control.vector_unit, control.arm_unit},
+        card_axes != nullptr
+    };
+    if (card_axes)
+        for (std::size_t axis = 0; axis < key.card_axes.size(); ++axis)
+            key.card_axes[axis] = std::bit_cast<uint64_t>((*card_axes)[axis]);
+    auto& cache = scene.ground_index_cache;
+    auto& work = scene.passes.ground_indices;
+    constexpr GroundIndex::Axes world_axes{1, 0, 0, 1};
+    if (key.revision != 0 && cache.valid && cache.key == key) {
+        indices.world.emplace(world_axes, scene.ground_index_memory[0], cache.layouts[0]);
+        if (card_axes)
+            indices.card.emplace(*card_axes, scene.ground_index_memory[1], cache.layouts[1]);
+        ++work.hits;
+        return;
+    }
+    cache.valid = false;
+    ++work.builds;
+    work.triangles += triangles;
+    const uint64_t began = bench_timers::timers.on ? bench_timers::now_ns() : 0;
+
+    struct BuildTime {
+        GroundIndexWork& work;
+        uint64_t began{};
+
+        ~BuildTime() {
+            if (began)
+                work.build_nanoseconds += bench_timers::now_ns() - began;
+        }
+    } build_time{work, began};
+
     auto& world_bounds = scene.ground_index_memory[0].bounds;
     auto& card_bounds = scene.ground_index_memory[1].bounds;
     world_bounds.resize(triangles);
@@ -6974,9 +7026,14 @@ void list_ground(
                 static_cast<float>(card[3])
             };
     }
-    indices.world.emplace(GroundIndex::Axes{1, 0, 0, 1}, scene.ground_index_memory[0], reach);
+    indices.world.emplace(world_axes, scene.ground_index_memory[0], reach);
     if (card_axes != nullptr)
         indices.card.emplace(*card_axes, scene.ground_index_memory[1], reach);
+    cache.key = key;
+    cache.layouts[0] = indices.world->layout();
+    if (indices.card)
+        cache.layouts[1] = indices.card->layout();
+    cache.valid = key.revision != 0;
 }
 
 /// Finds the rendered ground's height on one triangle below a world point.
@@ -8076,6 +8133,10 @@ class PassTimes {
             return;
         using bench_timers::Stage;
         const auto& passes = scene_.passes;
+        const auto& indices = passes.ground_indices;
+        bench_timers::count_ground_indices(
+            indices.builds, indices.hits, indices.triangles, indices.build_nanoseconds
+        );
         const auto add = [](Stage stage, const PassList& list) {
             bench_timers::add_nanoseconds(stage, list.nanoseconds);
             bench_timers::count_packed_materials(stage, list.materials_packed, list.texels_packed);
@@ -8190,6 +8251,7 @@ void write_frame_materials(const Inputs& in, Scene& scene) {
 /// @param ahead_bands the bands of the ground ahead to draw
 void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ahead_bands) {
     auto& passes = scene.passes;
+    passes.ground_indices = {};
     const auto& draws = *in.draws;
     const std::size_t model_draws = draws.models.size() + draws.unit_markers.size();
     const bool timing = bench_timers::timers.on;
@@ -8348,6 +8410,8 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         cut_ground = scene.vertices;
     }
     scene.terrain_vertex_count = cut_ground.size();
+    standing_ground.revision =
+        cut_before ? scene.cut_revision : (kept && ground_bands == 0 ? source : 0);
     const bool list_ground_beside = cut_before || cut_now || (ground_kept && ground_bands == 0);
     times.foundations += pass_clock(timing) - start;
     // The shadows' materials packed among the frame's own, as far as one

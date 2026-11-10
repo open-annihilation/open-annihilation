@@ -289,6 +289,41 @@ struct GroundBucket {
     uint8_t rows{};    ///< the further buckets along the second axis, at most 255
 };
 
+/// Scalar geometry of one owned ground index, sufficient to restore its queries.
+struct GroundIndexLayout {
+    double reach{};
+    std::array<double, 2> low{}, high{};
+    double edge{}, inverse_edge{};
+    std::size_t columns{}, rows{};
+    std::array<std::size_t, 2> listed_reach{};
+};
+
+/// Exact inputs of indices over one retained, possibly foundation-cut ground.
+struct GroundIndexKey {
+    uint64_t revision{};
+    std::size_t vertices{};
+    std::array<uint64_t, 4> card_axes{};
+    std::array<uint64_t, 3> float_control{};
+    bool card{};
+
+    /// Compares every scalar source, including floating-point bit patterns.
+    /// @param other the other index's source
+    /// @return whether both indices are built from the same retained geometry
+    [[nodiscard]] bool operator==(const GroundIndexKey& other) const = default;
+};
+
+/// Restores an index only while its retained geometry and query axes match.
+struct GroundIndexCache {
+    GroundIndexKey key{};
+    std::array<GroundIndexLayout, 2> layouts{};
+    bool valid{};
+};
+
+/// Per-build index work, written under the shared sprite pass's index lock.
+struct GroundIndexWork {
+    uint64_t builds{}, hits{}, triangles{}, build_nanoseconds{};
+};
+
 /// The memory a frame lists its ground's triangles in by place, for the
 /// effect cards' ground queries; the scene keeps it so that each frame
 /// reuses it.
@@ -420,6 +455,7 @@ struct PassList {
 /// The memory the passes after the terrain run in, kept by the scene so
 /// that each frame reuses it.
 struct PassLists {
+    GroundIndexWork ground_indices{};
     /// The ground with the plots cut into it, by band of its triangles.
     std::vector<PassList> ground{};
     /// The kept ground those bands were cut from, by revision, zero for
@@ -538,6 +574,7 @@ struct Scene {
     /// The ground's triangles listed along world x and z, and along the
     /// effect cards' axes.
     std::array<GroundIndexMemory, 2> ground_index_memory{};
+    GroundIndexCache ground_index_cache{};
     /// What the last frame's ground was drawn from.
     GroundSource ground_source{};
     /// The ground of the last frame drawn from the same as the frame before
