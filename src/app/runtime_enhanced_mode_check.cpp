@@ -82,7 +82,8 @@ void Runtime::check_enhanced_mode() {
           mode::regional_flow_version,
           mode::swept_ground_version,
           mode::corridor_flow_version,
-          mode::battle_flow_version}) {
+          mode::battle_flow_version,
+          mode::distributed_battle_flow_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
@@ -584,7 +585,8 @@ void Runtime::check_enhanced_mode() {
           mode::regional_flow_version,
           mode::swept_ground_version,
           mode::corridor_flow_version,
-          mode::battle_flow_version}) {
+          mode::battle_flow_version,
+          mode::distributed_battle_flow_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
@@ -608,7 +610,10 @@ void Runtime::check_enhanced_mode() {
         require(load_saved_game(old_save), "an earlier Enhanced save did not load");
         require(enhanced_mode_version(*this) == previous, "an earlier save was upgraded");
         require(simulation_hash(*this) == old_hash, "an earlier save changed rules identity");
-        check_group_entrypoints(previous);
+        // The distributed preset has a separate batch-destination contract.
+        // This fixture keeps the unchanged raw and repaired-click policies.
+        if (previous != mode::distributed_battle_flow_version)
+            check_group_entrypoints(previous);
         leave_match();
         load(Screen::main_menu);
         require(
@@ -617,7 +622,8 @@ void Runtime::check_enhanced_mode() {
         );
     }
     require(
-        !hold_enhanced_rules_once(mode::battle_flow_version + 1), "an unknown version was accepted"
+        !hold_enhanced_rules_once(mode::distributed_battle_flow_version + 1),
+        "an unknown version was accepted"
     );
     require(
         enhanced_mode_version(*this) == mode::current_version, "a rejected version changed rules"
