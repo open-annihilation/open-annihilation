@@ -789,6 +789,16 @@ of restore-validation scratch. Unreleased version-7 pilot saves with the
 earlier cache bounds are refused rather than silently losing navigation
 state. Off and versions 1–6 keep their previous state formats and bounds.
 
+A live rejection of a stored fine-tree edge marks that field for a demand
+refresh. Three of every four existing refresh slots prefer these fields;
+the fourth prefers background terrain changes. Each slot falls back to the
+other class when necessary, then selects the oldest eligible field with a
+stable index tie-break. Completion grace, one refresh per 30 ticks and all
+construction and extraction budgets stay unchanged. This reuses saved dirty
+metadata without adding fields; earlier formats retain their old scheduling.
+Rebuilding a field still takes bounded construction time and does not bypass
+current collision or passability checks.
+
 When the first destination in a region cannot connect directly to a later
 unit's goal, version 7 can follow that goal's branch of the existing tree.
 It reads at most 512 ancestor nodes, turns at the shared ancestor and keeps
@@ -989,6 +999,57 @@ position 5,120 by 5,120 is too deep for either stock ground class, including
 a diagnostic one-cell footprint. No unit footprint or map was changed.
 That coordinate test does not identify a bridge in an earlier Metal Heck
 picture; matching the map and camera is necessary before diagnosing it.
+
+### Requested-goal and marker checkpoint
+
+Source `0db3fb8dc` combined the requested-goal branch connection and parallel
+marker listing with the larger route cache. Its fresh version-6 1,800-tick
+prefix again retained the earlier world state, census, random streams and
+common observation epochs. Version 7 completed 9,000 ticks and all 61
+physical audit epochs without overlap, footprint or projection errors. The
+same 12,314 valid destinations stayed exact and all 7,686 repairs retained
+their admitted actors and legal site sets.
+
+All seven CORE units tracked as stationary at the route-capacity checkpoint
+survived and moved during the final 300 ticks. The three regional-goal alias
+cases traveled 210.8, 226.6 and 116.2 pixels and made positive geometric
+progress toward their current goals. Their goal episodes changed during the
+battle; this does not show completion of the previously stalled orders.
+
+Overall flow remains mixed. Mean rear displacement fell from 33.41 to 29.97
+pixels for CORE and from 31.64 to 27.28 for ARM. The original ARM cohort now
+has 798 survivors rather than 796. Four CORE and three ARM rear units were
+stationary throughout the final 300 ticks, compared with seven and zero at
+the route-capacity checkpoint and four and twelve in the version-6 reference.
+All 133 members of the originally stalled ARM cohort survived and moved.
+North/south bridge-band inward crossings
+were ten unique CORE units and one ARM unit, compared with eleven and one at
+the route-capacity checkpoint. These are neither a literal middle-bridge
+measurement nor a successful whole-battle flow gate. At tick 9,000, 19,436
+units remained alive: 9,646 CORE and 9,790 ARM, accounting for 565 deaths and
+one ARM birth without pending cleanup.
+
+Whole-grant process CPU averaged 12.956 ms, with 16.513 ms p99 and a 34.467 ms
+maximum. One process-CPU tick exceeded 33.333 ms. Wall p99 was 17.148 ms,
+with an 81.222 ms maximum and five ticks over that budget. The largest CPU
+tick issued no AI commands and had negligible measured AI work; its remaining
+cost is not attributed to routing by these observations.
+
+Both fresh foreground views passed native and operating-system focus checks,
+using the same Full Metal AA 4 strategic-dot overview, display, camera and
+900-plus-900-tick contract as the earlier checkpoints. No recording or
+readback ran during measurement.
+
+| View | Reference FPS / ticks per second | `0db3fb8dc` FPS / ticks per second | Candidate interval p99 / maximum |
+| --- | --- | --- | --- |
+| Classic 2.5D | 60.154 / 29.994 | 61.904 / 30.002 | 29.93 / 33.17 ms |
+| Turned 3D | 27.425 / 29.843 | 56.083 / 30.009 | 29.71 / 70.53 ms |
+
+The turned view still contains one interval over 50 ms and does not sustain
+60 FPS. These are combined engine and changed-battle measurements, not an
+isolated marker-rendering gain or a close-up model benchmark. Version 7
+remains experimental, version 4 remains the supplied default, and ray
+tracing remains deferred.
 
 ## Remaining work
 
