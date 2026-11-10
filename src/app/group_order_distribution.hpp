@@ -39,9 +39,9 @@ struct GroupDestinationHooks {
 
 /// Bounds command-local static validation, reservations and connected expansion.
 struct GroupDestinationLimits {
-    uint32_t classes = 8;
-    uint32_t origins = 262144;
-    uint32_t cells = 1048576;
+    uint32_t classes{8};
+    uint32_t origins{262144};
+    uint32_t cells{1048576};
 };
 
 /// Reports allocation separately from the legacy fallback retained on failure.
