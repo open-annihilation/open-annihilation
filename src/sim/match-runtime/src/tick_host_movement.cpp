@@ -296,9 +296,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                     }
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
-                    probe.require_cell_exit =
-                        match.rules().setup.enhanced_mode.version ==
-                        static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version);
                     probe.allow_reverse = recover;
                     if (completed_head || recent_completion)
                         probe.previous_head = flow_head;

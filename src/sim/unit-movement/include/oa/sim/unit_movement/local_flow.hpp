@@ -51,10 +51,6 @@ struct LocalFlowProbe {
     /// Whether a mature, stationary retry may voluntarily yield its traffic priority.
     /// The caller schedules this from the existing retry phase and actual motion age.
     bool recovery_yield{};
-    /// Require a passing target to leave the current full-footprint origin cell.
-    /// In-cell steering can otherwise repeat without opening any occupied plot.
-    /// This transient option is not retained or serialized; false keeps legacy choices.
-    bool require_cell_exit{};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.
