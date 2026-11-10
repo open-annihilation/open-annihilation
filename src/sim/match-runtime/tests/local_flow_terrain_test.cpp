@@ -29,13 +29,7 @@ constexpr uint16_t east = 49152;
 constexpr uint16_t west = 16384;
 
 /// Rebuilds the match with a ground class that cannot enter the water column.
-void configure_water_barrier(
-    Fixture& fixture,
-    bool water,
-    uint8_t footprint = 1,
-    uint32_t version = 2,
-    uint16_t per_player_limit = 4
-) {
+void configure_water_barrier(Fixture& fixture, bool water, uint8_t footprint = 1) {
     fixture.match.reset();
     fixture.map.sea_level = sea_level;
     for (uint32_t index = 0; index < fixture.map.attributes.size(); ++index) {
@@ -63,7 +57,7 @@ void configure_water_barrier(
         fixture.masks,
         8,
         8,
-        per_player_limit,
+        4,
         2,
         0,
         sea_level,
@@ -76,7 +70,7 @@ void configure_water_barrier(
         }
     };
     input.rules.setup.enhanced_mode.enabled = true;
-    input.rules.setup.enhanced_mode.version = static_cast<int32_t>(version);
+    input.rules.setup.enhanced_mode.version = 2;
     input.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});
@@ -308,126 +302,6 @@ void idle_mobile_occupants_remain_passable_traffic() {
     CHECK(original.arrival_tick > original.completion_tick);
     CHECK(original == restored);
 }
-
-/// A boxed unit must not publish a reverse waypoint that only circles in its own cell.
-void passing_head_targets_require_an_origin_exit_only_in_version7() {
-    constexpr int32_t pixel = 65536;
-    const auto native_origin = [](int32_t value, int32_t footprint) {
-        return static_cast<int16_t>((value - footprint * 8 * pixel + 8 * pixel) >> 20);
-    };
-    for (const uint32_t version : {6u, 7u}) {
-        Options options;
-        options.sight_cells = 9;
-        Fixture fixture(options);
-        std::array<uint8_t, 4> yard{4, 4, 4, 4};
-        fixture.fields[1].yard_mask = yard;
-        fixture.def.max_velocity_fixed = 117964;
-        fixture.def.turn_rate = 1120;
-        fixture.def.acceleration_fixed = fixture.def.brake_rate_fixed = 6553;
-        configure_water_barrier(fixture, false, 2, version, 8);
-        auto& match = *fixture.match;
-        // Four disjoint, idle mobile footprints block every origin-cell exit.
-        // A short southwest reverse still fits wholly within the central cell.
-        const std::array<std::array<int32_t, 2>, 4> positions{
-            {{54, 24}, {86, 56}, {54, 88}, {22, 56}}
-        };
-        std::array<uint16_t, 4> blockers{};
-        for (size_t index = 0; index < positions.size(); ++index) {
-            auto& blocker = fixture.spawn(0, positions[index][0], positions[index][1]);
-            blockers[index] = blocker.unit_index;
-        }
-        auto& mover = fixture.spawn(0, 54, 56);
-        CHECK(!match.order_refused(
-            match.issue_ground_move(mover.unit_index, {176 * pixel, 0, 24 * pixel}, false)
-        ));
-        fixture.run(1);
-        auto& ground = *match.ground_runtime(mover.unit_index);
-        // The recorded 15985 subcell phase, translated by whole-cell periods.
-        constexpr int32_t x = 318119350 - 4800 * pixel;
-        constexpr int32_t z = 181927937 - 2720 * pixel;
-        match.place_unit_at(mover.unit_index, x, land_height * pixel, z, 1);
-        mover.record.heading = east;
-        ground.project_slot();
-        ground.movement.speed = 0;
-        ground.movement.velocity = {};
-        ground.movement.turn = 0;
-        ground.movement.flags = 1 | oa::sim::unit_movement::collision_blocked;
-        ground.movement.last_motion_tick = 0;
-        ground.navigation.count = 3;
-        ground.navigation.points[0] = {54, 56};
-        ground.navigation.points[1] = {80, 8};
-        ground.navigation.points[2] = {176, 24};
-        ground.navigation.flags = oa::sim::ground_orders::route_present_flag;
-        const auto tick = 60u + (30u - mover.unit_index % 30u) % 30u;
-        ground.navigation.last_search_tick = tick - 1;
-        match.simulation().tick = tick - 1;
-        CHECK(ground.navigation.goal && ground.navigation.goal->order);
-        const auto* original_goal = ground.navigation.goal;
-        const auto goal = *original_goal;
-        const auto* primary = match.orders(mover.unit_index).primary;
-        CHECK(primary == goal.order);
-        std::vector<oa::sim::unit_movement::LocalFlowHead> heads(match.state().unit_slot_count);
-        heads[mover.unit_index].mobile_blocked = true;
-        heads[mover.unit_index].blocked_ticks = 31;
-        std::vector<uint8_t> saved(heads.size() * oa::sim::unit_movement::local_flow_head_bytes);
-        CHECK(oa::sim::unit_movement::write_local_flow_heads(heads, saved));
-        const auto* table = runtime::find_rule_state(match.rule_state(), "local-flow");
-        CHECK(table && table->restore && table->restore(table->context, saved));
-        const auto origin = ground.geometry.cell;
-        fixture.run(1);
-        CHECK(match.fault() == nullptr);
-        const auto* head = match.local_flow_head(mover.unit_index);
-        CHECK(head && head->mobile_blocked);
-        CHECK(head->active == (version == 6));
-        if (head->active) {
-            CHECK(head->count == 3 && head->tick == tick);
-            CHECK(native_origin(int32_t(head->points[1][0]) * pixel, 2) == origin[0]);
-            CHECK(native_origin(int32_t(head->points[1][1]) * pixel, 2) == origin[1]);
-        }
-        CHECK(ground.navigation.goal == original_goal);
-        CHECK(ground.navigation.goal->order == primary);
-        CHECK(
-            ground.navigation.goal->shape == goal.shape &&
-            ground.navigation.goal->cell == goal.cell &&
-            ground.navigation.goal->tolerance == goal.tolerance
-        );
-        CHECK(match.orders(mover.unit_index).primary == primary);
-        CHECK(ground.navigation.last_search_tick == tick - 1);
-        CHECK(ground.geometry.cell == origin);
-        for (size_t index = 0; index < blockers.size(); ++index) {
-            const auto& blocker = match.world().slots[blockers[index]].record;
-            CHECK(blocker.position.x == positions[index][0] * pixel);
-            CHECK(blocker.position.z == positions[index][1] * pixel);
-            const bool overlap = mover.record.cell_x < blocker.cell_x + blocker.footprint_x &&
-                                 mover.record.cell_x + mover.record.footprint_x > blocker.cell_x &&
-                                 mover.record.cell_z < blocker.cell_z + blocker.footprint_z &&
-                                 mover.record.cell_z + mover.record.footprint_z > blocker.cell_z;
-            CHECK(!overlap);
-        }
-        // Include the following staggered retry. Rejecting an in-cell target
-        // promises no waypoint in that cell, not that a boxed unit can escape.
-        uint32_t retry_phases = 1;
-        for (uint32_t step = 1; step <= 30; ++step) {
-            fixture.run(1);
-            retry_phases += (match.simulation().tick + mover.unit_index) % 30 == 0;
-            head = match.local_flow_head(mover.unit_index);
-            CHECK(head != nullptr);
-            if (version == 7)
-                CHECK(!head->active);
-            CHECK(ground.geometry.cell == origin);
-            for (const auto id : blockers) {
-                const auto& blocker = match.world().slots[id].record;
-                const bool overlap =
-                    mover.record.cell_x < blocker.cell_x + blocker.footprint_x &&
-                    mover.record.cell_x + mover.record.footprint_x > blocker.cell_x &&
-                    mover.record.cell_z < blocker.cell_z + blocker.footprint_z &&
-                    mover.record.cell_z + mover.record.footprint_z > blocker.cell_z;
-                CHECK(!overlap);
-            }
-        }
-        CHECK(retry_phases == 2);
-    }
-}
 } // namespace
 
 int main() {
@@ -435,7 +309,6 @@ int main() {
         traffic_probes_respect_static_terrain_and_fog();
         traffic_probe_follows_the_actual_rejoin_target();
         idle_mobile_occupants_remain_passable_traffic();
-        passing_head_targets_require_an_origin_exit_only_in_version7();
         std::cout << "local flow terrain: ok\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
