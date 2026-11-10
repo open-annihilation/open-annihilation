@@ -650,8 +650,8 @@ void preferred_jobs_keep_the_active_unit_goal_and_work_debt() {
 int main() {
     preferred_pick_phase_survives_heuristic_resets();
     capped_wall_detours_continue_to_the_actual_goal();
-    seed_caps_distinguish_the_last_goal_step_from_truncation();
     capped_progress_guides_keep_the_goal_and_requeue_until_arrival();
+    seed_caps_distinguish_the_last_goal_step_from_truncation();
     preferred_picks_preserve_ordinary_cursor_order();
     rejected_preferred_picks_keep_the_ordinary_state();
     preferred_jobs_keep_the_active_unit_goal_and_work_debt();
