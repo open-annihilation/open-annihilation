@@ -807,6 +807,28 @@ the final occupancy veto. Ordinary forward corners keep their existing
 handling. In the eight-unit native queue regression, all units cross by tick
 492 under the original 900-tick deadline; version 6 still crosses by 712.
 
+Version 7 limits the synchronous wall-follow seed of an ordinary search to
+256 steps. A truncated seed enters the existing credited search with a true
+goal threshold; it reports neither contact nor failure solely because the
+seed stopped. Map preparation and clearing remain separate costs. Earlier
+presets keep their original seed behavior.
+
+The bounded shared-route poll also identifies old, motionless, non-mobile
+fallbacks for ordinary search. One of every four existing credited cursor
+picks may serve one such unit per player per scan, ordered by search age and
+unit ID. An out-of-order pick preserves the ordinary cursor. Live identity,
+generation and owned goal geometry are rechecked before dispatch, which uses
+the same search budget and lifecycle. No new saved scheduler state is added;
+ordinary searches already rebuild from saved orders on load.
+
+Mature collision recovery retains its existing motion-age test and can also
+escape after 60 ticks without a registered footprint change. This exact
+version-7 rule uses the existing saved occupancy clock, after 30 blocked
+ticks and at the existing staggered attempt. Subcell motion can qualify;
+recent cell progress cannot. Candidate counts, waiting priority, terrain
+checks and swept collision vetoes remain unchanged. The native crossing
+fixtures retain their 255, 492 and 414 tick results.
+
 Built-in rally moves retain an existing, owned, nonterminal ground march,
 including a patrol's waiting phase and complete queued return leg. Idle,
 arrived, interrupted and unsupported orders still receive normal rally
@@ -857,6 +879,18 @@ A same-input 20,000-marker Scene check measured 1.059 to 0.511 ms with four
 total drawing threads; a one-thread control added about 0.026 ms. This is
 Scene construction timing, not gameplay FPS. The model-stage timer sums the
 parallel bands' durations and must not be read as their critical path.
+
+Eligible prepacked surface effects can prepare ground indices before the
+sprite worker pass, allowing independent triangle bounds to use the free
+drawing pool. Query-free and uncertain material cases retain lazy handling.
+The first real query checks its actual axes and floating-point control before
+claiming preparation; a mismatch takes the original path.
+
+A changed geometry revision can retain the old bucket layouts only after
+recomputing and comparing every ordered world/card bound bit, the vertex
+count, axes, card mode, floating-point control and exact reach. Queries then
+read the current vertices. Any mismatch rebuilds the buckets normally. This
+adds neither a geometry hash nor an assumption that revisions are redundant.
 
 ### Combined battle checkpoint
 
@@ -1062,8 +1096,8 @@ Both runs consumed exactly 18,190,336 expansion and seeding credits.
 The candidate performed fewer periodic refreshes, while nonempty admission
 replacements increased from 88 to 307. Its building fields were recently
 requested; cold fields alone do not explain these waits. The demand-refresh
-policy and its new saved dirty state were reverted. The retained simulation
-matches the requested-goal checkpoint above. Version 7 remains experimental.
+policy and its new saved dirty state were reverted, restoring the
+requested-goal checkpoint above. Version 7 remains experimental.
 
 Build-only terrain-index diagnostics remain available in benchmark logs.
 They record prior validity, exact cache keys, cache-instance build attempts
@@ -1072,6 +1106,24 @@ collected after drawing jobs join and printed after measurement. They change
 neither rendering decisions nor the existing frame-log schema. The last
 accepted foreground FPS figures above predate these diagnostics; no FPS
 result is inferred for the rejected candidate.
+
+### Ground-index preparation checkpoint
+
+A windowless, sparse real-engine comparison of the later renderer used the
+same 20,000-unit rules-7 battle, 1,800 native ticks and 60 Full Metal draws.
+All 60 complete RGB images and sampled world, census, RNG and geometry
+records matched. A draw containing three revision-only index builds changed
+from 33.747 to 8.363 ms of index work: exact bounds verification retained
+the buckets and removed both constructor spans. Its first cold build changed
+from 11.676 to 11.507 ms, which does not establish a cold-build improvement.
+
+These director draws use rendered units, sparse effect history and GPU
+readback; they are neither the normal strategic-dot overview nor gameplay
+FPS. Separate GPU tests compare complete RGBA frames. A procedural-terrain
+component comparison measured about 0.7–1.0 ms less Scene work, with identical
+outputs, but did not reproduce the earlier 15 ms cold bounds phase. No
+uninitialized-storage optimization was added. The combined pathing and
+foreground battle measurements remain a separate gate.
 
 ## Remaining work
 
