@@ -429,7 +429,7 @@ void short_lived_healthy_targets_resume_goals_and_motion(uint32_t version) {
     }
 }
 
-/// Leaves a live target's orders alone until the regular refresh comes due.
+/// Keeps the native refresh cadence while distributed attacks continue in place.
 void live_target_does_not_add_command_refreshes(uint32_t version) {
     StrikeFixture battle(version);
     while (battle.fixture.match->simulation().tick < battle.regular_refresh_tick - 1) {
@@ -438,7 +438,18 @@ void live_target_does_not_add_command_refreshes(uint32_t version) {
         CHECK(battle.strike().next_tick == battle.regular_refresh_tick);
     }
     battle.fixture.run(1);
-    battle.check_attack(battle.target, battle.regular_refresh_tick);
+    battle.check_attack(
+        battle.target,
+        version == distributed_version ? battle.initial_issue_tick : battle.regular_refresh_tick
+    );
+    const auto next_refresh = battle.regular_refresh_tick + strike_refresh_ticks;
+    CHECK(battle.strike().next_tick == next_refresh);
+    const auto bytes = retarget_bytes(battle.fixture);
+    CHECK(
+        read_integer(bytes, land_target_record + target_issue_offset) == battle.regular_refresh_tick
+    );
+    CHECK(read_integer(bytes, land_target_record + native_next_tick_offset) == next_refresh);
+    CHECK(bytes[land_target_record + native_clock_valid_offset] == 1);
 }
 
 /// Describes a target that is still present but should not receive a fresh attack.
