@@ -13,7 +13,6 @@
 #include "oa/sim/world_environment/wind.hpp"
 
 #include <cstdint>
-#include <cstdlib>
 
 namespace oa::sim::match_runtime {
 namespace {
@@ -260,35 +259,8 @@ void TickHost::movement_tick(oa::Unit& record) {
                                                sim::unit_movement::local_flow_completed_last_tick(
                                                    *flow_head, match.simulation_.tick
                                                );
-                const bool have_progress_snapshot =
-                    match.enhanced_->local_flow_progress_snapshot_valid &&
-                    match.enhanced_->local_flow_progress_snapshot_tick == match.simulation_.tick;
-                const auto own_progress =
-                    have_progress_snapshot && s.unit_index < match.enhanced_->unit_count
-                        ? match.enhanced_->local_flow_progress_at_tick_start[s.unit_index]
-                        : g.movement.last_motion_tick;
-                const auto current_point = local_flow_point(g.geometry);
-                const auto remaining = [&](sim::ground_orders::RoutePoint point) {
-                    return std::abs(int32_t(flow_head->points[1][0]) - point[0]) +
-                           std::abs(int32_t(flow_head->points[1][1]) - point[1]);
-                };
-                const bool progressing_head =
-                    recover && !advanced_corner && flow_head->active && flow_head->count == 3 &&
-                    !completed_head &&
-                    match.rules().setup.enhanced_mode.version ==
-                        data::enhanced_mode::distributed_battle_flow_version &&
-                    flow_head->goal_key == goal_key && u.primary != nullptr &&
-                    g.navigation.goal->order == u.primary && g.navigation.count >= 3 &&
-                    flow_head->points[2] == g.navigation.points[2] &&
-                    match.simulation_.tick - own_progress <
-                        sim::unit_movement::local_flow_retry_ticks &&
-                    remaining(current_point) < remaining(flow_head->points[0]);
-                // Every retained retry advances the checkpoint by at least
-                // one world unit toward the unchanged passing target.
-                if (progressing_head)
-                    flow_head->points[0] = current_point;
                 if (flow_head->active && (flow_head->goal_key != goal_key || completed_head ||
-                                          (recover && !advanced_corner && !progressing_head))) {
+                                          (recover && !advanced_corner))) {
                     flow_head->active = false;
                     flow_head->count =
                         completed_head ? sim::unit_movement::local_flow_completed_count : 0;
@@ -327,11 +299,16 @@ void TickHost::movement_tick(oa::Unit& record) {
                     probe.allow_reverse = recover;
                     if (completed_head || recent_completion)
                         probe.previous_head = flow_head;
-                    if (have_progress_snapshot)
+                    if (match.enhanced_->local_flow_progress_snapshot_valid &&
+                        match.enhanced_->local_flow_progress_snapshot_tick ==
+                            match.simulation_.tick)
                         probe.progress_at_tick_start = {
                             match.enhanced_->local_flow_progress_at_tick_start.get(),
                             match.enhanced_->unit_count
                         };
+                    const auto own_progress = s.unit_index < probe.progress_at_tick_start.size()
+                                                  ? probe.progress_at_tick_start[s.unit_index]
+                                                  : g.movement.last_motion_tick;
                     probe.recovery_yield =
                         recover && match.simulation_.tick - own_progress >=
                                        sim::unit_movement::local_flow_retry_ticks;
