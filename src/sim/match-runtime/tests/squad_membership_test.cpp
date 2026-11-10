@@ -6,6 +6,7 @@
 // The load cases cover membership reconstruction, not a complete AI save bank.
 #include "combat_fixture.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/persist/save_sections.hpp"
 #include "oa/sim/match_runtime/match_trace.hpp"
 #include "oa/sim/trace.hpp"
@@ -26,7 +27,8 @@ namespace trace = oa::sim::trace;
 namespace persist = oa::data::persist;
 
 constexpr uint32_t legacy_version = 4;
-constexpr uint32_t indexed_version = 6;
+constexpr uint32_t indexed_version = oa::data::enhanced_mode::battle_flow_version;
+constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
 constexpr uint32_t no_squad = 0xffffffffu;
 constexpr uint32_t fixed_one = 65536;
 constexpr std::array<uint32_t, 8> groups = {0, 1, 2, 3, 4, 6, 9, 100};
@@ -49,8 +51,8 @@ struct Pair {
     Fixture indexed;
 
     /// Selects the historical path while the other match uses the indexed preset.
-    explicit Pair(uint32_t baseline = legacy_version)
-        : legacy(options_for(baseline)), indexed(options_for(indexed_version)) {}
+    explicit Pair(uint32_t baseline = legacy_version, uint32_t enhanced = indexed_version)
+        : legacy(options_for(baseline)), indexed(options_for(enhanced)) {}
 
     /// Creates corresponding units with the same global native slot.
     uint16_t spawn(uint8_t owner, uint32_t x, uint32_t z, uint16_t requested = 0) {
@@ -139,8 +141,8 @@ struct Pair {
 };
 
 /// Preserves native swap/pop/append order, including assigning the same squad.
-void check_same_group_and_cross_group_moves(uint32_t baseline) {
-    Pair pair(baseline);
+void check_same_group_and_cross_group_moves(uint32_t baseline, uint32_t version) {
+    Pair pair(baseline, version);
     const auto a = pair.spawn(0, 40, 40);
     const auto b = pair.spawn(0, 80, 40);
     const auto c = pair.spawn(0, 120, 40);
@@ -166,14 +168,14 @@ void check_same_group_and_cross_group_moves(uint32_t baseline) {
 }
 
 /// Keeps the same native vector and continuation behavior for Off and presets one to five.
-void same_group_and_cross_group_moves_keep_vector_order() {
+void same_group_and_cross_group_moves_keep_vector_order(uint32_t enhanced) {
     for (uint32_t version = 0; version < indexed_version; ++version)
-        check_same_group_and_cross_group_moves(version);
+        check_same_group_and_cross_group_moves(version, enhanced);
 }
 
 /// Exercises many current-position changes without changing native operation order.
-void long_membership_sequences_match_the_legacy_path() {
-    Pair pair;
+void long_membership_sequences_match_the_legacy_path(uint32_t version) {
+    Pair pair(legacy_version, version);
     std::array<uint16_t, 12> units{};
     for (size_t index = 0; index < units.size(); ++index)
         units[index] = pair.spawn(0, 40 + uint32_t(index % 4) * 40, 40 + uint32_t(index / 4) * 40);
@@ -189,8 +191,8 @@ void long_membership_sequences_match_the_legacy_path() {
 }
 
 /// Clears dead membership before the same native slot starts another lifetime.
-void death_and_exact_slot_reuse_keep_membership_exact() {
-    Pair pair;
+void death_and_exact_slot_reuse_keep_membership_exact(uint32_t version) {
+    Pair pair(legacy_version, version);
     const auto a = pair.spawn(0, 40, 40);
     const auto b = pair.spawn(0, 80, 40);
     const auto c = pair.spawn(0, 120, 40);
@@ -222,15 +224,15 @@ uint32_t saved_squad(Fixture& fixture, uint16_t unit) {
 }
 
 /// Preserves legacy duplicate vector entries left by saved canonical squad assignment.
-void restored_assigned_and_unassigned_squads_keep_first_occurrence_semantics() {
+void restored_assigned_and_unassigned_squads_keep_first_occurrence_semantics(uint32_t version) {
     for (const auto loaded_group : {2u, no_squad}) {
-        Pair saving;
+        Pair saving(legacy_version, version);
         const auto saved = saving.spawn(0, 40, 40);
         saving.assign(saved, loaded_group);
         const uint32_t encoded_group = saved_squad(saving.legacy, saved);
         CHECK(encoded_group == loaded_group);
 
-        Pair loaded;
+        Pair loaded(legacy_version, version);
         const auto a = loaded.spawn(0, 40, 40);
         const auto b = loaded.spawn(0, 80, 40);
         const auto c = loaded.spawn(0, 120, 40);
@@ -259,8 +261,8 @@ void restored_assigned_and_unassigned_squads_keep_first_occurrence_semantics() {
 }
 
 /// Preserves membership through the supported gift and capture lifetime changes.
-void owner_transfer_and_capture_match_the_legacy_vectors() {
-    Pair pair;
+void owner_transfer_and_capture_match_the_legacy_vectors(uint32_t version) {
+    Pair pair(legacy_version, version);
     const auto gifted = pair.spawn(0, 40, 40);
     const auto captured = pair.spawn(0, 80, 40);
     const auto capturer = pair.spawn(1, 200, 200);
@@ -340,10 +342,10 @@ void prepare_large_membership_match(Fixture& fixture, uint32_t version) {
 }
 
 /// Preserves the exact two vectors when five thousand of ten thousand members transfer.
-void ten_thousand_members_keep_exact_batch_transfer_order() {
-    Pair pair;
+void ten_thousand_members_keep_exact_batch_transfer_order(uint32_t version) {
+    Pair pair(legacy_version, version);
     prepare_large_membership_match(pair.legacy, legacy_version);
-    prepare_large_membership_match(pair.indexed, indexed_version);
+    prepare_large_membership_match(pair.indexed, version);
     constexpr uint16_t members = 10000;
     constexpr uint16_t transferred = 5000;
     constexpr uint32_t row_members = 100;
@@ -394,18 +396,26 @@ int run_case(std::string_view name, Function function) {
 /// Runs actual-match vector, lifecycle, load-seam and canonical continuation checks.
 int main() {
     int failures = 0;
-    failures +=
-        run_case("same and cross squad", same_group_and_cross_group_moves_keep_vector_order);
-    failures +=
-        run_case("long membership sequence", long_membership_sequences_match_the_legacy_path);
-    failures += run_case("death and reused slot", death_and_exact_slot_reuse_keep_membership_exact);
-    failures += run_case(
-        "saved membership seam",
-        restored_assigned_and_unassigned_squads_keep_first_occurrence_semantics
-    );
-    failures +=
-        run_case("owner transfer and capture", owner_transfer_and_capture_match_the_legacy_vectors);
-    failures +=
-        run_case("ten thousand members", ten_thousand_members_keep_exact_batch_transfer_order);
+    for (const auto version : {indexed_version, distributed_version}) {
+        std::cout << "Enhanced squad membership: version=" << version << '\n';
+        failures += run_case("same and cross squad", [version] {
+            same_group_and_cross_group_moves_keep_vector_order(version);
+        });
+        failures += run_case("long membership sequence", [version] {
+            long_membership_sequences_match_the_legacy_path(version);
+        });
+        failures += run_case("death and reused slot", [version] {
+            death_and_exact_slot_reuse_keep_membership_exact(version);
+        });
+        failures += run_case("saved membership seam", [version] {
+            restored_assigned_and_unassigned_squads_keep_first_occurrence_semantics(version);
+        });
+        failures += run_case("owner transfer and capture", [version] {
+            owner_transfer_and_capture_match_the_legacy_vectors(version);
+        });
+        failures += run_case("ten thousand members", [version] {
+            ten_thousand_members_keep_exact_batch_transfer_order(version);
+        });
+    }
     return failures == 0 ? 0 : 1;
 }

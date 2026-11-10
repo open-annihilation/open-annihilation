@@ -5,6 +5,8 @@
 // progress clocks across a save, including a static invalidation still pending.
 #include "combat_fixture.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
+
 #include "oa/sim/ground_orders/shared_routes.hpp"
 #include "oa/sim/match_runtime/enhanced_counters.hpp"
 #include "oa/sim/match_runtime/rule_state.hpp"
@@ -1278,7 +1280,11 @@ void passing_units_rejoin_and_arrive() {
 int main() {
     try {
         version_one_and_off_keep_no_flow_state();
-        for (const uint32_t version : {2u, 3u}) {
+        for (const uint32_t version :
+             {2u,
+              3u,
+              oa::data::enhanced_mode::battle_flow_version,
+              oa::data::enhanced_mode::distributed_battle_flow_version}) {
             navigation_state_survives_restore(version);
             malformed_state_is_rejected_atomically(version);
         }

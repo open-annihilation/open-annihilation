@@ -31,6 +31,7 @@ namespace movement = oa::sim::unit_movement;
 
 constexpr int32_t pixel = 65536;
 constexpr uint32_t battle_version = oa::data::enhanced_mode::battle_flow_version;
+constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
 constexpr uint32_t legacy_version = 4;
 constexpr uint32_t map_height = 24;
 constexpr uint8_t land_height = 60;
@@ -289,7 +290,7 @@ uint32_t refresh(Scene& scene, uint32_t events = 0) {
 }
 
 void unchanged_goal_keeps_native_navigation() {
-    for (const uint32_t version : {0u, 1u, 2u, 3u, 4u, 5u, battle_version}) {
+    for (const uint32_t version : {0u, 1u, 2u, 3u, 4u, 5u, battle_version, distributed_version}) {
         Scene scene({version});
         scene.begin();
         scene.match().simulation().tick = 120;
@@ -321,9 +322,9 @@ void unchanged_goal_keeps_native_navigation() {
     }
 }
 
-void real_patrol_polling_preserves_one_goal_for_1800_ticks() {
+void real_patrol_polling_preserves_one_goal_for_1800_ticks(uint32_t version) {
     Scene legacy({legacy_version});
-    Scene continued;
+    Scene continued({version});
     legacy.patrol();
     continued.patrol();
     const ground::Goal* old_goal{};
@@ -383,7 +384,7 @@ void real_patrol_polling_preserves_one_goal_for_1800_ticks() {
               << ", battle-flow restarts=" << continued_restarts << '\n';
 }
 
-void changed_goal_fields_restart_the_native_goal() {
+void changed_goal_fields_restart_the_native_goal(uint32_t version) {
     using Change = void (*)(ground::Goal&);
     const std::array<Change, 11> changes{
         [](ground::Goal& goal) { goal.shape = ground::GoalShape::ring; },
@@ -399,7 +400,7 @@ void changed_goal_fields_restart_the_native_goal() {
         [](ground::Goal& goal) { ++goal.bottom; }
     };
     for (const auto change : changes) {
-        Scene scene;
+        Scene scene({version});
         scene.begin();
         scene.match().simulation().tick = 120;
         seed_navigation(scene);
@@ -413,14 +414,14 @@ void changed_goal_fields_restart_the_native_goal() {
     }
 }
 
-void terminal_events_restart_even_after_the_sweep_consumes_them() {
+void terminal_events_restart_even_after_the_sweep_consumes_them(uint32_t version) {
     for (const uint32_t event :
          {ground::arrived_event,
           ground::path_failed_event,
           ground::goal_replaced_event,
           uint32_t(cancel_event)})
         for (const bool pending : {false, true}) {
-            Scene scene;
+            Scene scene({version});
             scene.begin();
             scene.match().simulation().tick = 120;
             seed_navigation(scene);
@@ -438,7 +439,7 @@ void search_seed_observations_do_not_restart_an_unchanged_patrol() {
           ground::search_seed_unresolved_flag,
           ground::search_goal_contact_flag | ground::search_seed_unresolved_flag})
         for (const bool pending : {false, true})
-            for (const auto version : {legacy_version, battle_version}) {
+            for (const auto version : {legacy_version, battle_version, distributed_version}) {
                 Scene scene({version});
                 scene.begin();
                 scene.match().simulation().tick = 120;
@@ -464,11 +465,11 @@ void search_seed_observations_do_not_restart_an_unchanged_patrol() {
             }
 }
 
-void foreign_goal_and_foreign_order_are_not_retained() {
+void foreign_goal_and_foreign_order_are_not_retained(uint32_t version) {
     for (const bool foreign_navigation : {false, true}) {
         sim::simulation_state::Order foreign_order{};
         ground::Goal foreign_goal{};
-        Scene scene;
+        Scene scene({version});
         scene.begin();
         scene.match().simulation().tick = 120;
         seed_navigation(scene);
@@ -489,10 +490,10 @@ void foreign_goal_and_foreign_order_are_not_retained() {
     }
 }
 
-void excluded_ground_states_use_the_previous_refresh() {
+void excluded_ground_states_use_the_previous_refresh(uint32_t version) {
     for (const auto driver :
          {Driver::remote, Driver::mirrored, Driver::carried, Driver::other_layer}) {
-        Scene scene;
+        Scene scene({version});
         scene.begin();
         scene.match().simulation().tick = 120;
         seed_navigation(scene);
@@ -513,8 +514,8 @@ void excluded_ground_states_use_the_previous_refresh() {
         CHECK(scene.movement().navigation.goal != previous);
         CHECK(scene.movement().navigation.last_search_tick == 0);
     }
-    for (const auto version : {legacy_version, battle_version}) {
-        Scene scene({version, Driver::aircraft});
+    for (const auto aircraft_version : {legacy_version, version}) {
+        Scene scene({aircraft_version, Driver::aircraft});
         auto& order =
             scene.match().insert_ground_order(scene.actor, patrol_kind, scene.destination);
         CHECK(order.kind == patrol_kind);
@@ -524,8 +525,8 @@ void excluded_ground_states_use_the_previous_refresh() {
     }
 }
 
-void new_leg_and_cancellation_keep_normal_order_lifecycle() {
-    Scene scene;
+void new_leg_and_cancellation_keep_normal_order_lifecycle(uint32_t version) {
+    Scene scene({version});
     scene.begin();
     const auto first = goal_state(*scene.movement().navigation.goal);
     scene.destination = {5504 * pixel, 0, 160 * pixel};
@@ -541,7 +542,7 @@ void new_leg_and_cancellation_keep_normal_order_lifecycle() {
 }
 
 void a_real_pending_search_survives_only_the_continued_refresh() {
-    for (const auto version : {battle_version, legacy_version}) {
+    for (const auto version : {battle_version, distributed_version, legacy_version}) {
         // Its FP2 neck has native legal origins at z=5..7, between the
         // stride-four shared-field anchors. The fine native search must
         // therefore handle this connected route instead of a coarse field.
@@ -636,7 +637,7 @@ void check_native_footprint(Scene& scene) {
 }
 
 void native_choke_crossing_and_arrival_keep_the_patrol_loop() {
-    for (const auto version : {legacy_version, battle_version}) {
+    for (const auto version : {legacy_version, battle_version, distributed_version}) {
         Scene scene({version, Driver::local, true});
         auto* initial_order = &scene.patrol();
         bool crossed{}, rotated{}, next_leg{};
@@ -665,8 +666,8 @@ void native_choke_crossing_and_arrival_keep_the_patrol_loop() {
     }
 }
 
-void saved_patrol_reuses_its_restored_owned_goal() {
-    Scene source;
+void saved_patrol_reuses_its_restored_owned_goal(uint32_t version) {
+    Scene source({version});
     source.begin();
     source.run(90);
     saved_game::ScopedBank bank;
@@ -678,7 +679,7 @@ void saved_patrol_reuses_its_restored_owned_goal() {
     const auto saved_heading = source.movement().geometry.heading;
     const auto saved_pitch = source.movement().geometry.pitch;
     const auto expected = goal_state(*source.movement().navigation.goal);
-    Scene loaded;
+    Scene loaded({version});
     loaded.match().simulation().tick = source.match().simulation().tick;
     // These are the unit restore's initial placement and mobility, before loaded ticks.
     loaded.match().place_unit_at(
@@ -708,7 +709,7 @@ void saved_patrol_reuses_its_restored_owned_goal() {
 
 int main() {
     uint32_t failures{};
-    const auto run = [&failures](const char* name, void (*test)()) {
+    const auto run = [&failures](const char* name, auto test) {
         try {
             test();
         } catch (const std::exception& error) {
@@ -717,17 +718,26 @@ int main() {
         }
     };
     run("unchanged patrol goal", unchanged_goal_keeps_native_navigation);
-    run("real 1800 tick patrol", real_patrol_polling_preserves_one_goal_for_1800_ticks);
-    run("changed goal fields", changed_goal_fields_restart_the_native_goal);
-    run("pending and consumed terminal events",
-        terminal_events_restart_even_after_the_sweep_consumes_them);
     run("pending and consumed search observations",
         search_seed_observations_do_not_restart_an_unchanged_patrol);
-    run("foreign goal ownership", foreign_goal_and_foreign_order_are_not_retained);
-    run("excluded drivers and layers", excluded_ground_states_use_the_previous_refresh);
-    run("new leg and cancellation", new_leg_and_cancellation_keep_normal_order_lifecycle);
     run("real pending path search", a_real_pending_search_survives_only_the_continued_refresh);
     run("native choke and patrol arrival", native_choke_crossing_and_arrival_keep_the_patrol_loop);
-    run("saved patrol continuation", saved_patrol_reuses_its_restored_owned_goal);
+    for (const auto version : {battle_version, distributed_version}) {
+        std::cout << "Patrol continuation: version=" << version << '\n';
+        run("real 1800 tick patrol",
+            [version] { real_patrol_polling_preserves_one_goal_for_1800_ticks(version); });
+        run("changed goal fields",
+            [version] { changed_goal_fields_restart_the_native_goal(version); });
+        run("pending and consumed terminal events",
+            [version] { terminal_events_restart_even_after_the_sweep_consumes_them(version); });
+        run("foreign goal ownership",
+            [version] { foreign_goal_and_foreign_order_are_not_retained(version); });
+        run("excluded drivers and layers",
+            [version] { excluded_ground_states_use_the_previous_refresh(version); });
+        run("new leg and cancellation",
+            [version] { new_leg_and_cancellation_keep_normal_order_lifecycle(version); });
+        run("saved patrol continuation",
+            [version] { saved_patrol_reuses_its_restored_owned_goal(version); });
+    }
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
