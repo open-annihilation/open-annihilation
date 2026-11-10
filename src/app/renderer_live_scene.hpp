@@ -304,7 +304,7 @@ struct GroundIndexCache {
     GroundIndexKey key{};
     std::array<GroundIndexLayout, 2> layouts{};
     bool valid{};
-    uint64_t attempts{}; ///< lifetime build attempts, including unfinished ones
+    uint64_t attempts{}; ///< Scene-cache-local build attempts, including unfinished ones
 };
 
 /// Per-build index work, written under the shared sprite pass's index lock.

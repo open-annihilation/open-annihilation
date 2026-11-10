@@ -24,7 +24,7 @@ struct GroundIndexKey {
 };
 
 /// Reasons a requested ground index cannot reuse the retained index.
-enum GroundIndexMiss : uint32_t {
+enum class GroundIndexMiss : uint32_t {
     index_invalid = 1,
     index_uncached = 2,
     index_revision = 4,

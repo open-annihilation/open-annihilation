@@ -7008,13 +7008,22 @@ void list_ground(
             diagnostic->previous_attempts = cache.attempts;
             diagnostic->was_valid = cache.valid;
             diagnostic->reasons =
-                (!cache.valid ? uint32_t{index_invalid} : 0U) |
-                (key.revision == 0 ? uint32_t{index_uncached} : 0U) |
-                (cache.key.revision != key.revision ? uint32_t{index_revision} : 0U) |
-                (cache.key.vertices != key.vertices ? uint32_t{index_vertices} : 0U) |
-                (cache.key.card != key.card ? uint32_t{index_card} : 0U) |
-                (cache.key.card_axes != key.card_axes ? uint32_t{index_axes} : 0U) |
-                (cache.key.float_control != key.float_control ? uint32_t{index_float_control} : 0U);
+                (!cache.valid ? static_cast<uint32_t>(GroundIndexMiss::index_invalid) : 0U) |
+                (key.revision == 0 ? static_cast<uint32_t>(GroundIndexMiss::index_uncached) : 0U) |
+                (cache.key.revision != key.revision
+                     ? static_cast<uint32_t>(GroundIndexMiss::index_revision)
+                     : 0U) |
+                (cache.key.vertices != key.vertices
+                     ? static_cast<uint32_t>(GroundIndexMiss::index_vertices)
+                     : 0U) |
+                (cache.key.card != key.card ? static_cast<uint32_t>(GroundIndexMiss::index_card)
+                                            : 0U) |
+                (cache.key.card_axes != key.card_axes
+                     ? static_cast<uint32_t>(GroundIndexMiss::index_axes)
+                     : 0U) |
+                (cache.key.float_control != key.float_control
+                     ? static_cast<uint32_t>(GroundIndexMiss::index_float_control)
+                     : 0U);
         } else
             ++records.dropped;
     }
