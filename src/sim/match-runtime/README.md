@@ -680,6 +680,19 @@ stream, and for the siege task a player's sight of a point, its sightings, a
 unit's first-weapon reach and the order the Attack command gives over open
 ground.
 
+Experimental Enhanced preset 7 keeps a ground army's active march when its
+built-in rally task refreshes the squad's centroid. The current owned Move,
+Patrol or RepairPatrol must still own its nonterminal ground goal and any
+active search. Its complete owned primary queue, including a patrol's
+cloned return leg, stays in place. Idle units, arrived or interrupted goals,
+other mission kinds, queued commands and other controllers take the normal
+move-command path. Only rally tasks send built-in moves to the land-army
+and navy squads; the owner and built-in dispatch scope are also checked.
+This changes no saved table or random draw in command dispatch. Earlier
+presets retain their centroid replacement behavior. The checks
+`match-enhanced-rally-retention` and `match-enhanced-attack-retention` cover
+continued native goals, route work and ordinary replacement boundaries.
+
 ## Path search
 
 `advance_path_search` runs after the projectiles each tick: it starts a job
