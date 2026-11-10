@@ -309,6 +309,7 @@ LocalFlowDecision choose_local_flow(
             const auto velocity = aim_velocity(static_cast<uint16_t>(heading + angle), 0, reach);
             std::array<Fixed, 3> candidate;
             if (!offset_point(unit.position, velocity[0], velocity[2], reach, reach, candidate) ||
+                (probe.require_cell_exit && cell_at(unit, candidate) == unit.cell) ||
                 reverses_leg(candidate) ||
                 !clear_segment(unit, candidate, occupancy, host, counters))
                 continue;
@@ -325,6 +326,7 @@ LocalFlowDecision choose_local_flow(
         if (offset_point(
                 unit.position, velocity[0], velocity[2], cell_step, cell_step, candidate
             ) &&
+            (!probe.require_cell_exit || cell_at(unit, candidate) != unit.cell) &&
             !reverses_leg(candidate) && clear_segment(unit, candidate, occupancy, host, counters)) {
             result.reverse = true;
             result.adjusted = true;

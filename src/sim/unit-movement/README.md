@@ -67,6 +67,18 @@ and retains its completion tick; a new route clears that marker. Active
 heads retain the current tick for replication, with no change to the
 27-byte saved representation.
 
+Experimental version 7 requires a passing target to leave the unit's current
+full-footprint origin cell. A short reverse target inside that cell needs no
+new occupancy query and can repeat while every surrounding exit is occupied.
+The transient `LocalFlowProbe::require_cell_exit` option skips these targets
+before clearance and keeps the existing 16-then-32-world-unit candidate order,
+including the final reverse candidate. It adds no queries or retained state;
+the default is false, preserving earlier presets. A target in another cell
+does not guarantee that the unit reaches that cell: the five-unit completion
+radius and target plane still apply, and final collision checks remain solid.
+The boxed native fixture checks repeated refusal without promising escape or
+improved installed-map flow.
+
 `unit-local-flow` checks clearance, priorities, coherent turns, bounded retries
 and canonical saved heads. `unit-local-flow-steering` runs the actual ground
 steering and integration through sustained opposing traffic, checking arrival,
