@@ -43,7 +43,8 @@ struct LocalFlowProbe {
     /// Last progress ticks captured before any unit moves this tick, indexed by unit id.
     /// An empty span uses the caller's current movement clock.
     std::span<const uint32_t> progress_at_tick_start{};
-    /// Leg completed on this or the preceding tick for the same goal; null supplies no history.
+    /// Inactive completed leg retained by the caller's bounded same-goal policy.
+    /// A null pointer supplies no history.
     const LocalFlowHead* previous_head{};
     /// Whether a mature retry may undo a completed leg to explore a passing place.
     bool allow_reverse{true};
