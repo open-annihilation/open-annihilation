@@ -312,7 +312,6 @@ void Match::advance_path_search() {
         sim::ground_orders::Goal geometry{};
         uint32_t unit_index{}, generation{}, age{};
         uint16_t stable_id{};
-        bool pending{};
     };
 
     struct Context {
@@ -349,7 +348,7 @@ void Match::advance_path_search() {
             ctx.preferred_dispatch = nullptr;
             const auto* goal = ctx.preferred_goal;
             ctx.preferred_goal = nullptr;
-            // This credited pick already has a validated candidate from this
+            // This credited pick already has a validated fallback from this
             // tick's poll. Exhausted shared credits must not turn a second
             // query into Pending and suppress the admitted ordinary search.
             if (navigation.goal == goal)
@@ -431,22 +430,14 @@ void Match::advance_path_search() {
                 }
                 // Returning no job lets the cursor visit other units. Do
                 // not consume the ordinary search's 60-tick retry stamp.
-                const bool pending = result == sim::ground_orders::FlowResult::pending;
-                if (ctx.collecting &&
-                    (result == sim::ground_orders::FlowResult::fallback ||
-                     (pending && mature_collision)) &&
+                if (result == sim::ground_orders::FlowResult::fallback && ctx.collecting &&
                     preferred_search_unit_is_live(unit.record) && traffic &&
                     preferred_fallback_search(
                         navigation, runtime->movement, *traffic, ctx.match->simulation_.tick
                     )) {
                     const auto owner = unit.record.owner_index;
                     const auto* owned = ctx.match->runtime_order(navigation.goal->order);
-                    if (owner < ctx.candidates.size() && owned && owned->unit == &unit &&
-                        (!pending || (unit.primary == navigation.goal->order &&
-                                      owned->extra.goal.get() == navigation.goal &&
-                                      preferred_pending_search(
-                                          navigation, *traffic, ctx.match->simulation_.tick
-                                      )))) {
+                    if (owner < ctx.candidates.size() && owned && owned->unit == &unit) {
                         const auto age = ctx.match->simulation_.tick - navigation.last_search_tick;
                         auto& candidate = ctx.candidates[owner];
                         if (!candidate.unit || age > candidate.age ||
@@ -458,8 +449,7 @@ void Match::advance_path_search() {
                                 ctx.polled_index,
                                 ctx.match->bridge_->runtime(*slot).instance_generation,
                                 age,
-                                unit.record.id,
-                                pending
+                                unit.record.id
                             };
                         }
                     }
@@ -556,11 +546,7 @@ void Match::advance_path_search() {
                 return false;
             const auto& traffic = ctx.match->enhanced_->local_flow_heads[slot->unit_index];
             if (!owned || owned->unit != &unit ||
-                !preferred_fallback_search(runtime->navigation, runtime->movement, traffic, tick) ||
-                (candidate.pending &&
-                 (unit.primary != candidate.goal->order ||
-                  owned->extra.goal.get() != candidate.goal ||
-                  !preferred_pending_search(runtime->navigation, traffic, tick))))
+                !preferred_fallback_search(runtime->navigation, runtime->movement, traffic, tick))
                 return false;
             index = candidate.unit_index;
             ctx.preferred_dispatch = &unit;
