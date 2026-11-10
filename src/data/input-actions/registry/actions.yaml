@@ -2000,6 +2000,51 @@ actions:
     source: [OA]
     default: ["Shift+L"]
     words: {name: "Forward a minute", description: "Jumps forward a minute"}
+  photo.mark:
+    area: photo
+    order: 23
+    context: [photo]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["M"]
+    words: {name: "Mark area", description: "Starts a poster mark at the view's centre"}
+  photo.mark-left:
+    area: photo
+    order: 24
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Left"]
+    repeatable: true
+    words: {name: "Grow the mark left", description: "Grows the marked area to the left"}
+  photo.mark-right:
+    area: photo
+    order: 25
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Right"]
+    repeatable: true
+    words: {name: "Grow the mark right", description: "Grows the marked area to the right"}
+  photo.mark-up:
+    area: photo
+    order: 26
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Up"]
+    repeatable: true
+    words: {name: "Grow the mark up", description: "Grows the marked area up"}
+  photo.mark-down:
+    area: photo
+    order: 27
+    context: [photo]
+    kind: repeat
+    source: [OA]
+    default: ["Down"]
+    repeatable: true
+    words: {name: "Grow the mark down", description: "Grows the marked area down"}
   debug.keys:
     area: developer
     order: 1

@@ -43,6 +43,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -462,12 +463,19 @@ bool Runtime::capture_photo_pixels(
         photo_->sized_by_full = false;
         photo_->sized_by_live = false;
         photo_->sized_supersample = 1;
+        photo_->poster_recorded = false;
     }
+    // A poster is the view, a marked area or the whole map, at one map pixel
+    // a picture pixel. It is drawn again. A held picture stays the copy.
+    if (photo_ != nullptr && photo_->poster && !photo_picture_held())
+        return capture_poster(rgb, width, height);
     // Screen with smooth edges off keeps the picture the window already
     // drew. A larger size, or smooth edges, is drawn again at that size.
     // A held picture stays the copy photo mode is showing.
+    // A screen-sized photo is the picture the window already drew. A check
+    // that compares that picture with tiles draws it again, the same way.
     if (photo_ != nullptr && !photo_picture_held() &&
-        (photo_->size_factor != 1 || photo_->smooth_factor != 1))
+        (photo_->size_factor != 1 || photo_->smooth_factor != 1 || photo_check_sized_capture_))
         return capture_sized_photo(rgb, width, height);
     // A held picture is what photo mode shows while the shared match runs on
     // under it, so the photo is that copy, not a new frame of the live
@@ -608,13 +616,47 @@ void Runtime::take_photo() {
     // look, and before the thumbnail, so the notice matches the file. A
     // photo larger than the battlefield draws its grain larger by its size
     // factor, so the grain covers the map as the preview's does.
-    const int size_factor = photo_look_scale(
-        photo_ != nullptr && !photo_picture_held() ? std::clamp(photo_->size_factor, 1, 4) : 1,
-        framed_width,
-        match_layout_.battlefield_width()
-    );
-    if (photo_look_active())
-        apply_photo_look_rgb(rgb, width, height, size_factor, crop_x, crop_y);
+    // A poster's grain and tilt-shift band grow by the poster's pixels over
+    // the preview's for the same ground. A poster's pixel is a map pixel and
+    // the preview shows the view's map pixels across the battlefield, so the
+    // factor is the view's map width over the battlefield's (one over the
+    // zoom), with photo_look_scale's rounding, whatever the poster's width,
+    // and it is not capped at 4. Haze stays the size the panel shows,
+    // painted from the poster's corner. Depth of field stays on the panel's
+    // factor, which a poster keeps at 1.
+    const bool poster_scale = photo_ != nullptr && photo_->poster && !photo_picture_held();
+    const int size_factor = poster_scale ? 1
+                                         : photo_look_scale(
+                                               photo_ != nullptr && !photo_picture_held()
+                                                   ? std::clamp(photo_->size_factor, 1, 4)
+                                                   : 1,
+                                               framed_width,
+                                               match_layout_.battlefield_width()
+                                           );
+    const int grain_times =
+        poster_scale
+            ? photo_look_scale(
+                  1, static_cast<uint32_t>(visible_map_width()), match_layout_.battlefield_width()
+              )
+            : size_factor;
+    if (photo_look_active()) {
+        // A poster's haze follows the poster's ground, from its corner at
+        // zoom 1, wherever the window's view is.
+        std::optional<std::array<int32_t, 2>> poster_corner;
+        if (photo_ != nullptr && photo_->poster_recorded && !photo_picture_held())
+            poster_corner =
+                std::array<int32_t, 2>{photo_->poster_recorded_x, photo_->poster_recorded_z};
+        apply_photo_look_rgb(
+            rgb,
+            width,
+            height,
+            size_factor,
+            crop_x,
+            crop_y,
+            poster_corner,
+            poster_scale ? grain_times : 0
+        );
+    }
     remember_photo_thumbnail(rgb, width, height);
 
     fs::path folder;
@@ -661,12 +703,18 @@ void Runtime::take_photo() {
         facts.speed = match_->state().game.current_speed;
     }
     facts.players = photo_players(match_->state());
+    const bool poster_picture =
+        photo_ != nullptr && photo_->poster_recorded && !photo_picture_held();
     if (photo_ != nullptr && photo_->picture_held && photo_->camera_held) {
         facts.camera.x = photo_->held_camera_x;
         facts.camera.z = photo_->held_camera_z;
         facts.camera.zoom = photo_->held_zoom;
         facts.camera.yaw = photo_->held_live_yaw;
         facts.camera.pitch = photo_->held_live_pitch;
+    } else if (poster_picture) {
+        facts.camera.x = photo_->poster_recorded_x;
+        facts.camera.z = photo_->poster_recorded_z;
+        facts.camera.zoom = 1.0F;
     } else {
         facts.camera.x = match_camera_x_;
         facts.camera.z = match_camera_z_;
@@ -679,7 +727,7 @@ void Runtime::take_photo() {
     }
     facts.size.width = width;
     facts.size.height = height;
-    const bool sized = photo_ != nullptr && !photo_picture_held() &&
+    const bool sized = photo_ != nullptr && !photo_picture_held() && !poster_picture &&
                        (photo_->size_factor != 1 || photo_->smooth_factor != 1);
     facts.size.smooth = sized ? photo_->smooth_factor : 1;
     facts.created = utc_moment();
@@ -695,16 +743,16 @@ void Runtime::take_photo() {
         fact.roundness = std::clamp(photo_->look_roundness, 0, 100);
         fact.grain = std::clamp(photo_->look_grain, 0, 100);
         fact.grain_size = std::clamp(photo_->look_grain_size, 1, 16);
-        fact.grain_pixels = photo::photo_grain_size(fact.grain_size, size_factor);
+        fact.grain_pixels = photo::photo_grain_size(fact.grain_size, grain_times);
         const int frame = std::clamp(static_cast<int>(photo_->look_frame), 0, 3);
         fact.frame = photo::frame_key(static_cast<photo::Frame>(frame));
         if (photo_->look_tilt_radius > 0) {
             photo::TiltShiftFact tilt;
             tilt.centre = std::clamp(photo_->look_tilt_centre, 0, 100);
             tilt.width = std::clamp(photo_->look_tilt_width, 0, 160);
-            tilt.width_pixels = photo::photo_tilt_width(tilt.width, size_factor);
+            tilt.width_pixels = photo::photo_tilt_width(tilt.width, grain_times);
             tilt.radius = std::clamp(photo_->look_tilt_radius, 0, 32);
-            tilt.radius_pixels = photo::photo_tilt_radius(tilt.radius, size_factor);
+            tilt.radius_pixels = photo::photo_tilt_radius(tilt.radius, grain_times);
             fact.tilt_shift = tilt;
         }
         if (classic_haze || card_haze)

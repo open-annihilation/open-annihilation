@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// How a Full classic photo is split into tiles when the card cannot draw it
-// in one piece. Pure: no window, no drawing and no files. The runtime draws
-// each tile the way it draws a whole Full photo, crops the border and places
-// the kept piece. Grain and the anti-aliasing factor are arguments, so this
-// module does not include the Full tier.
+// How a photo is split into tiles when one piece cannot hold it. Full classic
+// tiles to the card's texture. The turned view tiles to the live renderer's
+// edge. Pure: no window, no drawing and no files. The runtime draws each
+// tile the way it draws a whole photo of that mode, crops the border and
+// places the kept piece. Grain and the anti-aliasing factor are arguments,
+// so this module does not include either renderer.
 #pragma once
 
 #include <cstdint>
@@ -29,6 +30,10 @@ inline constexpr int32_t kWaterReach = 10;
 
 /// The soft aircraft shadow's edge, in map pixels.
 inline constexpr int32_t kShadowReach = 4;
+
+/// The turned view packs lights into squares of this many output pixels,
+/// aligned to the picture's origin.
+inline constexpr int32_t kLiveLightTile = 32;
 
 /// How far each Full pass reads past a kept pixel, in photo pixels. A map
 /// pass's reach is already converted at the photo's zoom.
@@ -127,5 +132,139 @@ struct TilePlan {
 /// @param height the photo
 /// @return true when the caller draws the photo as one piece
 [[nodiscard]] bool draws_whole(const TilePlan& plan, int32_t width, int32_t height);
+
+/// How far a turned-view tile draws past a kept pixel before the border is
+/// snapped onto the light grid: one light square, heat's reach, and the
+/// depth-of-field blur. The blur is already the picture's own radius.
+///
+/// @param blur the blur, in photo pixels; 0 when depth of field is off
+/// @return the border, in photo pixels, never negative
+[[nodiscard]] int32_t turned_tile_border(int32_t blur);
+
+/// A turned-view photo to split, and what one tile may use.
+struct TurnedTileRequest {
+    int32_t width{0};  ///< the photo's draw, in photo pixels
+    int32_t height{0}; ///< the photo's draw, in photo pixels
+    /// Photo pixels a map pixel. A zoom that is not positive is read as 1.
+    /// Tile origins land on a whole map pixel and on a light square.
+    float zoom{1.0F};
+    /// The longest side one tile's draw may have: the sampling edge, and
+    /// never more than 4096. Zero means 4096.
+    int32_t draw_limit{0};
+    /// A check-only cap on a tile's kept edge, in photo pixels. Zero leaves
+    /// the draw limit to decide. The kept edge is snapped down onto the
+    /// light grid, so an edge that is not a multiple of that grid draws shorter.
+    int32_t tile_edge{0};
+    /// Depth-of-field blur, in photo pixels, already scaled by the picture's
+    /// size and smooth step. The same radius on every tile. 0 when depth of
+    /// field is off.
+    int32_t blur{0};
+    /// The card's largest viewport, in pixels. Zero does not cap the draw
+    /// for it. A tile's colour viewport is its draw times `viewport_samples`.
+    int32_t viewport_limit{0};
+    /// The supersample a tile keeps. At least 1 when `viewport_limit` is set.
+    int viewport_samples{1};
+};
+
+/// Shortens a turned-view draw cap so each tile's colour viewport fits the
+/// card. A limit of 0 leaves `cap` as it is. A limit shorter than one sample
+/// leaves no room.
+///
+/// @param cap the draw cap, in photo pixels
+/// @param viewport_limit the card's largest viewport, in pixels, or 0
+/// @param viewport_samples the supersample the tile keeps
+inline void limit_turned_draw(int32_t& cap, int32_t viewport_limit, int viewport_samples) {
+    if (viewport_limit <= 0 || cap <= 0)
+        return;
+    const int samples = viewport_samples > 0 ? viewport_samples : 1;
+    const int32_t room = viewport_limit / samples;
+    if (room < cap)
+        cap = room;
+}
+
+/// Splits a turned-view photo into tiles the live renderer can draw. A photo
+/// whose draw fits `draw_limit`, and whose sides are within `tile_edge` when
+/// that is set, is one tile with no border. Otherwise each tile's draw is at
+/// most 4096 pixels a side and within `draw_limit`, each inner border covers
+/// the lights' squares, heat and the blur, and every tile's draw starts on a
+/// light square so a pixel's lights are the whole photo's. The camera is not
+/// moved: `draw_x` and `draw_y` are the shift of the photo's projection.
+/// After the borders are cropped, the kept pieces cover the photo exactly
+/// once. A picture past 16384 photo pixels a side is not drawn in tiles.
+/// When `viewport_limit` is set, a tile's draw times `viewport_samples` also
+/// stays within that viewport.
+///
+/// @param request the photo and the limits
+/// @return the tiles
+[[nodiscard]] TilePlan plan_turned_tiles(const TurnedTileRequest& request);
+
+/// The colour viewport one turned-view tile is drawn through.
+struct TurnedViewport {
+    float x{0};          ///< left, in pixels of the colour picture
+    float y{0};          ///< top, in pixels of the colour picture
+    float width{0};      ///< pixels of the colour picture
+    float height{0};     ///< pixels of the colour picture
+    bool shifted{false}; ///< the projection is offset and the viewport is the tile
+    bool fits{false};    ///< the viewport is within the card's limit
+};
+
+/// The viewport one turned-view tile is drawn through. The whole photo's
+/// viewport when that fits `viewport_limit` and its corners, and the tile's
+/// own viewport, with the projection offset onto the tile, when it does not.
+/// A limit of 0 always returns the whole photo's viewport. `fits` is false
+/// when even the tile's own viewport is past the limit: the caller draws
+/// nothing rather than a viewport the card rejects.
+///
+/// @param photo_width the whole photo, in photo pixels
+/// @param photo_height the whole photo, in photo pixels
+/// @param origin_x the tile's draw, photo pixels from the photo's left
+/// @param origin_y the tile's draw, photo pixels from the photo's top
+/// @param tile_width the tile's draw
+/// @param tile_height the tile's draw
+/// @param supersample samples along each axis of the colour picture; 0 is read as 1
+/// @param viewport_limit the card's largest viewport, in pixels, or 0
+/// @param min_corner the least coordinate a viewport may start or end at
+/// @param max_corner the greatest coordinate a viewport may start or end at
+/// @return the colour viewport, in pixels of that picture
+[[nodiscard]] inline TurnedViewport turned_tile_viewport(
+    int32_t photo_width,
+    int32_t photo_height,
+    int32_t origin_x,
+    int32_t origin_y,
+    int32_t tile_width,
+    int32_t tile_height,
+    int32_t supersample,
+    int32_t viewport_limit,
+    float min_corner,
+    float max_corner
+) {
+    const auto fits = [&](float x, float y, float width, float height) {
+        if (!(width > 0.0F) || !(height > 0.0F))
+            return false;
+        if (viewport_limit > 0 && (width > static_cast<float>(viewport_limit) ||
+                                   height > static_cast<float>(viewport_limit)))
+            return false;
+        const float right = x + width;
+        const float bottom = y + height;
+        return x >= min_corner && y >= min_corner && right <= max_corner && bottom <= max_corner;
+    };
+    const int32_t samples = supersample > 0 ? supersample : 1;
+    const float scale = static_cast<float>(samples);
+    TurnedViewport whole;
+    whole.x = -static_cast<float>(origin_x) * scale;
+    whole.y = -static_cast<float>(origin_y) * scale;
+    whole.width = static_cast<float>(photo_width) * scale;
+    whole.height = static_cast<float>(photo_height) * scale;
+    if (viewport_limit <= 0 || fits(whole.x, whole.y, whole.width, whole.height)) {
+        whole.fits = true;
+        return whole;
+    }
+    TurnedViewport tile;
+    tile.shifted = true;
+    tile.width = static_cast<float>(tile_width) * scale;
+    tile.height = static_cast<float>(tile_height) * scale;
+    tile.fits = fits(tile.x, tile.y, tile.width, tile.height);
+    return tile;
+}
 
 } // namespace oa::present::photo

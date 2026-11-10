@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The tiles of a Full classic photo: coverage, the card's limit, the border
-// and the map grid.
+// The tiles of a photo: Full classic against the card, and the turned view
+// against the live renderer's edge.
 #include "oa/present/photo/photo_tiles.hpp"
 
 #include <cmath>
@@ -26,10 +26,15 @@ using oa::present::photo::Tile;
 using oa::present::photo::TilePlan;
 using oa::present::photo::TileReach;
 using oa::present::photo::TileRequest;
+using oa::present::photo::TurnedTileRequest;
 using oa::present::photo::draws_whole;
 using oa::present::photo::full_tile_reach;
+using oa::present::photo::kLiveLightTile;
 using oa::present::photo::plan_tiles;
+using oa::present::photo::plan_turned_tiles;
 using oa::present::photo::tile_border;
+using oa::present::photo::turned_tile_border;
+using oa::present::photo::turned_tile_viewport;
 
 /// True when the kept pieces cover the photo exactly once.
 ///
@@ -259,6 +264,181 @@ int main() {
         CHECK(fog_plan.border >= tile_border(foggy.reach));
         check_fit(foggy);
     }
+
+    CHECK(turned_tile_border(0) == kLiveLightTile + 6);
+    CHECK(turned_tile_border(128) == kLiveLightTile + 6 + 128);
+    CHECK(turned_tile_border(-4) == kLiveLightTile + 6);
+
+    TurnedTileRequest square;
+    square.width = 4096;
+    square.height = 4096;
+    square.zoom = 1.0F;
+    square.draw_limit = 4096;
+    CHECK(draws_whole(plan_turned_tiles(square), 4096, 4096));
+
+    square.tile_edge = 2048;
+    const TilePlan halved = plan_turned_tiles(square);
+    CHECK(halved.fits && halved.tiles.size() == 4);
+    CHECK(halved.border >= turned_tile_border(0) && halved.border % kLiveLightTile == 0);
+    CHECK(covers_once(halved, 4096, 4096));
+    for (const Tile& tile : halved.tiles) {
+        CHECK(tile.width == 2048 && tile.height == 2048);
+        CHECK(tile.draw_width <= 4096 && tile.draw_height <= 4096);
+        CHECK(tile.draw_x % kLiveLightTile == 0 && tile.draw_y % kLiveLightTile == 0);
+        CHECK(tile.map_column == 0 && tile.map_row == 0);
+        CHECK(tile.target_width == tile.draw_width && tile.target_height == tile.draw_height);
+    }
+
+    square.blur = 128;
+    const TilePlan blurred = plan_turned_tiles(square);
+    CHECK(blurred.fits && blurred.tiles.size() == 4);
+    CHECK(blurred.border >= turned_tile_border(128) && blurred.border % kLiveLightTile == 0);
+    CHECK(covers_once(blurred, 4096, 4096));
+    for (const Tile& tile : blurred.tiles)
+        CHECK(tile.draw_width <= 4096 && tile.draw_height <= 4096);
+
+    TurnedTileRequest wide;
+    wide.width = 8000;
+    wide.height = 8000;
+    wide.zoom = 1.0F;
+    wide.draw_limit = 4096;
+    const TilePlan wide_plan = plan_turned_tiles(wide);
+    CHECK(wide_plan.fits && wide_plan.tiles.size() > 1);
+    CHECK(covers_once(wide_plan, 8000, 8000));
+    for (const Tile& tile : wide_plan.tiles) {
+        CHECK(tile.draw_width <= 4096 && tile.draw_height <= 4096);
+        CHECK(tile.draw_x % kLiveLightTile == 0 && tile.draw_y % kLiveLightTile == 0);
+    }
+
+    wide.zoom = 4.0F;
+    const TilePlan zoomed = plan_turned_tiles(wide);
+    CHECK(zoomed.fits && covers_once(zoomed, 8000, 8000));
+    for (const Tile& tile : zoomed.tiles)
+        CHECK(tile.draw_x % kLiveLightTile == 0 && tile.draw_y % kLiveLightTile == 0);
+
+    TurnedTileRequest past;
+    past.width = 20000;
+    past.height = 20000;
+    past.draw_limit = 4096;
+    CHECK(!plan_turned_tiles(past).fits);
+
+    TurnedTileRequest odd;
+    odd.width = 1600;
+    odd.height = 1600;
+    odd.zoom = 1.0F;
+    odd.draw_limit = 4096;
+    odd.tile_edge = 500;
+    const TilePlan snapped = plan_turned_tiles(odd);
+    CHECK(snapped.fits && snapped.tiles.size() > 1);
+    CHECK(covers_once(snapped, 1600, 1600));
+    for (const Tile& tile : snapped.tiles) {
+        CHECK(tile.width <= 500 && tile.height <= 500);
+        CHECK(tile.width % kLiveLightTile == 0 || tile.x + tile.width == 1600);
+        CHECK(tile.height % kLiveLightTile == 0 || tile.y + tile.height == 1600);
+        CHECK(tile.draw_x % kLiveLightTile == 0 && tile.draw_y % kLiveLightTile == 0);
+    }
+
+    TurnedTileRequest one_piece;
+    one_piece.width = 4000;
+    one_piece.height = 2000;
+    one_piece.draw_limit = 4096;
+    CHECK(draws_whole(plan_turned_tiles(one_piece), 4000, 2000));
+
+    // A card whose viewport holds the whole photo keeps that viewport.
+    TurnedTileRequest roomy;
+    roomy.width = 4096;
+    roomy.height = 4096;
+    roomy.zoom = 1.0F;
+    roomy.draw_limit = 4096;
+    roomy.viewport_limit = 16384;
+    roomy.viewport_samples = 2;
+    CHECK(draws_whole(plan_turned_tiles(roomy), 4096, 4096));
+    const auto roomy_view =
+        turned_tile_viewport(4096, 4096, 0, 0, 4096, 4096, 2, 16384, -32768.0F, 32767.0F);
+    CHECK(!roomy_view.shifted && roomy_view.fits);
+    CHECK(roomy_view.width <= 16384.0F && roomy_view.height <= 16384.0F);
+
+    // A forced limit the whole photo's viewport passes, and a tile's does not.
+    TurnedTileRequest capped;
+    capped.width = 4096;
+    capped.height = 4096;
+    capped.zoom = 1.0F;
+    capped.draw_limit = 4096;
+    capped.viewport_limit = 6000;
+    capped.viewport_samples = 2;
+    const TilePlan capped_plan = plan_turned_tiles(capped);
+    CHECK(capped_plan.fits && capped_plan.tiles.size() > 1);
+    CHECK(covers_once(capped_plan, 4096, 4096));
+    for (const Tile& tile : capped_plan.tiles) {
+        const auto view = turned_tile_viewport(
+            capped.width,
+            capped.height,
+            tile.draw_x,
+            tile.draw_y,
+            tile.draw_width,
+            tile.draw_height,
+            2,
+            6000,
+            -8192.0F,
+            8191.0F
+        );
+        CHECK(view.shifted && view.fits);
+        CHECK(view.width <= 6000.0F && view.height <= 6000.0F);
+        CHECK(view.x >= -8192.0F && view.y >= -8192.0F);
+        CHECK(view.x + view.width <= 8191.0F && view.y + view.height <= 8191.0F);
+    }
+
+    TurnedTileRequest under;
+    under.width = 2000;
+    under.height = 1000;
+    under.draw_limit = 4096;
+    under.viewport_limit = 6000;
+    under.viewport_samples = 2;
+    CHECK(draws_whole(plan_turned_tiles(under), 2000, 1000));
+
+    TurnedTileRequest cramped;
+    cramped.width = 4096;
+    cramped.height = 4096;
+    cramped.zoom = 1.0F;
+    cramped.draw_limit = 4096;
+    cramped.viewport_limit = 32;
+    cramped.viewport_samples = 2;
+    CHECK(!plan_turned_tiles(cramped).fits);
+
+    TurnedTileRequest still_past;
+    still_past.width = 20000;
+    still_past.height = 20000;
+    still_past.draw_limit = 4096;
+    still_past.viewport_limit = 100000;
+    still_past.viewport_samples = 1;
+    CHECK(!plan_turned_tiles(still_past).fits);
+
+    square.tile_edge = 2048;
+    square.blur = 0;
+    square.viewport_limit = 16384;
+    square.viewport_samples = 1;
+    const TilePlan held = plan_turned_tiles(square);
+    CHECK(held.fits && held.tiles.size() == 4);
+    for (const Tile& tile : held.tiles) {
+        const auto view = turned_tile_viewport(
+            4096,
+            4096,
+            tile.draw_x,
+            tile.draw_y,
+            tile.draw_width,
+            tile.draw_height,
+            1,
+            16384,
+            -32768.0F,
+            32767.0F
+        );
+        CHECK(!view.shifted && view.fits);
+        CHECK(view.width <= 16384.0F && view.height <= 16384.0F);
+    }
+    const auto corner = turned_tile_viewport(100, 100, 50, 0, 40, 100, 1, 200, 0.0F, 100.0F);
+    CHECK(corner.shifted && corner.fits);
+    const auto too_wide = turned_tile_viewport(80, 80, 0, 0, 80, 80, 2, 50, -100.0F, 100.0F);
+    CHECK(too_wide.shifted && !too_wide.fits);
 
     if (failures != 0) {
         std::fprintf(stderr, "%d checks failed\n", failures);

@@ -48,6 +48,7 @@
 #include "oa/formats/ota.hpp"
 #include "oa/formats/tdf.hpp"
 #include "oa/present/display.hpp"
+#include "oa/present/photo/photo_poster.hpp"
 #include "oa/present/photo/photo_sizes.hpp"
 #include "oa/present/gaf_sprites.hpp"
 #include "oa/present/surface.hpp"
@@ -2734,6 +2735,110 @@ class Runtime final : public menu::Host,
     [[nodiscard]] bool
     capture_sized_photo(std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height);
 
+    /// Draws one Full picture at the camera the caller has set. The caller is
+    /// inside restoring_photo_window, and has set the layout, the zoom and
+    /// the exact view. A picture the card can draw in one piece stays on that
+    /// path. A larger one is drawn in tiles, and the tile camera is not
+    /// clamped to the view again.
+    ///
+    /// @param[out] drawn the picture, packed RGB
+    /// @param draw_width the picture, in pixels
+    /// @param draw_height the picture, in pixels
+    /// @param photo_zoom output pixels a map pixel
+    /// @param machine the card, the factor and the check's tile edge
+    /// @return false when the picture could not be drawn
+    [[nodiscard]] bool draw_full_rgb(
+        std::vector<uint8_t>& drawn,
+        int32_t draw_width,
+        int32_t draw_height,
+        float photo_zoom,
+        const oa::present::photo::Machine& machine
+    );
+
+    /// The poster offered now: the view, a marked area and the whole map.
+    ///
+    /// @param machine the battlefield's mode and memory
+    /// @return the extents and the button's lock
+    [[nodiscard]] oa::present::photo::PosterPlan
+    photo_poster_plan(const oa::present::photo::Machine& machine);
+
+    /// Turns a poster on when the button is offered, or off. Turning it on
+    /// keeps an extent that is still offered, or the first one that is.
+    ///
+    /// @param on true takes the next photo as a poster
+    void set_photo_poster(bool on);
+
+    /// Chooses which area a poster shows, when that extent is offered.
+    /// Choosing one turns the poster on.
+    ///
+    /// @param extent 0 the view, 1 the marked area, 2 the whole map
+    void set_photo_poster_extent(int extent);
+
+    /// Marks the rectangle a poster of a marked area shows, in map pixels.
+    /// An empty rectangle is read as the view. The poster is turned on when
+    /// that area is offered. A check's rectangle is kept as given: the
+    /// player's own mark has a floor, and this does not.
+    ///
+    /// @param x the left map column
+    /// @param z the top map row
+    /// @param width map pixels across
+    /// @param height map pixels down
+    void set_photo_poster_rect(int32_t x, int32_t z, int32_t width, int32_t height);
+
+    /// Starts a poster mark the size of the view, centred on the view, and
+    /// chooses Area when that extent is offered. The mark is held on the map
+    /// and is at least 64 map pixels on a side.
+    void photo_mark_area();
+
+    /// Grows the marked area by one step while Area is the picture.
+    /// Left and up move that edge out, right and down theirs. Only that edge
+    /// moves, and it stops at the map's edge. A step of 0 grows by the larger
+    /// of 64 map pixels and an eighth of the view.
+    ///
+    /// @param across -1 left, 1 right, 0 neither
+    /// @param down -1 up, 1 down, 0 neither
+    /// @param step map pixels to add, or 0 for the key's step
+    void photo_poster_grow(int across, int down, int32_t step = 0);
+
+    /// Whether a drag on the battlefield marks a poster area instead of panning.
+    ///
+    /// @return true while a poster of a marked area is the picture
+    [[nodiscard]] bool photo_poster_takes_drag() const;
+
+    /// Remembers a mark at the pointer. A click that does not move keeps
+    /// the mark that was already there.
+    ///
+    /// @param x the pointer, in window pixels
+    /// @param y the pointer, in window pixels
+    void photo_poster_drag_begin(float x, float y);
+
+    /// Grows the mark to the pointer.
+    ///
+    /// @param x the pointer, in window pixels
+    /// @param y the pointer, in window pixels
+    void photo_poster_drag_move(float x, float y);
+
+    /// Ends a mark.
+    void photo_poster_drag_end();
+
+    /// The sentence for a poster lock. Empty when the poster is offered.
+    /// A pixel cap is filled in.
+    ///
+    /// @param lock why it is not offered
+    /// @param limit the cap the edge sentence names
+    /// @return the sentence
+    [[nodiscard]] std::string photo_poster_reason(oa::present::photo::SizeLock lock, int32_t limit);
+
+    /// Draws a poster in the render mode in use: strips on the processor,
+    /// tiles on Full classic. The turned view and a shared match draw none.
+    /// Nothing is written into the Game block.
+    ///
+    /// @param[out] rgb the picture
+    /// @param[out] width its width
+    /// @param[out] height its height
+    /// @return false when it could not be drawn
+    [[nodiscard]] bool capture_poster(std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height);
+
     /// Waits until every photo already accepted has been written, then
     /// reports the latest one on the status line.
     void wait_for_photos();
@@ -3090,6 +3195,23 @@ class Runtime final : public menu::Host,
     /// @throws std::runtime_error when a check fails
     [[nodiscard]] int check_photo_sizes();
 
+    /// Runs --check-photo poster: a poster two views wide equals two photos
+    /// of that frozen tick placed side by side. On Full the poster is drawn
+    /// in tiles and the pictures match within the tile ruling.
+    ///
+    /// @return 0
+    /// @throws std::runtime_error when a check fails
+    [[nodiscard]] int check_photo_poster();
+
+    /// Runs --check-photo tiles-live: a turned-view photo drawn whole and the
+    /// same photo drawn in tiles, on one frozen frame. It needs the live
+    /// renderer. A dummy driver has no graphics device and the check returns
+    /// 77.
+    ///
+    /// @return 77 when no graphics device can draw the turned view, otherwise 0
+    /// @throws std::runtime_error when a check fails
+    [[nodiscard]] int check_photo_tiles_live();
+
     /// Runs --check-photo tiles: a Full photo drawn whole and the same photo
     /// drawn in tiles, on one frozen frame. With --force-capable it runs on
     /// whichever renderer the video driver gives. Without it, it needs a
@@ -3184,13 +3306,26 @@ class Runtime final : public menu::Host,
     ///        so haze can find the ground under the photo. The caller passes
     ///        0 when nothing was cut
     /// @param crop_y the crop's top edge, in the same pixels
+    /// @param corner the map pixel at the picture's top left when the
+    ///        picture is a poster: drawn at zoom 1 from that corner, not
+    ///        from the window's view. Haze then finds the poster's ground.
+    ///        None for every other photo and the preview
+    /// @param grain_factor the factor for grain and the tilt-shift's band
+    ///        when it is not the picture's size. A poster passes its pixels
+    ///        over the preview's for the same ground: a poster's pixel is a
+    ///        map pixel, so that is the view's map pixels over the
+    ///        battlefield's (one over the zoom, at least 1), whatever the
+    ///        poster's width, and it is not capped at 4. 0 uses
+    ///        `size_factor`. Haze and depth of field stay on `size_factor`
     void apply_photo_look_rgb(
         std::vector<uint8_t>& rgb,
         uint32_t width,
         uint32_t height,
         int size_factor,
         int32_t crop_x,
-        int32_t crop_y
+        int32_t crop_y,
+        std::optional<std::array<int32_t, 2>> corner = std::nullopt,
+        int grain_factor = 0
     ) const;
 
     /// Paints the current look into the preview of a battlefield.
@@ -13853,8 +13988,7 @@ class Runtime final : public menu::Host,
     ///
     /// @param draw draws the photo
     /// @return what `draw` returned
-    template <class Draw>
-    bool restoring_photo_window(Draw&& draw);
+    bool restoring_photo_window(const std::function<bool()>& draw);
 
     /// Captures the battlefield by the render mode in use. A mode that cannot
     /// capture does not fall back to another. While a picture is held, the
@@ -19670,6 +19804,19 @@ class Runtime final : public menu::Host,
 
   private:
 
+    /// The map column and row under a pointer on the battlefield.
+    ///
+    /// @param x the pointer, in window pixels
+    /// @param y the pointer, in window pixels
+    /// @return the column and the row, or nothing off the battlefield
+    [[nodiscard]] std::optional<std::array<int32_t, 2>> poster_map_at(float x, float y) const;
+
+    /// The marked area in window pixels, for the guide drawn over the
+    /// battlefield. Nothing when the mark is empty.
+    ///
+    /// @return left, top, width and height, or nothing
+    [[nodiscard]] std::optional<std::array<int32_t, 4>> poster_mark_window() const;
+
     /// The host a replay frame calls. The pointers are the functions below, and
     /// the context is this runtime. They are not extension hooks.
     ///
@@ -23223,9 +23370,48 @@ class Runtime final : public menu::Host,
     /// a tile, so a frame and a whole photo take their camera and order as
     /// before.
     std::optional<std::array<int32_t, 2>> photo_tile_map_offset_;
-    /// A check-only cap on a Full photo tile's kept edge, in photo pixels.
-    /// Zero leaves the card's texture limit to decide.
+    /// While a turned-view photo tile draws: the whole photo, in photo
+    /// pixels. The tile's picture is smaller. Zero outside a tile.
+    int32_t photo_tile_whole_width_{0};
+    int32_t photo_tile_whole_height_{0};
+    /// The tile's draw origin in the whole photo, in photo pixels. Subtracted
+    /// from the photo's projection so the tile shows that part. The camera
+    /// stays where the whole photo's is.
+    int32_t photo_tile_shift_x_{0};
+    int32_t photo_tile_shift_y_{0};
+    /// After the first turned-view tile, the scene already packed for the
+    /// whole photo is drawn again. A later tile does not pack its own.
+    bool photo_tile_hold_scene_{false};
+    /// This frame is one tile of a turned-view photo. The camera is not
+    /// pulled in for the tile's smaller picture, and the frame is not
+    /// remembered as the window's.
+    bool photo_tile_frame_{false};
+    /// A turned photo packs its terrain from a fresh scene, so a photo
+    /// drawn whole and the same photo drawn in tiles pack the same ground.
+    /// The window's scene is put back before its own frame is drawn again.
+    bool photo_isolate_scene_{false};
+    /// The anti-aliasing a turned-view tile asks for, so its sampling matches
+    /// the window's. Zero asks for the window's own setting.
+    uint32_t photo_tile_supersample_{0};
+    /// A check-only cap on a photo tile's kept edge, in photo pixels. Zero
+    /// leaves the card's texture limit, or the turned view's sampling edge,
+    /// to decide.
     int32_t photo_check_tile_edge_{0};
+    /// A check-only cap on a turned tile's viewport, in pixels. Zero leaves
+    /// the card's own largest viewport. It bounds only a tile of a larger
+    /// picture, not a picture drawn as itself, and the size plan does not
+    /// read it.
+    int32_t photo_check_viewport_limit_{0};
+    /// What the card drew the turned tiles through since a check last
+    /// cleared these: the tiles drawn, how many had the projection offset
+    /// onto them, and the longest side of any of their colour viewports.
+    uint32_t photo_check_tiles_drawn_{0};
+    uint32_t photo_check_tiles_shifted_{0};
+    uint32_t photo_check_widest_tile_viewport_{0};
+    /// A check draws a screen-sized turned photo through the sized path, so
+    /// the picture and its tiles are the same draw. A player's screen-sized
+    /// photo stays the window's picture.
+    bool photo_check_sized_capture_{false};
     std::vector<uint8_t> debug_font_; // smlfont.FNT as loaded, for the debug grid
     oa::present::world_renderer::FogTileSet fog_tiles_{};
     oa::present::world_renderer::FogShading fog_shading_{};

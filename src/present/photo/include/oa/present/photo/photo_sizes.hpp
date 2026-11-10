@@ -16,7 +16,8 @@ namespace oa::present::photo {
 /// The most pixels a side a processor photo is drawn at.
 inline constexpr int32_t kProcessorEdge = 16384;
 
-/// The most pixels a side a turned-view photo is drawn at.
+/// The most pixels a side one turned-view frame is drawn at. A larger photo
+/// is drawn in tiles, each at most this long, up to 16384 photo pixels.
 inline constexpr int32_t kTurnedEdge = 4096;
 
 /// How the photo is drawn. The mode in use is the only one that draws it.
@@ -42,6 +43,12 @@ enum class SizeLock : uint8_t {
     /// Off and Basic draw whole pixels, so a smooth step above Off is the
     /// Screen photo.
     pixels,
+    /// A held picture. A poster is a new draw, so it waits.
+    held,
+    /// The turned view. A poster is the map from above.
+    above,
+    /// The picture is still moving. A poster needs a frozen picture.
+    moving,
 };
 
 /// The battlefield a photo is taken from, in pixels.
@@ -72,10 +79,28 @@ struct Machine {
     /// The window's zoom, pixels of the battlefield a map pixel. A Full
     /// photo whose own zoom is still below 1 makes no world target.
     float zoom{1.0F};
-    /// A check-only cap on a Full tile's kept edge, in photo pixels. Zero
-    /// leaves the card's texture limit to decide. It does not lower the
-    /// anti-aliasing factor, and a shared match never reaches it.
+    /// A check-only cap on a tile's kept edge, in photo pixels. Zero leaves
+    /// the card, or the turned view's sampling edge, to decide. It does not
+    /// lower the anti-aliasing factor, and a shared match never reaches it.
     int32_t tile_edge{0};
+    /// The turned view's longest tile side, in pixels, that still draws with
+    /// the window's sampling: the largest square that keeps it. A tile is
+    /// squarer than the window, and the card's multisampling is limited by
+    /// area, so a square tile as long as edge_limit can lose it. Zero leaves
+    /// edge_limit to decide. Other modes ignore it.
+    int32_t tile_limit{0};
+    /// The panel's depth of field, 0 to 32. The turned view adds that blur,
+    /// scaled by the photo's size and smooth step, to each tile's border.
+    /// Other modes ignore it.
+    int depth_of_field{0};
+    /// The card's largest viewport, in pixels. Zero means the card is not
+    /// open yet, and a turned-view tile is not shortened for it. A tile's
+    /// colour viewport is its draw times `viewport_samples`. Other modes
+    /// ignore it.
+    int32_t viewport_limit{0};
+    /// The supersample the turned view keeps in every tile. At least 1 when
+    /// `viewport_limit` is set. Other modes ignore it.
+    int viewport_samples{1};
     /// Bytes the photo's look keeps beside the picture, for each pixel of
     /// the picture: 3 while a tilt-shift is on, which blurs a copy of it,
     /// otherwise 0.
@@ -131,7 +156,9 @@ struct Draw {
 /// pass the mode's limit, or the memory still free, is not offered. Full
 /// classic still offers a size past the card's texture when that picture can
 /// be drawn in tiles, up to 16384 photo pixels a side, paying for the photo
-/// and one tile. A shared match does not offer those tiles.
+/// and one tile. The turned view does the same past the size whose sampling
+/// matches the window, up to 16384, each tile at most 4096. A shared match
+/// does not offer those tiles.
 ///
 /// @param field the battlefield
 /// @param machine the mode, its limit and the memory still free
@@ -148,6 +175,14 @@ struct Draw {
 /// @param smooth 1, 2 or 4
 /// @return the picture and the draw
 [[nodiscard]] Draw plan_draw(Field field, const Machine& machine, int size_factor, int smooth);
+
+/// The longest side one turned-view tile may draw: the sampling edge, the
+/// square tile limit when it is set, the card's viewport, and never more
+/// than 4096.
+///
+/// @param machine the turned view's limits
+/// @return the side, in pixels
+[[nodiscard]] int32_t turned_tile_draw_limit(const Machine& machine);
 
 /// Box-reduces packed RGB by an integer factor. Each output pixel is the
 /// mean of one factor-by-factor block, rounded half up. A factor of 1 copies

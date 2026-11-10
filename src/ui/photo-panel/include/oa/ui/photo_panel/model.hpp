@@ -105,6 +105,10 @@ inline constexpr kit::ControlId kHazeNote = 51;
 inline constexpr kit::ControlId kDepthOfField = 52;
 /// Why depth of field is locked. It does not take Tab.
 inline constexpr kit::ControlId kDepthNote = 53;
+/// Poster, under Size. A press turns a poster on or off.
+inline constexpr kit::ControlId kPoster = 54;
+/// The view, a marked area, or the whole map. Shown while a poster is the picture.
+inline constexpr kit::ControlId kPosterExtent = 55;
 
 /// A folding section's number, carried on a press of its header.
 inline constexpr int kSectionCamera = 1;
@@ -150,6 +154,8 @@ enum class Command : uint8_t {
     set_blur,           ///< the blur, in the battlefield's pixels
     set_haze,           ///< the haze, 0 to 100
     set_depth_of_field, ///< the depth of field, in the battlefield's pixels
+    set_poster,         ///< a poster on when value is 1, off when it is 0
+    set_poster_extent,  ///< 0 the view, 1 a marked area, 2 the whole map
 };
 
 /// A press the panel reports.
@@ -236,6 +242,25 @@ struct Model {
     int32_t smooth_index{0}; ///< the lit smooth step, 0 through 2
     /// Locked sizes, and a locked smooth step, on one line. Empty when all move.
     std::string size_reason{};
+    /// The next picture is a poster. The size strip stays, unaccented.
+    bool poster{false};
+    /// Empty hides the Poster button, so a layout that does not offer one
+    /// keeps the rows it had.
+    std::string poster_caption{};
+    /// Empty when Poster can be pressed.
+    std::string poster_lock{};
+    /// The view, a marked area and the whole map. Empty hides that row.
+    std::array<std::string, 3> poster_extent_captions{};
+    std::array<std::string, 3> poster_extent_locks{};
+    int32_t poster_extent{0}; ///< the lit extent, 0 through 2
+    /// The chosen extent's pixels, as 2560x480. Empty draws no value.
+    std::string poster_extent_value{};
+    /// The marked area in window pixels, drawn on the panel layer while Area
+    /// is chosen. A width of 0 draws nothing. A photo never composites it.
+    int32_t mark_x{0};
+    int32_t mark_y{0};
+    int32_t mark_width{0};
+    int32_t mark_height{0};
     std::string guide_value{"Off"}; ///< the guide's name, or Off
     std::string key_line{};         ///< the chords along the bottom
     /// Captions, already looked up. The defaults are the English keys.

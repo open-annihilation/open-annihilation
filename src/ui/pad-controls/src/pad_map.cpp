@@ -245,7 +245,7 @@ Binding game_binding(const MapContext& ctx, PadButton role) noexcept {
 }
 
 /// Returns a button's meaning while photo mode is open, by role. The sticks frame the shot;
-/// these buttons take it, leave, freeze and walk the panel. No button clicks or orders.
+/// these buttons take it, leave, freeze, walk the panel and start a mark. No button clicks or orders.
 ///
 /// @param role the button by role
 /// @return its binding
@@ -259,6 +259,8 @@ Binding photo_binding(PadButton role) noexcept {
         return bind(Action::photo_freeze);
     case PadButton::y:
         return bind(Action::photo_panel);
+    case PadButton::l1:
+        return bind(Action::photo_mark);
     case PadButton::dpad_up:
         return bind(Action::focus_up);
     case PadButton::dpad_right:

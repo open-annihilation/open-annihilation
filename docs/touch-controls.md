@@ -78,7 +78,8 @@ float over it:
 Chat and Photo mode. At the larger Control sizes the items take two
 columns, so the sheet stays to the right of the minimap. In photo mode a
 one-finger drag pans, a pinch zooms, and a two-finger twist turns when the
-view can turn. The panel's controls are a finger's height. One section is
+view can turn. While Area is the picture, a one-finger drag marks the area
+and two fingers pan. The panel's controls are a finger's height. One section is
 open at a time. Leave and Take photo stay in reach, and the rows between
 them scroll. A row the view cuts is drawn and hit in the part that shows.
 A tablet's MENU opens the in-game menu, which has no Photo mode button yet. A phone match

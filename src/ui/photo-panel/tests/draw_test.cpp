@@ -62,6 +62,8 @@ struct Scene {
     bool shown{true};
     panel::Guide guide{panel::Guide::off};
     bool toast{false};
+    /// Poster is the picture, with the extents row and a mark.
+    bool poster{false};
 };
 
 /// A line of the frames table.
@@ -121,6 +123,12 @@ std::vector<Scene> all_scenes() {
     crop.height = 720;
     crop.guide = panel::Guide::crop_1_1;
     scenes.push_back(crop);
+    Scene poster;
+    poster.name = "poster-1280x720-classic";
+    poster.width = 1280;
+    poster.height = 720;
+    poster.poster = true;
+    scenes.push_back(poster);
     return scenes;
 }
 
@@ -186,6 +194,19 @@ panel::Model model_for(const Scene& scene) {
     for (int index = 0; index < 3; ++index)
         model.smooth_locks[static_cast<std::size_t>(index)] =
             smooth[static_cast<std::size_t>(index)].lock;
+    model.poster_caption = "Poster";
+    if (shared)
+        model.poster_lock = "Shared game";
+    if (scene.poster) {
+        model.poster = true;
+        model.poster_extent_captions = {"The view", "Area", "Whole map"};
+        model.poster_extent = 1;
+        model.poster_extent_value = "1280x480";
+        model.mark_x = 80;
+        model.mark_y = 64;
+        model.mark_width = 420;
+        model.mark_height = 240;
+    }
     if (shared) {
         model.freeze_caption = "Hold picture";
         model.slow_lock = "Shared game";

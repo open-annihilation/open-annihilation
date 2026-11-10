@@ -315,7 +315,9 @@ std::array<int32_t, 2> Runtime::view_camera() const {
     // A Full photo tile is a part of a view the limits held already. Held
     // again for its own smaller view, a tile past the map's edge would show
     // another part of the map.
-    if (!selected_tnt_ || photo_tile_map_offset_.has_value())
+    // A turned-view tile is one piece of the photo's picture. Holding it to
+    // the tile's own smaller view would pull the camera in (photo_tile_frame_).
+    if (!selected_tnt_ || photo_tile_map_offset_.has_value() || photo_tile_frame_)
         return {match_camera_x_, match_camera_z_};
     const auto [map_width, map_height] = shown_map_size();
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
@@ -970,13 +972,16 @@ void Runtime::pan_match_camera() {
     // A pan that was moved onto another key still scrolls.
     const bool arrows_move_the_ring =
         hud_buttons_focused_ && oa_layer_ != nullptr && oa_layer_->family_ring_shown();
-    if (action_key_held("camera.pan-left", arrows_move_the_ring))
+    // While Area is the picture, the arrows grow the mark. The same keys
+    // are still held as pan, so this frame skips that pan.
+    const bool arrows_grow_the_mark = photo_mode() && photo_poster_takes_drag();
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-left", arrows_move_the_ring))
         --dx;
-    if (action_key_held("camera.pan-right", arrows_move_the_ring))
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-right", arrows_move_the_ring))
         ++dx;
-    if (action_key_held("camera.pan-up", arrows_move_the_ring))
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-up", arrows_move_the_ring))
         --dz;
-    if (action_key_held("camera.pan-down", arrows_move_the_ring))
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-down", arrows_move_the_ring))
         ++dz;
     // Off stops this edge scroll only. Arrow keys above, and the touch HUD's
     // edge band while a drag is held, keep moving the view.

@@ -270,7 +270,16 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             if (photo_ != nullptr && !photo_picture_held()) {
                 const uint8_t pan_button = photo_pan_button();
                 if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && pan_button != 0 &&
-                    event.button.button == pan_button) {
+                    event.button.button == pan_button && photo_poster_takes_drag()) {
+                    photo_poster_drag_begin(x, y);
+                } else if (event.type == SDL_EVENT_MOUSE_MOTION && photo_->poster_marking) {
+                    photo_poster_drag_move(x, y);
+                } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && photo_->poster_marking) {
+                    photo_poster_drag_end();
+                } else if (
+                    event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && pan_button != 0 &&
+                    event.button.button == pan_button
+                ) {
                     photo_->dragging = true;
                     photo_->drag_moved = false;
                     photo_->drag_x = x;

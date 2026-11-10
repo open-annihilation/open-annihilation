@@ -13,6 +13,10 @@ file the game reads, and the game may rewrite it; this check reads the seed.
 
 A check that is about updates or the catalogue may set a check to
 automatically only when the same file points the launch at a loopback feed.
+
+The registered tests come from --listing, a file ctest writes first
+(tools/write_test_listing.cmake), or from --ctest and --build when this
+Python can start ctest itself.
 """
 
 import argparse
@@ -41,6 +45,10 @@ ALLOW_AUTOMATIC = {
 }
 GAME_EXECUTABLES = frozenset({"open-annihilation", "open-annihilation.exe"})
 MAX_LISTING_BYTES = 64 << 20
+
+
+class ListingError(Exception):
+    """A test listing that cannot be read."""
 
 
 def files(root):
@@ -112,11 +120,16 @@ def imports_native_offline(text):
 
 
 def game_launch(command):
-    """True when the test's own command is the game, not a script that starts it."""
-    if not command:
+    """True when the test's own command is the game, not a script that starts it.
+
+    A cross build's tests may run each program through a runner, such as
+    Wine, which the listing names before the game. The game straight after
+    the first word is such a launch: an interpreter names its script there.
+    """
+    words = [posixpath.basename(str(word).replace("\\", "/")) for word in command[:2]]
+    if not words:
         return False
-    base = posixpath.basename(str(command[0]).replace("\\", "/"))
-    return base in GAME_EXECUTABLES
+    return words[0] in GAME_EXECUTABLES or (len(words) > 1 and words[1] in GAME_EXECUTABLES)
 
 
 def flag_value(command, flag):
@@ -240,26 +253,50 @@ def registered_problems(tests):
     return found
 
 
+def read_listing(text):
+    """The tests of a ctest json-v1 listing."""
+    if len(text) > MAX_LISTING_BYTES:
+        raise ListingError("the test listing is larger than 64 MiB")
+    try:
+        listing = json.loads(text)
+    except ValueError as error:
+        raise ListingError(f"the test listing is not JSON: {error}") from error
+    tests = listing.get("tests") if isinstance(listing, dict) else None
+    if not isinstance(tests, list) or not all(isinstance(test, dict) for test in tests):
+        raise ListingError("the test listing holds no list of tests")
+    return tests
+
+
+def load_listing(path):
+    """The tests of a listing file, as tools/write_test_listing.cmake writes it."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as error:
+        raise ListingError(f"cannot read the test listing {path}: {error}") from error
+    return read_listing(text)
+
+
 def list_tests(ctest, build, config):
     """The tests a build registers, as ctest --show-only=json-v1 lists them."""
     command = [ctest, "--test-dir", build, "--show-only=json-v1"]
     if config:
         command += ["-C", config]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
-    if result.returncode != 0 or len(result.stdout) > MAX_LISTING_BYTES:
-        raise RuntimeError(f"{' '.join(command)} failed: {result.stderr.strip()}")
-    listing = json.loads(result.stdout)
-    tests = listing.get("tests") if isinstance(listing, dict) else None
-    if not isinstance(tests, list):
-        raise RuntimeError("the test listing holds no list of tests")
-    return tests
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ListingError(f"cannot run {ctest}: {error}; --listing reads a listing ctest wrote") from error
+    if result.returncode != 0:
+        raise ListingError(f"{' '.join(command)} failed: {result.stderr.strip()}")
+    return read_listing(result.stdout)
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path)
     parser.add_argument("root_positional", nargs="?", type=Path)
-    parser.add_argument("--ctest")
+    parser.add_argument("--listing", type=Path,
+                        help="the build's tests as ctest --show-only=json-v1 lists them, in a file")
+    parser.add_argument("--ctest", help="the ctest that lists the build's tests, without --listing")
     parser.add_argument("--build")
     parser.add_argument("--config", default="")
     args = parser.parse_args(argv[1:])
@@ -271,8 +308,15 @@ def main(argv):
             continue
         found.extend(problems(path, root))
     registered = 0
-    if args.ctest and args.build:
-        tests = list_tests(args.ctest, args.build, args.config)
+    tests = None
+    try:
+        if args.listing:
+            tests = load_listing(args.listing)
+        elif args.ctest and args.build:
+            tests = list_tests(args.ctest, args.build, args.config)
+    except ListingError as error:
+        found.append(f"the registered tests cannot be read: {error}")
+    if tests is not None:
         registered = sum(1 for test in tests if game_launch(test.get("command") or []))
         if registered == 0:
             found.append("no registered test starts the game: is the build complete?")

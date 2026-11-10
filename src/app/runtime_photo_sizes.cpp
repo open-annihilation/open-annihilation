@@ -21,6 +21,7 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/media/director.hpp"
 #include "oa/present/model/unit_supersampling.hpp"
+#include "oa/present/photo/looks.hpp"
 #include "oa/present/photo/photo_sizes.hpp"
 #include "oa/present/photo/photo_tiles.hpp"
 #include "oa/ui/photo_panel/words.hpp"
@@ -61,6 +62,27 @@ std::string fill_limit(std::string_view pattern, int32_t limit) {
         return text;
     text.replace(at, kLimit.size(), std::to_string(limit));
     return text;
+}
+
+/// The anti-aliasing request whose fitted sampling is `target` for a tile.
+///
+/// @param width the tile's draw
+/// @param height the tile's draw
+/// @param target the window's sampling
+/// @param device_multisamples whether the card multisamples
+/// @return the request, or 0 when none of 1, 2, 4, 8 or 16 matches
+uint32_t sampling_request_for(
+    uint32_t width, uint32_t height, renderer_live_gpu::Sampling target, bool device_multisamples
+) {
+    if (target.supersample == 0)
+        return 0;
+    for (uint32_t ask = 1; ask <= 16; ask *= 2) {
+        const renderer_live_gpu::Sampling fitted =
+            renderer_live_gpu::fitted_sampling(width, height, ask, device_multisamples);
+        if (fitted.supersample == target.supersample && fitted.multisample == target.multisample)
+            return ask;
+    }
+    return 0;
 }
 
 /// The largest same-aspect picture, in pixels on its long side, whose
@@ -117,6 +139,42 @@ int32_t turned_sampling_edge(
     while (low + 1 < high) {
         const int32_t mid = low + (high - low) / 2;
         if (same(mid))
+            low = mid;
+        else
+            high = mid;
+    }
+    return low;
+}
+
+/// The largest square, in pixels a side, that an anti-aliasing request draws
+/// with the window's sampling. A turned photo's tiles are squarer than the
+/// window, and the card's multisampling is limited by area, so a tile as long
+/// as the sampling edge can lose it where a picture of the window's shape
+/// keeps it.
+///
+/// @param cap the hard edge, in pixels
+/// @param play the window's sampling
+/// @param device_multisamples whether the card multisamples
+/// @return the side, at least 1
+int32_t
+turned_tile_square(int32_t cap, renderer_live_gpu::Sampling play, bool device_multisamples) {
+    const auto keeps = [&](int32_t side) {
+        return sampling_request_for(
+                   static_cast<uint32_t>(side),
+                   static_cast<uint32_t>(side),
+                   play,
+                   device_multisamples
+               ) != 0;
+    };
+    if (cap <= 1 || !keeps(1))
+        return 1;
+    if (keeps(cap))
+        return cap;
+    int32_t low = 1;
+    int32_t high = cap;
+    while (low + 1 < high) {
+        const int32_t mid = low + (high - low) / 2;
+        if (keeps(mid))
             low = mid;
         else
             high = mid;
@@ -357,8 +415,7 @@ int kept_offer(int chosen, const photo::Offer* offers, int count) {
 
 namespace words = oa::ui::photo_panel::words;
 
-template <class Draw>
-bool Runtime::restoring_photo_window(Draw&& draw) {
+bool Runtime::restoring_photo_window(const std::function<bool()>& draw) {
     // The window's picture, camera and Full targets, put back however the
     // photo returns. Constructed before the photo changes any of them.
     struct WindowRestorer {
@@ -501,6 +558,24 @@ photo::Machine Runtime::photo_capture_machine() {
         machine.edge_limit = turned_sampling_edge(
             field.width, field.height, cap, requested, frame.device_multisamples
         );
+        const renderer_live_gpu::Sampling window_sampling = renderer_live_gpu::fitted_sampling(
+            static_cast<uint32_t>(std::max(field.width, int32_t{0})),
+            static_cast<uint32_t>(std::max(field.height, int32_t{0})),
+            requested,
+            frame.device_multisamples
+        );
+        machine.tile_limit = turned_tile_square(cap, window_sampling, frame.device_multisamples);
+        // The card's own viewport, once a frame has drawn at the sampling the
+        // tiles keep. A check's shorter limit is not part of the plan: the
+        // picture drawn whole stays one piece.
+        if (SDL_GPUDevice* card = turned_view_device(); card != nullptr && frame.supersample > 0) {
+            const renderer_live_gpu::ViewportBounds bounds =
+                renderer_live_gpu::viewport_bounds(card);
+            const uint32_t capped =
+                std::min(bounds.limit, static_cast<uint32_t>(std::numeric_limits<int32_t>::max()));
+            machine.viewport_limit = static_cast<int32_t>(capped);
+            machine.viewport_samples = static_cast<int>(frame.supersample);
+        }
     } else
         machine.edge_limit = texture_edge;
 
@@ -595,6 +670,8 @@ photo::Machine Runtime::photo_capture_machine() {
     }
     machine.gpu_bytes = gpu_room;
     machine.tile_edge = std::max(photo_check_tile_edge_, int32_t{0});
+    if (photo_ != nullptr)
+        machine.depth_of_field = std::clamp(photo_->look_depth_of_field, 0, 32);
     return machine;
 }
 
@@ -606,6 +683,8 @@ void Runtime::set_photo_size_factor(int factor) {
     for (const photo::Offer& offer : plan.sizes) {
         if (offer.factor == factor && offer.offered) {
             photo_->size_factor = factor;
+            photo_->poster = false;
+            photo_->poster_marking = false;
             snap_photo_factors(machine);
             return;
         }
@@ -641,6 +720,26 @@ void Runtime::snap_photo_factors(const photo::Machine& machine) {
         const photo::Plan at_smooth = photo_size_plan(machine);
         photo_->smooth_factor = kept_offer(photo_->smooth_factor, at_smooth.smooth, 3);
     }
+    if (!photo_->poster)
+        return;
+    const photo::PosterPlan poster = photo_poster_plan(machine);
+    if (poster.button != photo::SizeLock::open) {
+        photo_->poster = false;
+        photo_->poster_marking = false;
+        return;
+    }
+    const int current = std::clamp(static_cast<int>(photo_->poster_extent), 0, 2);
+    const photo::PosterOffer* extents[3] = {&poster.view, &poster.marked, &poster.map};
+    if (extents[current]->offered)
+        return;
+    for (int index = 0; index < 3; ++index) {
+        if (!extents[index]->offered)
+            continue;
+        photo_->poster_extent = static_cast<uint8_t>(index);
+        return;
+    }
+    photo_->poster = false;
+    photo_->poster_marking = false;
 }
 
 photo::Plan Runtime::photo_size_plan() {
@@ -740,6 +839,210 @@ bool Runtime::draw_processor_photo(
     }
 }
 
+bool Runtime::draw_full_rgb(
+    std::vector<uint8_t>& drawn,
+    int32_t draw_width,
+    int32_t draw_height,
+    float photo_zoom,
+    const photo::Machine& machine
+) {
+    if (full_ == nullptr || sdl_.renderer == nullptr)
+        return false;
+    photo::TileRequest tile_request;
+    tile_request.width = draw_width;
+    tile_request.height = draw_height;
+    tile_request.zoom = photo_zoom;
+    tile_request.supersample = machine.supersample;
+    tile_request.grain = machine.grain;
+    tile_request.texture_limit = machine.edge_limit;
+    tile_request.tile_edge = machine.tile_edge;
+    tile_request.reach = photo::full_tile_reach(photo_zoom);
+    const photo::TilePlan tile_plan = photo::plan_tiles(tile_request);
+    if (!tile_plan.fits)
+        return false;
+    // A shared match never draws tiles.
+    if (machine.shared && !photo::draws_whole(tile_plan, draw_width, draw_height))
+        return false;
+    // A photo the card can draw in one piece stays on that path,
+    // including its camera, so its pixels stay as they are.
+    if (photo::draws_whole(tile_plan, draw_width, draw_height)) {
+        if (!draw_match_surface())
+            return false;
+        if (match_world_cpu_.width != static_cast<uint32_t>(draw_width) ||
+            match_world_cpu_.height != static_cast<uint32_t>(draw_height))
+            return false;
+        const uint32_t factor = full_->supersample;
+        unit_supersampling_ = level_for(factor);
+        accelerated_.reading_back = true;
+        TextureHold target;
+        target.texture = SDL_CreateTexture(
+            sdl_.renderer,
+            SDL_PIXELFORMAT_ARGB8888,
+            SDL_TEXTUREACCESS_TARGET,
+            draw_width,
+            draw_height
+        );
+        if (target.texture == nullptr)
+            return false;
+
+        // The pointer is put back before the texture is destroyed.
+        struct TargetPin {
+            Runtime& self;
+            FullPresentation* full{nullptr};
+            SDL_Texture* previous{};
+
+            ~TargetPin() {
+                if (full != nullptr && self.full_.get() == full)
+                    full->final_target = previous;
+            }
+        } pin{*this, full_.get(), full_->final_target};
+
+        {
+            const RenderState state(sdl_.renderer);
+            state.use_target_pixels(target.texture);
+            full_->final_target = target.texture;
+            bool presented = false;
+            try {
+                presented = present_full_match_layers(false);
+            } catch (const std::exception&) {
+                return false;
+            }
+            if (!presented || full_ == nullptr || !full_->drawn || full_->supersample != factor)
+                return false;
+            if (!SDL_SetRenderTarget(sdl_.renderer, target.texture))
+                return false;
+            const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> read(
+                SDL_RenderReadPixels(sdl_.renderer, nullptr), SDL_DestroySurface
+            );
+            const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> frame(
+                read ? SDL_ConvertSurface(read.get(), SDL_PIXELFORMAT_RGB24) : nullptr,
+                SDL_DestroySurface
+            );
+            if (!take_rgb(frame.get(), draw_width, draw_height, drawn))
+                return false;
+        }
+        return true;
+    }
+
+    // The row bias is the tile's place in the photo. It is cleared
+    // before the window's own frame is drawn again.
+    struct TileRowReset {
+        Runtime& self;
+
+        explicit TileRowReset(Runtime& runtime) : self(runtime) {}
+
+        ~TileRowReset() {
+            self.photo_tile_row_ = 0;
+            self.photo_tile_anchor_x_ = 0;
+            self.photo_tile_map_offset_.reset();
+        }
+    } tile_row_reset{*this};
+
+    const int32_t camera_column = match_camera_x_;
+    const int32_t camera_row = match_camera_z_;
+    drawn.assign(
+        static_cast<std::size_t>(draw_width) * static_cast<std::size_t>(draw_height) * 3U, 0
+    );
+    const auto draw_piece = [&](const photo::Tile& tile, std::vector<uint8_t>& piece) {
+        if (tile.map_column > 0 &&
+            camera_column > std::numeric_limits<int32_t>::max() - tile.map_column)
+            return false;
+        if (tile.map_row > 0 && camera_row > std::numeric_limits<int32_t>::max() - tile.map_row)
+            return false;
+        photo_tile_row_ = tile.draw_y;
+        photo_tile_anchor_x_ = tile.draw_x;
+        photo_tile_map_offset_ = std::array<int32_t, 2>{tile.map_column, tile.map_row};
+        match_layout_ =
+            oa::ui::display_layout::make_battlefield_layout(tile.draw_width, tile.draw_height);
+        match_zoom_ = photo_zoom;
+        match_zoom_target_ = photo_zoom;
+        exact_view_.held = false;
+        match_camera_x_ = camera_column + tile.map_column;
+        match_camera_z_ = camera_row + tile.map_row;
+        if (!draw_match_surface())
+            return false;
+        if (match_world_cpu_.width != static_cast<uint32_t>(tile.draw_width) ||
+            match_world_cpu_.height != static_cast<uint32_t>(tile.draw_height))
+            return false;
+        const uint32_t factor = full_->supersample;
+        unit_supersampling_ = level_for(factor);
+        accelerated_.reading_back = true;
+        TextureHold target;
+        target.texture = SDL_CreateTexture(
+            sdl_.renderer,
+            SDL_PIXELFORMAT_ARGB8888,
+            SDL_TEXTUREACCESS_TARGET,
+            tile.draw_width,
+            tile.draw_height
+        );
+        if (target.texture == nullptr)
+            return false;
+        struct TargetPin {
+            Runtime& self;
+            FullPresentation* full{nullptr};
+            SDL_Texture* previous{};
+
+            ~TargetPin() {
+                if (full != nullptr && self.full_.get() == full)
+                    full->final_target = previous;
+            }
+        } pin{*this, full_.get(), full_->final_target};
+        {
+            const RenderState state(sdl_.renderer);
+            state.use_target_pixels(target.texture);
+            full_->final_target = target.texture;
+            bool presented = false;
+            try {
+                presented = present_full_match_layers(false);
+            } catch (const std::exception&) {
+                return false;
+            }
+            if (!presented || full_ == nullptr || !full_->drawn || full_->supersample != factor)
+                return false;
+            if (!SDL_SetRenderTarget(sdl_.renderer, target.texture))
+                return false;
+            const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> read(
+                SDL_RenderReadPixels(sdl_.renderer, nullptr), SDL_DestroySurface
+            );
+            const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> frame(
+                read ? SDL_ConvertSurface(read.get(), SDL_PIXELFORMAT_RGB24) : nullptr,
+                SDL_DestroySurface
+            );
+            if (!take_rgb(frame.get(), tile.draw_width, tile.draw_height, piece))
+                return false;
+        }
+        return true;
+    };
+    for (const photo::Tile& tile : tile_plan.tiles) {
+        std::vector<uint8_t> piece;
+        if (!draw_piece(tile, piece))
+            return false;
+        if (tile.x < 0 || tile.y < 0 || tile.width <= 0 || tile.height <= 0 ||
+            tile.x > draw_width - tile.width || tile.y > draw_height - tile.height ||
+            tile.border_left > tile.draw_width - tile.width ||
+            tile.border_top > tile.draw_height - tile.height)
+            return false;
+        const std::size_t piece_bytes = static_cast<std::size_t>(tile.draw_width) *
+                                        static_cast<std::size_t>(tile.draw_height) * 3U;
+        if (piece.size() != piece_bytes)
+            return false;
+        for (int32_t kept_row = 0; kept_row < tile.height; ++kept_row) {
+            const std::size_t from = (static_cast<std::size_t>(kept_row + tile.border_top) *
+                                          static_cast<std::size_t>(tile.draw_width) +
+                                      static_cast<std::size_t>(tile.border_left)) *
+                                     3U;
+            const std::size_t to = (static_cast<std::size_t>(tile.y + kept_row) *
+                                        static_cast<std::size_t>(draw_width) +
+                                    static_cast<std::size_t>(tile.x)) *
+                                   3U;
+            std::memcpy(
+                drawn.data() + to, piece.data() + from, static_cast<std::size_t>(tile.width) * 3U
+            );
+        }
+    }
+    return true;
+}
+
 bool Runtime::capture_sized_photo(std::vector<uint8_t>& rgb, uint32_t& width, uint32_t& height) {
     rgb.clear();
     width = 0;
@@ -788,227 +1091,147 @@ bool Runtime::capture_sized_photo(std::vector<uint8_t>& rgb, uint32_t& width, ui
                 match_zoom_target_ = photo_zoom;
                 exact_view_.held = false;
                 if (machine.kind == photo::CaptureKind::turned) {
-                    photo_capture_live_ = true;
-                    if (!draw_match_surface() || live_renderer_failed())
+                    photo::TurnedTileRequest tile_request;
+                    tile_request.width = draw.draw_width;
+                    tile_request.height = draw.draw_height;
+                    tile_request.zoom = photo_zoom;
+                    tile_request.draw_limit = photo::turned_tile_draw_limit(machine);
+                    tile_request.tile_edge = machine.shared ? 0 : machine.tile_edge;
+                    const int blur_times = std::max(draw.size_factor, 1) * std::max(draw.smooth, 1);
+                    tile_request.blur = photo::photo_tilt_radius(
+                        std::clamp(machine.depth_of_field, 0, 32), blur_times
+                    );
+                    const photo::TilePlan tile_plan = photo::plan_turned_tiles(tile_request);
+                    if (!tile_plan.fits)
                         return false;
-                    if (match_world_cpu_.width != static_cast<uint32_t>(draw.draw_width) ||
-                        match_world_cpu_.height != static_cast<uint32_t>(draw.draw_height))
+                    if (machine.shared &&
+                        !photo::draws_whole(tile_plan, draw.draw_width, draw.draw_height))
                         return false;
+                    // Pack from a fresh scene, and put the window's back
+                    // before its frame is drawn again.
+                    struct IsolateLiveScene {
+                        Runtime& self;
+
+                        explicit IsolateLiveScene(Runtime& runtime) : self(runtime) {
+                            self.photo_isolate_scene_ = true;
+                        }
+
+                        ~IsolateLiveScene() { self.photo_isolate_scene_ = false; }
+                    } isolate_live_scene{*this};
+                    // A photo one frame can draw stays on that path, so its
+                    // pixels stay as they are.
+                    if (photo::draws_whole(tile_plan, draw.draw_width, draw.draw_height)) {
+                        photo_capture_live_ = true;
+                        if (!draw_match_surface() || live_renderer_failed())
+                            return false;
+                        if (match_world_cpu_.width != static_cast<uint32_t>(draw.draw_width) ||
+                            match_world_cpu_.height != static_cast<uint32_t>(draw.draw_height))
+                            return false;
+                        const std::size_t pixels = static_cast<std::size_t>(draw.draw_width) *
+                                                   static_cast<std::size_t>(draw.draw_height);
+                        if (match_world_cpu_.rgb.size() != pixels * 3U)
+                            return false;
+                        drawn = match_world_cpu_.rgb;
+                        apply_gamma_rgb(drawn.data(), pixels, 3);
+                        const TurnedFrameSampling got = turned_frame_sampling();
+                        if (play_sampling.supersample == 0 || got.supersample == 0 ||
+                            got.multisample == 0 || got.supersample < play_sampling.supersample ||
+                            got.multisample < play_sampling.multisample)
+                            return false;
+                        return true;
+                    }
+                    // The tile's shift is cleared before the window's own
+                    // frame is drawn again.
+                    struct TurnedTileReset {
+                        Runtime& self;
+
+                        explicit TurnedTileReset(Runtime& runtime) : self(runtime) {}
+
+                        ~TurnedTileReset() {
+                            self.photo_tile_whole_width_ = 0;
+                            self.photo_tile_whole_height_ = 0;
+                            self.photo_tile_shift_x_ = 0;
+                            self.photo_tile_shift_y_ = 0;
+                            self.photo_tile_hold_scene_ = false;
+                            self.photo_tile_frame_ = false;
+                            self.photo_tile_supersample_ = 0;
+                        }
+                    } turned_tile_reset{*this};
+                    const bool device_multisamples = turned_frame_sampling().device_multisamples;
+                    drawn.assign(
+                        static_cast<std::size_t>(draw.draw_width) *
+                            static_cast<std::size_t>(draw.draw_height) * 3U,
+                        0
+                    );
+                    bool hold_scene = false;
+                    for (const photo::Tile& tile : tile_plan.tiles) {
+                        if (tile.draw_width <= 0 || tile.draw_height <= 0)
+                            return false;
+                        const uint32_t ask = sampling_request_for(
+                            static_cast<uint32_t>(tile.draw_width),
+                            static_cast<uint32_t>(tile.draw_height),
+                            play_sampling,
+                            device_multisamples
+                        );
+                        if (ask == 0)
+                            return false;
+                        match_layout_ = oa::ui::display_layout::make_battlefield_layout(
+                            tile.draw_width, tile.draw_height
+                        );
+                        match_zoom_ = photo_zoom;
+                        match_zoom_target_ = photo_zoom;
+                        exact_view_.held = false;
+                        photo_capture_live_ = true;
+                        photo_tile_frame_ = true;
+                        photo_tile_whole_width_ = draw.draw_width;
+                        photo_tile_whole_height_ = draw.draw_height;
+                        photo_tile_shift_x_ = tile.draw_x;
+                        photo_tile_shift_y_ = tile.draw_y;
+                        photo_tile_hold_scene_ = hold_scene;
+                        photo_tile_supersample_ = ask;
+                        if (!draw_match_surface() || live_renderer_failed())
+                            return false;
+                        if (match_world_cpu_.width != static_cast<uint32_t>(tile.draw_width) ||
+                            match_world_cpu_.height != static_cast<uint32_t>(tile.draw_height))
+                            return false;
+                        const std::size_t piece_pixels = static_cast<std::size_t>(tile.draw_width) *
+                                                         static_cast<std::size_t>(tile.draw_height);
+                        if (match_world_cpu_.rgb.size() != piece_pixels * 3U)
+                            return false;
+                        const TurnedFrameSampling got = turned_frame_sampling();
+                        if (got.supersample != play_sampling.supersample ||
+                            got.multisample != play_sampling.multisample)
+                            return false;
+                        if (tile.x < 0 || tile.y < 0 || tile.width <= 0 || tile.height <= 0 ||
+                            tile.x > draw.draw_width - tile.width ||
+                            tile.y > draw.draw_height - tile.height ||
+                            tile.border_left > tile.draw_width - tile.width ||
+                            tile.border_top > tile.draw_height - tile.height)
+                            return false;
+                        for (int32_t kept_row = 0; kept_row < tile.height; ++kept_row) {
+                            const std::size_t from =
+                                (static_cast<std::size_t>(kept_row + tile.border_top) *
+                                     static_cast<std::size_t>(tile.draw_width) +
+                                 static_cast<std::size_t>(tile.border_left)) *
+                                3U;
+                            const std::size_t to = (static_cast<std::size_t>(tile.y + kept_row) *
+                                                        static_cast<std::size_t>(draw.draw_width) +
+                                                    static_cast<std::size_t>(tile.x)) *
+                                                   3U;
+                            std::memcpy(
+                                drawn.data() + to,
+                                match_world_cpu_.rgb.data() + from,
+                                static_cast<std::size_t>(tile.width) * 3U
+                            );
+                        }
+                        hold_scene = true;
+                    }
                     const std::size_t pixels = static_cast<std::size_t>(draw.draw_width) *
                                                static_cast<std::size_t>(draw.draw_height);
-                    if (match_world_cpu_.rgb.size() != pixels * 3U)
-                        return false;
-                    drawn = match_world_cpu_.rgb;
                     apply_gamma_rgb(drawn.data(), pixels, 3);
-                    const TurnedFrameSampling got = turned_frame_sampling();
-                    if (play_sampling.supersample == 0 || got.supersample == 0 ||
-                        got.multisample == 0 || got.supersample < play_sampling.supersample ||
-                        got.multisample < play_sampling.multisample)
-                        return false;
                     return true;
                 }
-                if (full_ == nullptr || sdl_.renderer == nullptr)
-                    return false;
-                photo::TileRequest tile_request;
-                tile_request.width = draw.draw_width;
-                tile_request.height = draw.draw_height;
-                tile_request.zoom = photo_zoom;
-                tile_request.supersample = machine.supersample;
-                tile_request.grain = machine.grain;
-                tile_request.texture_limit = machine.edge_limit;
-                tile_request.tile_edge = machine.tile_edge;
-                tile_request.reach = photo::full_tile_reach(photo_zoom);
-                const photo::TilePlan tile_plan = photo::plan_tiles(tile_request);
-                if (!tile_plan.fits)
-                    return false;
-                // A shared match never draws tiles.
-                if (machine.shared &&
-                    !photo::draws_whole(tile_plan, draw.draw_width, draw.draw_height))
-                    return false;
-                // A photo the card can draw in one piece stays on that path,
-                // including its camera, so its pixels stay as they are.
-                if (photo::draws_whole(tile_plan, draw.draw_width, draw.draw_height)) {
-                    if (!draw_match_surface())
-                        return false;
-                    if (match_world_cpu_.width != static_cast<uint32_t>(draw.draw_width) ||
-                        match_world_cpu_.height != static_cast<uint32_t>(draw.draw_height))
-                        return false;
-                    const uint32_t factor = full_->supersample;
-                    unit_supersampling_ = level_for(factor);
-                    accelerated_.reading_back = true;
-                    TextureHold target;
-                    target.texture = SDL_CreateTexture(
-                        sdl_.renderer,
-                        SDL_PIXELFORMAT_ARGB8888,
-                        SDL_TEXTUREACCESS_TARGET,
-                        draw.draw_width,
-                        draw.draw_height
-                    );
-                    if (target.texture == nullptr)
-                        return false;
-                    // The pointer is put back before the texture is destroyed.
-                    struct TargetPin {
-                        Runtime& self;
-                        FullPresentation* full{nullptr};
-                        SDL_Texture* previous{};
-
-                        ~TargetPin() {
-                            if (full != nullptr && self.full_.get() == full)
-                                full->final_target = previous;
-                        }
-                    } pin{*this, full_.get(), full_->final_target};
-                    {
-                        const RenderState state(sdl_.renderer);
-                        state.use_target_pixels(target.texture);
-                        full_->final_target = target.texture;
-                        bool presented = false;
-                        try {
-                            presented = present_full_match_layers(false);
-                        } catch (const std::exception&) {
-                            return false;
-                        }
-                        if (!presented || full_ == nullptr || !full_->drawn ||
-                            full_->supersample != factor)
-                            return false;
-                        if (!SDL_SetRenderTarget(sdl_.renderer, target.texture))
-                            return false;
-                        const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> read(
-                            SDL_RenderReadPixels(sdl_.renderer, nullptr), SDL_DestroySurface
-                        );
-                        const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> frame(
-                            read ? SDL_ConvertSurface(read.get(), SDL_PIXELFORMAT_RGB24) : nullptr,
-                            SDL_DestroySurface
-                        );
-                        if (!take_rgb(frame.get(), draw.draw_width, draw.draw_height, drawn))
-                            return false;
-                    }
-                    return true;
-                }
-                // The row bias is the tile's place in the photo. It is cleared
-                // before the window's own frame is drawn again.
-                struct TileRowReset {
-                    Runtime& self;
-
-                    explicit TileRowReset(Runtime& runtime) : self(runtime) {}
-
-                    ~TileRowReset() {
-                        self.photo_tile_row_ = 0;
-                        self.photo_tile_anchor_x_ = 0;
-                        self.photo_tile_map_offset_.reset();
-                    }
-                } tile_row_reset{*this};
-                const int32_t camera_column = match_camera_x_;
-                const int32_t camera_row = match_camera_z_;
-                drawn.assign(
-                    static_cast<std::size_t>(draw.draw_width) *
-                        static_cast<std::size_t>(draw.draw_height) * 3U,
-                    0
-                );
-                const auto draw_piece = [&](const photo::Tile& tile, std::vector<uint8_t>& piece) {
-                    if (tile.map_column > 0 &&
-                        camera_column > std::numeric_limits<int32_t>::max() - tile.map_column)
-                        return false;
-                    if (tile.map_row > 0 &&
-                        camera_row > std::numeric_limits<int32_t>::max() - tile.map_row)
-                        return false;
-                    photo_tile_row_ = tile.draw_y;
-                    photo_tile_anchor_x_ = tile.draw_x;
-                    photo_tile_map_offset_ = std::array<int32_t, 2>{tile.map_column, tile.map_row};
-                    match_layout_ = oa::ui::display_layout::make_battlefield_layout(
-                        tile.draw_width, tile.draw_height
-                    );
-                    match_zoom_ = photo_zoom;
-                    match_zoom_target_ = photo_zoom;
-                    exact_view_.held = false;
-                    match_camera_x_ = camera_column + tile.map_column;
-                    match_camera_z_ = camera_row + tile.map_row;
-                    if (!draw_match_surface())
-                        return false;
-                    if (match_world_cpu_.width != static_cast<uint32_t>(tile.draw_width) ||
-                        match_world_cpu_.height != static_cast<uint32_t>(tile.draw_height))
-                        return false;
-                    const uint32_t factor = full_->supersample;
-                    unit_supersampling_ = level_for(factor);
-                    accelerated_.reading_back = true;
-                    TextureHold target;
-                    target.texture = SDL_CreateTexture(
-                        sdl_.renderer,
-                        SDL_PIXELFORMAT_ARGB8888,
-                        SDL_TEXTUREACCESS_TARGET,
-                        tile.draw_width,
-                        tile.draw_height
-                    );
-                    if (target.texture == nullptr)
-                        return false;
-                    struct TargetPin {
-                        Runtime& self;
-                        FullPresentation* full{nullptr};
-                        SDL_Texture* previous{};
-
-                        ~TargetPin() {
-                            if (full != nullptr && self.full_.get() == full)
-                                full->final_target = previous;
-                        }
-                    } pin{*this, full_.get(), full_->final_target};
-                    {
-                        const RenderState state(sdl_.renderer);
-                        state.use_target_pixels(target.texture);
-                        full_->final_target = target.texture;
-                        bool presented = false;
-                        try {
-                            presented = present_full_match_layers(false);
-                        } catch (const std::exception&) {
-                            return false;
-                        }
-                        if (!presented || full_ == nullptr || !full_->drawn ||
-                            full_->supersample != factor)
-                            return false;
-                        if (!SDL_SetRenderTarget(sdl_.renderer, target.texture))
-                            return false;
-                        const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> read(
-                            SDL_RenderReadPixels(sdl_.renderer, nullptr), SDL_DestroySurface
-                        );
-                        const std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> frame(
-                            read ? SDL_ConvertSurface(read.get(), SDL_PIXELFORMAT_RGB24) : nullptr,
-                            SDL_DestroySurface
-                        );
-                        if (!take_rgb(frame.get(), tile.draw_width, tile.draw_height, piece))
-                            return false;
-                    }
-                    return true;
-                };
-                for (const photo::Tile& tile : tile_plan.tiles) {
-                    std::vector<uint8_t> piece;
-                    if (!draw_piece(tile, piece))
-                        return false;
-                    if (tile.x < 0 || tile.y < 0 || tile.width <= 0 || tile.height <= 0 ||
-                        tile.x > draw.draw_width - tile.width ||
-                        tile.y > draw.draw_height - tile.height ||
-                        tile.border_left > tile.draw_width - tile.width ||
-                        tile.border_top > tile.draw_height - tile.height)
-                        return false;
-                    const std::size_t piece_bytes = static_cast<std::size_t>(tile.draw_width) *
-                                                    static_cast<std::size_t>(tile.draw_height) * 3U;
-                    if (piece.size() != piece_bytes)
-                        return false;
-                    for (int32_t kept_row = 0; kept_row < tile.height; ++kept_row) {
-                        const std::size_t from =
-                            (static_cast<std::size_t>(kept_row + tile.border_top) *
-                                 static_cast<std::size_t>(tile.draw_width) +
-                             static_cast<std::size_t>(tile.border_left)) *
-                            3U;
-                        const std::size_t to = (static_cast<std::size_t>(tile.y + kept_row) *
-                                                    static_cast<std::size_t>(draw.draw_width) +
-                                                static_cast<std::size_t>(tile.x)) *
-                                               3U;
-                        std::memcpy(
-                            drawn.data() + to,
-                            piece.data() + from,
-                            static_cast<std::size_t>(tile.width) * 3U
-                        );
-                    }
-                }
-                return true;
+                return draw_full_rgb(drawn, draw.draw_width, draw.draw_height, photo_zoom, machine);
             });
         } catch (const std::exception&) {
             return false;

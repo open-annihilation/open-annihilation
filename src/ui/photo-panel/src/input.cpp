@@ -183,6 +183,20 @@ Press command_for(kit::ControlId id, const Model& model, int32_t value) {
         press.value = model.smooth_factors[static_cast<std::size_t>(index)];
         break;
     }
+    case kPoster:
+        if (!model.poster_lock.empty())
+            return {};
+        press.command = Command::set_poster;
+        press.value = model.poster ? 0 : 1;
+        break;
+    case kPosterExtent: {
+        const int32_t index = std::clamp(value, int32_t{0}, int32_t{2});
+        if (!model.poster_extent_locks[static_cast<std::size_t>(index)].empty())
+            return {};
+        press.command = Command::set_poster_extent;
+        press.value = index;
+        break;
+    }
     case kClock:
     case kFile:
         break;
@@ -326,6 +340,8 @@ int32_t chosen_level(const Model& model, kit::ControlId id, int32_t count) {
         return std::clamp(model.size_index, int32_t{0}, last);
     if (id == kSmooth)
         return std::clamp(model.smooth_index, int32_t{0}, last);
+    if (id == kPosterExtent)
+        return std::clamp(model.poster_extent, int32_t{0}, last);
     return std::clamp(model.time_mode, int32_t{0}, last);
 }
 
@@ -338,6 +354,9 @@ bool level_locked(const Model& model, kit::ControlId id, int32_t index) {
     if (id == kSmooth)
         return index >= 0 && index < 3 &&
                !model.smooth_locks[static_cast<std::size_t>(index)].empty();
+    if (id == kPosterExtent)
+        return index >= 0 && index < 3 &&
+               !model.poster_extent_locks[static_cast<std::size_t>(index)].empty();
     return false;
 }
 

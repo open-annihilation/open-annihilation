@@ -816,6 +816,12 @@ lines, because their fixture copies the start file over the live one. The check
 fails a fixture that removes a preferences file and puts no seed back, and a
 start file that lacks the lines. A script counts as importing `native_offline`
 only when the import is a statement at the top of the file, not a comment.
+The check reads the registered tests from a listing that its fixture,
+`check-native-online-listing`, has the build's ctest write first
+(`tools/write_test_listing.cmake`), so it also runs where its Python cannot
+start that ctest, as Windows Python under Wine cannot start a Linux ctest. A
+cross build's tests may start the game through a runner such as Wine, which
+the listing names first; the check reads the game in either place.
 
 The MCP server in [tools/mcp](../../tools/mcp/README.md) has two checks:
 `mcp-server-selftest` drives its tools against a stand-in endpoint and
@@ -1564,20 +1570,58 @@ channels of pixels that differ are not read, and every other channel is held
 to the grain criterion exactly. `native-photo-sizes-live`
 (`--check-photo sizes --hardware-acceleration=full`, the system's video
 driver) sets Enhanced anti-aliasing to 4×. Every offered size keeps the
-window frame's sampling, and the first size past that limit is locked with
-the reason that names it. Smooth edges 2× matches the turned view's own 2×
-photo box-reduced where that step is offered, at Enhanced anti-aliasing 2×
-when 4× locks it, where every size offered is drawn too, and the window's
-frames stay at 4×. It skips with status 77 when
-no device can draw the view, including under the dummy video driver. None
+window frame's sampling. A size past that limit is offered in tiles, up to
+16384 pixels a side, and a size that cannot be tiled is locked with the
+reason that names the limit. Smooth edges 2× matches the turned view's own
+2× photo box-reduced where that step is offered, at Enhanced anti-aliasing
+2× when 4× does not offer it, where every size offered is drawn too, and
+the window's frames stay at 4×. The grain comparison runs again with the
+2× photo drawn in tiles at a quarter of its long side, held to the whole
+photo's look within the same bound and seam rule. It skips with status 77
+when no device can draw the view, including under the dummy video driver.
+`native-photo-tiles-live` (`--check-photo tiles-live
+--hardware-acceleration=full`, the system's video driver) freezes one
+turned frame of that fight. A 4096 photo drawn whole matches the same photo
+in four tiles of 2048, with no differing pixel on a tile edge, depth of
+field off and on. Those two photos are drawn again with a forced shorter
+viewport, and the card must draw every tile with its projection offset,
+through a viewport within that limit. Without depth of field that pass
+still has no differing pixel on a tile edge. With depth of field it holds
+the tile tolerance. The frame is compared again past the map's corner, at
+Enhanced anti-aliasing 2× and 4×, each also with a forced shorter viewport
+held to the seam rule, at a tile edge of 500, and at 1920×1080.
+At 1920×1080 and Enhanced 2×, every size above Screen that is offered is
+drawn, at least one of them in tiles.
+On a 640×480 battlefield at Enhanced 4×, 2×, 3× and 4× are offered. It
+skips with status 77 when no device can draw the view. None
 of these photos is a preference.
+`native-photo-poster` (`--check-photo poster`) freezes that fight and saves
+a poster two views wide at the game's own scale, its join through the fight,
+half a view past the map's edge. It equals, pixel for pixel, two photos of
+that frozen tick placed side by side, and seen ground lies on both sides of
+the join. Ground the player has not seen is black. A poster two views tall
+equals two photos one above the other, and a poster with haze, taken with
+the window elsewhere, equals the plain poster with the haze painted from the
+poster's own corner. A poster two views wide records grain and the tilt
+band at the panel's sizes at zoom 1 and at twice them at zoom 0.5,
+`grain_size` with `grain_pixels` and the band's width and radius the same
+way. The turned view's reason names the
+chord bound to Classic view. The battle's sight, messages and pause are unchanged,
+and the preferences file is unchanged. `native-photo-poster-full`
+(`--check-photo poster --hardware-acceleration=full --force-capable`, SDL's
+software renderer) draws that poster in tiles and holds it to the same two
+photos within the tile bound of `native-photo-tiles-full`. The picture is
+not pinned. The check removes the photos it wrote. In both, a drag inside
+the view marks the area it covers, a click keeps the mark, a short drag
+marks 64 pixels a side, and Left at the map's left edge leaves the mark as
+it is.
 `native-photo-keys` (`--check-photo keys`) plays the skirmish's fight in a
 window on the dummy drivers, with Off acceleration. F9 and Enter in one
 input batch write nothing until a photo-mode frame is presented. That photo
 is the size of the window and matches a photo of the next frozen frame.
 Primary+/ opens the keys panel titled "Keys in photo mode", with a Take
 photo line and without the window keys Accept, Press, Page up and Page down.
-It lists Pan up, Speed up and Back, and not Open chat, Status strip,
+It lists Pan up, Mark area, Speed up and Back, and not Open chat, Status strip,
 Screenshot or Unit info, which photo mode takes and does nothing with.
 A photo with that panel open matches one with it closed, and leaving closes
 a panel that was closed on entering. F9 enters and the clock is frozen.
@@ -1586,7 +1630,9 @@ Space lets it run and − starts Slow 9, then + runs at the match's speed and
 Shift+. move the shutter from 8 to 7 and back to 8, + starts slow motion
 and Space freezes it, Enter writes a PNG, Primary+C offers that photo
 through the clipboard hook, and Page Up zooms. Alt+Left is refused and the
-line says Needs Full acceleration. S, a left click and C with the modifier
+line says Needs Full acceleration. M chooses Poster and Area and starts a
+mark at least 64 pixels on a side, without moving the camera. Right grows
+that mark's width. A click that does not drag keeps the mark. S, a left click and C with the modifier
 that is not Primary (Ctrl+C on a Mac, the Windows or Super key and C
 elsewhere, since there Ctrl+C is Primary+C) change neither a unit nor the
 view, and copy nothing. F9 and Escape each leave. Ctrl+F9 writes a PCX
@@ -1637,7 +1683,11 @@ the phone MENU. There every pressable control of the panel is at least 44
 points tall; a drag of many small moves on the zoom slider moves the rows
 the whole way and does not zoom; it taps a section header, the time strip,
 Show selection and Take photo at their centre and a few points outside
-their edge. It pans with a drag, zooms with a pinch, takes no photo for a
+their edge. It pans with a drag and zooms with a pinch. While Area is
+chosen, L1 starts a mark and the next frame draws its rectangle, the left
+stick grows it without panning, and a push across that drifts a little
+down grows only its width; a tap keeps the mark, a one-finger drag marks
+and two fingers pan. It takes no photo for a
 cancelled finger on Take photo and one for a tap, leaves the preferences
 file unchanged, and leaves with a tap on Leave.
 `native-photo-replay` (`--check-photo replay`, with `--play-demo` naming

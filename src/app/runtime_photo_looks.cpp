@@ -18,6 +18,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -25,6 +26,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -538,7 +540,9 @@ void Runtime::apply_photo_look_rgb(
     uint32_t height,
     int size_factor,
     int32_t crop_x,
-    int32_t crop_y
+    int32_t crop_y,
+    std::optional<std::array<int32_t, 2>> corner,
+    int grain_factor
 ) const {
     if (!photo_look_active() || photo_ == nullptr || width == 0 || height == 0)
         return;
@@ -557,18 +561,22 @@ void Runtime::apply_photo_look_rgb(
     // finer than the battlefield. A caller that passes 1 on a larger
     // picture is asking for the panel's grain, and keeps it.
     const int factor = std::clamp(size_factor, 1, 4);
+    // A poster names its own factor for grain and the tilt band: its pixels
+    // over the preview's for the same ground, one over the window's zoom,
+    // with no cap at 4. Haze stays on the size factor.
+    const int grain_times = grain_factor > 0 ? std::max(grain_factor, 1) : factor;
     const bool classic = !live_renderer_active();
     const int32_t haze = classic ? std::clamp(photo_->look_haze, 0, 100) : 0;
     const int32_t band =
-        photo::photo_tilt_width(std::clamp(photo_->look_tilt_width, 0, 160), factor);
+        photo::photo_tilt_width(std::clamp(photo_->look_tilt_width, 0, 160), grain_times);
     const int32_t radius =
-        photo::photo_tilt_radius(std::clamp(photo_->look_tilt_radius, 0, 32), factor);
+        photo::photo_tilt_radius(std::clamp(photo_->look_tilt_radius, 0, 32), grain_times);
     const photo::Look look = make_look(
         photo_->look_preset,
         photo_->look_vignette,
         photo_->look_roundness,
         photo_->look_grain,
-        photo::photo_grain_size(photo_->look_grain_size, factor),
+        photo::photo_grain_size(photo_->look_grain_size, grain_times),
         photo_->look_frame,
         tick,
         selected_map_name_runtime_,
@@ -578,9 +586,13 @@ void Runtime::apply_photo_look_rgb(
         radius,
         haze
     );
-    const int32_t camera_x = camera_held ? photo_->held_camera_x : match_camera_x_;
-    const int32_t camera_z = camera_held ? photo_->held_camera_z : match_camera_z_;
-    const float zoom = camera_held ? photo_->held_zoom : match_zoom_;
+    // A poster is drawn at zoom 1 from its own corner, which is not the
+    // window's view: its haze follows the poster's ground.
+    const int32_t camera_x =
+        corner ? (*corner)[0] : (camera_held ? photo_->held_camera_x : match_camera_x_);
+    const int32_t camera_z =
+        corner ? (*corner)[1] : (camera_held ? photo_->held_camera_z : match_camera_z_);
+    const float zoom = corner ? 1.0F : (camera_held ? photo_->held_zoom : match_zoom_);
     GroundColumn ground;
     photo::HazeField field;
     const oa::formats::tnt::Map* map = selected_tnt_ ? &*selected_tnt_ : nullptr;

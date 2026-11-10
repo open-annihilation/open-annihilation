@@ -153,6 +153,34 @@ struct Runtime::PhotoState {
     /// Smooth edges for the next photo: 1 is off, then 2 and 4. The draw is
     /// this many times the picture, then box-reduced. Kept for this visit.
     int smooth_factor{1};
+    /// The next photo is a poster: the view, a marked area, or the whole
+    /// map, at one map pixel a picture pixel. The size factor is kept, and
+    /// comes back when the poster is turned off. Not a preference.
+    bool poster{false};
+    /// Which area, as photo::PosterExtent: 0 the view, 1 marked, 2 the map.
+    uint8_t poster_extent{0};
+    /// The marked area, in map pixels. Empty is read as the view.
+    int32_t poster_mark_x{0};
+    int32_t poster_mark_z{0};
+    int32_t poster_mark_w{0};
+    int32_t poster_mark_h{0};
+    /// A drag is marking that area, rather than panning the view.
+    bool poster_marking{false};
+    /// The pointer has moved past a click, so the drag replaces the mark.
+    bool poster_mark_moved{false};
+    float poster_press_x{0};
+    float poster_press_y{0};
+    /// The mark a click, with no drag, puts back.
+    int32_t poster_saved_x{0};
+    int32_t poster_saved_z{0};
+    int32_t poster_saved_w{0};
+    int32_t poster_saved_h{0};
+    int32_t poster_anchor_x{0};
+    int32_t poster_anchor_z{0};
+    /// The poster just drawn, so its file records that origin at zoom 1.
+    bool poster_recorded{false};
+    int32_t poster_recorded_x{0};
+    int32_t poster_recorded_z{0};
     /// The last sized photo was drawn by Full on the window's renderer.
     bool sized_by_full{false};
     /// The last sized photo was drawn by the turned view.

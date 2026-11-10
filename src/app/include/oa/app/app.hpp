@@ -213,8 +213,12 @@ enum class PhotoGroup : uint8_t {
     replay,
     /// a Full photo drawn in tiles, matching one drawn whole
     tiles,
+    /// a turned-view photo drawn in tiles, matching one drawn whole
+    tiles_live,
     /// a turned photo with depth of field, one with haze, and that frame with both off
     depth_live,
+    /// a poster of the view, a marked area or the whole map, at the game's own scale
+    poster,
 };
 
 /// A renderer failure --render-fault forces in --check-renderer-ladder.

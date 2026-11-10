@@ -119,6 +119,27 @@ struct Context {
     /// models it keeps on the card (draws_models); false leaves every model
     /// to the frame's vertices, as on a card that has none of them yet.
     bool models_allowed{true};
+    /// A turned photo's tile is one piece of a larger picture. The picture
+    /// is tile_span pixels across, and this piece starts at tile_origin in
+    /// it. When that picture's viewport fits the card, the card draws the
+    /// picture's pixels, clipped to this piece, so a pixel lands where it
+    /// does in the picture drawn whole. When it does not, the projection is
+    /// offset onto this piece and the viewport is the piece. Zero span
+    /// draws the piece as its own picture, as every other frame does.
+    uint32_t tile_origin_x{};
+    uint32_t tile_origin_y{};
+    uint32_t tile_span_x{};
+    uint32_t tile_span_y{};
+    /// A check-only cap on a turned tile's viewport, in pixels. Zero leaves
+    /// the card's own largest viewport. It bounds only a tile of a larger
+    /// picture, not a picture drawn as itself.
+    uint32_t viewport_limit{};
+    /// How render() drew the last turned tile, for a check: true when the
+    /// projection was offset onto the tile, and the longer side of the
+    /// colour viewport it drew through, in pixels. Cleared by every frame
+    /// that is not a tile of a larger picture.
+    bool tile_shifted{false};
+    uint32_t tile_viewport_side{};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -454,6 +475,22 @@ SDL_GPUDevice* device(Context& context);
 /// @param context the persistent GPU resources
 /// @return the device; null before one is open, or where SDL made none
 [[nodiscard]] SDL_GPUDevice* opened_device(const Context& context) noexcept;
+
+/// The viewport the card accepts: its longest side, and the corners a
+/// viewport may start and end at.
+struct ViewportBounds {
+    uint32_t limit{4096};    ///< the smaller of the card's widest and tallest viewport
+    float min_corner{-8192}; ///< the least coordinate a viewport may touch
+    float max_corner{8191};  ///< the greatest coordinate a viewport may touch
+};
+
+/// The viewport the card allows. A null device, or a card whose limit cannot
+/// be read, is the smallest a card must allow: 4096 pixels, from -8192 to
+/// 8191. The same card is read once.
+///
+/// @param device the graphics device render() draws on
+/// @return the viewport
+[[nodiscard]] ViewportBounds viewport_bounds(SDL_GPUDevice* device);
 
 /// What the processor painted over the turned view, for compose_overlay().
 struct Overlay {

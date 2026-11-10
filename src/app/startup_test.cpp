@@ -2360,11 +2360,22 @@ int main() {
         photo_tiles.check_photo && photo_tiles.photo_group == oa::app::PhotoGroup::tiles,
         "--check-photo tiles names the tiles group"
     );
+    const auto photo_tiles_live = parse({"--check-photo", "tiles-live"});
+    expect(
+        photo_tiles_live.check_photo &&
+            photo_tiles_live.photo_group == oa::app::PhotoGroup::tiles_live,
+        "--check-photo tiles-live names the turned-view tiles group"
+    );
     const auto photo_depth_live = parse({"--check-photo", "depth-live"});
     expect(
         photo_depth_live.check_photo &&
             photo_depth_live.photo_group == oa::app::PhotoGroup::depth_live,
         "--check-photo depth-live names the depth group"
+    );
+    const auto photo_poster = parse({"--check-photo", "poster"});
+    expect(
+        photo_poster.check_photo && photo_poster.photo_group == oa::app::PhotoGroup::poster,
+        "--check-photo poster names the poster group"
     );
     expect(
         parse({"--check-photo", "capture", "--force-capable"}).force_capable,

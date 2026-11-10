@@ -307,8 +307,13 @@ int row_count(const Model& model, int preset_rows, int size_reason_rows, int dep
             ++rows;
     }
     rows += 1;
-    if (model.capture_open)
+    if (model.capture_open) {
         rows += 7;
+        // Poster shares the Size row. The extents are one more row, and
+        // only while Poster is the picture.
+        if (model.poster && !model.poster_extent_captions[0].empty())
+            ++rows;
+    }
     rows += reason_rows(model, size_reason_rows);
     return rows;
 }
@@ -657,7 +662,9 @@ void add_levels_row(
     const std::string* locks,
     const char* const* parts,
     int count,
-    int32_t chosen
+    int32_t chosen,
+    bool quiet = false,
+    int32_t share_right = 0
 ) {
     const int stops = std::max(count, 1);
     const bool touch = column.model->touch;
@@ -667,8 +674,17 @@ void add_levels_row(
     int32_t columns = stops;
     if (touch) {
         row = column.take();
+        int32_t label_w = row.width;
+        if (share_right > 0) {
+            const int32_t used = std::min(share_right + 4, row.width);
+            label_w = std::max(row.width - used, int32_t{0});
+        }
         const std::string shown = value.empty() ? label : label + "  " + value;
-        add_line(*column.list, row, fit_line(*column.fonts, shown, row.width));
+        add_line(
+            *column.list,
+            {row.x, row.y, label_w, row.height},
+            fit_line(*column.fonts, shown, label_w)
+        );
         const kit::Rect first = column.take();
         columns = stop_columns(stops, first.width, column.row_h);
         const int32_t rows = (stops + columns - 1) / columns;
@@ -678,6 +694,10 @@ void add_levels_row(
         track = {first.x, first.y, first.width, std::max(band_bottom - first.y, first.height)};
     } else {
         row = column.take();
+        if (share_right > 0) {
+            const int32_t used = std::min(share_right + 4, row.width);
+            row.width = std::max(row.width - used, int32_t{0});
+        }
         split = levels_parts(*column.fonts, row.width, label, value);
         track = {row.x + split.label_w, row.y, std::max(split.track_w, int32_t{0}), row.height};
     }
@@ -698,6 +718,7 @@ void add_levels_row(
     levels.chosen = static_cast<std::size_t>(index);
     levels.offered = offered;
     levels.hovered = column.model->hot == id;
+    levels.locked = quiet;
     if (wrapped) {
         levels.columns = columns;
         levels.row_gap = column.gap;
@@ -1199,6 +1220,21 @@ void fill_sections(Column& column, bool with_leave, bool with_take) {
                                    ? size_fallback[stop]
                                    : model.size_captions[static_cast<std::size_t>(stop)];
         const char* size_parts[] = {"screen", "2", "3", "4"};
+        // Poster shares this row. On a touch layout only the label row
+        // narrows, so the stops stay a finger's width.
+        int32_t poster_w = 0;
+        if (!model.poster_caption.empty()) {
+            poster_w = line_width(fonts, model.poster_caption, 48) + 16;
+            if (model.touch)
+                poster_w = std::max(poster_w, column.row_h);
+            const int32_t cap = std::max(column.width / 3, column.row_h);
+            if (poster_w > cap)
+                poster_w = cap;
+            const int32_t most = std::max(column.width - 4, int32_t{0});
+            if (poster_w > most)
+                poster_w = most;
+        }
+        const int32_t size_top = column.y;
         add_levels_row(
             column,
             kSize,
@@ -1209,8 +1245,50 @@ void fill_sections(Column& column, bool with_leave, bool with_take) {
             model.size_locks.data(),
             size_parts,
             4,
-            model.size_index
+            model.size_index,
+            model.poster,
+            poster_w
         );
+        if (poster_w > 0) {
+            const kit::Rect button{
+                column.x + column.width - poster_w, size_top, poster_w, column.row_h
+            };
+            const bool enabled = model.poster_lock.empty();
+            const int32_t room = std::max(button.width - 10, int32_t{0});
+            const std::string fitted = fit_line(fonts, model.poster_caption, room);
+            kit::add_button(
+                *column.list,
+                button,
+                button_look(model, kPoster, fitted, model.poster && enabled, enabled),
+                kPoster,
+                "photo.poster"
+            );
+            stamp(
+                *column.list,
+                kPoster,
+                model.poster_caption,
+                with_reason(model.poster_caption, model.poster_lock)
+            );
+        }
+        // The extents are the next row, and only while Poster is the picture.
+        if (model.poster && !model.poster_extent_captions[0].empty()) {
+            std::string extent_shown[3];
+            for (int stop = 0; stop < 3; ++stop)
+                extent_shown[stop] = model.poster_extent_captions[static_cast<std::size_t>(stop)];
+            const char* extent_parts[] = {"view", "area", "map"};
+            add_levels_row(
+                column,
+                kPosterExtent,
+                "photo.poster.extent",
+                {},
+                model.poster_extent_value,
+                extent_shown,
+                model.poster_extent_locks.data(),
+                extent_parts,
+                3,
+                model.poster_extent
+            );
+        }
         std::string smooth_shown[3];
         const char* smooth_fallback[] = {"Off", "2×", "4×"};
         for (int stop = 0; stop < 3; ++stop)
@@ -1228,7 +1306,8 @@ void fill_sections(Column& column, bool with_leave, bool with_take) {
             model.smooth_locks.data(),
             smooth_parts,
             3,
-            model.smooth_index
+            model.smooth_index,
+            model.poster
         );
         add_wrapped_reason(
             column,

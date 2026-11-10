@@ -366,6 +366,10 @@ void PadAccess::act_press(
     case pc::Action::photo_panel:
         runtime.toggle_photo_panel();
         return;
+    case pc::Action::photo_mark:
+        if (runtime.photo_mode() && !runtime.photo_camera_locked())
+            runtime.photo_mark_area();
+        return;
     case pc::Action::unit_info:
         // The unit under the pointer; with R4 held it is pinned.
         sync_pointer(runtime);

@@ -5,8 +5,10 @@
 #include "renderer_live_lights.hpp"
 #include "renderer_water_appearance.hpp"
 #include "oa/present/game_text.hpp"
+#include "oa/present/photo/photo_tiles.hpp"
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include <algorithm>
 #include <array>
@@ -1220,6 +1222,11 @@ void draw_frame_and_models(
 /// @param camera the scene's uniform block
 /// @param models the models' resources, uploaded; null for no model draws
 /// @param runs the model draws' runs
+/// @param origin_x the left of this piece in the whole picture, negated, or 0
+/// @param origin_y the top of this piece in the whole picture, negated, or 0
+/// @param span_x the whole picture's width when this piece is clipped from
+///     it, and 0 when the surface is the whole picture
+/// @param span_y the whole picture's height, with span_x
 /// @return false where the pass cannot begin
 bool draw_light_surface(
     const LightResources& lights,
@@ -1232,7 +1239,11 @@ bool draw_light_surface(
     SDL_GPUBuffer* frame_vertices,
     std::size_t frame_count,
     const ModelResources* models,
-    std::span<const ModelRun> runs
+    std::span<const ModelRun> runs,
+    float origin_x,
+    float origin_y,
+    float span_x,
+    float span_y
 ) {
     SDL_GPUColorTargetInfo target{};
     target.texture = lights.surface;
@@ -1252,6 +1263,12 @@ bool draw_light_surface(
     if (!pass)
         return false;
     SDL_BindGPUGraphicsPipeline(pass, lights.surface_pipeline);
+    // The whole photo's pixels, clipped to this piece. The scene's pass
+    // places them the same way, so the depth meets the colour.
+    if (span_x > 0.0F && span_y > 0.0F) {
+        const SDL_GPUViewport viewport{origin_x, origin_y, span_x, span_y, 0.0F, 1.0F};
+        SDL_SetGPUViewport(pass, &viewport);
+    }
     const SDL_GPUTextureSamplerBinding source{atlas, sampler};
     SDL_BindGPUFragmentSamplers(pass, 0, &source, 1);
     if (ground_count != 0) {
@@ -1706,6 +1723,144 @@ bool open_device(Context& context, std::string& error) {
     return true;
 }
 
+#if defined(_WIN32)
+#define OA_VIEWPORT_CALL __stdcall
+#else
+#define OA_VIEWPORT_CALL
+#endif
+
+/// Bytes kept for a card's properties. More than the whole structure.
+constexpr std::size_t kCardPropertyBytes = 1024;
+/// The card's name inside those properties.
+constexpr std::size_t kCardNameOffset = 20;
+/// Bytes of that name, its terminating zero included.
+constexpr std::size_t kCardNameBytes = 256;
+/// The two viewport sides, inside those properties.
+constexpr std::size_t kViewportSideOffset = 576;
+/// The two corners a viewport may touch, just after the sides.
+constexpr std::size_t kViewportCornerOffset = 584;
+/// The smallest viewport a card must allow, and its corners.
+constexpr uint32_t kViewportFloor = 4096;
+constexpr float kViewportFloorMin = -8192.0F;
+constexpr float kViewportFloorMax = 8191.0F;
+/// The published viewport of a Metal card, and corners wide enough for it.
+constexpr uint32_t kMetalViewport = 16384;
+constexpr float kWideCornerMin = -32768.0F;
+constexpr float kWideCornerMax = 32767.0F;
+/// The widest viewport whose corners stay inside the wide range.
+constexpr uint32_t kDirectViewport = 65535;
+
+/// The shape of vkGetInstanceProcAddr.
+using ViewportProc = SDL_FunctionPointer(OA_VIEWPORT_CALL*)(VkInstance, const char*);
+
+/// What a temporary card instance needs. Laid out as the loader lays it out.
+struct CardApplication {
+    uint32_t kind{};
+    const void* next{};
+    const char* name{};
+    uint32_t name_version{};
+    const char* engine{};
+    uint32_t engine_version{};
+    uint32_t interface_version{};
+};
+
+struct CardInstanceInfo {
+    uint32_t kind{};
+    const void* next{};
+    uint32_t flags{};
+    const CardApplication* application{};
+    uint32_t layer_count{};
+    const char* const* layers{};
+    uint32_t extension_count{};
+    const char* const* extensions{};
+};
+
+using CreateCardInstance =
+    int32_t(OA_VIEWPORT_CALL*)(const CardInstanceInfo*, const void*, VkInstance*);
+using DestroyCardInstance = void(OA_VIEWPORT_CALL*)(VkInstance, const void*);
+using CountCardDevices = int32_t(OA_VIEWPORT_CALL*)(VkInstance, uint32_t*, VkPhysicalDevice*);
+using ReadCardProperties = void(OA_VIEWPORT_CALL*)(VkPhysicalDevice, void*);
+
+/// The smallest viewport, used when the card's own cannot be read.
+///
+/// @return that viewport
+ViewportBounds viewport_floor() {
+    return {kViewportFloor, kViewportFloorMin, kViewportFloorMax};
+}
+
+/// The viewport a Vulkan card reports, or the floor when it cannot be read.
+/// The loader stays loaded: unloading it can drop the card's own copy.
+///
+/// @param wanted the card's name, matched to the device that draws
+/// @return the viewport
+ViewportBounds vulkan_viewport(const char* wanted) {
+    if (wanted == nullptr || wanted[0] == '\0' || !SDL_Vulkan_LoadLibrary(nullptr))
+        return viewport_floor();
+    const auto proc = reinterpret_cast<ViewportProc>(SDL_Vulkan_GetVkGetInstanceProcAddr());
+    if (proc == nullptr)
+        return viewport_floor();
+    const auto create = reinterpret_cast<CreateCardInstance>(proc(nullptr, "vkCreateInstance"));
+    if (create == nullptr)
+        return viewport_floor();
+    CardApplication application{};
+    application.interface_version = 1U << 22U;
+    CardInstanceInfo info{};
+    info.kind = 1;
+    info.application = &application;
+    VkInstance instance = nullptr;
+    if (create(&info, nullptr, &instance) != 0 || instance == nullptr)
+        return viewport_floor();
+    const auto destroy = reinterpret_cast<DestroyCardInstance>(proc(instance, "vkDestroyInstance"));
+    const auto count_devices =
+        reinterpret_cast<CountCardDevices>(proc(instance, "vkEnumeratePhysicalDevices"));
+    const auto read_properties =
+        reinterpret_cast<ReadCardProperties>(proc(instance, "vkGetPhysicalDeviceProperties"));
+    ViewportBounds found = viewport_floor();
+    bool matched = false;
+    if (destroy != nullptr && count_devices != nullptr && read_properties != nullptr) {
+        uint32_t count = 0;
+        if (count_devices(instance, &count, nullptr) == 0 && count > 0 && count <= 64) {
+            std::vector<VkPhysicalDevice> devices(count);
+            if (count_devices(instance, &count, devices.data()) == 0) {
+                for (VkPhysicalDevice physical : devices) {
+                    if (physical == nullptr)
+                        continue;
+                    alignas(16) std::array<uint8_t, kCardPropertyBytes> properties{};
+                    read_properties(physical, properties.data());
+                    char name[kCardNameBytes]{};
+                    std::memcpy(name, properties.data() + kCardNameOffset, kCardNameBytes - 1);
+                    if (std::strcmp(name, wanted) != 0)
+                        continue;
+                    uint32_t sides[2]{};
+                    float corners[2]{};
+                    std::memcpy(sides, properties.data() + kViewportSideOffset, sizeof sides);
+                    std::memcpy(corners, properties.data() + kViewportCornerOffset, sizeof corners);
+                    const uint32_t side = std::min(sides[0], sides[1]);
+                    if (side == 0 || side > (1U << 20U))
+                        continue;
+                    found.limit = side;
+                    if (std::isfinite(corners[0]) && std::isfinite(corners[1]) &&
+                        corners[0] < corners[1]) {
+                        found.min_corner = corners[0];
+                        found.max_corner = corners[1];
+                    } else {
+                        const float edge = static_cast<float>(side);
+                        found.min_corner = -2.0F * edge;
+                        found.max_corner = 2.0F * edge - 1.0F;
+                    }
+                    matched = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (destroy != nullptr)
+        destroy(instance, nullptr);
+    return matched ? found : viewport_floor();
+}
+
+#undef OA_VIEWPORT_CALL
+
 } // namespace
 
 SDL_GPUDevice* device(Context& context) {
@@ -1717,6 +1872,36 @@ SDL_GPUDevice* opened_device(const Context& context) noexcept {
     if (context.shared_device)
         return context.shared_device;
     return context.state ? context.state->resources.device : nullptr;
+}
+
+ViewportBounds viewport_bounds(SDL_GPUDevice* device) {
+    struct Cached {
+        SDL_GPUDevice* device{};
+        ViewportBounds bounds{};
+    };
+
+    static Cached cached;
+    if (device != nullptr && device == cached.device)
+        return cached.bounds;
+    ViewportBounds bounds{kViewportFloor, kViewportFloorMin, kViewportFloorMax};
+    if (device != nullptr) {
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        if (driver != nullptr && std::strcmp(driver, "metal") == 0)
+            bounds = {kMetalViewport, kWideCornerMin, kWideCornerMax};
+        else if (driver != nullptr && std::strcmp(driver, "direct3d12") == 0)
+            bounds = {kDirectViewport, kWideCornerMin, kWideCornerMax};
+        else if (driver != nullptr && std::strcmp(driver, "vulkan") == 0) {
+            const SDL_PropertiesID properties = SDL_GetGPUDeviceProperties(device);
+            const char* name =
+                SDL_GetStringProperty(properties, SDL_PROP_GPU_DEVICE_NAME_STRING, "");
+            bounds = vulkan_viewport(name);
+        }
+    }
+    if (device != nullptr) {
+        cached.device = device;
+        cached.bounds = bounds;
+    }
+    return bounds;
 }
 
 bool draws_models(const Context& context) noexcept {
@@ -1791,6 +1976,8 @@ Result render(
     error.clear();
     context.kept_on_card = false;
     context.depth_drawn = false;
+    context.tile_shifted = false;
+    context.tile_viewport_side = 0;
     context.state->picture = nullptr;
     if (!valid_dimensions(texture_width, texture_height) ||
         !valid_dimensions(output_width, output_height) || vertices.empty() ||
@@ -1926,6 +2113,61 @@ Result render(
     const uint32_t samples = fitted.multisample;
     const uint32_t render_width = output_width * supersample;
     const uint32_t render_height = output_height * supersample;
+    // A tile draws the whole photo's pixels into its own picture when that
+    // viewport fits the card. The same divisor for every piece, and the same
+    // one the photo drawn whole uses, so a vertex lands on the same pixel
+    // however the picture is split. A viewport the card rejects is the tile's
+    // own, and the projection is offset onto the tile.
+    const bool tile_window = context.tile_span_x != 0 && context.tile_span_y != 0;
+    std::array<float, 12> drawn_projection = projection;
+    bool shift_tile = false;
+    if (tile_window) {
+        const bool counts_fit = context.tile_span_x <= 0x7fffffffU &&
+                                context.tile_span_y <= 0x7fffffffU &&
+                                context.tile_origin_x <= 0x7fffffffU &&
+                                context.tile_origin_y <= 0x7fffffffU && supersample <= 0x7fffffffU;
+        const ViewportBounds card = viewport_bounds(resources.device);
+        uint32_t cap = card.limit;
+        if (cap > 0x7fffffffU)
+            cap = 0x7fffffffU;
+        if (context.viewport_limit != 0 && context.viewport_limit < cap)
+            cap = context.viewport_limit;
+        const oa::present::photo::TurnedViewport window =
+            counts_fit ? oa::present::photo::turned_tile_viewport(
+                             static_cast<int32_t>(context.tile_span_x),
+                             static_cast<int32_t>(context.tile_span_y),
+                             static_cast<int32_t>(context.tile_origin_x),
+                             static_cast<int32_t>(context.tile_origin_y),
+                             static_cast<int32_t>(output_width),
+                             static_cast<int32_t>(output_height),
+                             static_cast<int32_t>(supersample),
+                             static_cast<int32_t>(cap),
+                             card.min_corner,
+                             card.max_corner
+                         )
+                       : oa::present::photo::TurnedViewport{};
+        if (!counts_fit || !window.fits) {
+            error = "live GPU viewport";
+            return Result::failed;
+        }
+        if (window.shifted) {
+            shift_tile = true;
+            drawn_projection[3] -= static_cast<float>(context.tile_origin_x);
+            drawn_projection[7] -= static_cast<float>(context.tile_origin_y);
+            for (const float value : drawn_projection) {
+                if (!std::isfinite(value) || std::abs(value) > projection_limit) {
+                    error = "Invalid live GPU projection";
+                    return Result::failed;
+                }
+            }
+        }
+        context.tile_shifted = shift_tile;
+        context.tile_viewport_side = static_cast<uint32_t>(std::max(window.width, window.height));
+    }
+    const float placed_width =
+        tile_window && !shift_tile ? float(context.tile_span_x) : float(output_width);
+    const float placed_height =
+        tile_window && !shift_tile ? float(context.tile_span_y) : float(output_height);
     // Multisampled and supersampled, the card averages the samples at the
     // drawn size and the resolve reduces that.
     const bool resolves_twice = samples > 1 && supersample > 1;
@@ -2228,20 +2470,20 @@ Result render(
     auto& models_held = state.models;
     if (modelled) {
         const std::array camera_rows{
-            projection[0],
-            projection[1],
-            projection[2],
-            projection[3],
-            projection[4],
-            projection[5],
-            projection[6],
-            projection[7],
-            projection[8],
-            projection[9],
-            projection[10],
-            projection[11],
-            float(output_width),
-            float(output_height),
+            drawn_projection[0],
+            drawn_projection[1],
+            drawn_projection[2],
+            drawn_projection[3],
+            drawn_projection[4],
+            drawn_projection[5],
+            drawn_projection[6],
+            drawn_projection[7],
+            drawn_projection[8],
+            drawn_projection[9],
+            drawn_projection[10],
+            drawn_projection[11],
+            placed_width,
+            placed_height,
             float(supersample),
             float(samples)
         };
@@ -2426,9 +2668,9 @@ Result render(
         0.0F
     };
     std::copy(coefficients.begin(), coefficients.end(), camera.begin() + 32);
-    std::copy(projection.begin(), projection.end(), camera.begin());
-    camera[12] = float(output_width);
-    camera[13] = float(output_height);
+    std::copy(drawn_projection.begin(), drawn_projection.end(), camera.begin());
+    camera[12] = placed_width;
+    camera[13] = placed_height;
     camera[14] = float(supersample);
     camera[15] = float(samples);
     if (water) {
@@ -2477,6 +2719,22 @@ Result render(
     SDL_BindGPUFragmentSamplers(
         pass, 0, sampler_bindings.data(), static_cast<Uint32>(sampler_bindings.size())
     );
+    // The whole photo's pixels, clipped to this piece, when that viewport
+    // fits the card. A photo drawn whole uses this same viewport with no
+    // offset, so the two agree. A viewport past the card is left at the
+    // tile: the projection was offset onto it instead.
+    if (tile_window && !shift_tile) {
+        const float scale = float(supersample);
+        const SDL_GPUViewport viewport{
+            -float(context.tile_origin_x) * scale,
+            -float(context.tile_origin_y) * scale,
+            placed_width * scale,
+            placed_height * scale,
+            0.0F,
+            1.0F
+        };
+        SDL_SetGPUViewport(pass, &viewport);
+    }
     // The ground first and then the rest, in the frame's order, the model
     // draws among them.
     if (ground_count != 0) {
@@ -2511,19 +2769,24 @@ Result render(
     SDL_EndGPURenderPass(pass);
     // The surface the lights reach, from the same vertices. A depth cue with
     // no lights still draws it: the cue reads the depth the lights would.
-    if ((lit || depth_ready) && !draw_light_surface(
-                                    lights_held,
-                                    resources.command,
-                                    camera,
-                                    resources.atlas,
-                                    resources.sampler,
-                                    resources.ground,
-                                    ground_count,
-                                    resources.vertices,
-                                    frame_vertices.size(),
-                                    modelled ? &models_held : nullptr,
-                                    runs
-                                ))
+    if ((lit || depth_ready) &&
+        !draw_light_surface(
+            lights_held,
+            resources.command,
+            camera,
+            resources.atlas,
+            resources.sampler,
+            resources.ground,
+            ground_count,
+            resources.vertices,
+            frame_vertices.size(),
+            modelled ? &models_held : nullptr,
+            runs,
+            tile_window && !shift_tile ? -float(context.tile_origin_x) : 0.0F,
+            tile_window && !shift_tile ? -float(context.tile_origin_y) : 0.0F,
+            tile_window && !shift_tile ? placed_width : 0.0F,
+            tile_window && !shift_tile ? placed_height : 0.0F
+        ))
         return fail("Begin live GPU lights' surface");
     if (supersample > 1) {
         SDL_GPUColorTargetInfo target{};

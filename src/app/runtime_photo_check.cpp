@@ -18,8 +18,12 @@
 // with no look. Full filters the preview and the photo of one frame.
 // --check-photo tiles: one frozen Full frame, drawn whole and in tiles,
 // at 640×480 and 1920×1080, at size 3, at Enhanced 2× and below zoom 1.
+// --check-photo tiles-live: one frozen turned frame, drawn whole and in
+// tiles, including a 4096 photo against four tiles of 2048.
 // --check-photo depth-live: one frozen turned frame with depth of field, with
 // haze, and twice with both off.
+// --check-photo poster: a poster two views wide equals two photos of that
+// frozen tick placed side by side. On Full the poster is drawn in tiles.
 #include "oa/app/runtime.hpp"
 
 #include "engine_settings_state.hpp"
@@ -77,6 +81,7 @@
 #include "oa/ui/photo_panel/crop.hpp"
 #include "oa/ui/photo_panel/layout.hpp"
 #include "oa/ui/display_layout.hpp"
+#include "oa/ui/hud/game_fields.hpp"
 #include "oa/ui/hud/kill_board.hpp"
 #include "oa/ui/hud/resource_panel.hpp"
 #include "oa/ui/key_editor/overlay.hpp"
@@ -1450,6 +1455,7 @@ void Runtime::check_photo_keys() {
     require(listed.find("\nPage down ") == std::string::npos, listed);
     // Only keys that answer in photo mode: the camera, the speed, Escape.
     require(listed.find("\nPan up ") != std::string::npos, listed);
+    require(listed.find("\nMark area ") != std::string::npos, listed);
     require(listed.find("\nSpeed up ") != std::string::npos, listed);
     require(listed.find("\nBack ") != std::string::npos, listed);
     require(listed.find("\nOpen chat ") == std::string::npos, listed);
@@ -1525,6 +1531,32 @@ void Runtime::check_photo_keys() {
     require(status_.find(turn_reason) != std::string::npos, "Alt+Left gave no reason");
     require(photo_mode(), "Alt+Left left photo mode");
 
+    // M starts a mark the size of the view. Right grows it and does not pan.
+    // A click that does not move keeps that mark.
+    const int32_t mark_camera_x = match_camera_x_;
+    const int32_t mark_camera_z = match_camera_z_;
+    tap(SDL_SCANCODE_M);
+    require(photo_ != nullptr && photo_->poster, "M did not choose a poster");
+    require(
+        photo_->poster_extent == static_cast<uint8_t>(oa::present::photo::PosterExtent::marked),
+        "M did not choose Area"
+    );
+    require(
+        photo_->poster_mark_w >= 64 && photo_->poster_mark_h >= 64,
+        "the mark is under 64 map pixels"
+    );
+    const int32_t marked_w = photo_->poster_mark_w;
+    const int32_t marked_h = photo_->poster_mark_h;
+    require(
+        match_camera_x_ == mark_camera_x && match_camera_z_ == mark_camera_z, "M moved the camera"
+    );
+    tap(SDL_SCANCODE_RIGHT);
+    require(photo_->poster_mark_w > marked_w, "Right did not grow the mark");
+    require(photo_->poster_mark_h == marked_h, "Right changed the mark's height");
+    require(match_camera_x_ == mark_camera_x && match_camera_z_ == mark_camera_z, "Right panned");
+    const int32_t grown_w = photo_->poster_mark_w;
+    const int32_t grown_x = photo_->poster_mark_x;
+
     const std::vector<UnitOrders> orders = read_orders();
     const View quiet = read_view();
     const int offers_before_match = clipboard_catch.offers;
@@ -1541,6 +1573,11 @@ void Runtime::check_photo_keys() {
         "C with the modifier other than Primary copied a photo"
     );
     require(photo_mode(), "a match key left photo mode");
+    require(
+        photo_->poster_mark_w == grown_w && photo_->poster_mark_x == grown_x,
+        "a click without a drag replaced the mark"
+    );
+    set_photo_poster(false);
 
     const Shots before_photo = count_shots(pictures);
     tap(SDL_SCANCODE_RETURN);
@@ -1888,6 +1925,7 @@ void Runtime::check_photo_panel() {
         "photo.guides",
         "photo.section.capture",
         "photo.size",
+        "photo.poster",
         "photo.smooth",
         "photo.copy-to-clipboard",
         "photo.player-names",
@@ -2550,6 +2588,122 @@ void Runtime::check_photo_pad_touch() {
     send_finger(SDL_EVENT_FINGER_UP, left_finger, pinch_x - 96.0F, pinch_y);
     send_finger(SDL_EVENT_FINGER_UP, right_finger, pinch_x + 96.0F, pinch_y);
     require(match_zoom() > zoomed_before, "a pinch did not zoom in");
+
+    // Area. L1 marks the view. The left stick grows that mark and does not
+    // pan. A one-finger drag marks, a tap keeps the mark, and two fingers pan.
+    if (match_zoom_target_ > 0.0F)
+        match_zoom_ = match_zoom_target_;
+    const std::array<double, 2> mark_place = match_view_place();
+    // The frames around L1: the panel draws the marked rectangle at once,
+    // though nothing on the panel was pressed.
+    const auto presented = [&] {
+        renderer::Surface shot;
+        {
+            const CaptureHold hold(capture_frame_, shot);
+            step(kPadTouchFrameMs);
+        }
+        return shot;
+    };
+    const renderer::Surface unmarked = presented();
+    tap_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+    require(photo_ != nullptr && photo_->poster, "L1 did not choose a poster");
+    require(
+        photo_->poster_extent == static_cast<uint8_t>(oa::present::photo::PosterExtent::marked),
+        "L1 did not choose Area"
+    );
+    {
+        const renderer::Surface marked = presented();
+        const std::optional<std::array<int32_t, 4>> drawn = poster_mark_window();
+        require(drawn.has_value(), "L1's mark has no rectangle in the window");
+        const int32_t edge_x = (*drawn)[0];
+        const auto frame_w = static_cast<int32_t>(marked.width);
+        const auto frame_h = static_cast<int32_t>(marked.height);
+        require(
+            marked.rgb.size() == unmarked.rgb.size() && edge_x >= 0 && edge_x < frame_w,
+            "L1's rectangle has no left edge in the frame"
+        );
+        const int32_t top = std::clamp((*drawn)[1], int32_t{0}, frame_h);
+        const int32_t bottom = std::clamp((*drawn)[1] + (*drawn)[3], int32_t{0}, frame_h);
+        int32_t rows = 0;
+        int32_t changed = 0;
+        for (int32_t row = top; row < bottom; ++row) {
+            const std::size_t at =
+                (static_cast<std::size_t>(row) * marked.width + static_cast<std::size_t>(edge_x)) *
+                3U;
+            ++rows;
+            if (marked.rgb[at] != unmarked.rgb[at] || marked.rgb[at + 1] != unmarked.rgb[at + 1] ||
+                marked.rgb[at + 2] != unmarked.rgb[at + 2])
+                ++changed;
+        }
+        require(
+            rows > 0 && changed * 2 > rows,
+            "the marked rectangle was not drawn after L1 (" + std::to_string(changed) + " of " +
+                std::to_string(rows) + " rows of its left edge)"
+        );
+    }
+    const int32_t l1_width = photo_->poster_mark_w;
+    require(l1_width >= 64 && photo_->poster_mark_h >= 64, "L1's mark is under 64 map pixels");
+    const int32_t l1_height = photo_->poster_mark_h;
+    // A push across that drifts a little down, inside the dead zone, as a
+    // real stick does: only the width grows.
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTX, kPadTouchStick);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTY, 0.08F);
+    steps(200);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTX, 0.0F);
+    set_pad_touch_axis(stand_in, SDL_GAMEPAD_AXIS_LEFTY, 0.0F);
+    step(kPadTouchFrameMs);
+    require(photo_->poster_mark_w > l1_width, "the left stick did not grow the mark");
+    require(
+        photo_->poster_mark_h == l1_height, "a push across that drifted down grew the mark's height"
+    );
+    const std::array<double, 2> after_stick = match_view_place();
+    require(
+        after_stick[0] == mark_place[0] && after_stick[1] == mark_place[1],
+        "the left stick panned while Area was chosen"
+    );
+    const int32_t stick_width = photo_->poster_mark_w;
+    const int32_t stick_x = photo_->poster_mark_x;
+    const float mark_x = canvas_w * 0.22F;
+    const float mark_y = canvas_h * 0.45F;
+    const uint64_t mark_finger = finger_id++;
+    send_finger(SDL_EVENT_FINGER_DOWN, mark_finger, mark_x, mark_y);
+    send_finger(SDL_EVENT_FINGER_UP, mark_finger, mark_x, mark_y);
+    step(kPadTouchFrameMs);
+    require(
+        photo_->poster_mark_w == stick_width && photo_->poster_mark_x == stick_x,
+        "a tap replaced the mark"
+    );
+    send_finger(SDL_EVENT_FINGER_DOWN, mark_finger, mark_x, mark_y);
+    send_finger(SDL_EVENT_FINGER_MOTION, mark_finger, mark_x + 160.0F, mark_y);
+    send_finger(SDL_EVENT_FINGER_UP, mark_finger, mark_x + 160.0F, mark_y);
+    step(kPadTouchFrameMs);
+    const std::array<double, 2> after_mark_drag = match_view_place();
+    require(
+        after_mark_drag[0] == mark_place[0] && after_mark_drag[1] == mark_place[1],
+        "a one-finger drag panned while Area was chosen"
+    );
+    require(
+        photo_->poster_mark_w != stick_width || photo_->poster_mark_x != stick_x,
+        "a one-finger drag did not mark"
+    );
+    const std::array<double, 2> before_two = match_view_place();
+    const float two_x = canvas_w * 0.22F;
+    const float two_y = canvas_h * 0.40F;
+    const uint64_t two_left = finger_id++;
+    const uint64_t two_right = finger_id++;
+    send_finger(SDL_EVENT_FINGER_DOWN, two_left, two_x, two_y);
+    send_finger(SDL_EVENT_FINGER_DOWN, two_right, two_x + 48.0F, two_y);
+    send_finger(SDL_EVENT_FINGER_MOTION, two_left, two_x + 80.0F, two_y);
+    send_finger(SDL_EVENT_FINGER_MOTION, two_right, two_x + 128.0F, two_y);
+    send_finger(SDL_EVENT_FINGER_UP, two_left, two_x + 80.0F, two_y);
+    send_finger(SDL_EVENT_FINGER_UP, two_right, two_x + 128.0F, two_y);
+    step(kPadTouchFrameMs);
+    const std::array<double, 2> after_two = match_view_place();
+    require(
+        after_two[0] != before_two[0] || after_two[1] != before_two[1],
+        "a two-finger drag did not pan"
+    );
+    set_photo_poster(false);
 
     // A finger the system cancels on Take photo presses nothing; a tap there
     // takes the photo.
@@ -4472,6 +4626,744 @@ int Runtime::check_photo_tiles() {
     return 0;
 }
 
+int Runtime::check_photo_tiles_live() {
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& preferences = host.options_.preferences_file;
+            if (preferences.has_value())
+                existed = fs::exists(*preferences);
+            bytes = file_bytes(preferences);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& preferences = runtime.options_.preferences_file;
+            if (preferences.has_value()) {
+                if (!existed) {
+                    std::error_code remove_error;
+                    fs::remove(*preferences, remove_error);
+                } else {
+                    std::ofstream out(*preferences, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    struct PictureSweep {
+        Runtime& runtime;
+
+        explicit PictureSweep(Runtime& host) : runtime(host) {}
+
+        PictureSweep(const PictureSweep&) = delete;
+        PictureSweep& operator=(const PictureSweep&) = delete;
+
+        ~PictureSweep() {
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, ""));
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, "ridge"));
+        }
+    };
+
+    struct TileEdgeReset {
+        int32_t& edge;
+
+        explicit TileEdgeReset(int32_t& held) : edge(held) { edge = 0; }
+
+        TileEdgeReset(const TileEdgeReset&) = delete;
+        TileEdgeReset& operator=(const TileEdgeReset&) = delete;
+
+        ~TileEdgeReset() { edge = 0; }
+    };
+
+    namespace photo = oa::present::photo;
+    namespace settings = oa::ui::engine_settings;
+
+    const PreferencesHold preferences_hold(*this);
+    const PictureSweep picture_sweep(*this);
+    const TileEdgeReset edge_reset(photo_check_tile_edge_);
+    const TileEdgeReset viewport_reset(photo_check_viewport_limit_);
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo tiles failed: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+    const settings::HardwareAcceleration asked =
+        options_.hardware_acceleration.value_or(settings::HardwareAcceleration::off);
+    require(asked == settings::HardwareAcceleration::full, "needs --hardware-acceleration=full");
+
+    const int32_t opened_width = options_.match_width;
+    const int32_t opened_height = options_.match_height;
+    const auto resize_window = [&](int32_t width, int32_t height) {
+        require(
+            sdl_.window != nullptr && SDL_SetWindowSize(sdl_.window, width, height) &&
+                SDL_SyncWindow(sdl_.window),
+            std::string("the window did not resize: ") + SDL_GetError()
+        );
+        options_.match_width = width;
+        options_.match_height = height;
+    };
+    resize_window(1024, 1024);
+
+    settings::EngineSettings chosen = engine_settings();
+    chosen.allow_full_3d = true;
+    chosen.anti_aliasing = settings::AntiAliasing::off;
+    chosen.weapon_lighting = settings::default_weapon_lighting;
+    chosen.wreck_glow = settings::default_wreck_glow;
+    chosen.heat_distortion = settings::default_heat_distortion;
+    chosen.water_ripples = settings::default_water_ripples;
+    chosen.coastal_waves = settings::default_coastal_waves;
+    chosen.underwater_shimmer = settings::default_underwater_shimmer;
+    chosen.naval_reflections = settings::default_naval_reflections;
+    chosen.new_unit_shadows = true;
+    apply_engine_settings(chosen);
+
+    const auto step_tick = [this] {
+        try {
+            step_match_simulation();
+        } catch (const std::exception& step_error) {
+            report_match_tick_error(step_error.what());
+        }
+    };
+    const auto end_fight = [this] {
+        if (photo_mode())
+            leave_photo_mode();
+        if (match_ != nullptr) {
+            leave_match();
+            load(Screen::main_menu);
+        }
+    };
+
+    exercise_click(menu::resource_name(menu::Button::single_player));
+    exercise_click(entry::resource_name(entry::Button::skirmish));
+    skirmish_settings_.map_name = "Steel Jungle";
+    require(select_map("Steel Jungle") != 0, "cannot select Steel Jungle");
+    state_.player_count = 2;
+    require(map_player_capacity() >= 2, "Steel Jungle lacks two start positions");
+    exercise_click(skirmish::resource_name(skirmish::Button::start));
+    require(screen_ == Screen::match && match_ != nullptr, "the fight did not start");
+    match_layout_ = lay_out_match(1024, 1024);
+    require(
+        least_match_zoom() <= kPlayZoom && most_match_zoom() >= kPlayZoom,
+        "zoom 1 is outside the match's play limits"
+    );
+    match_zoom_ = kPlayZoom;
+    match_zoom_target_ = kPlayZoom;
+    match_tracking_ = false;
+    exact_view_.held = false;
+    spawn_combat_armies(kArmy);
+    require(match_ != nullptr && selected_tnt_.has_value(), "the fight did not start");
+
+    const auto& world = match_->state();
+    const int32_t map_w = world.game.map_width;
+    const int32_t map_h = world.game.map_height;
+    const int32_t sea = world.game.sea_level;
+    const auto wet_at = [&](int32_t x, int32_t z) {
+        if (x < 0 || z < 0 || x >= map_w || z >= map_h)
+            return false;
+        const oa::MapPlot* plot = oa::world_plot(&world, x, z);
+        return plot != nullptr && static_cast<int32_t>(plot->height) < sea;
+    };
+    const auto scan_rect =
+        [&](int32_t origin_x, int32_t origin_z, int32_t span_x, int32_t span_z, int32_t stride) {
+            for (int32_t z = origin_z; z < origin_z + span_z; z += stride) {
+                for (int32_t x = origin_x; x < origin_x + span_x; x += stride) {
+                    if (wet_at(x, z))
+                        return std::array<int32_t, 2>{x, z};
+                }
+            }
+            return std::array<int32_t, 2>{-1, -1};
+        };
+    const int32_t seen_w = std::max(visible_map_width(), 1);
+    const int32_t seen_h = std::max(visible_map_height(), 1);
+    std::array<int32_t, 2> water = scan_rect(match_camera_x_, match_camera_z_, seen_w, seen_h, 16);
+    int32_t centre_x = match_camera_x_ + seen_w / 2;
+    int32_t centre_z = match_camera_z_ + seen_h / 2;
+    if (water[0] < 0) {
+        const std::array<int32_t, 2> anywhere = scan_rect(0, 0, map_w, map_h, 32);
+        require(anywhere[0] >= 0, "the map has no water");
+        centre_x = std::clamp(anywhere[0], 0, std::max(map_w - 1, 0));
+        centre_z = std::clamp(anywhere[1], 0, std::max(map_h - 1, 0));
+        int32_t origin_x = centre_x - seen_w / 2;
+        int32_t origin_z = centre_z - seen_h / 2;
+        if (map_w > seen_w)
+            origin_x = std::clamp(origin_x, 0, map_w - seen_w);
+        if (map_h > seen_h)
+            origin_z = std::clamp(origin_z, 0, map_h - seen_h);
+        match_camera_x_ = origin_x;
+        match_camera_z_ = origin_z;
+        exact_view_.held = false;
+        water = scan_rect(match_camera_x_, match_camera_z_, seen_w, seen_h, 16);
+    }
+    require(water[0] >= 0, "the framed view has no water");
+
+    const auto place_unit = [&](uint16_t type, uint8_t player, int32_t x, int32_t z, int32_t lift) {
+        oa::sim::unit_spawn::Request request;
+        request.player = player;
+        request.type = type;
+        request.finished = true;
+        request.state = kGroundOccupancyState;
+        const uint32_t fixed_x = static_cast<uint32_t>(x) << 16;
+        const uint32_t fixed_z = static_cast<uint32_t>(z) << 16;
+        request.position = {
+            fixed_x,
+            static_cast<uint32_t>(match_->map_height(fixed_x, fixed_z) + lift) << 16,
+            fixed_z
+        };
+        return match_->create(request);
+    };
+    const auto tank = oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMSTUMP");
+    require(tank != 0, "the fight lacks ARMSTUMP");
+    const int32_t wreck_x = std::clamp(centre_x + 96, 0, std::max(map_w - 1, 0));
+    const int32_t wreck_z = std::clamp(centre_z, 0, std::max(map_h - 1, 0));
+    auto* wreck_unit = place_unit(tank, match_local_player_, wreck_x, wreck_z, 0);
+    require(wreck_unit != nullptr && wreck_unit->unit != nullptr, "the wreck tank did not spawn");
+    wreck_unit->unit->object_present = true;
+    wreck_unit->unit->health = 1;
+    wreck_unit->unit->previous_health_percent = 0;
+    const auto wrecks_before = match_->wrecks().size();
+    match_->apply_damage_event(*wreck_unit, nullptr, 2, 1, 0);
+    uint16_t aircraft_type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMPEEP");
+    if (aircraft_type == 0)
+        aircraft_type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMFIG");
+    require(aircraft_type != 0, "the fight lacks an aircraft");
+    auto* aircraft = place_unit(
+        aircraft_type,
+        match_local_player_,
+        std::clamp(water[0], 0, std::max(map_w - 1, 0)),
+        std::clamp(water[1], 0, std::max(map_h - 1, 0)),
+        96
+    );
+    require(aircraft != nullptr && aircraft->unit != nullptr, "could not spawn an aircraft");
+
+    bool projectile_light = false;
+    bool hot_wreck = false;
+    for (int frame = 0; frame < 300 && !(projectile_light && hot_wreck); ++frame) {
+        step_tick();
+        require(match_->fault() == nullptr, "the fight raised a simulation fault");
+        for (const auto& source : collect_match_effect_sources()) {
+            projectile_light =
+                projectile_light || source.origin == renderer_effect_sources::Origin::projectile;
+            hot_wreck = hot_wreck || source.kind == renderer_effect_sources::Kind::wreck;
+        }
+        hot_wreck = hot_wreck && match_->wrecks().size() > wrecks_before;
+    }
+    require(projectile_light, "the fight produced no projectile light");
+    require(hot_wreck, "the destroyed tank produced no burning wreck");
+
+    apply_engine_settings(chosen);
+    remove_saved_pictures(screenshots_folder(user_folder_, ""));
+    remove_saved_pictures(screenshots_folder(user_folder_, "ridge"));
+    remove_saved_pictures(photo_shots_folder());
+    require(enter_photo_mode(), "photo mode did not open");
+    require(photo_mode() && photo_frozen() && photo_ != nullptr, "photo mode was not frozen");
+    match_layout_ = layout::make_battlefield_layout(1024, 1024);
+    require(
+        match_layout_.battlefield_width() == 1024 && match_layout_.battlefield_height() == 1024,
+        "the battlefield is not 1024 pixels"
+    );
+    set_photo_show_selection(false);
+    set_photo_show_health_bars(false);
+    photo_->look_preset = 0;
+    photo_->look_vignette = 0;
+    photo_->look_grain = 0;
+    photo_->look_frame = 0;
+    photo_->look_depth_of_field = 0;
+    photo_->look_haze = 0;
+    photo_->guide = 0;
+    set_photo_smooth_factor(1);
+    set_photo_size_factor(1);
+
+    bool turned = false;
+    try {
+        turned = turn_live_camera(20.0F, 12.0F);
+    } catch (const std::exception&) {
+        turned = false;
+    }
+    bool skip = false;
+    try {
+        render_match_surface();
+    } catch (const std::exception&) {
+        skip = true;
+    }
+    if (!turned || skip || live_renderer_unavailable() || !live_renderer_active() ||
+        live_renderer_failed()) {
+        end_fight();
+        return 77;
+    }
+    const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
+    const auto preferences_values = preference_values_;
+    const uint32_t frozen_tick = match_->simulation().tick;
+    const int32_t framed_camera_x = match_camera_x_;
+    const int32_t framed_camera_z = match_camera_z_;
+
+    const auto take_sized = [&](int size_factor) {
+        set_photo_size_factor(size_factor);
+        set_photo_smooth_factor(1);
+        set_photo_size_factor(size_factor);
+        require(
+            photo_ != nullptr && photo_->size_factor == size_factor && photo_->smooth_factor == 1,
+            "size " + std::to_string(size_factor) + " was not offered"
+        );
+        take_photo();
+        wait_for_photos();
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
+        const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+        std::error_code exists_error;
+        require(fs::is_regular_file(file, exists_error), saved);
+        return decode_png(file);
+    };
+    const auto turned_plan_for = [&](int size_factor, int32_t edge) {
+        const int32_t field_w = match_layout_.battlefield_width();
+        const int32_t field_h = match_layout_.battlefield_height();
+        const photo::Machine machine = photo_capture_machine();
+        photo::TurnedTileRequest request;
+        request.width = field_w * size_factor;
+        request.height = field_h * size_factor;
+        request.zoom = (match_zoom_ > 0.0F ? match_zoom_ : 1.0F) * static_cast<float>(size_factor);
+        request.draw_limit = photo::turned_tile_draw_limit(machine);
+        request.tile_edge = edge;
+        request.blur =
+            photo::photo_tilt_radius(std::clamp(photo_->look_depth_of_field, 0, 32), size_factor);
+        return photo::plan_turned_tiles(request);
+    };
+    const auto compare_tiles = [&](int32_t edge,
+                                   int size_factor,
+                                   const char* where,
+                                   int32_t viewport_cap = 0,
+                                   bool use_tolerance = false,
+                                   bool seam_only = false) {
+        // Screen size is the window's picture unless a check asks to draw
+        // it, which a turned photo at the sampling edge has to, so the tiles
+        // compare with that draw.
+        struct SizedCapture {
+            Runtime& self;
+
+            explicit SizedCapture(Runtime& runtime) : self(runtime) {
+                self.photo_check_sized_capture_ = true;
+            }
+
+            ~SizedCapture() { self.photo_check_sized_capture_ = false; }
+        } sized_capture{*this};
+        const int32_t field_w = match_layout_.battlefield_width();
+        const int32_t field_h = match_layout_.battlefield_height();
+        photo_check_tile_edge_ = 0;
+        const DecodedPng whole = take_sized(size_factor);
+        require(
+            photo_->sized_by_live && !photo_->sized_by_full,
+            "the turned view did not draw the photo"
+        );
+        require(
+            whole.width == static_cast<uint32_t>(field_w) * static_cast<uint32_t>(size_factor) &&
+                whole.height == static_cast<uint32_t>(field_h) * static_cast<uint32_t>(size_factor),
+            std::string(where) + ": the photo is not " + std::to_string(size_factor) +
+                " times the battlefield"
+        );
+        photo_check_tile_edge_ = edge;
+        photo_check_viewport_limit_ = viewport_cap;
+        photo_check_tiles_drawn_ = 0;
+        photo_check_tiles_shifted_ = 0;
+        photo_check_widest_tile_viewport_ = 0;
+        const DecodedPng tiled = take_sized(size_factor);
+        photo_check_tile_edge_ = 0;
+        photo_check_viewport_limit_ = 0;
+        require(
+            photo_->sized_by_live && !photo_->sized_by_full,
+            "the turned view did not draw the tiles"
+        );
+        // A forced viewport is the card's to keep: every tile the card drew
+        // had its projection offset, through a viewport no wider than that.
+        if (viewport_cap > 0) {
+            require(
+                photo_check_tiles_drawn_ > 1 &&
+                    photo_check_tiles_shifted_ == photo_check_tiles_drawn_ &&
+                    photo_check_widest_tile_viewport_ <= static_cast<uint32_t>(viewport_cap),
+                std::string(where) + ": the card drew " +
+                    std::to_string(photo_check_tiles_shifted_) + " of " +
+                    std::to_string(photo_check_tiles_drawn_) +
+                    " tiles offset, the widest through " +
+                    std::to_string(photo_check_widest_tile_viewport_) + " of " +
+                    std::to_string(viewport_cap)
+            );
+            std::printf(
+                "photo tiles live: %s: %u tiles offset, the widest viewport %u of %d\n",
+                where,
+                photo_check_tiles_shifted_,
+                photo_check_widest_tile_viewport_,
+                viewport_cap
+            );
+            std::fflush(stdout);
+        }
+        require(
+            tiled.width == whole.width && tiled.height == whole.height &&
+                tiled.rows.size() == whole.rows.size(),
+            "the tiled photo is a different size"
+        );
+        require(match_->simulation().tick == frozen_tick, "the fight advanced between the photos");
+        const photo::TilePlan plan = turned_plan_for(size_factor, edge);
+        require(
+            plan.fits && plan.tiles.size() > 1,
+            std::string(where) + ": the check did not draw more than one tile"
+        );
+        for (const photo::Tile& tile : plan.tiles) {
+            require(
+                tile.draw_width <= photo::kTurnedEdge && tile.draw_height <= photo::kTurnedEdge,
+                std::string(where) + ": a tile draws past 4096"
+            );
+            require(
+                tile.draw_x % photo::kLiveLightTile == 0 &&
+                    tile.draw_y % photo::kLiveLightTile == 0,
+                std::string(where) + ": a tile misses the light grid"
+            );
+        }
+        const TileGap gap =
+            measure_tile_gap(whole.rows, tiled.rows, whole.width, whole.height, plan);
+        if (gap.different != 0) {
+            std::printf("photo tiles live: %s: %s\n", where, tile_gap_words(gap).c_str());
+            std::fflush(stdout);
+        }
+        if (seam_only) {
+            require(!gap.seam(), std::string(where) + ": " + tile_gap_words(gap));
+        } else if (use_tolerance) {
+            require(gap.within(), std::string(where) + ": " + tile_gap_words(gap));
+        } else {
+            require(gap.on_edge == 0, std::string(where) + ": " + tile_gap_words(gap));
+            require(gap.different <= gap.allowed, std::string(where) + ": " + tile_gap_words(gap));
+        }
+        return plan;
+    };
+    const auto window_frame = [&] {
+        renderer::Surface frame;
+        photo_->toast_on = false;
+        const CaptureHold hold(capture_frame_, frame);
+        render_match_surface();
+        present_match_layers();
+        return frame;
+    };
+    const auto one_piece_factor = [&] {
+        const photo::Machine machine = photo_capture_machine();
+        const int32_t cap = machine.edge_limit > 0
+                                ? std::min(machine.edge_limit, photo::kTurnedEdge)
+                                : photo::kTurnedEdge;
+        const int32_t field_w = match_layout_.battlefield_width();
+        const int32_t field_h = match_layout_.battlefield_height();
+        for (const int candidate : {4, 3, 2, 1}) {
+            if (field_w * candidate <= cap && field_h * candidate <= cap)
+                return candidate;
+        }
+        return 1;
+    };
+
+    const renderer::Surface window_before = window_frame();
+    const photo::TilePlan halved = compare_tiles(2048, 4, "4096");
+    require(halved.tiles.size() == 4, "4096 did not split into four tiles");
+    for (const photo::Tile& tile : halved.tiles)
+        require(tile.width == 2048 && tile.height == 2048, "a 4096 tile did not keep 2048");
+    require(
+        halved.border >= photo::turned_tile_border(0) && halved.border % photo::kLiveLightTile == 0,
+        "the 4096 border does not cover the lights"
+    );
+    std::printf("photo tiles live: 4096 matches in four tiles of 2048\n");
+    std::fflush(stdout);
+
+    photo_->look_depth_of_field = 32;
+    const photo::TilePlan blurred = compare_tiles(2048, 4, "4096 depth of field");
+    require(blurred.tiles.size() == 4, "depth of field did not keep four tiles");
+    require(
+        blurred.border >= photo::turned_tile_border(photo::photo_tilt_radius(32, 4)),
+        "the blur border is short"
+    );
+    photo_->look_depth_of_field = 0;
+    int32_t widest_draw = 1;
+    for (const photo::TilePlan& planned : {halved, blurred}) {
+        for (const photo::Tile& tile : planned.tiles)
+            widest_draw = std::max(widest_draw, std::max(tile.draw_width, tile.draw_height));
+    }
+    const int64_t play_samples =
+        static_cast<int64_t>(std::max(turned_frame_sampling().supersample, uint32_t{1}));
+    const int64_t tile_view = static_cast<int64_t>(widest_draw) * play_samples;
+    const int64_t photo_view = int64_t{4096} * play_samples;
+    require(
+        tile_view < photo_view && photo_view <= std::numeric_limits<int32_t>::max(),
+        "the tile viewport is not inside the photo's"
+    );
+    const int32_t forced = static_cast<int32_t>(tile_view + (photo_view - tile_view) / 2);
+    require(
+        forced > tile_view && forced < photo_view, "the forced viewport is not between the two"
+    );
+    const auto within_forced = [&](const photo::TilePlan& planned) {
+        for (const photo::Tile& tile : planned.tiles) {
+            const photo::TurnedViewport window = photo::turned_tile_viewport(
+                4096,
+                4096,
+                tile.draw_x,
+                tile.draw_y,
+                tile.draw_width,
+                tile.draw_height,
+                static_cast<int32_t>(play_samples),
+                forced,
+                -1.0e8F,
+                1.0e8F
+            );
+            require(
+                window.shifted && window.fits && window.width <= static_cast<float>(forced) &&
+                    window.height <= static_cast<float>(forced),
+                "the forced limit did not move the viewport onto the tile"
+            );
+        }
+    };
+    const photo::TilePlan forced_halved = compare_tiles(2048, 4, "4096 within the card", forced);
+    require(forced_halved.tiles.size() == 4, "the card's viewport did not keep four tiles");
+    for (const photo::Tile& tile : forced_halved.tiles)
+        require(tile.width == 2048 && tile.height == 2048, "a forced tile did not keep 2048");
+    within_forced(forced_halved);
+    std::printf("photo tiles live: 4096 within the card matches in four tiles of 2048\n");
+    std::fflush(stdout);
+    photo_->look_depth_of_field = 32;
+    const photo::TilePlan forced_blur =
+        compare_tiles(2048, 4, "4096 depth of field within the card", forced, true);
+    require(forced_blur.tiles.size() == 4, "depth of field within the card lost a tile");
+    within_forced(forced_blur);
+    photo_->look_depth_of_field = 0;
+    std::printf("photo tiles live: 4096 with depth of field stays within the card\n");
+    std::fflush(stdout);
+    // The size the panel shows is the check's own, put back so the window
+    // compare sees the frame it drew before the photos.
+    set_photo_size_factor(1);
+    std::printf("photo tiles live: 4096 with depth of field matches\n");
+    std::fflush(stdout);
+
+    const renderer::Surface window_after = window_frame();
+    require(
+        window_after.width == window_before.width && window_after.height == window_before.height &&
+            window_after.rgb.size() == window_before.rgb.size() && !window_before.rgb.empty(),
+        "the window frames differ in size"
+    );
+    oa::ui::kit::Rect file_box{};
+    if (LayerScreen* open = oa_layer().find("photo-mode")) {
+        const oa::ui::kit::DisplayList listed = open->display_list();
+        for (const oa::ui::kit::Control& control : listed.controls) {
+            if (control.name == "photo.file")
+                file_box = control.rect;
+        }
+    }
+    const double density =
+        sdl_.window == nullptr ? 1.0 : static_cast<double>(SDL_GetWindowPixelDensity(sdl_.window));
+    const auto to_px = [&](int32_t points) {
+        return static_cast<int64_t>(std::lround(static_cast<double>(points) * density));
+    };
+    for (uint32_t row = 0; row < window_after.height; ++row) {
+        for (uint32_t column = 0; column < window_after.width; ++column) {
+            const std::size_t at =
+                (static_cast<std::size_t>(row) * window_after.width + column) * 3U;
+            if (window_after.rgb[at] == window_before.rgb[at] &&
+                window_after.rgb[at + 1U] == window_before.rgb[at + 1U] &&
+                window_after.rgb[at + 2U] == window_before.rgb[at + 2U])
+                continue;
+            const bool in_file =
+                column >= to_px(file_box.x) && column < to_px(file_box.x + file_box.width) &&
+                row >= to_px(file_box.y) && row < to_px(file_box.y + file_box.height);
+            require(
+                in_file,
+                "the window changed at " + std::to_string(column) + "," + std::to_string(row) +
+                    " after a photo in tiles"
+            );
+        }
+    }
+
+    match_camera_x_ = std::numeric_limits<int32_t>::min() / 2;
+    match_camera_z_ = std::numeric_limits<int32_t>::min() / 2;
+    exact_view_.held = false;
+    view_hold_ = {};
+    render_match_surface();
+    present_match_layers();
+    require(
+        match_camera_x_ < 0 && match_camera_z_ < 0, "the view does not reach past the map's corner"
+    );
+    const int32_t corner_long =
+        std::max(match_layout_.battlefield_width(), match_layout_.battlefield_height()) * 2;
+    compare_tiles(std::max(int32_t{32}, corner_long / 4), 2, "past the map's corner");
+    std::printf(
+        "photo tiles live: past the corner matches at %d,%d\n", match_camera_x_, match_camera_z_
+    );
+    std::fflush(stdout);
+    match_camera_x_ = framed_camera_x;
+    match_camera_z_ = framed_camera_z;
+    exact_view_.held = false;
+    render_match_surface();
+
+    for (const settings::AntiAliasing level :
+         {settings::AntiAliasing::x2, settings::AntiAliasing::x4}) {
+        settings::EngineSettings samples = engine_settings();
+        samples.anti_aliasing = level;
+        apply_engine_settings(samples);
+        render_match_surface();
+        const int factor = one_piece_factor();
+        const int32_t photo_long =
+            std::max(match_layout_.battlefield_width(), match_layout_.battlefield_height()) *
+            factor;
+        const int32_t edge = std::max(int32_t{32}, photo_long / 4);
+        require(edge < photo_long, "enhanced anti-aliasing left no tile edge");
+        const uint32_t level_supersample = std::max(turned_frame_sampling().supersample, 1U);
+        const photo::TilePlan enhanced_plan = compare_tiles(
+            edge, factor, level == settings::AntiAliasing::x2 ? "enhanced 2x" : "enhanced 4x"
+        );
+        std::printf(
+            "photo tiles live: enhanced %dx matches size %d at edge %d\n",
+            static_cast<int>(level),
+            factor,
+            edge
+        );
+        std::fflush(stdout);
+        // The same tiles through a viewport shorter than the whole photo's,
+        // at this level's supersample: the projection is offset onto each.
+        // Offset tiles round their vertices differently from the photo drawn
+        // whole, more so with more samples a pixel, so this pass holds the
+        // seam rule and reports the count: offset tiles have no count bound
+        // of their own yet.
+        int32_t enhanced_widest = 1;
+        for (const photo::Tile& tile : enhanced_plan.tiles)
+            enhanced_widest =
+                std::max(enhanced_widest, std::max(tile.draw_width, tile.draw_height));
+        const int64_t enhanced_tile_view =
+            static_cast<int64_t>(enhanced_widest) * static_cast<int64_t>(level_supersample);
+        const int64_t enhanced_photo_view =
+            static_cast<int64_t>(photo_long) * static_cast<int64_t>(level_supersample);
+        require(
+            enhanced_tile_view < enhanced_photo_view &&
+                enhanced_photo_view <= std::numeric_limits<int32_t>::max(),
+            "the enhanced tile viewport is not inside the photo's"
+        );
+        const auto enhanced_forced = static_cast<int32_t>(
+            enhanced_tile_view + (enhanced_photo_view - enhanced_tile_view) / 2
+        );
+        compare_tiles(
+            edge,
+            factor,
+            level == settings::AntiAliasing::x2 ? "enhanced 2x within the card"
+                                                : "enhanced 4x within the card",
+            enhanced_forced,
+            true,
+            true
+        );
+    }
+    chosen.anti_aliasing = settings::AntiAliasing::off;
+    apply_engine_settings(chosen);
+    render_match_surface();
+
+    const photo::TilePlan odd = compare_tiles(500, 2, "odd edge");
+    for (const photo::Tile& tile : odd.tiles) {
+        require(tile.width <= 500 && tile.height <= 500, "an odd edge kept more than 500");
+        require(
+            tile.width % photo::kLiveLightTile == 0 ||
+                tile.x + tile.width == static_cast<int32_t>(1024 * 2),
+            "an odd edge was not snapped onto the light grid"
+        );
+    }
+    std::printf("photo tiles live: an edge of 500 snaps and matches\n");
+    std::fflush(stdout);
+
+    resize_window(640, 480);
+    match_layout_ = layout::make_battlefield_layout(640, 480);
+    require(
+        match_layout_.battlefield_width() == 640 && match_layout_.battlefield_height() == 480,
+        "the battlefield is not 640x480"
+    );
+    settings::EngineSettings enhanced = engine_settings();
+    enhanced.anti_aliasing = settings::AntiAliasing::x4;
+    apply_engine_settings(enhanced);
+    render_match_surface();
+    const photo::Plan offered = photo_size_plan();
+    for (const int factor : {2, 3, 4}) {
+        bool found = false;
+        for (const photo::Offer& offer : offered.sizes) {
+            if (offer.factor == factor) {
+                require(
+                    offer.offered, "size " + std::to_string(factor) + " was not offered at 640x480"
+                );
+                found = true;
+            }
+        }
+        require(found, "size " + std::to_string(factor) + " is missing at 640x480");
+    }
+    std::printf("photo tiles live: 640x480 at enhanced 4x offers 2x, 3x and 4x\n");
+    std::fflush(stdout);
+    chosen.anti_aliasing = settings::AntiAliasing::off;
+    apply_engine_settings(chosen);
+
+    resize_window(1920, 1080);
+    match_layout_ = layout::make_battlefield_layout(1920, 1080);
+    match_camera_x_ = framed_camera_x;
+    match_camera_z_ = framed_camera_z;
+    match_zoom_ = kPlayZoom;
+    match_zoom_target_ = kPlayZoom;
+    exact_view_.held = false;
+    render_match_surface();
+    require(
+        match_layout_.battlefield_width() == 1920 && match_layout_.battlefield_height() == 1080,
+        "the battlefield is not 1920x1080"
+    );
+    const int32_t wide_long = 3840;
+    compare_tiles(std::max(int32_t{32}, wide_long / 4), 2, "1920x1080");
+    std::printf("photo tiles live: 1920x1080 matches\n");
+    std::fflush(stdout);
+
+    // A wide window at Enhanced 2× keeps the card's multisampling, which is
+    // limited by area. A square tile as long as the window's sampling edge
+    // would lose it, so each size offered there must still be drawn.
+    settings::EngineSettings wide_samples = engine_settings();
+    wide_samples.anti_aliasing = settings::AntiAliasing::x2;
+    apply_engine_settings(wide_samples);
+    render_match_surface();
+    const TurnedFrameSampling wide_play = turned_frame_sampling();
+    require(
+        !wide_play.device_multisamples || wide_play.multisample > 1,
+        "1920x1080 at Enhanced 2x did not multisample"
+    );
+    int wide_tiled = 0;
+    const photo::Plan wide_offers = photo_size_plan();
+    for (const photo::Offer& offer : wide_offers.sizes) {
+        if (offer.factor < 2 || !offer.offered)
+            continue;
+        const DecodedPng wide_photo = take_sized(offer.factor);
+        require(
+            photo_->sized_by_live && wide_photo.width == static_cast<uint32_t>(offer.width) &&
+                wide_photo.height == static_cast<uint32_t>(offer.height),
+            "1920x1080 at Enhanced 2x did not draw size " + std::to_string(offer.factor)
+        );
+        if (turned_plan_for(offer.factor, 0).tiles.size() > 1)
+            ++wide_tiled;
+    }
+    require(wide_tiled > 0, "1920x1080 at Enhanced 2x drew no size in tiles");
+    set_photo_size_factor(1);
+    chosen.anti_aliasing = settings::AntiAliasing::off;
+    apply_engine_settings(chosen);
+    std::printf("photo tiles live: 1920x1080 at enhanced 2x draws every offered size\n");
+    std::fflush(stdout);
+
+    resize_window(opened_width, opened_height);
+    match_layout_ = lay_out_match(opened_width, opened_height);
+    require(
+        file_bytes(options_.preferences_file) == preferences_settled &&
+            preference_values_ == preferences_values,
+        "the preferences file changed"
+    );
+    end_fight();
+    std::printf("photo tiles live: ok\n");
+    std::fflush(stdout);
+    return 0;
+}
+
 int Runtime::check_photo() {
     switch (options_.photo_group) {
     case PhotoGroup::mode:
@@ -4507,8 +5399,12 @@ int Runtime::check_photo() {
         return 0;
     case PhotoGroup::tiles:
         return check_photo_tiles();
+    case PhotoGroup::tiles_live:
+        return check_photo_tiles_live();
     case PhotoGroup::depth_live:
         return check_photo_depth_live();
+    case PhotoGroup::poster:
+        return check_photo_poster();
     }
     throw std::runtime_error("photo mode check: unknown group");
 }
@@ -8369,27 +9265,36 @@ int Runtime::check_photo_sizes() {
             "the window frame lost samples"
         );
         const photo::Plan planned = photo_size_plan();
-        int first_past = 0;
+        int first_locked = 0;
         for (const photo::Offer& offer : planned.sizes) {
             if (offer.offered) {
-                require(
-                    offer.width <= machine.edge_limit && offer.height <= machine.edge_limit,
-                    "a size past the turned view's limit was offered"
-                );
+                const int32_t draw_edge = std::max(offer.width, offer.height);
+                if (draw_edge > machine.edge_limit) {
+                    photo::TurnedTileRequest request;
+                    request.width = offer.width;
+                    request.height = offer.height;
+                    request.zoom = (match_zoom_ > 0.0F ? match_zoom_ : 1.0F) *
+                                   static_cast<float>(offer.factor);
+                    request.draw_limit = photo::turned_tile_draw_limit(machine);
+                    require(
+                        draw_edge <= photo::kProcessorEdge &&
+                            photo::plan_turned_tiles(request).fits,
+                        "a size past one frame was offered without tiles"
+                    );
+                }
                 continue;
             }
-            if (first_past != 0)
+            if (first_locked != 0 || offer.lock != photo::SizeLock::edge)
                 continue;
-            first_past = offer.factor;
-            require(
-                offer.lock == photo::SizeLock::edge,
-                "the first size past the limit is not locked for the edge"
-            );
+            first_locked = offer.factor;
             const std::string reason = photo_offer_reason(planned.kind, offer);
             require(reason.find(std::to_string(offer.limit)) != std::string::npos, reason);
             require(reason.find("anti-aliasing") != std::string::npos, reason);
         }
-        require(first_past > 1, "no size was locked at this anti-aliasing");
+        if (first_locked == 0) {
+            std::printf("photo sizes live: every size is drawn in tiles or one frame\n");
+            std::fflush(stdout);
+        }
         // The fight has written the engine's own rows. The photos must add none.
         const std::vector<char> preferences_settled = file_bytes(options_.preferences_file);
         const auto preferences_values = preference_values_;
@@ -8412,11 +9317,10 @@ int Runtime::check_photo_sizes() {
                 "an offered photo is not that many times the battlefield"
             );
         }
-        // Smooth edges 2× draws the 2× picture and box-reduces it. At Enhanced
-        // 4× on this battlefield that step is past the sampling limit, so the
-        // comparison runs at Enhanced 2×, where the larger sizes keep the
-        // window's samples, the card's multisampling among them. Every size
-        // offered there is drawn. The window's own frames stay at 4×.
+        // Smooth edges 2× draws the 2× picture and box-reduces it. A size past
+        // the sampling edge is drawn in tiles, and the reduction is still the
+        // 2× picture. Where 2× is not offered the comparison runs at Enhanced
+        // 2×. The window's own frames stay at 4×.
         DecodedPng two;
         {
             struct AliasingHold {
@@ -8528,6 +9432,38 @@ int Runtime::check_photo_sizes() {
             );
             require(smooth.rows != screen.rows, "Smooth 2× is the Screen photo");
             std::printf("photo sizes live: smooth 2x matches box-reduced 2x\n");
+            check_grain(screen, two, " live");
+            {
+                struct TileEdgeHold {
+                    int32_t& edge;
+
+                    TileEdgeHold(int32_t& held, int32_t value) : edge(held) { edge = value; }
+
+                    TileEdgeHold(const TileEdgeHold&) = delete;
+                    TileEdgeHold& operator=(const TileEdgeHold&) = delete;
+
+                    ~TileEdgeHold() { edge = 0; }
+                };
+
+                const photo::Machine grain_machine = photo_capture_machine();
+                const int32_t grain_edge =
+                    static_cast<int32_t>(std::max(two.width, two.height) / 4U);
+                photo::TurnedTileRequest grain_tiles;
+                grain_tiles.width = static_cast<int32_t>(two.width);
+                grain_tiles.height = static_cast<int32_t>(two.height);
+                grain_tiles.zoom = (match_zoom_ > 0.0F ? match_zoom_ : 1.0F) * 2.0F;
+                grain_tiles.draw_limit = photo::turned_tile_draw_limit(grain_machine);
+                grain_tiles.tile_edge = grain_edge;
+                grain_tiles.blur =
+                    photo::photo_tilt_radius(std::clamp(grain_machine.depth_of_field, 0, 32), 2);
+                const photo::TilePlan grain_plan = photo::plan_turned_tiles(grain_tiles);
+                require(
+                    grain_plan.fits && grain_plan.tiles.size() > 1,
+                    "the grain photo would not be drawn in tiles"
+                );
+                const TileEdgeHold grain_edge_hold(photo_check_tile_edge_, grain_edge);
+                check_grain(screen, two, " live tiled", &grain_plan);
+            }
         }
         require(engine_settings().anti_aliasing == aliasing, "anti-aliasing changed");
         settle_panel();
@@ -9189,6 +10125,601 @@ int Runtime::check_photo_sizes() {
         "the preferences file changed"
     );
     std::printf("photo sizes: ok\n");
+    std::fflush(stdout);
+    return 0;
+}
+
+int Runtime::check_photo_poster() {
+    struct PreferencesHold {
+        Runtime& runtime;
+        bool existed{false};
+        std::vector<char> bytes;
+
+        explicit PreferencesHold(Runtime& host) : runtime(host) {
+            const auto& preferences = host.options_.preferences_file;
+            if (preferences.has_value())
+                existed = fs::exists(*preferences);
+            bytes = file_bytes(preferences);
+        }
+
+        PreferencesHold(const PreferencesHold&) = delete;
+        PreferencesHold& operator=(const PreferencesHold&) = delete;
+
+        ~PreferencesHold() {
+            const auto& preferences = runtime.options_.preferences_file;
+            if (preferences.has_value()) {
+                if (!existed) {
+                    std::error_code remove_error;
+                    fs::remove(*preferences, remove_error);
+                } else {
+                    std::ofstream out(*preferences, std::ios::binary | std::ios::trunc);
+                    if (out)
+                        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                }
+            }
+            runtime.preferences_dirty_ = false;
+        }
+    };
+
+    struct GammaHold {
+        Runtime& runtime;
+        float previous;
+
+        explicit GammaHold(Runtime& host) : runtime(host), previous(host.display_gamma_) {
+            runtime.set_display_gamma(kCheckGamma);
+        }
+
+        GammaHold(const GammaHold&) = delete;
+        GammaHold& operator=(const GammaHold&) = delete;
+
+        ~GammaHold() { runtime.set_display_gamma(previous); }
+    };
+
+    struct PictureSweep {
+        Runtime& runtime;
+
+        explicit PictureSweep(Runtime& host) : runtime(host) {}
+
+        PictureSweep(const PictureSweep&) = delete;
+        PictureSweep& operator=(const PictureSweep&) = delete;
+
+        ~PictureSweep() {
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, ""));
+            remove_saved_pictures(screenshots_folder(runtime.user_folder_, "ridge"));
+        }
+    };
+
+    namespace photo = oa::present::photo;
+
+    const PreferencesHold preferences_hold(*this);
+    const GammaHold gamma_hold(*this);
+    const PictureSweep picture_sweep(*this);
+    const auto fail = [](const std::string& what) {
+        throw std::runtime_error("photo poster failed: " + what);
+    };
+    const auto require = [&](bool ok, const std::string& what) {
+        if (!ok)
+            fail(what);
+    };
+
+    const auto step_tick = [this] {
+        try {
+            step_match_simulation();
+        } catch (const std::exception& step_error) {
+            report_match_tick_error(step_error.what());
+        }
+    };
+    const auto end_fight = [this] {
+        if (photo_mode())
+            leave_photo_mode();
+        if (match_ != nullptr) {
+            leave_match();
+            load(Screen::main_menu);
+        }
+    };
+    const auto take_one = [&] {
+        take_photo();
+        wait_for_photos();
+        const std::string saved = saved_photo_name(status_);
+        require(!saved.empty(), "status is " + status_);
+        const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+        std::error_code exists_error;
+        require(fs::is_regular_file(file, exists_error), saved);
+        DecodedPng decoded = decode_png(file);
+        remove_saved_pictures(photo_shots_folder());
+        return std::pair<DecodedPng, fs::path>{std::move(decoded), file};
+    };
+
+    start_benchmark_skirmish();
+    match_layout_ = lay_out_match(options_.match_width, options_.match_height);
+    require(
+        least_match_zoom() <= kPlayZoom && most_match_zoom() >= kPlayZoom,
+        "zoom 1 is outside the match's play limits"
+    );
+    match_zoom_ = kPlayZoom;
+    match_zoom_target_ = kPlayZoom;
+    spawn_combat_armies(kArmy);
+    // The armies' camera frames the fight: the ground the player sees.
+    const int32_t fight_x = match_camera_x_ + match_layout_.battlefield_width() / 2;
+    const int32_t fight_z = match_camera_z_ + match_layout_.battlefield_height() / 2;
+    set_display_gamma(kCheckGamma);
+    for (int tick = 1; tick <= kEnterTick; ++tick) {
+        step_tick();
+        if (tick == kEnterTick)
+            require(enter_photo_mode(), "photo mode did not open");
+    }
+    require(photo_frozen(), "entering a local match did not freeze the picture");
+    set_photo_show_selection(false);
+    set_photo_show_health_bars(false);
+    if (photo_ != nullptr)
+        photo_->guide = 0;
+    set_photo_smooth_factor(1);
+    set_photo_size_factor(1);
+    match_tracking_ = false;
+    exact_view_.held = false;
+
+    const oa::Game& game = match_->state().game;
+    const int32_t map_w = game.map_pixel_width;
+    const int32_t map_h = game.map_pixel_height;
+    const int32_t view_w = match_layout_.battlefield_width();
+    const int32_t view_h = match_layout_.battlefield_height();
+    require(
+        view_w > 0 && view_h > 0 && map_w >= view_w * 2 && map_h >= view_h,
+        "the map has no room for two views"
+    );
+    // The join between the two views runs through the fight, so both sides
+    // hold drawn ground and units, not only ground the player never saw.
+    // The left view may reach half a view past the map's edge, as the
+    // window's may; the rows start on the 16-pixel grid.
+    const int32_t origin_x = std::clamp(fight_x - view_w, -(view_w / 2), map_w - view_w * 2);
+    const int32_t origin_z = (std::clamp(fight_z - view_h / 2, 0, map_h - view_h) / 16) * 16;
+    require(
+        origin_x + view_w * 2 <= map_w && origin_z + view_h <= map_h,
+        "two views do not fit on the map"
+    );
+
+    const auto show = [&](int32_t camera_x, int32_t camera_z) {
+        match_camera_x_ = camera_x;
+        match_camera_z_ = camera_z;
+        match_zoom_ = kPlayZoom;
+        match_zoom_target_ = kPlayZoom;
+        exact_view_.held = false;
+        render_match_surface();
+        present_match_layers();
+    };
+
+    struct Kept {
+        uint16_t console{0};
+        decltype(game.visibility_flags) visibility{};
+        decltype(game.sim_run_flags) sim_run{};
+        int32_t lines{0};
+        std::vector<uint8_t> chat;
+        std::vector<std::string> log;
+    };
+
+    const auto keep = [&] {
+        const oa::Game& now = match_->state().game;
+        Kept kept;
+        kept.console = console::console_flags(now);
+        kept.visibility = now.visibility_flags;
+        kept.sim_run = now.sim_run_flags;
+        kept.lines = oa::ui::hud::message_lines(now);
+        kept.chat.resize(static_cast<std::size_t>(OA_CHAT_LINE_COUNT) * OA_CHAT_LINE_BYTES);
+        std::memcpy(kept.chat.data(), now.chat_lines, kept.chat.size());
+        kept.log = match_message_lines();
+        return kept;
+    };
+    show(origin_x, origin_z);
+    require(
+        view_camera() == std::array<int32_t, 2>{origin_x, origin_z},
+        "the view was held away from " + std::to_string(origin_x) + "," + std::to_string(origin_z)
+    );
+    const DecodedPng left = take_one().first;
+    show(origin_x + view_w, origin_z);
+    const DecodedPng right = take_one().first;
+    show(origin_x, origin_z);
+    const Kept before = keep();
+    const std::vector<char> preferences_before = file_bytes(options_.preferences_file);
+    const auto preference_values_before = preference_values_;
+
+    require(
+        left.width == right.width && left.height == right.height, "the two views differ in size"
+    );
+    require(
+        static_cast<int32_t>(left.width) == view_w && static_cast<int32_t>(left.height) == view_h,
+        "a 1:1 photo is not the view, " + std::to_string(left.width) + "x" +
+            std::to_string(left.height)
+    );
+
+    // Full is on only once the match is presenting. Sampling it before the
+    // fight starts reports the processor, then rejects the card's poster.
+    const bool full = full_presentation();
+    if (full)
+        photo_check_tile_edge_ = view_w;
+    set_photo_poster_rect(origin_x, origin_z, view_w * 2, view_h);
+    require(photo_ != nullptr && photo_->poster, "the two-view poster was not offered");
+    take_photo();
+    const bool drew_full = photo_ != nullptr && photo_->sized_by_full;
+    const bool drew_live = photo_ != nullptr && photo_->sized_by_live;
+    wait_for_photos();
+    const std::string poster_name = saved_photo_name(status_);
+    require(!poster_name.empty(), "status is " + status_);
+    const fs::path poster_file = photo_shots_folder() / oa::platform::path_from_utf8(poster_name);
+    const DecodedPng poster = decode_png(poster_file);
+    {
+        std::ifstream poster_in(poster_file, std::ios::binary);
+        require(static_cast<bool>(poster_in), "the poster could not be read");
+        const std::vector<char> stored{
+            std::istreambuf_iterator<char>(poster_in), std::istreambuf_iterator<char>()
+        };
+        const std::span<const uint8_t> file_bytes_view(
+            reinterpret_cast<const uint8_t*>(stored.data()), stored.size()
+        );
+        std::vector<oa::formats::png::TextChunk> texts;
+        require(
+            oa::formats::png::read_texts(file_bytes_view, &texts),
+            "the poster's text could not be read"
+        );
+        std::string record_text;
+        for (const oa::formats::png::TextChunk& chunk : texts) {
+            if (chunk.keyword == "OpenAnnihilation")
+                record_text = std::string(chunk.text);
+        }
+        oa::formats::json::JsonError json_error;
+        const std::optional<oa::formats::json::Json> record =
+            oa::formats::json::parse_json(record_text, json_error);
+        require(record.has_value(), "the poster's record is not JSON");
+        const oa::formats::json::Json* size = record->find("size");
+        const oa::formats::json::Json* size_width = size == nullptr ? nullptr : size->find("width");
+        const oa::formats::json::Json* size_height =
+            size == nullptr ? nullptr : size->find("height");
+        const oa::formats::json::Json* smooth = size == nullptr ? nullptr : size->find("smooth");
+        const oa::formats::json::Json* camera = record->find("camera");
+        const oa::formats::json::Json* camera_x = camera == nullptr ? nullptr : camera->find("x");
+        const oa::formats::json::Json* camera_z = camera == nullptr ? nullptr : camera->find("z");
+        const oa::formats::json::Json* camera_zoom =
+            camera == nullptr ? nullptr : camera->find("zoom");
+        require(
+            size_width != nullptr && size_width->integer() == static_cast<int64_t>(poster.width) &&
+                size_height != nullptr &&
+                size_height->integer() == static_cast<int64_t>(poster.height) &&
+                smooth != nullptr && smooth->integer() == 1,
+            "the poster's record does not name its pixels"
+        );
+        require(
+            camera_x != nullptr && camera_x->integer() == origin_x && camera_z != nullptr &&
+                camera_z->integer() == origin_z && camera_zoom != nullptr &&
+                camera_zoom->integer() == 1,
+            "the poster's record does not name zoom 1 at the poster's origin"
+        );
+    }
+    if (full)
+        require(drew_full && !drew_live, "Full did not draw the poster");
+    else
+        require(!drew_full && !drew_live, "the processor poster was drawn by the card");
+    remove_saved_pictures(photo_shots_folder());
+    photo_check_tile_edge_ = 0;
+
+    require(
+        poster.width == left.width + right.width && poster.height == left.height,
+        "the poster is " + std::to_string(poster.width) + "x" + std::to_string(poster.height)
+    );
+    std::vector<uint8_t> beside(poster.rows.size());
+    for (uint32_t row = 0; row < left.height; ++row) {
+        const std::size_t left_from = static_cast<std::size_t>(row) * left.width * 3U;
+        const std::size_t to = static_cast<std::size_t>(row) * poster.width * 3U;
+        std::memcpy(
+            beside.data() + to,
+            left.rows.data() + left_from,
+            static_cast<std::size_t>(left.width) * 3U
+        );
+        std::memcpy(
+            beside.data() + to + static_cast<std::size_t>(left.width) * 3U,
+            right.rows.data() + left_from,
+            static_cast<std::size_t>(right.width) * 3U
+        );
+    }
+    uint64_t black = 0;
+    for (std::size_t at = 0; at + 2 < poster.rows.size(); at += 3) {
+        if (poster.rows[at] == 0 && poster.rows[at + 1] == 0 && poster.rows[at + 2] == 0)
+            ++black;
+    }
+    require(black > 0, "the poster shows no unseen ground");
+    // Drawn ground on both sides of the join, so the join is compared on
+    // pictures, not on black.
+    uint64_t seen_left = 0;
+    uint64_t seen_right = 0;
+    for (uint32_t row = 0; row < poster.height; ++row) {
+        for (uint32_t column = left.width - 8U; column < left.width + 8U; ++column) {
+            const std::size_t at = (static_cast<std::size_t>(row) * poster.width + column) * 3U;
+            const bool seen =
+                poster.rows[at] != 0 || poster.rows[at + 1] != 0 || poster.rows[at + 2] != 0;
+            if (seen && column < left.width)
+                ++seen_left;
+            else if (seen)
+                ++seen_right;
+        }
+    }
+    require(
+        seen_left > poster.height && seen_right > poster.height,
+        "the join does not run through seen ground: " + std::to_string(seen_left) + " and " +
+            std::to_string(seen_right) + " pixels"
+    );
+
+    if (!full) {
+        require(beside == poster.rows, "the poster differs from the two photos");
+    } else {
+        photo::TileRequest request;
+        request.width = static_cast<int32_t>(poster.width);
+        request.height = static_cast<int32_t>(poster.height);
+        request.zoom = 1.0F;
+        request.supersample = std::max(photo_capture_machine().supersample, 1);
+        request.grain = std::max(photo_capture_machine().grain, 1);
+        request.texture_limit = photo_capture_machine().edge_limit;
+        request.tile_edge = view_w;
+        request.reach = photo::full_tile_reach(1.0F);
+        const photo::TilePlan tiles = photo::plan_tiles(request);
+        require(tiles.fits && tiles.tiles.size() > 1U, "the Full poster was not drawn in tiles");
+        const TileGap gap =
+            measure_tile_gap(beside, poster.rows, poster.width, poster.height, tiles);
+        require(gap.within(), "the Full poster: " + tile_gap_words(gap));
+    }
+
+    // Two views tall, beside the fight: the strips stacked down the map join
+    // as two photos one above the other.
+    set_photo_poster(false);
+    if (origin_z + view_h * 2 <= map_h && view_h % 16 == 0) {
+        show(origin_x + view_w, origin_z + view_h);
+        const DecodedPng below = take_one().first;
+        show(origin_x, origin_z);
+        photo_check_tile_edge_ = full ? view_w : 0;
+        set_photo_poster_rect(origin_x + view_w, origin_z, view_w, view_h * 2);
+        require(photo_ != nullptr && photo_->poster, "the two-view-tall poster was not offered");
+        const DecodedPng tall = take_one().first;
+        photo_check_tile_edge_ = 0;
+        set_photo_poster(false);
+        require(
+            tall.width == right.width && tall.height == right.height * 2,
+            "the tall poster is " + std::to_string(tall.width) + "x" + std::to_string(tall.height)
+        );
+        std::vector<uint8_t> stacked = right.rows;
+        stacked.insert(stacked.end(), below.rows.begin(), below.rows.end());
+        if (!full) {
+            require(stacked == tall.rows, "the tall poster differs from the two photos");
+        } else {
+            photo::TileRequest request;
+            request.width = static_cast<int32_t>(tall.width);
+            request.height = static_cast<int32_t>(tall.height);
+            request.zoom = 1.0F;
+            request.supersample = std::max(photo_capture_machine().supersample, 1);
+            request.grain = std::max(photo_capture_machine().grain, 1);
+            request.texture_limit = photo_capture_machine().edge_limit;
+            request.tile_edge = view_w;
+            request.reach = photo::full_tile_reach(1.0F);
+            const TileGap gap = measure_tile_gap(
+                stacked, tall.rows, tall.width, tall.height, photo::plan_tiles(request)
+            );
+            require(gap.within(), "the tall Full poster: " + tile_gap_words(gap));
+        }
+    }
+
+    // Haze is painted once on the poster, from the poster's own corner at
+    // zoom 1, wherever the window looks.
+    if (photo_ != nullptr) {
+        photo_->look_haze = 60;
+        show(
+            std::min(origin_x + view_w * 3 / 2, map_w - view_w),
+            std::min(origin_z + view_h, map_h - view_h)
+        );
+        photo_check_tile_edge_ = full ? view_w : 0;
+        set_photo_poster_rect(origin_x, origin_z, view_w * 2, view_h);
+        require(photo_->poster, "the hazed poster was not offered");
+        const DecodedPng hazed = take_one().first;
+        photo_check_tile_edge_ = 0;
+        set_photo_poster(false);
+        std::vector<uint8_t> expected = poster.rows;
+        apply_photo_look_rgb(
+            expected,
+            poster.width,
+            poster.height,
+            1,
+            0,
+            0,
+            std::array<int32_t, 2>{origin_x, origin_z}
+        );
+        photo_->look_haze = 0;
+        show(origin_x, origin_z);
+        require(expected != poster.rows, "the haze changed nothing on the poster");
+        require(
+            hazed.width == poster.width && hazed.height == poster.height && hazed.rows == expected,
+            "the poster's haze is not painted from the poster's corner"
+        );
+    }
+
+    // Grain and the tilt band keep the size against the ground the preview
+    // shows. A poster's pixel is a map pixel, so they grow by one over the
+    // window's zoom, not by the poster's width: a poster two views wide
+    // keeps the panel's sizes at zoom 1 and doubles them at zoom 0.5. Haze
+    // and depth of field stay off, so this picture is only that scale.
+    if (photo_ != nullptr) {
+        const uint8_t preset = photo_->look_preset;
+        const int32_t vignette = photo_->look_vignette;
+        const int32_t grain = photo_->look_grain;
+        const int32_t grain_size = photo_->look_grain_size;
+        const uint8_t frame = photo_->look_frame;
+        const int32_t haze = photo_->look_haze;
+        const int32_t tilt_centre = photo_->look_tilt_centre;
+        const int32_t tilt_width = photo_->look_tilt_width;
+        const int32_t tilt_radius = photo_->look_tilt_radius;
+        const int32_t depth = photo_->look_depth_of_field;
+        photo_->look_preset = 0;
+        photo_->look_vignette = 0;
+        photo_->look_frame = 0;
+        photo_->look_haze = 0;
+        photo_->look_depth_of_field = 0;
+        photo_->look_grain = 50;
+        photo_->look_grain_size = 3;
+        photo_->look_tilt_centre = 50;
+        photo_->look_tilt_width = 20;
+        photo_->look_tilt_radius = 4;
+        const auto grain_poster_at = [&](float zoom, int factor, const char* where) {
+            show(origin_x, origin_z);
+            match_zoom_ = zoom;
+            match_zoom_target_ = zoom;
+            set_photo_poster_rect(origin_x, origin_z, view_w * 2, view_h);
+            require(photo_->poster, std::string("the grain poster was not offered ") + where);
+            take_photo();
+            wait_for_photos();
+            const std::string saved = saved_photo_name(status_);
+            require(
+                !saved.empty(),
+                std::string("the grain poster was not saved ") + where + " (" + status_ + ")"
+            );
+            const fs::path file = photo_shots_folder() / oa::platform::path_from_utf8(saved);
+            std::ifstream grain_in(file, std::ios::binary);
+            require(static_cast<bool>(grain_in), "the grain poster could not be read");
+            const std::string grain_bytes(
+                (std::istreambuf_iterator<char>(grain_in)), std::istreambuf_iterator<char>()
+            );
+            grain_in.close();
+            const DecodedPng grained = decode_png(file);
+            remove_saved_pictures(photo_shots_folder());
+            require(
+                static_cast<int32_t>(grained.width) == view_w * 2,
+                std::string("the grain poster is not two views wide ") + where
+            );
+            const std::string grain_record =
+                "\"grain_size\":3,\"grain_pixels\":" + std::to_string(3 * factor) + ",";
+            require(
+                grain_bytes.find(grain_record) != std::string::npos,
+                std::string("the poster record does not keep its grain sizes ") + where
+            );
+            const std::string tilt_record =
+                "\"width\":20,\"width_pixels\":" + std::to_string(20 * factor) +
+                ",\"radius\":4,\"radius_pixels\":" + std::to_string(4 * factor);
+            require(
+                grain_bytes.find(tilt_record) != std::string::npos,
+                std::string("the poster record does not keep its tilt band ") + where
+            );
+            set_photo_poster(false);
+        };
+        grain_poster_at(kPlayZoom, 1, "at zoom 1");
+        if (least_match_zoom() <= 0.5F)
+            grain_poster_at(0.5F, 2, "at zoom 0.5");
+        photo_->look_preset = preset;
+        photo_->look_vignette = vignette;
+        photo_->look_grain = grain;
+        photo_->look_grain_size = grain_size;
+        photo_->look_frame = frame;
+        photo_->look_haze = haze;
+        photo_->look_tilt_centre = tilt_centre;
+        photo_->look_tilt_width = tilt_width;
+        photo_->look_tilt_radius = tilt_radius;
+        photo_->look_depth_of_field = depth;
+        show(origin_x, origin_z);
+    }
+
+    const Kept after = keep();
+    require(
+        after.console == before.console && after.visibility == before.visibility &&
+            after.sim_run == before.sim_run && after.lines == before.lines &&
+            after.chat == before.chat && after.log == before.log,
+        "the poster wrote the battle"
+    );
+    require(
+        file_bytes(options_.preferences_file) == preferences_before &&
+            preference_values_ == preference_values_before,
+        "the preferences file changed"
+    );
+
+    // A drag marks the area it covers, not the view's size, and is at least
+    // 64 map pixels on a side. A click keeps the mark. Left at the map's
+    // left edge leaves the mark as it is.
+    if (photo_ != nullptr) {
+        show(origin_x + view_w, origin_z);
+        set_photo_poster_extent(static_cast<int>(photo::PosterExtent::marked));
+        require(photo_->poster && photo_poster_takes_drag(), "Area was not chosen for a drag");
+        const auto window_at = [&](float across, float down) {
+            return std::array<float, 2>{
+                static_cast<float>(match_layout_.left) + static_cast<float>(view_w) * across,
+                static_cast<float>(match_layout_.top) + static_cast<float>(view_h) * down
+            };
+        };
+        const auto drag = [&](std::array<float, 2> from, std::array<float, 2> to) {
+            photo_poster_drag_begin(from[0], from[1]);
+            for (int part = 1; part <= 4; ++part) {
+                const float share = static_cast<float>(part) / 4.0F;
+                photo_poster_drag_move(
+                    from[0] + (to[0] - from[0]) * share, from[1] + (to[1] - from[1]) * share
+                );
+            }
+            photo_poster_drag_end();
+        };
+        const std::array<float, 2> from = window_at(0.25F, 0.25F);
+        const std::array<float, 2> to = window_at(0.75F, 0.625F);
+        const std::optional<std::array<int32_t, 2>> map_from = poster_map_at(from[0], from[1]);
+        const std::optional<std::array<int32_t, 2>> map_to = poster_map_at(to[0], to[1]);
+        require(map_from.has_value() && map_to.has_value(), "the drag's ends are not on the map");
+        drag(from, to);
+        require(
+            photo_->poster_mark_x == (*map_from)[0] && photo_->poster_mark_z == (*map_from)[1] &&
+                photo_->poster_mark_w == (*map_to)[0] - (*map_from)[0] + 1 &&
+                photo_->poster_mark_h == (*map_to)[1] - (*map_from)[1] + 1,
+            "a drag did not mark the area it covers"
+        );
+        require(
+            photo_->poster_mark_w < view_w && photo_->poster_mark_h < view_h,
+            "a drag inside the view marked the view's size"
+        );
+        const int32_t dragged_x = photo_->poster_mark_x;
+        const int32_t dragged_w = photo_->poster_mark_w;
+        drag(window_at(0.5F, 0.5F), window_at(0.5F, 0.5F));
+        require(
+            photo_->poster_mark_x == dragged_x && photo_->poster_mark_w == dragged_w,
+            "a click replaced the mark"
+        );
+        drag(window_at(0.5F, 0.5F), window_at(0.5F + 16.0F / static_cast<float>(view_w), 0.55F));
+        require(
+            photo_->poster_mark_w == 64 && photo_->poster_mark_h == 64,
+            "a small drag did not mark 64 map pixels a side"
+        );
+        set_photo_poster_rect(0, origin_z, 128, 128);
+        photo_poster_grow(-1, 0);
+        require(
+            photo_->poster_mark_x == 0 && photo_->poster_mark_w == 128,
+            "Left at the map's left edge moved the mark's other edge"
+        );
+        photo_poster_grow(1, 0);
+        require(
+            photo_->poster_mark_x == 0 && photo_->poster_mark_w > 128,
+            "Right did not grow the mark's right edge"
+        );
+        set_photo_poster(false);
+        show(origin_x, origin_z);
+    }
+
+    require(photo_run(), "the picture did not run on");
+    const photo::PosterPlan running = photo_poster_plan(photo_capture_machine());
+    require(running.button == photo::SizeLock::moving, "a moving picture still offers a poster");
+    require(
+        photo_poster_reason(running.button, running.limit) == "Freeze the picture",
+        "the moving lock does not say to freeze the picture"
+    );
+    const std::string classic_key = bound_chord_text("camera.classic-view");
+    const std::string above = photo_poster_reason(photo::SizeLock::above, 0);
+    require(
+        above.find(classic_key.empty() ? std::string("Alt+R") : classic_key) != std::string::npos,
+        "the turned view does not name Classic view's key (" + above + ")"
+    );
+    require(photo_freeze(), "the picture did not freeze again");
+    const photo::PosterPlan frozen = photo_poster_plan(photo_capture_machine());
+    require(
+        frozen.button == photo::SizeLock::open && frozen.view.offered,
+        "a frozen picture does not offer a poster"
+    );
+
+    end_fight();
+    std::printf("%s\n", full ? "photo poster full: ok" : "photo poster: equal");
     std::fflush(stdout);
     return 0;
 }

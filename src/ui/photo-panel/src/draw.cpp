@@ -43,7 +43,17 @@ void hairline(const kit::Canvas& canvas, kit::Rect rect, kit::Colour ink, uint32
 void draw_guides(const kit::Canvas& canvas, const Model& model) {
     const int32_t width = model.width;
     const int32_t height = model.height;
-    if (width <= 0 || height <= 0 || model.guide == Guide::off)
+    if (width <= 0 || height <= 0)
+        return;
+    // The mark is a guide: the panel layer draws it, and a photo does not.
+    if (model.mark_width > 1 && model.mark_height > 1)
+        hairline(
+            canvas,
+            {model.mark_x, model.mark_y, model.mark_width, model.mark_height},
+            kGuide,
+            kGuideOpacity
+        );
+    if (model.guide == Guide::off)
         return;
     if (model.guide == Guide::thirds) {
         const int32_t x0 = width / 3;

@@ -5,6 +5,7 @@
 // still free, and the box reduction of a smoother draw.
 #include "oa/present/photo/photo_sizes.hpp"
 
+#include "oa/present/photo/looks.hpp"
 #include "oa/present/photo/photo_tiles.hpp"
 
 #include <algorithm>
@@ -167,6 +168,33 @@ std::pair<uint64_t, uint64_t> tile_bytes(
     return {saturating_add(photo, tile_cpu), tile_gpu};
 }
 
+/// The bytes a tiled turned-view photo asks for: the assembled photo, and
+/// the largest tile's read. One tile is drawn at a time. The live renderer
+/// keeps no second world target for the tile.
+///
+/// @param plan the tiles
+/// @param draw_width the assembled draw
+/// @param draw_height the assembled draw
+/// @return the processor bytes
+uint64_t turned_tile_cpu(const TilePlan& plan, int32_t draw_width, int32_t draw_height) {
+    const uint64_t photo = saturating_mul(
+        saturating_mul(
+            static_cast<uint64_t>(std::max(draw_width, int32_t{0})),
+            static_cast<uint64_t>(std::max(draw_height, int32_t{0}))
+        ),
+        uint64_t{6}
+    );
+    uint64_t tile_cpu = 0;
+    for (const Tile& tile : plan.tiles) {
+        const uint64_t area = saturating_mul(
+            static_cast<uint64_t>(std::max(tile.draw_width, int32_t{0})),
+            static_cast<uint64_t>(std::max(tile.draw_height, int32_t{0}))
+        );
+        tile_cpu = std::max(tile_cpu, saturating_mul(area, uint64_t{6}));
+    }
+    return saturating_add(photo, tile_cpu);
+}
+
 /// The tile plan for one Full draw.
 ///
 /// @param need the picture and the draw
@@ -184,6 +212,57 @@ TilePlan tiles_for(const Need& need, const Machine& machine, float photo_zoom) {
     request.tile_edge = std::max(machine.tile_edge, int32_t{0});
     request.reach = full_tile_reach(request.zoom);
     return plan_tiles(request);
+}
+
+/// The longest side one turned-view frame may draw.
+///
+/// @param edge_limit the sampling edge, or 0 for the live renderer's own edge
+/// @return the side
+int32_t turned_one_piece(int32_t edge_limit) {
+    if (edge_limit <= 0)
+        return kTurnedEdge;
+    return std::min(edge_limit, kTurnedEdge);
+}
+
+/// The cap a refused turned-view photo names. A picture past 16384 names
+/// that. A picture the sampling edge cannot explain, because the edge is
+/// missing or wider than one frame, names 4096.
+///
+/// @param machine the mode and its cap
+/// @param draw_edge the draw's longest side
+/// @param fallback the cap already chosen
+/// @return the cap
+int32_t turned_locked_limit(const Machine& machine, int32_t draw_edge, int32_t fallback) {
+    if (draw_edge > kProcessorEdge)
+        return kProcessorEdge;
+    if (machine.edge_limit <= 0 || machine.edge_limit > kTurnedEdge)
+        return kTurnedEdge;
+    return fallback;
+}
+
+/// The tile plan for one turned-view draw. The blur is the picture's own.
+///
+/// @param need the picture and the draw
+/// @param machine the sampling edge, the check's tile edge and the blur
+/// @param photo_zoom the photo's zoom
+/// @param size_factor the size
+/// @param smooth the smooth step
+/// @return the tiles
+TilePlan turned_tiles_for(
+    const Need& need, const Machine& machine, float photo_zoom, int size_factor, int smooth
+) {
+    TurnedTileRequest request;
+    request.width = need.draw_width;
+    request.height = need.draw_height;
+    request.zoom = photo_zoom > 0.0F ? photo_zoom : 1.0F;
+    request.draw_limit = turned_tile_draw_limit(machine);
+    request.viewport_limit = machine.viewport_limit;
+    request.viewport_samples = machine.viewport_samples;
+    request.tile_edge = std::max(machine.tile_edge, int32_t{0});
+    const int times = std::max(size_factor, 1) * std::max(smooth, 1);
+    const int radius = std::clamp(machine.depth_of_field, 0, 32);
+    request.blur = photo_tilt_radius(radius, times);
+    return plan_turned_tiles(request);
 }
 
 /// Judges one size and one smooth step.
@@ -216,6 +295,10 @@ Need judge(Field field, const Machine& machine, int size_factor, int smooth) {
     const int32_t draw_edge = std::max(need.draw_width, need.draw_height);
     if (machine.edge_limit > 0 && draw_edge > machine.edge_limit)
         need.edge = true;
+    // One turned-view frame is at most 4096, even when the sampling edge is
+    // wider or unset. A larger photo is drawn in tiles below.
+    if (machine.kind == CaptureKind::turned && draw_edge > turned_one_piece(machine.edge_limit))
+        need.edge = true;
 
     uint64_t gpu = 0;
     if (machine.kind == CaptureKind::full) {
@@ -238,12 +321,14 @@ Need judge(Field field, const Machine& machine, int size_factor, int smooth) {
     }
 
     // A Full photo past the card is drawn in tiles, still by Full, at the
-    // same factor. The photo and one tile have to fit in memory. A size that
-    // already fits in one piece keeps that piece's cost, so a short memory
-    // budget cannot be dodged by tiling. The check's tile edge can force a
-    // split of a size that fits; when that split cannot be drawn, the size
-    // is not offered. A shared match never draws tiles: Smooth edges 2×,
-    // which it offers, stays one piece or is not offered.
+    // same factor. A turned-view photo past one frame, or past the sampling
+    // edge, is drawn in tiles by the live renderer, up to 16384. The photo
+    // and one tile have to fit in memory. A size that already fits in one
+    // piece keeps that piece's cost, so a short memory budget cannot be
+    // dodged by tiling. The check's tile edge can force a split of a size
+    // that fits; when that split cannot be drawn, the size is not offered.
+    // A shared match never draws tiles: Smooth edges 2×, which it offers,
+    // stays one piece or is not offered.
     bool pay_for_tiles = false;
     if (machine.kind == CaptureKind::full && !machine.shared &&
         (need.edge || machine.tile_edge > 0)) {
@@ -257,12 +342,31 @@ Need judge(Field field, const Machine& machine, int size_factor, int smooth) {
                 need.edge = true;
         }
     }
+    if (machine.kind == CaptureKind::turned && !machine.shared &&
+        (need.edge || machine.tile_edge > 0)) {
+        const TilePlan tiles = turned_tiles_for(need, machine, photo_zoom, size_factor, smooth);
+        if (need.edge && tiles.fits)
+            pay_for_tiles = true;
+        if (!need.edge && machine.tile_edge > 0) {
+            const bool forced =
+                need.draw_width > machine.tile_edge || need.draw_height > machine.tile_edge;
+            if (forced && !tiles.fits)
+                need.edge = true;
+        }
+        if (need.edge && !tiles.fits)
+            need.limit = turned_locked_limit(machine, draw_edge, need.limit);
+    } else if (machine.kind == CaptureKind::turned && machine.shared && need.edge) {
+        need.limit = turned_locked_limit(machine, draw_edge, need.limit);
+    }
     if (pay_for_tiles)
         need.edge = false;
 
     uint64_t cpu = static_cast<uint64_t>(need.draw_width) *
                    static_cast<uint64_t>(need.draw_height) * uint64_t{6};
-    if (pay_for_tiles) {
+    if (pay_for_tiles && machine.kind == CaptureKind::turned) {
+        const TilePlan tiles = turned_tiles_for(need, machine, photo_zoom, size_factor, smooth);
+        cpu = turned_tile_cpu(tiles, need.draw_width, need.draw_height);
+    } else if (pay_for_tiles) {
         const TilePlan tiles = tiles_for(need, machine, photo_zoom);
         const std::pair<uint64_t, uint64_t> cost =
             tile_bytes(tiles, machine, photo_zoom, need.draw_width, need.draw_height);
@@ -335,6 +439,13 @@ Offer offer_for(
 }
 
 } // namespace
+
+int32_t turned_tile_draw_limit(const Machine& machine) {
+    const int32_t side = turned_one_piece(machine.edge_limit);
+    int32_t cap = machine.tile_limit > 0 ? std::min(side, machine.tile_limit) : side;
+    limit_turned_draw(cap, machine.viewport_limit, machine.viewport_samples);
+    return cap;
+}
 
 Plan plan_sizes(Field field, const Machine& machine, int size_factor, int smooth) {
     const int at_size = kept_factor(size_factor, kSizeFactors, 4, 1);

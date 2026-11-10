@@ -32,9 +32,13 @@ using oa::present::photo::SizeLock;
 using oa::present::photo::box_reduce;
 using oa::present::photo::TileRequest;
 using oa::present::photo::full_tile_reach;
+using oa::present::photo::TurnedTileRequest;
+using oa::present::photo::kTurnedEdge;
 using oa::present::photo::plan_draw;
 using oa::present::photo::plan_sizes;
 using oa::present::photo::plan_tiles;
+using oa::present::photo::plan_turned_tiles;
+using oa::present::photo::turned_tile_draw_limit;
 
 /// A machine with room for every size the edge limit allows.
 ///
@@ -210,11 +214,55 @@ int main() {
     const Machine turned = open_machine(CaptureKind::turned, 4096);
     const Plan view = plan_sizes(Field{2000, 1000}, turned, 1, 1);
     CHECK(find_offer(view.sizes, 4, 2).offered && find_offer(view.sizes, 4, 2).width == 4000);
+    CHECK(find_offer(view.sizes, 4, 3).offered && find_offer(view.sizes, 4, 3).width == 6000);
+    CHECK(find_offer(view.sizes, 4, 4).offered && find_offer(view.sizes, 4, 4).width == 8000);
+    const Draw past_photo = plan_draw(Field{5000, 5000}, turned, 4, 1);
+    CHECK(!past_photo.offered && past_photo.lock == SizeLock::edge && past_photo.limit == 16384);
+    Machine turned_dof = turned;
+    turned_dof.depth_of_field = 32;
+    CHECK(plan_draw(Field{2000, 1000}, turned_dof, 4, 1).offered);
+    Machine turned_shared = turned;
+    turned_shared.shared = true;
+    const Draw shared_turned_smooth = plan_draw(Field{3000, 1500}, turned_shared, 1, 2);
+    CHECK(!shared_turned_smooth.offered && shared_turned_smooth.lock == SizeLock::edge);
+    CHECK(plan_draw(Field{3000, 1500}, turned, 1, 2).offered);
+    const Plan shared_sizes = plan_sizes(Field{2000, 1000}, turned_shared, 1, 1);
     CHECK(
-        !find_offer(view.sizes, 4, 3).offered &&
-        find_offer(view.sizes, 4, 3).lock == SizeLock::edge &&
-        find_offer(view.sizes, 4, 3).limit == 4096
+        find_offer(shared_sizes.sizes, 4, 4).lock == SizeLock::shared &&
+        !find_offer(shared_sizes.sizes, 4, 4).offered
     );
+    Machine turned_memory = turned;
+    turned_memory.cpu_bytes = uint64_t{6000} * 3000U * 6U;
+    CHECK(plan_draw(Field{2000, 1000}, turned_memory, 1, 1).offered);
+    const Draw tight_tiles = plan_draw(Field{2000, 1000}, turned_memory, 3, 1);
+    CHECK(!tight_tiles.offered && tight_tiles.lock == SizeLock::memory);
+    turned_memory.cpu_bytes = ~uint64_t{0};
+    CHECK(plan_draw(Field{2000, 1000}, turned_memory, 3, 1).offered);
+    // A wide window's multisampling is limited by area: its tiles stay within
+    // the square that keeps it, not the window-shaped sampling edge.
+    Machine turned_square = open_machine(CaptureKind::turned, 2730);
+    CHECK(turned_tile_draw_limit(turned_square) == 2730);
+    turned_square.tile_limit = 2048;
+    CHECK(turned_tile_draw_limit(turned_square) == 2048);
+    turned_square.tile_limit = 8192;
+    CHECK(turned_tile_draw_limit(turned_square) == 2730);
+    Machine turned_view = open_machine(CaptureKind::turned, 4096);
+    turned_view.viewport_limit = 6000;
+    turned_view.viewport_samples = 2;
+    CHECK(turned_tile_draw_limit(turned_view) == 3000);
+    turned_view.viewport_limit = 0;
+    CHECK(turned_tile_draw_limit(turned_view) == 4096);
+    turned_square.tile_limit = 2048;
+    CHECK(plan_draw(Field{1920, 1080}, turned_square, 2, 1).offered);
+    TurnedTileRequest square_request;
+    square_request.width = 3840;
+    square_request.height = 2160;
+    square_request.zoom = 2.0F;
+    square_request.draw_limit = turned_tile_draw_limit(turned_square);
+    const auto square_plan = plan_turned_tiles(square_request);
+    CHECK(square_plan.fits && square_plan.tiles.size() > 1);
+    for (const auto& tile : square_plan.tiles)
+        CHECK(tile.draw_width <= 2048 && tile.draw_height <= 2048);
 
     const Field fields[] = {{64, 64}, {320, 180}, {640, 480}, {1920, 1080}};
     const int32_t limits[] = {256, 1024, 4096, 16384};
@@ -231,7 +279,10 @@ int main() {
                         if (!offer.offered)
                             continue;
                         const int32_t draw_edge = std::max(offer.width, offer.height) * smooth;
-                        if (kind == CaptureKind::full && limit > 0 && draw_edge > limit) {
+                        const int32_t piece = kind == CaptureKind::turned && limit > 0
+                                                  ? std::min(limit, kTurnedEdge)
+                                                  : limit;
+                        if (kind == CaptureKind::full && limit > 0 && draw_edge > piece) {
                             TileRequest request;
                             request.width = offer.width * smooth;
                             request.height = offer.height * smooth;
@@ -241,8 +292,15 @@ int main() {
                             request.texture_limit = limit;
                             request.reach = full_tile_reach(request.zoom);
                             CHECK(plan_tiles(request).fits);
+                        } else if (kind == CaptureKind::turned && limit > 0 && draw_edge > piece) {
+                            TurnedTileRequest request;
+                            request.width = offer.width * smooth;
+                            request.height = offer.height * smooth;
+                            request.zoom = static_cast<float>(offer.factor * smooth);
+                            request.draw_limit = piece;
+                            CHECK(plan_turned_tiles(request).fits);
                         } else {
-                            CHECK(limit <= 0 || draw_edge <= limit);
+                            CHECK(limit <= 0 || draw_edge <= piece);
                         }
                         CHECK(offer.width == field.width * offer.factor);
                         CHECK(offer.height == field.height * offer.factor);

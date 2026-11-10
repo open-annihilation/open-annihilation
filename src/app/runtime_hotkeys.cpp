@@ -85,7 +85,9 @@ bool answers_repeat(std::string_view id) {
            id == "build.page-previous" || id == "camera.zoom-in-key" ||
            id == "camera.zoom-out-key" || id == "photo.zoom-in" || id == "photo.zoom-out" ||
            id == "photo.turn-left" || id == "photo.turn-right" || id == "photo.tilt-up" ||
-           id == "photo.tilt-down" || id == "photo.shutter-back" || id == "photo.shutter-on";
+           id == "photo.tilt-down" || id == "photo.shutter-back" || id == "photo.shutter-on" ||
+           id == "photo.mark-left" || id == "photo.mark-right" || id == "photo.mark-up" ||
+           id == "photo.mark-down";
 }
 
 /// The build cell at the end of `build.cell-N`, or 0.
@@ -317,6 +319,21 @@ bool Runtime::answer_photo_action(const keys::ActionEvent& action) {
     }
     if (id == "photo.panel") {
         toggle_photo_panel();
+        return true;
+    }
+    if (id == "photo.mark") {
+        // A held picture stays where it is. The key is taken either way.
+        if (!photo_camera_locked())
+            photo_mark_area();
+        return true;
+    }
+    if (id == "photo.mark-left" || id == "photo.mark-right" || id == "photo.mark-up" ||
+        id == "photo.mark-down") {
+        if (!photo_camera_locked()) {
+            const int across = id == "photo.mark-left" ? -1 : (id == "photo.mark-right" ? 1 : 0);
+            const int down = id == "photo.mark-up" ? -1 : (id == "photo.mark-down" ? 1 : 0);
+            photo_poster_grow(across, down);
+        }
         return true;
     }
     if (id == "photo.guides") {

@@ -26718,6 +26718,126 @@
 	it=Memoria insufficiente;
 	}
 
+[Poster]
+	{
+	de=Poster;
+	fr=Affiche;
+	es=Póster;
+	it=Poster;
+	}
+
+[The view]
+	{
+	de=Die Ansicht;
+	fr=La vue;
+	es=La vista;
+	it=La vista;
+	}
+
+[Area]
+	{
+	de=Bereich;
+	fr=Zone;
+	es=Zona;
+	it=Area;
+	}
+
+[Freeze the picture]
+	{
+	de=Friere das Bild ein;
+	fr=Fige l'image;
+	es=Congela la imagen;
+	it=Ferma l'immagine;
+	}
+
+[A poster is the map from above: Classic view, {key}]
+	{
+	de=Ein Poster ist die Karte von oben: Klassische Ansicht, {key};
+	fr=Une affiche est la carte vue d'en haut : Vue classique, {key};
+	es=Un póster es el mapa desde arriba: Vista clásica, {key};
+	it=Un poster è la mappa dall'alto: Vista classica, {key};
+	}
+
+[Mark area]
+	{
+	de=Bereich markieren;
+	fr=Marquer la zone;
+	es=Marcar la zona;
+	it=Segna l'area;
+	}
+
+[Starts a poster mark at the view's centre]
+	{
+	de=Setzt eine Postermarkierung in die Mitte der Ansicht;
+	fr=Pose une marque d'affiche au centre de la vue;
+	es=Pone una marca de póster en el centro de la vista;
+	it=Mette un segno del poster al centro della vista;
+	}
+
+[Grow the mark left]
+	{
+	de=Markierung nach links vergrößern;
+	fr=Agrandir la marque à gauche;
+	es=Agrandar la marca a la izquierda;
+	it=Allarga il segno a sinistra;
+	}
+
+[Grows the marked area to the left]
+	{
+	de=Vergrößert den markierten Bereich nach links;
+	fr=Agrandit la zone marquée vers la gauche;
+	es=Agranda la zona marcada hacia la izquierda;
+	it=Allarga l'area segnata verso sinistra;
+	}
+
+[Grow the mark right]
+	{
+	de=Markierung nach rechts vergrößern;
+	fr=Agrandir la marque à droite;
+	es=Agrandar la marca a la derecha;
+	it=Allarga il segno a destra;
+	}
+
+[Grows the marked area to the right]
+	{
+	de=Vergrößert den markierten Bereich nach rechts;
+	fr=Agrandit la zone marquée vers la droite;
+	es=Agranda la zona marcada hacia la derecha;
+	it=Allarga l'area segnata verso destra;
+	}
+
+[Grow the mark up]
+	{
+	de=Markierung nach oben vergrößern;
+	fr=Agrandir la marque vers le haut;
+	es=Agrandar la marca hacia arriba;
+	it=Allarga il segno verso l'alto;
+	}
+
+[Grows the marked area up]
+	{
+	de=Vergrößert den markierten Bereich nach oben;
+	fr=Agrandit la zone marquée vers le haut;
+	es=Agranda la zona marcada hacia arriba;
+	it=Allarga l'area segnata verso l'alto;
+	}
+
+[Grow the mark down]
+	{
+	de=Markierung nach unten vergrößern;
+	fr=Agrandir la marque vers le bas;
+	es=Agrandar la marca hacia abajo;
+	it=Allarga il segno verso il basso;
+	}
+
+[Grows the marked area down]
+	{
+	de=Vergrößert den markierten Bereich nach unten;
+	fr=Agrandit la zone marquée vers le bas;
+	es=Agranda la zona marcada hacia abajo;
+	it=Allarga l'area segnata verso il basso;
+	}
+
 [Hold picture]
 	{
 	de=Bild halten;

@@ -29,6 +29,7 @@
 #include <ctime>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -778,6 +779,21 @@ struct Runtime::PhotoScreen final : LayerScreen {
         text += model_.grain_size_value;
         text += model_.frame_value;
         text += model_.preview_note;
+        // The poster's rows and its mark change from outside the panel: M,
+        // L1, the arrows, the left stick, a drag on the battlefield, and the
+        // view moving under the mark. The panel is drawn again when they do.
+        bit(model_.poster);
+        text += std::to_string(model_.poster_extent);
+        text += model_.poster_extent_value;
+        text += model_.poster_lock;
+        text += model_.size_reason;
+        text += std::to_string(model_.mark_x);
+        text += ',';
+        text += std::to_string(model_.mark_y);
+        text += ',';
+        text += std::to_string(model_.mark_width);
+        text += 'x';
+        text += std::to_string(model_.mark_height);
         for (const std::string& chip : model_.chips)
             text += chip;
         return text;
@@ -989,6 +1005,12 @@ struct Runtime::PhotoScreen final : LayerScreen {
         case panel::Command::set_smooth:
             runtime_.set_photo_smooth_factor(press.value);
             break;
+        case panel::Command::set_poster:
+            runtime_.set_photo_poster(press.value != 0);
+            break;
+        case panel::Command::set_poster_extent:
+            runtime_.set_photo_poster_extent(press.value);
+            break;
         case panel::Command::leave:
         case panel::Command::none:
             break;
@@ -1096,6 +1118,54 @@ void Runtime::PhotoScreen::fill_size_choices(panel::Model& model) const {
             copy.smooth_captions[static_cast<std::size_t>(index)];
         model.smooth_locks[static_cast<std::size_t>(index)] =
             smooth[static_cast<std::size_t>(index)].lock;
+    }
+
+    const photo::PosterPlan poster = runtime_.photo_poster_plan(machine);
+    const photo::PosterOffer* extents[3] = {&poster.view, &poster.marked, &poster.map};
+    const std::string extent_words[3] = {
+        looked_up(words::the_view), looked_up(words::area), looked_up(words::whole_map)
+    };
+    const int extent_index = std::clamp(static_cast<int>(runtime_.photo_->poster_extent), 0, 2);
+    model.poster_caption = looked_up(words::poster);
+    model.poster_lock =
+        held ? held_reason : runtime_.photo_poster_reason(poster.button, poster.limit);
+    model.poster = !held && runtime_.photo_->poster && poster.button == photo::SizeLock::open &&
+                   extents[extent_index]->offered;
+    model.poster_extent = extent_index;
+    const std::string times = modern ? std::string("\u00d7") : std::string("x");
+    for (int index = 0; index < 3; ++index) {
+        model.poster_extent_captions[static_cast<std::size_t>(index)] = extent_words[index];
+        model.poster_extent_locks[static_cast<std::size_t>(index)] =
+            held ? held_reason
+                 : runtime_.photo_poster_reason(extents[index]->lock, extents[index]->limit);
+    }
+    const photo::PosterOffer& shown = *extents[extent_index];
+    if (shown.area.width > 0 && shown.area.height > 0)
+        model.poster_extent_value =
+            std::to_string(shown.area.width) + times + std::to_string(shown.area.height);
+    if (model.poster) {
+        const std::string extent_reason =
+            model.poster_extent_locks[static_cast<std::size_t>(extent_index)];
+        model.size_reason = extent_reason;
+    } else if (
+        !model.poster_lock.empty() && model.size_reason.find(model.poster_lock) == std::string::npos
+    ) {
+        if (!model.size_reason.empty())
+            model.size_reason += " ";
+        model.size_reason += model.poster_lock;
+    }
+    model.mark_x = 0;
+    model.mark_y = 0;
+    model.mark_width = 0;
+    model.mark_height = 0;
+    if (model.poster &&
+        runtime_.photo_->poster_extent == static_cast<uint8_t>(photo::PosterExtent::marked)) {
+        if (const std::optional<std::array<int32_t, 4>> window = runtime_.poster_mark_window()) {
+            model.mark_x = (*window)[0];
+            model.mark_y = (*window)[1];
+            model.mark_width = (*window)[2];
+            model.mark_height = (*window)[3];
+        }
     }
 }
 

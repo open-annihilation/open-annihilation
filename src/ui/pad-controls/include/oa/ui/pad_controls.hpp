@@ -327,6 +327,8 @@ enum class Action : uint8_t {
     photo_freeze,
     /// Hides the photo panel, or shows it again.
     photo_panel,
+    /// Starts a poster mark at the view's centre (photo mode). L1.
+    photo_mark,
 };
 
 /// One button's meaning in a layer.

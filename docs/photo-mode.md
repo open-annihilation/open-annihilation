@@ -72,10 +72,13 @@ D-pad then moves through the panel: left and right change a switch, a
 slider or Run, Slow and Freeze, and A presses a focused button, as Enter
 does. The ring then goes, so the next A takes the photo. The left stick
 pans. The right stick zooms up and down, and turns left and right when the
-view can turn. The grips do nothing.
+view can turn. While Area is the picture, L1 starts a mark at the centre of
+the view and the left stick grows it. The grips do nothing.
 
 On a phone, MENU's Photo mode opens it. A one-finger drag on the battlefield
 pans, a pinch zooms, and a two-finger twist turns when the view can turn.
+While Area is the picture, that one-finger drag marks the area and two
+fingers pan.
 The panel's controls are finger-sized. One section is open at a time. Leave
 and Take photo stay in reach, and a one-finger drag that starts on the
 panel scrolls the rows between them. Size and Smooth edges each have a row
@@ -185,9 +188,17 @@ When that photo is larger than the card draws in one piece, Full draws it
 in pieces and joins them, at the same anti-aliasing, up to 16384 pixels a
 side, while the photo and one piece fit in memory. A shared match does not
 offer those pieces. The reason names the picture size that fits at that
-factor, not the card's raw limit. The 3D view draws a larger photo up to the
-largest picture whose sampling matches the window's frame at this
-anti-aliasing.
+factor, not the card's raw limit. The 3D view draws a larger photo in one
+frame up to the largest picture
+whose sampling matches the window's frame at this anti-aliasing. Past that,
+and never past 16384 pixels a side, it draws the photo in tiles and joins
+them. Each tile's border covers the lights' 32-pixel squares, heat and the
+depth-of-field blur. Each tile is drawn with a viewport the card allows.
+When the whole photo would need a wider one, the view is offset onto that
+tile, so a large photo still saves. One terrain packing covers the whole
+photo, so the detail does not change where the tiles meet. The look is
+painted once on the joined picture. A shared match does not offer those
+tiles.
 
 A size can be missing because of the card's limit, because there is not
 enough memory, or because the match is a shared game. A tilt-shift needs
@@ -200,6 +211,43 @@ larger sizes say Shared game.
 While a picture is held, the photo is that Screen copy whatever the rows
 said, and both rows are locked with Held picture. The file name is words,
 not a button. Take photo is the lime button.
+
+## Posters
+
+Poster shares the Size row. It takes the area the view shows, an area marked
+on the battlefield, or the whole map, at the game's own scale: one pixel
+of the picture is one pixel of the map. Smooth edges stays off. While Poster
+is the picture, The view, Area and Whole map are the next row, and the
+chosen one's pixels are written on that row.
+
+While Area is chosen, a drag on the battlefield marks the area it covers.
+On a phone a one-finger drag marks, and two fingers pan. A click that does
+not drag keeps the mark. M, or L1, marks the area the view shows. The
+arrow keys, or the left stick, grow the mark: each moves only its own
+edge, and stops at the map's edge. A mark is at least 64 pixels on a side.
+To mark more than the view shows, zoom out first. The rectangle is drawn
+with the guides, and a photo does not include it. Until a mark is made,
+Area is the view.
+
+It is offered in a match on this machine and in a replay, while the picture
+is frozen. A moving picture says Freeze the picture. A shared match says
+Shared game. The turned view says a poster is the map from above, and names
+the chord bound to Classic view. Choosing a size again leaves the poster
+and comes back to that size.
+
+Off and Basic draw the poster in strips, each the picture a photo of that
+ground would show, with the player's own fog and the effects the processor
+draws. Full classic draws it in pieces and joins them, at the same scale,
+the way a photo larger than the card is joined. The poster is kept whole
+while it is saved. An area past 16384 pixels on a side, or one there is not
+enough memory to hold, is not offered, and the row says why. A look is
+painted once on the whole poster, and haze follows the poster's own ground.
+Grain and the tilt-shift's band keep the size against the ground that the
+preview shows. A poster's pixel is a map pixel, so they grow by one over
+the window's zoom (twice at zoom 0.5), whatever the poster's width, and
+the file records both the panel's sizes and those pixels. Sight, the
+clock and the messages stay as they were. The saved file records the
+poster's width and height, and the camera at the poster's corner with zoom 1.
 
 Chips at the top left say where you are. A skirmish shows Photo mode,
 Frozen or Slow, and the clock. A replay shows Replay paused, the clock and
@@ -252,7 +300,8 @@ Full reads the window's pixels and those are finer than the layout, as at a
 pixel density above 1, the Screen photo and the preview both draw the
 grain, the tilt-shift and the haze step at the picture's width over the
 battlefield's, rounded to a whole factor, so they cover the ground they
-cover at density 1. A crop is cut before the look, so the frame, the vignette and the grain sit on the crop, and the
+cover at density 1. A crop is cut before the look, so the frame, the
+vignette and the grain sit on the crop, and the
 preview paints them there too, leaving the battlefield outside the crop as
 it is. With no look on, the preview and the photo match a visit that never
 offered one. Guides stay over the battlefield and out of the photo. The

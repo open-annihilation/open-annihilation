@@ -1683,8 +1683,17 @@ bool Runtime::draw_match_surface() {
     };
     // Past the tier's floor a unit is a few pixels at most: the margin
     // keeps to the map pixels a large unit and its shadow reach.
+    // A turned-view tile's picture is one piece. Units in the rest of the
+    // photo still belong in the scene, which is packed once for the whole
+    // photo (photo_tile_frame_).
+    const int shown_w = photo_tile_frame_ && photo_tile_whole_width_ > 0
+                            ? static_cast<int>(photo_tile_whole_width_)
+                            : bf_w;
+    const int shown_h = photo_tile_frame_ && photo_tile_whole_height_ > 0
+                            ? static_cast<int>(photo_tile_whole_height_)
+                            : bf_h;
     const auto cull_margin =
-        live_renderer_active() ? 2 * std::max(bf_w, bf_h) + kLeastCullMargin
+        live_renderer_active() ? 2 * std::max(shown_w, shown_h) + kLeastCullMargin
         : far ? static_cast<int>(
                     std::ceil(kFarCullMarginMapPixels * static_cast<double>(match_zoom()))
                 )
@@ -1696,9 +1705,9 @@ bool Runtime::draw_match_surface() {
                 );
     const auto on_battlefield = [&](int x, int y) {
         return x >= viewport.destination_x - cull_margin &&
-               x < viewport.destination_x + bf_w + cull_margin &&
+               x < viewport.destination_x + shown_w + cull_margin &&
                y >= viewport.destination_y - cull_margin &&
-               y < viewport.destination_y + bf_h + cull_margin;
+               y < viewport.destination_y + shown_h + cull_margin;
     };
     sync_dead_feature_draws();
     // The model of a weapon registry slot's shots, loaded on first use.

@@ -3,7 +3,8 @@
 Names a photo of the battlefield, builds the text the file carries
 about the map, the players and the moment, decides which sizes the
 battlefield can offer, splits a Full photo into tiles when the card
-cannot draw it in one piece, and filters a picture for a look, including
+cannot draw it in one piece, decides which poster of the map can be
+offered, and filters a picture for a look, including
 a tilt-shift and haze by ground height. The module opens no file and no
 font:
 a caption is drawn with a face stack the caller passes.
@@ -56,6 +57,20 @@ a caption is drawn with a face stack the caller passes.
   and its sums (`Machine::look_bytes`, at most `kLookScratchBytes`) are
   counted with the picture, at every size.
 
+`oa/present/photo/photo_poster.hpp`, same namespace:
+
+- `plan_poster` offers the view, a marked area and the whole map, at one
+  map pixel a picture pixel. A shared match, the turned view, a held
+  picture and a picture that is still moving lock the button.
+- A side past 16384 is not offered, and neither is a picture the memory
+  still free cannot hold. The poster is counted until its file is written,
+  the PNG writer's copies with it (`kPosterBytesPerPixel`). Full classic
+  pays for that and one tile, or for the whole target when the poster fits
+  in one piece.
+- `poster_strips` splits a processor poster into views. Down the map, every
+  strip but the last is a whole number of 16-pixel rows from the area's top,
+  so a unit stays on the row a photo of that ground would use.
+
 `oa/present/photo/photo_tiles.hpp`, same namespace:
 
 - `plan_tiles` splits a photo of W×H at a zoom into tiles. Each tile's
@@ -100,7 +115,10 @@ a caption is drawn with a face stack the caller passes.
 - Grain is seeded by the caller. The same seed writes the same grain.
 - `photo_grain_size` scales the panel's grain size by a photo's size
   factor, so a photo two to four times the battlefield draws grain the
-  size the preview shows.
+  size the preview shows. A poster uses its pixels over the preview's for
+  the same ground, one over the window's zoom whatever the poster's width,
+  past four when the window is zoomed out further, and the file records
+  `grain_size` with `grain_pixels` and the tilt band the same way.
 - The work runs in bands of 32 rows on `oa::platform::job_pool::run_bands`.
   The bands follow the rows, so the picture does not depend on how many
   threads the pool has. A null pool runs on the caller.
@@ -123,7 +141,8 @@ picture it was given.
   to the bar.
 - Grain size is a count of pixels of the picture `apply_look` is given.
   The caller passes `photo_grain_size` for a photo larger than the
-  battlefield, so its grain covers the same part of the map as the
+  battlefield, and for a poster by its pixels over the preview's for the
+  same ground, so its grain covers the same part of the map as the
   preview's. Box-reduced by its factor, a whole-pixel picture with the
   scaled grain is the preview's look.
 - A Full photo the card can draw in one piece is one tile with no border.
@@ -173,13 +192,20 @@ After cropping, the tiles cover the photo exactly once. Each tile's
 target is within the limit, each border is at least the reach, and each
 tile starts on a whole map pixel. A photo the card can draw whole is one
 borderless tile. A picture past 16384 photo pixels a side, and a photo
-whose border does not fit the card, are not tiled.
+whose border does not fit the card, are not tiled. It also checks the
+turned view: a photo past one frame is split so each tile's draw is at
+most 4096, the border covers the lights, heat and the blur, and the kept
+pieces still cover the photo once. A turned tile is also no longer than the
+machine's square tile limit, the largest square that keeps the window's
+sampling (`turned_tile_draw_limit`), since a tile is squarer than the window.
+Its colour viewport stays within the card's largest viewport: when the
+whole photo's viewport is wider, the projection is offset onto the tile.
 
 ## Limitations
 
 The module does not draw a tile. The caller draws each one the way it
 draws a whole Full photo, crops the border and places the kept piece.
-The turned view is not split here.
+The turned view's tiles are planned here too. The caller draws each one.
 
 The module does not choose a folder, write a file, or encode a picture.
 The caller decides the path budget, which is the system's longest path

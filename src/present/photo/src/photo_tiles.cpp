@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Splits a Full classic photo into tiles whose targets fit the card, with a
-// border on every inner edge for the passes that read neighbouring pixels.
+// Splits a photo into tiles when one piece cannot hold it. Full classic tiles
+// to the card's texture. The turned view tiles to the live renderer's edge,
+// with a border for the lights, heat and depth-of-field blur.
 #include "oa/present/photo/photo_tiles.hpp"
 
 #include "oa/present/photo/photo_sizes.hpp"
@@ -323,6 +324,136 @@ bool make_tile(
     return true;
 }
 
+/// The least common multiple of two positive steps.
+///
+/// @param left one step
+/// @param right the other
+/// @return the multiple, or the largest count when it would not fit
+int32_t lowest_common_multiple(int32_t left, int32_t right) {
+    if (left <= 0 || right <= 0)
+        return 0;
+    int32_t a = left;
+    int32_t b = right;
+    while (b != 0) {
+        const int32_t rest = a % b;
+        a = b;
+        b = rest;
+    }
+    if (a <= 0)
+        return 0;
+    const int64_t multiple = (static_cast<int64_t>(left) / a) * right;
+    if (multiple > std::numeric_limits<int32_t>::max())
+        return std::numeric_limits<int32_t>::max();
+    return static_cast<int32_t>(multiple);
+}
+
+/// The longest side one turned-view tile may draw. Zero means the live edge.
+///
+/// @param draw_limit the sampling edge, or 0
+/// @return the side, at most 4096
+int32_t turned_draw_cap(int32_t draw_limit) {
+    if (draw_limit <= 0)
+        return kTurnedEdge;
+    return std::min(draw_limit, kTurnedEdge);
+}
+
+/// The whole turned-view photo as one tile with no border. The camera stays
+/// where it is, so the map shift is zero.
+///
+/// @param width the photo
+/// @param height the photo
+/// @return the tile
+Tile turned_whole_tile(int32_t width, int32_t height) {
+    Tile tile;
+    tile.width = width;
+    tile.height = height;
+    tile.draw_width = width;
+    tile.draw_height = height;
+    tile.target_width = width;
+    tile.target_height = height;
+    tile.texture_edge = std::max(width, height);
+    return tile;
+}
+
+/// The largest kept span a turned-view tile can draw, on the light grid.
+///
+/// @param width the photo
+/// @param height the photo
+/// @param tile_edge the check's kept edge, or 0
+/// @param border the inner border, already on the light grid
+/// @param step the light grid, in photo pixels
+/// @param cap the longest draw
+/// @return the span, or 0 when no tile fits
+int32_t turned_content(
+    int32_t width, int32_t height, int32_t tile_edge, int32_t border, int32_t step, int32_t cap
+) {
+    if (step <= 0 || cap <= 0 || border < 0)
+        return 0;
+    const int64_t both = static_cast<int64_t>(border) * 2;
+    if (both >= cap)
+        return 0;
+    const int32_t room = cap - static_cast<int32_t>(both);
+    int32_t span = std::max(width, height);
+    if (tile_edge > 0)
+        span = std::min(span, snap_down(tile_edge, step));
+    span = std::min(span, room);
+    span = snap_down(span, step);
+    if (span < step)
+        return 0;
+    return span;
+}
+
+/// One turned-view tile. Its draw starts on a light square and stays within
+/// the cap. The map shift stays zero: the runtime moves the projection.
+///
+/// @param column the kept columns
+/// @param row the kept rows
+/// @param width the photo
+/// @param height the photo
+/// @param border the inner border
+/// @param step the light grid
+/// @param cap the longest draw
+/// @param[out] tile the tile
+/// @return false when the draw would start off the photo or pass the cap
+bool make_turned_tile(
+    Span column,
+    Span row,
+    int32_t width,
+    int32_t height,
+    int32_t border,
+    int32_t step,
+    int32_t cap,
+    Tile& tile
+) {
+    tile = {};
+    tile.x = column.origin;
+    tile.y = row.origin;
+    tile.width = column.length;
+    tile.height = row.length;
+    tile.border_left = column.origin == 0 ? 0 : border;
+    tile.border_right = column.origin + column.length == width ? 0 : border;
+    tile.border_top = row.origin == 0 ? 0 : border;
+    tile.border_bottom = row.origin + row.length == height ? 0 : border;
+    tile.draw_x = tile.x - tile.border_left;
+    tile.draw_y = tile.y - tile.border_top;
+    if (tile.draw_x < 0 || tile.draw_y < 0 || tile.width <= 0 || tile.height <= 0)
+        return false;
+    const int64_t draw_width =
+        static_cast<int64_t>(tile.width) + tile.border_left + tile.border_right;
+    const int64_t draw_height =
+        static_cast<int64_t>(tile.height) + tile.border_top + tile.border_bottom;
+    if (draw_width > cap || draw_height > cap)
+        return false;
+    tile.draw_width = static_cast<int32_t>(draw_width);
+    tile.draw_height = static_cast<int32_t>(draw_height);
+    if (step <= 0 || tile.draw_x % step != 0 || tile.draw_y % step != 0)
+        return false;
+    tile.target_width = tile.draw_width;
+    tile.target_height = tile.draw_height;
+    tile.texture_edge = std::max(tile.draw_width, tile.draw_height);
+    return true;
+}
+
 } // namespace
 
 int32_t tile_border(TileReach reach) {
@@ -410,6 +541,64 @@ bool draws_whole(const TilePlan& plan, int32_t width, int32_t height) {
     return tile.x == 0 && tile.y == 0 && tile.width == width && tile.height == height &&
            tile.border_left == 0 && tile.border_top == 0 && tile.border_right == 0 &&
            tile.border_bottom == 0;
+}
+
+int32_t turned_tile_border(int32_t blur) {
+    const int64_t sum = static_cast<int64_t>(kLiveLightTile) + kHeatBorder + non_negative(blur);
+    if (sum > std::numeric_limits<int32_t>::max())
+        return std::numeric_limits<int32_t>::max();
+    return static_cast<int32_t>(sum);
+}
+
+TilePlan plan_turned_tiles(const TurnedTileRequest& request) {
+    TilePlan plan;
+    TurnedTileRequest sane = request;
+    if (!(sane.zoom > 0.0F))
+        sane.zoom = 1.0F;
+    sane.tile_edge = std::max(sane.tile_edge, int32_t{0});
+    sane.blur = non_negative(sane.blur);
+    if (sane.width <= 0 || sane.height <= 0)
+        return plan;
+
+    int32_t cap = turned_draw_cap(sane.draw_limit);
+    limit_turned_draw(cap, sane.viewport_limit, sane.viewport_samples);
+    const bool fits_one = sane.width <= cap && sane.height <= cap;
+    const bool forced =
+        sane.tile_edge > 0 && (sane.width > sane.tile_edge || sane.height > sane.tile_edge);
+    if (fits_one && !forced) {
+        plan.tiles.push_back(turned_whole_tile(sane.width, sane.height));
+        plan.fits = true;
+        return plan;
+    }
+    if (sane.width > kProcessorEdge || sane.height > kProcessorEdge)
+        return plan;
+
+    const GridStep grid = photo_grid(sane.zoom);
+    const int32_t step = lowest_common_multiple(grid.pixels, kLiveLightTile);
+    const int32_t border = snap_up(turned_tile_border(sane.blur), step);
+    plan.border = border;
+    const int32_t content =
+        turned_content(sane.width, sane.height, sane.tile_edge, border, step, cap);
+    if (content <= 0)
+        return plan;
+    const std::vector<Span> columns = split_side(sane.width, content);
+    const std::vector<Span> rows = split_side(sane.height, content);
+    if (columns.empty() || rows.empty())
+        return plan;
+    plan.tiles.reserve(columns.size() * rows.size());
+    for (const Span& row : rows) {
+        for (const Span& column : columns) {
+            Tile tile;
+            if (!make_turned_tile(column, row, sane.width, sane.height, border, step, cap, tile)) {
+                plan.tiles.clear();
+                plan.border = 0;
+                return plan;
+            }
+            plan.tiles.push_back(tile);
+        }
+    }
+    plan.fits = !plan.tiles.empty();
+    return plan;
 }
 
 } // namespace oa::present::photo

@@ -96,5 +96,11 @@ inline constexpr std::string_view haze_note = "Follows the ground, not the units
 inline constexpr std::string_view depth_of_field = "Depth of field";
 inline constexpr std::string_view needs_full_3d = "Needs Full 3D Mode";
 inline constexpr std::string_view no_depth = "This graphics card keeps no depth.";
+inline constexpr std::string_view poster = "Poster";
+inline constexpr std::string_view the_view = "The view";
+inline constexpr std::string_view area = "Area";
+inline constexpr std::string_view freeze_the_picture = "Freeze the picture";
+inline constexpr std::string_view poster_above =
+    "A poster is the map from above: Classic view, {key}";
 
 } // namespace oa::ui::photo_panel::words

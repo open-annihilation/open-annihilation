@@ -565,9 +565,31 @@ void PadAccess::tick_pointer(
                 const auto step =
                     static_cast<float>(frame_pacing::scroll_distance(speed, elapsed_ns)) *
                     deflection * deflection;
-                runtime.pan_match_camera_by(
-                    pan_stick.x / length * step, pan_stick.y / length * step
-                );
+                // While Area is the picture the left stick grows the mark
+                // and does not pan. Each axis grows its own edge by its own
+                // push past the dead zone, so a push a little off straight
+                // grows the mark only that way.
+                if (runtime.photo_poster_takes_drag()) {
+                    const auto grow_by = [&](float part) {
+                        const float axis = pc::stick_deflection({part, 0.0F});
+                        if (axis <= 0.0F)
+                            return int32_t{0};
+                        const double moved =
+                            static_cast<double>(frame_pacing::scroll_distance(speed, elapsed_ns)) *
+                            static_cast<double>(axis * axis);
+                        return std::max(static_cast<int32_t>(std::lround(moved)), int32_t{1});
+                    };
+                    const int32_t across_by = grow_by(pan_stick.x);
+                    const int32_t down_by = grow_by(pan_stick.y);
+                    if (across_by > 0)
+                        runtime.photo_poster_grow(pan_stick.x < 0.0F ? -1 : 1, 0, across_by);
+                    if (down_by > 0)
+                        runtime.photo_poster_grow(0, pan_stick.y < 0.0F ? -1 : 1, down_by);
+                } else {
+                    runtime.pan_match_camera_by(
+                        pan_stick.x / length * step, pan_stick.y / length * step
+                    );
+                }
             }
             const float y_deflection = pc::stick_deflection({0.0F, point_stick.y});
             if (y_deflection > 0.0F) {

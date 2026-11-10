@@ -638,7 +638,7 @@ if(OA_BUILD_PLATFORM)
   target_link_libraries(oa-app-renderer-live PUBLIC SDL3::SDL3 oa-app-headers
     oa-app-full-models oa-formats-tnt oa-app-renderer-water oa-platform-job-pool
     oa-app-renderer-effects
-    PRIVATE oa-present oa-sim-visibility-state oa-options)
+    PRIVATE oa-present oa-present-photo oa-sim-visibility-state oa-options)
   if(BUILD_TESTING)
     foreach(oa_live_part camera scene gpu lights overlay)
       add_executable(oa-app-renderer-live-${oa_live_part}-test
@@ -1445,6 +1445,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
   src/app/photo_camera.cpp src/app/runtime_photo_mode.cpp src/app/runtime_photo_panel.cpp
   src/app/runtime_photo_capture.cpp src/app/runtime_photo_sizes.cpp
+  src/app/runtime_photo_poster.cpp
   src/app/runtime_photo_looks.cpp src/app/photo_writer.cpp src/app/photo_clipboard.cpp
   src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
@@ -3810,6 +3811,33 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         PASS_REGULAR_EXPRESSION "photo sizes full: ok"
         FAIL_REGULAR_EXPRESSION "photo sizes failed:")
+      # A poster two views wide at 1:1 equals two photos of that frozen tick
+      # placed side by side. The processor draws it. The picture is not pinned.
+      set(oa_photo_poster_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-poster")
+      file(MAKE_DIRECTORY "${oa_photo_poster_dir}/user")
+      add_test(NAME native-photo-poster COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo poster
+        --user-folder "${oa_photo_poster_dir}/user"
+        --preferences-file "${oa_photo_poster_dir}/photo-poster.conf")
+      set_tests_properties(native-photo-poster PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_poster_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo poster: equal"
+        FAIL_REGULAR_EXPRESSION "photo poster failed:")
+      # The same poster drawn by Full in tiles, on SDL's software renderer.
+      # Held to the two photos within the tile bound. The picture is not pinned.
+      set(oa_photo_poster_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-poster-full")
+      file(MAKE_DIRECTORY "${oa_photo_poster_full_dir}/user")
+      add_test(NAME native-photo-poster-full COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo poster
+        --hardware-acceleration=full --force-capable
+        --user-folder "${oa_photo_poster_full_dir}/user"
+        --preferences-file "${oa_photo_poster_full_dir}/photo-poster.conf")
+      set_tests_properties(native-photo-poster-full PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_poster_full_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo poster full: ok"
+        FAIL_REGULAR_EXPRESSION "photo poster failed:")
       # One frozen Full frame drawn whole and again in tiles. The pictures
       # match within 0.01% of their pixels, with no seam along a tile edge,
       # and within 0.5% at a photo zoom below 1 on SDL's software renderer.
@@ -3840,6 +3868,21 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_AUDIO_DRIVER=dummy"
         SKIP_RETURN_CODE 77
         PASS_REGULAR_EXPRESSION "photo tiles full: ok"
+        FAIL_REGULAR_EXPRESSION "photo tiles failed:")
+      # A turned-view photo drawn whole and again in tiles, on the system's
+      # video driver. No device skips. A 4096 photo must match four tiles of
+      # 2048 with no differing pixel on a tile edge.
+      set(oa_photo_tiles_live_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-tiles-live")
+      file(MAKE_DIRECTORY "${oa_photo_tiles_live_dir}/user")
+      add_test(NAME native-photo-tiles-live COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo tiles-live --hardware-acceleration=full
+        --user-folder "${oa_photo_tiles_live_dir}/user"
+        --preferences-file "${oa_photo_tiles_live_dir}/photo-tiles-live.conf")
+      set_tests_properties(native-photo-tiles-live PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_tiles_live_dir}"
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy"
+        SKIP_RETURN_CODE 77
+        PASS_REGULAR_EXPRESSION "photo tiles live: ok"
         FAIL_REGULAR_EXPRESSION "photo tiles failed:")
       # The turned view at Enhanced anti-aliasing 4×, on the system video
       # driver. No device skips.
@@ -5913,10 +5956,22 @@ if(BUILD_TESTING)
     # native-, and this check has to stay in the ordinary run.
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_online.py
       ${CMAKE_CURRENT_BINARY_DIR}/check_offline_launches.py COPYONLY)
+    # The registered tests come from a listing ctest writes first, through
+    # CMake (tools/write_test_listing.cmake), so the check also runs where its
+    # Python cannot start ctest: Windows Python under Wine cannot start a
+    # Linux ctest. A cross build's tests may start the game through a runner,
+    # which the listing names before the game; the check reads the game there
+    # too.
+    set(oa_online_listing "${CMAKE_CURRENT_BINARY_DIR}/online-check/listing-$<CONFIG>.json")
+    add_test(NAME check-native-online-listing COMMAND ${CMAKE_COMMAND}
+      -DCTEST=${CMAKE_CTEST_COMMAND} -DBUILD=${CMAKE_CURRENT_BINARY_DIR} "-DCONFIG=$<CONFIG>"
+      "-DOUT=${oa_online_listing}" -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/write_test_listing.cmake)
     add_test(NAME check-native-online COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_BINARY_DIR}/check_offline_launches.py
-      --root ${CMAKE_CURRENT_SOURCE_DIR} --ctest ${CMAKE_CTEST_COMMAND}
-      --build ${CMAKE_CURRENT_BINARY_DIR} --config "$<CONFIG>")
+      --root ${CMAKE_CURRENT_SOURCE_DIR} --listing "${oa_online_listing}")
+    set_tests_properties(check-native-online-listing PROPERTIES
+      FIXTURES_SETUP online-check-listing TIMEOUT 120)
+    set_tests_properties(check-native-online PROPERTIES FIXTURES_REQUIRED online-check-listing)
     add_test(NAME style-ratchet-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_style_test.py)
     set_tests_properties(style-ratchet style-ratchet-selftest PROPERTIES TIMEOUT 300)

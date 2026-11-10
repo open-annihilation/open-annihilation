@@ -158,9 +158,28 @@ void TouchDispatchAccess::photo_battlefield_gestures(
         const auto& gesture = batch.items[index];
         switch (gesture.kind) {
         case gestures::GestureKind::drag_began:
+            // While Area is the picture a one-finger drag marks it. A click
+            // that does not move keeps the mark that was already there.
+            if (runtime.photo_poster_takes_drag()) {
+                // The drag is recognised after the finger has already moved,
+                // so the press is the finger's start, not this point.
+                runtime.photo_poster_drag_begin(gesture.start_x, gesture.start_y);
+            } else
+                runtime.pan_match_camera_by(-gesture.dx, -gesture.dy);
+            break;
         case gestures::GestureKind::drag_moved:
+            if (runtime.photo_poster_takes_drag())
+                runtime.photo_poster_drag_move(gesture.x, gesture.y);
+            else
+                runtime.pan_match_camera_by(-gesture.dx, -gesture.dy);
+            break;
+        case gestures::GestureKind::drag_ended:
+        case gestures::GestureKind::cancelled:
+            runtime.photo_poster_drag_end();
+            break;
         case gestures::GestureKind::pan_began:
         case gestures::GestureKind::pan_moved:
+            // Two fingers still pan, including while a mark is being grown.
             runtime.pan_match_camera_by(-gesture.dx, -gesture.dy);
             break;
         case gestures::GestureKind::pinch_moved:
@@ -175,14 +194,12 @@ void TouchDispatchAccess::photo_battlefield_gestures(
         case gestures::GestureKind::tap:
         case gestures::GestureKind::hold_started:
         case gestures::GestureKind::hold_released:
-        case gestures::GestureKind::drag_ended:
         case gestures::GestureKind::pan_ended:
         case gestures::GestureKind::pinch_began:
         case gestures::GestureKind::pinch_ended:
         case gestures::GestureKind::twist_began:
         case gestures::GestureKind::twist_ended:
         case gestures::GestureKind::two_finger_tap:
-        case gestures::GestureKind::cancelled:
             break;
         }
     }

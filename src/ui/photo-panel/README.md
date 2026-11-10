@@ -67,6 +67,10 @@ row, so the reach does not take Leave or Take photo across that part.
 - A locked control stays reachable. Its reason is on the next line, and the
   full reason is the control's text. The zoom's track stays wide enough to
   use; the tier's limit is that next line, only at the far stop.
+- Poster shares the Size row when its caption is set. While it is the
+  picture, The view, Area and Whole map are the next row, and a marked
+  rectangle is drawn with the guides. An empty caption leaves the button
+  off.
 - Guides are drawn only by `draw_panel`. A photo does not call it.
 - The focus ring is the kit's ring, and `shown_list` adds it only once the
   kit would draw it.

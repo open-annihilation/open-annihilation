@@ -1016,6 +1016,7 @@ void layer_tables() {
                         row(PadButton::b, Action::photo_leave),
                         row(PadButton::x, Action::photo_freeze),
                         row(PadButton::y, Action::photo_panel),
+                        row(PadButton::l1, Action::photo_mark),
                         row(PadButton::dpad_up, Action::focus_up),
                         row(PadButton::dpad_right, Action::focus_right),
                         row(PadButton::dpad_down, Action::focus_down),
@@ -1136,6 +1137,7 @@ void chords_for_every_badge() {
     OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_leave), PadButton::none, PadButton::b));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_freeze), PadButton::none, PadButton::x));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_panel), PadButton::none, PadButton::y));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_mark), PadButton::none, PadButton::l1));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::left_button), PadButton::none, PadButton::r2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::right_button), PadButton::none, PadButton::l2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::order_ring), PadButton::none, PadButton::r1));

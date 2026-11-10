@@ -5,7 +5,7 @@
 # of a Full photo past the card, and a look over its picture, including a
 # tilt-shift and haze by ground height.
 add_library(oa-present-photo src/photo_file_name.cpp src/photo_sizes.cpp src/photo_tiles.cpp
-  src/photo_texts.cpp src/looks.cpp)
+  src/photo_poster.cpp src/photo_texts.cpp src/looks.cpp)
 add_library(oa::present::photo ALIAS oa-present-photo)
 target_include_directories(oa-present-photo PUBLIC include)
 target_compile_features(oa-present-photo PUBLIC cxx_std_20)
@@ -25,6 +25,10 @@ if(BUILD_TESTING)
   add_executable(oa-present-photo-sizes-test tests/photo_sizes_test.cpp)
   target_link_libraries(oa-present-photo-sizes-test PRIVATE oa-present-photo)
   add_test(NAME present-photo-sizes COMMAND oa-present-photo-sizes-test)
+
+  add_executable(oa-present-photo-poster-test tests/photo_poster_test.cpp)
+  target_link_libraries(oa-present-photo-poster-test PRIVATE oa-present-photo)
+  add_test(NAME present-photo-poster COMMAND oa-present-photo-poster-test)
 
   add_executable(oa-present-photo-tiles-test tests/photo_tiles_test.cpp)
   target_link_libraries(oa-present-photo-tiles-test PRIVATE oa-present-photo)

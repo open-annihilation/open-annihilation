@@ -100,6 +100,11 @@ inline constexpr std::string_view interface_words[] = {
     words::depth_of_field,
     words::needs_full_3d,
     words::no_depth,
+    words::poster,
+    words::the_view,
+    words::area,
+    words::freeze_the_picture,
+    words::poster_above,
 };
 
 } // namespace oa::ui::photo_panel

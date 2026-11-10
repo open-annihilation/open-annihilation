@@ -178,8 +178,9 @@ The first press of the D-pad shows the focus ring, and the D-pad then moves
 through the panel: left and right change a switch, a slider or Run, Slow
 and Freeze, and A presses a focused button, as Enter does. The ring then
 goes, so the next A takes the photo. The left stick pans. The right stick
-zooms up and down, and turns left and right when the view can turn. The
-grips do nothing.
+zooms up and down, and turns left and right when the view can turn. While
+Area is the picture, L1 starts a mark at the centre of the view and the
+left stick grows it. The grips do nothing.
 Letting go of View gives no order. While a replay plays, L2 still changes
 its speed until photo mode is open.
 

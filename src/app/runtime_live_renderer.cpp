@@ -128,6 +128,9 @@ struct Runtime::LiveRenderer {
     double pulled_x{};
     double pulled_z{};
     renderer_live_scene::Scene scene{};
+    /// The window's scene, set aside while a turned photo packs its own
+    /// from a fresh one, and put back before the window's frame is drawn.
+    std::optional<renderer_live_scene::Scene> parked_scene{};
     bool scene_built{}; ///< the last frame's scene was built
     renderer_live_gpu::Context gpu{};
     std::vector<uint8_t> rgba{};
@@ -1073,6 +1076,7 @@ bool Runtime::render_live_match_surface() {
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
         live.scene = {};
+        live.parked_scene.reset();
         live.drawn = {};
         live.pivot_held = false;
         live.match = match_.get();
@@ -1080,19 +1084,43 @@ bool Runtime::render_live_match_surface() {
         live.unavailable = false;
         live.classic_kept = false;
     }
+    // A turned photo packs from a fresh scene, so one drawn whole and the
+    // same one drawn in tiles start from the same ground. The window's
+    // scene is put back before its frame is drawn again. The card still
+    // holds the photo's atlas, so the restored revision moves on and that
+    // frame is sent whole.
+    if (live.parked_scene.has_value() && !photo_isolate_scene_) {
+        live.scene = std::move(*live.parked_scene);
+        live.parked_scene.reset();
+        live.scene.texture_revision += 0x100000ULL;
+        live.scene_built = true;
+    }
+    if (photo_isolate_scene_ && !live.parked_scene.has_value()) {
+        live.parked_scene = std::move(live.scene);
+        live.scene = {};
+        live.scene_built = false;
+    }
     const auto& map = *selected_tnt_;
     // A turn from a classic place past this zoom's limits is pulled in
     // before the frame is built, including a turn that did not pass through
     // a drag. Turning back puts that classic place back before a classic
     // frame is taken from it.
-    if (live_renderer_active() && !live.failed)
+    // A turned-view tile keeps the photo's camera. Pulling it in for the
+    // tile's smaller picture would show a different part of the map.
+    if (live_renderer_active() && !live.failed && !photo_tile_frame_)
         pull_place_for_turned_view();
     else if (!live_renderer_active())
         restore_classic_place_after_turn();
     const auto place = match_view_place();
     const float zoom = match_zoom();
-    const float width = static_cast<float>(match_layout_.battlefield_width());
-    const float height = static_cast<float>(match_layout_.battlefield_height());
+    // A tile's picture is one piece. The view is the whole photo's, and the
+    // projection is shifted onto the tile after the scene is packed.
+    const bool tiling = photo_tile_frame_ && photo_capture_live_ && photo_tile_whole_width_ > 0 &&
+                        photo_tile_whole_height_ > 0;
+    const float width = tiling ? static_cast<float>(photo_tile_whole_width_)
+                               : static_cast<float>(match_layout_.battlefield_width());
+    const float height = tiling ? static_cast<float>(photo_tile_whole_height_)
+                                : static_cast<float>(match_layout_.battlefield_height());
     const float focus_x = static_cast<float>(place[0]) + width / (2 * zoom);
     const float focus_y = static_cast<float>(place[1]) + height / (2 * zoom);
     float elevation{};
@@ -1180,8 +1208,13 @@ bool Runtime::render_live_match_surface() {
         inputs.models_on_card = live_models_on_card();
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
-        inputs.clip_width = match_world_cpu_.width;
-        inputs.clip_height = match_world_cpu_.height;
+        if (tiling) {
+            inputs.clip_width = static_cast<uint32_t>(photo_tile_whole_width_);
+            inputs.clip_height = static_cast<uint32_t>(photo_tile_whole_height_);
+        } else {
+            inputs.clip_width = match_world_cpu_.width;
+            inputs.clip_height = match_world_cpu_.height;
+        }
         inputs.camera_x = models.renderer.camera_x;
         inputs.camera_y = models.renderer.camera_y;
         std::copy_n(
@@ -1227,10 +1260,19 @@ bool Runtime::render_live_match_surface() {
         Span building(Stage::scene_build);
         // A frame a check draws again on the card takes the scene drawn
         // last, unchanged, so that the frames after it are as they would be.
-        const bool built = turned_overlay_checked_
-                               ? live.scene_built
-                               : renderer_live_scene::build(inputs, live.scene, error);
+        // A turned-view photo packs the scene once, for the whole photo.
+        // Later tiles draw that packing, so the detail does not change
+        // where the tiles meet.
+        const bool built =
+            tiling && photo_tile_hold_scene_ && live.scene_built
+                ? true
+                : (turned_overlay_checked_ ? live.scene_built
+                                           : renderer_live_scene::build(inputs, live.scene, error));
         live.scene_built = built;
+        if (tiling) {
+            live.projection[3] -= static_cast<float>(photo_tile_shift_x_);
+            live.projection[7] -= static_cast<float>(photo_tile_shift_y_);
+        }
         building.stop();
         bench_timers::note_scene(
             {static_cast<double>(live.scene.vertices.size()),
@@ -1258,8 +1300,9 @@ bool Runtime::render_live_match_surface() {
         // so that it adds them; a card that cannot leaves them to the
         // processor, which adds them to the picture read back.
         Span lighting(Stage::effects);
+        const float effect_row = tiling ? static_cast<float>(photo_tile_shift_y_) : 0.0F;
         const auto lights = project_match_effects(
-            match_world_cpu_.width, match_world_cpu_.height, 0, 0, 1, 1, true
+            match_world_cpu_.width, match_world_cpu_.height, 0, 0, 1, 1, true, effect_row
         );
         const renderer_live_gpu::Lights card_lights{
             lights, match_effect_settings(), static_cast<double>(match_->simulation().tick) / 30.0
@@ -1286,7 +1329,7 @@ bool Runtime::render_live_match_surface() {
         // The ground under the middle of the window, remembered for the
         // depth pass. A photo drawn larger than the window keeps this point:
         // its own picture was not what the frame before projected.
-        if (photo_mode() && photo_ != nullptr && !photo_capture_live_ &&
+        if (photo_mode() && photo_ != nullptr && !photo_capture_live_ && !photo_tile_frame_ &&
             live.projected_width == match_layout_.width &&
             live.projected_height == match_layout_.height) {
             const float centre_x = static_cast<float>(match_layout_.left) +
@@ -1347,31 +1390,69 @@ bool Runtime::render_live_match_surface() {
         }
         const auto model_draws =
             renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
+        // The lights were placed in the tile. The card draws the whole
+        // photo's pixels and clips them to the tile, so a vertex rounds
+        // where it does in the photo drawn whole. Putting the shift back
+        // leaves that projection for the card.
+        if (tiling) {
+            live.projection[3] += static_cast<float>(photo_tile_shift_x_);
+            live.projection[7] += static_cast<float>(photo_tile_shift_y_);
+            live.gpu.tile_origin_x = static_cast<uint32_t>(photo_tile_shift_x_);
+            live.gpu.tile_origin_y = static_cast<uint32_t>(photo_tile_shift_y_);
+            live.gpu.tile_span_x = static_cast<uint32_t>(photo_tile_whole_width_);
+            live.gpu.tile_span_y = static_cast<uint32_t>(photo_tile_whole_height_);
+        }
+        live.gpu.viewport_limit = photo_check_viewport_limit_ > 0
+                                      ? static_cast<uint32_t>(photo_check_viewport_limit_)
+                                      : 0U;
         Span drawing(Stage::gpu_total);
-        const auto result = built ? renderer_live_gpu::render(
-                                        live.gpu,
-                                        live.scene.vertices,
-                                        live.scene.texture_rgba,
-                                        live.scene.texture_width,
-                                        live.scene.texture_height,
-                                        live.scene.texture_revision,
-                                        match_world_cpu_.width,
-                                        match_world_cpu_.height,
-                                        live.projection,
-                                        live.rgba,
-                                        error,
-                                        static_cast<uint32_t>(engine_settings().anti_aliasing),
-                                        &live.scene.atlas_update,
-                                        &inputs.water,
-                                        &ground,
-                                        rebuild_picking,
-                                        &card_lights,
-                                        &model_draws,
-                                        depth_ptr
-                                    )
-                                  : renderer_live_gpu::Result::failed;
-        live.projected_width = match_layout_.width;
-        live.projected_height = match_layout_.height;
+        const auto result = built
+                                ? renderer_live_gpu::render(
+                                      live.gpu,
+                                      live.scene.vertices,
+                                      live.scene.texture_rgba,
+                                      live.scene.texture_width,
+                                      live.scene.texture_height,
+                                      live.scene.texture_revision,
+                                      match_world_cpu_.width,
+                                      match_world_cpu_.height,
+                                      live.projection,
+                                      live.rgba,
+                                      error,
+                                      tiling && photo_tile_supersample_ > 0
+                                          ? photo_tile_supersample_
+                                          : static_cast<uint32_t>(engine_settings().anti_aliasing),
+                                      &live.scene.atlas_update,
+                                      &inputs.water,
+                                      &ground,
+                                      rebuild_picking,
+                                      &card_lights,
+                                      &model_draws,
+                                      depth_ptr
+                                  )
+                                : renderer_live_gpu::Result::failed;
+        if (tiling && result == renderer_live_gpu::Result::success) {
+            ++photo_check_tiles_drawn_;
+            if (live.gpu.tile_shifted)
+                ++photo_check_tiles_shifted_;
+            photo_check_widest_tile_viewport_ =
+                std::max(photo_check_widest_tile_viewport_, live.gpu.tile_viewport_side);
+        }
+        live.gpu.tile_origin_x = 0;
+        live.gpu.tile_origin_y = 0;
+        live.gpu.tile_span_x = 0;
+        live.gpu.tile_span_y = 0;
+        live.gpu.viewport_limit = 0;
+        // A tile is not the window, even when it happens to be the same
+        // size. The next frame must not take the tile's focus for the
+        // window's.
+        if (photo_tile_frame_) {
+            live.projected_width = 0;
+            live.projected_height = 0;
+        } else {
+            live.projected_width = match_layout_.width;
+            live.projected_height = match_layout_.height;
+        }
         if (photo_ != nullptr) {
             if (result == renderer_live_gpu::Result::success && live.gpu.depth_drawn) {
                 photo_->card_dof_pixels = drawn_blur;

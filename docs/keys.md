@@ -743,6 +743,11 @@ photo mode".
 | Tilt down | `Alt+Down` | `photo.tilt-down` |
 | Hide panel | `H` | `photo.panel` |
 | Guides | `G` | `photo.guides` |
+| Mark area | `M` | `photo.mark` |
+| Grow the mark left | `Left` | `photo.mark-left` |
+| Grow the mark right | `Right` | `photo.mark-right` |
+| Grow the mark up | `Up` | `photo.mark-up` |
+| Grow the mark down | `Down` | `photo.mark-down` |
 
 ### Replay
 

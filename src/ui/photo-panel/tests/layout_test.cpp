@@ -115,6 +115,18 @@ std::vector<std::string> expected_tab(const panel::Model& model) {
             "photo.copy"
         };
         names.insert(names.end(), std::begin(capture), std::end(capture));
+        // Poster shares the Size row, so it follows Size. The extents
+        // follow Poster, and only while Poster is the picture.
+        if (!model.poster_caption.empty()) {
+            const auto size = std::find(names.begin(), names.end(), std::string("photo.size"));
+            if (size != names.end())
+                names.insert(std::next(size), "photo.poster");
+        }
+        if (model.poster && !model.poster_extent_captions[0].empty()) {
+            const auto poster = std::find(names.begin(), names.end(), std::string("photo.poster"));
+            if (poster != names.end())
+                names.insert(std::next(poster), "photo.poster.extent");
+        }
     }
     return names;
 }
@@ -179,6 +191,11 @@ model_for(int32_t width, int32_t height, kit::SizeClass size_class, panel::Visit
     model.hint_label = "H shows the panel";
     const bool shared = visit == panel::Visit::shared;
     apply_size_copy(model, shared);
+    // Poster shares the Size row in every state. The extents stay hidden
+    // until the caller lights Poster. A shared match locks the button.
+    model.poster_caption = "Poster";
+    if (shared)
+        model.poster_lock = "Shared game";
     if (shared) {
         model.time_mode = 0;
         model.freeze_caption = "Hold picture";
@@ -298,6 +315,11 @@ struct Tongue {
     const char* haze{};
     const char* ground_note{};
     const char* turned_note{};
+    const char* poster{};
+    const char* the_view{};
+    const char* area{};
+    const char* freeze_picture{};
+    const char* above{};
 };
 
 /// The label drawn to the left of a slider.
@@ -401,7 +423,12 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Weich nach Bildzeile, nicht nach Tiefe.",
          "Dunst",
          "Folgt dem Boden, nicht den Einheiten.",
-         "Die 3D-Ansicht dunstet nach Entfernung zur Kamera."},
+         "Die 3D-Ansicht dunstet nach Entfernung zur Kamera.",
+         "Poster",
+         "Die Ansicht",
+         "Bereich",
+         "Friere das Bild ein",
+         "Ein Poster ist die Karte von oben: Klassische Ansicht, Alt+R"},
         {"fr",
          "Entre les temps",
          "Pas",
@@ -440,7 +467,12 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Floute selon la ligne, pas selon la profondeur.",
          "Brume",
          "Suit le sol, pas les unités.",
-         "La vue 3D voile selon la distance à la caméra."},
+         "La vue 3D voile selon la distance à la caméra.",
+         "Affiche",
+         "La vue",
+         "Zone",
+         "Fige l'image",
+         "Une affiche est la carte vue d'en haut : Vue classique, Alt+R"},
         {"es",
          "Entre los instantes",
          "Paso",
@@ -479,7 +511,12 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Desenfoca por fila, no por profundidad.",
          "Bruma",
          "Sigue el suelo, no las unidades.",
-         "La vista 3D empaña según la distancia a la cámara."},
+         "La vista 3D empaña según la distancia a la cámara.",
+         "Póster",
+         "La vista",
+         "Zona",
+         "Congela la imagen",
+         "Un póster es el mapa desde arriba: Vista clásica, Alt+R"},
         {"it",
          "Tra un tempo e l'altro",
          "Passo",
@@ -518,7 +555,12 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Sfoca per riga, non per profondità.",
          "Foschia",
          "Segue il terreno, non le unità.",
-         "La vista 3D annebbia secondo la distanza dalla camera."},
+         "La vista 3D annebbia secondo la distanza dalla camera.",
+         "Poster",
+         "La vista",
+         "Area",
+         "Ferma l'immagine",
+         "Un poster è la mappa dall'alto: Vista classica, Alt+R"},
     };
     const kit::Fonts* looks[] = {&block, &modern};
     const char* look_names[] = {"block", "modern"};
@@ -556,6 +598,8 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
             model.frame_label = tongue.frame;
             model.frame_value = tongue.wide;
             model.preview_note = tongue.rate;
+            model.poster_caption = tongue.poster;
+            model.poster_lock = tongue.shared;
             kit::Fonts fonts = *looks[which];
             fonts.size_class = kit::SizeClass::compact;
             char what[64];
@@ -593,6 +637,15 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
             const kit::Control* photo_size = named(placed.list, "photo.size");
             expect(photo_size != nullptr && photo_size->label == tongue.photo_size, what);
             expect(label_beside(placed, "photo.grain-size") == tongue.grain_size, what);
+            expect(button_caption(placed, "photo.poster") == tongue.poster, what);
+            const kit::Control* poster_button = named(placed.list, "photo.poster");
+            const kit::Control* size_row = named(placed.list, "photo.size");
+            expect(
+                poster_button != nullptr && size_row != nullptr &&
+                    poster_button->rect.y == size_row->rect.y,
+                what
+            );
+            expect(named(placed.list, "photo.poster.extent") == nullptr, what);
             panel::Model depth = model;
             depth.depth_page = true;
             depth.depth_label = tongue.depth;
@@ -638,6 +691,32 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
                 "photo.depth-of-field.reason",
                 "Needs Full 3D Mode",
                 depth_what
+            );
+            // Poster lit, at a size with room for the extents and the long
+            // sentence. Compact keeps the button and leaves the extents off.
+            panel::Model posted =
+                model_for(1280, 720, kit::SizeClass::regular, panel::Visit::skirmish);
+            posted.poster = true;
+            posted.poster_caption = tongue.poster;
+            posted.poster_extent_captions = {tongue.the_view, tongue.area, "Whole map"};
+            posted.poster_extent = 1;
+            posted.poster_extent_value = "1280x480";
+            posted.size_reason = std::string(tongue.freeze_picture) + " " + tongue.above;
+            kit::Fonts poster_fonts = *looks[which];
+            poster_fonts.size_class = kit::SizeClass::regular;
+            char poster_what[80];
+            std::snprintf(
+                poster_what, sizeof poster_what, "%s poster %s", tongue.tag, look_names[which]
+            );
+            check_layout(posted, poster_fonts, poster_what);
+            const panel::Layout poster_placed = panel::layout_of(posted, poster_fonts);
+            expect_note_whole(poster_placed, "photo.size.reason", posted.size_reason, poster_what);
+            expect(button_caption(poster_placed, "photo.poster") == tongue.poster, poster_what);
+            const kit::Control* extent = named(poster_placed.list, "photo.poster.extent");
+            const kit::Control* posted_size = named(poster_placed.list, "photo.size");
+            expect(
+                extent != nullptr && posted_size != nullptr && extent->rect.y > posted_size->rect.y,
+                poster_what
             );
         }
         // The chips and the grain's size keep their whole names at the larger
@@ -1158,15 +1237,19 @@ void check_touch_layout(const kit::Fonts& fonts) {
                 saw.emplace_back(show->name);
         }
     }
-    for (const char* name : {"photo.leave",        "photo.hint",           "photo.section.camera",
-                             "photo.section.time", "photo.section.look",   "photo.section.capture",
-                             "photo.zoom",         "photo.time-mode",      "photo.look",
-                             "photo.vignette",     "photo.roundness",      "photo.grain",
-                             "photo.grain-size",   "photo.frame",          "photo.depth",
-                             "photo.band-centre",  "photo.band-width",     "photo.blur",
-                             "photo.haze",         "photo.depth-of-field", "photo.selection",
-                             "photo.size",         "photo.smooth",         "photo.take",
-                             "photo.copy"}) {
+    for (const char* name : {"photo.leave",          "photo.hint",
+                             "photo.section.camera", "photo.section.time",
+                             "photo.section.look",   "photo.section.capture",
+                             "photo.zoom",           "photo.time-mode",
+                             "photo.look",           "photo.vignette",
+                             "photo.roundness",      "photo.grain",
+                             "photo.grain-size",     "photo.frame",
+                             "photo.depth",          "photo.band-centre",
+                             "photo.band-width",     "photo.blur",
+                             "photo.haze",           "photo.depth-of-field",
+                             "photo.selection",      "photo.size",
+                             "photo.poster",         "photo.smooth",
+                             "photo.take",           "photo.copy"}) {
         const bool found = std::find(saw.begin(), saw.end(), name) != saw.end();
         if (!found)
             std::fprintf(stderr, "layout: touch never showed %s\n", name);
@@ -1314,6 +1397,136 @@ int main() {
                     look_names[which_look]
                 );
                 check_layout(wrapped, fonts, what);
+            }
+        }
+    }
+
+    // Poster lit, at every size and class, in both looks and the five
+    // languages: the extents row in a match and a replay, the turned view's
+    // sentence and a moving picture's lock. Copy and every other control
+    // stay in the panel.
+    {
+        struct PosterWords {
+            const char* tag;
+            const char* poster;
+            const char* view;
+            const char* area;
+            const char* map;
+            const char* above;
+            const char* freeze;
+        };
+
+        const PosterWords posters[] = {
+            {"en",
+             "Poster",
+             "The view",
+             "Area",
+             "Whole map",
+             "A poster is the map from above: Classic view, Option+R",
+             "Freeze the picture"},
+            {"de",
+             "Poster",
+             "Die Ansicht",
+             "Bereich",
+             "Ganze Karte",
+             "Ein Poster ist die Karte von oben: Klassische Ansicht, Option+R",
+             "Friere das Bild ein"},
+            {"fr",
+             "Affiche",
+             "La vue",
+             "Zone",
+             "Carte entière",
+             "Une affiche est la carte vue d'en haut : Vue classique, Option+R",
+             "Fige l'image"},
+            {"es",
+             "Póster",
+             "La vista",
+             "Zona",
+             "Mapa entero",
+             "Un póster es el mapa desde arriba: Vista clásica, Option+R",
+             "Congela la imagen"},
+            {"it",
+             "Poster",
+             "La vista",
+             "Area",
+             "Mappa intera",
+             "Un poster è la mappa dall'alto: Vista classica, Option+R",
+             "Ferma l'immagine"},
+        };
+        for (const PosterWords& words : posters) {
+            for (int size = 0; size < 3; ++size) {
+                for (int which_class = 0; which_class < 3; ++which_class) {
+                    for (int which_look = 0; which_look < 2; ++which_look) {
+                        kit::Fonts fonts = *looks[which_look];
+                        fonts.size_class = classes[which_class];
+                        char what[200];
+                        for (const panel::Visit visit :
+                             {panel::Visit::skirmish, panel::Visit::replay}) {
+                            panel::Model lit =
+                                model_for(widths[size], heights[size], classes[which_class], visit);
+                            lit.poster_caption = words.poster;
+                            lit.poster = true;
+                            lit.poster_extent_captions = {words.view, words.area, words.map};
+                            lit.poster_extent_value = "16384x16384";
+                            lit.poster_extent = 2;
+                            std::snprintf(
+                                what,
+                                sizeof what,
+                                "poster %s %s %dx%d %s %s",
+                                visit == panel::Visit::replay ? "replay" : "skirmish",
+                                words.tag,
+                                widths[size],
+                                heights[size],
+                                class_names[which_class],
+                                look_names[which_look]
+                            );
+                            check_layout(lit, fonts, what);
+                        }
+                        panel::Model turned = model_for(
+                            widths[size],
+                            heights[size],
+                            classes[which_class],
+                            panel::Visit::skirmish
+                        );
+                        turned.poster_caption = words.poster;
+                        turned.poster_lock = words.above;
+                        turned.size_reason =
+                            std::string(
+                                "2x, 3x, 4x, Smooth edges 2x and Smooth edges 4x: The 3D "
+                                "view draws at most 2730 pixels a side at this "
+                                "anti-aliasing "
+                            ) +
+                            words.above;
+                        std::snprintf(
+                            what,
+                            sizeof what,
+                            "poster above %s %dx%d %s %s",
+                            words.tag,
+                            widths[size],
+                            heights[size],
+                            class_names[which_class],
+                            look_names[which_look]
+                        );
+                        check_layout(turned, fonts, what);
+                        panel::Model moving = model_for(
+                            widths[size], heights[size], classes[which_class], panel::Visit::replay
+                        );
+                        moving.poster_caption = words.poster;
+                        moving.poster_lock = words.freeze;
+                        moving.size_reason = words.freeze;
+                        std::snprintf(
+                            what,
+                            sizeof what,
+                            "poster moving %s %dx%d %s %s",
+                            words.tag,
+                            widths[size],
+                            heights[size],
+                            class_names[which_class],
+                            look_names[which_look]
+                        );
+                        check_layout(moving, fonts, what);
+                    }
+                }
             }
         }
     }
@@ -1514,6 +1727,56 @@ int main() {
 
     check_touch_layout(classic);
     check_touch_caption(classic);
+
+    // Poster shares the Size row. The extents are the next row only while
+    // it is the picture. An empty caption hides the button.
+    {
+        panel::Model posted = model_for(1280, 720, kit::SizeClass::regular, panel::Visit::skirmish);
+        posted.poster = true;
+        posted.poster_extent_captions = {"The view", "Area", "Whole map"};
+        posted.poster_extent_value = "1280x480";
+        posted.poster_extent = 1;
+        posted.mark_x = 40;
+        posted.mark_y = 30;
+        posted.mark_width = 200;
+        posted.mark_height = 120;
+        const panel::Layout placed = panel::layout_of(posted, classic);
+        const kit::Control* button = named(placed.list, "photo.poster");
+        const kit::Control* extent = named(placed.list, "photo.poster.extent");
+        const kit::Control* size = named(placed.list, "photo.size");
+        expect(
+            button != nullptr && extent != nullptr && size != nullptr,
+            "a poster lays out its button and extents"
+        );
+        if (button != nullptr && extent != nullptr && size != nullptr) {
+            expect(button->rect.y == size->rect.y, "Poster shares the Size row");
+            expect(extent->rect.y > size->rect.y, "the extents are the next row");
+            expect(
+                button->rect.x >= placed.panel.x &&
+                    button->rect.x + button->rect.width <= placed.panel.x + placed.panel.width &&
+                    extent->rect.x >= placed.panel.x &&
+                    extent->rect.x + extent->rect.width <= placed.panel.x + placed.panel.width,
+                "the poster controls sit inside the panel"
+            );
+        }
+        expect(tab_names(placed) == expected_tab(posted), "tab walks the poster");
+        panel::Model blank = posted;
+        blank.poster_caption.clear();
+        expect(
+            named(panel::layout_of(blank, classic).list, "photo.poster") == nullptr,
+            "an empty caption hides the poster button"
+        );
+        panel::Model off = model_for(1280, 720, kit::SizeClass::regular, panel::Visit::skirmish);
+        const panel::Layout off_layout = panel::layout_of(off, classic);
+        expect(
+            named(off_layout.list, "photo.poster") != nullptr,
+            "the button is there while Poster is off"
+        );
+        expect(
+            named(off_layout.list, "photo.poster.extent") == nullptr,
+            "the extents wait until Poster is the picture"
+        );
+    }
 
     return oa::test::check_exit_status();
 }
