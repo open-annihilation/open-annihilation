@@ -349,10 +349,59 @@ void changed_commands_replace_the_attack() {
     {
         Battle battle;
         const ground::Point point{200 * pixel, 0, 112 * pixel};
-        CHECK(battle.match().issue_attack_command(battle.actor, battle.target, false, &point));
+        CHECK(battle.match().issue_attack_ground(battle.actor, point, false) != nullptr);
+        const auto ground_command = head_record(battle.match(), battle.actor);
+        CHECK(ground_command.kind != attack_chase_order && ground_command.target == 0);
+        CHECK(ground_command.point == point);
         auto* order = battle.unit().primary;
         battle.refresh();
         CHECK(battle.unit().primary != order);
+        CHECK(head_record(battle.match(), battle.actor).target == battle.target);
+    }
+    {
+        Battle battle;
+
+        struct Request {
+            uint16_t actor{}, target{};
+            ground::Point point{};
+            bool issued{};
+        } request{battle.actor, battle.target, {200 * pixel, 0, 112 * pixel}};
+
+        struct ResetLog {
+            ~ResetLog() { ai::set_logged_computer_turn(nullptr, nullptr); }
+        } reset;
+
+        auto* order = battle.unit().primary;
+        // The diagnostic callback runs inside the actual built-in dispatch
+        // scope; an incoming point still requires ordinary command replacement.
+        ai::set_logged_computer_turn(
+            [](void* context, runtime::Match& match, uint8_t player, const ai::ComputerHost&) {
+                if (player != computer)
+                    return false;
+                auto& command = *static_cast<Request*>(context);
+                command.issued = match.issue_attack_command(
+                    command.actor, command.target, false, &command.point
+                );
+                return true;
+            },
+            &request
+        );
+        battle.match().run_player_controller(computer);
+        CHECK(request.issued && battle.unit().primary != order);
+        CHECK(battle.match().fault() == nullptr);
+    }
+    {
+        Battle battle;
+        const ground::Point ignored_point{200 * pixel, 0, 112 * pixel};
+        CHECK(
+            battle.match().issue_attack_command(battle.actor, battle.target, false, &ignored_point)
+        );
+        auto* order = battle.unit().primary;
+        CHECK(order->kind == attack_chase_order);
+        // Attack_Chase has no semantic point. A stored unused payload cannot
+        // turn its later ordinary same-target AI refresh into a different command.
+        battle.refresh();
+        CHECK(battle.unit().primary == order);
     }
 }
 
