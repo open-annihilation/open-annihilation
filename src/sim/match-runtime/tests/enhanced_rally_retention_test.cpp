@@ -242,6 +242,53 @@ void an_active_two_leg_patrol_survives_while_idle_members_rally() {
     CHECK(runtime::MatchTickAccess::observer_lists_valid(battle.match()));
 }
 
+/// Keeps a native patrol's owned goal while its idle wait has selected phase one.
+void a_native_phase_one_patrol_wait_survives_the_rally() {
+    Rally battle;
+    battle.rally().next_tick = battle.match().simulation().tick + 100000;
+    bool waiting = false;
+    for (uint32_t ticks = 0; ticks < 90; ++ticks) {
+        const auto* head = battle.unit().primary;
+        const auto* goal = battle.movement().navigation.goal;
+        if (head != nullptr && head->phase == 1 && goal != nullptr && goal->order == head &&
+            !ground::goal_contains(
+                *goal, battle.unit().record.cell_x, battle.unit().record.cell_z
+            )) {
+            waiting = true;
+            break;
+        }
+        battle.fixture.run(1);
+    }
+    CHECK(waiting);
+    auto* head = battle.unit().primary;
+    auto* tail = head->next;
+    CHECK(tail != nullptr && tail->next == nullptr);
+    const auto navigation = battle.movement().navigation;
+    const auto issue_tick = head->issue_tick;
+    const auto tail_issue_tick = tail->issue_tick;
+    const auto wake_tick = head->wake_tick;
+    CHECK(
+        (head->raised_events & (ground::arrived_event | ground::path_failed_event |
+                                ground::goal_replaced_event | cancel_event)) == 0
+    );
+    battle.refresh();
+    CHECK(battle.unit().primary == head && head->next == tail && tail->next == nullptr);
+    CHECK(head->phase == 1 && head->wake_tick == wake_tick && head->issue_tick == issue_tick);
+    CHECK(tail->issue_tick == tail_issue_tick);
+    const auto& after = battle.movement().navigation;
+    CHECK(after.goal == navigation.goal && after.goal->order == head);
+    CHECK(after.points == navigation.points && after.count == navigation.count);
+    CHECK(after.flags == navigation.flags && after.last_search_tick == navigation.last_search_tick);
+    std::array<runtime::Match::OrderRecordView, 2> idle_orders{};
+    CHECK(
+        battle.match().queue_records(battle.idle, false, idle_orders.data(), idle_orders.size()) ==
+        1
+    );
+    CHECK(idle_orders[0].kind == ground::move_ground_kind);
+    const auto& centroid = battle.match().spawn_slot(battle.leader).record.position;
+    CHECK(idle_orders[0].point == ground::Point({centroid.x, centroid.y, centroid.z}));
+}
+
 /// Retains the other supported active ground marches through the same real rally.
 void move_and_repair_patrol_continue() {
     for (const auto march : {March::move, March::repair_patrol}) {
@@ -414,13 +461,14 @@ void restored_patrol_queues_continue_after_the_rally() {
 int main() {
     try {
         an_active_two_leg_patrol_survives_while_idle_members_rally();
+        a_native_phase_one_patrol_wait_survives_the_rally();
         move_and_repair_patrol_continue();
         a_pending_native_search_survives_the_rally();
         older_presets_keep_their_rally_replacement();
         terminal_or_unowned_work_does_not_block_a_rally();
         manual_queued_and_custom_commands_keep_their_semantics();
         restored_patrol_queues_continue_after_the_rally();
-        std::cout << "Enhanced rally retention: seven groups passed\n";
+        std::cout << "Enhanced rally retention: eight groups passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Enhanced rally retention: " << error.what() << '\n';
