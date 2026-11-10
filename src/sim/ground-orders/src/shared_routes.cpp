@@ -22,6 +22,7 @@ constexpr std::size_t metadata_size = 80, key_size = 36;
 constexpr uint32_t empty = 0, clearing = 1, building = 2, complete = 3, failed = 4;
 constexpr size_t dirty_offset = 68, dirty_since_offset = 72, completed_tick_offset = 76;
 constexpr uint32_t refresh_period = 30, completed_refresh_grace = 60;
+constexpr uint32_t completed_admission_grace = 60;
 constexpr uint8_t root = 0xfd, unseen = 0xff;
 constexpr uint32_t clear_bytes_per_tick = 65'536, clear_slice = 4'096;
 constexpr std::array<int32_t, 8> dx{1, 1, 0, -1, -1, -1, 0, 1};
@@ -483,11 +484,17 @@ FlowResult FlowCache::route(
         uint32_t oldest = std::numeric_limits<uint32_t>::max();
         for (uint32_t i = 0; i < fields_; ++i) {
             auto* f = field(state, cells_, i);
-            if (get32(f) == empty) {
+            const auto phase = get32(f);
+            if (phase == empty) {
                 selected = f;
                 break;
             }
-            if ((get32(f) == complete || get32(f) == failed) && get32(f + 64) <= oldest) {
+            // A completed fine field must survive a delayed cohort's poll
+            // before another destination can reuse its bounded storage.
+            if (format == fine_format && phase == complete &&
+                get32(state + 32) - get32(f + completed_tick_offset) < completed_admission_grace)
+                continue;
+            if ((phase == complete || phase == failed) && get32(f + 64) <= oldest) {
                 oldest = get32(f + 64);
                 selected = f;
             }
