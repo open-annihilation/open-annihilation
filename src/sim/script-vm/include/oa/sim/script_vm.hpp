@@ -575,6 +575,15 @@ class Vm {
     /// @return the turn per tick, or 0 when the piece or axis is outside the script
     [[nodiscard]] int32_t turn_speed(uint32_t piece, uint32_t axis) const noexcept;
 
+    /// Returns all three current turn rates of one piece without advancing it.
+    ///
+    /// Rates use the same signed angle words per tick as turn_speed, in COB
+    /// axis order 0, 1, 2. Every rate is zero for a piece outside the script.
+    ///
+    /// @param piece piece index
+    /// @return the current rates in axis order
+    [[nodiscard]] std::array<int32_t, piece_axis_count> turn_speeds(uint32_t piece) const noexcept;
+
   private:
 
     struct StoredContext {

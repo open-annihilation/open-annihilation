@@ -1339,6 +1339,16 @@ int32_t Vm::turn_speed(uint32_t piece, uint32_t axis) const noexcept {
     return motions_[static_cast<std::size_t>(piece) * piece_axis_count + axis].turn_speed;
 }
 
+std::array<int32_t, piece_axis_count> Vm::turn_speeds(uint32_t piece) const noexcept {
+    std::array<int32_t, piece_axis_count> rates{};
+    if (static_cast<std::size_t>(piece) >= program_->piece_count)
+        return rates;
+    const auto first = static_cast<std::size_t>(piece) * piece_axis_count;
+    for (std::size_t axis = 0; axis < rates.size(); ++axis)
+        rates[axis] = motions_[first + axis].turn_speed;
+    return rates;
+}
+
 int32_t find_script(std::span<const char* const> script_names, const char* name) noexcept {
     if (name == nullptr)
         return -1;

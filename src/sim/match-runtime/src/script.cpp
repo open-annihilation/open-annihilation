@@ -259,6 +259,11 @@ int32_t ScriptInstance::piece_turn_speed(uint32_t piece, uint32_t axis) const no
     return vm_.turn_speed(piece, axis);
 }
 
+std::array<int32_t, sim::script_vm::piece_axis_count>
+ScriptInstance::piece_turn_speeds(uint32_t piece) const noexcept {
+    return vm_.turn_speeds(piece);
+}
+
 namespace {
 // Adapts the match's UnitValueHost to the canonical GET/SET services.
 struct ValueBridge {

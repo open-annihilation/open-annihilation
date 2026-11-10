@@ -255,6 +255,16 @@ class ScriptInstance {
     /// @return The turn per tick, or 0 when the piece or axis is outside the script.
     [[nodiscard]] int32_t piece_turn_speed(uint32_t piece, uint32_t axis) const noexcept;
 
+    /// Returns a piece's three current turn rates without running its script.
+    ///
+    /// Rates are signed angle words per tick, in COB axis order 0, 1, 2.
+    /// A piece outside the script has three zero rates.
+    ///
+    /// @param piece piece index
+    /// @return the current rates in axis order
+    [[nodiscard]] std::array<int32_t, sim::script_vm::piece_axis_count>
+    piece_turn_speeds(uint32_t piece) const noexcept;
+
     /// Returns the interpreter.
     sim::script_vm::Vm& vm() noexcept { return vm_; }
 

@@ -664,6 +664,95 @@ void spin_acceleration_and_stop_wait() {
     );
 }
 
+/// Reads current signed axis rates without changing scripts, pieces or random draws.
+void bulk_piece_turn_speeds_are_current_and_read_only() {
+    MockHost host;
+    const std::array<std::array<int32_t, 3>, 2> rates{{{-7, 13, 29}, {11, -17, -23}}};
+    std::vector<uint32_t> code;
+    for (uint32_t piece = 0; piece < rates.size(); ++piece)
+        for (uint32_t axis = 0; axis < rates[piece].size(); ++axis)
+            code.insert(
+                code.end(),
+                {vm::opcode::push_constant,
+                 0,
+                 vm::opcode::push_constant,
+                 static_cast<uint32_t>(rates[piece][axis] * 1000),
+                 vm::opcode::spin,
+                 piece,
+                 axis}
+            );
+    code.push_back(vm::opcode::return_);
+    const auto stop_entry = static_cast<uint32_t>(code.size());
+    code.insert(
+        code.end(), {vm::opcode::push_constant, 0, vm::opcode::stop_spin, 0, 1, vm::opcode::return_}
+    );
+    const auto turn_entry = static_cast<uint32_t>(code.size());
+    code.insert(
+        code.end(),
+        {vm::opcode::push_constant,
+         10000,
+         vm::opcode::push_constant,
+         static_cast<uint32_t>(-31000),
+         vm::opcode::turn,
+         1,
+         2,
+         vm::opcode::return_}
+    );
+    vm::Vm machine(
+        owning_program(std::move(code), {0, stop_entry, turn_entry}, 0, rates.size()), host, 1000
+    );
+    require(machine.start(0).ok() && machine.tick(1).ok(), "bulk turn-rate setup faulted");
+    const auto check = [&](const auto& expected) {
+        const auto before = machine.export_state(19);
+        require(before.ok(), "turn-rate state export failed");
+        const auto positions = host.positions;
+        const auto angles = host.angles;
+        const auto writes = host.piece_writes;
+        const auto random = host.random_bounds;
+        for (uint32_t piece = 0; piece < expected.size(); ++piece) {
+            const auto bulk = machine.turn_speeds(piece);
+            require(bulk == expected[piece], "bulk turn rates changed axis order or signed rates");
+            for (uint32_t axis = 0; axis < bulk.size(); ++axis)
+                require(
+                    bulk[axis] == machine.turn_speed(piece, axis),
+                    "bulk turn rate differs from scalar lookup"
+                );
+        }
+        const std::array<int32_t, 3> none{};
+        for (const auto piece : {uint32_t{2}, std::numeric_limits<uint32_t>::max()})
+            require(
+                machine.turn_speeds(piece) == none,
+                "a piece outside the script has nonzero bulk turn rates"
+            );
+        require(machine.turn_speed(0, 3) == 0, "the scalar invalid-axis result changed");
+        const auto after = machine.export_state(19);
+        require(
+            after.ok() && *after.state == *before.state,
+            "reading bulk turn rates changed saved script state"
+        );
+        require(
+            host.positions == positions && host.angles == angles && host.piece_writes == writes &&
+                host.random_bounds == random,
+            "reading bulk turn rates changed a piece or consumed random input"
+        );
+    };
+    check(rates);
+    const auto stopped = machine.start(1);
+    require(
+        stopped.ok() && machine.tick_context(stopped.context, 0).ok(),
+        "immediate stop-spin query faulted"
+    );
+    auto changed = rates;
+    changed[0][1] = 0;
+    check(changed);
+    const auto turned = machine.start(2);
+    require(
+        turned.ok() && machine.tick_context(turned.context, 0).ok(), "immediate turn query faulted"
+    );
+    changed[1][2] = -10;
+    check(changed);
+}
+
 void spin_reversal_preserves_per_piece_activity() {
     MockHost host;
     vm::Vm machine(
@@ -1591,6 +1680,7 @@ int main() {
         launch_of_missing_script_or_arguments();
         piece_motion_waits_and_callbacks();
         spin_acceleration_and_stop_wait();
+        bulk_piece_turn_speeds_are_current_and_read_only();
         spin_reversal_preserves_per_piece_activity();
         turn_completion_uses_signed_wrapped_step();
         turn_direction_preserves_wrapped_abs_edge();
