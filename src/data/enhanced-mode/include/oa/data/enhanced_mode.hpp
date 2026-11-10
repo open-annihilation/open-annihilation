@@ -28,6 +28,8 @@ inline constexpr uint32_t swept_ground_version = 4;
 inline constexpr uint32_t corridor_flow_version = 5;
 /// The preset retaining patrol progress and responding to lost AI strike targets.
 inline constexpr uint32_t battle_flow_version = 6;
+/// The preset distributing repaired group destinations while retaining battle flow.
+inline constexpr uint32_t distributed_battle_flow_version = 7;
 /// The Enhanced Mode preset supplied by this build.
 inline constexpr uint32_t current_version = swept_ground_version;
 
@@ -54,6 +56,7 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// Version 4 adds bounded obstacle checks along each ground step.
 /// Version 5 reserves a separate identity for corridor flow when integrated.
 /// Version 6 selects persistent patrol goals and bounded AI strike retargeting.
+/// Version 7 retains battle flow and distributes repaired group destinations.
 /// Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes
