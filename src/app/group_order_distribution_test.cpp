@@ -303,30 +303,66 @@ void water_limits_remain_part_of_the_component_key() {
     for (int32_t z = 4; z < 7; ++z)
         for (int32_t x = 4; x < 7; ++x)
             scene.plot(x, z).high_height = scene.plot(x, z).low_height = land_height;
-    constexpr std::size_t amphibious_count = 13;
-    std::array<oa::Unit, amphibious_count + 1> units{};
-    std::array<input::SelectionOrder, amphibious_count + 1> orders{};
-    for (std::size_t i = 0; i < units.size(); ++i) {
+    constexpr std::size_t preserved = 9;
+    std::array<oa::Unit, preserved + 2> units{};
+    std::array<input::SelectionOrder, preserved + 2> orders{};
+    for (std::size_t i = 0; i < units.size(); ++i)
         units[i] = actor(static_cast<uint16_t>(i + 1), 1, 1);
-        if (i < amphibious_count)
-            units[i].type_index = 2;
-        orders[i] = {&units[i], input::UnitOrder::patrol, point(-64, -64)};
-    }
+    units[0].type_index = 2;
+    orders[0] = {&units[0], input::UnitOrder::patrol, point(-64, -64)};
+    orders[1] = {&units[1], input::UnitOrder::patrol, point(-96, -96)};
+    for (std::size_t i = 0; i < preserved; ++i)
+        orders[i + 2] = {
+            &units[i + 2],
+            input::UnitOrder::patrol,
+            point(
+                72 + static_cast<int32_t>(i % 3) * 16,
+                72 + static_cast<int32_t>(i / 3) * 16,
+                -static_cast<int32_t>(i) - 1
+            )
+        };
+    const auto before = orders;
     const auto click = point(88, 88);
     const auto report = scene.resolve(orders, click);
-    OA_CHECK(report.repaired == units.size());
+    OA_CHECK(report.preserved == preserved && report.repaired == 2);
     OA_CHECK(report.classes == 2);
-    // The first thirteen breadth-first single-cell reservations cover the
-    // nine land plots and four adjacent water plots. The land-only actor
-    // must retain its fallback when its own connected component is full.
-    OA_CHECK(report.assigned == amphibious_count);
-    OA_CHECK(same(orders.back().position, click));
-    for (std::size_t i = 0; i < amphibious_count; ++i) {
-        const auto goal = goal_for(orders[i]);
-        auto movement = scene.movement;
-        movement.max_water_depth = 100;
-        OA_CHECK(detail::has_static_arrival(goal, movement, scene.world) == true);
+    // Every land plot belongs to a preserved valid arrival. Only the
+    // amphibious actor can take an unreserved destination outside that island.
+    OA_CHECK(report.assigned == 1);
+    OA_CHECK(same(orders[1].position, click));
+    const auto amphibious = goal_for(orders[0]);
+    OA_CHECK(scene.plot(amphibious.cell[0], amphibious.cell[1]).low_height == 0);
+    auto movement = scene.movement;
+    movement.max_water_depth = 100;
+    OA_CHECK(detail::has_static_arrival(amphibious, movement, scene.world) == true);
+    for (std::size_t i = 2; i < orders.size(); ++i) {
+        OA_CHECK(same(orders[i].position, before[i].position));
+        check_disjoint(orders[0], orders[i]);
     }
+}
+
+/// Gives an earlier actor the final free body even when its class is interleaved.
+void stable_actor_priority_crosses_movement_classes() {
+    Scene scene;
+    scene.amphibious_second_type = true;
+    scene.block(0, 0, default_width, default_height);
+    scene.block(5, 5, 7, 6, false);
+    std::array units{actor(3, 1, 1), actor(1, 1, 1), actor(2, 1, 1)};
+    units[2].type_index = 2;
+    const auto click = point(88, 88, -17);
+    std::array orders{
+        input::SelectionOrder{&units[0], input::UnitOrder::patrol, point(-64, -64)},
+        input::SelectionOrder{&units[1], input::UnitOrder::patrol, point(-96, -96)},
+        input::SelectionOrder{&units[2], input::UnitOrder::patrol, point(-128, -128)}
+    };
+    const auto report = scene.resolve(orders, click);
+    OA_CHECK(report.classes == 2 && report.repaired == 3 && report.assigned == 2);
+    OA_CHECK(same(orders[1].position, click));
+    OA_CHECK(same(orders[2].position, point(104, 88, -17)));
+    OA_CHECK(same(orders[0].position, click));
+    check_disjoint(orders[1], orders[2]);
+    for (std::size_t i = 0; i < orders.size(); ++i)
+        OA_CHECK(orders[i].actor == &units[i]);
 }
 
 /// Keeps new points in the click's static island instead of jumping a barrier.
@@ -496,10 +532,17 @@ void reservations_include_rectangles_with_centres_outside_the_window() {
     orders.back() = {&units.back(), input::UnitOrder::patrol, valid};
     const auto report = scene.resolve(orders, click);
     OA_CHECK(report.preserved == 1 && report.repaired == repaired);
-    OA_CHECK(report.assigned > 0 && report.assigned < repaired);
+    // A one-cell native footprint can reach columns72..327 and rows0..10.
+    // The valid footprint reserves two of those columns in eight rows.
+    constexpr uint32_t available = 256 * 11 - 2 * 8;
+    OA_CHECK(report.assigned == available);
     OA_CHECK(same(orders.back().position, valid));
-    for (std::size_t i = 0; i < repaired; ++i)
+    bool reached_left_edge = false;
+    for (std::size_t i = 0; i < repaired; ++i) {
         check_disjoint(orders[i], orders.back());
+        reached_left_edge |= goal_for(orders[i]).cell[0] == 72;
+    }
+    OA_CHECK(reached_left_edge);
 }
 
 /// Refuses to refresh spatial projections or alter any canonical backing storage.
@@ -541,6 +584,7 @@ int main() {
     mixed_footprints_and_repair_patrol_do_not_overlap();
     valid_repair_patrol_arrivals_are_reserved_before_repairs();
     water_limits_remain_part_of_the_component_key();
+    stable_actor_priority_crosses_movement_classes();
     a_small_click_island_exhausts_without_using_another_island();
     repaired_edge_points_fit_their_complete_footprints();
     unusable_clicks_keep_the_existing_static_fallback();
