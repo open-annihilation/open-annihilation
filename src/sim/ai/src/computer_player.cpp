@@ -13,12 +13,18 @@
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <optional>
 #include <string_view>
 
 namespace oa::sim::ai {
 namespace {
 
 constexpr uint32_t strike_interval_ticks = 300;
+/// Counts every new strike member, including the seed of an empty squad.
+constexpr uint32_t distributed_recruits_per_dispatch = 256;
+static_assert(
+    distributed_recruits_per_dispatch > 0 && distributed_recruits_per_dispatch <= max_recruits
+);
 constexpr uint32_t rally_interval_ticks = 150;
 constexpr uint32_t construction_interval_ticks = 90;
 constexpr uint32_t structures_interval_ticks = 30;
@@ -268,19 +274,24 @@ void order_squad(
 /// @param task task whose squad recruits
 /// @param source squad recruited from; the task's own squad does nothing
 /// @param radius squared world units allowed per member
+/// @param budget maximum new members including the seed; none retains the legacy joining limit
 void recruit_squad(
     const ComputerHost& host,
     ComputerPlayer& ai,
     const ComputerTask& task,
     Squad source,
-    int32_t radius
+    int32_t radius,
+    std::optional<uint32_t> budget
 ) noexcept {
-    if (source == task.squad)
+    if (source == task.squad || (budget && *budget == 0))
         return;
+    uint32_t joining_limit = budget ? std::min(*budget, max_recruits) : max_recruits;
     if (squad_size(host, ai, task.squad) == 0) {
         if (squad_size(host, ai, source) == 0)
             return;
         host.set_squad(host.context, squad_member(host, ai, source, 0), task.squad);
+        if (budget)
+            --joining_limit;
     }
     int32_t sum_x = 0, sum_z = 0;
     for (uint32_t i = 0; i < squad_size(host, ai, task.squad); ++i) {
@@ -319,7 +330,7 @@ void recruit_squad(
     uint32_t joining_count = 0;
     const auto own = static_cast<int32_t>(squad_size(host, ai, task.squad));
     const auto candidates = squad_size(host, ai, source);
-    for (uint32_t i = 0; i < candidates && joining_count < max_recruits; ++i) {
+    for (uint32_t i = 0; i < candidates && joining_count < joining_limit; ++i) {
         const auto slot = squad_member(host, ai, source, i);
         const auto* unit = unit_at(host, slot);
         const auto dx = word(unit->position.x) - center_x;
@@ -344,7 +355,20 @@ void run_strike(
     const ComputerPlayers* state, const ComputerHost& host, ComputerPlayer& ai, ComputerTask& task
 ) noexcept {
     task.next_tick = tick_of(host) + strike_interval_ticks;
-    recruit_squad(host, ai, task, task.source_squad, task.merge_radius);
+    const auto& rules =
+        state != nullptr ? state->rules.rules() : data::match_rules::baseline_match_rules;
+    const bool distributed =
+        rules.setup.enhanced_mode.enabled &&
+        rules.setup.enhanced_mode.version ==
+            static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version);
+    recruit_squad(
+        host,
+        ai,
+        task,
+        task.source_squad,
+        task.merge_radius,
+        distributed ? std::optional<uint32_t>{distributed_recruits_per_dispatch} : std::nullopt
+    );
     if (squad_empty(host, ai, task.squad))
         return;
     const auto count = static_cast<int32_t>(squad_size(host, ai, task.squad));
