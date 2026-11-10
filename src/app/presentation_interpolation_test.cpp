@@ -251,6 +251,200 @@ void test_unit_motion() {
     CHECK(motion.instance.pieces().empty());
 }
 
+/// Checks the root fields independently of any captured model pieces.
+void check_root_pose(const oa::app::UnitPose& a, const oa::app::UnitPose& b) {
+    CHECK(same(a.position, b.position));
+    CHECK(a.heading == b.heading && a.pitch == b.pitch && a.bank == b.bank);
+    CHECK(a.attach_parent == b.attach_parent);
+}
+
+/// Root-only observations keep the full path's movement and discontinuities.
+void test_unit_root_history() {
+    const auto instance = oa::sim::model_runtime::make_instance(turret_model());
+    const auto empty = oa::sim::model_runtime::make_instance(nullptr);
+    oa::app::UnitMotion root;
+    oa::app::UnitMotion full;
+    CHECK(root.rig_valid && !root.rig_primed && root.root_piece_count == 0);
+    const auto observe = [&](uint32_t tick,
+                             uint32_t generation,
+                             const oa::Unit& unit,
+                             const oa::sim::model_runtime::Instance& model) {
+        oa::app::observe_unit_root(root, tick, generation, unit, model);
+        oa::app::observe_unit(full, tick, generation, unit, model);
+        check_root_pose(root.previous, full.previous);
+        check_root_pose(root.current, full.current);
+        CHECK(root.tick == full.tick && root.instance_generation == full.instance_generation);
+        CHECK(root.seen == full.seen && root.continued == full.continued);
+        CHECK(root.moved == full.moved && !root.pieces_moved && !full.pieces_moved);
+        CHECK(!root.rig_valid && !root.rig_primed);
+    };
+    auto unit = unit_at(100, 100, 0);
+    unit.pitch = -32000;
+    unit.bank = 32000;
+    observe(10, 1, unit, instance);
+    CHECK(root.root_piece_count == 2 && !root.continued);
+    CHECK(root.current.pieces.empty() && root.previous.pieces.empty());
+    unit.position = {104 * unit_fixed, -2 * unit_fixed, 102 * unit_fixed};
+    unit.heading = 0x200;
+    unit.pitch = 32000;
+    unit.bank = -32000;
+    observe(11, 1, unit, instance);
+    CHECK(root.continued && root.moved);
+    // Root blending has the same wrap and rounding, without requiring pieces.
+    for (const auto fraction : {0U, quarter_tick, half_tick, whole_tick}) {
+        auto root_record = unit;
+        auto full_record = unit;
+        auto copy = instance;
+        oa::app::blend_unit_root_pose(root.previous, root.current, fraction, root_record);
+        oa::app::blend_unit_pose(full.previous, full.current, fraction, full_record, copy);
+        CHECK(same(root_record.position, full_record.position));
+        CHECK(root_record.heading == full_record.heading);
+        CHECK(root_record.pitch == full_record.pitch && root_record.bank == full_record.bank);
+        CHECK(root_record.attach_parent == full_record.attach_parent);
+    }
+    auto midpoint = unit;
+    oa::app::blend_unit_root_pose(root.previous, root.current, half_tick, midpoint);
+    CHECK(same(midpoint.position, {102 * unit_fixed, -unit_fixed, 101 * unit_fixed}));
+    CHECK(midpoint.heading == 0x100 && midpoint.pitch == -32768 && midpoint.bank == -32768);
+    // Neither a changed record nor topology is recaptured in the same tick.
+    observe(11, 1, unit_at(999, 999, 0), empty);
+    CHECK(root.root_piece_count == 2 && root.current.position.x == 104 * unit_fixed);
+    observe(12, 1, unit, instance);
+    CHECK(root.continued && !root.moved);
+    unit.position.x += (oa::app::unit_jump_pixels + 1) * unit_fixed;
+    observe(13, 1, unit, instance);
+    CHECK(!root.continued && !root.moved);
+    unit.position.x += 2 * unit_fixed;
+    observe(14, 1, unit, instance);
+    CHECK(root.continued && root.moved);
+    unit.position.x += 6 * unit_fixed;
+    observe(16, 1, unit, instance);
+    CHECK(root.continued && root.moved);
+    const uint32_t unseen = 16 + oa::app::most_batch_ticks + 1;
+    observe(unseen, 1, unit, instance);
+    CHECK(!root.continued && !root.moved);
+    unit.attach_parent = 7;
+    observe(unseen + 1, 1, unit, instance);
+    CHECK(!root.continued);
+    unit.position.z += unit_fixed;
+    observe(unseen + 2, 1, unit, instance);
+    CHECK(root.continued && root.moved);
+    unit.attach_parent = 0;
+    observe(unseen + 3, 1, unit, instance);
+    CHECK(!root.continued);
+    // A different piece count breaks continuity even though no pieces were copied.
+    observe(unseen + 4, 1, unit, empty);
+    CHECK(root.root_piece_count == 0 && !root.continued);
+    observe(unseen + 5, 1, unit, instance);
+    CHECK(root.root_piece_count == 2 && !root.continued);
+    root.state.cache.draws = full.state.cache.draws = 5;
+    observe(unseen + 6, 2, unit, instance);
+    CHECK(!root.continued && root.state.cache.draws == 0 && full.state.cache.draws == 0);
+    root.state.cache.draws = full.state.cache.draws = 5;
+    unit.position.x += unit_fixed;
+    observe(unseen + 6, 3, unit, instance);
+    CHECK(!root.continued && root.state.cache.draws == 0 && full.state.cache.draws == 0);
+    // Tick and coordinate wraps still describe one short, continuous movement.
+    oa::app::forget_unit(root);
+    oa::app::forget_unit(full);
+    unit = unit_at(100, 100, 0);
+    unit.position.x = INT32_MAX - unit_fixed;
+    observe(UINT32_MAX, 1, unit, instance);
+    unit.position.x = INT32_MIN + unit_fixed - 1;
+    observe(0, 1, unit, instance);
+    CHECK(root.continued && root.moved);
+    oa::app::blend_unit_root_pose(root.previous, root.current, half_tick, midpoint);
+    CHECK(midpoint.position.x == INT32_MAX);
+    oa::app::forget_unit(root);
+    CHECK(!root.seen && root.rig_valid && !root.rig_primed && root.root_piece_count == 0);
+}
+
+/// A model return primes current pieces without inventing an earlier spinning pose.
+void test_unit_rig_priming() {
+    const std::array<int32_t, 6> rates{50000, -60000, 70000, -80000, 90000, -100000};
+    const std::array<int32_t, 6> later_rates{-111111, 122222, -133333, 144444, -155555, 166666};
+    for (const bool same_tick : {true, false}) {
+        auto instance = oa::sim::model_runtime::make_instance(turret_model());
+        oa::app::UnitMotion motion;
+        oa::app::observe_unit(motion, 50, 1, unit_at(100, 100, 0), instance, rates);
+        CHECK(motion.rig_valid && !motion.rig_primed);
+        oa::app::observe_unit_root(motion, 51, 1, unit_at(104, 100, 0x200), instance);
+        CHECK(!motion.rig_valid && !motion.rig_primed && !motion.pieces_moved);
+        // An immediate query can change every piece and rate after this root capture.
+        for (std::size_t piece = 0; piece < instance.pieces().size(); ++piece) {
+            auto& changed = instance.pieces()[piece];
+            const auto step = static_cast<int32_t>(piece + 1);
+            changed.translation = {11 * step, -22 * step, 33 * step};
+            changed.rotation = {
+                static_cast<int16_t>(1000 * step),
+                static_cast<int16_t>(-2000 * step),
+                static_cast<int16_t>(3000 * step)
+            };
+        }
+        const auto before_previous = motion.previous;
+        const auto before_current = motion.current;
+        const bool before_continued = motion.continued;
+        const bool before_moved = motion.moved;
+        motion.blended_draw = 37;
+        const uint32_t prime_tick = same_tick ? 51 : 52;
+        const auto prime_unit = same_tick ? unit_at(999, 999, 0) : unit_at(106, 100, 0x300);
+        oa::app::observe_unit(motion, prime_tick, 1, prime_unit, instance, later_rates);
+        CHECK(motion.rig_valid && motion.rig_primed && !motion.pieces_moved);
+        CHECK(motion.blended_draw == 0 && motion.root_piece_count == 2);
+        if (same_tick) {
+            check_root_pose(motion.previous, before_previous);
+            check_root_pose(motion.current, before_current);
+            CHECK(motion.continued == before_continued && motion.moved == before_moved);
+        } else {
+            check_root_pose(motion.previous, before_current);
+            CHECK(motion.current.position.x == 106 * unit_fixed);
+            CHECK(motion.continued && motion.moved);
+        }
+        // Priming uses the query's current pieces and rates, never the stale rig.
+        const auto captured = motion.current.pieces;
+        auto placed = instance;
+        for (auto& piece : placed.pieces()) {
+            piece.translation = {};
+            piece.rotation = {};
+        }
+        oa::app::place_current_unit_pieces(motion.current, placed);
+        for (std::size_t piece = 0; piece < captured.size(); ++piece) {
+            const auto& source = instance.pieces()[piece];
+            const auto& shown = placed.pieces()[piece];
+            CHECK(captured[piece].translation.x == source.translation.x);
+            CHECK(captured[piece].translation.y == source.translation.y);
+            CHECK(captured[piece].translation.z == source.translation.z);
+            CHECK(shown.translation.x == source.translation.x);
+            CHECK(shown.translation.y == source.translation.y);
+            CHECK(shown.translation.z == source.translation.z);
+            CHECK(shown.rotation.xy == source.rotation.xy);
+            CHECK(shown.rotation.xz == source.rotation.xz);
+            CHECK(shown.rotation.yz == source.rotation.yz);
+            for (std::size_t axis = 0; axis < 3; ++axis)
+                CHECK(captured[piece].turn_per_tick[axis] == later_rates[piece * 3 + axis]);
+        }
+        // Repeated observations keep the first full capture of this same tick.
+        instance.pieces()[1].rotation.xz += 100;
+        motion.blended_draw = 37;
+        oa::app::observe_unit_root(motion, prime_tick, 1, prime_unit, instance);
+        CHECK(motion.rig_valid && motion.rig_primed && motion.blended_draw == 37);
+        oa::app::observe_unit(motion, prime_tick, 1, prime_unit, instance, rates);
+        CHECK(motion.current.pieces[1].rotation.xz == captured[1].rotation.xz);
+        CHECK(motion.current.pieces[1].turn_per_tick == captured[1].turn_per_tick);
+        CHECK(motion.rig_primed && motion.blended_draw == 37);
+        // The following full tick has two real rig endpoints again.
+        oa::app::observe_unit(motion, prime_tick + 1, 1, unit_at(108, 100, 0x400), instance, rates);
+        CHECK(motion.rig_valid && !motion.rig_primed && motion.pieces_moved);
+        CHECK(motion.continued && motion.moved);
+        CHECK(motion.previous.pieces[1].rotation.xz == captured[1].rotation.xz);
+        CHECK(motion.previous.pieces[1].turn_per_tick == captured[1].turn_per_tick);
+        CHECK(motion.current.pieces[1].rotation.xz == instance.pieces()[1].rotation.xz);
+        CHECK(motion.current.pieces[1].turn_per_tick[1] == rates[4]);
+        oa::app::observe_unit_root(motion, prime_tick + 2, 1, unit_at(110, 100, 0x500), instance);
+        CHECK(!motion.rig_valid && !motion.rig_primed && !motion.pieces_moved);
+    }
+}
+
 /// Checks every piece axis and keeps captured rates changed later in the same tick.
 void test_piece_capture_changes() {
     constexpr uint32_t first_tick = 40;
@@ -532,6 +726,8 @@ int main() {
     test_blends();
     test_instance_fits_unit();
     test_unit_motion();
+    test_unit_root_history();
+    test_unit_rig_priming();
     test_piece_capture_changes();
     test_fast_spin();
     test_shots();
