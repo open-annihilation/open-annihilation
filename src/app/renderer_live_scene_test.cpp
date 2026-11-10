@@ -3418,11 +3418,31 @@ void ground_index_reuse() {
     auto clean = fixture.scene;
     fixture.inputs.pool = nullptr;
     fixture.inputs.view_direction = {-0.5F, 1, 0.5F};
-    fixture.scene.cut_ground[0].x = std::numeric_limits<float>::quiet_NaN();
-    std::ignore = live::build(fixture.inputs, fixture.scene, fixture.error);
-    OA_CHECK(!fixture.scene.ground_index_cache.valid);
+    OA_CHECK(!fixture.scene.cut_ground.empty());
+    if (!fixture.scene.cut_ground.empty()) {
+        const auto before = fixture.scene.ground_index_cache;
+        fixture.scene.cut_ground[0].x = std::numeric_limits<float>::quiet_NaN();
+        std::ignore = live::build(fixture.inputs, fixture.scene, fixture.error);
+        OA_CHECK(!fixture.scene.ground_index_cache.valid);
+        OA_CHECK(fixture.scene.ground_index_cache.attempts == before.attempts + 1);
+        OA_CHECK(fixture.scene.ground_index_cache.key == before.key);
+        const auto& records = fixture.scene.passes.ground_indices.diagnostics;
+        OA_CHECK(records.size == 1 && records.dropped == 0);
+        if (records.size == 1) {
+            const auto& record = records.records[0];
+            OA_CHECK(record.was_valid && !record.completed);
+            OA_CHECK(record.before == before.key && record.previous_attempts == before.attempts);
+            OA_CHECK(record.requested.revision == before.key.revision);
+            OA_CHECK(record.requested.vertices == fixture.scene.cut_ground.size());
+            OA_CHECK(
+                record.reasons == static_cast<uint32_t>(live::GroundIndexMiss::index_axes)
+            );
+            OA_CHECK(record.world_nanoseconds == 0 && record.card_nanoseconds == 0);
+            OA_CHECK(record.total_nanoseconds == record.bounds_nanoseconds);
+        }
+    }
     fixture.scene = std::move(clean);
-    timers::reset(false);
+    timers::reset(true);
 
     Fixture empty;
     empty.map.attribute_width = empty.map.attribute_height = 1;
@@ -3433,12 +3453,31 @@ void ground_index_reuse() {
     empty.draws.sprites.push_back({&art, {4, 4}});
     empty.draws.sprites[0].world_position = oa::FixedVec3{4 * 65536, 0, 8 * 65536};
     empty.draws.sprites[0].surface_effect = true;
-    for (uint32_t frame = 0; frame < 3; ++frame)
+    for (uint32_t frame = 0; frame < 3; ++frame) {
+        timers::clear_ground_index_builds();
         OA_CHECK(live::build(empty.inputs, empty.scene, empty.error));
+        const auto& work = empty.scene.passes.ground_indices;
+        OA_CHECK(work.diagnostics.dropped == 0);
+        if (frame < 2) {
+            OA_CHECK(work.diagnostics.size == 1 && work.builds == 1);
+            if (work.diagnostics.size == 1) {
+                const auto& record = work.diagnostics.records[0];
+                OA_CHECK(record.completed && record.requested.vertices == 0);
+                OA_CHECK(record.previous_attempts == frame);
+                OA_CHECK(record.total_nanoseconds == work.build_nanoseconds);
+            }
+            OA_CHECK(timers::timers.ground_index_builds.size == 1);
+        } else {
+            OA_CHECK(work.diagnostics.size == 0 && work.builds == 0 && work.hits == 1);
+            OA_CHECK(timers::timers.ground_index_builds.size == 0);
+        }
+    }
     OA_CHECK(empty.scene.terrain_vertex_count == 0);
     OA_CHECK(empty.scene.passes.ground_indices.hits == 1);
     OA_CHECK(empty.scene.ground_index_cache.layouts[0].columns == 0);
     OA_CHECK(empty.scene.ground_index_cache.layouts[0].rows == 0);
+    OA_CHECK(empty.scene.ground_index_cache.attempts == 2);
+    timers::reset(false);
 }
 
 /// Tells whether two scenes built the same frame: the same vertices in the
@@ -3490,6 +3529,153 @@ bool same_frame(const live::Scene& a, const live::Scene& b) {
            update.frame_end_row == other.frame_end_row &&
            update.regions.size() == other.regions.size() && a.frame_rows == b.frame_rows &&
            a.frame.order == b.frame.order && a.materials.size() == b.materials.size();
+}
+
+/// Deferred ground queries distinguish first cache use from a later key mismatch.
+void ground_index_build_diagnostics() {
+    namespace timers = oa::app::bench_timers;
+    Fixture fixture;
+    auto& in = fixture.inputs;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.clip_width = in.clip_height = 32;
+    in.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0, 0};
+    in.view_direction = {0, 1, 0.5F};
+    oa::formats::gaf::RenderedFrame art{};
+    art.width = art.height = 8;
+    art.origin_x = 4;
+    art.origin_y = 8;
+    art.pixels.assign(64, alternate_index);
+    art.coverage.assign(64, 1);
+    fixture.draws.sprites.push_back({&art, {8, 8}});
+    fixture.draws.sprites[0].world_position = oa::FixedVec3{8 * 65536, 0, 8 * 65536};
+    live::Scene ordinary;
+    const auto compare = [&] {
+        timers::reset(false);
+        OA_CHECK(live::build(in, ordinary, fixture.error));
+        timers::reset(true);
+        OA_CHECK(live::build(in, fixture.scene, fixture.error));
+        OA_CHECK(fixture.error.empty());
+        OA_CHECK(same_frame(fixture.scene, ordinary));
+    };
+    // Ordinary standing sprites never request these ground indices. The
+    // cache stays unused while the scene and material atlas become warm.
+    for (uint32_t frame = 0; frame < 5; ++frame) {
+        compare();
+        const auto& work = fixture.scene.passes.ground_indices;
+        OA_CHECK(work.builds == 0 && work.hits == 0 && work.diagnostics.size == 0);
+        OA_CHECK(fixture.scene.ground_index_cache.attempts == 0);
+        OA_CHECK(!fixture.scene.ground_index_cache.valid);
+        OA_CHECK(timers::timers.ground_index_builds.size == 0);
+    }
+    fixture.draws.sprites[0].surface_effect = true;
+    compare();
+    const auto& first_work = fixture.scene.passes.ground_indices;
+    OA_CHECK(first_work.builds == 1 && first_work.hits == 0);
+    OA_CHECK(first_work.diagnostics.size == 1 && first_work.diagnostics.dropped == 0);
+    if (first_work.diagnostics.size == 1) {
+        const auto& record = first_work.diagnostics.records[0];
+        OA_CHECK(!record.was_valid && record.completed && record.previous_attempts == 0);
+        OA_CHECK(record.before == live::GroundIndexKey{});
+        OA_CHECK(record.requested == fixture.scene.ground_index_cache.key);
+        OA_CHECK(record.requested.revision != 0 && record.requested.vertices != 0);
+        constexpr auto invalid = static_cast<uint32_t>(live::GroundIndexMiss::index_invalid);
+        constexpr auto uncached = static_cast<uint32_t>(live::GroundIndexMiss::index_uncached);
+        OA_CHECK((record.reasons & invalid) != 0 && (record.reasons & uncached) == 0);
+        OA_CHECK(
+            record.total_nanoseconds ==
+            record.bounds_nanoseconds + record.world_nanoseconds + record.card_nanoseconds
+        );
+        OA_CHECK(record.total_nanoseconds == first_work.build_nanoseconds);
+        const auto& global = timers::timers.ground_index_builds;
+        OA_CHECK(global.size == 1 && global.dropped == 0);
+        if (global.size == 1) {
+            OA_CHECK(global.records[0].before == record.before);
+            OA_CHECK(global.records[0].requested == record.requested);
+            OA_CHECK(global.records[0].total_nanoseconds == record.total_nanoseconds);
+        }
+    }
+    const auto first_key = fixture.scene.ground_index_cache.key;
+    compare();
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 0);
+    OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
+    OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 0);
+    OA_CHECK(timers::timers.ground_index_builds.size == 0);
+    OA_CHECK(fixture.scene.ground_index_cache.attempts == 1);
+    in.view_direction = {0.5F, 1, 0.5F};
+    compare();
+    const auto& changed = fixture.scene.passes.ground_indices.diagnostics;
+    OA_CHECK(changed.size == 1 && changed.dropped == 0);
+    if (changed.size == 1) {
+        const auto& record = changed.records[0];
+        OA_CHECK(record.was_valid && record.completed && record.previous_attempts == 1);
+        OA_CHECK(record.before == first_key);
+        OA_CHECK(record.requested.revision == first_key.revision);
+        OA_CHECK(record.requested.vertices == first_key.vertices);
+        OA_CHECK(record.requested.card_axes != first_key.card_axes);
+        OA_CHECK(record.reasons == static_cast<uint32_t>(live::GroundIndexMiss::index_axes));
+    }
+    // A copied Scene owns its index buffers and its cache-local history.
+    // Clearing the benchmark's records never resets either cache's history.
+    auto copied = fixture.scene;
+    const auto old_key = fixture.scene.ground_index_cache.key;
+    const auto old_attempts = fixture.scene.ground_index_cache.attempts;
+    in.view_direction = {-0.5F, 1, 0.5F};
+    timers::clear_ground_index_builds();
+    OA_CHECK(live::build(in, copied, fixture.error));
+    OA_CHECK(copied.ground_index_cache.attempts == old_attempts + 1);
+    OA_CHECK(fixture.scene.ground_index_cache.attempts == old_attempts);
+    OA_CHECK(fixture.scene.ground_index_cache.key == old_key);
+    fixture.scene = std::move(copied);
+    compare();
+    OA_CHECK(fixture.scene.ground_index_cache.attempts == old_attempts + 1);
+    OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
+    OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 0);
+    // Disabled timing changes neither the result nor cache bookkeeping,
+    // while avoiding records and phase-clock reads for a forced rebuild.
+    const auto before_disabled = fixture.scene.ground_index_cache.attempts;
+    fixture.scene.ground_index_cache.valid = false;
+    timers::reset(false);
+    OA_CHECK(live::build(in, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_index_cache.attempts == before_disabled + 1);
+    OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
+    OA_CHECK(fixture.scene.passes.ground_indices.build_nanoseconds == 0);
+    OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 0);
+    OA_CHECK(timers::timers.ground_index_builds.size == 0);
+    OA_CHECK(same_frame(fixture.scene, ordinary));
+}
+
+/// Ground-build records retain their bounded prefix and count overflow without allocation.
+void ground_index_build_record_storage() {
+    namespace timers = oa::app::bench_timers;
+    live::GroundIndexBuilds more{};
+    more.size = more.capacity;
+    more.dropped = 3;
+    for (std::size_t index = 0; index < more.size; ++index) {
+        more.records[index].requested.revision = index + 1;
+        more.records[index].previous_attempts = index;
+    }
+    timers::reset(true);
+    timers::count_ground_index_builds(more);
+    OA_CHECK(timers::timers.ground_index_builds.size == more.capacity);
+    OA_CHECK(timers::timers.ground_index_builds.dropped == more.dropped);
+    timers::count_ground_index_builds(more);
+    OA_CHECK(timers::timers.ground_index_builds.size == more.capacity);
+    OA_CHECK(timers::timers.ground_index_builds.dropped == more.capacity + more.dropped * 2);
+    for (std::size_t index = 0; index < more.capacity; ++index) {
+        const auto& record = timers::timers.ground_index_builds.records[index];
+        OA_CHECK(record.requested.revision == index + 1 && record.previous_attempts == index);
+    }
+    timers::count_ground_indices(1, 2, 3, 4);
+    const auto counted = timers::timers.totals;
+    timers::clear_ground_index_builds();
+    OA_CHECK(timers::timers.ground_index_builds.size == 0);
+    OA_CHECK(timers::timers.ground_index_builds.dropped == 0);
+    OA_CHECK(timers::timers.totals.ground_index_builds == counted.ground_index_builds);
+    OA_CHECK(timers::timers.totals.ground_index_hits == counted.ground_index_hits);
+    timers::reset(false);
+    timers::count_ground_index_builds(more);
+    OA_CHECK(timers::timers.ground_index_builds.size == 0);
+    OA_CHECK(timers::timers.ground_index_builds.dropped == 0);
 }
 
 /// Builds matching scene histories while the reference surveys afresh on every frame.
@@ -7432,6 +7618,8 @@ int main() {
     frame_rows_begin_for_tall_effects();
     frame_effect_fallbacks();
     ground_index_reuse();
+    ground_index_build_diagnostics();
+    ground_index_build_record_storage();
     passes_on_threads();
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();
