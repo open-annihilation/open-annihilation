@@ -44,6 +44,26 @@ namespace oa::sim::match_runtime {
            tick - navigation.last_search_tick >= stale_search_ticks;
 }
 
+/// Lets an old blocked order use a credited search while its shared lookup is pending.
+///
+/// This supplements the motion and search-age checks without delaying ordinary
+/// fallbacks. Order age excludes newly issued work; it is not a Goal age clock.
+///
+/// @param navigation current native navigator after a pending shared lookup
+/// @param traffic current local traffic classification
+/// @param tick current simulation tick
+/// @return whether this pending lookup may join the preferred candidate set
+[[nodiscard]] inline bool preferred_pending_search(
+    const sim::ground_orders::Navigation& navigation,
+    const sim::unit_movement::LocalFlowHead& traffic,
+    uint32_t tick
+) noexcept {
+    constexpr uint32_t order_age_ticks = 2 * sim::ground_orders::search_retry_ticks;
+    return navigation.goal && navigation.goal->order &&
+           traffic.blocked_ticks >= sim::unit_movement::local_flow_retry_ticks &&
+           tick - navigation.goal->order->issue_tick >= order_age_ticks;
+}
+
 /// Keeps an offered search bound to the same owned native Goal geometry.
 ///
 /// @param a current native Goal
