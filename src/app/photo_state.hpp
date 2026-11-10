@@ -89,6 +89,12 @@ struct Runtime::PhotoState {
     uint32_t held_width{};           ///< the copy's width
     uint32_t held_height{};          ///< the copy's height
     std::vector<uint8_t> held_rgb{}; ///< the copy, row by row, three bytes a pixel
+    /// The fog of war the copy was drawn with: 1 for each sight cell it
+    /// showed never mapped (Runtime::photo_fog_cells). The haze keeps that
+    /// black, whatever the match explores while the picture is held.
+    std::vector<uint8_t> held_unmapped{};
+    int32_t held_fog_width{};  ///< sight cells across; 0 when the copy showed no such fog
+    int32_t held_fog_height{}; ///< sight cells down
     /// The camera when the picture was held. Letting go writes it back.
     /// Leaving photo mode still writes the camera from entering.
     bool camera_held{};
@@ -180,6 +186,26 @@ struct Runtime::PhotoState {
     int32_t look_grain{};       ///< 0 to 100
     int32_t look_grain_size{2}; ///< pixels of one grain, at least 1
     uint8_t look_frame{};       ///< photo::Frame, 0 is none
+    /// The depth page of Look. The grade shows while this is false.
+    bool look_depth{false};
+    /// Centre of the sharp band, 0 to 100 percent of the picture's height.
+    int32_t look_tilt_centre{50};
+    /// Width of the sharp band, in the battlefield's pixels.
+    int32_t look_tilt_width{48};
+    /// Blur at the top and the bottom, in the battlefield's pixels. 0 is off.
+    int32_t look_tilt_radius{0};
+    /// How far the picture fades, 0 to 100. 0 is off. The classic view fades
+    /// lower ground. The turned view fades by distance from the camera, on
+    /// the card, and only while the card keeps that depth.
+    int32_t look_haze{0};
+    /// Blur away from the focus, in the battlefield's pixels. 0 is off.
+    /// The turned view draws it on the card. The classic view ignores it.
+    int32_t look_depth_of_field{0};
+    /// The blur the card drew on the last frame, in that picture's pixels.
+    /// 0 when the depth pass did not run.
+    int32_t card_dof_pixels{0};
+    /// The haze the card drew on the last frame, 0 to 100. 0 when it did not.
+    int32_t card_haze{0};
 
     /// Tells whether a unit is in the view photo mode kept: listed by the
     /// last collect against the player's camera, not the photo camera.

@@ -2837,6 +2837,10 @@ void Runtime::advance_input_actions(bool& running) {
         state.events = fed.events;
         note_pointer_key_events(fed.events);
         trace_fed_actions(state.events);
+        // A held focus key repeats here, at the player's delay and rate, and
+        // the package screens take each repeat as a press. An empty advance
+        // leaves the previous frame's events in place and repeats nothing.
+        deliver_menu_repeats();
     }
     step_pointer_keys();
     for (const keys::InputEvent& admitted : fed.admitted) {
@@ -2954,6 +2958,12 @@ std::span<const keys::ActionEvent> Runtime::match_action_events() const {
     if (key_bindings_state_ == nullptr)
         return {};
     return key_bindings_state_->events;
+}
+
+void Runtime::swap_action_events(std::vector<keys::ActionEvent>& replacement) {
+    if (key_bindings_state_ == nullptr)
+        return;
+    key_bindings_state_->events.swap(replacement);
 }
 
 const keys::ActionEvent* Runtime::fired_action(std::string_view id) const {

@@ -56,6 +56,7 @@
 
 #include "oa/data/mod_profile/overrides.hpp"
 #include "oa/data/mod_profile/registry.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
@@ -649,7 +650,8 @@ void every_part_lies_inside_the_dialog_and_apart() {
                             row.setting == Setting::file_types_note ||
                             row.setting == Setting::mod_limits_heading ||
                             row.setting == Setting::weapon_types || row.setting == Setting::sides ||
-                            row.content >= 0 || row.updates >= 0
+                            row.setting == Setting::colour_preview || row.content >= 0 ||
+                            row.updates >= 0
                         );
                         continue;
                     }
@@ -1022,34 +1024,53 @@ void accessibility_choose_opens_latchable_and_edit_keys_stays_on_all() {
     CHECK(keys.edit_keys_filter == settings::KeyEditorFilter::all);
 
     const auto rows = settings::page_settings(Page::accessibility);
-    CHECK(rows.size() == 15);
-    CHECK(rows[0] == Setting::latching);
-    CHECK(rows[1] == Setting::sticky_modifiers);
-    CHECK(rows[2] == Setting::hold_to_confirm);
-    CHECK(rows[3] == Setting::long_press);
-    CHECK(rows[4] == Setting::slow_keys);
-    CHECK(rows[5] == Setting::bounce_keys);
-    CHECK(rows[6] == Setting::order_wheel);
-    CHECK(rows[7] == Setting::pointer_keys);
-    CHECK(rows[8] == Setting::double_press);
-    CHECK(rows[9] == Setting::repeat_delay);
-    CHECK(rows[10] == Setting::repeat_rate);
-    CHECK(rows[11] == Setting::drag_threshold);
-    CHECK(rows[12] == Setting::edge_scroll);
-    CHECK(rows[13] == Setting::move_overlays);
-    CHECK(rows[14] == Setting::arrange_overlays);
+    CHECK(rows.size() == 23);
+    CHECK(rows[0] == Setting::colour_vision);
+    CHECK(rows[1] == Setting::shape_cues);
+    CHECK(rows[2] == Setting::colour_preview);
+    CHECK(rows[3] == Setting::screen_reader);
+    CHECK(rows[4] == Setting::speak_chat);
+    CHECK(rows[5] == Setting::speak_lobby);
+    CHECK(rows[6] == Setting::speak_ticker);
+    CHECK(rows[7] == Setting::always_show_focus);
+    CHECK(rows[8] == Setting::latching);
+    CHECK(rows[9] == Setting::sticky_modifiers);
+    CHECK(rows[10] == Setting::hold_to_confirm);
+    CHECK(rows[11] == Setting::long_press);
+    CHECK(rows[12] == Setting::slow_keys);
+    CHECK(rows[13] == Setting::bounce_keys);
+    CHECK(rows[14] == Setting::order_wheel);
+    CHECK(rows[15] == Setting::pointer_keys);
+    CHECK(rows[16] == Setting::double_press);
+    CHECK(rows[17] == Setting::repeat_delay);
+    CHECK(rows[18] == Setting::repeat_rate);
+    CHECK(rows[19] == Setting::drag_threshold);
+    CHECK(rows[20] == Setting::edge_scroll);
+    CHECK(rows[21] == Setting::move_overlays);
+    CHECK(rows[22] == Setting::arrange_overlays);
 
     settings::Dialog dialog = opened(Page::accessibility);
     const auto placed = geometry::place_rows(Page::accessibility, {});
-    CHECK(placed.rows.size() == 15);
-    CHECK(click(dialog, centre(placed.rows[0].control_area)) == DialogAction::edit_keys);
+    CHECK(placed.rows.size() == 23);
+    // The new rows sit above Hold keys that latch, so that button starts
+    // below the view. Scroll it up, then press it.
+    const auto into_view = [](settings::Dialog& shown, Point point) {
+        const int32_t wanted = std::max(point.y - geometry::first_row_top, int32_t{0});
+        const int32_t scroll = std::min(wanted, settings::scroll_limit(shown));
+        shown.scroll[static_cast<std::size_t>(shown.page)] = scroll;
+        return Point{point.x, point.y - scroll};
+    };
+    CHECK(
+        click(dialog, into_view(dialog, centre(placed.rows[8].control_area))) ==
+        DialogAction::edit_keys
+    );
     CHECK(dialog.edit_keys_filter == settings::KeyEditorFilter::latchable);
 
     settings::Dialog sticky = opened(Page::accessibility);
     const auto again = geometry::place_rows(Page::accessibility, {});
-    const auto& area = again.rows[1].control_area;
+    const auto& area = again.rows[9].control_area;
     const Point on{area.x + area.width - 4, area.y + area.height / 2};
-    CHECK(click(sticky, on) == DialogAction::changed);
+    CHECK(click(sticky, into_view(sticky, on)) == DialogAction::changed);
     CHECK(sticky.chosen.sticky_modifiers);
     CHECK(!sticky.opened.sticky_modifiers);
 }
@@ -2673,6 +2694,39 @@ void locks_show_their_text_and_hold_their_settings() {
             part.control != settings::first_row_control + 1 &&
             part.control != settings::first_row_control + 2
         );
+    // The three sliders still reach a screen reader: each is one disabled
+    // slider in the tree with the lock's words as its description, and still
+    // reads its stop, its range and its words, though the dialog reaches its
+    // control across the whole row.
+    const oa::ui::kit::DisplayList locked_list = geometry::dialog_list(dialog, nullptr);
+    const std::vector<oa::ui::kit::AutomationEntry> locked_heard =
+        oa::ui::kit::automation_parts(locked_list, {});
+    for (const char* locked_name :
+         {"settings.path-search", "settings.unit-limit", "settings.skirmish-players"}) {
+        const auto locked_slider = std::find_if(
+            locked_heard.begin(),
+            locked_heard.end(),
+            [locked_name](const oa::ui::kit::AutomationEntry& entry) {
+                return entry.name == locked_name;
+            }
+        );
+        CHECK(locked_slider != locked_heard.end());
+        if (locked_slider == locked_heard.end())
+            continue;
+        CHECK(!locked_slider->enabled && !locked_slider->focusable);
+        CHECK(locked_slider->description == "Locked during a game");
+        CHECK(locked_slider->has_value && locked_slider->has_range);
+        CHECK(locked_slider->least == 0 && locked_slider->most > 0);
+        CHECK(!locked_slider->value_text.empty());
+    }
+    const auto locked_path = std::find_if(
+        locked_heard.begin(), locked_heard.end(), [](const oa::ui::kit::AutomationEntry& entry) {
+            return entry.name == "settings.path-search";
+        }
+    );
+    CHECK(locked_path != locked_heard.end());
+    if (locked_path != locked_heard.end())
+        CHECK(locked_path->value == 0 && locked_path->most == 7 && locked_path->value_text == "1x");
 
     const auto shared = settings::settings_locks(settings::GameState{true, true, false, false});
     parts = settings::dialog_layout(opened(Page::common_tweaks, shared));
@@ -7096,9 +7150,47 @@ void a_switch_caption_wraps_only_when_the_whole_line_would_cut_it(
     CHECK(halves == 2);
 }
 
+/// Speak chat is narrowed beside its label. A click at the centre of the
+/// placed All segment chooses All, including after Off was chosen.
+void a_narrowed_strip_takes_a_click_at_its_drawn_centre(const settings::DialogFonts& fonts) {
+    settings::Dialog dialog = opened(Page::accessibility);
+    dialog.size_class = oa::ui::kit::SizeClass::regular;
+    dialog.drawn_fonts = &fonts;
+    const geometry::ShownSection placed = geometry::shown_section(dialog, &fonts);
+    const geometry::Row* found = nullptr;
+    for (const geometry::Row& row : placed.open.rows.rows) {
+        if (row.setting == Setting::speak_chat)
+            found = &row;
+    }
+    CHECK(found != nullptr);
+    if (found == nullptr)
+        return;
+    const int32_t designed = geometry::speak_chat_level_width * 3 + 2;
+    CHECK(found->control_area.width < designed);
+    dialog.scroll[static_cast<std::size_t>(Page::accessibility)] =
+        std::max(found->top - placed.sizes.first_row_top, int32_t{0});
+    const geometry::Row* speak = nullptr;
+    for (const geometry::Row& row : geometry::shown_section(dialog, &fonts).open.rows.rows) {
+        if (row.setting == Setting::speak_chat)
+            speak = &row;
+    }
+    CHECK(speak != nullptr);
+    if (speak == nullptr)
+        return;
+    const int32_t segment = (speak->control_area.width - 2) / 3;
+    const int32_t y = speak->control_area.y + speak->control_area.height / 2;
+    const Point off{speak->control_area.x + 1 + segment / 2, y};
+    const Point all{speak->control_area.x + 1 + 2 * segment + segment / 2, y};
+    CHECK(click(dialog, off) == DialogAction::changed);
+    CHECK(dialog.chosen.speak_chat == settings::SpeakChat::off);
+    CHECK(click(dialog, all) == DialogAction::changed);
+    CHECK(dialog.chosen.speak_chat == settings::SpeakChat::all);
+}
+
 void fonts_load_and_every_text_fits_its_place() {
     auto assets = oa::test::require_game_assets("the settings dialog's fonts");
     const auto fonts = settings::load_dialog_fonts(assets);
+    a_narrowed_strip_takes_a_click_at_its_drawn_centre(fonts);
     a_switch_caption_wraps_only_when_the_whole_line_would_cut_it(fonts);
     CHECK(oa::formats::fnt::measure_text(fonts.regular.font, "OK") > 0);
     CHECK(oa::formats::fnt::measure_text(fonts.small.font, "OK") > 0);
@@ -12235,6 +12327,168 @@ settings::PracticeKey practice(settings::PracticeModifier modifier, std::string_
     return {modifier, std::string(label)};
 }
 
+/// The colour-vision preview's chips, in the order they are drawn.
+std::vector<oa::ui::kit::Colour> preview_chips(const settings::Dialog& dialog) {
+    const oa::ui::kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
+    std::vector<oa::ui::kit::Colour> chips;
+    for (const oa::ui::kit::Item& drawn : list.items) {
+        if (drawn.role == oa::ui::kit::Role::fill && drawn.rect.width == 12 &&
+            drawn.rect.height == 12)
+            chips.push_back(drawn.colour);
+    }
+    return chips;
+}
+
+void colour_and_speech_rows_follow_the_choice() {
+    namespace vision = oa::present::colour_vision;
+    settings::Dialog dialog = opened(Page::accessibility);
+    CHECK(!dialog.speech_unavailable);
+    CHECK(!dialog.chosen.shape_cues);
+    CHECK(dialog.chosen.colour_vision == settings::ColourVision::off);
+
+    // The ring is hidden on the section. Right lands on Colour vision, and
+    // the next Right chooses Protanopia, which turns Shape cues on. Off
+    // does not turn them off again.
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.colour_vision == settings::ColourVision::protanopia);
+    CHECK(dialog.chosen.shape_cues);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.colour_vision == settings::ColourVision::off);
+    CHECK(dialog.chosen.shape_cues);
+
+    for (int step = 0; step < 4; ++step)
+        CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.colour_vision == settings::ColourVision::achromatopsia);
+    CHECK(dialog.chosen.shape_cues);
+    CHECK(geometry::shown_locks(dialog).shape_cues == Lock::keeps_shapes);
+    CHECK(geometry::lock_text(Lock::keeps_shapes) == "Achromatopsia keeps shape cues on");
+    const geometry::SettingsModel locked_model = geometry::reading(dialog.chosen, dialog);
+    const oa::ui::kit::RowView shape =
+        oa::ui::kit::view_of(geometry::row_spec(Setting::shape_cues), locked_model, {});
+    CHECK(shape.lock == "Achromatopsia keeps shape cues on");
+    // A locked row takes no Tab stop, so Tab moves from Colour vision to
+    // Screen reader. The preview between them takes a number and no stop.
+    const oa::ui::kit::DisplayList listed = geometry::dialog_list(dialog, nullptr);
+    CHECK(
+        std::find(
+            listed.tab_order.begin(), listed.tab_order.end(), settings::first_row_control + 1
+        ) == listed.tab_order.end()
+    );
+    // The locked row stays in the tree: one disabled control, its value and
+    // the reason, and no Tab stop. The drawn switch still has no control.
+    const oa::ui::kit::Control* shape_control =
+        oa::ui::kit::control_of(listed, settings::first_row_control + 1);
+    CHECK(shape_control != nullptr && !shape_control->enabled && !shape_control->focusable);
+    CHECK(shape_control != nullptr && shape_control->name == "settings.shape-cues");
+    CHECK(shape_control != nullptr && shape_control->label == "Shape cues");
+    CHECK(shape_control != nullptr && shape_control->text == "On");
+    CHECK(
+        shape_control != nullptr &&
+        shape_control->description == "Achromatopsia keeps shape cues on"
+    );
+    bool shape_drawn_plain = false;
+    for (const oa::ui::kit::Item& drawn : listed.items) {
+        if (drawn.role == oa::ui::kit::Role::toggle && drawn.state.locked)
+            shape_drawn_plain = drawn.control == oa::ui::kit::no_control;
+    }
+    CHECK(shape_drawn_plain);
+    const std::vector<oa::ui::kit::AutomationEntry> heard =
+        oa::ui::kit::automation_parts(listed, {});
+    const oa::ui::kit::AutomationEntry* shape_entry = nullptr;
+    int shape_names = 0;
+    for (const oa::ui::kit::AutomationEntry& entry : heard) {
+        if (entry.name.rfind("settings.shape-cues", 0) != 0)
+            continue;
+        ++shape_names;
+        if (entry.name == "settings.shape-cues")
+            shape_entry = &entry;
+    }
+    CHECK(shape_names == 1 && shape_entry != nullptr);
+    CHECK(shape_entry != nullptr && !shape_entry->enabled && !shape_entry->focusable);
+    CHECK(shape_entry != nullptr && shape_entry->label == "Shape cues");
+    CHECK(shape_entry != nullptr && shape_entry->value_text == "On");
+    CHECK(
+        shape_entry != nullptr && shape_entry->description == "Achromatopsia keeps shape cues on"
+    );
+    const settings::EngineSettings held = dialog.chosen;
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 3);
+    CHECK(dialog.chosen == held);
+    CHECK(dialog.chosen.screen_reader == settings::ScreenReaderMode::automatic);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.screen_reader == settings::ScreenReaderMode::on);
+
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 4);
+    CHECK(dialog.chosen.speak_chat == settings::SpeakChat::all);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.speak_chat == settings::SpeakChat::pages);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.speak_chat == settings::SpeakChat::off);
+
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 5);
+    CHECK(dialog.chosen.speak_lobby);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(!dialog.chosen.speak_lobby);
+
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 6);
+    CHECK(!dialog.chosen.speak_ticker);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.speak_ticker);
+
+    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 7);
+    CHECK(!dialog.chosen.always_show_focus);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.always_show_focus);
+
+    dialog.speech_unavailable = true;
+    const oa::ui::kit::RowView spoken = oa::ui::kit::view_of(
+        geometry::row_spec(Setting::screen_reader), geometry::reading(dialog.chosen, dialog), {}
+    );
+    CHECK(spoken.hints.size() == 2);
+    CHECK(spoken.hints[1] == "Nothing on this system can speak.");
+    CHECK(spoken.notices.size() == 2 && spoken.notices[1]);
+    dialog.speech_unavailable = false;
+    const oa::ui::kit::RowView quiet = oa::ui::kit::view_of(
+        geometry::row_spec(Setting::screen_reader), geometry::reading(dialog.chosen, dialog), {}
+    );
+    CHECK(quiet.hints.size() == 1);
+
+    const auto chips_match = [](const settings::Dialog& shown, vision::Mode mode) {
+        const std::vector<oa::ui::kit::Colour> chips = preview_chips(shown);
+        CHECK(chips.size() == 14);
+        if (chips.size() != 14)
+            return;
+        for (int player = 0; player < vision::kPlayerCount; ++player) {
+            const vision::Rgb colour = vision::preview_player_srgb(mode, player);
+            CHECK(chips[static_cast<std::size_t>(player)].r == colour.red);
+            CHECK(chips[static_cast<std::size_t>(player)].g == colour.green);
+            CHECK(chips[static_cast<std::size_t>(player)].b == colour.blue);
+        }
+        const vision::SemanticColours semantic = vision::semantic_colours(mode);
+        const vision::Rgb states[] = {
+            semantic.kit_ok, semantic.kit_caution, semantic.kit_danger, semantic.kit_information
+        };
+        for (int state = 0; state < 4; ++state) {
+            const oa::ui::kit::Colour chip =
+                chips[static_cast<std::size_t>(vision::kPlayerCount + state)];
+            CHECK(chip.r == states[state].red);
+            CHECK(chip.g == states[state].green);
+            CHECK(chip.b == states[state].blue);
+        }
+    };
+    chips_match(dialog, vision::Mode::achromatopsia);
+    settings::Dialog stock = opened(Page::accessibility);
+    chips_match(stock, vision::Mode::off);
+    stock.chosen.colour_vision = settings::ColourVision::tritanopia;
+    chips_match(stock, vision::Mode::tritanopia);
+}
+
 void the_practice_pad_tries_the_helpers_the_dialog_shows() {
     using settings::PracticeModifier;
     using settings::PracticeOutcome;
@@ -12758,6 +13012,7 @@ int main(int argc, char** argv) {
         a_click_on_an_entry_shows_its_section();
         every_control_is_pressed_where_it_is_drawn();
         accessibility_choose_opens_latchable_and_edit_keys_stays_on_all();
+        colour_and_speech_rows_follow_the_choice();
         switches_take_a_click_on_either_half_and_keys();
         language_and_text_shows_a_language_five_switches_and_a_size();
         language_drop_down_names_each_language_in_itself();

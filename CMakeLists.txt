@@ -147,6 +147,10 @@ if(OA_BUILD_PLATFORM)
   find_package(SDL3 3.2 CONFIG REQUIRED)
 endif()
 
+# Wraps add_test so a direct game launch is offline (cmake/OaOfflineGameTests.cmake).
+# Included before every subdirectory, which is when those tests are registered.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/OaOfflineGameTests.cmake")
+
 add_subdirectory(src/base/bytes)
 add_subdirectory(src/base/game-loop)
 add_subdirectory(src/platform/preferences)
@@ -1348,6 +1352,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/screen_mode.cpp src/app/runtime_screen_size.cpp
   src/app/game_directory_dialog.cpp src/app/runtime.cpp
   src/app/runtime_builtin_screens.cpp
+  src/app/runtime_screen_input.cpp
   src/app/runtime_camera.cpp src/app/middle_pan.cpp src/app/camera_inversion.cpp
   src/app/runtime_campaign.cpp
   src/app/runtime_live_renderer.cpp
@@ -3763,6 +3768,20 @@ if(OA_BUILD_PLATFORM)
         SKIP_RETURN_CODE 77
         PASS_REGULAR_EXPRESSION "photo capture live: equal"
         FAIL_REGULAR_EXPRESSION "photo capture check:")
+      # One frozen turned frame with depth of field, with haze, and twice with
+      # both off. No device, or a card that keeps no depth, skips.
+      set(oa_photo_depth_live_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-depth-live")
+      file(MAKE_DIRECTORY "${oa_photo_depth_live_dir}/user")
+      add_test(NAME native-photo-depth-live COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo depth-live --hardware-acceleration=full
+        --user-folder "${oa_photo_depth_live_dir}/user"
+        --preferences-file "${oa_photo_depth_live_dir}/photo-depth.conf")
+      set_tests_properties(native-photo-depth-live PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_depth_live_dir}"
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy"
+        SKIP_RETURN_CODE 77
+        PASS_REGULAR_EXPRESSION "photo depth live: ok"
+        FAIL_REGULAR_EXPRESSION "photo depth live check:")
       # Screen, a 2× and a 4× photo on the processor. Smooth edges is locked.
       # The digests are the first green run's printed line.
       set(oa_photo_sizes_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-sizes")
@@ -3776,8 +3795,9 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         PASS_REGULAR_EXPRESSION "photo sizes pinned: 48703554acde88c7f988913c5cf3aa78e0ddf8c1959277fadd4660c261f4afb5 5e123b2b0a9ece1f094c6163dbd44198d298293f56719cc108681d6760dc1530 78d5573e5b9c41ef376f9a16e24cc9a13c0faf4bebbf6f72352bd5d4198b3e96"
         FAIL_REGULAR_EXPRESSION "photo sizes failed:")
-      # A 2× photo drawn by Full on SDL's software renderer, and a size past a
-      # forced texture limit left unoffered. The picture is not pinned.
+      # A 2× photo drawn by Full on SDL's software renderer. At the 2× world
+      # target's edge, 4× is offered in tiles; a tighter edge leaves it
+      # unoffered. The picture is not pinned.
       set(oa_photo_sizes_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-sizes-full")
       file(MAKE_DIRECTORY "${oa_photo_sizes_full_dir}/user")
       add_test(NAME native-photo-sizes-full COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -3790,6 +3810,37 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         PASS_REGULAR_EXPRESSION "photo sizes full: ok"
         FAIL_REGULAR_EXPRESSION "photo sizes failed:")
+      # One frozen Full frame drawn whole and again in tiles. The pictures
+      # match within 0.01% of their pixels, with no seam along a tile edge,
+      # and within 0.5% at a photo zoom below 1 on SDL's software renderer.
+      set(oa_photo_tiles_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-tiles-full")
+      file(MAKE_DIRECTORY "${oa_photo_tiles_full_dir}/user")
+      add_test(NAME native-photo-tiles-full COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo tiles
+        --hardware-acceleration=full --force-capable
+        --user-folder "${oa_photo_tiles_full_dir}/user"
+        --preferences-file "${oa_photo_tiles_full_dir}/photo-tiles.conf")
+      set_tests_properties(native-photo-tiles-full PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_tiles_full_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "photo tiles full: ok"
+        FAIL_REGULAR_EXPRESSION "photo tiles failed:")
+      # The same check on the system's own video driver, without
+      # --force-capable. It needs a graphics card to draw Full and skips
+      # where none does, under the dummy driver included, as the live checks
+      # do. A card holds every case, below zoom 1 too, to 0.01%.
+      set(oa_photo_tiles_gpu_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-tiles-full-gpu")
+      file(MAKE_DIRECTORY "${oa_photo_tiles_gpu_dir}/user")
+      add_test(NAME native-photo-tiles-full-gpu COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-photo tiles --hardware-acceleration=full
+        --user-folder "${oa_photo_tiles_gpu_dir}/user"
+        --preferences-file "${oa_photo_tiles_gpu_dir}/photo-tiles.conf")
+      set_tests_properties(native-photo-tiles-full-gpu PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_photo_tiles_gpu_dir}"
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy"
+        SKIP_RETURN_CODE 77
+        PASS_REGULAR_EXPRESSION "photo tiles full: ok"
+        FAIL_REGULAR_EXPRESSION "photo tiles failed:")
       # The turned view at Enhanced anti-aliasing 4×, on the system video
       # driver. No device skips.
       set(oa_photo_sizes_live_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/photo-sizes-live")
@@ -4225,7 +4276,8 @@ endif()
 file(GLOB entries LIST_DIRECTORIES true "${dir}/*")
 foreach(entry IN LISTS entries)
   cmake_path(GET entry FILENAME name)
-  if(name STREQUAL live OR name STREQUAL start OR name STREQUAL "Open Annihilation")
+  if(name STREQUAL live OR name STREQUAL start OR name STREQUAL "Open Annihilation"
+      OR name MATCHES "\\.offline-seed$")
     continue()
   endif()
   file(REMOVE_RECURSE "${entry}")
@@ -5343,6 +5395,14 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-room-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Tab through the menus, Settings, the editors, a hosted room and the
+        # in-game menu. The ring is hidden before the first key. Each launch
+        # writes its own preferences, user folder and data folder.
+        add_test(NAME native-keyboard-walk COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_keyboard_walk.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-keyboard-walk PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The in-game menu and the order buttons answer the keys the player
         # bound. One launch uses the defaults: Tab and Shift+Tab, an arrow,
         # Enter with the ring hidden, Escape, and a saved slider step, and a
@@ -5847,6 +5907,16 @@ if(BUILD_TESTING)
     # rule in small trees and requires the check to find exactly those.
     add_test(NAME style-ratchet COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_style.py
       --root ${CMAKE_CURRENT_SOURCE_DIR})
+    # A native check's preferences must not leave an online check at automatically
+    # (tools/check_native_online.py). The copy's name is not check_native_*.py:
+    # a command that names one of those is a native check and must be called
+    # native-, and this check has to stay in the ordinary run.
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_online.py
+      ${CMAKE_CURRENT_BINARY_DIR}/check_offline_launches.py COPYONLY)
+    add_test(NAME check-native-online COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_BINARY_DIR}/check_offline_launches.py
+      --root ${CMAKE_CURRENT_SOURCE_DIR} --ctest ${CMAKE_CTEST_COMMAND}
+      --build ${CMAKE_CURRENT_BINARY_DIR} --config "$<CONFIG>")
     add_test(NAME style-ratchet-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_style_test.py)
     set_tests_properties(style-ratchet style-ratchet-selftest PROPERTIES TIMEOUT 300)

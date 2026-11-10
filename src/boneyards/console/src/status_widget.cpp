@@ -1354,6 +1354,12 @@ void boneyards_status_widget_exit_to_menu(StatusWidget* widget) {
     console_reset_to_main_menu(widget);
 }
 
+void boneyards_status_widget_note_ring(StatusWidget* widget, int shown) {
+    if (widget == nullptr)
+        return;
+    desktop_note_service_ring(&widget->desktop, shown);
+}
+
 void boneyards_status_widget_return_to_main_menu(StatusWidget* widget) {
     if (widget == nullptr)
         return;

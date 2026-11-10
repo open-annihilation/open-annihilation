@@ -1981,7 +1981,17 @@ uint32_t Runtime::replay_host_clock_tick(void* context) {
 }
 
 void Runtime::replay_host_set_clock_tick(void* context, uint32_t tick) {
-    static_cast<Runtime*>(context)->match_timing_.tick = tick;
+    auto& runtime = *static_cast<Runtime*>(context);
+    runtime.match_timing_.tick = tick;
+    // A seek restores the colours stored with that moment, which are those
+    // of the colour-vision mode in use when it was kept. The HUD keeps the
+    // colours of the mode in use now, Off included: a moment kept before
+    // the player turned a mode off would otherwise bring that mode back.
+    // While the mode has not changed, the table is the one restored.
+    if (!runtime.ui_colors_ready_ || runtime.match_ == nullptr)
+        return;
+    auto& game = runtime.match_->state().game;
+    std::copy_n(runtime.ui_colors_.begin(), sizeof game.ui_colors, game.ui_colors);
 }
 
 bool Runtime::replay_host_run_tick(void* context, bool draw) {

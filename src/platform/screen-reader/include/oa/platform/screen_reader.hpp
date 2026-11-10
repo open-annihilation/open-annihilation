@@ -42,7 +42,7 @@ inline constexpr uint64_t test_node = 2;
 /// The label the test node carries.
 inline constexpr const char* test_label = "Test";
 
-/// The preferences key. Settings does not offer a row for it yet.
+/// The preferences key. Settings › Accessibility offers it as Screen reader.
 inline constexpr const char* preference_key = "open-annihilation.access.screen-reader";
 
 /// Reports whether this build includes the bridge.

@@ -205,6 +205,8 @@ the order buttons and the build page. The arrows move that ring once it is
 showing. Return presses the focused button and hides the ring. Escape, or
 the action again, returns to the battlefield. Until the ring shows, every
 other key does what it does today. The build cells stay unbound.
+[Accessibility](accessibility.md#the-keyboard) is the same account for
+every screen.
 
 **Back** (`game.back`) is Escape and Ctrl+Escape, and it moves in the
 editor. Escape still closes the chat line and Open Annihilation's own
@@ -457,6 +459,8 @@ and hides the ring. Space presses it and leaves the ring showing. On a
 control that is not a button, Enter, once the ring is showing, presses the
 button that screen uses for Enter. Escape leaves a screen as it always has.
 On the main menu Escape does nothing.
+[Accessibility](accessibility.md#the-focus-ring) says how the ring works
+on these screens and the others.
 
 On the main menu, Tab walks Single player, Multiplayer, Intro and Exit, then
 the Library and Settings. While the update pill shows, it comes after

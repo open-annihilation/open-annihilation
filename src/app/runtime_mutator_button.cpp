@@ -1092,9 +1092,10 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     ///
     /// @return tab or back tab; nothing when neither fired
     [[nodiscard]] std::optional<kit::Key> order_step() const {
-        if (runtime_.fired_action("ui.menu-focus-next") != nullptr)
+        const MenuMove move = runtime_.menu_move(MenuMoveCount::down).move;
+        if (move == MenuMove::next)
             return kit::Key::tab;
-        if (runtime_.fired_action("ui.menu-focus-previous") != nullptr)
+        if (move == MenuMove::previous)
             return kit::Key::back_tab;
         return std::nullopt;
     }

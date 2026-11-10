@@ -40,6 +40,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import native_offline
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check_native_automation as automation  # noqa: E402

@@ -41,6 +41,9 @@ Every document in the repository, by what you want to do.
   Limits, System and Developer does, its default, when it takes effect and
   when to change it; the command-line options that set them for one run,
   and where they are kept.
+- [accessibility.md](accessibility.md): colour vision, shape cues, the
+  focus ring, the keyboard on each screen, screen readers on each system,
+  and what the game speaks.
 - [first-run.md](first-run.md): the welcome at the first main menu, which
   chooses a language, explains online features and points out the Library
   and Settings buttons.

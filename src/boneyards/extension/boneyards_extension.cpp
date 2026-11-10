@@ -1332,6 +1332,8 @@ constexpr SpokenButton k_spoken_buttons[] = {
     {"GeneralTabBtn", "General", "", true},
     {"LadderTabBtn", "Ladder", "", true},
     {"AwardsTabBtn", "Awards", "", true},
+    // Matchmaking draws this as a picture, so the window name is the word.
+    {"Close", "Close", "", false},
 };
 
 /// Tells whether a name is only decimal digits.
@@ -1608,6 +1610,64 @@ void note_player_tabs(ExtensionWindow& window) {
     window.controls.insert(window.controls.begin() + earliest, std::move(group));
 }
 
+/// The catalogue line for a list, a field, a slider, or the Search button.
+///
+/// A name that is not here keeps an empty label, so a keyboard walk still
+/// catches a stop nobody named. Battle name and Battle password use the
+/// words Name and Password, and the chat entry the room's Chat line. The
+/// page's scroll bar is not Page: the PAGE button already says that, and
+/// Scroll is the list's own bar.
+///
+/// @param name the control's name
+/// @return the English line, or null when this name is not spoken here
+const char* access_word(const std::string& name) {
+    if (name == "ChatList")
+        return "Chat";
+    if (name == "ReconList")
+        return "Recon";
+    if (name == "BattleList")
+        return "Battle";
+    if (name == "ProfileList")
+        return "Profile";
+    if (name == "ContentsList")
+        return "Contents";
+    if (name == "PlanetIntelList")
+        return "Planets";
+    if (name == "HTMLSlider")
+        return "Page scroll bar";
+    if (name == "slider")
+        return "Scroll";
+    if (name == "Mag_Slider")
+        return "Zoom";
+    if (name == "Chat rooms")
+        return "Chat rooms";
+    if (name == "Chat players")
+        return "Chat players";
+    if (name == "Chat entry")
+        return "Chat line";
+    if (name == "Game types")
+        return "Game types";
+    if (name == "Battle name")
+        return "Name";
+    if (name == "Battle password")
+        return "Password";
+    if (name == "Ladder search")
+        return "Ladder search";
+    if (name == "Username")
+        return "Name";
+    if (name == "Password")
+        return "Password";
+    if (name == "Server List")
+        return "Server List";
+    if (name == "Status")
+        return "Status";
+    if (name == "Name")
+        return "Name";
+    if (name == "Search")
+        return "Search";
+    return nullptr;
+}
+
 /// Fills the words, roles and shortcuts of the controls just listed.
 ///
 /// Window names and the text a control shows stay as they are. A planet's
@@ -1714,6 +1774,19 @@ void fill_access(
                 }
                 if (!result.empty())
                     control.label = std::move(result);
+            }
+            // A list's text is the chosen row, a field's text is what was
+            // typed, and a slider's text is its position. Only a name
+            // access_word knows is spoken. Anything else keeps an empty
+            // label, so a walk still catches it. Search is a button whose
+            // caption is the same word.
+            const bool named_stop = control.kind == ExtensionControlKind::list ||
+                                    control.kind == ExtensionControlKind::text_field ||
+                                    control.kind == ExtensionControlKind::slider ||
+                                    control.name == "Search";
+            if (control.label.empty() && named_stop) {
+                if (const char* word = access_word(control.name); word != nullptr)
+                    control.label = spoken(word);
             }
         }
         constexpr int k_max_win_icons = 8;

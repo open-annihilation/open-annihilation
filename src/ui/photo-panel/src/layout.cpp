@@ -283,8 +283,9 @@ int32_t stop_columns(int32_t stops, int32_t row_width, int32_t least) {
 /// @param model the panel
 /// @param preset_rows how many rows the preset names take
 /// @param size_reason_rows the rows the size row's reason wraps to
+/// @param depth_note_rows the rows the depth page's notes and locks wrap to
 /// @return the rows
-int row_count(const Model& model, int preset_rows, int size_reason_rows) {
+int row_count(const Model& model, int preset_rows, int size_reason_rows, int depth_note_rows) {
     int rows = 1;
     rows += 1;
     if (model.camera_open)
@@ -294,7 +295,14 @@ int row_count(const Model& model, int preset_rows, int size_reason_rows) {
         rows += 5;
     rows += 1;
     if (model.look_open) {
-        rows += 8 + std::max(preset_rows, 1);
+        // The depth page replaces the grade: five sliders, the rows its
+        // notes and locks wrap to, and the two switches and Guides. In the
+        // turned view the haze lock's rows become the depth-of-field slider,
+        // so the page grows no taller there.
+        if (model.depth_page)
+            rows += 5 + depth_note_rows + 3;
+        else
+            rows += 8 + std::max(preset_rows, 1);
         if (!model.preview_note.empty())
             ++rows;
     }
@@ -478,7 +486,8 @@ void add_slider_row(
     const char* name,
     kit::ControlId reason_id,
     const char* reason_name,
-    const std::vector<std::string>& reserve = {}
+    const std::vector<std::string>& reserve = {},
+    bool wrap_reason = false
 ) {
     const kit::Rect row = column.take();
     const SliderParts parts = slider_parts(*column.fonts, row.width, label, value, reserve);
@@ -515,7 +524,17 @@ void add_slider_row(
     add_line(
         *column.list, {value_x, row.y, value_w, row.height}, fit_line(*column.fonts, value, value_w)
     );
-    if (!reason.empty())
+    if (reason.empty())
+        return;
+    if (wrap_reason)
+        add_wrapped_reason(
+            column,
+            reason_id,
+            reason_name,
+            reason,
+            wrapped_reason(*column.fonts, reason, column.width)
+        );
+    else
         add_reason(column, reason_id, reason_name, reason);
 }
 
@@ -740,6 +759,152 @@ void add_saved(Layout& placed, const Model& model) {
     add_quiet(placed.list, placed.toast, kSaved, "photo.saved", {}, std::move(text), 1);
 }
 
+/// Look's header, with Depth sharing the row so the page costs no extra row.
+void add_look_header(Column& column) {
+    const Model& model = *column.model;
+    const kit::Rect row = column.take();
+    constexpr int32_t kGap = 4;
+    int32_t depth_w = line_width(*column.fonts, model.depth_label, 48) + 16;
+    // A finger's target is at least as wide as the row is tall.
+    if (model.touch)
+        depth_w = std::max(depth_w, row.height);
+    const int32_t most = std::max(row.width / 2, int32_t{1});
+    if (depth_w > most)
+        depth_w = most;
+    if (depth_w > row.width - kGap)
+        depth_w = std::max(row.width - kGap, int32_t{0});
+    const int32_t look_w = std::max(row.width - kGap - depth_w, int32_t{0});
+    const kit::Rect look_rect{row.x, row.y, look_w, row.height};
+    const kit::Rect depth_rect{
+        row.x + look_w + kGap, row.y, std::max(row.width - look_w - kGap, int32_t{0}), row.height
+    };
+    const std::string value = model.look_open ? model.open_word : model.closed_word;
+    const std::string shown = value.empty() ? model.look_title : model.look_title + "  " + value;
+    const int32_t room = std::max(look_rect.width - 10, int32_t{0});
+    kit::add_button(
+        *column.list,
+        look_rect,
+        button_look(model, kLook, fit_line(*column.fonts, shown, room), false, true),
+        kLook,
+        "photo.section"
+    );
+    stamp(*column.list, kLook, model.look_title, value);
+    for (kit::Control& control : column.list->controls) {
+        if (control.id == kLook)
+            control.expanded = model.look_open;
+    }
+    rename(*column.list, kLook, "photo.section.look");
+    const int32_t depth_room = std::max(depth_rect.width - 10, int32_t{0});
+    kit::add_button(
+        *column.list,
+        depth_rect,
+        button_look(
+            model,
+            kDepth,
+            fit_line(*column.fonts, model.depth_label, depth_room),
+            model.depth_page,
+            true
+        ),
+        kDepth,
+        "photo.depth"
+    );
+    stamp(
+        *column.list, kDepth, model.depth_label, model.depth_page ? model.on_word : model.off_word
+    );
+}
+
+/// The tilt-shift and the haze, in place of the grade.
+void add_depth_body(Column& column) {
+    const Model& model = *column.model;
+    add_slider_row(
+        column,
+        kBandCentre,
+        model.band_centre_label,
+        model.band_centre_stop,
+        model.band_centre_stops,
+        model.band_centre_value,
+        {},
+        {},
+        "photo.band-centre",
+        kTiltNote,
+        nullptr,
+        model.band_centre_reserve
+    );
+    add_slider_row(
+        column,
+        kBandWidth,
+        model.band_width_label,
+        model.band_width_stop,
+        model.band_width_stops,
+        model.band_width_value,
+        {},
+        {},
+        "photo.band-width",
+        kTiltNote,
+        nullptr,
+        model.band_width_reserve
+    );
+    add_slider_row(
+        column,
+        kBlur,
+        model.blur_label,
+        model.blur_stop,
+        model.blur_stops,
+        model.blur_value,
+        {},
+        {},
+        "photo.blur",
+        kTiltNote,
+        nullptr,
+        model.blur_reserve
+    );
+    add_wrapped_reason(
+        column,
+        kTiltNote,
+        "photo.tilt-shift.note",
+        model.tilt_note,
+        wrapped_reason(*column.fonts, model.tilt_note, column.width)
+    );
+    add_slider_row(
+        column,
+        kHaze,
+        model.haze_label,
+        model.haze_stop,
+        model.haze_stops,
+        model.haze_value,
+        model.haze_lock,
+        {},
+        "photo.haze",
+        kHazeNote,
+        "photo.haze.reason",
+        model.haze_reserve,
+        true
+    );
+    if (model.haze_lock.empty() && !model.haze_note.empty())
+        add_wrapped_reason(
+            column,
+            kHazeNote,
+            "photo.haze.note",
+            model.haze_note,
+            wrapped_reason(*column.fonts, model.haze_note, column.width)
+        );
+    add_slider_row(
+        column,
+        kDepthOfField,
+        model.depth_of_field_label,
+        model.depth_of_field_stop,
+        model.depth_of_field_stops,
+        model.depth_of_field_value,
+        model.depth_of_field_lock,
+        {},
+        "photo.depth-of-field",
+        kDepthNote,
+        "photo.depth-of-field.reason",
+        model.depth_of_field_reserve,
+        true
+    );
+}
+
 /// A section header, or the head's leave button when it does not fold.
 void add_header(
     Column& column, kit::ControlId id, const std::string& title, bool open, bool folds
@@ -890,9 +1055,10 @@ void fill_sections(Column& column, bool with_leave, bool with_take) {
         add_readout(column, kClock, model.clock_label, model.clock, "photo.clock");
     }
 
-    add_header(column, kLook, model.look_title, model.look_open, true);
-    rename(*column.list, kLook, "photo.section.look");
-    if (model.look_open) {
+    add_look_header(column);
+    if (model.look_open && model.depth_page)
+        add_depth_body(column);
+    if (model.look_open && !model.depth_page) {
         constexpr int kPresetCount = 6;
         int32_t chip_columns =
             std::max(preset_columns(fonts, model.preset_labels, column.width), int32_t{1});
@@ -1002,6 +1168,8 @@ void fill_sections(Column& column, bool with_leave, bool with_take) {
             control.label = model.frame_label;
             control.text = model.frame_value;
         }
+    }
+    if (model.look_open) {
         if (!model.preview_note.empty())
             add_reason(column, kLookRate, "photo.look.rate", model.preview_note);
         add_switch_row(
@@ -1665,7 +1833,21 @@ Layout layout_of(const Model& model, const kit::Fonts& fonts) {
         model.capture_open
             ? static_cast<int>(wrapped_reason(fonts, model.size_reason, column_w).size())
             : 0;
-    const int rows = row_count(model, preset_rows, size_reason_rows);
+    int depth_note_rows = 0;
+    if (model.look_open && model.depth_page) {
+        const auto lines = [&](const std::string& text) {
+            if (text.empty())
+                return 0;
+            return static_cast<int>(wrapped_reason(fonts, text, column_w).size());
+        };
+        depth_note_rows = lines(model.tilt_note);
+        if (model.haze_lock.empty())
+            depth_note_rows += lines(model.haze_note);
+        else
+            depth_note_rows += lines(model.haze_lock);
+        depth_note_rows += lines(model.depth_of_field_lock);
+    }
+    const int rows = row_count(model, preset_rows, size_reason_rows, depth_note_rows);
     const auto rows_need = [&](int32_t height, int32_t between) {
         const int32_t gaps = rows > 1 ? (rows - 1) * between : 0;
         return rows * height + gaps;

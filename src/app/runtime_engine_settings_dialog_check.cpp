@@ -537,6 +537,22 @@ std::string_view label_of(settings::Setting setting) {
         return "Keep replays for";
     case settings::Setting::open_replay_files:
         return "Open replay files with Open Annihilation";
+    case settings::Setting::colour_vision:
+        return "Colour vision";
+    case settings::Setting::shape_cues:
+        return "Shape cues";
+    case settings::Setting::colour_preview:
+        return "Preview";
+    case settings::Setting::screen_reader:
+        return "Screen reader";
+    case settings::Setting::speak_chat:
+        return "Speak chat";
+    case settings::Setting::speak_lobby:
+        return "Speak lobby changes";
+    case settings::Setting::speak_ticker:
+        return "Speak the ticker";
+    case settings::Setting::always_show_focus:
+        return "Always show focus";
     default:
         return {};
     }

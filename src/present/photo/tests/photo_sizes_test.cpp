@@ -3,6 +3,7 @@
 
 // The photo sizes a battlefield offers, and an exact box reduction.
 #include "oa/present/photo/photo_sizes.hpp"
+#include "oa/present/photo/photo_tiles.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -29,8 +30,11 @@ using oa::present::photo::Offer;
 using oa::present::photo::Plan;
 using oa::present::photo::SizeLock;
 using oa::present::photo::box_reduce;
+using oa::present::photo::TileRequest;
+using oa::present::photo::full_tile_reach;
 using oa::present::photo::plan_draw;
 using oa::present::photo::plan_sizes;
+using oa::present::photo::plan_tiles;
 
 /// A machine with room for every size the edge limit allows.
 ///
@@ -153,16 +157,13 @@ int main() {
     wide.grain = 12;
     const Plan fitted = plan_sizes(Field{640, 480}, wide, 1, 1);
     CHECK(find_offer(fitted.sizes, 4, 2).offered);
-    CHECK(
-        !find_offer(fitted.sizes, 4, 3).offered &&
-        find_offer(fitted.sizes, 4, 3).lock == SizeLock::edge &&
-        find_offer(fitted.sizes, 4, 3).limit == 1284
-    );
-    CHECK(
-        !find_offer(fitted.sizes, 4, 4).offered &&
-        find_offer(fitted.sizes, 4, 4).lock == SizeLock::edge &&
-        find_offer(fitted.sizes, 4, 4).limit == 1284
-    );
+    // 3× and 4× pass the card in one piece. Full draws them in tiles.
+    CHECK(find_offer(fitted.sizes, 4, 3).offered);
+    CHECK(find_offer(fitted.sizes, 4, 4).offered);
+    Machine tiled_memory = wide;
+    tiled_memory.cpu_bytes = 1000;
+    const Draw tiled_short = plan_draw(Field{640, 480}, tiled_memory, 4, 1);
+    CHECK(!tiled_short.offered && tiled_short.lock == SizeLock::memory);
     Machine full_shared = open_machine(CaptureKind::full, 16384);
     full_shared.shared = true;
     const Plan full_together = plan_sizes(small, full_shared, 1, 1);
@@ -173,6 +174,33 @@ int main() {
         find_offer(full_together.smooth, 3, 4).lock == SizeLock::shared &&
         !find_offer(full_together.smooth, 3, 4).offered
     );
+    // Smooth edges 2× at Screen size past the card in one piece: a match on
+    // this machine alone draws it in tiles, a shared match never does.
+    Machine wide_alone = open_machine(CaptureKind::full, 16384);
+    wide_alone.supersample = 8;
+    const Draw alone_smooth = plan_draw(Field{1280, 720}, wide_alone, 1, 2);
+    CHECK(alone_smooth.offered);
+    Machine wide_shared = wide_alone;
+    wide_shared.shared = true;
+    const Draw shared_smooth = plan_draw(Field{1280, 720}, wide_shared, 1, 2);
+    CHECK(!shared_smooth.offered && shared_smooth.lock == SizeLock::edge);
+    const Plan shared_row = plan_sizes(Field{1280, 720}, wide_shared, 1, 1);
+    CHECK(
+        !find_offer(shared_row.smooth, 3, 2).offered &&
+        find_offer(shared_row.smooth, 3, 2).lock == SizeLock::edge
+    );
+    // A tilt-shift's copy of the picture and its sums are counted: 3 bytes
+    // a pixel of the picture, and the sums once.
+    Machine look_room = open_machine(CaptureKind::processor, 16384);
+    const uint64_t two_pixels = uint64_t{1280} * 960U;
+    look_room.cpu_bytes = two_pixels * 6U;
+    CHECK(plan_draw(Field{640, 480}, look_room, 2, 1).offered);
+    look_room.look_bytes_per_pixel = 3;
+    look_room.look_bytes = oa::present::photo::kLookScratchBytes;
+    const Draw no_look_room = plan_draw(Field{640, 480}, look_room, 2, 1);
+    CHECK(!no_look_room.offered && no_look_room.lock == SizeLock::memory);
+    look_room.cpu_bytes = two_pixels * 9U + oa::present::photo::kLookScratchBytes;
+    CHECK(plan_draw(Field{640, 480}, look_room, 2, 1).offered);
     Machine full_memory = full;
     full_memory.edge_limit = 16384;
     full_memory.gpu_bytes = 1;
@@ -203,7 +231,19 @@ int main() {
                         if (!offer.offered)
                             continue;
                         const int32_t draw_edge = std::max(offer.width, offer.height) * smooth;
-                        CHECK(limit <= 0 || draw_edge <= limit);
+                        if (kind == CaptureKind::full && limit > 0 && draw_edge > limit) {
+                            TileRequest request;
+                            request.width = offer.width * smooth;
+                            request.height = offer.height * smooth;
+                            request.zoom = static_cast<float>(offer.factor * smooth);
+                            request.supersample = machine.supersample;
+                            request.grain = machine.grain;
+                            request.texture_limit = limit;
+                            request.reach = full_tile_reach(request.zoom);
+                            CHECK(plan_tiles(request).fits);
+                        } else {
+                            CHECK(limit <= 0 || draw_edge <= limit);
+                        }
                         CHECK(offer.width == field.width * offer.factor);
                         CHECK(offer.height == field.height * offer.factor);
                     }

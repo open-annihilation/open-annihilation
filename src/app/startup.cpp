@@ -454,6 +454,10 @@ void check_game_files_options(Options& options) {
         return PhotoGroup::looks;
     if (text == "replay")
         return PhotoGroup::replay;
+    if (text == "tiles")
+        return PhotoGroup::tiles;
+    if (text == "depth-live")
+        return PhotoGroup::depth_live;
     return std::nullopt;
 }
 
@@ -1962,7 +1966,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-renderer-proof] [--check-live-renderer] "
                      "[--check-briefing-narration] "
                      "[--check-photo [mode|time|camera|capture|live|keys|panel|sizes|"
-                     "pad-touch|looks|replay]] "
+                     "pad-touch|looks|replay|depth-live]] "
                      "[--check-director-view] "
                      "[--check-director-render] [--check-interpolation] "
                      "[--check-unit-playout] [--check-running-while-inactive] "

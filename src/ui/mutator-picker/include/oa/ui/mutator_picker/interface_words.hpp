@@ -68,6 +68,7 @@ inline constexpr std::string_view interface_words[] = {
     words::tags_menu,
     words::tag_with_count,
     words::search_mutators,
+    words::list_label,
     words::heading_on,
     words::heading_off,
     words::switch_off,

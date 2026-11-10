@@ -3065,6 +3065,14 @@ class Runtime final : public menu::Host,
     /// @throws std::runtime_error when a check fails
     [[nodiscard]] int check_photo_live();
 
+    /// Runs --check-photo depth-live: one frozen turned frame with depth of
+    /// field, with haze, and twice with both off.
+    ///
+    /// @return 77 when no device draws the turned view, or the card keeps no
+    /// depth, otherwise 0
+    /// @throws std::runtime_error when a check fails
+    [[nodiscard]] int check_photo_depth_live();
+
     /// Runs --check-photo keys: each photo command on its default key, then
     /// Take photo moved to K.
     ///
@@ -3081,6 +3089,16 @@ class Runtime final : public menu::Host,
     /// @return 77 when the turned-view check has no graphics device, otherwise 0
     /// @throws std::runtime_error when a check fails
     [[nodiscard]] int check_photo_sizes();
+
+    /// Runs --check-photo tiles: a Full photo drawn whole and the same photo
+    /// drawn in tiles, on one frozen frame. With --force-capable it runs on
+    /// whichever renderer the video driver gives. Without it, it needs a
+    /// graphics card to draw Full.
+    ///
+    /// @return 77 without --force-capable where no graphics card draws Full,
+    ///         otherwise 0
+    /// @throws std::runtime_error when a check fails
+    [[nodiscard]] int check_photo_tiles();
 
     /// Runs --check-photo pad-touch: a controller opens photo mode, frames
     /// the shot and takes it, then a phone does the same by touch. Throws
@@ -3108,21 +3126,71 @@ class Runtime final : public menu::Host,
     /// @return true when the filtered picture already held is not this frame
     [[nodiscard]] bool photo_look_preview_due() const;
 
+    /// How many times the panel's grain a photo draws it.
+    ///
+    /// The panel's factor is kept when the picture is no wider than that
+    /// many battlefields. A wider picture, a Screen photo read in window
+    /// pixels at a pixel density above 1, uses the photo's width over the
+    /// battlefield's, rounded to the nearest whole factor.
+    ///
+    /// @param size_factor the panel's size, at least 1
+    /// @param photo_width the picture's width, in its own pixels
+    /// @param field_width the battlefield's width, in layout points
+    /// @return the factor the look draws at
+    [[nodiscard]] static int
+    photo_look_scale(int size_factor, uint32_t photo_width, int32_t field_width) noexcept;
+
+    /// Map pixels a picture pixel covers, in 256ths, for this photo.
+    ///
+    /// The step is 256 divided by the look's factor times the zoom, and at
+    /// least one 256th. The factor is photo_look_scale.
+    ///
+    /// @param size_factor the panel's size
+    /// @param zoom output pixels a map pixel
+    /// @param photo_width the picture's width
+    /// @param field_width the battlefield's width
+    /// @return the haze step
+    [[nodiscard]] static int32_t photo_haze_step(
+        int size_factor, float zoom, uint32_t photo_width, int32_t field_width
+    ) noexcept;
+
+    /// Reads which sight cells the battlefield's fog of war draws as never
+    /// mapped for the view on show: the cells neither the watched player nor
+    /// an ally whose ground it is shown has explored. The classic haze keeps
+    /// them black. None is read where the view draws no such fog: mapping
+    /// off, the whole map watched, or no sight for the viewer.
+    ///
+    /// @param[out] unmapped 1 for each such cell, row by row; empty for none
+    /// @param[out] width the sight grid's width in cells; 0 for none
+    /// @param[out] height the sight grid's height in cells; 0 for none
+    /// @return true when the view draws ground never mapped black
+    bool photo_fog_cells(std::vector<uint8_t>& unmapped, int32_t& width, int32_t& height) const;
+
     /// Paints the current look into packed RGB. The caller has already
     /// applied the player's gamma. Does nothing when no look is on.
     ///
     /// Grain size is in pixels, so a photo drawn larger than the battlefield
     /// draws its grain larger by the same factor
     /// (oa::present::photo::photo_grain_size), and the grain covers the map
-    /// as the preview's does.
+    /// as the preview's does. Haze leaves the fog of war's black as it was
+    /// drawn: a held picture's as it was held (photo_fog_cells).
     ///
     /// @param[in,out] rgb packed RGB, three bytes a pixel
     /// @param width the picture's width
     /// @param height the picture's height
     /// @param size_factor the photo's size: 1 for Screen, 2 to 4 for a
     ///        photo that many times the battlefield
+    /// @param crop_x the crop's left edge in the picture before it was cut,
+    ///        so haze can find the ground under the photo. The caller passes
+    ///        0 when nothing was cut
+    /// @param crop_y the crop's top edge, in the same pixels
     void apply_photo_look_rgb(
-        std::vector<uint8_t>& rgb, uint32_t width, uint32_t height, int size_factor
+        std::vector<uint8_t>& rgb,
+        uint32_t width,
+        uint32_t height,
+        int size_factor,
+        int32_t crop_x,
+        int32_t crop_y
     ) const;
 
     /// Paints the current look into the preview of a battlefield.
@@ -3133,13 +3201,24 @@ class Runtime final : public menu::Host,
     /// battlefield outside the crop is left as it is. With no crop it is
     /// the whole picture. Does nothing when no look is on.
     ///
+    /// A preview read in the window's pixels, finer than the battlefield's
+    /// points at a pixel density above 1, is painted at the factor a Screen
+    /// photo of those pixels is (photo_look_scale), so the preview and the
+    /// photo carry the same grain, tilt-shift and haze.
+    ///
     /// @param bytes the picture's first row
     /// @param width the picture's width, in pixels
     /// @param height the picture's height, in pixels
     /// @param stride bytes from one row to the next
     /// @param channels 3 for RGB, 4 for RGBA (the fourth byte is kept)
+    /// @param size_factor the factor the look is drawn at, 1 for the panel's
     void paint_photo_look_preview(
-        uint8_t* bytes, uint32_t width, uint32_t height, uint32_t stride, uint32_t channels
+        uint8_t* bytes,
+        uint32_t width,
+        uint32_t height,
+        uint32_t stride,
+        uint32_t channels,
+        int size_factor = 1
     ) const;
 
     /// Filters the processor's battlefield into the look cache when this
@@ -3858,6 +3937,18 @@ class Runtime final : public menu::Host,
     /// @param id the action id
     /// @return that event, or null
     [[nodiscard]] const oa::ui::key_bindings::ActionEvent* fired_action(std::string_view id) const;
+
+    /// The focus move the current action events fired.
+    ///
+    /// Next button is named ahead of the arrows, a menu action ahead of a
+    /// screen action, and Accept and Press after those. A press and a repeat
+    /// always count. The main menu's order counts a release, a hold and a
+    /// double press as well (`MenuMoveCount::every`); the other readers count
+    /// a press and a repeat. [runtime_screen_input.cpp]
+    ///
+    /// @param count_as which reports count
+    /// @return the move and the id of the action that fired it, or none
+    [[nodiscard]] MenuMoveHit menu_move(MenuMoveCount count_as) const;
 
     /// The screen action this key still means.
     ///
@@ -4781,6 +4872,38 @@ class Runtime final : public menu::Host,
     /// @return true when a package took it
     bool dispatch_screen_input(const SDL_Event& event);
 
+    /// The move the family's ring follows for this key.
+    ///
+    /// A screen that asked is held to the move it was given, including none
+    /// when the key types into a field. A screen that did not ask follows
+    /// Next button and Previous button, else Tab, else an arrow, Home, End or
+    /// a page key. A rebound place key does not show or keep the ring unless
+    /// the screen asked. [runtime_screen_input.cpp]
+    ///
+    /// @param input the key the screen was offered
+    /// @return the move, or none
+    [[nodiscard]] MenuMove ring_move(const ScreenInput& input) const;
+
+    /// Hands each repeated focus move to the package screens as a key press.
+    ///
+    /// The dispatcher's own repeats follow the player's repeat delay and rate.
+    /// Only the key a screen that reads the layout took as a focus move
+    /// (ScreenServices::bound_focus_action) is repeated this way: a screen
+    /// that reads the keys themselves, such as Open Annihilation's own
+    /// screens, already takes the platform's repeats of a held key. Each one
+    /// is offered alone, so the screen reads that move and no other key's.
+    /// Accept, Press and anything that is not a focus move are left to the
+    /// frame. The events the frame kept are put back when this returns.
+    /// [runtime_screen_input.cpp]
+    void deliver_menu_repeats();
+
+    /// Exchanges the action events the frame kept with `replacement`.
+    ///
+    /// Nothing when the bindings have not been made. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] replacement the events to keep; receives the ones that were
+    void swap_action_events(std::vector<oa::ui::key_bindings::ActionEvent>& replacement);
+
     /// Offers one already-translated input to the overlays, topmost first, then to the screen.
     ///
     /// @param input the input, in the space the packages see
@@ -4825,11 +4948,18 @@ class Runtime final : public menu::Host,
     void finish_quit_request();
     ScreenRegistry screens_{};
     // The screen being offered a key asked ScreenServices::bound_focus_action
-    // about it, and the command it was given: empty when none fired, or when
-    // it asked only for the ring because the key types into a field. The
+    // about it, and the move it was given: none when none fired, or when it
+    // asked only for the ring because the key types into a field. The
     // family's ring follows that answer (dispatch_screen_input).
     bool screen_bound_asked_{};
-    std::string screen_bound_action_{};
+    MenuMove screen_bound_move_{MenuMove::none};
+    // deliver_menu_repeats is offering a repeat. A screen it opens must not
+    // offer that repeat again.
+    bool delivering_menu_repeats_{};
+    // The key of the last press a screen took as a focus move after asking
+    // ScreenServices::bound_focus_action, or 0. deliver_menu_repeats hands
+    // on this key's repeats only. The player's next press sets it again.
+    uint32_t menu_repeat_key_{};
     // The overlays the extensions registered (register_screens).
     std::vector<OverlayDesc> extension_overlays_;
     // While set_extension_overlays_aside has them aside, the registry's
@@ -9799,6 +9929,10 @@ class Runtime final : public menu::Host,
     static void destroy_live_renderer(LiveRenderer* renderer) noexcept;
     /// Reports whether the camera has left the classic orientation.
     [[nodiscard]] bool live_renderer_active() const noexcept;
+    /// Reports whether the turned view's card keeps the camera depth a
+    /// photo's depth of field and haze read. False in the classic view, and
+    /// on a card without the float target that depth is.
+    [[nodiscard]] bool photo_card_keeps_depth() const noexcept;
     /// Reports whether the wider camera range is enabled.
     [[nodiscard]] bool live_renderer_unlocked() const noexcept;
     /// Returns the live camera's turn about the vertical and its elevation
@@ -23071,6 +23205,27 @@ class Runtime final : public menu::Host,
     uint32_t photo_look_rgba_width_{};
     uint32_t photo_look_rgba_height_{};
     bool photo_look_rgba_valid_{false};
+    /// Photo rows above a Full tile's draw, in photo draw pixels. Added to
+    /// the heat row. Model vertices are projected in the whole photo and
+    /// this many pixels are subtracted; the strip and hole cuts add it back
+    /// while they mix. Zero while a frame or a whole photo is drawn, so
+    /// those pixels stay as they are.
+    int32_t photo_tile_row_{0};
+    /// Photo columns to the left of a Full tile's draw, in photo draw pixels.
+    /// Model vertices are projected in the whole photo and this many pixels
+    /// are subtracted; the strip and hole cuts add it back while they mix.
+    /// Zero while a frame or a whole photo is drawn.
+    int32_t photo_tile_anchor_x_{0};
+    /// While a Full photo tile draws: the map columns and rows from the
+    /// whole photo's camera to the tile's. The whole photo's camera is held
+    /// to the view's limits already, so the tile's is not held again, and
+    /// the ground draws are ordered by the whole photo's rows. Unset outside
+    /// a tile, so a frame and a whole photo take their camera and order as
+    /// before.
+    std::optional<std::array<int32_t, 2>> photo_tile_map_offset_;
+    /// A check-only cap on a Full photo tile's kept edge, in photo pixels.
+    /// Zero leaves the card's texture limit to decide.
+    int32_t photo_check_tile_edge_{0};
     std::vector<uint8_t> debug_font_; // smlfont.FNT as loaded, for the debug grid
     oa::present::world_renderer::FogTileSet fog_tiles_{};
     oa::present::world_renderer::FogShading fog_shading_{};

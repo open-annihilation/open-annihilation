@@ -5343,6 +5343,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
                 control.role_set = true;
             }
             control.label = entry.label;
+            control.description = entry.description;
             control.value_text = entry.value_text;
             control.has_value = entry.has_value;
             control.value = entry.value;

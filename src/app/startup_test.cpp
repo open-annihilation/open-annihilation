@@ -2355,6 +2355,17 @@ int main() {
         photo_replay.check_photo && photo_replay.photo_group == oa::app::PhotoGroup::replay,
         "--check-photo replay names the replay group"
     );
+    const auto photo_tiles = parse({"--check-photo", "tiles"});
+    expect(
+        photo_tiles.check_photo && photo_tiles.photo_group == oa::app::PhotoGroup::tiles,
+        "--check-photo tiles names the tiles group"
+    );
+    const auto photo_depth_live = parse({"--check-photo", "depth-live"});
+    expect(
+        photo_depth_live.check_photo &&
+            photo_depth_live.photo_group == oa::app::PhotoGroup::depth_live,
+        "--check-photo depth-live names the depth group"
+    );
     expect(
         parse({"--check-photo", "capture", "--force-capable"}).force_capable,
         "--force-capable goes with --check-photo"

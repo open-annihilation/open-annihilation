@@ -5,6 +5,7 @@ Notes for the built-in Boneyards module.
 - [Help pages](help-pages.md) are the loose pages the game ships in place of the expansion's Help.
 - [The galactic map](war-map.md) is the war map the client keeps, the Galactic day, and moving across it by keyboard.
 - [Colour vision](colour-vision.md) is how a colour-vision mode recolours the war map, chat and player rows.
+- [Accessibility](accessibility.md) is the keyboard, F6, the war map, the consoles, colours, cues and speech, for a player.
 - [Settings](settings.md) are the Profile numbers, the release constants, and the master servers.
 - [Decisions](decisions.md) record how the module is built into the engine.
 - [Entry](entry.md) is how a player comes in from the main menu.

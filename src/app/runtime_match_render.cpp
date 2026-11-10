@@ -2482,8 +2482,14 @@ bool Runtime::draw_match_surface() {
         );
     }
     oa::present::world_renderer::BattlefieldDrawPlan draw_plan;
+    // The game counts the ground's draw rows from the camera, so a Full
+    // photo tile counts them from the whole photo's camera: a unit and a
+    // feature that overlap then draw in the order the whole photo draws them.
+    const int32_t order_camera_y = photo_tile_map_offset_.has_value()
+                                       ? renderer.camera_y - (*photo_tile_map_offset_)[1]
+                                       : renderer.camera_y;
     oa::present::world_renderer::plan_battlefield_draws(
-        feature_sites, unit_sites, renderer.camera_y, draw_plan
+        feature_sites, unit_sites, order_camera_y, draw_plan
     );
     const auto plan_feature = [&](uint32_t index) {
         auto& feature = features_to_draw[index];

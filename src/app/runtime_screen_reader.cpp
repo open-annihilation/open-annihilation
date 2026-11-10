@@ -9,6 +9,7 @@
 
 #include "oa/app/runtime.hpp"
 
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/screen_reader.hpp"
 #include "oa/platform/screen_reader/speech.hpp"
 
@@ -183,11 +184,10 @@ void speak_focused_node(
     }
     const auto role =
         static_cast<oa::platform::screen_reader::SpokenRole>(static_cast<unsigned>(chosen->role));
+    const std::string_view role_name =
+        oa::data::languages::interface_text(oa::platform::screen_reader::role_words(role));
     oa::platform::screen_reader::speak_focus(
-        std::to_string(chosen->id),
-        chosen->label,
-        oa::platform::screen_reader::role_words(role),
-        chosen->value_text
+        std::to_string(chosen->id), chosen->label, role_name, chosen->value_text
     );
 }
 
@@ -240,9 +240,9 @@ void speak_focused_control(oa::app::Runtime& runtime) {
     const auto role =
         static_cast<oa::platform::screen_reader::SpokenRole>(static_cast<unsigned>(control.role));
     const std::string identity = control.window + "\n" + control.dialog + "\n" + control.name;
-    oa::platform::screen_reader::speak_focus(
-        identity, control.label, oa::platform::screen_reader::role_words(role), value
-    );
+    const std::string_view role_name =
+        oa::data::languages::interface_text(oa::platform::screen_reader::role_words(role));
+    oa::platform::screen_reader::speak_focus(identity, control.label, role_name, value);
 }
 
 } // namespace

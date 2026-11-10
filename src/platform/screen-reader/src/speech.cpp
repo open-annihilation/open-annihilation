@@ -266,6 +266,14 @@ void forget_spoken_focus() {
     last_role.clear();
 }
 
+bool voice_available() {
+#if defined(_WIN32)
+    return voice_or_quiet() != nullptr;
+#else
+    return false;
+#endif
+}
+
 void speak_focus(
     std::string_view identity, std::string_view label, std::string_view role, std::string_view value
 ) {

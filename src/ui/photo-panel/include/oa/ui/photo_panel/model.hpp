@@ -87,6 +87,24 @@ inline constexpr kit::ControlId kLookRate = 42;
 inline constexpr kit::ControlId kSmooth = 43;
 /// Why a size, or smooth edges at 4×, is locked. It does not take Tab.
 inline constexpr kit::ControlId kSizeReason = 44;
+/// The depth page of Look: the tilt-shift and the haze.
+inline constexpr kit::ControlId kDepth = 45;
+/// The sharp band's centre, as a percent of the picture's height.
+inline constexpr kit::ControlId kBandCentre = 46;
+/// The sharp band's width, in the battlefield's pixels.
+inline constexpr kit::ControlId kBandWidth = 47;
+/// The blur at the top and the bottom of the picture.
+inline constexpr kit::ControlId kBlur = 48;
+/// How far lower ground fades toward the haze colour.
+inline constexpr kit::ControlId kHaze = 49;
+/// What the tilt-shift does. It does not take Tab.
+inline constexpr kit::ControlId kTiltNote = 50;
+/// What the haze follows, or why it is locked. It does not take Tab.
+inline constexpr kit::ControlId kHazeNote = 51;
+/// Blur by distance from a point on the battlefield.
+inline constexpr kit::ControlId kDepthOfField = 52;
+/// Why depth of field is locked. It does not take Tab.
+inline constexpr kit::ControlId kDepthNote = 53;
 
 /// A folding section's number, carried on a press of its header.
 inline constexpr int kSectionCamera = 1;
@@ -96,36 +114,42 @@ inline constexpr int kSectionCapture = 4;
 
 /// What a press on the panel asks the host to do.
 enum class Command : uint8_t {
-    none,             ///< the press changed nothing the match owns
-    leave,            ///< leave photo mode
-    show_panel,       ///< the hint was pressed
-    toggle_section,   ///< fold or open the section in value
-    set_zoom,         ///< zoom stop in value
-    classic_view,     ///< the classic view
-    follow_unit,      ///< follow a unit for this visit
-    set_turn,         ///< turn stop in value
-    set_tilt,         ///< tilt stop in value
-    run,              ///< run at the match's speed
-    slow,             ///< slow at the speed stop
-    freeze,           ///< freeze, or hold the picture
-    set_speed,        ///< speed stop in value
-    step,             ///< one tick
-    between,          ///< shutter eighth in value
-    toggle_selection, ///< selection boxes
-    toggle_health,    ///< health bars
-    cycle_guides,     ///< the next guide
-    toggle_copy,      ///< copy to the clipboard
-    toggle_names,     ///< player names in the photo
-    take_photo,       ///< write a photo
-    copy_photo,       ///< copy the last photo
-    set_preset,       ///< preset in value, 0 to 5
-    set_vignette,     ///< vignette stop in value
-    set_roundness,    ///< roundness stop in value
-    set_grain,        ///< grain stop in value
-    set_grain_size,   ///< grain-size stop in value, 0 is a size of 1
-    cycle_frame,      ///< the next frame
-    set_size,         ///< size factor in value: 1, 2, 3 or 4
-    set_smooth,       ///< smooth factor in value: 1, 2 or 4
+    none,               ///< the press changed nothing the match owns
+    leave,              ///< leave photo mode
+    show_panel,         ///< the hint was pressed
+    toggle_section,     ///< fold or open the section in value
+    set_zoom,           ///< zoom stop in value
+    classic_view,       ///< the classic view
+    follow_unit,        ///< follow a unit for this visit
+    set_turn,           ///< turn stop in value
+    set_tilt,           ///< tilt stop in value
+    run,                ///< run at the match's speed
+    slow,               ///< slow at the speed stop
+    freeze,             ///< freeze, or hold the picture
+    set_speed,          ///< speed stop in value
+    step,               ///< one tick
+    between,            ///< shutter eighth in value
+    toggle_selection,   ///< selection boxes
+    toggle_health,      ///< health bars
+    cycle_guides,       ///< the next guide
+    toggle_copy,        ///< copy to the clipboard
+    toggle_names,       ///< player names in the photo
+    take_photo,         ///< write a photo
+    copy_photo,         ///< copy the last photo
+    set_preset,         ///< preset in value, 0 to 5
+    set_vignette,       ///< vignette stop in value
+    set_roundness,      ///< roundness stop in value
+    set_grain,          ///< grain stop in value
+    set_grain_size,     ///< grain-size stop in value, 0 is a size of 1
+    cycle_frame,        ///< the next frame
+    set_size,           ///< size factor in value: 1, 2, 3 or 4
+    set_smooth,         ///< smooth factor in value: 1, 2 or 4
+    toggle_depth,       ///< the depth page of Look, or the grade page
+    set_band_centre,    ///< the sharp band's centre, 0 to 100
+    set_band_width,     ///< the band's width stop; the pixels are twice the stop
+    set_blur,           ///< the blur, in the battlefield's pixels
+    set_haze,           ///< the haze, 0 to 100
+    set_depth_of_field, ///< the depth of field, in the battlefield's pixels
 };
 
 /// A press the panel reports.
@@ -268,6 +292,44 @@ struct Model {
     /// Shown under the frame while a look is previewed on Full or the turned
     /// view and time is running. Empty draws nothing.
     std::string preview_note{};
+    /// The depth page replaces the grade while Look is open. The header
+    /// still folds the section. False shows the grade.
+    bool depth_page{false};
+    std::string depth_label{"Depth"};
+    std::string band_centre_label{"Band centre"};
+    int32_t band_centre_stop{50}; ///< 0 to 100, the percent
+    int32_t band_centre_stops{101};
+    std::string band_centre_value{"50%"};
+    std::vector<std::string> band_centre_reserve{"100%"};
+    std::string band_width_label{"Band width"};
+    int32_t band_width_stop{24}; ///< 0 is 0 pixels; each stop is 2 pixels
+    int32_t band_width_stops{81};
+    std::string band_width_value{"48"};
+    std::vector<std::string> band_width_reserve{"160"};
+    std::string blur_label{"Blur"};
+    int32_t blur_stop{0}; ///< the battlefield's pixels, 0 to 32
+    int32_t blur_stops{33};
+    std::string blur_value{"0"};
+    std::vector<std::string> blur_reserve{"32"};
+    /// What the tilt-shift does: it blurs by screen row, not by depth.
+    std::string tilt_note{"Blurs by screen row, not by depth."};
+    std::string haze_label{"Haze"};
+    int32_t haze_stop{0};
+    int32_t haze_stops{101};
+    std::string haze_value{"0%"};
+    std::vector<std::string> haze_reserve{"100%"};
+    /// What the haze follows, while the classic view can draw it. Empty in
+    /// the turned view: there the same slider hazes by camera depth.
+    std::string haze_note{"Follows the ground, not the units."};
+    /// Why haze is locked. Empty when the slider moves.
+    std::string haze_lock{};
+    std::string depth_of_field_label{"Depth of field"};
+    int32_t depth_of_field_stop{0}; ///< the battlefield's pixels, 0 to 32
+    int32_t depth_of_field_stops{33};
+    std::string depth_of_field_value{"0"};
+    std::vector<std::string> depth_of_field_reserve{"32"};
+    /// Why depth of field is locked. Empty when the slider moves.
+    std::string depth_of_field_lock{};
     std::string size_label{"Size"};
     /// The chosen size, once: "2× 1280×960". Empty draws no value.
     std::string size_value{};

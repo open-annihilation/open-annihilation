@@ -497,8 +497,11 @@ void a_game_locks_reset_and_empty() {
     // last row's button; the end of the scroll shows it whole.
     dialog.scroll[static_cast<std::size_t>(Page::downloads)] = settings::scroll_limit(dialog);
     OA_CHECK(layout_has(dialog, "Locked during a game"));
-    OA_CHECK(!control_named(dialog, "settings.install-id.core-prime.reset").found);
-    OA_CHECK(!control_named(dialog, "settings.downloaded-files.empty").found);
+    // A locked row stays listed, disabled, so a screen reader hears it.
+    const NamedControl locked_reset = control_named(dialog, "settings.install-id.core-prime.reset");
+    const NamedControl locked_empty = control_named(dialog, "settings.downloaded-files.empty");
+    OA_CHECK(locked_reset.found && !locked_reset.enabled);
+    OA_CHECK(locked_empty.found && !locked_empty.enabled);
     OA_CHECK(!value_has(dialog, "412 MB kept for resuming and repairs"));
     OA_CHECK(layout_has(dialog, "Empty"));
     OA_CHECK(layout_has(dialog, "Your install ID"));

@@ -23,6 +23,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs the executable directly.
@@ -140,7 +141,9 @@ def preferences(path, mode):
         rows.append((section + f"Player{player}Color", str(player)))
         rows.append((section + f"Player{player}AllyGroup", "5"))
         rows.append((section + f"Player{player}Side", str(player % 2)))
-    lines = ["open-annihilation-preferences 1"]
+    lines = ["open-annihilation-preferences 1",
+            '"open-annihilation.update-check" "never"',
+            '"open-annihilation.content-updates" "never"']
     lines.extend(quoted(key) + " " + quoted(value) for key, value in rows)
     path.write_text("\n".join(lines) + "\n")
 

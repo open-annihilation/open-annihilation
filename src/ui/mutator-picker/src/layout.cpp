@@ -1549,6 +1549,7 @@ void add_list(
         list_control.focusable = true;
         list_control.name = std::string(name_list);
         keep_name(building, list_control.name);
+        list_control.label = library::shown(building.picker->inputs.text, words::list_label);
         list_control.kind = kit::ControlKind::list;
         building.panes.push_back(std::move(list_control));
         return;
@@ -1698,6 +1699,7 @@ void add_list(
     list_control.focusable = true;
     list_control.name = std::string(name_list);
     keep_name(building, list_control.name);
+    list_control.label = library::shown(building.picker->inputs.text, words::list_label);
     list_control.kind = kit::ControlKind::list;
     building.panes.push_back(std::move(list_control));
 

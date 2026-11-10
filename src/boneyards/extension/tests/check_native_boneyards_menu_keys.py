@@ -37,6 +37,10 @@ import subprocess
 import sys
 import threading
 import time
+_OA_TOOLS = Path(__file__).resolve().parents[4] / "tools"
+if str(_OA_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_OA_TOOLS))
+import native_offline  # noqa: E402
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 START_TIMEOUT = 120

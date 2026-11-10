@@ -410,6 +410,36 @@ static_assert(edge_scroll.find('|') == std::string_view::npos);
 static_assert(edge_scroll.find('\\') == std::string_view::npos);
 static_assert(move_overlays.find('|') == std::string_view::npos);
 static_assert(move_overlays.find('\\') == std::string_view::npos);
+/// "off", "protanopia", "deuteranopia", "tritanopia" or "achromatopsia"
+/// (EngineSettings::colour_vision). Absent means off.
+inline constexpr std::string_view colour_vision = "open-annihilation.access.colour-vision";
+/// 1 or 0 (EngineSettings::shape_cues). Absent means off. Achromatopsia stores 1.
+inline constexpr std::string_view shape_cues = "open-annihilation.access.shape-cues";
+/// "auto", "on" or "off" (EngineSettings::screen_reader). Absent means auto.
+inline constexpr std::string_view screen_reader = "open-annihilation.access.screen-reader";
+/// "off", "pages" or "all" (EngineSettings::speak_chat). Absent means all.
+inline constexpr std::string_view speak_chat = "open-annihilation.access.speak-chat";
+/// 1 or 0 (EngineSettings::speak_lobby). Absent means on. 0 is off.
+inline constexpr std::string_view speak_lobby = "open-annihilation.access.speak-lobby";
+/// 1 or 0 (EngineSettings::speak_ticker). Absent means off. Only 1 is on.
+inline constexpr std::string_view speak_ticker = "open-annihilation.access.speak-ticker";
+/// 1 or 0 (EngineSettings::always_show_focus). Absent means off.
+/// A whole number above 0 is on.
+inline constexpr std::string_view always_show_focus = "open-annihilation.access.always-show-focus";
+static_assert(colour_vision.find('|') == std::string_view::npos);
+static_assert(colour_vision.find('\\') == std::string_view::npos);
+static_assert(shape_cues.find('|') == std::string_view::npos);
+static_assert(shape_cues.find('\\') == std::string_view::npos);
+static_assert(screen_reader.find('|') == std::string_view::npos);
+static_assert(screen_reader.find('\\') == std::string_view::npos);
+static_assert(speak_chat.find('|') == std::string_view::npos);
+static_assert(speak_chat.find('\\') == std::string_view::npos);
+static_assert(speak_lobby.find('|') == std::string_view::npos);
+static_assert(speak_lobby.find('\\') == std::string_view::npos);
+static_assert(speak_ticker.find('|') == std::string_view::npos);
+static_assert(speak_ticker.find('\\') == std::string_view::npos);
+static_assert(always_show_focus.find('|') == std::string_view::npos);
+static_assert(always_show_focus.find('\\') == std::string_view::npos);
 static_assert(order_wheel.find('|') == std::string_view::npos);
 static_assert(order_wheel.find('\\') == std::string_view::npos);
 static_assert(access_slow_keys.find('|') == std::string_view::npos);
@@ -1342,6 +1372,33 @@ enum class OrderWheel : uint8_t {
     hold_middle, ///< holding the middle button opens the wheel
 };
 
+/// How this machine draws player colours. Off is the game's own set.
+/// The values match oa::present::colour_vision::Mode.
+enum class ColourVision : uint8_t {
+    off,           ///< the game's own colours
+    protanopia,    ///< red-weak
+    deuteranopia,  ///< green-weak
+    tritanopia,    ///< blue-weak
+    achromatopsia, ///< no colour; shape cues stay on
+};
+
+/// When the screen reader attaches. The values match
+/// oa::platform::screen_reader::Preference. Absent, and any text other than
+/// on and off, is automatic.
+enum class ScreenReaderMode : uint8_t {
+    automatic, ///< while the system says a screen reader is running
+    on,        ///< also with one the system does not report
+    off,       ///< never
+};
+
+/// Which chat lines are spoken. Absent, and any text other than off and
+/// pages, is all. The values match oa::platform::screen_reader::SpeakChat.
+enum class SpeakChat : uint8_t {
+    off,   ///< no chat, whispers or pages
+    pages, ///< pages only
+    all,   ///< chat, whispers and pages
+};
+
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
     /// Path nodes the path search may visit in a game tick, all players
@@ -1644,6 +1701,26 @@ struct EngineSettings {
     /// lay themselves out, and the places the player gave them are kept for
     /// when it is on again. Absent in the preferences is off.
     bool move_overlays{false};
+    /// How this machine draws player colours. Off leaves the game's own.
+    /// Absent in the preferences is off.
+    ColourVision colour_vision{ColourVision::off};
+    /// A shape with each player colour. Choosing a colour-vision mode other
+    /// than Off turns it on. Achromatopsia keeps it on. Absent is off.
+    bool shape_cues{false};
+    /// When the game works with a screen reader. Automatic does while the
+    /// system says one is running. Absent is automatic.
+    ScreenReaderMode screen_reader{ScreenReaderMode::automatic};
+    /// Which chat lines are spoken. Absent is all.
+    SpeakChat speak_chat{SpeakChat::all};
+    /// A player joining or leaving the battle room, and a change of ready,
+    /// side, colour, team, map or option. Absent is on. The word 0 is off.
+    bool speak_lobby{true};
+    /// The ticker. It repeats, so it stays quiet until this is on. Only the
+    /// word 1 is on. Absent is off.
+    bool speak_ticker{false};
+    /// The focus ring is drawn on the first item when a screen opens.
+    /// A whole number above 0 is on. Absent is off.
+    bool always_show_focus{false};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };
@@ -1952,6 +2029,52 @@ void write_settings(
     std::string_view profile_id = {}
 );
 
+/// One access preference as the file held it when Settings opened.
+struct AccessPreference {
+    bool present{};   ///< the key was in the file
+    std::string text; ///< its text; empty when it was absent
+};
+
+/// The seven Accessibility preferences Settings writes, as the file held
+/// them when the dialog opened. Cancel puts these back. OK writes against
+/// them, so a live change does not leave a key the file did not have.
+struct AccessSnapshot {
+    AccessPreference colour_vision{};
+    AccessPreference shape_cues{};
+    AccessPreference screen_reader{};
+    AccessPreference speak_chat{};
+    AccessPreference speak_lobby{};
+    AccessPreference speak_ticker{};
+    AccessPreference always_show_focus{};
+};
+
+/// Reads the seven access keys as the file holds them now.
+///
+/// @param values the preferences
+/// @return one entry for each key, present when the key is there
+[[nodiscard]] AccessSnapshot
+capture_access_preferences(const oa::platform::preferences::Values& values);
+
+/// Puts the seven access keys back as a snapshot holds them. A key that was
+/// absent is erased. Every other key is left as it is.
+///
+/// @param[in,out] values the preferences
+/// @param snapshot the keys as the dialog opened
+void restore_access_preferences(
+    oa::platform::preferences::Values& values, const AccessSnapshot& snapshot
+);
+
+/// Writes the seven access keys from the settings the dialog shows, for a
+/// live change. A setting at its default has its key erased. Any other value
+/// is written in the word the readers of those keys expect. Achromatopsia
+/// writes shape cues as 1.
+///
+/// @param[in,out] values the preferences
+/// @param chosen the settings the dialog shows
+void store_access_preferences(
+    oa::platform::preferences::Values& values, const EngineSettings& chosen
+);
+
 /// Returns the folder the player picked, as the preferences remember it.
 ///
 /// A picked folder is remembered only while it is the mod played: the
@@ -2143,6 +2266,8 @@ enum class Lock : uint8_t {
     main_menu,
     needs_full_acceleration, ///< Requires Full hardware acceleration.
     needs_full_3d,           ///< Allow Full 3D Mode is off.
+    /// Colour vision is Achromatopsia: shape cues stay on.
+    keeps_shapes,
 };
 
 /// The game the dialog opens over.
@@ -2207,6 +2332,9 @@ struct Locks {
     /// Welcome setup: locked while a game is running. SHOW AGAIN is chosen
     /// from the main menu.
     Lock welcome_setup{};
+    /// Shape cues: the dialog itself locks it keeps_shapes while it shows
+    /// Colour vision Achromatopsia.
+    Lock shape_cues{};
 };
 
 /// Returns the locks a game state puts on the settings.

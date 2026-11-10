@@ -587,18 +587,34 @@ void Runtime::take_photo() {
         note_photo_refused(reason);
         return;
     }
+    int32_t crop_x = 0;
+    int32_t crop_y = 0;
+    // Before the crop. A Screen photo at a pixel density above 1 is the
+    // window's pixels, wider than the battlefield. The look follows that
+    // width, and a crop keeps the same factor.
+    const uint32_t framed_width = width;
     if (photo_ != nullptr) {
         const auto guide = static_cast<oa::ui::photo_panel::Guide>(photo_->guide);
+        const oa::ui::kit::Rect crop = oa::ui::photo_panel::crop_bounds(
+            static_cast<int32_t>(width), static_cast<int32_t>(height), guide
+        );
+        if (crop.width > 0 && crop.height > 0) {
+            crop_x = crop.x;
+            crop_y = crop.y;
+        }
         oa::ui::photo_panel::crop_centred(rgb, width, height, guide);
     }
     // After the crop, so every size that is saved through here carries the
     // look, and before the thumbnail, so the notice matches the file. A
     // photo larger than the battlefield draws its grain larger by its size
     // factor, so the grain covers the map as the preview's does.
-    const int size_factor =
-        photo_ != nullptr && !photo_picture_held() ? std::clamp(photo_->size_factor, 1, 4) : 1;
+    const int size_factor = photo_look_scale(
+        photo_ != nullptr && !photo_picture_held() ? std::clamp(photo_->size_factor, 1, 4) : 1,
+        framed_width,
+        match_layout_.battlefield_width()
+    );
     if (photo_look_active())
-        apply_photo_look_rgb(rgb, width, height, size_factor);
+        apply_photo_look_rgb(rgb, width, height, size_factor, crop_x, crop_y);
     remember_photo_thumbnail(rgb, width, height);
 
     fs::path folder;
@@ -668,7 +684,10 @@ void Runtime::take_photo() {
     facts.size.smooth = sized ? photo_->smooth_factor : 1;
     facts.created = utc_moment();
     facts.player_names = photo_player_names();
-    if (photo_look_active() && photo_ != nullptr) {
+    const bool card_dof = photo_ != nullptr && photo_->card_dof_pixels > 0;
+    const bool card_haze = photo_ != nullptr && photo_->card_haze > 0;
+    const bool classic_haze = photo_ != nullptr && !live_renderer_active() && photo_->look_haze > 0;
+    if ((photo_look_active() || card_dof || card_haze) && photo_ != nullptr) {
         photo::LookFact fact;
         const int preset = std::clamp(static_cast<int>(photo_->look_preset), 0, 5);
         fact.preset = photo::preset_key(static_cast<photo::Preset>(preset));
@@ -679,6 +698,26 @@ void Runtime::take_photo() {
         fact.grain_pixels = photo::photo_grain_size(fact.grain_size, size_factor);
         const int frame = std::clamp(static_cast<int>(photo_->look_frame), 0, 3);
         fact.frame = photo::frame_key(static_cast<photo::Frame>(frame));
+        if (photo_->look_tilt_radius > 0) {
+            photo::TiltShiftFact tilt;
+            tilt.centre = std::clamp(photo_->look_tilt_centre, 0, 100);
+            tilt.width = std::clamp(photo_->look_tilt_width, 0, 160);
+            tilt.width_pixels = photo::photo_tilt_width(tilt.width, size_factor);
+            tilt.radius = std::clamp(photo_->look_tilt_radius, 0, 32);
+            tilt.radius_pixels = photo::photo_tilt_radius(tilt.radius, size_factor);
+            fact.tilt_shift = tilt;
+        }
+        if (classic_haze || card_haze)
+            fact.haze = std::clamp(photo_->look_haze, 0, 100);
+        if (card_dof) {
+            photo::DepthOfFieldFact field;
+            field.radius = std::clamp(photo_->look_depth_of_field, 0, 32);
+            // The saved picture's blur: the panel's times the photo's size.
+            // The card drew it times smooth edges' step too, before the
+            // reduction, and the frame after the photo is the preview's.
+            field.radius_pixels = photo::photo_tilt_radius(field.radius, size_factor);
+            fact.depth_of_field = field;
+        }
         facts.look = std::move(fact);
     }
     // Passed so a photo that stored it would fail the capture check. The

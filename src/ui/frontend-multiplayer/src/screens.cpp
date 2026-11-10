@@ -4086,56 +4086,8 @@ void move_remote_row(Panel& panel, Lobby& lobby, bool forward) noexcept {
     panel.dirty = true;
 }
 
-/// One move a bound focus, list or screen action asks for.
-enum class Travel : uint8_t {
-    none,
-    next,
-    previous,
-    left,
-    right,
-    up,
-    down,
-    home,
-    end,
-    page_up,
-    page_down,
-};
-
-/// The move a reported action asks for.
-///
-/// Next button and Previous button walk. The focus and list actions are the
-/// arrows. Page up, Page down, Go to start and Go to end step a slider.
-/// Next control and the screen's own arrows are not these: the layer reads
-/// those, and Next button is the command a layout moves.
-///
-/// @param action the action id, or empty
-/// @return the move, or none
-Travel travel_of(const char* action) noexcept {
-    if (action == nullptr || action[0] == '\0')
-        return Travel::none;
-    if (std::strcmp(action, "ui.menu-focus-next") == 0)
-        return Travel::next;
-    if (std::strcmp(action, "ui.menu-focus-previous") == 0)
-        return Travel::previous;
-    if (std::strcmp(action, "ui.menu-focus-left") == 0)
-        return Travel::left;
-    if (std::strcmp(action, "ui.menu-focus-right") == 0)
-        return Travel::right;
-    if (std::strcmp(action, "ui.menu-focus-up") == 0 || std::strcmp(action, "ui.menu-list-up") == 0)
-        return Travel::up;
-    if (std::strcmp(action, "ui.menu-focus-down") == 0 ||
-        std::strcmp(action, "ui.menu-list-down") == 0)
-        return Travel::down;
-    if (std::strcmp(action, "ui.screen-home") == 0)
-        return Travel::home;
-    if (std::strcmp(action, "ui.screen-end") == 0)
-        return Travel::end;
-    if (std::strcmp(action, "ui.screen-page-up") == 0)
-        return Travel::page_up;
-    if (std::strcmp(action, "ui.screen-page-down") == 0)
-        return Travel::page_down;
-    return Travel::none;
-}
+/// The move a bound focus, list or screen action asks for.
+using Travel = oa::app::MenuMove;
 
 /// The shared key rule's code for a move.
 ///
@@ -4162,6 +4114,8 @@ int32_t travel_key_code(Travel travel) noexcept {
         return oa::ui::gui_input::key_code::page_up;
     case Travel::page_down:
         return oa::ui::gui_input::key_code::page_down;
+    case Travel::accept:
+    case Travel::press:
     case Travel::none:
         return 0;
     }
@@ -4351,7 +4305,7 @@ int screen_event(ScreenContext* ctx, void*) {
                 typing ? 0 : sizeof action,
                 &ring_shown
             );
-        const Travel travel = travel_of(action);
+        const Travel travel = oa::app::menu_move_of(action);
         const bool travel_left = travel == Travel::left;
         const bool travel_right = travel == Travel::right;
         const bool travel_up = travel == Travel::up;

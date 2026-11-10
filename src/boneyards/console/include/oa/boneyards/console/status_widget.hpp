@@ -382,6 +382,17 @@ void boneyards_status_widget_exit_to_menu(StatusWidget* widget);
 /// @param[in,out] widget status widget; null does nothing
 void boneyards_status_widget_return_to_main_menu(StatusWidget* widget);
 
+/// Copies the family's ring onto the desktop the consoles read.
+///
+/// The desktop still sets the ring for the key in hand: Tab, Shift+Tab and
+/// F6 show it before their stops are gathered, and a taken Return or a
+/// pointer move onto a new place hides it. This is the ring those consoles
+/// see at the start of the next key.
+///
+/// @param[in,out] widget status widget; null does nothing
+/// @param shown nonzero while the family's ring is showing
+void boneyards_status_widget_note_ring(StatusWidget* widget, int shown);
+
 /// Routes one input message to the Boneyards windows.
 ///
 /// Control, navigation and modifier keys are tracked as held; typed

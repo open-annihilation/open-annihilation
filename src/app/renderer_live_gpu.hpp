@@ -99,6 +99,10 @@ struct Context {
     /// added on the card; false when it was given none, or left them to the
     /// caller, which adds them to the picture itself.
     bool lights_drawn{};
+    /// Whether the last frame that succeeded ran the depth pass (depth of
+    /// field and haze by the camera depth the lights' surface keeps). False
+    /// when the frame asked for neither, or the card keeps no such depth.
+    bool depth_drawn{};
     /// A graphics device to draw on in place of one of the context's own,
     /// such as the one the game's window presents through; the context
     /// never destroys it. Set before the first frame; null opens one.
@@ -347,6 +351,23 @@ struct Sampling {
 /// @return true when a frame may take the card's multisampling
 [[nodiscard]] bool device_multisamples(const Context& context) noexcept;
 
+/// Depth of field and haze for one frame, drawn after the lights from the
+/// camera depth the lights' surface keeps. Larger depth is nearer. A blur of
+/// 0 leaves that pixel sharp. A haze of 0 leaves its colour. The pass is not
+/// run when both are 0, so the picture stays the one the lights left.
+struct DepthCue {
+    float focus{};      ///< camera depth that stays sharp
+    float range{};      ///< camera-depth units that stay sharp around focus
+    float blur_scale{}; ///< pixels of blur per camera-depth unit past range
+    float max_blur{};   ///< widest blur, in the picture's pixels
+    float haze{};       ///< 0 to 1, how far the far end fades toward the colour
+    float haze_red{};   ///< the haze colour, 0 to 1
+    float haze_green{}; ///< the haze colour, 0 to 1
+    float haze_blue{};  ///< the haze colour, 0 to 1
+    float near_depth{}; ///< camera depth treated as near; farness is 0 there
+    float depth_span{}; ///< camera-depth units from near_depth to the far end
+};
+
 /// Render world triangles through a pixel-space affine projection without a window.
 /// Reuse shaders and buffers across frames, uploading the atlas only when its revision
 /// or dimensions change. Readback waits for completion before returning RGBA8 pixels.
@@ -387,6 +408,11 @@ struct Sampling {
 /// @param models optional units and features drawn from their types' models on the card,
 ///        each run before its vertex of the frame, the lights' surface included; only
 ///        where draws_models() says so
+/// @param depth optional depth of field and haze, drawn after the lights from the
+///        camera depth that surface keeps. Ignored when the card has no such depth
+///        (draws_lights is false). Context::depth_drawn says whether the frame ran it.
+///        A null cue, or a cue whose blur and haze are both zero, leaves the picture
+///        unchanged
 /// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
 ///         invalid input or GPU errors. With Context::keep_on_card, and lights the card adds
 ///         or none, the picture stays on the card: output_rgba is left empty, render()
@@ -410,7 +436,8 @@ Result render(
     const KeptGround* ground = nullptr,
     const std::function<void()>& while_drawing = {},
     const Lights* lights = nullptr,
-    const ModelDraws* models = nullptr
+    const ModelDraws* models = nullptr,
+    const DepthCue* depth = nullptr
 );
 
 /// Opens the graphics device render() draws on, where it is not yet open:

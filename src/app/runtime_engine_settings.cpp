@@ -44,6 +44,9 @@
 #include "screen_size.hpp"
 #include "oa/platform/file_types.hpp"
 #include "oa/platform/machine.hpp"
+#include "oa/platform/screen_reader.hpp"
+#include "oa/platform/screen_reader/announce.hpp"
+#include "oa/platform/screen_reader/speech.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/app/window_icon.hpp"
@@ -92,6 +95,31 @@
 namespace oa::app {
 
 namespace settings = oa::ui::engine_settings;
+namespace bridge = oa::platform::screen_reader;
+
+static_assert(settings::key::screen_reader == bridge::preference_key);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::automatic) ==
+    static_cast<uint8_t>(bridge::Preference::automatic)
+);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::on) ==
+    static_cast<uint8_t>(bridge::Preference::on)
+);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::off) ==
+    static_cast<uint8_t>(bridge::Preference::off)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::off) == static_cast<uint8_t>(bridge::SpeakChat::off)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::pages) ==
+    static_cast<uint8_t>(bridge::SpeakChat::pages)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::all) == static_cast<uint8_t>(bridge::SpeakChat::all)
+);
 
 static_assert(
     settings::default_skirmish_players == init::default_skirmish_player_count,
@@ -1883,6 +1911,30 @@ window_placement::WindowSize placement_window_size(settings::WindowSize size) no
     return window_placement::WindowSize::automatic;
 }
 
+/// Tells the screen reader the preference the file now holds. A change
+/// forgets the last spoken focus. The bridge attaches on the next frame.
+///
+/// @param values the preferences
+void note_screen_reader_preference(const oa::platform::preferences::Values& values) {
+    const auto found = values.find(std::string{bridge::preference_key});
+    const std::string_view stored =
+        found == values.end() ? std::string_view{} : std::string_view{found->second};
+    bridge::set_preference(bridge::preference_of(stored));
+}
+
+/// The two keys colour vision reads, as the preferences hold them now.
+///
+/// @param values the preferences
+/// @return the mode's text and the shape cues' text, each empty when absent
+std::pair<std::string, std::string>
+colour_vision_keys(const oa::platform::preferences::Values& values) {
+    const auto text_of = [&values](std::string_view key) {
+        const auto found = values.find(std::string{key});
+        return found == values.end() ? std::string{} : found->second;
+    };
+    return {text_of(settings::key::colour_vision), text_of(settings::key::shape_cues)};
+}
+
 } // namespace
 
 void Runtime::fill_settings_key_layout(settings::Dialog& dialog) {
@@ -2025,6 +2077,11 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         game_files,
         pad_used()
     );
+    // Nothing can speak when this build leaves the bridge out and the
+    // system has no voice. The status line is that fact, and only then.
+    dialog.speech_unavailable = !oa::platform::screen_reader::compiled_in() &&
+                                !oa::platform::screen_reader::voice_available();
+    dialog.access_at_open = settings::capture_access_preferences(preference_values_);
     // Screen size offers Desktop and the display's own sizes. In a window it
     // opens at the window's own size, shown as Custom where the display
     // offers no such size; in full screen, and without a window, at the
@@ -2438,6 +2495,15 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
                 paint_updates(*dialog, update_snapshot(), release_version(dialog->version));
             apply_update_download(*dialog);
             oa_layer().lay_out_for_size();
+            // Colour vision and the screen reader follow the row at once.
+            // The keys are what those readers look at between frames. Only
+            // a change of the colour keys repaints the team pictures, so
+            // another row, a slider dragged in a match among them, does not.
+            const auto colours_before = colour_vision_keys(preference_values_);
+            settings::store_access_preferences(preference_values_, dialog->chosen);
+            if (colour_vision_keys(preference_values_) != colours_before)
+                apply_colour_vision();
+            note_screen_reader_preference(preference_values_);
         }
         return false;
     case settings::DialogAction::accepted: {
@@ -2509,7 +2575,13 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // do not offer, where it was.
         if (chosen.skirmish_players != dialog->opened.skirmish_players)
             init::set_skirmish_player_count(skirmish_settings_, chosen.skirmish_players, *this);
+        // A row changed while the dialog was open wrote the access keys for
+        // the live colours and the reader. OK writes against the file as it
+        // was when the dialog opened, then those readers follow what was kept.
+        settings::restore_access_preferences(preference_values_, dialog->access_at_open);
         const auto failure = save_engine_settings(dialog->opened, chosen, dialog->restored);
+        apply_colour_vision();
+        note_screen_reader_preference(preference_values_);
         tell_install_switches(content_downloads(), switches_opened, switches_chosen);
         if (check_changed)
             content_service().set_check_for_updates(check_mode(chosen_check));
@@ -2555,6 +2627,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // the choice had already been stored.
         apply_key_layout_preference(*dialog);
         apply_engine_settings(dialog->opened);
+        // Cancel puts the access keys back as the file held them, and the
+        // colours and the reader follow that.
+        settings::restore_access_preferences(preference_values_, dialog->access_at_open);
+        apply_colour_vision();
+        note_screen_reader_preference(preference_values_);
         // The battlefield's zoom and the next game's unit limit go back to
         // what they were, a loaded game's limit included.
         if (zoom_changed)

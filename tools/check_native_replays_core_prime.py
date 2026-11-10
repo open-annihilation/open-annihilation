@@ -30,6 +30,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import check_native_replays_content as ridge_registry
+import native_offline
 
 PAGE_SIZE = 48
 ITEM_COUNT = 50

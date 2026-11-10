@@ -62,6 +62,11 @@ struct Capabilities {
     /// mode; where false, on SDL before 3.4 or a renderer that refuses the
     /// mode, a pixel_art draw reads the nearest texel.
     bool pixel_art_sampling{};
+    /// The renderer places a vertex at the truncation, toward zero, of its
+    /// position times the target's factor. SDL's software renderer does.
+    /// The others keep the fraction, so a shift by a whole number of the
+    /// target's pixels stays exact.
+    bool geometry_truncates{};
     uint32_t texture_limit{}; ///< the largest texture edge it makes; 0 for no limit
 };
 

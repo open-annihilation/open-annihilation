@@ -266,6 +266,12 @@ name their one button `ok`. Its Switch Mod question names its buttons
 `roll-back`, and the note Play now shows for a folder it cannot play its
 one button `ok`.
 
+A Settings row that cannot change now, such as Pathfinding cycles during a
+game or Shape cues under Achromatopsia, stays listed under its own name,
+disabled, with its value as any row has it. Its `description` is the words
+the dialog draws beside the padlock ("Locked during a game"), and it is
+never a Tab stop.
+
 **The kinds.** Each kit control maps to one kind: a button, a link and a
 row of buttons' button are `button`; a switch, a strip and a row of
 buttons themselves are `label` with the shown text, their parts listed

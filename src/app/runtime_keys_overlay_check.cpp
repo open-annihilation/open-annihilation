@@ -1047,10 +1047,20 @@ void Runtime::check_keys_overlay() {
         };
         constexpr std::size_t accessibility =
             static_cast<std::size_t>(settings::Page::accessibility);
-        for (int32_t step = 0; step < 80 && !both_shown(); ++step) {
+        // Colour, speech and the focus ring stand above these two rows, and
+        // on a narrow window the practice pad follows the rows. Eighty steps
+        // of 16 points stop short of them when the section is drawn in the
+        // game's font. Keep stepping until both are on screen, or the scroll
+        // no longer moves.
+        int32_t held = -1;
+        for (int32_t step = 0; step < 400 && !both_shown(); ++step) {
             dialog = engine_settings_dialog();
             require(dialog != nullptr, "Settings closed while scrolling");
-            dialog->scroll[accessibility] += 16;
+            const int32_t at = dialog->scroll[accessibility];
+            if (at == held)
+                break;
+            held = at;
+            dialog->scroll[accessibility] = at + 16;
             frames(1);
         }
         require(both_shown(), "Accessibility does not show Move overlays and Overlay places");

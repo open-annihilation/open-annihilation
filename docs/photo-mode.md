@@ -177,15 +177,22 @@ because its font has no multiplication sign. Then Copy to clipboard, Player
 names, the file name the next photo will use, Take photo and Copy.
 
 Off and Basic draw a larger photo with bigger pixels, the same picture the
-window already drew. Smooth edges is locked there, because Off and Basic
+window already drew, including a view that looks past the map's left or top
+edge. Smooth edges is locked there, because Off and Basic
 draw whole pixels, and a smoothed photo would be the Screen photo. Full
 draws a larger photo on the card at the anti-aliasing the window is using.
-The reason names the picture size that fits at that factor, not the card's
-raw limit. The 3D view draws a larger photo up to the largest picture whose
-sampling matches the window's frame at this anti-aliasing.
+When that photo is larger than the card draws in one piece, Full draws it
+in pieces and joins them, at the same anti-aliasing, up to 16384 pixels a
+side, while the photo and one piece fit in memory. A shared match does not
+offer those pieces. The reason names the picture size that fits at that
+factor, not the card's raw limit. The 3D view draws a larger photo up to the
+largest picture whose sampling matches the window's frame at this
+anti-aliasing.
 
 A size can be missing because of the card's limit, because there is not
-enough memory, or because the match is a shared game. Locks that share a
+enough memory, or because the match is a shared game. A tilt-shift needs
+room for one more copy of the picture, so it can lock the largest size for
+memory. Locks that share a
 reason are named once, as in 2×, 3× and 4×: Shared game, under the rows,
 over as many lines as the sentence needs. A shared match
 offers Screen, and smooth edges at 2× in Full and the 3D view, and the
@@ -230,17 +237,22 @@ face, so the words do not depend on the match's data.
 
 Off and Basic filter the composed battlefield before it is presented. Full
 reads that battlefield back, filters it and draws it back in its place. The
-turned view reads the frame back while a look is on. A frozen battle, and a
+turned view reads the frame back while a grade, a vignette, grain, a frame
+or a tilt-shift is on. Depth of field, and haze in the turned view, stay on
+the card and do not by themselves read the frame back. A frozen battle, and a
 held picture, filter again only when the camera or the look changes. While
-time is running, or slow, Full and the turned view filter every frame, and
-the panel says the preview lowers the frame rate.
+time is running, or slow, Full and the turned view filter every frame a
+processor look is on, and the panel says the preview lowers the frame rate.
 
 The photo is that same filter, on every size. Grain size counts the
 battlefield's pixels as the window shows them, so a photo at 2×, 3× or 4×
 draws each grain that many times larger and carries the grain the preview
-shows; the frame and the caption bar grow with the picture too. A crop is
-cut before the
-look, so the frame, the vignette and the grain sit on the crop, and the
+shows; the frame and the caption bar grow with the picture too. Where
+Full reads the window's pixels and those are finer than the layout, as at a
+pixel density above 1, the Screen photo and the preview both draw the
+grain, the tilt-shift and the haze step at the picture's width over the
+battlefield's, rounded to a whole factor, so they cover the ground they
+cover at density 1. A crop is cut before the look, so the frame, the vignette and the grain sit on the crop, and the
 preview paints them there too, leaving the battlefield outside the crop as
 it is. With no look on, the preview and the photo match a visit that never
 offered one. Guides stay over the battlefield and out of the photo. The
@@ -259,7 +271,46 @@ names wrap onto as many rows as they need, and each chip shows its whole
 name. When a look is on, the photo's record names the grade, the vignette
 and its roundness, the grain, its size as the panel chose it
 (`grain_size`) and as the photo drew it (`grain_pixels`, the panel's size
-times the photo's size factor), and the frame.
+times the photo's size factor), and the frame. A tilt-shift is null while
+its blur is 0, and otherwise names the band's centre, its width as the
+panel chose it and as the photo drew it, and the blur the same way. Haze
+is null while it is off, and otherwise the amount. It does not scale. In
+the classic view that amount fades lower ground. In the turned view it
+fades by distance from the camera. Ground the player has never seen stays
+black under the haze, as the ground off the map does. Explored ground that
+is out of sight still fades. A replay watched through one player's eyes uses
+that player's fog, and the whole map has none. A held picture keeps the fog
+it was held with. Depth of field is null while it is off, and otherwise
+names the blur as the panel chose it (`radius`) and as the photo drew it
+(`radius_pixels`, the panel's blur times the photo's size factor).
+
+## Depth cues
+
+Depth, on the Look header, replaces the grade with a tilt-shift and haze.
+The tilt-shift is a sharp band. Blur rises above it and below it, by screen
+row, and the panel says so: it blurs by screen row, not by depth. The band's
+width and the blur are the battlefield's pixels, and a photo at 2×, 3× or 4×
+draws them that many times larger, as it does the grain. The centre is a
+percent of the picture's height, so it needs no second size.
+
+Haze fades the picture toward a pale colour. The classic view has no depth
+picture, so the height under each pixel comes from inverting the view: a
+map row at height `h` lies at screen row `z - h / 2`. The panel says the
+haze follows the ground, not the units. Ground the player has never seen
+stays black: the fog is drawn where the map row is drawn, not over the
+ground the height lifts there, so the haze keeps every pixel the fog's black
+covers, its ragged edge too, and hazes the rest as it would with no fog.
+The turned view uses the same slider for distance from the camera: farther
+ground fades more, and the card draws it. Ground the player has never seen
+keeps its black under the haze and depth of field there too: photo mode
+keeps the fog. A card that keeps no depth locks the slider and says so.
+
+Depth of field is the turned view's own blur, not the tilt-shift. A point
+on the ground under the middle of the window stays sharp, across a band,
+and blur grows with distance from that depth. The blur is the battlefield's
+pixels, and a photo at 2×, 3× or 4× draws it that many times larger, as the
+tilt-shift does. The classic view locks it, and the panel says it needs the
+full 3D mode. The tilt-shift stays a blur by screen row, in every view.
 
 ## Keys
 
@@ -340,6 +391,14 @@ render mode in use. The saved picture is the battlefield alone. It is a
 PNG, written where the screenshots go: `Screenshots` and the folder of the
 mod you are playing, `Screenshots/default` with no mod, or the Image Output
 Directory when you have set one.
+
+On Full, a photo larger than the card draws in one piece is drawn in pieces
+and joined. Each piece is drawn by Full, with the window's water, shadows
+and effects, at the anti-aliasing the window is using. The joined picture
+is one photo: the colour grade, the vignette, the grain and the frame are
+painted across it once. The picture is up to 16384 pixels a side, and the
+photo and one piece have to fit in memory. A shared match does not offer
+that photo.
 
 While you hold the picture in a shared match, a photo saves the held
 battlefield, as the screen shows it, not the battle going on underneath.

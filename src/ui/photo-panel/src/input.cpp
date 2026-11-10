@@ -125,6 +125,27 @@ Press command_for(kit::ControlId id, const Model& model, int32_t value) {
     case kFrame:
         press.command = Command::cycle_frame;
         break;
+    case kDepth:
+        press.command = Command::toggle_depth;
+        break;
+    case kBandCentre:
+        press.command = Command::set_band_centre;
+        break;
+    case kBandWidth:
+        press.command = Command::set_band_width;
+        break;
+    case kBlur:
+        press.command = Command::set_blur;
+        break;
+    case kHaze:
+        press.command = Command::set_haze;
+        break;
+    case kDepthOfField:
+        press.command = Command::set_depth_of_field;
+        break;
+    case kTiltNote:
+    case kHazeNote:
+    case kDepthNote:
     case kLookRate:
         break;
     case kCapture:
@@ -189,6 +210,10 @@ const std::string& lock_of(const Model& model, kit::ControlId id) {
         return model.step_lock;
     case kBetween:
         return model.between_lock;
+    case kHaze:
+        return model.haze_lock;
+    case kDepthOfField:
+        return model.depth_of_field_lock;
     default:
         return none;
     }
@@ -226,6 +251,16 @@ int32_t stops_of(const Model& model, kit::ControlId id) {
         return model.grain_stops;
     case kGrainSize:
         return model.grain_size_stops;
+    case kBandCentre:
+        return model.band_centre_stops;
+    case kBandWidth:
+        return model.band_width_stops;
+    case kBlur:
+        return model.blur_stops;
+    case kHaze:
+        return model.haze_stops;
+    case kDepthOfField:
+        return model.depth_of_field_stops;
     default:
         return 2;
     }
@@ -252,6 +287,16 @@ int32_t stop_of(const Model& model, kit::ControlId id) {
         return model.grain_stop;
     case kGrainSize:
         return model.grain_size_stop;
+    case kBandCentre:
+        return model.band_centre_stop;
+    case kBandWidth:
+        return model.band_width_stop;
+    case kBlur:
+        return model.blur_stop;
+    case kHaze:
+        return model.haze_stop;
+    case kDepthOfField:
+        return model.depth_of_field_stop;
     default:
         return 0;
     }

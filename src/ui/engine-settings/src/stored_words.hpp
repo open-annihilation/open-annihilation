@@ -186,6 +186,29 @@ inline constexpr std::array<ChoiceWord<OrderWheel>, 3> order_wheel_words{{
     {OrderWheel::hold_middle, "hold-middle"},
 }};
 
+/// Colour vision's words, in the drop-down's order.
+inline constexpr std::array<ChoiceWord<ColourVision>, 5> colour_vision_words{{
+    {ColourVision::off, "off"},
+    {ColourVision::protanopia, "protanopia"},
+    {ColourVision::deuteranopia, "deuteranopia"},
+    {ColourVision::tritanopia, "tritanopia"},
+    {ColourVision::achromatopsia, "achromatopsia"},
+}};
+
+/// Screen reader's words. Automatic is stored as auto.
+inline constexpr std::array<ChoiceWord<ScreenReaderMode>, 3> screen_reader_words{{
+    {ScreenReaderMode::automatic, "auto"},
+    {ScreenReaderMode::on, "on"},
+    {ScreenReaderMode::off, "off"},
+}};
+
+/// Speak chat's words.
+inline constexpr std::array<ChoiceWord<SpeakChat>, 3> speak_chat_words{{
+    {SpeakChat::off, "off"},
+    {SpeakChat::pages, "pages"},
+    {SpeakChat::all, "all"},
+}};
+
 /// Returns the word the preferences keep a choice as.
 ///
 /// @param words the setting's choices and words

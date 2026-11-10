@@ -26,6 +26,10 @@ import threading
 import time
 
 import check_native_mcp_lobby as lobby
+_OA_TOOLS = Path(__file__).resolve().parents[4] / "tools"
+if str(_OA_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_OA_TOOLS))
+import native_offline  # noqa: E402
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 END_TIMEOUT = 60
@@ -38,9 +42,11 @@ WHISPER_WAIT_S = 10.0
 WHISPER_SHOWN = "<You whispered to Ghost_Commander> see you there"
 WHISPER_SPOKEN = "Whisper to Ghost_Commander"
 # The screen-reader preference is on, so speech runs with no reader.
-# Chat and the battle room speak; the ticker stays quiet.
+# Chat and the battle room speak; the ticker stays quiet. The update check is
+# never and the catalogue is read only when the Library opens, which this check
+# never does: "-y" stops the entry when both are never.
 PREFERENCES = (
-    "open-annihilation-preferences 1\n"
+    "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"library\"\n"
     '"multiplayer|tcpaddr" "192.0.2.7"\n'
     '"open-annihilation.access.screen-reader" "on"\n'
     '"open-annihilation.access.speak-chat" "all"\n'
@@ -53,7 +59,7 @@ PREFERENCES_CHAT_OFF = PREFERENCES.replace(
 )
 # The screen-reader preference is absent. Speech stays closed.
 PREFERENCES_UNSET = (
-    "open-annihilation-preferences 1\n"
+    "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"library\"\n"
     '"multiplayer|tcpaddr" "192.0.2.7"\n'
     '"open-annihilation.access.speak-chat" "all"\n'
     '"open-annihilation.access.speak-lobby" "1"\n'
@@ -252,8 +258,10 @@ def run_game(native, game_dir, mod_dir, replay, scratch, preferences, drive, lab
         preferences_path.write_text(preferences, encoding="utf-8")
         log_dir = workdir / "logs"
         user_folder = workdir / "user"
+        data_folder = workdir / "data"
         log_dir.mkdir()
         user_folder.mkdir()
+        data_folder.mkdir()
         environment = dict(os.environ)
         environment.pop("OA_BY_USER", None)
         environment.pop("OA_BY_PASSWORD", None)
@@ -280,6 +288,8 @@ def run_game(native, game_dir, mod_dir, replay, scratch, preferences, drive, lab
                 str(log_dir),
                 "--user-folder",
                 str(user_folder),
+                "--data-dir",
+                str(data_folder),
             ],
             cwd=workdir,
             env=environment,

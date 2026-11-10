@@ -52,6 +52,7 @@ import sys
 import tempfile
 import threading
 import time
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -169,7 +170,7 @@ SPACED_INI_NOTE = "TA Forever.ini: tournment, tournament: not read, as 3.1c does
 
 # The preferences every game of the check starts with: no catalogue is
 # fetched, so nothing leaves 127.0.0.1.
-PREFERENCES = 'open-annihilation-preferences 1\n"open-annihilation.content-updates" "never"\n'
+PREFERENCES = 'open-annihilation-preferences 1\n"open-annihilation.update-check" "never"\n"open-annihilation.content-updates" "never"\n'
 # The line the game logs as its window opens.
 WINDOW_LINE = "open-annihilation: window: "
 

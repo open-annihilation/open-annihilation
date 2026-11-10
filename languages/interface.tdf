@@ -7938,6 +7938,14 @@
 	it=Richiede i punti;
 	}
 
+[Needs Full 3D Mode]
+	{
+	de=Braucht den vollen 3D-Modus;
+	fr=Requiert le mode 3D complet;
+	es=Necesita el modo 3D completo;
+	it=Richiede la modalità 3D completa;
+	}
+
 [Needs Full acceleration]
 	{
 	de=Braucht volle Beschleunigung;
@@ -29406,12 +29414,44 @@
 	it=Artico;
 	}
 
+[Band centre]
+	{
+	de=Mitte des Streifens;
+	fr=Centre de la bande;
+	es=Centro de la banda;
+	it=Centro della fascia;
+	}
+
+[Band width]
+	{
+	de=Breite des Streifens;
+	fr=Largeur de la bande;
+	es=Ancho de la banda;
+	it=Larghezza della fascia;
+	}
+
 [Bleach]
 	{
 	de=Bleich;
 	fr=Délavé;
 	es=Lavado;
 	it=Sbiadito;
+	}
+
+[Blur]
+	{
+	de=Unschärfe;
+	fr=Flou;
+	es=Desenfoque;
+	it=Sfocatura;
+	}
+
+[Blurs by screen row, not by depth.]
+	{
+	de=Weich nach Bildzeile, nicht nach Tiefe.;
+	fr=Floute selon la ligne, pas selon la profondeur.;
+	es=Desenfoca por fila, no por profundidad.;
+	it=Sfoca per riga, non per profondità.;
 	}
 
 [Caption bar]
@@ -29422,12 +29462,36 @@
 	it=Didascalia;
 	}
 
+[Depth]
+	{
+	de=Tiefe;
+	fr=Profondeur;
+	es=Profundidad;
+	it=Profondità;
+	}
+
+[Depth of field]
+	{
+	de=Tiefenschärfe;
+	fr=Profondeur de champ;
+	es=Profundidad de campo;
+	it=Profondità di campo;
+	}
+
 [Dusk]
 	{
 	de=Abendlicht;
 	fr=Crépuscule;
 	es=Anochecer;
 	it=Tramonto;
+	}
+
+[Follows the ground, not the units.]
+	{
+	de=Folgt dem Boden, nicht den Einheiten.;
+	fr=Suit le sol, pas les unités.;
+	es=Sigue el suelo, no las unidades.;
+	it=Segue il terreno, non le unità.;
 	}
 
 [Frame]
@@ -29452,6 +29516,14 @@
 	fr=Taille du grain;
 	es=Tamaño del grano;
 	it=Dimensione della grana;
+	}
+
+[Haze]
+	{
+	de=Dunst;
+	fr=Brume;
+	es=Bruma;
+	it=Foschia;
 	}
 
 [Noir]
@@ -29486,6 +29558,14 @@
 	it=Bordo sottile;
 	}
 
+[This graphics card keeps no depth.]
+	{
+	de=Diese Grafikkarte behält keine Tiefe.;
+	fr=Cette carte graphique ne garde pas la profondeur.;
+	es=Esta tarjeta gráfica no guarda la profundidad.;
+	it=Questa scheda grafica non tiene la profondità.;
+	}
+
 [Vignette]
 	{
 	de=Vignette;
@@ -29500,4 +29580,364 @@
 	fr=Large marge;
 	es=Marco ancho;
 	it=Bordo largo;
+	}
+
+[Colour vision]
+	{
+	de=Farbsehen;
+	fr=Vision des couleurs;
+	es=Visión del color;
+	it=Vista dei colori;
+	}
+
+[Shape cues]
+	{
+	de=Formhinweise;
+	fr=Indices de forme;
+	es=Pistas de forma;
+	it=Segnali di forma;
+	}
+
+[Screen reader]
+	{
+	de=Screenreader;
+	fr=Lecteur d'écran;
+	es=Lector de pantalla;
+	it=Lettore di schermo;
+	}
+
+[Speak chat]
+	{
+	de=Chat vorlesen;
+	fr=Lire le chat;
+	es=Leer el chat;
+	it=Leggi la chat;
+	}
+
+[Speak lobby changes]
+	{
+	de=Lobby-Änderungen vorlesen;
+	fr=Lire les changements du salon;
+	es=Leer los cambios de la sala;
+	it=Leggi i cambiamenti della stanza;
+	}
+
+[Speak the ticker]
+	{
+	de=Lauftext vorlesen;
+	fr=Lire le bandeau;
+	es=Leer la cinta;
+	it=Leggi il nastro;
+	}
+
+[Always show focus]
+	{
+	de=Fokus immer zeigen;
+	fr=Toujours montrer le focus;
+	es=Mostrar siempre el foco;
+	it=Mostra sempre il focus;
+	}
+
+[Protanopia]
+	{
+	de=Protanopie;
+	fr=Protanopie;
+	es=Protanopía;
+	it=Protanopia;
+	}
+
+[Deuteranopia]
+	{
+	de=Deuteranopie;
+	fr=Deutéranopie;
+	es=Deuteranopía;
+	it=Deuteranopia;
+	}
+
+[Tritanopia]
+	{
+	de=Tritanopie;
+	fr=Tritanopie;
+	es=Tritanopía;
+	it=Tritanopia;
+	}
+
+[Achromatopsia]
+	{
+	de=Achromatopsie;
+	fr=Achromatopsie;
+	es=Acromatopsia;
+	it=Acromatopsia;
+	}
+
+[Pages only]
+	{
+	de=Nur Seiten;
+	fr=Pages seulement;
+	es=Solo páginas;
+	it=Solo pagine;
+	}
+
+[Changes team colours, the minimap, bars, the war map and status colours on this machine only.]
+	{
+	de=Ändert Teamfarben, die Minikarte, Balken, die Kriegskarte und Statusfarben nur auf diesem Rechner.;
+	fr=Change les couleurs d'équipe, la minicarte, les barres, la carte de guerre et les couleurs d'état sur cette machine seulement.;
+	es=Cambia los colores de equipo, el minimapa, las barras, el mapa de guerra y los colores de estado solo en este equipo.;
+	it=Cambia i colori delle squadre, la minimappa, le barre, la mappa di guerra e i colori di stato solo su questo computer.;
+	}
+
+[Player markers, side symbols, notched bars and a mark on every status.]
+	{
+	de=Spielermarkierungen, Seitenzeichen, gekerbte Balken und ein Zeichen auf jedem Status.;
+	fr=Repères des joueurs, symboles de camp, barres crantées et une marque sur chaque état.;
+	es=Marcas de jugador, símbolos de bando, barras con muesca y una marca en cada estado.;
+	it=Segni dei giocatori, simboli di fazione, barre dentellate e un segno su ogni stato.;
+	}
+
+[The ten player colours, then OK, caution, danger and information.]
+	{
+	de=Die zehn Spielerfarben, dann OK, Vorsicht, Gefahr und Hinweis.;
+	fr=Les dix couleurs des joueurs, puis OK, attention, danger et information.;
+	es=Los diez colores de jugador, luego OK, precaución, peligro e información.;
+	it=I dieci colori dei giocatori, poi OK, attenzione, pericolo e informazione.;
+	}
+
+[Automatic works with a screen reader while the system says one is running. On also works with one the system does not report. Off never does.]
+	{
+	de=Automatisch arbeitet mit einem Screenreader, solange das System einen meldet. An arbeitet auch mit einem, den das System nicht meldet. Aus nie.;
+	fr=Automatique fonctionne avec un lecteur d'écran tant que le système en signale un. Marche fonctionne aussi avec un lecteur que le système ne signale pas. Arrêt jamais.;
+	es=Automático funciona con un lector de pantalla mientras el sistema indica uno. Encendido funciona también con uno que el sistema no indica. Apagado nunca.;
+	it=Automatico funziona con un lettore di schermo finché il sistema ne segnala uno. Acceso funziona anche con uno che il sistema non segnala. Spento mai.;
+	}
+
+[Nothing on this system can speak.]
+	{
+	de=Auf diesem System kann nichts sprechen.;
+	fr=Rien sur ce système ne peut parler.;
+	es=Nada en este sistema puede hablar.;
+	it=Niente su questo sistema può parlare.;
+	}
+
+[Chat lines and whispers, pages only, or neither.]
+	{
+	de=Chatzeilen und Flüstern, nur Seiten, oder keins von beiden.;
+	fr=Lignes de chat et chuchotements, les pages seulement, ou aucun des deux.;
+	es=Líneas de chat y susurros, solo páginas, o ninguno.;
+	it=Righe di chat e sussurri, solo pagine, o nessuno dei due.;
+	}
+
+[A player joining or leaving the battle room, and a change of ready, side, colour, team, map or option.]
+	{
+	de=Ein Spieler kommt in den Kampfraum oder geht, und eine Änderung von Bereit, Seite, Farbe, Team, Karte oder Option.;
+	fr=Un joueur qui entre dans la salle de bataille ou qui en sort, et un changement de prêt, de camp, de couleur, d'équipe, de carte ou d'option.;
+	es=Un jugador que entra o sale de la sala de batalla, y un cambio de listo, bando, color, equipo, mapa u opción.;
+	it=Un giocatore che entra o esce dalla stanza di battaglia, e un cambio di pronto, fazione, colore, squadra, mappa o opzione.;
+	}
+
+[The ticker repeats, so it stays quiet until this is on.]
+	{
+	de=Der Lauftext wiederholt sich, also bleibt er still, bis das an ist.;
+	fr=Le bandeau se répète, alors il reste silencieux tant que ceci est arrêté.;
+	es=La cinta se repite, así que se queda en silencio hasta que esto está activado.;
+	it=Il nastro si ripete, quindi resta in silenzio finché questo non è attivo.;
+	}
+
+[The focus ring is drawn on the first item when a screen opens.]
+	{
+	de=Der Fokusring liegt auf dem ersten Eintrag, wenn ein Bildschirm aufgeht.;
+	fr=L'anneau de focus est dessiné sur le premier élément quand un écran s'ouvre.;
+	es=El anillo de foco se dibuja en el primer elemento cuando se abre una pantalla.;
+	it=L'anello del focus è disegnato sul primo elemento quando si apre una schermata.;
+	}
+
+[Achromatopsia keeps shape cues on]
+	{
+	de=Achromatopsie lässt die Formhinweise an;
+	fr=L'achromatopsie garde les indices de forme activés;
+	es=La acromatopsia mantiene las pistas de forma activadas;
+	it=L'acromatopsia tiene i segnali di forma attivi;
+	}
+
+[button]
+	{
+	de=Schaltfläche;
+	fr=bouton;
+	es=botón;
+	it=pulsante;
+	}
+
+[check box]
+	{
+	de=Kontrollkästchen;
+	fr=case à cocher;
+	es=casilla;
+	it=casella;
+	}
+
+[switch]
+	{
+	de=Schalter;
+	fr=interrupteur;
+	es=interruptor;
+	it=interruttore;
+	}
+
+[radio group]
+	{
+	de=Auswahlgruppe;
+	fr=groupe de boutons;
+	es=grupo de opciones;
+	it=gruppo di opzioni;
+	}
+
+[radio button]
+	{
+	de=Auswahlknopf;
+	fr=bouton radio;
+	es=botón de opción;
+	it=pulsante di opzione;
+	}
+
+[tab list]
+	{
+	de=Reiterleiste;
+	fr=liste d'onglets;
+	es=lista de pestañas;
+	it=elenco di schede;
+	}
+
+[tab]
+	{
+	de=Reiter;
+	fr=onglet;
+	es=pestaña;
+	it=scheda;
+	}
+
+[list]
+	{
+	de=Liste;
+	fr=liste;
+	es=lista;
+	it=elenco;
+	}
+
+[list item]
+	{
+	de=Listeneintrag;
+	fr=élément de liste;
+	es=elemento de lista;
+	it=elemento dell'elenco;
+	}
+
+[tree]
+	{
+	de=Baum;
+	fr=arbre;
+	es=árbol;
+	it=albero;
+	}
+
+[tree item]
+	{
+	de=Baumeintrag;
+	fr=élément d'arbre;
+	es=elemento de árbol;
+	it=elemento dell'albero;
+	}
+
+[text field]
+	{
+	de=Textfeld;
+	fr=champ de texte;
+	es=campo de texto;
+	it=campo di testo;
+	}
+
+[password]
+	{
+	de=Passwort;
+	fr=mot de passe;
+	es=contraseña;
+	it=password;
+	}
+
+[search field]
+	{
+	de=Suchfeld;
+	fr=champ de recherche;
+	es=campo de búsqueda;
+	it=campo di ricerca;
+	}
+
+[slider]
+	{
+	de=Schieberegler;
+	fr=curseur;
+	es=deslizador;
+	it=cursore;
+	}
+
+[log]
+	{
+	de=Protokoll;
+	fr=journal;
+	es=registro;
+	it=registro;
+	}
+
+[dialog]
+	{
+	de=Dialog;
+	fr=dialogue;
+	es=diálogo;
+	it=finestra;
+	}
+
+[alert]
+	{
+	de=Hinweis;
+	fr=alerte;
+	es=alerta;
+	it=avviso;
+	}
+
+[group]
+	{
+	de=Gruppe;
+	fr=groupe;
+	es=grupo;
+	it=gruppo;
+	}
+
+[image]
+	{
+	de=Bild;
+	fr=image;
+	es=imagen;
+	it=immagine;
+	}
+
+[link]
+	{
+	de=Link;
+	fr=lien;
+	es=enlace;
+	it=link;
+	}
+
+[text]
+	{
+	de=Text;
+	fr=texte;
+	es=texto;
+	it=testo;
+	}
+
+[window]
+	{
+	de=Fenster;
+	fr=fenêtre;
+	es=ventana;
+	it=finestra;
 	}

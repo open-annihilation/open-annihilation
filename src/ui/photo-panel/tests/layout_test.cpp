@@ -75,19 +75,34 @@ std::vector<std::string> expected_tab(const panel::Model& model) {
         names.insert(names.end(), std::begin(time), std::end(time));
     }
     names.push_back("photo.section.look");
+    names.push_back("photo.depth");
     if (model.look_open) {
-        const char* look[] = {
-            "photo.look",
-            "photo.vignette",
-            "photo.roundness",
-            "photo.grain",
-            "photo.grain-size",
-            "photo.frame",
-            "photo.selection",
-            "photo.health",
-            "photo.guides",
-        };
-        names.insert(names.end(), std::begin(look), std::end(look));
+        if (model.depth_page) {
+            const char* depth[] = {
+                "photo.band-centre",
+                "photo.band-width",
+                "photo.blur",
+                "photo.haze",
+                "photo.depth-of-field",
+                "photo.selection",
+                "photo.health",
+                "photo.guides",
+            };
+            names.insert(names.end(), std::begin(depth), std::end(depth));
+        } else {
+            const char* look[] = {
+                "photo.look",
+                "photo.vignette",
+                "photo.roundness",
+                "photo.grain",
+                "photo.grain-size",
+                "photo.frame",
+                "photo.selection",
+                "photo.health",
+                "photo.guides",
+            };
+            names.insert(names.end(), std::begin(look), std::end(look));
+        }
     }
     names.push_back("photo.section.capture");
     if (model.capture_open) {
@@ -275,6 +290,14 @@ struct Tongue {
     const char* none{};
     const char* photo_size{};
     const char* grain_size{};
+    const char* depth{};
+    const char* band_centre{};
+    const char* band_width{};
+    const char* blur{};
+    const char* tilt_note{};
+    const char* haze{};
+    const char* ground_note{};
+    const char* turned_note{};
 };
 
 /// The label drawn to the left of a slider.
@@ -302,6 +325,39 @@ std::string button_caption(const panel::Layout& placed, std::string_view name) {
             return look->caption;
     }
     return {};
+}
+
+/// The lines drawn for a note or reason, in order, joined by spaces. A note
+/// that wraps is drawn on several rows, all inside its control.
+std::string drawn_note(const panel::Layout& placed, std::string_view name) {
+    const kit::Control* control = named(placed.list, name);
+    if (control == nullptr)
+        return {};
+    std::string joined;
+    for (const kit::Item& item : placed.list.items) {
+        if (item.role != kit::Role::text || !kit::wholly_in(item.rect, control->rect))
+            continue;
+        if (!joined.empty())
+            joined += ' ';
+        joined += item.text;
+    }
+    return joined;
+}
+
+/// A note is drawn whole, over as many rows as it needs, with no ellipsis.
+void expect_note_whole(
+    const panel::Layout& placed, std::string_view name, std::string_view sentence, const char* what
+) {
+    const std::string drawn = drawn_note(placed, name);
+    if (drawn != sentence)
+        std::fprintf(
+            stderr,
+            "layout: %s: '%s' drawn as '%s'\n",
+            what,
+            std::string(sentence).c_str(),
+            drawn.c_str()
+        );
+    expect(drawn == sentence, what);
 }
 
 /// German, French, Spanish and Italian at Compact, where the long words broke.
@@ -337,7 +393,15 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Breiter Rand",
          "Keine",
          "Größe",
-         "Korngröße"},
+         "Korngröße",
+         "Tiefe",
+         "Mitte des Streifens",
+         "Breite des Streifens",
+         "Unschärfe",
+         "Weich nach Bildzeile, nicht nach Tiefe.",
+         "Dunst",
+         "Folgt dem Boden, nicht den Einheiten.",
+         "Die 3D-Ansicht dunstet nach Entfernung zur Kamera."},
         {"fr",
          "Entre les temps",
          "Pas",
@@ -368,7 +432,15 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Large marge",
          "Aucun",
          "Taille",
-         "Taille du grain"},
+         "Taille du grain",
+         "Profondeur",
+         "Centre de la bande",
+         "Largeur de la bande",
+         "Flou",
+         "Floute selon la ligne, pas selon la profondeur.",
+         "Brume",
+         "Suit le sol, pas les unités.",
+         "La vue 3D voile selon la distance à la caméra."},
         {"es",
          "Entre los instantes",
          "Paso",
@@ -399,7 +471,15 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Marco ancho",
          "Ninguno",
          "Tamaño",
-         "Tamaño del grano"},
+         "Tamaño del grano",
+         "Profundidad",
+         "Centro de la banda",
+         "Ancho de la banda",
+         "Desenfoque",
+         "Desenfoca por fila, no por profundidad.",
+         "Bruma",
+         "Sigue el suelo, no las unidades.",
+         "La vista 3D empaña según la distancia a la cámara."},
         {"it",
          "Tra un tempo e l'altro",
          "Passo",
@@ -430,7 +510,15 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
          "Bordo largo",
          "Nessuno",
          "Dimensione",
-         "Dimensione della grana"},
+         "Dimensione della grana",
+         "Profondità",
+         "Centro della fascia",
+         "Larghezza della fascia",
+         "Sfocatura",
+         "Sfoca per riga, non per profondità.",
+         "Foschia",
+         "Segue il terreno, non le unità.",
+         "La vista 3D annebbia secondo la distanza dalla camera."},
     };
     const kit::Fonts* looks[] = {&block, &modern};
     const char* look_names[] = {"block", "modern"};
@@ -505,6 +593,52 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
             const kit::Control* photo_size = named(placed.list, "photo.size");
             expect(photo_size != nullptr && photo_size->label == tongue.photo_size, what);
             expect(label_beside(placed, "photo.grain-size") == tongue.grain_size, what);
+            panel::Model depth = model;
+            depth.depth_page = true;
+            depth.depth_label = tongue.depth;
+            depth.band_centre_label = tongue.band_centre;
+            depth.band_width_label = tongue.band_width;
+            depth.blur_label = tongue.blur;
+            depth.tilt_note = tongue.tilt_note;
+            depth.haze_label = tongue.haze;
+            depth.haze_note.clear();
+            depth.haze_lock.clear();
+            depth.depth_of_field_label = "Depth of field";
+            depth.depth_of_field_lock.clear();
+            char depth_what[80];
+            std::snprintf(
+                depth_what, sizeof depth_what, "%s depth %s", tongue.tag, look_names[which]
+            );
+            check_layout(depth, fonts, depth_what);
+            const panel::Layout depth_placed = panel::layout_of(depth, fonts);
+            const kit::Control* depth_button = named(depth_placed.list, "photo.depth");
+            expect(depth_button != nullptr && depth_button->label == tongue.depth, depth_what);
+            const kit::Control* tilt_note = named(depth_placed.list, "photo.tilt-shift.note");
+            expect(
+                tilt_note != nullptr && !tilt_note->focusable &&
+                    tilt_note->text == tongue.tilt_note,
+                depth_what
+            );
+            expect(named(depth_placed.list, "photo.haze.reason") == nullptr, depth_what);
+            expect(named(depth_placed.list, "photo.haze.note") == nullptr, depth_what);
+            expect(named(depth_placed.list, "photo.depth-of-field") != nullptr, depth_what);
+            expect(named(depth_placed.list, "photo.look") == nullptr, depth_what);
+            expect(named(depth_placed.list, "photo.selection") != nullptr, depth_what);
+            // The notes say what each cue does: drawn whole, wrapped when long.
+            expect_note_whole(depth_placed, "photo.tilt-shift.note", tongue.tilt_note, depth_what);
+            panel::Model ground = depth;
+            ground.haze_note = tongue.ground_note;
+            ground.depth_of_field_lock = "Needs Full 3D Mode";
+            check_layout(ground, fonts, depth_what);
+            expect_note_whole(
+                panel::layout_of(ground, fonts), "photo.haze.note", tongue.ground_note, depth_what
+            );
+            expect_note_whole(
+                panel::layout_of(ground, fonts),
+                "photo.depth-of-field.reason",
+                "Needs Full 3D Mode",
+                depth_what
+            );
         }
         // The chips and the grain's size keep their whole names at the larger
         // sizes too, where the faces are larger.
@@ -544,6 +678,47 @@ void check_tongues(const kit::Fonts& block, const kit::Fonts& modern) {
                 const panel::Layout larger_placed = panel::layout_of(larger, larger_fonts);
                 expect(
                     label_beside(larger_placed, "photo.grain-size") == tongue.grain_size, sized_what
+                );
+                panel::Model depth = larger;
+                depth.depth_page = true;
+                depth.depth_label = tongue.depth;
+                depth.band_centre_label = tongue.band_centre;
+                depth.band_width_label = tongue.band_width;
+                depth.blur_label = tongue.blur;
+                depth.tilt_note = tongue.tilt_note;
+                depth.haze_label = tongue.haze;
+                depth.haze_note = tongue.ground_note;
+                char depth_sized[80];
+                std::snprintf(
+                    depth_sized,
+                    sizeof depth_sized,
+                    "%s depth %d %s",
+                    tongue.tag,
+                    static_cast<int>(sized_widths[sized]),
+                    look_names[sized_look]
+                );
+                check_layout(depth, larger_fonts, depth_sized);
+                const panel::Layout depth_placed = panel::layout_of(depth, larger_fonts);
+                expect(
+                    label_beside(depth_placed, "photo.band-centre") == tongue.band_centre,
+                    depth_sized
+                );
+                expect(label_beside(depth_placed, "photo.blur") == tongue.blur, depth_sized);
+                expect(button_caption(depth_placed, "photo.depth") == tongue.depth, depth_sized);
+                const kit::Control* ground = named(depth_placed.list, "photo.haze.note");
+                expect(ground != nullptr && ground->text == tongue.ground_note, depth_sized);
+                expect_note_whole(
+                    depth_placed, "photo.tilt-shift.note", tongue.tilt_note, depth_sized
+                );
+                expect_note_whole(depth_placed, "photo.haze.note", tongue.ground_note, depth_sized);
+                panel::Model turned = depth;
+                turned.haze_lock = tongue.turned_note;
+                check_layout(turned, larger_fonts, depth_sized);
+                expect_note_whole(
+                    panel::layout_of(turned, larger_fonts),
+                    "photo.haze.reason",
+                    tongue.turned_note,
+                    depth_sized
                 );
             }
         }
@@ -677,9 +852,17 @@ void check_layout(const panel::Model& model, const kit::Fonts& fonts, const char
                 preset->text == model.preset_labels[static_cast<std::size_t>(model.preset)], what
             );
         }
-        expect(saw_preset, what);
-        expect(named(placed.list, "photo.vignette") != nullptr, what);
-        expect(named(placed.list, "photo.frame") != nullptr, what);
+        // The depth page replaces the grade. Its own controls are checked by
+        // the tongue cases; the grade stays on the page the panel opens with.
+        if (!model.depth_page) {
+            expect(saw_preset, what);
+            expect(named(placed.list, "photo.vignette") != nullptr, what);
+            expect(named(placed.list, "photo.frame") != nullptr, what);
+        } else {
+            expect(named(placed.list, "photo.band-centre") != nullptr, what);
+            expect(named(placed.list, "photo.blur") != nullptr, what);
+            expect(named(placed.list, "photo.haze") != nullptr, what);
+        }
         const kit::Control* rate = named(placed.list, "photo.look.rate");
         if (model.preview_note.empty())
             expect(rate == nullptr, what);
@@ -933,6 +1116,31 @@ void check_touch_layout(const kit::Fonts& fonts) {
                     }
                 }
             }
+            // Look's Depth page: every control a finger's row, Depth as wide
+            // as the row is tall, at every offset.
+            panel::Model depth =
+                model_for(width, height, kit::size_class_of(width, height), panel::Visit::skirmish);
+            depth.touch = true;
+            depth.touch_row = row;
+            depth.camera_open = false;
+            depth.time_open = false;
+            depth.look_open = true;
+            depth.capture_open = false;
+            depth.depth_page = true;
+            depth.depth_label = "Tiefe";
+            depth.scroll = 1000000;
+            const int32_t depth_limit = panel::layout_of(depth, fonts).scroll;
+            for (int32_t scroll = 0; scroll <= depth_limit; scroll += row) {
+                depth.scroll = scroll;
+                check_touch_frame(depth, fonts, saw);
+            }
+            depth.scroll = 0;
+            const panel::Layout depth_placed = panel::layout_of(depth, fonts);
+            const kit::Control* depth_button = named(depth_placed.list, "photo.depth");
+            expect(
+                depth_button != nullptr && depth_button->rect.width >= row,
+                "Depth is as wide as a finger's row"
+            );
             panel::Model hidden =
                 model_for(width, height, kit::size_class_of(width, height), panel::Visit::skirmish);
             hidden.touch = true;
@@ -950,26 +1158,15 @@ void check_touch_layout(const kit::Fonts& fonts) {
                 saw.emplace_back(show->name);
         }
     }
-    for (const char* name :
-         {"photo.leave",
-          "photo.hint",
-          "photo.section.camera",
-          "photo.section.time",
-          "photo.section.look",
-          "photo.section.capture",
-          "photo.zoom",
-          "photo.time-mode",
-          "photo.look",
-          "photo.vignette",
-          "photo.roundness",
-          "photo.grain",
-          "photo.grain-size",
-          "photo.frame",
-          "photo.selection",
-          "photo.size",
-          "photo.smooth",
-          "photo.take",
-          "photo.copy"}) {
+    for (const char* name : {"photo.leave",        "photo.hint",           "photo.section.camera",
+                             "photo.section.time", "photo.section.look",   "photo.section.capture",
+                             "photo.zoom",         "photo.time-mode",      "photo.look",
+                             "photo.vignette",     "photo.roundness",      "photo.grain",
+                             "photo.grain-size",   "photo.frame",          "photo.depth",
+                             "photo.band-centre",  "photo.band-width",     "photo.blur",
+                             "photo.haze",         "photo.depth-of-field", "photo.selection",
+                             "photo.size",         "photo.smooth",         "photo.take",
+                             "photo.copy"}) {
         const bool found = std::find(saw.begin(), saw.end(), name) != saw.end();
         if (!found)
             std::fprintf(stderr, "layout: touch never showed %s\n", name);

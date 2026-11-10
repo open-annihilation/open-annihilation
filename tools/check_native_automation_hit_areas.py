@@ -41,6 +41,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+import native_offline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_native_automation as automation  # noqa: E402

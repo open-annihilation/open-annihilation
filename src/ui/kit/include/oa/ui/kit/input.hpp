@@ -510,17 +510,20 @@ struct AutomationEntry {
     bool part{};
     AccessRole role{AccessRole::unset}; ///< what a screen reader calls it
     std::string label;                  ///< the caption; empty when the control has none
-    std::string value_text;             ///< its value as words
-    bool has_value{};                   ///< `value` is set
-    int32_t value{};                    ///< a slider's stop
-    bool has_range{};                   ///< `least`, `most` and `step` are set
-    int32_t least{};                    ///< the least value
-    int32_t most{};                     ///< the greatest value
-    int32_t step{};                     ///< how far one step moves the value
-    int32_t place{};                    ///< its place in a set, from 1; 0 when it has none
-    int32_t set_size{};                 ///< how many share the set; 0 when it has none
-    bool chosen{};                      ///< it is the chosen part
-    bool pressed{};                     ///< a switch is on
+    /// More words about it, such as why a locked row cannot change. Empty
+    /// when there are none.
+    std::string description;
+    std::string value_text; ///< its value as words
+    bool has_value{};       ///< `value` is set
+    int32_t value{};        ///< a slider's stop
+    bool has_range{};       ///< `least`, `most` and `step` are set
+    int32_t least{};        ///< the least value
+    int32_t most{};         ///< the greatest value
+    int32_t step{};         ///< how far one step moves the value
+    int32_t place{};        ///< its place in a set, from 1; 0 when it has none
+    int32_t set_size{};     ///< how many share the set; 0 when it has none
+    bool chosen{};          ///< it is the chosen part
+    bool pressed{};         ///< a switch is on
     /// A section header is open. Copied from the control. False otherwise.
     bool expanded{};
     /// How a change is announced: 0 off, 1 polite, 2 assertive.

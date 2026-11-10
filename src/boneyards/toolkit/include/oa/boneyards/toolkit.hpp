@@ -1648,10 +1648,12 @@ struct Desktop {
     // dialog the pointer closes leaves the keyboard where the click put it;
     // one a key closes hands it back to its opener.
     uint8_t pointer_last{0};
-    // 1 after Tab, Shift+Tab or F6, until a taken Return or a pointer move
-    // onto a new place. Set before the stops are gathered. A move that stays
-    // put leaves it. Stops marked stop_when_ring are skipped while this is 0.
-    // The war map's arrows stay on the planets only while this is set.
+    // The family's ring at the start of this key (desktop_note_service_ring),
+    // then what this key does to it. Tab, Shift+Tab and F6 set it before the
+    // stops are gathered. A taken Return, or a pointer move onto a new place,
+    // clears it. A move that stays put leaves it. Stops marked stop_when_ring
+    // are skipped while this is 0. The war map's arrows stay on the planets
+    // only while this is set.
     uint8_t keyboard_ring{0};
     // The last pointer place routed, so a move that stays put does not hide
     // the ring. The first place is only recorded.
@@ -1752,6 +1754,14 @@ void desktop_set_capture(Desktop* desktop, Window* window);
 /// @param msg input message; null is not handled
 /// @return true when a window handled the message
 bool desktop_route(Desktop* desktop, const Message* msg);
+
+/// Copies the family's ring onto the desktop, before a key is routed.
+///
+/// Tab, F6, Return and a pointer move then update it for the key in hand.
+///
+/// @param[in,out] desktop desktop the consoles read; null does nothing
+/// @param shown nonzero while the family's ring is showing
+void desktop_note_service_ring(Desktop* desktop, int shown);
 /// Tests whether the desktop has any top-level window.
 ///
 /// @param desktop desktop to test

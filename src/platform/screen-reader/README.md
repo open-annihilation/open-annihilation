@@ -230,5 +230,5 @@ that holds the game's focus. A shortcut is set on the node. Neither
 Where the bridge cannot load, Windows speaks through the system's voice.
 `on` speaks always. `auto` speaks only while Windows says a screen reader
 is running. A machine with no speech installed stays quiet, with no dialog
-and no error. macOS, iOS and Linux do not use that voice. Settings does
-not offer a row for the preference yet.
+and no error. macOS, iOS and Linux do not use that voice. Settings ›
+Accessibility offers the preference as Screen reader.

@@ -18,9 +18,28 @@ import argparse
 from pathlib import Path
 import subprocess
 import sys
+import native_offline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_native_mod_layout as layout  # noqa: E402
+
+
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8") if target.is_file() else "open-annihilation-preferences 1\n"
+    if "open-annihilation.update-check" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.update-check" "never"\n'
+    if "open-annihilation.content-updates" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding="utf-8")
 
 
 def main():
@@ -44,6 +63,7 @@ def main():
         return layout.SKIP
     workdir = arguments.scratch_root / "mod-stockpile"
     workdir.mkdir(parents=True, exist_ok=True)
+    _offline_preferences(workdir / "stockpile.conf")
     result = subprocess.run(
         [*layout.RUNNER, str(arguments.native), "--game-dir", str(arguments.mod_install),
          "--mod", str(profile), "--accept-unimplemented-hacks", "--skip-intro", "--mute",

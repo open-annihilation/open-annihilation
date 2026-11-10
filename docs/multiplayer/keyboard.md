@@ -1,12 +1,16 @@
 # Keys on the multiplayer screens
 
-The keys follow the player's layout. Next button moves to the next control
-and Previous button moves to the previous one, on the provider list, the
+The keys follow the player's layout. The focus ring, and the same keys on
+the rest of the game, are [Accessibility](../accessibility.md). Next button
+moves to the next control and Previous button moves to the previous one,
+on the provider list, the
 address, the game list, the screen where a game is named, and the battle
 room. With the game's own layout those are Tab and Shift+Tab, and a layout
 from 0.9.0 does the same. Up and Down are the list keys. They change the
 selected row of a list once that list is the focused control, and they do
-not move to another control. Return presses the focused control, the same
+not move to another control. A held arrow, and a held Next button, repeat
+at the player's repeat delay and rate. Left at the system's, they repeat
+at the system's pace. Return presses the focused control, the same
 way a click does. A key moved onto a letter still types in the address, the
 game name and the chat line, and shows no ring there. Pressed anywhere else,
 it moves the focus and types nothing, not even into the field it lands on.

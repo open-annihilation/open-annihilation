@@ -129,6 +129,8 @@ inline constexpr std::string_view tags_menu = "Tags";
 inline constexpr std::string_view tag_with_count = "Tag: {tag} ({count})";
 /// The search field's placeholder.
 inline constexpr std::string_view search_mutators = "Search mutators";
+/// The list of mutators. The rows name each mutator; the list itself draws no caption.
+inline constexpr std::string_view list_label = "Mutators";
 /// The heading over the On rows.
 inline constexpr std::string_view heading_on = "ON · APPLIED TOP TO BOTTOM";
 /// The heading over the Off rows. Not a switch's Off half.

@@ -877,74 +877,31 @@ void route_text(OverlayState* state, const ScreenInput& input) {
     console::boneyards_status_widget_take_text(state->widget, input.text);
 }
 
-// The move a reported focus, list or screen action asks for. Next button and
-// Previous button walk. The focus and list actions are the arrows. Page up,
-// Page down, Go to start and Go to end step a list or a field. Next control
-// and the screen's own arrows are not these.
-enum class FocusMove : uint8_t {
-    none,
-    next,
-    previous,
-    left,
-    right,
-    up,
-    down,
-    home,
-    end,
-    page_up,
-    page_down,
-};
-
-FocusMove focus_move_of(const char* action) {
-    if (action == nullptr || action[0] == '\0')
-        return FocusMove::none;
-    if (std::strcmp(action, "ui.menu-focus-next") == 0)
-        return FocusMove::next;
-    if (std::strcmp(action, "ui.menu-focus-previous") == 0)
-        return FocusMove::previous;
-    if (std::strcmp(action, "ui.menu-focus-left") == 0)
-        return FocusMove::left;
-    if (std::strcmp(action, "ui.menu-focus-right") == 0)
-        return FocusMove::right;
-    if (std::strcmp(action, "ui.menu-focus-up") == 0 || std::strcmp(action, "ui.menu-list-up") == 0)
-        return FocusMove::up;
-    if (std::strcmp(action, "ui.menu-focus-down") == 0 ||
-        std::strcmp(action, "ui.menu-list-down") == 0)
-        return FocusMove::down;
-    if (std::strcmp(action, "ui.screen-home") == 0)
-        return FocusMove::home;
-    if (std::strcmp(action, "ui.screen-end") == 0)
-        return FocusMove::end;
-    if (std::strcmp(action, "ui.screen-page-up") == 0)
-        return FocusMove::page_up;
-    if (std::strcmp(action, "ui.screen-page-down") == 0)
-        return FocusMove::page_down;
-    return FocusMove::none;
-}
-
 // The key the consoles, the frame and the war map already understand for a move.
-int32_t focus_message_key(FocusMove move) {
+int32_t focus_message_key(MenuMove move) {
     switch (move) {
-    case FocusMove::next:
-    case FocusMove::previous:
+    case MenuMove::next:
+    case MenuMove::previous:
         return oa::boneyards::key::tab;
-    case FocusMove::left:
+    case MenuMove::left:
         return oa::boneyards::key::left;
-    case FocusMove::right:
+    case MenuMove::right:
         return oa::boneyards::key::right;
-    case FocusMove::up:
+    case MenuMove::up:
         return oa::boneyards::key::up;
-    case FocusMove::down:
+    case MenuMove::down:
         return oa::boneyards::key::down;
-    case FocusMove::home:
+    case MenuMove::home:
         return oa::boneyards::key::home;
-    case FocusMove::end:
+    case MenuMove::end:
         return oa::boneyards::key::end;
-    case FocusMove::page_up:
+    case MenuMove::page_up:
         return oa::boneyards::key::page_up;
-    case FocusMove::page_down:
+    case MenuMove::page_down:
         return oa::boneyards::key::page_down;
-    case FocusMove::none:
+    case MenuMove::accept:
+    case MenuMove::press:
+    case MenuMove::none:
         return 0;
     }
     return 0;
@@ -1069,24 +1026,21 @@ FocusRoute focus_route(OverlayState* state, const ScreenInput& input, uint32_t h
     static_cast<void>(
         state->services->bound_focus_action(state->host, &input, action, sizeof action, nullptr)
     );
-    const FocusMove move = focus_move_of(action);
+    const MenuMove move = menu_move_of(action);
     int32_t sent = focus_message_key(move);
-    bool previous = move == FocusMove::previous;
-    if (move == FocusMove::none) {
-        // A key already down that fires nothing now is the platform's repeat
-        // of it: with a repeat delay and rate of the player's own, the
-        // bindings leave those alone. It repeats the move its press made, at
-        // the platform's pace, as the keys did before they followed the
-        // layout.
+    bool previous = move == MenuMove::previous;
+    if (move == MenuMove::none || sent == 0) {
+        // A press that fires nothing while this key is already down is not
+        // another step. The bindings repeat a held focus key themselves, and
+        // each of those repeats arrives as a press that fires the action.
+        // The release still delivers the move the first press made.
         const HeldFocus* down = held_focus_of(state, input.key);
-        if (down == nullptr || down->sent == k_focus_dropped) {
-            if (!raw_focus_key(input.key))
-                return FocusRoute::raw;
-            remember_focus(state, input.key, k_focus_dropped, false);
+        if (down != nullptr && down->sent != k_focus_dropped)
             return FocusRoute::drop;
-        }
-        sent = down->sent;
-        previous = down->previous;
+        if (!raw_focus_key(input.key))
+            return FocusRoute::raw;
+        remember_focus(state, input.key, k_focus_dropped, false);
+        return FocusRoute::drop;
     }
     remember_focus(state, input.key, sent, previous);
     if (sent == oa::boneyards::key::tab) {
@@ -1509,6 +1463,24 @@ bool map_zoom_key(const ScreenInput& input) {
            input.key == static_cast<uint32_t>('=');
 }
 
+// The layer's ring, copied onto the desktop before this key is routed.
+//
+// Tab, F6, Return and a pointer move still update the desktop for the key
+// in hand. The copy is what the consoles read on the next key, which is the
+// ring the family is drawing, including when focus is always shown.
+void note_service_ring(OverlayState* state) {
+    if (state->widget == nullptr || state->services == nullptr ||
+        state->services->bound_focus_action == nullptr || state->host == nullptr)
+        return;
+    // A key-up asks only for the ring. It does not count as the screen
+    // reading the key.
+    ScreenInput probe{};
+    probe.kind = ScreenInputKind::key_up;
+    int shown = 0;
+    static_cast<void>(state->services->bound_focus_action(state->host, &probe, nullptr, 0, &shown));
+    console::boneyards_status_widget_note_ring(state->widget, shown);
+}
+
 // In frontend state 7 no TA panel takes input, so every input is consumed.
 int overlay_event(ScreenContext* ctx, void* user) {
     auto* state = static_cast<OverlayState*>(user);
@@ -1516,6 +1488,8 @@ int overlay_event(ScreenContext* ctx, void* user) {
         return 0;
     const ScreenInput& input = *ctx->input;
     const bool boneyards = in_boneyards(state);
+    if (boneyards)
+        note_service_ring(state);
     if (input.kind == ScreenInputKind::text) {
         if (!boneyards)
             return 0;
@@ -1634,8 +1608,11 @@ void overlay_tick(ScreenContext* ctx, void* user) {
             host_set_frontend_state(state, console::frontend_value::state_main_menu);
         }
     }
-    if (!shortcut_left)
+    if (!shortcut_left) {
+        if (in_boneyards(state))
+            note_service_ring(state);
         console::boneyards_status_widget_tick(state->widget);
+    }
     state->ctx = nullptr;
     state->ticked = true;
     if (in_boneyards(state))

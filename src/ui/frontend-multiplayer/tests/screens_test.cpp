@@ -3524,6 +3524,24 @@ void check_connection_keys(Driver& d) {
             provider_list->list_selection == at && focused_name() == "DPLAY",
             "Up steps back on the provider list"
         );
+        // Each press is one step. A held Down is handed to the screen as one
+        // press per repeat, at the player's delay and rate.
+        if (at + 3 < static_cast<int32_t>(provider_list->items.size())) {
+            d.key(kKeyDown);
+            d.key(kKeyDown);
+            d.key(kKeyDown);
+            expect(
+                provider_list->list_selection == at + 3 && focused_name() == "DPLAY",
+                "three Downs step the provider list three rows"
+            );
+            d.key(kKeyUp);
+            d.key(kKeyUp);
+            d.key(kKeyUp);
+            expect(
+                provider_list->list_selection == at && focused_name() == "DPLAY",
+                "three Ups restore the provider list"
+            );
+        }
     }
     expect(tab_until_name(d, "SELECT"), "Tab returns to Select");
     // Row 1 is TCP/IP. Up and Down put the selection back where the list opened.

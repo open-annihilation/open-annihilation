@@ -34,6 +34,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -90,7 +91,7 @@ def run(arguments, workdir, name, lines, ticks, past_edge):
     stage = workdir / f"{name}.stage"
     stage.write_text("\n".join(lines) + "\n")
     preferences = workdir / f"{name}.conf"
-    preferences.write_text("open-annihilation-preferences 1\n"
+    preferences.write_text("open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
                            f'"open-annihilation.view-past-map-edge" "{past_edge}"\n')
     command = [*RUNNER, str(arguments.native), "--game-dir", str(arguments.game_dir),
                "--skip-intro", "--mute", "--headless-check", "--seed", str(SEED),

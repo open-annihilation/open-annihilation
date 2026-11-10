@@ -10,6 +10,7 @@
 // controls named; draw_dialog paints it.
 
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
@@ -1023,6 +1024,68 @@ void add_practice_pad(Building& building, const Dialog& dialog, const SourceRect
     );
 }
 
+/// Draws the colour-vision preview: ten player colours, then OK, caution,
+/// danger and information, from the colour-vision module.
+///
+/// @param[in,out] list the display list
+/// @param dialog the dialog
+/// @param placed the section's rows
+/// @param clip the section's view
+void add_colour_preview(
+    kit::DisplayList& list,
+    const Dialog& dialog,
+    const kit::PlacedRows& placed,
+    const SourceRect& clip
+) {
+    if (dialog.page != Page::accessibility)
+        return;
+    const kit::PlacedRow* preview = nullptr;
+    for (const kit::PlacedRow& row : placed.rows) {
+        if (row.view.id == "colour-preview") {
+            preview = &row;
+            break;
+        }
+    }
+    if (preview == nullptr || preview->label.width <= 0 || preview->label.height <= 0)
+        return;
+    namespace vision = oa::present::colour_vision;
+    static_assert(
+        static_cast<uint8_t>(ColourVision::off) == static_cast<uint8_t>(vision::Mode::off)
+    );
+    static_assert(
+        static_cast<uint8_t>(ColourVision::achromatopsia) ==
+        static_cast<uint8_t>(vision::Mode::achromatopsia)
+    );
+    const auto mode = static_cast<vision::Mode>(static_cast<uint8_t>(dialog.chosen.colour_vision));
+    constexpr int32_t chip = 12;
+    constexpr int32_t gap = 4;
+    constexpr int32_t group = 10;
+    constexpr int32_t players = vision::kPlayerCount;
+    constexpr int32_t states = 4;
+    constexpr int32_t chips = players + states;
+    const int32_t span = chips * chip + (chips - 2) * gap + group;
+    int32_t left = preview->label.x + preview->label.width - span;
+    if (left < preview->label.x)
+        left = preview->label.x;
+    const int32_t top = preview->label.y + (preview->label.height - chip) / 2;
+    vision::Rgb swatch[static_cast<std::size_t>(chips)];
+    for (int player = 0; player < players; ++player)
+        swatch[player] = vision::preview_player_srgb(mode, player);
+    const vision::SemanticColours semantic = vision::semantic_colours(mode);
+    swatch[players] = semantic.kit_ok;
+    swatch[players + 1] = semantic.kit_caution;
+    swatch[players + 2] = semantic.kit_danger;
+    swatch[players + 3] = semantic.kit_information;
+    int32_t column = left;
+    for (int at = 0; at < chips; ++at) {
+        const vision::Rgb colour = swatch[at];
+        fill(list, {column, top, chip, chip}, {colour.red, colour.green, colour.blue, 255}, clip);
+        column += chip;
+        if (at + 1 < chips)
+            column += at + 1 == players ? group : gap;
+    }
+}
+
 /// Adds the open section: its heading, its rows clipped to the view they
 /// scroll in, and its scroll bar while they scroll; on Developer, its list
 /// and the list's footer under its rows.
@@ -1093,6 +1156,7 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
     kit::add_rows(rows, drawn_rows, state);
     for (kit::Item& added : rows.items)
         list.items.push_back(std::move(added));
+    add_colour_preview(list, dialog, placed, sized.view_clip);
     std::vector<kit::ControlId> card_tab;
     if (key_row.has_value())
         add_key_card(building, dialog, *key_row, card_tab);

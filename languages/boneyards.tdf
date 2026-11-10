@@ -301,7 +301,7 @@
 
 [Planets]
 	{
-	de=Planèten;
+	de=Planeten;
 	fr=Planètes;
 	it=Pianeti;
 	es=Planetas;
@@ -607,7 +607,7 @@
 
 [you selected. Only on a]
 	{
-	de=Planèten. Nur auf;
+	de=Planeten. Nur auf;
 	fr=planète choisie. Sur;
 	it=pianeta scelto. Su;
 	es=planeta elegido. En;
@@ -634,7 +634,7 @@
 
 [of your own side. The]
 	{
-	de=eigenen Planèten.;
+	de=eigenen Planeten.;
 	fr=une planète a soi.;
 	it=pianeta proprio.;
 	es=planeta propio.;
@@ -1611,6 +1611,78 @@
 	it=Aiuto;
 	es=Ayuda;
 	zh-Hans=帮助;
+	}
+
+[Contents]
+	{
+	de=Inhalt;
+	fr=Sommaire;
+	it=Contenuto;
+	es=Contenido;
+	zh-Hans=目录;
+	}
+
+[Chat rooms]
+	{
+	de=Chaträume;
+	fr=Salons;
+	it=Stanze;
+	es=Salas;
+	zh-Hans=聊天室;
+	}
+
+[Chat players]
+	{
+	de=Spieler;
+	fr=Joueurs;
+	it=Giocatori;
+	es=Jugadores;
+	zh-Hans=玩家;
+	}
+
+[Game types]
+	{
+	de=Spielarten;
+	fr=Types de partie;
+	it=Tipi di partita;
+	es=Tipos de partida;
+	zh-Hans=游戏类型;
+	}
+
+[Ladder search]
+	{
+	de=Ranglistensuche;
+	fr=Recherche de classement;
+	it=Ricerca classifica;
+	es=Búsqueda de clasificación;
+	zh-Hans=天梯搜索;
+	}
+
+[Search]
+	{
+	de=Suche;
+	fr=Recherche;
+	it=Cerca;
+	es=Buscar;
+	zh-Hans=搜索;
+	}
+
+[Server List]
+	{
+	de=Serverliste;
+	fr=Liste des serveurs;
+	it=Elenco server;
+	es=Lista de servidores;
+	zh-Hans=服务器列表;
+	}
+
+[Page scroll bar]
+	{
+	de=Bildlaufleiste der Seite;
+	fr=Barre de défilement de la page;
+	it=Barra di scorrimento della pagina;
+	es=Barra de desplazamiento de la página;
+	zh-Hans=页面滚动条;
 	}
 
 [Release]

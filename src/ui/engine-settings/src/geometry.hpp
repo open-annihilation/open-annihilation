@@ -173,6 +173,14 @@ inline constexpr int32_t touch_latches_level_width = 64;
 /// border: room for Hold middle, its widest caption, with three clear
 /// columns each side.
 inline constexpr int32_t order_wheel_level_width = 76;
+/// Screen reader's level strip's segment width, inside the strip's 1-pixel
+/// border: room for Automatisch, its widest caption, with three clear
+/// columns each side.
+inline constexpr int32_t screen_reader_level_width = 88;
+/// Speak chat's level strip's segment width, inside the strip's 1-pixel
+/// border. Three segments stay inside Accessibility's column beside the
+/// practice pad, and Pages only still fits a segment.
+inline constexpr int32_t speak_chat_level_width = 90;
 /// Control size's level strip's segment width, inside the strip's 1-pixel
 /// border: room for Standard, its widest caption, with three clear columns
 /// each side.

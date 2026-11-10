@@ -128,16 +128,24 @@ opened, "1 setting changed" or "4 settings changed", beside Cancel, and
 nothing while you have changed none. A setting you change and then put
 back is not counted.
 
-The keyboard works the whole dialog:
+The keyboard works the whole dialog. Settings opens on the open section,
+with no ring. The section list is one stop. Tab walks that stop, then
+the open section's rows, then Restore defaults, Cancel and OK, then the
+close mark. The first Tab shows the ring on the section's first row. The
+first Shift+Tab shows it on the close mark. Until the ring shows, Up
+moves to the close mark, and Down, Left, Right and Space move to the
+section's first row. Once the ring is on the section list, the arrows
+change section. Enter is OK while the ring is hidden. While the ring
+shows, Enter presses the focused control and hides the ring.
 
 | Key | Does |
 |---|---|
-| Enter | OK |
+| Enter | OK while the ring is hidden; the focused control, and the ring hides, while it shows |
 | Escape | Cancel |
-| Tab, Down | moves to the next control: the section's rows, then Restore defaults, Cancel and OK, then the sections |
-| Shift+Tab, Up | moves to the previous control |
-| Left, Right | turns a switch Off or On, or moves a slider, a row of choices or a drop-down one step |
-| Space | flips a switch, presses a button, opens a section or a drop-down's list |
+| Tab | the next stop, in the order above |
+| Shift+Tab | the previous stop |
+| Left, Right | once the ring shows, turns a switch Off or On, or moves a slider, a row of choices or a drop-down one step |
+| Space | once the ring shows, flips a switch, presses a button, opens a section or a drop-down's list |
 | Page Up, Page Down | scrolls the section |
 | Home, End | scrolls to the section's top or end |
 
@@ -897,15 +905,51 @@ press OK.
 
 ## Accessibility
 
-![The top of the Accessibility section: Hold keys that latch 2 of 7 with Choose…, Sticky modifiers Off, Hold to confirm Off and the start of Long press.](images/settings/accessibility-1.png)
+![The top of the Accessibility section: Colour vision Off, Shape cues Off, the colour preview, Screen reader Automatic and Speak chat All.](images/settings/accessibility-1.png)
 
 ![The end of the Accessibility section: Edge scrolling On, then the practice pad: Try it here, "Press a key, alone or with Shift, Ctrl or Alt.", its well, "Keys pressed here never reach the game." and Turn every helper off, greyed while every helper is off.](images/settings/accessibility-2.png)
 
-The Accessibility section gathers the input helpers in one place.
+The Accessibility section gathers colour, speech, the focus ring and the
+input helpers in one place.
+[Accessibility](accessibility.md) is what a player meets: the colour-vision
+modes, the shape cues, the focus ring, the keyboard and what is spoken.
 [Keys](keys.md#accessibility) lists each helper, what it does in a match
 and where it is kept. Each
-setting takes effect at once. The pictures show two of the seven latchable
-actions on, so Hold keys that latch reads "2 of 7".
+setting takes effect at once, and Cancel puts back what the section held
+when Settings opened. A locked row, Shape cues under Achromatopsia, is
+skipped by Tab. Its reason is only written beside it.
+
+- **Colour vision**, Off, Protanopia, Deuteranopia, Tritanopia or
+  Achromatopsia, Off by default. It changes team colours, the minimap,
+  bars, the war map and status colours on this machine only. The preview
+  below Shape cues shows the ten player colours, then OK, caution,
+  danger and information, in the mode you chose.
+- **Shape cues**, Off or On, Off by default. On, player markers, side
+  symbols, notched bars and a mark on every status are drawn. Choosing any
+  mode other than Off turns Shape cues on. Choosing Off does not turn them
+  off. In Achromatopsia the row stays on and is locked, and it says
+  "Achromatopsia keeps shape cues on".
+- **Screen reader**, Automatic, On or Off, Automatic by default. Automatic
+  works with a screen reader, such as VoiceOver, Narrator, NVDA or JAWS,
+  while the system says one is running. On also works with one the system
+  does not report. Off never does. On Windows older than Windows 10,
+  including 8, 7, Vista, XP and the Windows 95 package, the game speaks
+  with the system's own voice instead: under Automatic while a screen
+  reader is running, and under On always. The Windows 95 package leaves
+  the screen-reader support out. When that package also has no voice, the
+  row says "Nothing on this system can speak."
+- **Speak chat**, Off, Pages only or All, All by default. All speaks chat
+  lines, whispers, pages and someone joining or leaving a chat room. Pages
+  only speaks pages, the short messages one player sends another. Off
+  speaks none of them.
+- **Speak lobby changes**, Off or On, On by default. On speaks a player
+  joining or leaving the battle room, a change of ready, side, colour,
+  team, map or option, the countdown, and the host leaving. Your own
+  changes are not spoken. It covers the battle room only.
+- **Speak the ticker**, Off or On, Off by default. The ticker repeats, so
+  it stays quiet until this is on.
+- **Always show focus**, Off or On, Off by default. On, the focus ring is
+  drawn on the first item when a screen opens.
 
 Beside the rows, or under the last one at Compact, a practice pad lets you
 try the helpers before a match. It says what to try with the helpers that
@@ -946,7 +990,10 @@ off.
 - **Key repeat delay**, System, then 150 to 1000 ms in steps of 50, System
   by default, and **Key repeat rate**, System, then 2 to 30 a second,
   System by default. System uses the system's repeat. Together they say
-  how soon a held camera, speed or page key repeats, and how fast.
+  how soon a held camera, speed or page key repeats, and how fast. They
+  reach a held focus key (Next button, Previous button, the focus arrows
+  and the list keys) only on the multiplayer screens and in the lobby's
+  consoles.
 - **Drag threshold**, 32 to 96 px in steps of 8, 32 px by default: how far
   a press may move and still be a click.
 - **Edge scrolling**, Off or On, On by default. Off stops the view

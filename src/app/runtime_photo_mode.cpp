@@ -907,12 +907,17 @@ bool Runtime::photo_hold_picture() {
         }
         photo_->picture_held = false;
         photo_->held_rgb.clear();
+        photo_->held_unmapped.clear();
+        photo_->held_fog_width = 0;
+        photo_->held_fog_height = 0;
         photo_->held_width = 0;
         photo_->held_height = 0;
         return true;
     }
     if (!capture_photo_picture())
         return false;
+    // The fog the copy shows, kept with it: the match goes on exploring.
+    (void)photo_fog_cells(photo_->held_unmapped, photo_->held_fog_width, photo_->held_fog_height);
     photo_->held_camera_x = match_camera_x_;
     photo_->held_tick = match_->state().game.tick;
     photo_->held_speed = match_->state().game.current_speed;

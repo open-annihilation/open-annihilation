@@ -781,6 +781,9 @@ struct Control {
     /// drop-down, a slider, a field or a list the caption is this, or none,
     /// and `text` is the value. Setting it does not change `text`.
     std::string label{};
+    /// More words about it, such as why a locked row cannot change. Empty
+    /// when there are none. A screen reader reads this as the description.
+    std::string description{};
     bool search{}; ///< a text field is a search field
     /// Its place in a set, from 1. 0 when it has none.
     int32_t place{};

@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace oa {
@@ -79,6 +80,187 @@ constexpr uint16_t kInputModifierCtrl = 0x00c0;
 constexpr uint16_t kInputModifierAlt = 0x0300;
 /// ScreenInput::modifiers bits of either system key (Command, Windows).
 constexpr uint16_t kInputModifierSystem = 0x0c00;
+
+/// Where a focus key moves the highlight, or the main menu's Accept or Press.
+///
+/// Next button and Previous button walk. Focus left, Focus right, List up
+/// and List down are the arrows. Page up, Page down, Go to start and Go to
+/// end step a list or a field. Accept and Press are the main menu's own.
+enum class MenuMove : uint8_t {
+    none,
+    next,
+    previous,
+    left,
+    right,
+    up,
+    down,
+    home,
+    end,
+    page_up,
+    page_down,
+    accept,
+    press,
+};
+
+/// Which reports of an action count as that move.
+enum class MenuMoveCount : uint8_t {
+    down,         ///< a press and a repeat
+    with_release, ///< a press, a repeat and a release
+    every,        ///< those, and a hold or a double press
+};
+
+/// What one action event says happened, for menu_move_fired.
+enum class MenuMovePhase : uint8_t {
+    down,     ///< the chord went down
+    repeated, ///< a repeat
+    released, ///< the chord went up
+    other,    ///< a hold, a double press, or a role
+};
+
+/// One action event menu_move_fired reads. The id is not kept.
+struct MenuAction {
+    std::string_view id{};
+    MenuMovePhase phase{MenuMovePhase::down};
+};
+
+/// The move an action fired, and the id of that action.
+///
+/// `id` is the action's own spelling when the move is not none, and it
+/// outlives the events that were scanned.
+struct MenuMoveHit {
+    MenuMove move{MenuMove::none};
+    std::string_view id{};
+};
+
+/// The move a focus, list, screen, Accept or Press action asks for.
+///
+/// Next control and the screen's own arrows are not these. An empty or
+/// unknown id asks for none.
+///
+/// @param action the action id
+/// @return the move
+inline MenuMove menu_move_of(std::string_view action) noexcept {
+    if (action == "ui.menu-focus-next")
+        return MenuMove::next;
+    if (action == "ui.menu-focus-previous")
+        return MenuMove::previous;
+    if (action == "ui.menu-focus-left")
+        return MenuMove::left;
+    if (action == "ui.menu-focus-right")
+        return MenuMove::right;
+    if (action == "ui.menu-focus-up" || action == "ui.menu-list-up")
+        return MenuMove::up;
+    if (action == "ui.menu-focus-down" || action == "ui.menu-list-down")
+        return MenuMove::down;
+    if (action == "ui.screen-home")
+        return MenuMove::home;
+    if (action == "ui.screen-end")
+        return MenuMove::end;
+    if (action == "ui.screen-page-up")
+        return MenuMove::page_up;
+    if (action == "ui.screen-page-down")
+        return MenuMove::page_down;
+    if (action == "ui.menu-accept")
+        return MenuMove::accept;
+    if (action == "ui.menu-press")
+        return MenuMove::press;
+    return MenuMove::none;
+}
+
+/// The move a focus, list, screen, Accept or Press action asks for.
+///
+/// @param action the action id; null asks for none
+/// @return the move, or none
+inline MenuMove menu_move_of(const char* action) noexcept {
+    if (action == nullptr)
+        return MenuMove::none;
+    return menu_move_of(std::string_view(action));
+}
+
+/// Whether this move walks, steps a list or moves a caret.
+///
+/// Accept, Press and none do not.
+///
+/// @param move the move
+/// @return true for a move a package screen follows
+inline bool menu_move_is_travel(MenuMove move) noexcept {
+    return move != MenuMove::none && move != MenuMove::accept && move != MenuMove::press;
+}
+
+/// Whether this move is an arrow, Home, End or a page key.
+///
+/// Taken while the ring is already showing, one of these keeps it.
+///
+/// @param move the move
+/// @return true for those moves
+inline bool menu_move_is_place(MenuMove move) noexcept {
+    switch (move) {
+    case MenuMove::left:
+    case MenuMove::right:
+    case MenuMove::up:
+    case MenuMove::down:
+    case MenuMove::home:
+    case MenuMove::end:
+    case MenuMove::page_up:
+    case MenuMove::page_down:
+        return true;
+    case MenuMove::none:
+    case MenuMove::next:
+    case MenuMove::previous:
+    case MenuMove::accept:
+    case MenuMove::press:
+        return false;
+    }
+    return false;
+}
+
+/// The first focus move the actions fired, in the order the screens agree on.
+///
+/// Next button is named ahead of the arrows, a menu action ahead of a screen
+/// action, and Accept and Press after those. A press and a repeat always
+/// count. A release counts for `with_release` and `every`. A hold or a double
+/// press counts only for `every`.
+///
+/// @param actions the events; null is none
+/// @param count how many events
+/// @param count_as which reports count
+/// @return the move and its id, or none
+inline MenuMoveHit
+menu_move_fired(const MenuAction* actions, std::size_t count, MenuMoveCount count_as) noexcept {
+    static constexpr std::string_view kOrder[] = {
+        "ui.menu-focus-next",
+        "ui.menu-focus-previous",
+        "ui.menu-focus-left",
+        "ui.menu-focus-right",
+        "ui.menu-list-up",
+        "ui.menu-focus-up",
+        "ui.menu-list-down",
+        "ui.menu-focus-down",
+        "ui.screen-page-up",
+        "ui.screen-page-down",
+        "ui.screen-home",
+        "ui.screen-end",
+        "ui.menu-accept",
+        "ui.menu-press",
+    };
+    if (actions == nullptr)
+        count = 0;
+    for (const std::string_view id : kOrder) {
+        for (std::size_t index = 0; index < count; ++index) {
+            if (actions[index].id != id)
+                continue;
+            const MenuMovePhase phase = actions[index].phase;
+            const bool press = phase == MenuMovePhase::down || phase == MenuMovePhase::repeated;
+            const bool release = phase == MenuMovePhase::released;
+            const bool counts = press || (count_as != MenuMoveCount::down && release) ||
+                                (count_as == MenuMoveCount::every && phase == MenuMovePhase::other);
+            if (!counts)
+                continue;
+            return MenuMoveHit{menu_move_of(id), id};
+        }
+    }
+    return {};
+}
 
 // Application services available to packages. `host` is opaque.
 struct ScreenServices {

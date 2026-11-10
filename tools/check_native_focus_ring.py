@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import zlib
+import native_offline
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 START_TIMEOUT = 120

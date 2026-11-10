@@ -72,7 +72,21 @@ struct Machine {
     /// The window's zoom, pixels of the battlefield a map pixel. A Full
     /// photo whose own zoom is still below 1 makes no world target.
     float zoom{1.0F};
+    /// A check-only cap on a Full tile's kept edge, in photo pixels. Zero
+    /// leaves the card's texture limit to decide. It does not lower the
+    /// anti-aliasing factor, and a shared match never reaches it.
+    int32_t tile_edge{0};
+    /// Bytes the photo's look keeps beside the picture, for each pixel of
+    /// the picture: 3 while a tilt-shift is on, which blurs a copy of it,
+    /// otherwise 0.
+    int look_bytes_per_pixel{0};
+    /// Bytes the photo's look keeps once, whatever the picture's size: the
+    /// tilt-shift's sums (kLookScratchBytes), or 0.
+    uint64_t look_bytes{0};
 };
+
+/// The most the tilt-shift's blur keeps in sums at once, in bytes.
+inline constexpr uint64_t kLookScratchBytes = uint64_t{64} * 1024U * 1024U;
 
 /// One size, or one smooth step, as the panel lists it.
 struct Offer {
@@ -114,7 +128,10 @@ struct Draw {
 /// more pixels. A shared match offers Screen, and smooth edges at 2× where
 /// the mode draws samples inside a pixel. Off and Basic draw whole pixels,
 /// so every smooth step above Off is locked there. A size whose draw would
-/// pass the mode's limit, or the memory still free, is not offered.
+/// pass the mode's limit, or the memory still free, is not offered. Full
+/// classic still offers a size past the card's texture when that picture can
+/// be drawn in tiles, up to 16384 photo pixels a side, paying for the photo
+/// and one tile. A shared match does not offer those tiles.
 ///
 /// @param field the battlefield
 /// @param machine the mode, its limit and the memory still free

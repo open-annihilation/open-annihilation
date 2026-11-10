@@ -192,9 +192,15 @@ std::vector<Row> make_rows() {
     add(rows, "NEWGAME.GUI", "Side1", "Core", ControlValue::none, ControlKey::exact);
     add(rows, "NEWGAME.GUI", "CampaignKnob", "Campaigns", ControlValue::none, ControlKey::exact);
     add(rows, "NEWGAME.GUI", "MissionsKnob", "Missions", ControlValue::none, ControlKey::exact);
+    // The lists replaced those knobs. A list draws no caption of its own.
+    add(rows, "NEWGAME.GUI", "Campaign", "Campaigns", ControlValue::none, ControlKey::exact);
+    add(rows, "NEWGAME.GUI", "Missions", "Missions", ControlValue::none, ControlKey::exact);
     add(rows, "NEWGAME.GUI", "Difficulty", "Difficulty", ControlValue::caption, ControlKey::added);
     add(rows, "LOADGAME.GUI", "RADAR", "Preview", ControlValue::none, ControlKey::exact);
     add(rows, "LOADGAME.GUI", "SLIDER", "Saved games", ControlValue::none, ControlKey::exact);
+    add(rows, "LOADGAME.GUI", "GAMES", "Saved games", ControlValue::none, ControlKey::exact);
+    // The name field draws no caption. Its text is the name the player typed.
+    add(rows, "LOADGAME.GUI", "GAMENAME", "Name", ControlValue::caption, ControlKey::exact);
     add(rows, "SKIRMISH.GUI", "Side*", "Side", ControlValue::side, ControlKey::star);
     add(rows, "SKIRMISH.GUI", "Color*", "Colour", ControlValue::colour, ControlKey::star);
     add(rows, "SKIRMISH.GUI", "Allies*", "Team", ControlValue::alliance, ControlKey::star);
@@ -219,6 +225,7 @@ std::vector<Row> make_rows() {
     add(rows, "SKIRMISH.GUI", "Difficulty", "Difficulty", ControlValue::caption, ControlKey::exact);
     add(rows, "SELMAP.GUI", "SLIDER", "Maps", ControlValue::none, ControlKey::exact);
     add(rows, "SELMAP.GUI", "MAPPIC", "Map", ControlValue::none, ControlKey::exact);
+    add(rows, "SELMAP.GUI", "MAPNAMES", "Maps", ControlValue::none, ControlKey::exact);
     for (const char* file : {"SOUNDS.GUI", "SOUNDSRT.GUI"}) {
         add(rows, file, "FXVOL", "Sound volume", ControlValue::number, ControlKey::exact);
         add(rows, file, "MODE", "Sound mode", ControlValue::caption, ControlKey::exact);
@@ -267,6 +274,10 @@ std::vector<Row> make_rows() {
     add(rows, "LOUNGE2.GUI", "FIXEDLOC", "Location", ControlValue::caption, ControlKey::exact);
     add(rows, "LOUNGE2.GUI", "WATCHING", "Watching", ControlValue::caption, ControlKey::exact);
     add(rows, "LOUNGE2.GUI", "GAMEOPEN", "Game Status", ControlValue::caption, ControlKey::exact);
+    // The chat log draws no caption. Its text is the lines the players sent.
+    add(rows, "LOUNGE2.GUI", "OUTPUT", "Chat", ControlValue::caption, ControlKey::exact);
+    // The chat line draws no caption. Its text is what the player is typing.
+    add(rows, "LOUNGE2.GUI", "MESSAGE", "Chat line", ControlValue::caption, ControlKey::exact);
     add(rows, "LOUNGE2.GUI", "battlestart", "Start doors", ControlValue::doors, ControlKey::exact);
     add_hud(rows);
     return rows;

@@ -8,8 +8,10 @@ Both games run on the dummy SDL drivers, started with --mcp, in a 640x480
 window. The host opens a TCP/IP room and the joiner enters it. By ui.key
 alone the joiner picks a side and a colour, then gets ready, and the host
 gets ready and starts. Ready is last because it locks the side and the
-colour. Each launch writes its preferences, log folder and user folder at
-the start, so a second run of this script finds nothing the first one left.
+colour. Another launch, the host alone, sets the player's own repeat delay
+and rate, and a held Right steps the Metal slider at that rate. Each launch
+writes its preferences, log folder and user folder at the start, so a
+second run of this script finds nothing the first one left.
 Update checks stay off, so the game does not contact a catalogue.
 """
 
@@ -25,6 +27,7 @@ import sys
 import tempfile
 import threading
 import time
+import native_offline
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 ADDRESS = "127.0.0.1"
@@ -33,6 +36,11 @@ STEP_TIMEOUT = 45
 END_TIMEOUT = 60
 ROOM_WAIT_MS = 150000
 START_WAIT = 150
+# The held-key launch: the player's own repeat, 300 ms before the first
+# repeat and then ten a second, and how long Right is held, in seconds.
+REPEAT_DELAY_MS = 300
+REPEAT_RATE = 10
+HOLD = 1.0
 
 
 class Failure(Exception):
@@ -179,13 +187,14 @@ def quoted(text):
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def write_preferences(path, address="192.0.2.7"):
+def write_preferences(path, address="192.0.2.7", extra=()):
     """Writes a fresh preferences file. Always show focus stays off."""
     rows = [
         ("multiplayer|tcpaddr", address),
         ("open-annihilation.update-check", "never"),
         ("open-annihilation.content-updates", "never"),
         ("open-annihilation.access.always-show-focus", "0"),
+        *extra,
     ]
     lines = ["open-annihilation-preferences 1"]
     lines.extend(quoted(key) + " " + quoted(value) for key, value in rows)
@@ -343,13 +352,16 @@ def wait_own_ready(client, timeout):
     raise Failure(f"no Ready was enabled; controls: {sample_names(tree)}")
 
 
-def launch(native, game_dir, workdir, label, arguments, address="192.0.2.7"):
-    """Starts one game from a fresh preferences file and returns its client."""
+def launch(native, game_dir, workdir, label, arguments, address="192.0.2.7", extra=()):
+    """Starts one game from a fresh preferences file and returns its client.
+
+    `extra` holds more preference rows, as (key, value) pairs.
+    """
     work = Path(workdir).resolve()
     preferences = (work / f"{label}.PREFERENCES").resolve()
     log_dir = (work / f"{label}-logs").resolve()
     user_folder = (work / f"{label}-user").resolve()
-    write_preferences(preferences, address)
+    write_preferences(preferences, address, extra)
     log_dir.mkdir()
     user_folder.mkdir()
     environment = dict(
@@ -571,6 +583,77 @@ def rebound(native, game_dir, workdir):
             stop(browse_process)
 
 
+def steps_between(least_ms, most_ms):
+    """The fewest and the most steps a press held that long makes.
+
+    The press steps once, and each repeat that falls due while the key is
+    down steps once more. A frame may pass between a repeat falling due and
+    the release, so a frame's worth is allowed at each end.
+    """
+    interval = 1000 // REPEAT_RATE
+
+    def steps(held_ms):
+        if held_ms < REPEAT_DELAY_MS:
+            return 1
+        return 2 + int((held_ms - REPEAT_DELAY_MS) // interval)
+
+    return steps(max(0, least_ms - interval)), steps(most_ms) + 1
+
+
+def metal_value(client):
+    """The Metal slider's value, as a number."""
+    leaf = leaf_named(tree_of(client), "METAL") or {}
+    text = shown_value(leaf)
+    require(text.isdigit(), f"Metal shows {text!r}")
+    return int(text)
+
+
+def held(native, game_dir, workdir):
+    """With the player's own repeat, a held Right steps Metal at that rate."""
+    host_args = [
+        "--dplay-port",
+        str(free_port()),
+        "--host",
+        "--player-name",
+        "Hoster",
+        "--game-name",
+        "Open Room",
+    ]
+    repeat = (
+        ("open-annihilation.access.repeat-delay-ms", str(REPEAT_DELAY_MS)),
+        ("open-annihilation.access.repeat-rate", str(REPEAT_RATE)),
+    )
+    host_process, host = launch(native, game_dir, workdir, "held-host", host_args, extra=repeat)
+    try:
+        wait_screen(host, "mp_battleroom")
+        tab_to(host, "METAL")
+        press(host, "Home")
+        deadline = time.monotonic() + STEP_TIMEOUT
+        while metal_value(host) != 0:
+            require(time.monotonic() < deadline, "Home did not put Metal at 0")
+            time.sleep(0.05)
+        began = time.monotonic()
+        host.call("ui.key", {"chord": "Right", "phase": "press"})
+        time.sleep(HOLD)
+        host.call("ui.key", {"chord": "Right", "phase": "release"})
+        most_ms = (time.monotonic() - began) * 1000
+        time.sleep(0.5)
+        require(focused_name(host) == "METAL", f"Right left Metal for {focused_name(host)!r}")
+        stepped = metal_value(host) // 100
+        least, most = steps_between(HOLD * 1000, most_ms)
+        require(
+            least <= stepped <= most,
+            f"Right held {HOLD} s, released after at most {most_ms:.0f} ms, stepped Metal "
+            f"{stepped} times, not {least} to {most}, at a {REPEAT_DELAY_MS} ms delay and "
+            f"{REPEAT_RATE} a second",
+        )
+        quit_game(host_process, host)
+        host_process = None
+    finally:
+        if host_process is not None:
+            stop(host_process)
+
+
 def play(native, game_dir, workdir):
     """Hosts a room, joins it, and plays the keys that ready the room and start it."""
     port = free_port()
@@ -656,6 +739,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="A19-room-keys-", dir=root) as work:
         play(Path(args.native), Path(args.game_dir), Path(work))
         rebound(Path(args.native), Path(args.game_dir), Path(work))
+        held(Path(args.native), Path(args.game_dir), Path(work))
     print("native-room-keys: ok")
     return 0
 

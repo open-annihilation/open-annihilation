@@ -165,8 +165,9 @@ int g_asked = 0;
 // Those it asked about with no action: a character typed into a field asks
 // only about the ring.
 int g_asked_for_ring = 0;
-// The bindings fire nothing for the next key, as for a platform repeat when
-// the player has a repeat delay and rate of their own.
+// The bindings fire nothing for the next key. A press that fires nothing
+// while the key is already down is not a step: the player's own repeats
+// arrive as presses that do fire the action.
 bool g_fire_nothing = false;
 
 constexpr uint32_t k_key_f7 = 0x40000040U;
@@ -207,8 +208,10 @@ const char* bound_action(const ScreenInput& input) {
 int fake_bound_focus_action(
     void*, const ScreenInput* input, char* action, std::size_t capacity, int* ring_shown
 ) {
-    if (ring_shown != nullptr)
-        *ring_shown = 0;
+    if (ring_shown != nullptr) {
+        const console::StatusWidget* shown = boneyards_console_status_widget();
+        *ring_shown = shown != nullptr && shown->desktop.keyboard_ring != 0 ? 1 : 0;
+    }
     if (input == nullptr || input->kind != ScreenInputKind::key_down)
         return 0;
     ++g_asked;
@@ -995,17 +998,25 @@ void test_boneyards_state(const OverlayDesc& overlay, ScreenContext& ctx, oa::As
         check(widget->desktop.focus == name_field, "a click puts the keyboard back in the name");
     }
     {
-        // With a repeat delay and rate of the player's own, the bindings
-        // leave the platform's repeats alone, so a held Left fires nothing
-        // after its press. Its repeat still moves the caret, as before.
+        // A press that fires nothing while Left is already down does not
+        // move the caret. The next press that fires Focus left does: that
+        // is how a held key's own repeats are handed to the console.
         const int32_t caret = name_edit->caret;
         name_edit->caret = name_edit->length;
         send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 0x40000050U);
+        const int32_t after_press = name_edit->caret;
+        check(after_press == name_edit->length - 1, "Left moves the caret one place");
         g_fire_nothing = true;
         send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 0x40000050U);
         g_fire_nothing = false;
+        check(name_edit->caret == after_press, "a held Left that fires nothing stays put");
+        send(overlay, ctx, ScreenInputKind::key_down, 0, 0, 0x40000050U);
+        check(
+            name_edit->caret == after_press - 1,
+            "a later Left that fires the action moves the caret"
+        );
         send(overlay, ctx, ScreenInputKind::key_up, 0, 0, 0x40000050U);
-        check(name_edit->caret == name_edit->length - 2, "a held Left's repeat moves the caret");
+        check(name_edit->caret == after_press - 1, "letting Left go does not move the caret");
         name_edit->caret = caret;
     }
     {

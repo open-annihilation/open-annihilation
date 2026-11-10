@@ -3538,6 +3538,150 @@ void menu_scaling_and_native_density_default_read_and_round_trip() {
     CHECK(settings::settings_locks(state).native_density == Lock::always_on);
 }
 
+void the_access_rows_read_and_round_trip() {
+    const auto defaults = settings::default_settings({});
+    CHECK(defaults.colour_vision == settings::ColourVision::off);
+    CHECK(!defaults.shape_cues);
+    CHECK(defaults.screen_reader == settings::ScreenReaderMode::automatic);
+    CHECK(defaults.speak_chat == settings::SpeakChat::all);
+    CHECK(defaults.speak_lobby);
+    CHECK(!defaults.speak_ticker);
+    CHECK(!defaults.always_show_focus);
+    CHECK(settings::read_settings({}, {}, false) == defaults);
+
+    CHECK(
+        read_one(settings::key::colour_vision, "protanopia").colour_vision ==
+        settings::ColourVision::protanopia
+    );
+    CHECK(
+        read_one(settings::key::colour_vision, "nope").colour_vision == settings::ColourVision::off
+    );
+    CHECK(read_one(settings::key::shape_cues, "1").shape_cues);
+    CHECK(!read_one(settings::key::shape_cues, "0").shape_cues);
+    CHECK(!read_one(settings::key::shape_cues, "on").shape_cues);
+    CHECK(read_one(settings::key::colour_vision, "achromatopsia").shape_cues);
+    CHECK(
+        read_one(settings::key::colour_vision, "achromatopsia").colour_vision ==
+        settings::ColourVision::achromatopsia
+    );
+
+    CHECK(
+        read_one(settings::key::screen_reader, "on").screen_reader == settings::ScreenReaderMode::on
+    );
+    CHECK(
+        read_one(settings::key::screen_reader, "off").screen_reader ==
+        settings::ScreenReaderMode::off
+    );
+    CHECK(
+        read_one(settings::key::screen_reader, "auto").screen_reader ==
+        settings::ScreenReaderMode::automatic
+    );
+    CHECK(
+        read_one(settings::key::screen_reader, "yes").screen_reader ==
+        settings::ScreenReaderMode::automatic
+    );
+
+    CHECK(read_one(settings::key::speak_chat, "off").speak_chat == settings::SpeakChat::off);
+    CHECK(read_one(settings::key::speak_chat, "pages").speak_chat == settings::SpeakChat::pages);
+    CHECK(read_one(settings::key::speak_chat, "all").speak_chat == settings::SpeakChat::all);
+    CHECK(read_one(settings::key::speak_chat, "chat").speak_chat == settings::SpeakChat::all);
+
+    CHECK(!read_one(settings::key::speak_lobby, "0").speak_lobby);
+    CHECK(read_one(settings::key::speak_lobby, "1").speak_lobby);
+    CHECK(read_one(settings::key::speak_lobby, "on").speak_lobby);
+    CHECK(read_one(settings::key::speak_ticker, "1").speak_ticker);
+    CHECK(!read_one(settings::key::speak_ticker, "0").speak_ticker);
+    CHECK(!read_one(settings::key::speak_ticker, "on").speak_ticker);
+    CHECK(read_one(settings::key::always_show_focus, "1").always_show_focus);
+    CHECK(read_one(settings::key::always_show_focus, "2").always_show_focus);
+    CHECK(!read_one(settings::key::always_show_focus, "0").always_show_focus);
+    CHECK(!read_one(settings::key::always_show_focus, "on").always_show_focus);
+
+    Values values;
+    auto chosen = defaults;
+    chosen.colour_vision = settings::ColourVision::deuteranopia;
+    chosen.shape_cues = true;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.at(std::string{settings::key::colour_vision}) == "deuteranopia");
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+    CHECK(settings::read_settings(values, {}, false).colour_vision == chosen.colour_vision);
+    CHECK(settings::read_settings(values, {}, false).shape_cues);
+
+    // Achromatopsia already on, with the file still holding 0, is written as 1.
+    values.clear();
+    values[std::string{settings::key::shape_cues}] = "0";
+    values[std::string{settings::key::colour_vision}] = "achromatopsia";
+    const auto opened = settings::read_settings(values, {}, false);
+    CHECK(opened.shape_cues);
+    CHECK(opened.colour_vision == settings::ColourVision::achromatopsia);
+    settings::write_settings(values, opened, opened, defaults, false);
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+
+    values.clear();
+    chosen = defaults;
+    chosen.speak_lobby = false;
+    chosen.speak_ticker = true;
+    chosen.always_show_focus = true;
+    chosen.screen_reader = settings::ScreenReaderMode::on;
+    chosen.speak_chat = settings::SpeakChat::pages;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.at(std::string{settings::key::speak_lobby}) == "0");
+    CHECK(values.at(std::string{settings::key::speak_ticker}) == "1");
+    CHECK(values.at(std::string{settings::key::always_show_focus}) == "1");
+    CHECK(values.at(std::string{settings::key::screen_reader}) == "on");
+    CHECK(values.at(std::string{settings::key::speak_chat}) == "pages");
+    const auto read_back = settings::read_settings(values, {}, false);
+    CHECK(!read_back.speak_lobby);
+    CHECK(read_back.speak_ticker);
+    CHECK(read_back.always_show_focus);
+    CHECK(read_back.screen_reader == settings::ScreenReaderMode::on);
+    CHECK(read_back.speak_chat == settings::SpeakChat::pages);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(!values.contains(std::string{settings::key::speak_lobby}));
+    CHECK(!values.contains(std::string{settings::key::speak_ticker}));
+    CHECK(!values.contains(std::string{settings::key::always_show_focus}));
+    CHECK(!values.contains(std::string{settings::key::screen_reader}));
+    CHECK(!values.contains(std::string{settings::key::speak_chat}));
+
+    values.clear();
+    values[std::string{settings::key::shape_cues}] = "0";
+    chosen = defaults;
+    chosen.colour_vision = settings::ColourVision::achromatopsia;
+    chosen.shape_cues = true;
+    settings::store_access_preferences(values, chosen);
+    CHECK(values.at(std::string{settings::key::colour_vision}) == "achromatopsia");
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+    const settings::AccessSnapshot snapshot = settings::capture_access_preferences(values);
+    chosen = defaults;
+    settings::store_access_preferences(values, chosen);
+    CHECK(!values.contains(std::string{settings::key::colour_vision}));
+    CHECK(!values.contains(std::string{settings::key::shape_cues}));
+    CHECK(!values.contains(std::string{settings::key::screen_reader}));
+    settings::restore_access_preferences(values, snapshot);
+    CHECK(values.at(std::string{settings::key::colour_vision}) == "achromatopsia");
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+
+    values.clear();
+    values["other"] = "kept";
+    chosen = defaults;
+    chosen.speak_lobby = false;
+    chosen.speak_ticker = true;
+    chosen.always_show_focus = true;
+    chosen.screen_reader = settings::ScreenReaderMode::off;
+    chosen.speak_chat = settings::SpeakChat::off;
+    settings::store_access_preferences(values, chosen);
+    CHECK(values.at(std::string{settings::key::speak_lobby}) == "0");
+    CHECK(values.at(std::string{settings::key::speak_ticker}) == "1");
+    CHECK(values.at(std::string{settings::key::always_show_focus}) == "1");
+    CHECK(values.at(std::string{settings::key::screen_reader}) == "off");
+    CHECK(values.at(std::string{settings::key::speak_chat}) == "off");
+    CHECK(values.at("other") == "kept");
+    chosen.speak_lobby = true;
+    settings::store_access_preferences(values, chosen);
+    CHECK(!values.contains(std::string{settings::key::speak_lobby}));
+    CHECK(values.at("other") == "kept");
+}
+
 int main() {
     effects_follow_hardware_acceleration();
     effects_take_their_own_defaults();
@@ -3611,6 +3755,7 @@ int main() {
     visual_effect_switches_round_trip();
     water_effects_round_trip();
     the_interface_size_default_read_and_round_trip();
+    the_access_rows_read_and_round_trip();
     the_zoom_limits_default_read_and_round_trip();
     the_view_past_the_map_edge_defaults_reads_and_round_trips();
     if (failures != 0)

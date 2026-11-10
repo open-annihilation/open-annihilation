@@ -642,6 +642,7 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
     entry.focusable = control.focusable;
     entry.expanded = control.expanded;
     entry.live = control.live;
+    entry.description = control.description;
     return entry;
 }
 
@@ -652,10 +653,20 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
 /// @param[in,out] entry its entry
 void fill_slider(const DisplayList& list, const Control& control, AutomationEntry& entry) {
     for (const Item& item : list.items) {
-        if (item.control != control.id)
-            continue;
         const auto* look = std::get_if<SliderLook>(&item.look);
-        if (look == nullptr)
+        if (look == nullptr || item.role != Role::slider)
+            continue;
+        // A locked row draws its slider with no control, so the look is found
+        // by where it lies: on the control's line, inside the control's
+        // columns. A screen may widen a row's control past the drawn slider
+        // (Settings' reach across the row), so the two rectangles need not be
+        // equal. An unlocked slider is the item of its control.
+        const bool own = item.control == control.id;
+        const bool locked_row =
+            item.control == no_control && item.state.locked && item.rect.y == control.rect.y &&
+            item.rect.height == control.rect.height && item.rect.x >= control.rect.x &&
+            item.rect.x + item.rect.width <= control.rect.x + control.rect.width;
+        if (!own && !locked_row)
             continue;
         entry.has_value = true;
         entry.has_range = true;

@@ -2774,6 +2774,173 @@ void card_shadows() {
     OA_CHECK(refused(broken));
 }
 
+/// A vertex of constant camera depth whose classic projection lands on (x, y).
+Vertex depth_vertex(float x, float y, float depth) {
+    const float z = (y + 0.5F * depth) / 1.25F;
+    const float height = depth - 0.5F * z;
+    Vertex vertex{};
+    vertex.x = x;
+    vertex.height = height;
+    vertex.z = z;
+    vertex.brightness = 1;
+    vertex.opacity = 1;
+    vertex.terrain_known = 1;
+    vertex.red = 1;
+    vertex.green = 1;
+    vertex.blue = 1;
+    return vertex;
+}
+
+/// One channel of a pixel, or 0 when the picture does not hold it.
+uint8_t picture_channel(
+    const std::vector<uint8_t>& pixels, uint32_t edge, uint32_t x, uint32_t y, uint32_t component
+) {
+    const size_t offset = (size_t(y) * edge + x) * channels + component;
+    if (offset >= pixels.size())
+        return 0;
+    return pixels[offset];
+}
+
+/// Depth of field blurs a surface far from the focus, and haze follows depth.
+/// Ground the player has never seen, and the void past the map, keep their
+/// black: neither cue lightens them. No device skips.
+int depth_cues() {
+    constexpr uint32_t edge = 32;
+    Scene scene;
+    scene.atlas = {full_channel, 0, 0, full_channel};
+    // A far triangle across the top and a near one across the bottom, each
+    // at one camera depth, so the interiors are not the triangle's edge.
+    const Vertex far_band[] = {
+        depth_vertex(0, 0, 2), depth_vertex(40, 0, 2), depth_vertex(0, 14, 2)
+    };
+    const Vertex near_band[] = {
+        depth_vertex(0, 16, 20), depth_vertex(40, 16, 20), depth_vertex(0, 40, 20)
+    };
+    // Ground never seen at the focus's depth, at the bottom right, drawn
+    // black with no visibility: across a gap of void from the near band.
+    Vertex unseen_band[] = {
+        depth_vertex(40, 16, 20), depth_vertex(40, 40, 20), depth_vertex(16, 40, 20)
+    };
+    for (Vertex& corner : unseen_band)
+        corner.brightness = 0;
+    scene.vertices.assign(std::begin(far_band), std::end(far_band));
+    scene.vertices.insert(scene.vertices.end(), std::begin(near_band), std::end(near_band));
+    scene.vertices.insert(scene.vertices.end(), std::begin(unseen_band), std::end(unseen_band));
+    // A pixel of that ground within the blur's reach of the near band, and
+    // a pixel of void between the bands.
+    constexpr uint32_t unseen_x = 31;
+    constexpr uint32_t unseen_y = 27;
+    constexpr uint32_t void_x = 20;
+    constexpr uint32_t void_y = 15;
+    const auto dark = [&](uint32_t x, uint32_t y) {
+        for (uint32_t component = 0; component < 3; ++component)
+            if (picture_channel(scene.pixels, edge, x, y, component) > 20)
+                return false;
+        return true;
+    };
+    const auto draw = [&](const DepthCue* cue) {
+        return render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            edge,
+            edge,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            nullptr,
+            nullptr,
+            {},
+            nullptr,
+            nullptr,
+            cue
+        );
+    };
+    if (draw(nullptr) == Result::unavailable)
+        return skipped;
+    OA_CHECK(draw(nullptr) == Result::success);
+    const std::vector<uint8_t> plain = scene.pixels;
+    uint32_t far_x = edge;
+    uint32_t far_y = 0;
+    uint32_t near_x = edge;
+    uint32_t near_y = 0;
+    for (uint32_t y = 2; y < 10; ++y) {
+        for (uint32_t x = 2; x + 2 < edge; ++x) {
+            if (picture_channel(plain, edge, x, y, 0) > 200 &&
+                picture_channel(plain, edge, x, y, 2) < 20) {
+                far_x = x;
+                far_y = y;
+            }
+        }
+    }
+    for (uint32_t y = 20; y < 30; ++y) {
+        for (uint32_t x = 2; x + 2 < edge; ++x) {
+            if (picture_channel(plain, edge, x, y, 0) > 200 &&
+                picture_channel(plain, edge, x, y, 2) < 20) {
+                near_x = x;
+                near_y = y;
+            }
+        }
+    }
+    OA_CHECK(far_x < edge);
+    OA_CHECK(near_x < edge);
+    OA_CHECK(dark(unseen_x, unseen_y));
+    OA_CHECK(dark(void_x, void_y));
+    DepthCue idle{};
+    OA_CHECK(draw(&idle) == Result::success);
+    OA_CHECK(!scene.context.depth_drawn);
+    OA_CHECK(scene.pixels == plain);
+    scene.context.lights_allowed = false;
+    DepthCue refused{};
+    refused.focus = 20;
+    refused.range = 0.5F;
+    refused.max_blur = 8;
+    refused.blur_scale = 8.0F / 17.5F;
+    refused.haze = 1;
+    refused.haze_blue = 1;
+    refused.near_depth = 20;
+    refused.depth_span = 18;
+    OA_CHECK(draw(&refused) == Result::success);
+    OA_CHECK(!scene.context.depth_drawn);
+    OA_CHECK(scene.pixels == plain);
+    scene.context.lights_allowed = true;
+    DepthCue field{};
+    field.focus = 20;
+    field.range = 0.5F;
+    field.max_blur = 8;
+    field.blur_scale = 8.0F / 17.5F;
+    field.near_depth = 20;
+    field.depth_span = 18;
+    OA_CHECK(draw(&field) == Result::success);
+    OA_CHECK(scene.context.depth_drawn);
+    const uint8_t near_red = picture_channel(scene.pixels, edge, near_x, near_y, 0);
+    const uint8_t far_red = picture_channel(scene.pixels, edge, far_x, far_y, 0);
+    OA_CHECK(near_red > 200);
+    OA_CHECK(far_red < near_red);
+    OA_CHECK(far_red < 180);
+    OA_CHECK(dark(unseen_x, unseen_y));
+    OA_CHECK(dark(void_x, void_y));
+    DepthCue haze{};
+    haze.haze = 1;
+    haze.haze_blue = 1;
+    haze.near_depth = 20;
+    haze.depth_span = 18;
+    OA_CHECK(draw(&haze) == Result::success);
+    OA_CHECK(scene.context.depth_drawn);
+    OA_CHECK(picture_channel(scene.pixels, edge, near_x, near_y, 0) > 200);
+    OA_CHECK(picture_channel(scene.pixels, edge, near_x, near_y, 2) < 30);
+    OA_CHECK(picture_channel(scene.pixels, edge, far_x, far_y, 2) > 200);
+    OA_CHECK(picture_channel(scene.pixels, edge, far_x, far_y, 0) < 30);
+    OA_CHECK(dark(unseen_x, unseen_y));
+    OA_CHECK(dark(void_x, void_y));
+    return 0;
+}
+
 /// The samples a picture keeps. No device is opened: the fit is pure.
 void sampling_fits_the_asked_level() {
     const auto same = [](Sampling got, uint32_t supersample, uint32_t multisample) {
@@ -2820,6 +2987,9 @@ int main() {
         picture_on_card();
         card_models();
         card_shadows();
+        const int depth = depth_cues();
+        if (depth != 0)
+            return depth;
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

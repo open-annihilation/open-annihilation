@@ -47,6 +47,10 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+_OA_TOOLS = Path(__file__).resolve().parents[4] / "tools"
+if str(_OA_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_OA_TOOLS))
+import native_offline  # noqa: E402
 
 PASSPHRASE = "e06-local-pass"
 REGISTRY_ID = "e06-local"

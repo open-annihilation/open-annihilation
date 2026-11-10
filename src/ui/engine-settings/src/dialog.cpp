@@ -803,6 +803,10 @@ Locks shown_locks(const Dialog& dialog) noexcept {
     // and Free never holds it.
     if (locks.edge_stickiness == Lock::none && dialog.chosen.window_edge != WindowEdge::sticky)
         locks.edge_stickiness = Lock::needs_sticky;
+    // Achromatopsia keeps a shape with every colour. The switch stays on.
+    if (locks.shape_cues == Lock::none &&
+        dialog.chosen.colour_vision == ColourVision::achromatopsia)
+        locks.shape_cues = Lock::keeps_shapes;
     return locks;
 }
 
@@ -1448,6 +1452,8 @@ std::string_view lock_text(Lock lock) noexcept {
         return "Needs Allow full 3D mode";
     case Lock::main_menu:
         return "Choose from the main menu.";
+    case Lock::keeps_shapes:
+        return "Achromatopsia keeps shape cues on";
     }
     return {};
 }
@@ -1806,8 +1812,15 @@ kit::PlacedRow placed_row(const layout::Row& row) {
     kit::PlacedRow placed;
     placed.control = row.control;
     placed.control_area = row.control_area;
-    placed.view.kind = layout::kind_of(row.setting);
-    placed.view.control_width = layout::row_spec(row.setting).control_width;
+    const kit::RowSpec<layout::SettingsModel>& spec = layout::row_spec(row.setting);
+    placed.view.kind = spec.kind;
+    placed.view.control_width = spec.control_width;
+    // A measured strip can be narrower than the class's segment so the label
+    // stays beside it. A press has to use that placed width: the class's
+    // width reads the right-hand segment as the one before it.
+    const std::size_t levels = layout::strip_of(row.setting).levels;
+    if (spec.kind == kit::RowKind::levels && levels > 0 && row.control_area.width > 2)
+        placed.view.control_width = (row.control_area.width - 2) / static_cast<int32_t>(levels);
     return placed;
 }
 

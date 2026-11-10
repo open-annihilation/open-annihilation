@@ -86,5 +86,15 @@ inline constexpr std::string_view preview_rate = "The preview lowers the frame r
 inline constexpr std::string_view thin_border = "Thin border";
 inline constexpr std::string_view vignette = "Vignette";
 inline constexpr std::string_view wide_mat = "Wide mat";
+inline constexpr std::string_view depth = "Depth";
+inline constexpr std::string_view band_centre = "Band centre";
+inline constexpr std::string_view band_width = "Band width";
+inline constexpr std::string_view blur = "Blur";
+inline constexpr std::string_view tilt_note = "Blurs by screen row, not by depth.";
+inline constexpr std::string_view haze = "Haze";
+inline constexpr std::string_view haze_note = "Follows the ground, not the units.";
+inline constexpr std::string_view depth_of_field = "Depth of field";
+inline constexpr std::string_view needs_full_3d = "Needs Full 3D Mode";
+inline constexpr std::string_view no_depth = "This graphics card keeps no depth.";
 
 } // namespace oa::ui::photo_panel::words

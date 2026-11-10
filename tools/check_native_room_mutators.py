@@ -43,6 +43,7 @@ import threading
 import time
 
 import check_native_automation as automation
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -96,6 +97,14 @@ HACKS_LUA = (
     "end\n"
 )
 
+# A launch whose preferences file nothing wrote runs on the defaults, with both
+# online checks on. This is the file such a launch starts from.
+OFFLINE_PREFERENCES = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"\n'
+)
+
 
 class RoomMutatorsFailure(Exception):
     """A behaviour that differs from the expected one."""
@@ -120,8 +129,13 @@ class Game:
         environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
                            SDL_RENDER_DRIVER="software")
         self.preferences = workdir / f"{name}.conf"
+        if not self.preferences.exists():
+            self.preferences.write_text(OFFLINE_PREFERENCES, encoding="utf-8")
+        data_dir = workdir / f"{name}.data"
+        data_dir.mkdir(exist_ok=True)
         command = [*RUNNER, str(native), "--game-dir", str(game_dir), "--mute", "--skip-intro",
-                   "--preferences-file", str(self.preferences), "--user-folder", str(user_folder)]
+                   "--preferences-file", str(self.preferences), "--user-folder", str(user_folder),
+                   "--data-dir", str(data_dir)]
         if fark_file is not None:
             fark_file.parent.mkdir(parents=True, exist_ok=True)
             command.extend(["--fark", "--fark-file", str(fark_file)])
@@ -282,7 +296,7 @@ def copy_package(folder, user_folder, package_id):
 def write_clash_default(path, mode):
     """Writes mutators.clash-default before the game reads its preferences."""
     path.write_text(
-        "open-annihilation-preferences 1\n"
+        "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
         f'"mutators.clash-default" "{mode}"\n',
         encoding="utf-8",
     )

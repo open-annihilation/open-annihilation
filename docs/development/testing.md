@@ -707,8 +707,44 @@ names, these run the game headless:
   alone the joiner gets ready, picks a side and a colour, and the host
   starts. It then plays once more with Next button on F7: F7 walks the battle
   room, from Select Map to Mutators and on to Metal, and the game list, and
-  Tab does not. Each run writes its own preferences and user folder, so the
-  next run starts clean.
+  Tab does not. Last, the host alone sets a repeat delay of 300 ms and a
+  rate of ten a second, and Right held a second steps the Metal slider once
+  and then at that rate. Each run writes its own preferences and user
+  folder, so the next run starts clean.
+- `native-keyboard-walk` (`tools/check_native_keyboard_walk.py`) presses Tab
+  through the main menu, Single player, New campaign, the Load game message
+  and list, the Options hub and its Sound, Music, Speeds and Visuals pages,
+  Skirmish, map selection, the map browser, the mutator picker, Settings
+  and its Controls page, the key editor, the Library, the welcome, the keys
+  overlay, a hosted TCP/IP room on loopback, the in-game menu, the sound
+  page Return on Options opens, and the in-game Options hub the O key
+  opens. It fails when a press leaves no focus, a stop has no label, the
+  focus leaves the top dialog, the order is not a rotation of the one the
+  menus document, or the ring shows before any key. The Library is the
+  exception: it opens on its search with the ring showing, and the walk
+  checks that before Tab. Each launch writes its own preferences, user
+  folder and data folder, with both update checks off, so the next run
+  starts clean and no catalogue another run kept reaches a screen.
+- `native-boneyards-keyboard-walk`
+  (`src/boneyards/extension/tests/check_native_boneyards_keyboard_walk.py`)
+  walks the login console, the main frame (its buttons, the zoom slider
+  and the map arrows), the war map's planets, chat, the player pane, Recon,
+  the side prompt, News, Ladders, Help's list and one help page, Battle,
+  the host form, Profile, the Locator, QuickPlay and matchmaking, and
+  presses F6 between the frame, a console and the map. It fails when a
+  press leaves no focus, a stop has no label, the order is not a rotation
+  of the one the consoles document, the ring shows before any key (except
+  on a help page already open on a link), or a stop's window is not one of
+  the windows its station owns. The label and the window it checks are the
+  focused control's, not those of a caption with the same name. The replays
+  are `alpha_chat.replay`, `side_prompt.replay`, `alpha_contents.replay`,
+  `alpha_features_beta.replay`, `quickplay.replay` and `matchmaking.replay`.
+  The last two are reply fragments, joined to the beta dossier in a scratch
+  file the check removes. Each launch writes its own preferences, user
+  folder and data folder. The update check is never and the catalogue is
+  read only when the Library opens, which the walk never does: `-y` stops
+  only when both checks are never. Nothing is dialled, and the ladders
+  search is not run.
 
 `open-annihilation --play-demo FILE.tad` replays a recorded game through
 the path a watching machine receives a match on; with `--headless-check`
@@ -751,6 +787,35 @@ click reaches its button, and the window's clock reads the fixed clock's
 step times the frame. The fixture is a test extension, so only a build
 configured with `-DOA_RECORD_EXTENSION_HOOKS=ON` combines it and runs this
 check.
+
+A script that starts the game imports `tools/native_offline.py`. The import
+writes the preferences file when it is absent, makes a private `--data-dir`,
+and adds both flags to that launch. The update check is `never`. The catalogue
+check is `never`, or `library` when the launch enters the Boneyards with `-y`
+or `--enter-boneyards`: `library` reads the catalogue only when the Library
+opens. The mod entry check stores the update check as `when-asked` and content
+updates as `library`. `never` on the update check asks to turn the online
+features on, and `when-asked` does not look for a release. The welcome setup
+(`--check-first-run`, `--check-setup-window`) starts with no preferences file.
+A check that serves its own release feed (`--check-engine-feed`,
+`--check-update-offer`, `--check-update-download`, and the update pill in
+`check_native_boneyards_menu_keys.py`) keeps the update check able to run and
+points `--update-feed` at a loopback publisher. The download check leaves the
+catalogue at `never`.
+
+`check-native-online` (`tools/check_native_online.py`) fails when one of those
+scripts starts the game without importing `native_offline`, when a preferences
+file sets either online check to `automatically` without a loopback feed, and
+when a registered test starts the game on the shared data folder or without
+the offline lines. A direct `oa-game` test receives both flags from
+`cmake/OaOfflineGameTests.cmake`, which also writes a seed beside the
+preferences file. A fixture that removes the file copies that seed back, and
+the check reads the seed, so a game that rewrites its preferences afterwards
+does not change the result. The two language-notice start files gain the same
+lines, because their fixture copies the start file over the live one. The check
+fails a fixture that removes a preferences file and puts no seed back, and a
+start file that lacks the lines. A script counts as importing `native_offline`
+only when the import is a statement at the top of the file, not a comment.
 
 The MCP server in [tools/mcp](../../tools/mcp/README.md) has two checks:
 `mcp-server-selftest` drives its tools against a stand-in endpoint and
@@ -1405,6 +1470,15 @@ gamma once, and skips with status 77 when no device can draw it. Then it
 holds the turned view in a shared match, drawn as played frames are, and
 the photo taken 30 ticks later is the held copy, not the live picture. The
 check removes the photos it wrote.
+`native-photo-depth-live` (`--check-photo depth-live --hardware-acceleration=full`)
+photographs one frozen turned frame four times on the system video driver:
+with depth of field, with haze, and twice with both off. Each cue changes
+the picture, the two with both off match, and the frame's black, ground the
+player has never seen, stays black under both cues. Then it takes a 2× and
+a Smooth edges 2× photo with depth of field: the smooth one is the 2× one
+box-reduced, and each record names the blur its picture has. The check
+skips with status 77 when no device can draw the turned view or the card
+keeps no depth. The check removes the photos it wrote.
 `native-photo-sizes` (`--check-photo sizes`) freezes that fight and saves
 Screen and a photo twice the battlefield. Screen keeps the picture the
 window already drew. The 2× photo is drawn again by the processor, at the
@@ -1415,11 +1489,17 @@ which was open. With the memory back, the 4× photo is four times the
 battlefield. With grain on (60, size 3), Screen and 2× are taken again:
 each is the look on its picture without grain, the 2× one at grain size 6,
 and their records keep `grain_size` 3 and `grain_pixels` 3 and 6.
-Box-reduced by 2, the grain the 2× photo carries (with grain less without)
+Box-reduced by 2, the 2× photo equals the Screen photo. After the pins,
+with the whole map drawn, the camera goes past the left and top edges, then
+the right and bottom ones, as far as the view goes: there too the 2× photo,
+and the 2× photo with haze 60, box-reduce to their Screen photos, and the
+camera, the sight rules and the look are put back. Box-reduced by 2, the
+grain the 2× photo carries (with grain less without)
 equals the grain the Screen photo carries in every colour channel no grain
 pushed to 0 or 255, at least nine in ten; grain left at size 3 on the 2×
-photo must fail that comparison. The draw's own pixels cancel, so the
-criterion holds in any render mode. The world's read-back matches a pass
+photo must fail that comparison. With only haze on, the 2× photo
+box-reduces to the Screen photo in every pixel. The draw's own pixels
+cancel, so the criterion holds in any render mode. The world's read-back matches a pass
 that took no photo. A fight writes the engine's own preference rows; the
 photos add none, and the file is put back. The SHA-256 digests of Screen,
 2× and 4× are pinned.
@@ -1432,10 +1512,56 @@ matches that 2× photo box-reduced and differs from Screen. The grain
 comparison of `native-photo-sizes` holds on Full's photos too. The 2× photo
 taken while photo mode keeps a replay seek's framed view is the same
 picture, and that view is still kept for the window. With the texture
-limit forced down, the size past it is not offered and the reason names the
-picture that fits at the window's factor. A held picture locks both rows
+limit forced to the 2× photo's world target, 2× stays offered and is drawn
+whole, and 4× is offered in tiles. With the limit forced to a side no
+bordered tile fits, 4× is not offered and the reason names the picture that
+fits at the window's factor. A held picture locks both rows
 with Held picture. The window's frames after the photo match the frames
-before it, apart from the file name's clock. `native-photo-sizes-live`
+before it, apart from the file name's clock. `native-photo-tiles-full`
+(`--check-photo tiles --hardware-acceleration=full --force-capable`, SDL's
+software renderer) freezes one frame of a skirmish on Steel Jungle with
+weapon lights, heat, a burning wreck, water and an aircraft. A 2× photo
+drawn in tiles, with the check-only tile edge at a quarter of the photo's
+long side, may differ from the same photo drawn whole in at most 0.01% of
+the photo's pixels, rounded up and at least one. The card rasterises a tile
+from another origin than the whole photo, which leaves a few pixels a few
+levels off at model edges and on the water, and the maintainer ruled that
+need not be bit-exact (a follow-up may tighten the bound). The check fails
+when more pixels differ, and it fails on a seam: more than 16 of the
+differing pixels on the columns and rows next to a tile boundary, and more
+than half of all that differ. A line along a tile edge shows as that, and
+a model edge or a ripple that crosses one touches a few pixels. Each
+comparison that finds a difference prints the count with its bound, the
+pixels on a tile edge and the largest channel gap, and the check names
+every comparison outside the bound when it ends. The same holds with a tile
+edge two pixels longer, whose tiles start off the game's draw rows, and with
+the view half past the map's corner, where the window's limits hold it. The
+same frame is compared again at size 3 (an edge of 399 photo pixels, and a
+quarter of that photo's long side), at Enhanced anti-aliasing 2×, and at a
+window zoom of 0.45, whose size-2 photo is below zoom 1 and is drawn through
+the moved target. The window is then 1920×1080, and the 2× photo is compared
+in tiles there too, framed and past the corner, before the window returns to
+the size it opened at. Enhanced 2× is also compared past the corner.
+Below zoom 1 has two bounds. On SDL's software renderer, which this test
+runs on, that case is held to 0.5% of the photo's pixels with the same seam
+rule, and the check prints that it uses that bound. A player's Full always
+draws on a graphics card, and only checks use the software renderer, which
+places a tile's pixels differently from the whole photo's there: about 0.26%
+of them in this frame, where a card differs by about 0.002%. Every other case
+keeps 0.01% on both renderers. `native-photo-tiles-full-gpu` is the same
+check without `--force-capable`, on the system's own video driver, and it
+holds every case, below zoom 1 too, to 0.01%. It skips with status 77 where
+no graphics card draws Full, under the dummy video driver and SDL's software
+renderer included. Where the shell sets the dummy driver, as `oa-ctest` does
+on the build host, run it with
+`env -u SDL_VIDEO_DRIVER -u SDL_RENDER_DRIVER ctest`. What
+stays exact is the window: after a photo in tiles it draws as it did before,
+and Full's anti-aliasing factor is unchanged, and the preferences file is put
+back. `native-photo-sizes-full` runs its grain comparison a second time with
+the 2× photo drawn in tiles at a quarter of its long side. The tiled photo
+is held to the whole photo's look within the same bound and seam rule, the
+channels of pixels that differ are not read, and every other channel is held
+to the grain criterion exactly. `native-photo-sizes-live`
 (`--check-photo sizes --hardware-acceleration=full`, the system's video
 driver) sets Enhanced anti-aliasing to 4×. Every offered size keeps the
 window frame's sampling, and the first size past that limit is locked with
@@ -1476,7 +1602,11 @@ grade. A square crop with a frame, a vignette and grain saves the look on
 the crop, and the window shows that photo inside the crop. With the caption
 bar on and the panel hidden, the presented bar equals the photo's bar,
 letters included, on the whole battlefield and on a 3:2 crop, whose bar
-lies above the window's bottom. The preferences
+lies above the window's bottom. A tilt-shift photo and a haze photo are
+pinned the same way, and each record names that cue. At haze 100 every
+pixel the fog's black pass draws keeps its colour, and every other pixel is
+the haze with no fog; that photo is pinned too, and on a square crop it is
+the photo the window shows. The preferences
 file is unchanged, and a pass that never enters reads back as the pass that
 does.
 `native-photo-looks-full` (`--check-photo looks --hardware-acceleration=full --force-capable`)
@@ -1487,6 +1617,10 @@ frame on a fixed 64×36 picture, on one, two and eight threads and on the
 caller. The bytes are pinned and do not depend on the number of threads.
 None and an amount of 0 leave the picture unchanged, and the same seed
 writes the same grain.
+`present-photo-depth` pins a tilt-shift of that picture, and the ground
+heights a flat plain, a ramp and a plateau project to. One, two and eight
+threads, and the caller, write the same bytes. Haze leaves the pixels on the
+screen rows a fog marks, and hazes the rest as with no fog.
 `native-photo-panel` (`--check-photo panel`, with `--snapshot`) plays the
 same fight at 640×480, 1280×720 and 1920×1080. Take photo writes a photo
 with no panel in it, equal to the battlefield of that frame. H hides the
@@ -1539,7 +1673,10 @@ in those three states at those three sizes in both looks
 `native-photo-capture-full` also sends F9 and Enter in one batch and requires
 the photo to be the size of the window and to match the next frozen frame.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
-a skirmish, then the overlays' places: Move overlays off by default with
+a skirmish, then the overlays' places. It scrolls Accessibility until Move
+overlays and Overlay places are on screen: colour, speech and the focus
+ring stand above them, and a narrow window puts the practice pad under the
+rows. Move overlays is off by default with
 Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move
 overlays on and Arrange… opening the picture of the match, a handle on each
 overlay's sample inside the battlefield, the keys overlay, the latch chips

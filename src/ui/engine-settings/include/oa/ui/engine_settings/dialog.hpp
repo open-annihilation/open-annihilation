@@ -426,6 +426,25 @@ enum class Setting : uint8_t {
     /// row where the system can choose an opener (file_types_switchable).
     /// It covers .oademo and .tad. iOS and Android do not list it.
     open_replay_files,
+    /// Colour vision: a drop-down of Off, Protanopia, Deuteranopia,
+    /// Tritanopia and Achromatopsia, Accessibility's first row.
+    colour_vision,
+    /// Shape cues: a switch under Colour vision. Choosing a mode other than
+    /// Off turns it on. Achromatopsia locks it on.
+    shape_cues,
+    /// The ten player colours and the four state colours, as text with no
+    /// control, under Shape cues.
+    colour_preview,
+    /// Screen reader: a strip of Automatic, On and Off.
+    screen_reader,
+    /// Speak chat: a strip of Off, Pages only and All.
+    speak_chat,
+    /// Speak lobby changes: a switch. It covers the battle room only.
+    speak_lobby,
+    /// Speak the ticker: a switch. Off until the player turns it on.
+    speak_ticker,
+    /// Always show focus: a switch. On draws the ring when a screen opens.
+    always_show_focus,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -1446,6 +1465,13 @@ struct Dialog {
     bool window_places_reset{};
     /// Accessibility's practice pad.
     PracticePad practice{};
+    /// The screen-reader bridge is compiled out and this machine has no
+    /// fallback voice. Screen reader's second line then says nothing can
+    /// speak. The pictures and the tests leave it clear, so a machine where
+    /// a reader can attach shows one line. The game sets it as the dialog opens.
+    bool speech_unavailable{false};
+    /// The seven access keys as the file held them when the dialog opened.
+    AccessSnapshot access_at_open{};
 };
 
 /// Returns every standard hack as Developer Mode shows it: as the profile

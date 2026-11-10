@@ -36,6 +36,7 @@ import sys
 import tempfile
 import threading
 import time
+import native_offline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_native_automation import AutomationFailure, Client  # noqa: E402

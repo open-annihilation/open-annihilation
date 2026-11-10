@@ -5,8 +5,11 @@
 // still free, and the box reduction of a smoother draw.
 #include "oa/present/photo/photo_sizes.hpp"
 
+#include "oa/present/photo/photo_tiles.hpp"
+
 #include <algorithm>
 #include <cstdint>
+#include <utility>
 
 namespace oa::present::photo {
 namespace {
@@ -93,6 +96,96 @@ int32_t reported_edge(const Machine& machine, float photo_zoom) {
     return (max_target / grain) * grain;
 }
 
+/// A product that saturates instead of wrapping.
+///
+/// @param count one factor
+/// @param scale the other
+/// @return the product, or the largest count when it would not fit
+uint64_t saturating_mul(uint64_t count, uint64_t scale) {
+    if (count == 0 || scale == 0)
+        return 0;
+    if (count > ~uint64_t{0} / scale)
+        return ~uint64_t{0};
+    return count * scale;
+}
+
+/// A sum that saturates instead of wrapping.
+///
+/// @param count one count
+/// @param extra the other
+/// @return the sum, or the largest count when it would not fit
+uint64_t saturating_add(uint64_t count, uint64_t extra) {
+    if (count > ~uint64_t{0} - extra)
+        return ~uint64_t{0};
+    return count + extra;
+}
+
+/// The bytes a tiled Full photo asks for: the assembled photo, and the
+/// largest tile's read and targets. One tile is drawn at a time.
+///
+/// @param plan the tiles
+/// @param machine the factor and the texel size
+/// @param photo_zoom the photo's zoom
+/// @param draw_width the assembled draw
+/// @param draw_height the assembled draw
+/// @return the processor bytes and the card bytes
+std::pair<uint64_t, uint64_t> tile_bytes(
+    const TilePlan& plan,
+    const Machine& machine,
+    float photo_zoom,
+    int32_t draw_width,
+    int32_t draw_height
+) {
+    const uint64_t photo = saturating_mul(
+        saturating_mul(
+            static_cast<uint64_t>(std::max(draw_width, int32_t{0})),
+            static_cast<uint64_t>(std::max(draw_height, int32_t{0}))
+        ),
+        uint64_t{6}
+    );
+    const int supersample = std::max(machine.supersample, 1);
+    const uint64_t bytes = static_cast<uint64_t>(std::max(machine.bytes_per_texel, 1));
+    uint64_t tile_cpu = 0;
+    uint64_t tile_gpu = 0;
+    for (const Tile& tile : plan.tiles) {
+        const uint64_t area = saturating_mul(
+            static_cast<uint64_t>(std::max(tile.draw_width, int32_t{0})),
+            static_cast<uint64_t>(std::max(tile.draw_height, int32_t{0}))
+        );
+        tile_cpu = std::max(tile_cpu, saturating_mul(area, uint64_t{6}));
+        uint64_t gpu = saturating_mul(area, bytes);
+        if (supersample > 1 && photo_zoom >= 1.0F) {
+            const uint64_t world = world_target_pixels(
+                static_cast<uint32_t>(std::max(tile.target_width, int32_t{0})),
+                static_cast<uint32_t>(std::max(tile.target_height, int32_t{0})),
+                static_cast<uint32_t>(supersample)
+            );
+            gpu = saturating_add(gpu, saturating_mul(world, bytes));
+        }
+        tile_gpu = std::max(tile_gpu, gpu);
+    }
+    return {saturating_add(photo, tile_cpu), tile_gpu};
+}
+
+/// The tile plan for one Full draw.
+///
+/// @param need the picture and the draw
+/// @param machine the card and the check's tile edge
+/// @param photo_zoom the photo's zoom
+/// @return the tiles
+TilePlan tiles_for(const Need& need, const Machine& machine, float photo_zoom) {
+    TileRequest request;
+    request.width = need.draw_width;
+    request.height = need.draw_height;
+    request.zoom = photo_zoom > 0.0F ? photo_zoom : 1.0F;
+    request.supersample = std::max(machine.supersample, 1);
+    request.grain = std::max(machine.grain, 1);
+    request.texture_limit = std::max(machine.edge_limit, int32_t{0});
+    request.tile_edge = std::max(machine.tile_edge, int32_t{0});
+    request.reach = full_tile_reach(request.zoom);
+    return plan_tiles(request);
+}
+
 /// Judges one size and one smooth step.
 ///
 /// @param field the battlefield
@@ -144,8 +237,52 @@ Need judge(Field field, const Machine& machine, int size_factor, int smooth) {
         }
     }
 
-    const uint64_t cpu = static_cast<uint64_t>(need.draw_width) *
-                         static_cast<uint64_t>(need.draw_height) * uint64_t{6};
+    // A Full photo past the card is drawn in tiles, still by Full, at the
+    // same factor. The photo and one tile have to fit in memory. A size that
+    // already fits in one piece keeps that piece's cost, so a short memory
+    // budget cannot be dodged by tiling. The check's tile edge can force a
+    // split of a size that fits; when that split cannot be drawn, the size
+    // is not offered. A shared match never draws tiles: Smooth edges 2×,
+    // which it offers, stays one piece or is not offered.
+    bool pay_for_tiles = false;
+    if (machine.kind == CaptureKind::full && !machine.shared &&
+        (need.edge || machine.tile_edge > 0)) {
+        const TilePlan tiles = tiles_for(need, machine, photo_zoom);
+        if (need.edge && tiles.fits)
+            pay_for_tiles = true;
+        if (!need.edge && machine.tile_edge > 0) {
+            const bool forced =
+                need.draw_width > machine.tile_edge || need.draw_height > machine.tile_edge;
+            if (forced && !tiles.fits)
+                need.edge = true;
+        }
+    }
+    if (pay_for_tiles)
+        need.edge = false;
+
+    uint64_t cpu = static_cast<uint64_t>(need.draw_width) *
+                   static_cast<uint64_t>(need.draw_height) * uint64_t{6};
+    if (pay_for_tiles) {
+        const TilePlan tiles = tiles_for(need, machine, photo_zoom);
+        const std::pair<uint64_t, uint64_t> cost =
+            tile_bytes(tiles, machine, photo_zoom, need.draw_width, need.draw_height);
+        cpu = cost.first;
+        gpu = cost.second;
+    }
+    // The look is painted on the picture after the draw, and a tilt-shift
+    // keeps a copy of it while it blurs.
+    cpu = saturating_add(
+        cpu,
+        saturating_add(
+            saturating_mul(
+                saturating_mul(
+                    static_cast<uint64_t>(need.width), static_cast<uint64_t>(need.height)
+                ),
+                static_cast<uint64_t>(std::max(machine.look_bytes_per_pixel, 0))
+            ),
+            machine.look_bytes
+        )
+    );
     if (cpu > machine.cpu_bytes)
         need.memory = true;
     if (machine.kind == CaptureKind::full && gpu > machine.gpu_bytes)

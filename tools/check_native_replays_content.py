@@ -22,6 +22,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import native_offline
 
 REGISTRY_ID = "ridge-replays"
 KEY_ID = "ridge-replays"

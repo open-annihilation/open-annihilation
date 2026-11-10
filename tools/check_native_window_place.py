@@ -15,6 +15,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -73,7 +74,7 @@ def place_line(output, label):
 def write_place(preferences, value):
     """Writes a preferences file whose only entry is the window place."""
     preferences.write_text(
-        "open-annihilation-preferences 1\n"
+        "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
         f'"{PLACE_KEY}" "{value}"\n',
         encoding="utf-8",
     )

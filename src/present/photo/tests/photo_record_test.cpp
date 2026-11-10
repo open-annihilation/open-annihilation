@@ -30,6 +30,7 @@ using oa::formats::json::JsonError;
 using oa::formats::json::JsonType;
 using oa::formats::json::parse_json;
 using oa::present::photo::CameraFact;
+using oa::present::photo::DepthOfFieldFact;
 using oa::present::photo::ChunkKind;
 using oa::present::photo::GameKind;
 using oa::present::photo::LookFact;
@@ -38,6 +39,7 @@ using oa::present::photo::PhotoText;
 using oa::present::photo::PlayerFact;
 using oa::present::photo::ReplayFact;
 using oa::present::photo::SizeFact;
+using oa::present::photo::TiltShiftFact;
 using oa::present::photo::UtcMoment;
 using oa::present::photo::photo_texts;
 
@@ -325,12 +327,84 @@ int main() {
                 "grain_size",
                 "grain_pixels",
                 "frame",
-                "tilt_shift"
+                "tilt_shift",
+                "haze",
+                "depth_of_field"
             };
-            CHECK(look_order.size() == 8);
-            for (std::size_t at = 0; at < look_order.size() && at < 8; ++at)
+            CHECK(look_order.size() == 10);
+            for (std::size_t at = 0; at < look_order.size() && at < 10; ++at)
                 CHECK(look_order[at] == expected_look[at]);
             CHECK(frame != nullptr && frame->string() != nullptr && *frame->string() == "none");
+            const Json* haze = tilt->find("haze");
+            CHECK(haze != nullptr && haze->type() == JsonType::null);
+            const Json* field = tilt->find("depth_of_field");
+            CHECK(field != nullptr && field->type() == JsonType::null);
+        }
+    }
+
+    PhotoFacts cued = sample(true);
+    LookFact cues;
+    cues.preset = "none";
+    TiltShiftFact tilt_fact;
+    tilt_fact.centre = 40;
+    tilt_fact.width = 48;
+    tilt_fact.width_pixels = 96;
+    tilt_fact.radius = 12;
+    tilt_fact.radius_pixels = 24;
+    cues.tilt_shift = tilt_fact;
+    cues.haze = 35;
+    DepthOfFieldFact field_fact;
+    field_fact.radius = 16;
+    field_fact.radius_pixels = 32;
+    cues.depth_of_field = field_fact;
+    cued.look = cues;
+    const std::vector<PhotoText> cued_text = photo_texts(cued);
+    const auto cued_record = parse_json(cued_text.size() == 6 ? cued_text[5].text : "", error);
+    CHECK(cued_record.has_value());
+    if (cued_record.has_value() && cued_record->find("look") != nullptr) {
+        const Json* look_json = cued_record->find("look");
+        const Json* tilt_json = look_json->find("tilt_shift");
+        const Json* haze_json = look_json->find("haze");
+        const Json* field_json = look_json->find("depth_of_field");
+        CHECK(tilt_json != nullptr && tilt_json->type() == JsonType::object);
+        CHECK(
+            haze_json != nullptr && haze_json->integer().has_value() && *haze_json->integer() == 35
+        );
+        CHECK(field_json != nullptr && field_json->type() == JsonType::object);
+        if (field_json != nullptr) {
+            const char* field_order[] = {"radius", "radius_pixels"};
+            const auto field_names = field_json->names();
+            CHECK(field_names.size() == 2);
+            for (std::size_t at = 0; at < field_names.size() && at < 2; ++at)
+                CHECK(field_names[at] == field_order[at]);
+            const Json* radius = field_json->find("radius");
+            const Json* radius_pixels = field_json->find("radius_pixels");
+            CHECK(radius != nullptr && radius->integer().has_value() && *radius->integer() == 16);
+            CHECK(
+                radius_pixels != nullptr && radius_pixels->integer().has_value() &&
+                *radius_pixels->integer() == 32
+            );
+        }
+        if (tilt_json != nullptr) {
+            const char* tilt_order[] = {
+                "centre", "width", "width_pixels", "radius", "radius_pixels"
+            };
+            const auto names = tilt_json->names();
+            CHECK(names.size() == 5);
+            for (std::size_t at = 0; at < names.size() && at < 5; ++at)
+                CHECK(names[at] == tilt_order[at]);
+            const Json* centre = tilt_json->find("centre");
+            const Json* width_pixels = tilt_json->find("width_pixels");
+            const Json* radius_pixels = tilt_json->find("radius_pixels");
+            CHECK(centre != nullptr && centre->integer().has_value() && *centre->integer() == 40);
+            CHECK(
+                width_pixels != nullptr && width_pixels->integer().has_value() &&
+                *width_pixels->integer() == 96
+            );
+            CHECK(
+                radius_pixels != nullptr && radius_pixels->integer().has_value() &&
+                *radius_pixels->integer() == 24
+            );
         }
     }
 

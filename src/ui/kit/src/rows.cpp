@@ -319,7 +319,7 @@ void push_frame(
 ///
 /// @param[in,out] list the display list
 /// @param row the row
-/// @param control its control, or none while it is locked
+/// @param control its control, or none while it is locked so the drawing is unchanged
 /// @param state the pointer and the focus
 void push_control(
     DisplayList& list, const PlacedRow& row, ControlId control, const RowsState& state
@@ -1110,10 +1110,12 @@ void add_rows(DisplayList& list, const PlacedRows& placed, const RowsState& stat
     for (const PlacedRow& row : placed.rows) {
         const RowView& view = row.view;
         const bool locked = !view.lock.empty();
-        const bool has_control = has_area(row.control_area) && !locked;
-        const ControlId control = has_control ? row.control : no_control;
+        // The drawn item keeps no control while locked, so nothing drawn
+        // changes. The control is still listed, disabled, for a screen reader.
+        const bool drawn = has_area(row.control_area) && !locked;
+        const ControlId drawn_control = drawn ? row.control : no_control;
         push_frame(list, placed, row, clip);
-        push_control(list, row, control, state);
+        push_control(list, row, drawn_control, state);
         if (locked) {
             // A status is the player's explanation and keeps its strength.
             // Such a row fades its label line, and a lock or a control that
@@ -1151,20 +1153,23 @@ void add_rows(DisplayList& list, const PlacedRows& placed, const RowsState& stat
                 clip
             );
         }
-        if (has_control && state.focused == control) {
+        if (drawn && state.focused == row.control) {
             // A row of buttons rings the button the keys mark.
             const Rect ring = view.kind == RowKind::buttons
                                   ? button_rect(view, row.control_area, state.marked_button)
                                   : row.control_area;
             push_item(list, Role::focus_ring, ring, no_control, {}, {}, FocusRingLook{true}, clip);
         }
-        if (!has_control)
+        if (!has_area(row.control_area) || row.control == no_control)
             continue;
         Control entry;
-        entry.id = control;
+        entry.id = row.control;
         entry.rect = row.control_area;
         entry.clip = clip;
-        entry.enabled = view.enabled;
+        // A lock keeps the row in the tree and off the keyboard: disabled,
+        // not focusable, and not a Tab stop. The reason is the description.
+        entry.enabled = view.enabled && !locked;
+        entry.focusable = !locked;
         entry.name = control_name(state, view);
         entry.kind = control_kind(view.kind);
         entry.steps = takes_steps(view.kind);
@@ -1173,13 +1178,14 @@ void add_rows(DisplayList& list, const PlacedRows& placed, const RowsState& stat
         entry.text = control_text(view);
         // The caption, as shown. The value stays in text.
         entry.label = view.label;
+        entry.description = view.lock;
         if (view.kind == RowKind::buttons)
             entry.parts = view.button_ids;
         else if (view.kind == RowKind::levels || view.kind == RowKind::choice)
             entry.parts = view.choice_ids;
         list.controls.push_back(std::move(entry));
-        if (view.enabled)
-            list.tab_order.push_back(control);
+        if (view.enabled && !locked)
+            list.tab_order.push_back(row.control);
     }
     Item rule;
     rule.role = Role::rule;

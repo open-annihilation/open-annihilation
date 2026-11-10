@@ -127,4 +127,14 @@ void speak_announcement(std::string_view text, Politeness politeness);
 /// The preference change and a test call this. It does not speak.
 void forget_spoken_focus();
 
+/// Whether this machine has a voice the fallback can speak with.
+///
+/// On Windows this asks the speech engine, on the main thread, and remembers
+/// the first answer. A missing engine is silence. Everywhere else there is
+/// no fallback voice, so this is false. The screen-reader bridge is a
+/// separate question (`compiled_in`).
+///
+/// @return true when a fallback voice can speak
+[[nodiscard]] bool voice_available();
+
 } // namespace oa::platform::screen_reader

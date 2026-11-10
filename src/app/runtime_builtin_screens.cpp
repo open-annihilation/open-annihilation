@@ -224,21 +224,39 @@ struct BuiltinScreens {
         auto& runtime = *static_cast<Runtime*>(host);
         if (runtime.screen_ != Screen::main_menu)
             return 0;
-        const auto owns = [&](const char* id) {
-            for (const auto& fed : runtime.match_action_events()) {
-                if (fed.action == id)
-                    return true;
-            }
-            return false;
-        };
-        if (owns("ui.menu-focus-next") || owns("ui.menu-focus-previous"))
+        const MenuMove move = runtime.menu_move(MenuMoveCount::every).move;
+        if (move == MenuMove::next || move == MenuMove::previous)
             return 1;
         if (runtime.oa_layer_ == nullptr || !runtime.oa_layer_->family_ring_shown())
             return 0;
-        if (owns("ui.menu-accept") || owns("ui.menu-press") || owns("ui.menu-focus-left") ||
-            owns("ui.menu-focus-right") || owns("ui.menu-focus-up") || owns("ui.menu-focus-down") ||
-            owns("ui.menu-list-up") || owns("ui.menu-list-down"))
+        switch (move) {
+        case MenuMove::next:
+        case MenuMove::previous:
             return 1;
+        case MenuMove::accept:
+        case MenuMove::press:
+        case MenuMove::left:
+        case MenuMove::right:
+        case MenuMove::up:
+        case MenuMove::down:
+            return 1;
+        case MenuMove::home:
+        case MenuMove::end:
+        case MenuMove::page_up:
+        case MenuMove::page_down:
+            // Go to start, Go to end and the page keys are not the order's.
+            // Accept or Press on the same key still is, whichever report it
+            // made: the order owns the key then, as it does when that is the
+            // only action.
+            for (const auto& fed : runtime.match_action_events()) {
+                const MenuMove other = menu_move_of(fed.action);
+                if (other == MenuMove::accept || other == MenuMove::press)
+                    return 1;
+            }
+            return 0;
+        case MenuMove::none:
+            return 0;
+        }
         return 0;
     }
 
@@ -264,50 +282,36 @@ struct BuiltinScreens {
         if (input == nullptr || input->kind != ScreenInputKind::key_down)
             return 0;
         runtime.screen_bound_asked_ = true;
-        runtime.screen_bound_action_.clear();
+        runtime.screen_bound_move_ = MenuMove::none;
         if (action == nullptr || capacity == 0)
             return 0;
-        static constexpr const char* kFirst[] = {
-            "ui.menu-focus-next",
-            "ui.menu-focus-previous",
-            "ui.menu-focus-left",
-            "ui.menu-focus-right",
-            "ui.menu-list-up",
-            "ui.menu-focus-up",
-            "ui.menu-list-down",
-            "ui.menu-focus-down",
-            "ui.screen-page-up",
-            "ui.screen-page-down",
-            "ui.screen-home",
-            "ui.screen-end",
-        };
-        const char* id = nullptr;
-        for (const char* candidate : kFirst) {
-            if (runtime.fired_action(candidate) != nullptr) {
-                id = candidate;
-                break;
-            }
-        }
-        std::string_view fired;
-        if (id == nullptr) {
+        const MenuMoveHit hit = runtime.menu_move(MenuMoveCount::down);
+        std::string_view name;
+        MenuMove move = MenuMove::none;
+        if (menu_move_is_travel(hit.move)) {
+            name = hit.id;
+            move = hit.move;
+        } else {
+            // A screen action this key fired that is not one of those moves,
+            // such as Next control. It is reported, and it does not move the
+            // ring: the move stays none.
             for (const auto& event : runtime.match_action_events()) {
                 if (event.phase != oa::ui::key_bindings::Phase::pressed &&
                     event.phase != oa::ui::key_bindings::Phase::repeated)
                     continue;
-                const std::string_view name = event.action;
-                if (!name.starts_with("ui.menu-focus-") && !name.starts_with("ui.menu-list-") &&
-                    !name.starts_with("ui.screen-"))
+                const std::string_view id = event.action;
+                if (!id.starts_with("ui.menu-focus-") && !id.starts_with("ui.menu-list-") &&
+                    !id.starts_with("ui.screen-"))
                     continue;
-                fired = name;
+                name = id;
                 break;
             }
         }
-        const std::string_view name = id != nullptr ? std::string_view(id) : fired;
         if (name.empty() || name.size() + 1 > capacity)
             return 0;
         std::memcpy(action, name.data(), name.size());
         action[name.size()] = '\0';
-        runtime.screen_bound_action_.assign(name);
+        runtime.screen_bound_move_ = move;
         return 1;
     }
 
@@ -1033,36 +1037,14 @@ bool Runtime::extension_layer_takes_pointer(float x, float y) {
     return screen_input_taken(input);
 }
 
-namespace {
-
-/// An arrow, Home, End, Page Up or Page Down. Taken while the ring already
-/// shows, one of these keeps the ring through the windows it opens or closes.
-bool ring_place_key(uint32_t key) {
-    return key == static_cast<uint32_t>(SDLK_UP) || key == static_cast<uint32_t>(SDLK_DOWN) ||
-           key == static_cast<uint32_t>(SDLK_LEFT) || key == static_cast<uint32_t>(SDLK_RIGHT) ||
-           key == static_cast<uint32_t>(SDLK_HOME) || key == static_cast<uint32_t>(SDLK_END) ||
-           key == static_cast<uint32_t>(SDLK_PAGEUP) || key == static_cast<uint32_t>(SDLK_PAGEDOWN);
-}
-
-/// Next button or Previous button.
-bool ring_tab_action(std::string_view action) {
-    return action == "ui.menu-focus-next" || action == "ui.menu-focus-previous";
-}
-
-/// A focus, list or screen action that stands for an arrow, Home, End or a
-/// page key: taken while the ring already shows, it keeps the ring as that
-/// key does.
-bool ring_place_action(std::string_view action) {
-    return action == "ui.menu-focus-left" || action == "ui.menu-focus-right" ||
-           action == "ui.menu-focus-up" || action == "ui.menu-focus-down" ||
-           action == "ui.menu-list-up" || action == "ui.menu-list-down" ||
-           action == "ui.screen-page-up" || action == "ui.screen-page-down" ||
-           action == "ui.screen-home" || action == "ui.screen-end";
-}
-
-} // namespace
-
 bool Runtime::dispatch_screen_input(const SDL_Event& event) {
+    // The player's own press, not a platform repeat and not a repeat that
+    // deliver_menu_repeats hands on. Its screen's answer below decides
+    // whether the dispatcher's repeats of this key reach the screens.
+    const bool player_press =
+        event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && !delivering_menu_repeats_;
+    if (player_press)
+        menu_repeat_key_ = 0;
     const auto current = screen_id(screen_);
     const auto* desc = screen_find(&screens_, current);
     bool wanted = desc != nullptr && desc->event != nullptr;
@@ -1080,8 +1062,10 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
         ))
         return false;
     screen_bound_asked_ = false;
-    screen_bound_action_.clear();
+    screen_bound_move_ = MenuMove::none;
     const bool taken = screen_input_taken(input);
+    if (player_press && taken && screen_bound_asked_ && menu_move_is_travel(screen_bound_move_))
+        menu_repeat_key_ = input.key;
     // The built-in handler never sees a taken event, so the cursor sprite
     // follows the pointer here, whether an overlay or the screen took it.
     if (taken && (input.kind == ScreenInputKind::pointer_move ||
@@ -1102,15 +1086,9 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
     // that reads the keys themselves is held to Tab and the keys, as before.
     if (taken && oa_layer_ != nullptr) {
         if (input.kind == ScreenInputKind::key_down) {
-            const auto fired = [this](std::string_view id) { return fired_action(id) != nullptr; };
-            const std::string_view given = screen_bound_action_;
-            const bool focus_tab = screen_bound_asked_
-                                       ? ring_tab_action(given)
-                                       : input.key == static_cast<uint32_t>(SDLK_TAB) ||
-                                             fired("ui.menu-focus-next") ||
-                                             fired("ui.menu-focus-previous");
-            const bool focus_place =
-                screen_bound_asked_ ? ring_place_action(given) : ring_place_key(input.key);
+            const MenuMove move = ring_move(input);
+            const bool focus_tab = move == MenuMove::next || move == MenuMove::previous;
+            const bool focus_place = menu_move_is_place(move);
             if (focus_tab || input.key == static_cast<uint32_t>(SDLK_F6))
                 oa_layer_->note_family_tab();
             else if (

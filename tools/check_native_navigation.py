@@ -16,6 +16,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -37,7 +38,11 @@ EFFECT_KEYS = (
     "open-annihilation.wreck-glow.intensity",
     "open-annihilation.heat-distortion.intensity",
 )
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 
 
 def effects_percent(text):

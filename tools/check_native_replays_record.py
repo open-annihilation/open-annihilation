@@ -40,6 +40,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs the executable directly.
@@ -47,7 +48,9 @@ RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 
 RUN_TIMEOUT_SECONDS = 900
 KILL_WAIT_SECONDS = 240
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+)
 LOOPBACK_TICKS = 3000
 # The computer-player loopback reads every record one machine sent before the other plays its
 # tick, so its trace is the same on every run with one seed; the plain loopback's depends on

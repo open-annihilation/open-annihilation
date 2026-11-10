@@ -312,7 +312,10 @@ std::array<uint32_t, 2> Runtime::shown_tile_grid() const noexcept {
 }
 
 std::array<int32_t, 2> Runtime::view_camera() const {
-    if (!selected_tnt_)
+    // A Full photo tile is a part of a view the limits held already. Held
+    // again for its own smaller view, a tile past the map's edge would show
+    // another part of the map.
+    if (!selected_tnt_ || photo_tile_map_offset_.has_value())
         return {match_camera_x_, match_camera_z_};
     const auto [map_width, map_height] = shown_map_size();
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());

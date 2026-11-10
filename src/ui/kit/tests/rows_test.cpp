@@ -1243,9 +1243,10 @@ void choices_and_levels_name_their_parts_by_their_ids() {
     );
 }
 
-/// Locked rows, the text row and a disabled button take no focus: a locked
-/// row lists no control and draws its fade and its lock; a disabled button
-/// is listed, drawn disabled, and left out of Tab.
+/// Locked rows, the text row and a disabled button take no focus. A locked
+/// row is one disabled control, with its value and its reason, and is not a
+/// Tab stop; what it draws is unchanged. A disabled button is listed, drawn
+/// disabled, and left out of Tab.
 void locked_rows_and_disabled_buttons_take_no_focus() {
     Sample sample;
     sample.in_game = true;
@@ -1257,12 +1258,38 @@ void locked_rows_and_disabled_buttons_take_no_focus() {
     state.focused = 13;
     kit::add_rows(list, placed, state);
     OA_CHECK(kit::name_problem(list).empty());
-    OA_CHECK(list.controls.size() == 7);
-    OA_CHECK(kit::control_of(list, 13) == nullptr && kit::control_of(list, 21) == nullptr);
+    OA_CHECK(list.controls.size() == 8);
+    // The text row has no control. The locked switch is listed, disabled,
+    // with its value and the reason, and it is not a Tab stop.
+    OA_CHECK(kit::control_of(list, 21) == nullptr);
+    const kit::Control* locked = kit::control_of(list, 13);
+    OA_CHECK(locked != nullptr && !locked->enabled && !locked->focusable);
+    OA_CHECK(locked != nullptr && locked->name == "settings.vertical-sync");
+    OA_CHECK(locked != nullptr && locked->label == "Vertical sync" && locked->text == "Off");
+    OA_CHECK(locked != nullptr && locked->description == "Not during a game");
+    OA_CHECK(
+        std::find(list.tab_order.begin(), list.tab_order.end(), kit::ControlId{13}) ==
+        list.tab_order.end()
+    );
+    const std::vector<kit::AutomationEntry> heard = kit::automation_parts(list, {});
+    const auto locked_entry =
+        std::find_if(heard.begin(), heard.end(), [](const kit::AutomationEntry& entry) {
+            return entry.name == "settings.vertical-sync";
+        });
+    OA_CHECK(locked_entry != heard.end());
+    if (locked_entry != heard.end()) {
+        OA_CHECK(!locked_entry->enabled && !locked_entry->focusable);
+        OA_CHECK(locked_entry->label == "Vertical sync" && locked_entry->value_text == "Off");
+        OA_CHECK(locked_entry->description == "Not during a game");
+        OA_CHECK(std::count_if(heard.begin(), heard.end(), [](const kit::AutomationEntry& entry) {
+                     return entry.name.rfind("settings.vertical-sync", 0) == 0;
+                 }) == 1);
+    }
     const kit::Control* reset = kit::control_of(list, 17);
     OA_CHECK(reset != nullptr && !reset->enabled && reset->name == "settings.install-id.reset");
     OA_CHECK(list.tab_order == (std::vector<kit::ControlId>{14, 15, 16, 18, 19, 20}));
     OA_CHECK(kit::next_in_tab_order(list, 16, true) == 18);
+    OA_CHECK(kit::hit(list, {420, 70}) == kit::no_control);
     OA_CHECK(kit::hit(list, {420, 320}) == kit::no_control);
 
     using kit::Role;

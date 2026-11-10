@@ -17,6 +17,8 @@ runs on. Each stage is written once, in Vulkan's GLSL, in src/app/shaders/:
                               pixel, drawn after the scene's vertex stage
   live_lights_fragment.glsl   the lights' light, glow and heat over the
                               picture
+  live_depth_fragment.glsl    depth of field and haze by camera depth,
+                              over the picture, after the lights
   live_overlay_fragment.glsl  what the processor painted over the turned
                               view added to the picture, and the display
                               gamma
@@ -73,6 +75,7 @@ STAGES = (
     ("live_resolve_fragment", "frag"),
     ("live_surface_fragment", "frag"),
     ("live_lights_fragment", "frag"),
+    ("live_depth_fragment", "frag"),
     ("live_overlay_fragment", "frag"),
     ("live_model_vertex", "vert"),
     ("live_shadow_cast_vertex", "vert"),

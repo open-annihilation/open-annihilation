@@ -69,21 +69,46 @@ struct SizeFact {
     int smooth = 1;     ///< the smooth step the picture was saved at
 };
 
+/// Depth of field on a photo. The radius is kept twice, as the tilt-shift's
+/// blur is: the panel's battlefield pixels, and the pixels this picture was
+/// drawn at.
+struct DepthOfFieldFact {
+    int radius = 0;        ///< the panel's blur, in the battlefield's pixels
+    int radius_pixels = 0; ///< the blur in this picture
+};
+
+/// A tilt-shift on a photo. The centre is a percent of the picture's height.
+/// Width and radius are kept twice, as grain is: the panel's battlefield
+/// pixels, and the pixels this picture was drawn at.
+struct TiltShiftFact {
+    int centre = 50;       ///< the sharp band's centre, 0 to 100
+    int width = 0;         ///< the panel's band width, in the battlefield's pixels
+    int width_pixels = 0;  ///< the band's width in this picture
+    int radius = 0;        ///< the panel's blur, in the battlefield's pixels
+    int radius_pixels = 0; ///< the blur in this picture
+};
+
 /// A look applied to the picture. Written only when the photo has one.
 /// Roundness, grain size and the frame are written with the grade, so a
 /// frame on its own is not read as no look, and the picture can be made again.
 /// The grain is kept twice: the size the panel chose, in the battlefield's
 /// pixels, and the size it was drawn at in this picture, which a photo two to
 /// four times the battlefield draws that many times larger.
+/// Tilt-shift, haze and depth of field are null when that cue is off. Haze
+/// is the amount, 1 to 100. It does not scale: one amount in every view.
+/// Depth of field names the panel's radius and the radius this picture drew.
 struct LookFact {
-    std::string preset;            ///< the look's name
-    int vignette = 0;              ///< the vignette, 0 to 100
-    int roundness = 50;            ///< the vignette's roundness, 0 to 100
-    int grain = 0;                 ///< the grain, 0 to 100
-    int grain_size = 2;            ///< the panel's grain size: the battlefield's pixels
-    int grain_pixels = 2;          ///< one grain's pixels in this picture, at least 1
-    std::string frame{"none"};     ///< none, thin, mat or caption
-    std::optional<int> tilt_shift; ///< the tilt, or nothing when the look has none
+    std::string preset;                      ///< the look's name
+    int vignette = 0;                        ///< the vignette, 0 to 100
+    int roundness = 50;                      ///< the vignette's roundness, 0 to 100
+    int grain = 0;                           ///< the grain, 0 to 100
+    int grain_size = 2;                      ///< the panel's grain size: the battlefield's pixels
+    int grain_pixels = 2;                    ///< one grain's pixels in this picture, at least 1
+    std::string frame{"none"};               ///< none, thin, mat or caption
+    std::optional<TiltShiftFact> tilt_shift; ///< the tilt, or nothing when it is off
+    std::optional<int> haze;                 ///< the haze amount, or nothing when it is off
+    /// Depth of field, or nothing when the card did not draw it.
+    std::optional<DepthOfFieldFact> depth_of_field;
 };
 
 /// A replay the photo was taken from. Written only when the photo has one.

@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The grades, the vignette, the grain and the frames. Every number is an
-// integer, so a picture comes out the same on every machine. The bands
-// write only their own rows and share nothing that changes.
+// The grades, the vignette, the grain, the frames, the tilt-shift and the
+// haze. Every number is an integer, so a picture comes out the same on
+// every machine. The bands write only their own rows and share nothing
+// that changes.
 #include "oa/present/photo/looks.hpp"
 
 #include "oa/platform/job_pool.hpp"
@@ -14,7 +15,9 @@
 #include <bit>
 #include <cstdint>
 #include <limits>
+#include <new>
 #include <optional>
+#include <vector>
 
 namespace oa::present::photo {
 namespace {
@@ -432,11 +435,453 @@ void paint_pixel(const BandWork& work, int32_t column, int32_t row) noexcept {
     pixel[2] = static_cast<uint8_t>(blue);
 }
 
+/// Screen row, in map pixels, of a 256ths position. Toward −∞.
+///
+/// @param value the position, in 256ths
+/// @return the map pixel
+int32_t floor_div_256(int64_t value) noexcept {
+    if (value >= 0) {
+        const int64_t divided = value / 256;
+        if (divided > std::numeric_limits<int32_t>::max())
+            return std::numeric_limits<int32_t>::max();
+        return static_cast<int32_t>(divided);
+    }
+    if (value == std::numeric_limits<int64_t>::min())
+        return std::numeric_limits<int32_t>::min();
+    const int64_t divided = -((-value + 255) / 256);
+    if (divided < std::numeric_limits<int32_t>::min())
+        return std::numeric_limits<int32_t>::min();
+    return static_cast<int32_t>(divided);
+}
+
+/// Classic screen row of one map row: `z - height / 2`, toward zero.
+///
+/// @param map_row the map row
+/// @param height the ground height
+/// @return the screen row
+int32_t project_row(int32_t map_row, int32_t height) noexcept {
+    return static_cast<int32_t>(static_cast<int64_t>(map_row) - static_cast<int64_t>(height) / 2);
+}
+
+/// Height on the span from one sample to the next.
+///
+/// @param h0 the far height
+/// @param s0 the far screen row
+/// @param h1 the near height
+/// @param s1 the near screen row
+/// @param screen the screen row
+/// @return the height
+int32_t blended_height(int32_t h0, int32_t s0, int32_t h1, int32_t s1, int32_t screen) noexcept {
+    if (s0 == s1)
+        return h0;
+    const int64_t rise = static_cast<int64_t>(h1) - static_cast<int64_t>(h0);
+    const int64_t along = static_cast<int64_t>(screen) - static_cast<int64_t>(s0);
+    const int64_t span = static_cast<int64_t>(s1) - static_cast<int64_t>(s0);
+    return static_cast<int32_t>(static_cast<int64_t>(h0) + rise * along / span);
+}
+
+/// Blur radius of one picture row. 0 inside the sharp band, then rising to
+/// `radius` over four times that many rows.
+///
+/// @param row the picture row
+/// @param height the picture's height
+/// @param centre_percent the band's centre, 0 to 100
+/// @param width the sharp band, in pixels
+/// @param radius the blur at the top and the bottom
+/// @return the radius of this row
+int32_t row_radius(
+    int32_t row, int32_t height, int32_t centre_percent, int32_t width, int32_t radius
+) noexcept {
+    if (radius <= 0 || height <= 0)
+        return 0;
+    const int32_t percent = std::clamp(centre_percent, int32_t{0}, int32_t{100});
+    int32_t centre = static_cast<int32_t>((static_cast<int64_t>(height) * percent) / 100);
+    if (centre >= height)
+        centre = height - 1;
+    if (centre < 0)
+        centre = 0;
+    const int32_t half = std::max(width, int32_t{0}) / 2;
+    const int32_t distance = row >= centre ? row - centre : centre - row;
+    if (distance <= half)
+        return 0;
+    const int32_t rise = radius > std::numeric_limits<int32_t>::max() / 4
+                             ? std::numeric_limits<int32_t>::max()
+                             : std::max(radius * 4, int32_t{1});
+    const int32_t beyond = distance - half;
+    if (beyond >= rise)
+        return radius;
+    const int64_t scaled = static_cast<int64_t>(beyond) * radius;
+    const int32_t partial = static_cast<int32_t>((scaled + rise - 1) / rise);
+    return std::min(partial, radius);
+}
+
+/// One channel of a box of `radius` on a row, edges held. The source is a
+/// row of the picture, `step` bytes a pixel. The row written is packed RGB.
+///
+/// @param src the source row
+/// @param step bytes a source pixel, 3 or 4; only the colour is read
+/// @param dst the packed RGB row to write
+/// @param width the row's pixels
+/// @param radius samples on each side; 0 copies
+/// @param prefix width + 1 sums per channel, scratch for this band
+void box_row(
+    const uint8_t* src, int32_t step, uint8_t* dst, int32_t width, int32_t radius, int32_t* prefix
+) noexcept {
+    if (width <= 0)
+        return;
+    const auto source = [src, step](int32_t column) {
+        return src + static_cast<std::size_t>(column) * static_cast<std::size_t>(step);
+    };
+    if (radius <= 0) {
+        for (int32_t column = 0; column < width; ++column) {
+            const uint8_t* pixel = source(column);
+            uint8_t* out = dst + static_cast<std::size_t>(column) * 3U;
+            out[0] = pixel[0];
+            out[1] = pixel[1];
+            out[2] = pixel[2];
+        }
+        return;
+    }
+    for (int channel = 0; channel < 3; ++channel)
+        prefix[channel] = 0;
+    for (int32_t column = 0; column < width; ++column) {
+        const uint8_t* pixel = source(column);
+        int32_t* next = prefix + static_cast<std::size_t>(column + 1) * 3U;
+        const int32_t* prev = prefix + static_cast<std::size_t>(column) * 3U;
+        next[0] = prev[0] + pixel[0];
+        next[1] = prev[1] + pixel[1];
+        next[2] = prev[2] + pixel[2];
+    }
+    for (int32_t column = 0; column < width; ++column) {
+        const int32_t left = std::max(column - radius, int32_t{0});
+        const int32_t right = std::min(column + radius, width - 1);
+        const int32_t count = right - left + 1;
+        const int32_t* end = prefix + static_cast<std::size_t>(right + 1) * 3U;
+        const int32_t* begin = prefix + static_cast<std::size_t>(left) * 3U;
+        uint8_t* pixel = dst + static_cast<std::size_t>(column) * 3U;
+        pixel[0] = static_cast<uint8_t>((end[0] - begin[0]) / count);
+        pixel[1] = static_cast<uint8_t>((end[1] - begin[1]) / count);
+        pixel[2] = static_cast<uint8_t>((end[2] - begin[2]) / count);
+    }
+}
+
+/// Scratch a pass may keep at once, in bytes. Up to a 1080p picture every
+/// band has its own buffer; a 4x photo's bands share a few.
+constexpr uint64_t kScratchBudget = uint64_t{64} * 1024U * 1024U;
+
+/// How many scratch buffers a pass keeps: as many as fit kScratchBudget, at
+/// least two a thread, never more than its bands. The pass runs its bands
+/// that many at a time, each band with a buffer no other band of that run
+/// uses, so the scratch does not grow with the picture.
+///
+/// @param pool the pool; null is the caller alone
+/// @param bands the pass's bands
+/// @param band_bytes one band's scratch, in bytes
+/// @return at least 1
+uint32_t scratch_lanes(
+    const oa::platform::job_pool::Pool* pool, uint32_t bands, uint64_t band_bytes
+) noexcept {
+    const uint64_t threads = pool != nullptr ? pool->threads() : 1U;
+    const uint64_t fit = kScratchBudget / std::max(band_bytes, uint64_t{1});
+    const uint64_t lanes = std::min<uint64_t>(bands, std::max(fit, threads * 2U));
+    return static_cast<uint32_t>(std::max<uint64_t>(lanes, 1U));
+}
+
+/// Runs `bands` bands, `lanes` at a time. Each band is told its lane, whose
+/// scratch is its own while it runs. The bands write disjoint pixels, so the
+/// bytes do not depend on the lanes.
+///
+/// @param pool the pool; null runs on the caller
+/// @param bands how many bands
+/// @param lanes how many at a time, at least 1
+/// @param band called with the band and its lane
+template <typename Band>
+void run_in_lanes(
+    oa::platform::job_pool::Pool* pool, uint32_t bands, uint32_t lanes, const Band& band
+) {
+    for (uint32_t first = 0; first < bands; first += lanes) {
+        const uint32_t count = std::min(lanes, bands - first);
+        oa::platform::job_pool::run_bands(pool, count, [&band, first](uint32_t lane) {
+            band(first + lane, lane);
+        });
+    }
+}
+
+/// Map x of a picture column, in map pixels.
+///
+/// @param origin_x_256 map x of column 0, in 256ths
+/// @param step_256 map pixels per picture pixel, in 256ths
+/// @param column the picture column
+/// @return the map column
+int32_t map_column_of(int32_t origin_x_256, int32_t step_256, int32_t column) noexcept {
+    const int64_t at = static_cast<int64_t>(origin_x_256) + static_cast<int64_t>(column) * step_256;
+    return floor_div_256(at);
+}
+
+/// Fades one pixel toward the haze colour. A height below 0 leaves it.
+///
+/// @param pixel the colour bytes
+/// @param height the ground height
+/// @param amount 0 to 100
+/// @param red the haze colour
+/// @param green the haze colour
+/// @param blue the haze colour
+void haze_pixel(
+    uint8_t* pixel, int32_t height, int32_t amount, int red, int green, int blue
+) noexcept {
+    if (height < 0 || amount <= 0)
+        return;
+    const int held = std::clamp(height, int32_t{0}, int32_t{255});
+    const int fade = amount * (255 - held) / 255;
+    int mix = fade * 256 / 100;
+    if (mix > 256)
+        mix = 256;
+    const int keep = 256 - mix;
+    pixel[0] = static_cast<uint8_t>((pixel[0] * keep + red * mix) / 256);
+    pixel[1] = static_cast<uint8_t>((pixel[1] * keep + green * mix) / 256);
+    pixel[2] = static_cast<uint8_t>((pixel[2] * keep + blue * mix) / 256);
+}
+
+/// The map rows a haze reads: the first and how many.
+struct MapRows {
+    int32_t first{0}; ///< the first map row
+    int32_t count{0}; ///< how many; 0 when none can show
+};
+
+/// The map rows that can show on the picture's screen rows. A height lifts
+/// its row by half itself, so a row more than half the field's highest
+/// height below the picture's last screen row cannot reach the picture, and
+/// a row above its first screen row cannot either. The rows between are all
+/// read, so the ground found is the ground the whole column gives.
+///
+/// @param field the ground
+/// @param picture_rows the picture's rows
+/// @return the rows to read
+MapRows rows_in_reach(const HazeField& field, int32_t picture_rows) noexcept {
+    const int32_t step = field.step_256 == 0 ? 256 : field.step_256;
+    const int64_t first_256 = field.origin_row_256;
+    const int64_t last_256 =
+        first_256 + static_cast<int64_t>(std::max(picture_rows - 1, int32_t{0})) * step;
+    const int64_t low = std::min(floor_div_256(first_256), floor_div_256(last_256));
+    const int64_t high = std::max(floor_div_256(first_256), floor_div_256(last_256));
+    const int64_t lift = static_cast<int64_t>(std::max(field.most_height, int32_t{0})) / 2 + 2;
+    const int64_t rows = std::max(field.map_rows, int32_t{0});
+    const int64_t from = std::clamp(low - 1, int64_t{0}, rows);
+    const int64_t to = std::clamp(high + lift + 1, int64_t{0}, rows);
+    MapRows reach;
+    reach.first = static_cast<int32_t>(from);
+    reach.count = static_cast<int32_t>(std::max(to - from, int64_t{0}));
+    return reach;
+}
+
+/// The screen rows the picture's rows show: the first and how many. None
+/// when the field marks no fog, or the span is past any picture's.
+///
+/// @param field the ground
+/// @param picture_rows the picture's rows
+/// @return the rows the fog is asked for
+MapRows screen_rows_shown(const HazeField& field, int32_t picture_rows) noexcept {
+    if (field.fog == nullptr || picture_rows <= 0)
+        return {};
+    const int32_t step = field.step_256 == 0 ? 256 : field.step_256;
+    const int64_t first_256 = field.origin_row_256;
+    const int64_t last_256 = first_256 + static_cast<int64_t>(picture_rows - 1) * step;
+    const int64_t low = std::min(floor_div_256(first_256), floor_div_256(last_256));
+    const int64_t high = std::max(floor_div_256(first_256), floor_div_256(last_256));
+    const int64_t span = high - low + 1;
+    if (span <= 0 || span > 4000000)
+        return {};
+    MapRows shown;
+    shown.first = static_cast<int32_t>(low);
+    shown.count = static_cast<int32_t>(span);
+    return shown;
+}
+
+/// Hazes every row of one band of columns. A map column is sampled once and
+/// reused while the next picture columns share it.
+///
+/// @param picture the picture
+/// @param stride the stride
+/// @param field the ground
+/// @param reach the map rows that can show in the picture
+/// @param shown the screen rows the picture shows, for the fog
+/// @param first the first column
+/// @param end one past the last column
+/// @param raw one height per map row of `reach`, this lane's own buffer
+/// @param screen one height per picture row, this lane's own buffer
+/// @param black one mark per screen row of `shown`, this lane's own buffer
+void haze_columns(
+    Picture picture,
+    int32_t stride,
+    const HazeField& field,
+    MapRows reach,
+    MapRows shown,
+    int32_t first,
+    int32_t end,
+    std::vector<int32_t>& raw,
+    std::vector<int32_t>& screen,
+    std::vector<uint8_t>& black
+) noexcept {
+    if (field.column == nullptr || field.map_rows <= 0)
+        return;
+    const int32_t step = field.step_256 == 0 ? 256 : field.step_256;
+    int32_t held_column = std::numeric_limits<int32_t>::min();
+    bool held = false;
+    for (int32_t column = first; column < end; ++column) {
+        const int32_t map_x = map_column_of(field.origin_x_256, step, column);
+        if (!held || map_x != held_column) {
+            held = true;
+            held_column = map_x;
+            if (map_x < 0 || map_x >= field.map_columns || reach.count <= 0) {
+                std::fill(screen.begin(), screen.end(), -1);
+            } else {
+                std::fill(raw.begin(), raw.end(), -1);
+                field.column(field.user, map_x, reach.first, raw.data(), reach.count);
+                column_ground_heights(
+                    raw.data(),
+                    reach.count,
+                    field.origin_row_256,
+                    step,
+                    picture.height,
+                    screen.data(),
+                    reach.first
+                );
+                // The fog is drawn where the map row is drawn, before any
+                // height: the pixels it blacks out keep their colour.
+                if (field.fog != nullptr && shown.count > 0 &&
+                    black.size() >= static_cast<std::size_t>(shown.count)) {
+                    std::fill(black.begin(), black.end(), uint8_t{0});
+                    field.fog(field.user, map_x, shown.first, black.data(), shown.count);
+                    for (int32_t row = 0; row < picture.height; ++row) {
+                        const int64_t at = static_cast<int64_t>(field.origin_row_256) +
+                                           static_cast<int64_t>(row) * step;
+                        const int64_t index = static_cast<int64_t>(floor_div_256(at)) - shown.first;
+                        if (index >= 0 && index < shown.count &&
+                            black[static_cast<std::size_t>(index)] != 0)
+                            screen[static_cast<std::size_t>(row)] = -1;
+                    }
+                }
+            }
+        }
+        for (int32_t row = 0; row < picture.height; ++row) {
+            uint8_t* pixel =
+                picture.bytes + static_cast<std::size_t>(row) * static_cast<std::size_t>(stride) +
+                static_cast<std::size_t>(column) * static_cast<std::size_t>(picture.channels);
+            haze_pixel(
+                pixel,
+                screen[static_cast<std::size_t>(row)],
+                field.amount,
+                field.red,
+                field.green,
+                field.blue
+            );
+        }
+    }
+}
+
+/// The separable blur. Row bands read the picture and write `blurred`.
+/// Column bands then read `blurred` and write the picture. Neither reads a
+/// buffer the other is writing.
+///
+/// @param picture the picture
+/// @param stride the stride
+/// @param look the look, with a radius above 0
+/// @param blurred the horizontal pass, packed RGB
+/// @param pool the pool; null runs on the caller
+void blur_picture(
+    Picture picture,
+    int32_t stride,
+    const Look& look,
+    std::vector<uint8_t>& blurred,
+    oa::platform::job_pool::Pool* pool
+) {
+    const int32_t width = picture.width;
+    const int32_t height = picture.height;
+    const uint32_t row_bands = oa::platform::job_pool::bands_of_rows(
+        static_cast<uint32_t>(height), static_cast<uint32_t>(kBandRows)
+    );
+    const uint64_t row_bytes = (static_cast<uint64_t>(width) + 1U) * 3U * sizeof(int32_t);
+    const uint32_t row_lanes = scratch_lanes(pool, row_bands, row_bytes);
+    std::vector<std::vector<int32_t>> row_scratch(row_lanes);
+    for (std::vector<int32_t>& scratch : row_scratch)
+        scratch.assign(static_cast<std::size_t>(width + 1) * 3U, 0);
+    run_in_lanes(pool, row_bands, row_lanes, [&](uint32_t band, uint32_t lane) {
+        const int32_t first = static_cast<int32_t>(band) * kBandRows;
+        const int32_t end = std::min(first + kBandRows, height);
+        int32_t* prefix = row_scratch[lane].data();
+        for (int32_t row = first; row < end; ++row) {
+            const int32_t radius =
+                row_radius(row, height, look.tilt_centre, look.tilt_width, look.tilt_radius);
+            const uint8_t* from =
+                picture.bytes + static_cast<std::size_t>(row) * static_cast<std::size_t>(stride);
+            uint8_t* into = blurred.data() +
+                            static_cast<std::size_t>(row) * static_cast<std::size_t>(width) * 3U;
+            box_row(from, picture.channels, into, width, radius, prefix);
+        }
+    });
+
+    constexpr int32_t kColumnBand = 32;
+    const uint32_t column_bands = oa::platform::job_pool::bands_of_rows(
+        static_cast<uint32_t>(width), static_cast<uint32_t>(kColumnBand)
+    );
+    const uint64_t column_bytes = static_cast<uint64_t>(kColumnBand) *
+                                  (static_cast<uint64_t>(height) + 1U) * 3U * sizeof(int32_t);
+    const uint32_t column_lanes = scratch_lanes(pool, column_bands, column_bytes);
+    std::vector<std::vector<int32_t>> column_scratch(column_lanes);
+    for (std::vector<int32_t>& scratch : column_scratch)
+        scratch.assign(
+            static_cast<std::size_t>(kColumnBand) * static_cast<std::size_t>(height + 1) * 3U, 0
+        );
+    run_in_lanes(pool, column_bands, column_lanes, [&](uint32_t band, uint32_t lane) {
+        const int32_t first = static_cast<int32_t>(band) * kColumnBand;
+        const int32_t count = std::min(kColumnBand, width - first);
+        int32_t* prefix = column_scratch[lane].data();
+        const std::size_t column_stride = static_cast<std::size_t>(height + 1) * 3U;
+        for (int32_t row = 0; row < height; ++row) {
+            const uint8_t* from =
+                blurred.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                                  static_cast<std::size_t>(first)) *
+                                     3U;
+            for (int32_t column = 0; column < count; ++column) {
+                int32_t* next = prefix + static_cast<std::size_t>(column) * column_stride +
+                                static_cast<std::size_t>(row + 1) * 3U;
+                const int32_t* prev = prefix + static_cast<std::size_t>(column) * column_stride +
+                                      static_cast<std::size_t>(row) * 3U;
+                const uint8_t* pixel = from + static_cast<std::size_t>(column) * 3U;
+                next[0] = prev[0] + pixel[0];
+                next[1] = prev[1] + pixel[1];
+                next[2] = prev[2] + pixel[2];
+            }
+        }
+        for (int32_t row = 0; row < height; ++row) {
+            const int32_t radius =
+                row_radius(row, height, look.tilt_centre, look.tilt_width, look.tilt_radius);
+            const int32_t top = std::max(row - radius, int32_t{0});
+            const int32_t bottom = std::min(row + radius, height - 1);
+            const int32_t window = bottom - top + 1;
+            uint8_t* into =
+                picture.bytes + static_cast<std::size_t>(row) * static_cast<std::size_t>(stride) +
+                static_cast<std::size_t>(first) * static_cast<std::size_t>(picture.channels);
+            for (int32_t column = 0; column < count; ++column) {
+                const int32_t* end = prefix + static_cast<std::size_t>(column) * column_stride +
+                                     static_cast<std::size_t>(bottom + 1) * 3U;
+                const int32_t* begin = prefix + static_cast<std::size_t>(column) * column_stride +
+                                       static_cast<std::size_t>(top) * 3U;
+                uint8_t* pixel = into + static_cast<std::size_t>(column) *
+                                            static_cast<std::size_t>(picture.channels);
+                pixel[0] = static_cast<uint8_t>((end[0] - begin[0]) / window);
+                pixel[1] = static_cast<uint8_t>((end[1] - begin[1]) / window);
+                pixel[2] = static_cast<uint8_t>((end[2] - begin[2]) / window);
+            }
+        }
+    });
+}
+
 } // namespace
 
 bool look_idle(const Look& look) noexcept {
     return look.preset == Preset::none && look.vignette <= 0 && look.grain <= 0 &&
-           look.frame == Frame::none;
+           look.frame == Frame::none && look.tilt_radius <= 0 && look.haze <= 0;
 }
 
 const char* preset_key(Preset preset) noexcept {
@@ -485,11 +930,86 @@ int32_t photo_grain_size(int32_t grain_size, int32_t factor) noexcept {
     return size * times;
 }
 
+int32_t photo_tilt_width(int32_t width, int32_t factor) noexcept {
+    if (width <= 0)
+        return 0;
+    const int32_t times = std::max(factor, int32_t{1});
+    if (width > std::numeric_limits<int32_t>::max() / times)
+        return std::numeric_limits<int32_t>::max();
+    return width * times;
+}
+
+int32_t photo_tilt_radius(int32_t radius, int32_t factor) noexcept {
+    if (radius <= 0)
+        return 0;
+    const int32_t times = std::max(factor, int32_t{1});
+    if (radius > std::numeric_limits<int32_t>::max() / times)
+        return std::numeric_limits<int32_t>::max();
+    return radius * times;
+}
+
+void column_ground_heights(
+    const int32_t* heights,
+    int32_t map_rows,
+    int32_t screen_first_256,
+    int32_t screen_step_256,
+    int32_t picture_rows,
+    int32_t* out,
+    int32_t first_map_row
+) noexcept {
+    if (out == nullptr || picture_rows <= 0)
+        return;
+    for (int32_t row = 0; row < picture_rows; ++row)
+        out[row] = -1;
+    if (heights == nullptr || map_rows <= 0 || screen_step_256 == 0)
+        return;
+    const int64_t last_256 = static_cast<int64_t>(screen_first_256) +
+                             static_cast<int64_t>(picture_rows - 1) * screen_step_256;
+    const int32_t screen_lo = std::min(floor_div_256(screen_first_256), floor_div_256(last_256));
+    const int32_t screen_hi = std::max(floor_div_256(screen_first_256), floor_div_256(last_256));
+    const int64_t span = static_cast<int64_t>(screen_hi) - static_cast<int64_t>(screen_lo) + 1;
+    if (span <= 0 || span > 4000000)
+        return;
+    std::vector<int32_t> table;
+    try {
+        table.assign(static_cast<std::size_t>(span), -1);
+    } catch (const std::bad_alloc&) {
+        return;
+    }
+    for (int32_t map_row = 0; map_row < map_rows; ++map_row) {
+        const int32_t far_height = heights[map_row];
+        const int32_t far_screen = project_row(first_map_row + map_row, far_height);
+        int32_t near_height = far_height;
+        int32_t near_screen = far_screen;
+        if (map_row + 1 < map_rows) {
+            near_height = heights[map_row + 1];
+            near_screen = project_row(first_map_row + map_row + 1, near_height);
+        }
+        const int32_t left = std::min(far_screen, near_screen);
+        const int32_t right = std::max(far_screen, near_screen);
+        const int32_t from = std::max(left, screen_lo);
+        const int32_t to = std::min(right, screen_hi);
+        for (int32_t screen = from; screen <= to; ++screen) {
+            table[static_cast<std::size_t>(screen - screen_lo)] =
+                blended_height(far_height, far_screen, near_height, near_screen, screen);
+        }
+    }
+    for (int32_t row = 0; row < picture_rows; ++row) {
+        const int64_t at =
+            static_cast<int64_t>(screen_first_256) + static_cast<int64_t>(row) * screen_step_256;
+        const int32_t screen = floor_div_256(at);
+        if (screen < screen_lo || screen > screen_hi)
+            continue;
+        out[row] = table[static_cast<std::size_t>(screen - screen_lo)];
+    }
+}
+
 void apply_look(
     Picture picture,
     const Look& look,
     oa::platform::text_font::FontStack* fonts,
-    oa::platform::job_pool::Pool* pool
+    oa::platform::job_pool::Pool* pool,
+    const HazeField* haze
 ) {
     if (look_idle(look))
         return;
@@ -520,6 +1040,57 @@ void apply_look(
     if (work.frame == Frame::caption)
         work.ink =
             draw_caption(fonts, look.caption, picture.width, picture.height, work.metrics, drawn);
+
+    const int32_t haze_amount = std::clamp(look.haze, int32_t{0}, int32_t{100});
+    const bool hazing = haze_amount > 0 && haze != nullptr && haze->column != nullptr &&
+                        haze->map_rows > 0 && haze->map_columns > 0;
+    if (hazing) {
+        // Bands of columns: each map column is inverted once, over the map
+        // rows that can reach the picture, for every row of the picture.
+        HazeField field = *haze;
+        field.amount = haze_amount;
+        const MapRows reach = rows_in_reach(field, picture.height);
+        const MapRows shown = screen_rows_shown(field, picture.height);
+        constexpr int32_t kHazeColumns = 32;
+        const uint32_t haze_bands = oa::platform::job_pool::bands_of_rows(
+            static_cast<uint32_t>(picture.width), static_cast<uint32_t>(kHazeColumns)
+        );
+        const uint64_t lane_bytes =
+            (static_cast<uint64_t>(reach.count) + static_cast<uint64_t>(picture.height)) *
+                sizeof(int32_t) +
+            static_cast<uint64_t>(shown.count);
+        const uint32_t lanes = scratch_lanes(pool, haze_bands, lane_bytes);
+        std::vector<std::vector<int32_t>> raw(lanes);
+        std::vector<std::vector<int32_t>> screen(lanes);
+        std::vector<std::vector<uint8_t>> black(lanes);
+        for (uint32_t lane = 0; lane < lanes; ++lane) {
+            raw[lane].assign(static_cast<std::size_t>(reach.count), -1);
+            screen[lane].assign(static_cast<std::size_t>(picture.height), -1);
+            black[lane].assign(static_cast<std::size_t>(shown.count), 0);
+        }
+        run_in_lanes(pool, haze_bands, lanes, [&](uint32_t band, uint32_t lane) {
+            const int32_t first = static_cast<int32_t>(band) * kHazeColumns;
+            const int32_t end = std::min(first + kHazeColumns, picture.width);
+            haze_columns(
+                picture,
+                stride,
+                field,
+                reach,
+                shown,
+                first,
+                end,
+                raw[lane],
+                screen[lane],
+                black[lane]
+            );
+        });
+    }
+    if (look.tilt_radius > 0) {
+        const std::size_t pixels =
+            static_cast<std::size_t>(picture.width) * static_cast<std::size_t>(picture.height);
+        std::vector<uint8_t> blurred(pixels * 3U);
+        blur_picture(picture, stride, look, blurred, pool);
+    }
 
     const uint32_t bands = oa::platform::job_pool::bands_of_rows(
         static_cast<uint32_t>(picture.height), static_cast<uint32_t>(kBandRows)

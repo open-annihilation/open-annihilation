@@ -12,6 +12,7 @@
 #include "renderer_effects.hpp"
 #include "graphics_report.hpp"
 #include "render_host.hpp"
+#include "photo_state.hpp"
 #include "render_run.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
@@ -23,6 +24,7 @@
 #include "oa/platform/job_pool.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/present/photo/looks.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/shared_views.hpp"
@@ -95,6 +97,19 @@ struct Runtime::LiveRenderer {
     renderer_live_camera::State camera{};
     renderer_live_camera::Matrix projection{};
     renderer_live_camera::View view{};
+    /// The ground under the middle of the window, from the frame before,
+    /// in world units. A larger photo uses this point rather than a pick
+    /// in its own pixels, which the frame before did not project.
+    bool focus_held{};
+    float focus_x{};
+    float focus_height{};
+    float focus_z{};
+    /// The picture the last frame projected, in pixels. A photo's own frame
+    /// at a larger size projects another picture than the window's, so the
+    /// frame after it, which puts the window back, does not pick the focus
+    /// from it.
+    int32_t projected_width{};
+    int32_t projected_height{};
     bool pivot_held{};
     /// The view aim_live_view_at_match replaced, put back by
     /// restore_live_ground, so a check's corner does not stay as the
@@ -530,6 +545,11 @@ bool Runtime::live_renderer_active() const noexcept {
             director_draws_on_card()) &&
            (full_presentation() || options_.headless_check) && live_renderer_ &&
            (live_renderer_->camera.yaw_degrees != 0 || live_renderer_->camera.pitch_degrees != 0);
+}
+
+bool Runtime::photo_card_keeps_depth() const noexcept {
+    return live_renderer_active() && live_renderer_ &&
+           renderer_live_gpu::draws_lights(live_renderer_->gpu);
 }
 
 std::string Runtime::photo_turn_reason() {
@@ -1263,6 +1283,68 @@ bool Runtime::render_live_match_surface() {
         if (photo_look_active() && !photo_picture_held() &&
             (photo_look_preview_due() || !photo_look_cpu_valid_))
             live.gpu.keep_on_card = false;
+        // The ground under the middle of the window, remembered for the
+        // depth pass. A photo drawn larger than the window keeps this point:
+        // its own picture was not what the frame before projected.
+        if (photo_mode() && photo_ != nullptr && !photo_capture_live_ &&
+            live.projected_width == match_layout_.width &&
+            live.projected_height == match_layout_.height) {
+            const float centre_x = static_cast<float>(match_layout_.left) +
+                                   static_cast<float>(match_layout_.width) * 0.5F;
+            const float centre_y = static_cast<float>(match_layout_.top) +
+                                   static_cast<float>(match_layout_.height) * 0.5F;
+            if (const auto ground_hit = live_ground_hit(centre_x, centre_y)) {
+                constexpr float fixed_scale = 65536.0F;
+                live.focus_x = static_cast<float>((*ground_hit)[0]) / fixed_scale;
+                live.focus_height = static_cast<float>((*ground_hit)[1]) / fixed_scale;
+                live.focus_z = static_cast<float>((*ground_hit)[2]) / fixed_scale;
+                live.focus_held = true;
+            }
+        }
+        renderer_live_gpu::DepthCue depth_cue{};
+        const renderer_live_gpu::DepthCue* depth_ptr = nullptr;
+        int drawn_blur = 0;
+        int drawn_haze = 0;
+        // Play, and a director's frames, pass no cue. A photo asks only
+        // while its depth of field or its haze is on.
+        if (photo_mode() && photo_ != nullptr) {
+            namespace photo = oa::present::photo;
+            const int dof = std::clamp(photo_->look_depth_of_field, 0, 32);
+            const int haze_amount = std::clamp(photo_->look_haze, 0, 100);
+            // A photo is drawn at its size times smooth edges' step, and
+            // reduced by the step after, so the blur in the drawn picture
+            // grows by both: the saved photo then matches the preview.
+            const int times = photo_capture_live_ ? std::clamp(photo_->size_factor, 1, 4) *
+                                                        std::clamp(photo_->smooth_factor, 1, 4)
+                                                  : 1;
+            const int blur_px = photo::photo_tilt_radius(dof, times);
+            const bool want_dof = blur_px > 0 && live.focus_held;
+            const bool want_haze = haze_amount > 0;
+            if (want_dof || want_haze) {
+                const auto& rows = live.projection;
+                const float gradient =
+                    std::sqrt(rows[8] * rows[8] + rows[9] * rows[9] + rows[10] * rows[10]);
+                const float step = std::max(gradient, 1.0e-4F);
+                const float focus = rows[8] * live.focus_x + rows[9] * live.focus_height +
+                                    rows[10] * live.focus_z + rows[11];
+                depth_cue.focus = focus;
+                depth_cue.range = want_dof ? 48.0F * step : 0.0F;
+                depth_cue.max_blur = want_dof ? static_cast<float>(blur_px) : 0.0F;
+                depth_cue.blur_scale = depth_cue.max_blur / std::max(400.0F * step, 1.0e-4F);
+                depth_cue.haze = static_cast<float>(haze_amount) / 100.0F;
+                const photo::HazeField air{};
+                depth_cue.haze_red = static_cast<float>(air.red) / 255.0F;
+                depth_cue.haze_green = static_cast<float>(air.green) / 255.0F;
+                depth_cue.haze_blue = static_cast<float>(air.blue) / 255.0F;
+                depth_cue.near_depth = live.focus_held ? focus : 0.0F;
+                depth_cue.depth_span = std::max(800.0F * step, 1.0e-3F);
+                depth_ptr = &depth_cue;
+                if (want_dof)
+                    drawn_blur = blur_px;
+                if (want_haze)
+                    drawn_haze = haze_amount;
+            }
+        }
         const auto model_draws =
             renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
         Span drawing(Stage::gpu_total);
@@ -1284,9 +1366,21 @@ bool Runtime::render_live_match_surface() {
                                         &ground,
                                         rebuild_picking,
                                         &card_lights,
-                                        &model_draws
+                                        &model_draws,
+                                        depth_ptr
                                     )
                                   : renderer_live_gpu::Result::failed;
+        live.projected_width = match_layout_.width;
+        live.projected_height = match_layout_.height;
+        if (photo_ != nullptr) {
+            if (result == renderer_live_gpu::Result::success && live.gpu.depth_drawn) {
+                photo_->card_dof_pixels = drawn_blur;
+                photo_->card_haze = drawn_haze;
+            } else {
+                photo_->card_dof_pixels = 0;
+                photo_->card_haze = 0;
+            }
+        }
         drawing.stop();
         bench_timers::note_supersample(live.gpu.actual_supersample);
         const auto& last = live.drawn;

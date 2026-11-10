@@ -460,7 +460,10 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   `view_of` reads a row's `RowView` from its spec and the model through the
   caller's text function; `place_rows` places a column of views,
   `rows_scroll` and `scroll` scroll it, and `add_rows` lists what the rows
-  draw and their controls, named `<prefix>.<id>`. A drop-down's items and a
+  draw and their controls, named `<prefix>.<id>`. A locked row's control
+  stays listed, disabled and out of Tab, with the lock's words as its
+  `description`, so that a screen reader hears the row and why it cannot
+  change; what is drawn does not change. A drop-down's items and a
   strip's levels have ids too, beside their captions: an index field's
   `choice_ids` (the `choice` factory that takes them) and a stepper's `id`
   function (`row_choice_id` reads either). `add_rows` gives a control its

@@ -90,6 +90,16 @@ inline constexpr std::string_view interface_words[] = {
     words::thin_border,
     words::vignette,
     words::wide_mat,
+    words::depth,
+    words::band_centre,
+    words::band_width,
+    words::blur,
+    words::tilt_note,
+    words::haze,
+    words::haze_note,
+    words::depth_of_field,
+    words::needs_full_3d,
+    words::no_depth,
 };
 
 } // namespace oa::ui::photo_panel

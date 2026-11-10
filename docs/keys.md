@@ -47,8 +47,13 @@ override, Status strip and Draw. Line build, Snap override and Draw are
 there while their hacks are on.
 
 A held key repeats only for a command the game marks as a repeat: panning
-the camera, the zoom keys, the build pages, and the game's speed, and,
-while those hacks are on, a building line's spacing and the rotate key.
+the camera, the zoom keys, the build pages, the game's speed, and the
+focus keys (Next button, Previous button, the focus arrows, the list
+keys, and Page up, Page down, Go to start and Go to end), and, while
+those hacks are on, a building line's spacing and the rotate key. A held
+focus key follows Key repeat delay and Key repeat rate only on the
+multiplayer screens and in the lobby's consoles. On every other screen it
+repeats at the system's pace.
 
 The [default keys](#the-default-keys) are what Open Annihilation ships,
 with no mod hack changing them. A hack's own commands, and the chords a
@@ -800,6 +805,14 @@ These answer while a replay plays, and not while a live game is watched. Slower 
 | Previous tab | `Ctrl+Shift+Tab` | `ui.screen-previous-tab` |
 
 ### Menus
+
+Next button, Previous button, the focus arrows and the list keys follow
+this layout on the original menus, the multiplayer screens, the battle
+room and the lobby. Open Annihilation's own screens use Next control,
+Previous control and the other commands under [Window](#window).
+Focus the panel's buttons and the twelve build cells ship with no key.
+During a match F6 is Go to bookmark 2.
+[Accessibility](accessibility.md#the-keyboard) is the full account.
 
 | Command | Default keys | Action |
 | --- | --- | --- |

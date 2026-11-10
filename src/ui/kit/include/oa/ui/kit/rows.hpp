@@ -1161,15 +1161,17 @@ struct RowsState {
 /// focus ring round the focused control (a buttons row's marked button). Then
 /// the rule under the last row. Every item takes the state's clip.
 ///
-/// A row with a control area and no lock adds one control, named
+/// A row with a control area adds one control, named
 /// <name_prefix>.<id> (a value_and_button row's <name_prefix>.<id>.<button
 /// id> when the button has a word; with no prefix, the id alone), of the
 /// row's kind (a value_and_button row's a button), taking steps unless it is
 /// a button or a link, enabled as its view says, in the state's group and
-/// clip. Its parts' words
+/// clip. A locked row is that same control, disabled and not a Tab stop,
+/// its lock's text the description; what is drawn is unchanged, and the
+/// drawn control stays none. Its parts' words
 /// (Control::parts) are a strip's levels' or a drop-down's items' ids, or a
-/// row of buttons' buttons' words. The enabled controls take Tab in the
-/// rows' order.
+/// row of buttons' buttons' words. The enabled, unlocked controls take Tab
+/// in the rows' order.
 ///
 /// @param[in,out] list the display list
 /// @param placed the rows

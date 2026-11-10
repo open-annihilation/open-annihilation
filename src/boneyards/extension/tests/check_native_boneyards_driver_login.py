@@ -22,6 +22,7 @@ import time
 # The engine's helper lives in tools/, as the other automation checks find it.
 _TOOLS = Path(__file__).resolve().parents[4] / "tools"
 sys.path.insert(0, str(_TOOLS))
+import native_offline  # noqa: E402
 import check_native_automation as automation  # noqa: E402
 
 # A made-up account. The replay answers the login whatever name and password

@@ -4029,7 +4029,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   writes it on its own thread, into the screenshots folder. The same check
   runs `--check-photo capture` (`native-photo-capture`,
   `native-photo-capture-basic`, `native-photo-capture-full`) and
-  `--check-photo live` (`native-photo-capture-live`).
+  `--check-photo live` (`native-photo-capture-live`) and
+  `--check-photo depth-live` (`native-photo-depth-live`).
   `--check-photo keys` (`native-photo-keys`) presses each photo command,
   then Take photo moved to K.
 - Director scripts ([docs/director.md](../../docs/director.md)):

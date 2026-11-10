@@ -1208,6 +1208,7 @@ void add_list(
     list_control.focusable = true;
     list_control.name = std::string(name_list);
     list_control.kind = kit::ControlKind::list;
+    list_control.label = show(editor.text(), words::keys);
     built.rest.push_back(std::move(list_control));
     built.tabs.push_back(controls::list);
 

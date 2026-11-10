@@ -161,6 +161,17 @@ void set_active(Mode mode, bool shape_cues_on) noexcept;
 /// @return the anchor
 [[nodiscard]] Rgb anchor_srgb(Mode mode, int player) noexcept;
 
+/// sRGB of one player's colour in the Settings preview.
+///
+/// A mode other than `off` is that mode's anchor (`anchor_srgb`). `off` is the
+/// game's own dot for that player, the stock palette entry the battlefield
+/// draws, not black.
+///
+/// @param mode colour-vision mode
+/// @param player player colour, 0 to 9; any other player returns black
+/// @return the colour the preview draws
+[[nodiscard]] Rgb preview_player_srgb(Mode mode, int player) noexcept;
+
 /// Anchor index in the stock palette. Achromatopsia repeats four levels across the ten players.
 ///
 /// @param mode colour-vision mode

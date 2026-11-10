@@ -890,6 +890,7 @@ OverlayLayout overlay_layout(
     list_control.rect = viewport;
     list_control.name = std::string(name_keys_overlay_list);
     list_control.kind = kit::ControlKind::list;
+    list_control.label = show(inputs.text, words::keys);
     // The keys reach the list, to scroll it, while it is taller than its view.
     list_control.focusable = scroll_max > 0;
     list_control.text = std::move(listed);

@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 132> kExpected{{
+constexpr std::array<Expected, 140> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -205,16 +205,24 @@ constexpr std::array<Expected, 132> kExpected{{
     {Setting::record_games, RowKind::toggle, "Record my games", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::keep_replays, RowKind::choice, "Keep replays for", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
     {Setting::open_replay_files, RowKind::toggle, "Open replay files with Open Annihilation", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::colour_vision, RowKind::choice, "Colour vision", 1, 1, 5, 248, 0, false, Lock::none, nullptr},
+    {Setting::shape_cues, RowKind::toggle, "Shape cues", 1, 1, 0, 0, 0, false, Lock::none, &Locks::shape_cues},
+    {Setting::colour_preview, RowKind::text, "Preview", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::screen_reader, RowKind::levels, "Screen reader", 1, 1, 3, 88, 3, false, Lock::none, nullptr},
+    {Setting::speak_chat, RowKind::levels, "Speak chat", 1, 1, 3, 90, 3, false, Lock::none, nullptr},
+    {Setting::speak_lobby, RowKind::toggle, "Speak lobby changes", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::speak_ticker, RowKind::toggle, "Speak the ticker", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::always_show_focus, RowKind::toggle, "Always show focus", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::open_replay_files) + 1,
+    kExpected.size() == static_cast<std::size_t>(Setting::always_show_focus) + 1,
     "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.
-constexpr std::array<Lock Locks::*, 18> kLockFields{
+constexpr std::array<Lock Locks::*, 19> kLockFields{
     &Locks::path_search,
     &Locks::unit_limit,
     &Locks::skirmish_players,
@@ -233,6 +241,7 @@ constexpr std::array<Lock Locks::*, 18> kLockFields{
     &Locks::unlocked_camera,
     &Locks::water_effects,
     &Locks::welcome_setup,
+    &Locks::shape_cues,
 };
 
 /// Returns a dialog of the engine's settings opened over the defaults.
@@ -548,7 +557,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 33> kStoredChoices{{
+constexpr std::array<StoredChoice, 36> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -582,6 +591,9 @@ constexpr std::array<StoredChoice, 33> kStoredChoices{{
     {Setting::look, settings::key::look},
     {Setting::update_channel, settings::key::update_channel},
     {Setting::keep_replays, settings::key::replays_keep},
+    {Setting::colour_vision, settings::key::colour_vision},
+    {Setting::screen_reader, settings::key::screen_reader},
+    {Setting::speak_chat, settings::key::speak_chat},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {
@@ -769,21 +781,23 @@ void tab_follows_the_dialogs_focus_order() {
     // follows the rows while a helper is on.
     settings::Dialog accessibility = controls;
     accessibility.page = settings::Page::accessibility;
-    OA_CHECK(
-        tab_order(accessibility) ==
-        with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
-    );
+    // Colour vision and Shape cues, then Screen reader through Always show
+    // focus. The preview row takes a number and no Tab stop. Overlay places
+    // stays out until Move overlays is on.
+    OA_CHECK(tab_order(accessibility) == with_footer_and_list({19, 20, 22, 23, 24, 25, 26,
+                                                               27, 28, 29, 30, 31, 32, 33,
+                                                               34, 35, 36, 37, 38, 39, 40}));
     accessibility.chosen.move_overlays = true;
-    OA_CHECK(
-        tab_order(accessibility) ==
-        with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33})
-    );
+    OA_CHECK(tab_order(accessibility) == with_footer_and_list({19, 20, 22, 23, 24, 25, 26, 27,
+                                                               28, 29, 30, 31, 32, 33, 34, 35,
+                                                               36, 37, 38, 39, 40, 41}));
     accessibility.chosen.move_overlays = false;
     accessibility.chosen.sticky_modifiers = true;
     OA_CHECK(
         tab_order(accessibility) ==
         with_footer_and_list(
-            {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, settings::helpers_off_control}
+            {19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+             31, 32, 33, 34, 35, 36, 37, 38, 39, 40, settings::helpers_off_control}
         )
     );
     // Graphics: the section list, then the rows. After zoom, locked while
@@ -935,6 +949,17 @@ void accessibility_captions_name_both_ends() {
     OA_CHECK(caption(Setting::order_wheel, 0) == "Off");
     OA_CHECK(caption(Setting::order_wheel, 1) == "Hold right");
     OA_CHECK(caption(Setting::order_wheel, 2) == "Hold middle");
+    OA_CHECK(caption(Setting::colour_vision, 0) == "Off");
+    OA_CHECK(caption(Setting::colour_vision, 1) == "Protanopia");
+    OA_CHECK(caption(Setting::colour_vision, 2) == "Deuteranopia");
+    OA_CHECK(caption(Setting::colour_vision, 3) == "Tritanopia");
+    OA_CHECK(caption(Setting::colour_vision, 4) == "Achromatopsia");
+    OA_CHECK(caption(Setting::screen_reader, 0) == "Automatic");
+    OA_CHECK(caption(Setting::screen_reader, 1) == "On");
+    OA_CHECK(caption(Setting::screen_reader, 2) == "Off");
+    OA_CHECK(caption(Setting::speak_chat, 0) == "Off");
+    OA_CHECK(caption(Setting::speak_chat, 1) == "Pages only");
+    OA_CHECK(caption(Setting::speak_chat, 2) == "All");
     const kit::RowView latch = kit::view_of(geometry::row_spec(Setting::latching), model, {});
     OA_CHECK(latch.value == "0 of 7");
     OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "Choose…");

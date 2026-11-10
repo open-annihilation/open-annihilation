@@ -104,6 +104,21 @@ constexpr Anchor kAchromatopsiaLevel[4] = {
 // The game's own ten dot indices. A team map sends each one to that colour's anchor.
 constexpr int kStockDotIndex[kPlayerCount] = {227, 212, 80, 235, 108, 219, 208, 93, 130, 67};
 
+// Those indices in the stock palette, as sRGB. The Settings preview draws
+// them while the mode is off. `anchor_srgb` has no colour for off.
+constexpr Rgb kStockPlayerRgb[kPlayerCount] = {
+    {23, 71, 231},
+    {211, 43, 0},
+    {251, 251, 251},
+    {27, 159, 19},
+    {7, 31, 123},
+    {127, 87, 159},
+    {255, 255, 0},
+    {43, 43, 43},
+    {155, 203, 223},
+    {171, 171, 131},
+};
+
 // The 32 palette indices the stock 3.1c maps draw most often.
 //
 // Each of the 275 maps the game ships (TNT version 0x2000) contributes every
@@ -514,6 +529,14 @@ Rgb anchor_srgb(Mode mode, int player) noexcept {
     if (mode == Mode::achromatopsia)
         return kAchromatopsiaLevel[player % 4].colour;
     return anchors_of(mode)[player].colour;
+}
+
+Rgb preview_player_srgb(Mode mode, int player) noexcept {
+    if (player < 0 || player >= kPlayerCount)
+        return {};
+    if (mode == Mode::off)
+        return kStockPlayerRgb[player];
+    return anchor_srgb(mode, player);
 }
 
 int stock_anchor_index(Mode mode, int player) noexcept {

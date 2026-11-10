@@ -541,6 +541,44 @@ struct Runtime::PhotoScreen final : LayerScreen {
         };
         const int frame_index = std::clamp(static_cast<int>(state.look_frame), 0, 3);
         model_.frame_value = looked_up(frame_keys[frame_index]);
+        model_.depth_page = state.look_depth;
+        model_.depth_label = looked_up(words::depth);
+        model_.band_centre_label = looked_up(words::band_centre);
+        model_.band_centre_stop = std::clamp(state.look_tilt_centre, 0, 100);
+        model_.band_centre_value = std::to_string(model_.band_centre_stop) + "%";
+        model_.band_width_label = looked_up(words::band_width);
+        const int band = std::clamp(state.look_tilt_width, 0, 160);
+        model_.band_width_stop = band / 2;
+        model_.band_width_value = std::to_string(model_.band_width_stop * 2);
+        model_.blur_label = looked_up(words::blur);
+        model_.blur_stop = std::clamp(state.look_tilt_radius, 0, 32);
+        model_.blur_value = std::to_string(model_.blur_stop);
+        model_.tilt_note = looked_up(words::tilt_note);
+        model_.haze_label = looked_up(words::haze);
+        model_.haze_stop = std::clamp(state.look_haze, 0, 100);
+        model_.haze_value = std::to_string(model_.haze_stop) + "%";
+        model_.depth_of_field_label = looked_up(words::depth_of_field);
+        model_.depth_of_field_stop = std::clamp(state.look_depth_of_field, 0, 32);
+        model_.depth_of_field_value = std::to_string(model_.depth_of_field_stop);
+        // The classic view hazes by height and locks depth of field. The
+        // turned view uses the same haze slider for distance from the camera,
+        // and depth of field, while the card keeps that depth. A card that
+        // keeps none locks both and says why.
+        const bool turned = runtime_.live_renderer_active();
+        const bool keeps_depth = runtime_.photo_card_keeps_depth();
+        if (!turned) {
+            model_.haze_note = looked_up(words::haze_note);
+            model_.haze_lock.clear();
+            model_.depth_of_field_lock = looked_up(words::needs_full_3d);
+        } else if (!keeps_depth) {
+            model_.haze_note.clear();
+            model_.haze_lock = looked_up(words::no_depth);
+            model_.depth_of_field_lock = looked_up(words::no_depth);
+        } else {
+            model_.haze_note.clear();
+            model_.haze_lock.clear();
+            model_.depth_of_field_lock.clear();
+        }
         model_.caption_clear = 0;
         if (state.look_frame == static_cast<uint8_t>(photo::Frame::caption)) {
             // The bar lies at the bottom of what the photo keeps: the crop a
@@ -913,6 +951,37 @@ struct Runtime::PhotoScreen final : LayerScreen {
             break;
         case panel::Command::cycle_frame:
             state->look_frame = static_cast<uint8_t>((static_cast<int>(state->look_frame) + 1) % 4);
+            break;
+        case panel::Command::toggle_depth:
+            state->look_depth = !state->look_depth;
+            if (state->look_depth && !state->section_look) {
+                state->section_look = true;
+                if (runtime_.touch_controls_active()) {
+                    state->section_camera = false;
+                    state->section_time = false;
+                    state->section_capture = false;
+                    const int32_t row = model_.touch_row > 44 ? model_.touch_row : 44;
+                    const int32_t gap = std::max(int32_t{2}, row / 11);
+                    scroll_ = 2 * (row + gap);
+                }
+            }
+            break;
+        case panel::Command::set_band_centre:
+            state->look_tilt_centre = std::clamp(press.value, 0, 100);
+            break;
+        case panel::Command::set_band_width:
+            state->look_tilt_width = std::clamp(press.value, 0, 80) * 2;
+            break;
+        case panel::Command::set_blur:
+            state->look_tilt_radius = std::clamp(press.value, 0, 32);
+            break;
+        case panel::Command::set_haze:
+            if (!runtime_.live_renderer_active() || runtime_.photo_card_keeps_depth())
+                state->look_haze = std::clamp(press.value, 0, 100);
+            break;
+        case panel::Command::set_depth_of_field:
+            if (runtime_.photo_card_keeps_depth())
+                state->look_depth_of_field = std::clamp(press.value, 0, 32);
             break;
         case panel::Command::set_size:
             runtime_.set_photo_size_factor(press.value);

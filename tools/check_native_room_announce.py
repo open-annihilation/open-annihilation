@@ -26,6 +26,7 @@ import threading
 import time
 
 import check_native_net_options as net
+import native_offline
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 # Seconds the host may take to reach the battle room, or to speak the join.
@@ -37,7 +38,7 @@ SETTLE_SECONDS = 3
 # Words neither side may hear for the join alone.
 NOT_CHANGES = ("An option changed", "changed colour", "Hoster joined")
 PREFERENCES = (
-    "open-annihilation-preferences 1\n"
+    "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
     '"multiplayer|tcpaddr" "192.0.2.7"\n'
     '"open-annihilation.access.screen-reader" "on"\n'
     '"open-annihilation.access.speak-chat" "all"\n'

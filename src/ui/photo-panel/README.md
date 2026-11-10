@@ -53,7 +53,17 @@ row, so the reach does not take Leave or Take photo across that part.
 - A folded section's controls are not in the list. Tab follows the sections
   that are open. Clock, Size and File are words in their sections, not stops
   on that walk. Run, Slow and Freeze are one strip, and the mode that is on
-  is lit. A section header says whether it is expanded.
+  is lit. A section header says whether it is expanded. Depth shares Look's
+  header row and opens that section's other page: a tilt-shift, haze and
+  depth of field, in place of the grade. The tilt note says the blur
+  follows the screen row. The haze note says it follows the ground. In the
+  turned view the same haze slider hazes by distance from the camera, with
+  no note, and Depth of field takes the rows the note took. The classic
+  view locks Depth of field, and its reason says it needs the full 3D mode.
+  A card that keeps no depth locks both, and says so. The notes and
+  reasons wrap onto as many rows as they need and are drawn whole, as the
+  size row's reason is. On a touch layout Depth is at least as wide as a
+  finger's row.
 - A locked control stays reachable. Its reason is on the next line, and the
   full reason is the control's text. The zoom's track stays wide enough to
   use; the tier's limit is that next line, only at the far stop.

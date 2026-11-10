@@ -31,6 +31,11 @@ import sys
 import threading
 import time
 import zipfile
+from pathlib import Path
+_OA_TOOLS = Path(__file__).resolve().parents[4] / "tools"
+if str(_OA_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_OA_TOOLS))
+import native_offline  # noqa: E402
 
 HOSTED = "boneyards launch check: the battle room is hosted"
 PASSED = "boneyards launch check: passed"
@@ -49,6 +54,24 @@ HOST_KEY = "aabbccdd"
 JOIN_KEY = "11223344"
 # The launch record, without the "launch " word, must fit Rover's record buffer.
 RECORD_LIMIT = 1024
+
+
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding='utf-8') if target.is_file() else 'open-annihilation-preferences 1\n'
+    if 'open-annihilation.update-check' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.update-check" "never"\n'
+    if 'open-annihilation.content-updates' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding='utf-8')
 
 
 def free_udp_port():
@@ -89,6 +112,7 @@ class Side:
         self.direct = None
         directory = os.path.join(args.work, role)
         os.makedirs(directory, exist_ok=True)
+        _offline_preferences(os.path.join(directory, "%s.conf" % role))
         self.process = subprocess.Popen(
             side_command(args, role), cwd=directory, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, errors="replace")

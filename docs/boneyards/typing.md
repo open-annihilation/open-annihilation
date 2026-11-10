@@ -19,8 +19,8 @@ player has moved one of the commands above onto F6. Nor is Tab, an arrow,
 Home, End or a page key held with Ctrl: whatever the layout, it does what
 it does with the default layout. Ctrl+Left and Ctrl+Right still move a
 field's caret by a word. A focus key held down repeats its move at the
-system's pace, as before, even when the player has set a repeat delay and
-rate of their own.
+player's repeat delay and rate. Left at the system's, it repeats at the
+system's pace.
 
 | Screen | Field |
 | --- | --- |

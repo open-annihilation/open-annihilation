@@ -196,6 +196,16 @@ void check_preferences() {
     OA_CHECK(vision::parse_mode("1") == vision::Mode::off);
     OA_CHECK(vision::mode_name(vision::Mode::tritanopia) == "tritanopia");
     OA_CHECK(vision::mode_name(vision::Mode::off) == "off");
+    const vision::Rgb stock = vision::preview_player_srgb(vision::Mode::off, 0);
+    OA_CHECK(stock.red == 23 && stock.green == 71 && stock.blue == 231);
+    OA_CHECK(vision::preview_player_srgb(vision::Mode::off, -1).red == 0);
+    OA_CHECK(vision::preview_player_srgb(vision::Mode::off, vision::kPlayerCount).blue == 0);
+    const vision::Rgb preview = vision::preview_player_srgb(vision::Mode::protanopia, 3);
+    const vision::Rgb anchor = vision::anchor_srgb(vision::Mode::protanopia, 3);
+    OA_CHECK(
+        preview.red == anchor.red && preview.green == anchor.green && preview.blue == anchor.blue
+    );
+    OA_CHECK(vision::anchor_srgb(vision::Mode::off, 0).red == 0);
     OA_CHECK(vision::shape_cues_preference("1"));
     OA_CHECK(vision::shape_cues_preference("2"));
     OA_CHECK(!vision::shape_cues_preference("0"));
@@ -325,6 +335,15 @@ void check_installed_game() {
     if (palette_file.size() < static_cast<std::size_t>(vision::kPaletteColours) * 4U)
         return;
     const std::span<const uint8_t> palette(palette_file.data(), palette_file.size());
+    // Off's preview is the stock player dots, the same bytes the palette holds.
+    constexpr int stock_dots[] = {227, 212, 80, 235, 108, 219, 208, 93, 130, 67};
+    for (int player = 0; player < vision::kPlayerCount; ++player) {
+        const vision::Rgb preview = vision::preview_player_srgb(vision::Mode::off, player);
+        const std::size_t at = static_cast<std::size_t>(stock_dots[player]) * 4U;
+        OA_CHECK(preview.red == palette[at]);
+        OA_CHECK(preview.green == palette[at + 1]);
+        OA_CHECK(preview.blue == palette[at + 2]);
+    }
     // Each dichromat anchor is at L* 15 or lighter, and the least gap from the
     // terrain under both eyes is as large as the palette then allows. The floor
     // is the gap these anchors keep. Achromatopsia's four levels cannot sit

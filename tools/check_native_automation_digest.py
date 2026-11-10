@@ -35,6 +35,7 @@ import sys
 import tempfile
 import threading
 import time
+import native_offline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_native_automation as automation  # noqa: E402
@@ -70,12 +71,31 @@ class DigestFailure(Exception):
     """A behaviour that differs from the expected one."""
 
 
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding='utf-8') if target.is_file() else 'open-annihilation-preferences 1\n'
+    if 'open-annihilation.update-check' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.update-check" "never"\n'
+    if 'open-annihilation.content-updates' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding='utf-8')
+
+
 def environment():
     return dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
                 SDL_RENDER_DRIVER="software")
 
 
 def common_arguments(game_dir, workdir, name):
+    _offline_preferences(workdir / f"{name}.conf")
     return ["--game-dir", str(game_dir), "--skip-intro", "--mute",
             "--preferences-file", str(workdir / f"{name}.conf"),
             "--user-folder", str(workdir / f"{name}-user")]

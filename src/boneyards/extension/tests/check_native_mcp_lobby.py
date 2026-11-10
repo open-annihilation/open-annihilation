@@ -33,6 +33,7 @@ import time
 
 _TOOLS = Path(__file__).resolve().parents[4] / "tools"
 sys.path.insert(0, str(_TOOLS))
+import native_offline  # noqa: E402
 import check_native_automation as automation  # noqa: E402
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
@@ -1257,11 +1258,15 @@ def run_game(native, game_dir, mod_dir, replay, scratch, drive, extra_args=None)
     with tempfile.TemporaryDirectory(prefix="mcp-lobby-", dir=root) as work:
         workdir = Path(work)
         preferences = workdir / "automation.PREFERENCES"
-        preferences.write_text(automation.PREFERENCES, encoding="utf-8")
+        # Every launch here enters the Boneyards with -y, which stops when both online
+        # checks are never: the catalogue is read only when the Library opens.
+        preferences.write_text(automation.entry_preferences(automation.PREFERENCES), encoding="utf-8")
         log_dir = workdir / "logs"
         user_folder = workdir / "user"
+        data_folder = workdir / "data"
         log_dir.mkdir()
         user_folder.mkdir()
+        data_folder.mkdir()
         environment = dict(os.environ)
         environment.pop("OA_BY_USER", None)
         environment.pop("OA_BY_PASSWORD", None)
@@ -1287,6 +1292,8 @@ def run_game(native, game_dir, mod_dir, replay, scratch, drive, extra_args=None)
             str(log_dir),
             "--user-folder",
             str(user_folder),
+            "--data-dir",
+            str(data_folder),
         ]
         if extra_args:
             command.extend(extra_args)

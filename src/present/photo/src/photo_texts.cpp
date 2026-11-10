@@ -338,10 +338,40 @@ std::string record_text(const PhotoFacts& facts, const std::string& clock) {
         writer.key("frame");
         writer.string(facts.look->frame.empty() ? "none" : game_utf8(facts.look->frame));
         writer.key("tilt_shift");
-        if (facts.look->tilt_shift.has_value())
-            writer.integer(*facts.look->tilt_shift);
+        if (facts.look->tilt_shift.has_value()) {
+            const TiltShiftFact& tilt = *facts.look->tilt_shift;
+            writer.begin_object();
+            writer.key("centre");
+            writer.integer(tilt.centre);
+            writer.key("width");
+            writer.integer(tilt.width);
+            writer.key("width_pixels");
+            writer.integer(tilt.width_pixels);
+            writer.key("radius");
+            writer.integer(tilt.radius);
+            writer.key("radius_pixels");
+            writer.integer(tilt.radius_pixels);
+            writer.end_object();
+        } else {
+            writer.null();
+        }
+        writer.key("haze");
+        if (facts.look->haze.has_value())
+            writer.integer(*facts.look->haze);
         else
             writer.null();
+        writer.key("depth_of_field");
+        if (facts.look->depth_of_field.has_value()) {
+            const DepthOfFieldFact& field = *facts.look->depth_of_field;
+            writer.begin_object();
+            writer.key("radius");
+            writer.integer(field.radius);
+            writer.key("radius_pixels");
+            writer.integer(field.radius_pixels);
+            writer.end_object();
+        } else {
+            writer.null();
+        }
         writer.end_object();
     }
     writer.key("size");

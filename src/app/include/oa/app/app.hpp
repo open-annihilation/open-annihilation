@@ -211,6 +211,10 @@ enum class PhotoGroup : uint8_t {
     looks,
     /// a photo of a replay: stepping, the framed view, and the recording in the file
     replay,
+    /// a Full photo drawn in tiles, matching one drawn whole
+    tiles,
+    /// a turned photo with depth of field, one with haze, and that frame with both off
+    depth_live,
 };
 
 /// A renderer failure --render-fault forces in --check-renderer-ladder.

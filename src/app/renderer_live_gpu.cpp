@@ -199,11 +199,16 @@ struct LightResources {
     SDL_GPUShader* vertex_shader{}; ///< the resolve's triangle
     SDL_GPUShader* fragment_shader{};
     SDL_GPUGraphicsPipeline* pipeline{};
+    /// Depth of field and haze, a pass over the picture after the lights.
+    SDL_GPUShader* depth_shader{};
+    SDL_GPUGraphicsPipeline* depth_pipeline{};
     /// The surface, its depth and the picture with the lights, at the
-    /// picture's size.
+    /// picture's size. `cued` is that picture after the depth pass, made
+    /// only while a frame asks for the pass.
     SDL_GPUTexture* surface{};
     SDL_GPUTexture* surface_depth{};
     SDL_GPUTexture* lit{};
+    SDL_GPUTexture* cued{};
     SDL_GPUTexture* table{}; ///< a row of texels_per_light texels a light
     SDL_GPUTexture* tiles{}; ///< a texel of words_per_tile words a tile
     SDL_GPUTransferBuffer* upload{};
@@ -226,13 +231,13 @@ struct LightResources {
     ~LightResources() {
         if (!device)
             return;
-        for (SDL_GPUGraphicsPipeline* made : {surface_pipeline, pipeline})
+        for (SDL_GPUGraphicsPipeline* made : {surface_pipeline, pipeline, depth_pipeline})
             if (made)
                 SDL_ReleaseGPUGraphicsPipeline(device, made);
-        for (SDL_GPUShader* made : {surface_shader, vertex_shader, fragment_shader})
+        for (SDL_GPUShader* made : {surface_shader, vertex_shader, fragment_shader, depth_shader})
             if (made)
                 SDL_ReleaseGPUShader(device, made);
-        for (SDL_GPUTexture* made : {surface, surface_depth, lit, table, tiles})
+        for (SDL_GPUTexture* made : {surface, surface_depth, lit, cued, table, tiles})
             if (made)
                 SDL_ReleaseGPUTexture(device, made);
         if (upload)
@@ -306,6 +311,54 @@ void make_light_surface_pipeline(
     lights.surface_pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
 }
 
+/// Makes the surface, its depth and the lit picture for a picture of width
+/// by height, releasing a depth-pass picture of another size with them.
+///
+/// @return false where any of it cannot be made
+bool ensure_light_picture(LightResources& lights, uint32_t width, uint32_t height) {
+    SDL_GPUDevice* const device = lights.device;
+    if (!device)
+        return false;
+    if (width == lights.width && height == lights.height && lights.surface &&
+        lights.surface_depth && lights.lit)
+        return true;
+    for (SDL_GPUTexture** made :
+         {&lights.surface, &lights.surface_depth, &lights.lit, &lights.cued}) {
+        if (*made)
+            SDL_ReleaseGPUTexture(device, *made);
+        *made = nullptr;
+    }
+    lights.width = lights.height = 0;
+    lights.surface = create_texture(
+        device,
+        width,
+        height,
+        light_surface_format,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+    );
+    lights.surface_depth = create_texture(
+        device,
+        width,
+        height,
+        SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+        SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+    );
+    // Read as well as drawn, so that what is drawn over it next can be
+    // drawn on the card.
+    lights.lit = create_texture(
+        device,
+        width,
+        height,
+        SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+    );
+    if (!lights.surface || !lights.surface_depth || !lights.lit)
+        return false;
+    lights.width = width;
+    lights.height = height;
+    return true;
+}
+
 /// Makes what the frame's lights need for a picture of width by height, and
 /// copies the packed lights into the upload.
 ///
@@ -313,7 +366,8 @@ void make_light_surface_pipeline(
 bool prepare_lights(LightResources& lights, uint32_t width, uint32_t height) {
     SDL_GPUDevice* const device = lights.device;
     if (!lights.pipeline) {
-        lights.vertex_shader = create_shader(device, true, true);
+        if (!lights.vertex_shader)
+            lights.vertex_shader = create_shader(device, true, true);
         SDL_GPUShaderCreateInfo info{};
         stage_code(device, info, live_lights_fragment_spirv, live_lights_fragment_msl);
         info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
@@ -345,41 +399,8 @@ bool prepare_lights(LightResources& lights, uint32_t width, uint32_t height) {
         if (!lights.table)
             return false;
     }
-    if (width != lights.width || height != lights.height) {
-        for (SDL_GPUTexture** made : {&lights.surface, &lights.surface_depth, &lights.lit}) {
-            if (*made)
-                SDL_ReleaseGPUTexture(device, *made);
-            *made = nullptr;
-        }
-        lights.width = lights.height = 0;
-        lights.surface = create_texture(
-            device,
-            width,
-            height,
-            light_surface_format,
-            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
-        );
-        lights.surface_depth = create_texture(
-            device,
-            width,
-            height,
-            SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
-            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
-        );
-        // Read as well as drawn, so that what is drawn over it next can be
-        // drawn on the card.
-        lights.lit = create_texture(
-            device,
-            width,
-            height,
-            SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
-        );
-        if (!lights.surface || !lights.surface_depth || !lights.lit)
-            return false;
-        lights.width = width;
-        lights.height = height;
-    }
+    if (!ensure_light_picture(lights, width, height))
+        return false;
     const auto& packed = lights.packed;
     if (packed.tiles_across != lights.tiles_across || packed.tiles_down != lights.tiles_down) {
         if (lights.tiles)
@@ -1287,6 +1308,102 @@ bool draw_lights(
     return true;
 }
 
+/// Makes the depth pass for a picture of width by height: its pipeline, the
+/// lights' surface, and the picture it draws into.
+///
+/// @return false where any of it cannot be made
+bool prepare_depth(LightResources& lights, uint32_t width, uint32_t height) {
+    SDL_GPUDevice* const device = lights.device;
+    if (!device)
+        return false;
+    if (!lights.depth_pipeline) {
+        if (!lights.vertex_shader)
+            lights.vertex_shader = create_shader(device, true, true);
+        if (!lights.depth_shader) {
+            SDL_GPUShaderCreateInfo info{};
+            stage_code(device, info, live_depth_fragment_spirv, live_depth_fragment_msl);
+            info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+            info.num_samplers = 2;
+            info.num_uniform_buffers = 1;
+            lights.depth_shader = SDL_CreateGPUShader(device, &info);
+        }
+        if (!lights.vertex_shader || !lights.depth_shader)
+            return false;
+        SDL_GPUColorTargetDescription target{};
+        target.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        SDL_GPUGraphicsPipelineCreateInfo pipeline_info{};
+        pipeline_info.vertex_shader = lights.vertex_shader;
+        pipeline_info.fragment_shader = lights.depth_shader;
+        pipeline_info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        pipeline_info.target_info.color_target_descriptions = &target;
+        pipeline_info.target_info.num_color_targets = 1;
+        lights.depth_pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipeline_info);
+        if (!lights.depth_pipeline)
+            return false;
+    }
+    if (!ensure_light_picture(lights, width, height))
+        return false;
+    if (!lights.cued) {
+        lights.cued = create_texture(
+            device,
+            width,
+            height,
+            SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        if (!lights.cued)
+            return false;
+    }
+    return true;
+}
+
+/// Draws depth of field and haze into the cued picture. Each sample is hazed
+/// by its own depth, then averaged over the centre pixel's blur.
+///
+/// @param picture the picture as the scene, or the lights, left it
+/// @param cue the frame's focus, blur and haze
+/// @return false where the pass cannot begin
+bool draw_depth(
+    const LightResources& lights,
+    SDL_GPUCommandBuffer* command,
+    SDL_GPUTexture* picture,
+    SDL_GPUSampler* sampler,
+    uint32_t output_width,
+    uint32_t output_height,
+    const DepthCue& cue
+) {
+    SDL_GPUColorTargetInfo target{};
+    target.texture = lights.cued;
+    target.load_op = SDL_GPU_LOADOP_DONT_CARE;
+    target.store_op = SDL_GPU_STOREOP_STORE;
+    const std::array<float, 12> parameters{
+        cue.focus,
+        cue.range,
+        cue.blur_scale,
+        cue.max_blur,
+        cue.haze,
+        cue.haze_red,
+        cue.haze_green,
+        cue.haze_blue,
+        cue.near_depth,
+        std::max(cue.depth_span, 1.0e-6F),
+        float(output_width) - 1.0F,
+        float(output_height) - 1.0F
+    };
+    SDL_PushGPUFragmentUniformData(command, 0, parameters.data(), sizeof(parameters));
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(command, &target, 1, nullptr);
+    if (!pass)
+        return false;
+    SDL_BindGPUGraphicsPipeline(pass, lights.depth_pipeline);
+    const std::array<SDL_GPUTextureSamplerBinding, 2> sources{
+        {{picture, sampler}, {lights.surface, sampler}}
+    };
+    SDL_BindGPUFragmentSamplers(pass, 0, sources.data(), static_cast<Uint32>(sources.size()));
+    SDL_DrawGPUPrimitives(pass, vertices_per_triangle, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+    return true;
+}
+
 /// The overlay's texels: the canvas's colours as ARGB8888 words, the
 /// operations' and the lists' words, and the palette and the gamma.
 constexpr SDL_GPUTextureFormat overlay_canvas_format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;
@@ -1667,11 +1784,13 @@ Result render(
     const KeptGround* ground,
     const std::function<void()>& while_drawing,
     const Lights* lights,
-    const ModelDraws* models
+    const ModelDraws* models,
+    const DepthCue* depth
 ) {
     output_rgba.clear();
     error.clear();
     context.kept_on_card = false;
+    context.depth_drawn = false;
     context.state->picture = nullptr;
     if (!valid_dimensions(texture_width, texture_height) ||
         !valid_dimensions(output_width, output_height) || vertices.empty() ||
@@ -2090,8 +2209,16 @@ Result render(
                          prepare_lights(lights_held, output_width, output_height);
     }
     const bool lit = lights_on_card && lights_held.packed.count != 0;
+    // Depth of field and haze read the same surface. A card without it is
+    // left as the lights left the picture: the processor does not stand in.
+    const bool depth_asked = depth != nullptr && context.lights_allowed &&
+                             lights_held.surface_pipeline != nullptr &&
+                             (depth->max_blur > 0.0F || depth->haze > 0.0F);
+    const bool depth_ready = depth_asked && prepare_depth(lights_held, output_width, output_height);
+    if (depth_asked && !depth_ready)
+        return fail("Create live GPU depth");
     // The picture stays on the card unless its lights are the caller's to
-    // add, which takes it back.
+    // add, which takes it back. A depth cue on its own does not read it back.
     const bool keep = context.keep_on_card && (lights == nullptr || lights_on_card);
     bench_timers::count_atlas_upload(
         upload_rows + frame_upload_rows, upload_rows == texture_height
@@ -2382,20 +2509,21 @@ Result render(
         shadowed ? models->shadow_vertex : 0
     );
     SDL_EndGPURenderPass(pass);
-    // The surface the lights reach, from the same vertices.
-    if (lit && !draw_light_surface(
-                   lights_held,
-                   resources.command,
-                   camera,
-                   resources.atlas,
-                   resources.sampler,
-                   resources.ground,
-                   ground_count,
-                   resources.vertices,
-                   frame_vertices.size(),
-                   modelled ? &models_held : nullptr,
-                   runs
-               ))
+    // The surface the lights reach, from the same vertices. A depth cue with
+    // no lights still draws it: the cue reads the depth the lights would.
+    if ((lit || depth_ready) && !draw_light_surface(
+                                    lights_held,
+                                    resources.command,
+                                    camera,
+                                    resources.atlas,
+                                    resources.sampler,
+                                    resources.ground,
+                                    ground_count,
+                                    resources.vertices,
+                                    frame_vertices.size(),
+                                    modelled ? &models_held : nullptr,
+                                    runs
+                                ))
         return fail("Begin live GPU lights' surface");
     if (supersample > 1) {
         SDL_GPUColorTargetInfo target{};
@@ -2423,12 +2551,29 @@ Result render(
             lights_held, resources.command, picture, resources.sampler, output_width, output_height
         ))
         return fail("Begin live GPU lights");
+    const bool depth_ran = depth_ready && draw_depth(
+                                              lights_held,
+                                              resources.command,
+                                              lit ? lights_held.lit : picture,
+                                              resources.sampler,
+                                              output_width,
+                                              output_height,
+                                              *depth
+                                          );
+    if (depth_ready && !depth_ran)
+        return fail("Begin live GPU depth");
+    SDL_GPUTexture* shown = picture;
+    if (lit)
+        shown = lights_held.lit;
+    if (depth_ran)
+        shown = lights_held.cued;
     const auto succeed = [&] {
-        state.picture = lit ? lights_held.lit : picture;
+        state.picture = shown;
         context.actual_supersample = supersample;
         context.actual_multisample = samples;
         bench_timers::note_multisample(samples);
         context.lights_drawn = lights_on_card;
+        context.depth_drawn = depth_ran;
         state.atlas_revision = atlas_revision;
         state.atlas_uploaded = true;
         if (ground_bytes != 0) {
@@ -2455,9 +2600,7 @@ Result render(
     copy = SDL_BeginGPUCopyPass(resources.command);
     if (!copy)
         return fail("Begin live GPU download");
-    const SDL_GPUTextureRegion colour_region{
-        lit ? lights_held.lit : picture, 0, 0, 0, 0, 0, output_width, output_height, 1
-    };
+    const SDL_GPUTextureRegion colour_region{shown, 0, 0, 0, 0, 0, output_width, output_height, 1};
     const SDL_GPUTextureTransferInfo download_destination{
         resources.download, 0, output_width, output_height
     };

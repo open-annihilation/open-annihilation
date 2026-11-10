@@ -1100,6 +1100,12 @@ void desktop_set_capture(Desktop* desktop, Window* window) {
     desktop->capture = window;
 }
 
+void desktop_note_service_ring(Desktop* desktop, int shown) {
+    if (desktop == nullptr)
+        return;
+    desktop->keyboard_ring = shown != 0 ? 1 : 0;
+}
+
 bool desktop_route(Desktop* desktop, const Message* msg) {
     if (msg == nullptr) {
         return false;
