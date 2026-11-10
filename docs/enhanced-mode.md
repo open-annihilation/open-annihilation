@@ -738,6 +738,63 @@ movement and combat workload prevent a causal comparison with the earlier
 version-4 timing. A previous attempt lost focus at tick 1,205 and is
 excluded. These measurements precede the later minimap and recording changes.
 
+## Experimental distributed battle flow (version 7)
+
+Version 7 retains version 6's patrol, retargeting and swept-movement rules.
+The supplied default remains version 4. Off and versions 1–6 keep their
+previous behavior; an existing save's resolved commands are not redistributed.
+Select version 7 explicitly with `rules_version 7` in a gameplay benchmark
+or `--benchmark-rules-version 7` in the native simulation benchmark.
+
+Group commands resolve every member before issuing any order. Usable raw
+formation points stay exact, including Y. Their complete native arrival
+footprints are reserved first; only repaired destinations receive other
+arrival spaces in a bounded, click-connected static component. Mobile
+occupants do not enter this static placement check. Its canonical static
+knowledge matches version 6 and is distinct from unknown-is-clear routing.
+Connectivity to the click does not establish a route from each actor.
+Unsupported classes, exhausted work or insufficient space retain the previous
+fallback, with explicit assignment and exhaustion counts.
+
+The stock 20,000-unit scene preserves 12,314 usable points and assigns all
+7,686 repairs without exhaustion, using one movement class and 312,736 bytes
+of scratch per command. Placement legality alone does not establish flow:
+the first pilot still reduced rear progress. Movement measurements must keep
+the original rear cohorts, report changing goal episodes, and distinguish
+geometric goal gaps from actual route distance.
+
+Built-in rally moves retain an existing, owned, nonterminal ground march,
+including a patrol's waiting phase and complete queued return leg. Idle,
+arrived, interrupted and unsupported orders still receive normal rally
+commands. Built-in strikes also retain an unchanged live-target chase.
+Manual commands and custom controllers keep their existing command semantics.
+New strike recruitment is limited to 256 members per dispatch, including a
+new group's seed. Existing members are not truncated. This spreads admission
+cost at the expense of slower assimilation; it does not cap every future
+large-group retarget. These policies add no persistent scheduler or save table.
+
+In the measured 1,800-tick scene, the original tick-300 rally issues 9,979
+moves to one centroid and consumes 68.69 ms inside an 87.48 ms tick. Retaining
+the actual waiting patrols reduces that rally work to 0.65 ms and the tick to
+17.39 ms. Later recruitment bursts still require separate measurement.
+
+### Independent rendering work
+
+The normal renderer's performance changes apply with Enhanced Mode Off or On.
+Frame-local effect and light-mask atlas rows keep transient image variants
+from repeatedly evicting retained ground. In the matched rules-6 Metal
+diagnostic, atlas resets and ground revisions fall from 21 to zero; observed
+FPS rises from 27.263 to 28.948 and frame p99 falls from 138.75 to 83.20 ms.
+These runs use the same camera and graphics choices, without recording or
+readback in the timed span. They do not establish 60 FPS or smooth movement.
+
+Retained ground can also retain its spatial indices when geometry revision,
+cuts, axes, triangle count and floating-point control agree. Pose capture
+reads the three turn rates together and compares pieces while copying them,
+without delaying capture or changing interpolation history. CPU reference
+tests and windowless Metal comparisons check image equivalence; performance
+must still be measured in the full battle. Ray tracing remains deferred.
+
 ## Remaining work
 
 1. Measure simulation phases and AI work separately. Reduce the long ticks
