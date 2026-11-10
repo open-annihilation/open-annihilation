@@ -18,6 +18,7 @@ namespace oa::sim::match_runtime {
 namespace {
 constexpr uint8_t ground_occupancy = 1;
 constexpr int32_t live_route_corner_version = 3;
+constexpr uint32_t stagnant_footprint_ticks = sim::unit_movement::local_flow_retry_ticks * 2;
 
 /// Identifies goal geometry without retaining order pointers or native padding.
 ///
@@ -309,9 +310,19 @@ void TickHost::movement_tick(oa::Unit& record) {
                     const auto own_progress = s.unit_index < probe.progress_at_tick_start.size()
                                                   ? probe.progress_at_tick_start[s.unit_index]
                                                   : g.movement.last_motion_tick;
+                    // Repeated subcell motion does not release an occupied
+                    // footprint. Keep the ordinary motion gate and allow a
+                    // later escape after two complete recovery periods.
+                    const bool stagnant_footprint =
+                        u.object_present &&
+                        match.rules().setup.enhanced_mode.version ==
+                            data::enhanced_mode::distributed_battle_flow_version &&
+                        match.simulation_.tick - g.occupancy_changed_tick >=
+                            stagnant_footprint_ticks;
                     probe.recovery_yield =
-                        recover && match.simulation_.tick - own_progress >=
-                                       sim::unit_movement::local_flow_retry_ticks;
+                        recover && (match.simulation_.tick - own_progress >=
+                                        sim::unit_movement::local_flow_retry_ticks ||
+                                    stagnant_footprint);
                     probe.at = [](void* context,
                                   const sim::unit_movement::Unit& moving,
                                   std::array<int16_t, 2> cell,
