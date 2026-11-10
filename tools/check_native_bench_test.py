@@ -385,6 +385,35 @@ class NativeBenchReceiptTest(unittest.TestCase):
             lines.insert(index, summary)
             self.assert_rejected(result_for("\n".join(lines) + "\n"), bench.check_lines, True)
 
+    def test_timers_off_frame_logs_allow_only_unmeasured_renderer_rows(self):
+        """Paused frame-log validation accepts complete zero rows without stage summaries."""
+        lines = []
+        for line in renderer_transcript().splitlines():
+            tag = line.split()[1]
+            if tag in (*RENDERER_FAMILIES, "STAGE", "SLOW") or tag.startswith("GROUND_INDEX_BUILD_"):
+                continue
+            if tag == "GROUND_INDEX_FRAME":
+                line = f"bench: {tag} {line.split()[2]} builds 0 hits 0 triangles 0 wall_ms 0.000"
+            elif tag == "POSE_FRAME":
+                line = f"bench: {tag} {line.split()[2]} units 0 pieces 0 vm_triplets 0"
+            elif tag == "MATERIAL_FRAME":
+                line = f"bench: {tag} {line.split()[2]} {line.split()[3]} insertions 0 texels 0 row_texels 0"
+            lines.append(line)
+        text = "\n".join(lines) + "\n"
+        legacy = [line for line in lines if line.split()[1] not in (
+            "GROUND_INDEX_FRAME", "POSE_FRAME", "MATERIAL_FRAME")]
+        self.assertEqual(bench.check_renderer_records(result_for(text), lines, 3, False), legacy)
+        changes = (("GROUND_INDEX_FRAME 1 builds 0 hits 0", "GROUND_INDEX_FRAME 1 builds 0 hits 1"),
+                   ("POSE_FRAME 1 units 0", "POSE_FRAME 1 units 1"),
+                   ("MATERIAL_FRAME 1 surface insertions 0 texels 0", "MATERIAL_FRAME 1 surface insertions 1 texels 1"),
+                   ("bench: POSE_FRAME 1 ", build_record() + "\nbench: POSE_FRAME 1 "),
+                   ("bench: FRAME 0 ", "bench: POSE units 0 pieces 0 vm_triplets 0\nbench: FRAME 0 "))
+        for before, after in changes:
+            with self.subTest(after=after):
+                changed = text.replace(before, after, 1)
+                self.assert_rejected(result_for(changed), bench.check_renderer_records,
+                                     changed.splitlines(), 3, False)
+
     def test_unsupported_rules_are_rejected_in_complete_transcripts(self):
         """Matching expectations cannot allow an unsupported version through the full checker."""
         self.assert_rejected(result_for(transcript(8, 8)), bench.check_lines, False,
