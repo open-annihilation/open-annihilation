@@ -213,20 +213,138 @@ void seed_caps_distinguish_the_last_goal_step_from_truncation() {
         );
         const bool truncated = limit != 0 && limit < 19;
         CHECK(worker.budget() == static_cast<int32_t>(truncated ? limit : 19));
-        CHECK(worker.threshold() == 0);
+        if (truncated)
+            CHECK(worker.threshold() > 0 && worker.threshold() < worker.heuristic(1, 1));
+        else
+            CHECK(worker.threshold() == 0);
         const auto expected = truncated ? 0u : search_goal_contact_flag;
         CHECK(worker.order_flags() == expected && order.raised_events == expected);
         CHECK((worker.cell(12, 9).flags & search_goal_bit) != 0);
         SearchAdvance status = SearchAdvance::in_progress;
         for (uint32_t slice = 0; slice < 20 && status == SearchAdvance::in_progress; ++slice)
             status = worker.advance_slice();
-        CHECK(status == SearchAdvance::succeeded && worker.finish_cell() == goal.cell);
-        CHECK(!worker.route().empty() && worker.route().back() == (RoutePoint{200, 152}));
+        CHECK(status == SearchAdvance::succeeded && !worker.route().empty());
+        if (truncated) {
+            const auto finish = worker.finish_cell();
+            CHECK(!goal_contains(goal, finish[0], finish[1]));
+            CHECK(worker.heuristic(finish[0], finish[1]) <= worker.threshold());
+            CHECK(worker.heuristic(finish[0], finish[1]) < worker.heuristic(1, 1));
+        } else {
+            CHECK(worker.finish_cell() == goal.cell);
+            CHECK(worker.route().back() == (RoutePoint{200, 152}));
+        }
         if (limit == 0)
             legacy = worker.route();
-        else
+        else if (!truncated)
             CHECK(worker.route() == legacy);
     }
+}
+
+/// Supplies the navigator's order callbacks and counts real goal cancellation.
+struct NavigationHost : Host {
+    uint32_t cancellations{};
+
+    void cancel_search(Navigation&) override { ++cancellations; }
+
+    void play_sound(oa::sim::simulation_state::Unit&, uint32_t) override {}
+
+    void wake_weapon(oa::sim::simulation_state::Unit&, uint32_t) override {}
+
+    oa::sim::simulation_state::Unit* find_target(oa::sim::simulation_state::Unit&) override {
+        return nullptr;
+    }
+
+    bool issue_attack(oa::sim::simulation_state::Unit&, oa::sim::simulation_state::Unit&) override {
+        return false;
+    }
+
+    uint32_t random(uint32_t) override { return 0; }
+};
+
+/// Publishes progress within one credited slice while retaining the actual goal until arrival.
+void capped_progress_guides_keep_the_goal_and_requeue_until_arrival() {
+    OpenSampler sampler;
+    MovementMap map(256, 16, 1, 1, sampler);
+    fill(map);
+    const std::vector<uint16_t> seen(128 * 8, 0xffff);
+    oa::sim::unit_spawn::LegacyWorld world(2);
+    auto& unit = world.unit(1);
+    unit.record.footprint_x = unit.record.footprint_z = 1;
+    place(unit, 1, 8);
+    constexpr uint16_t east_heading = 49152;
+    unit.record.heading = east_heading;
+    oa::sim::unit_movement::Unit geometry{};
+    geometry.footprint = {1, 1};
+    geometry.cell = {1, 8};
+    geometry.position = {24 * 65536, 0, 136 * 65536};
+    oa::sim::unit_movement::Movement movement{};
+    std::array<uint8_t, 3> weapons{};
+    oa::sim::simulation_state::Order order;
+    Goal goal;
+    goal.order = &order;
+    goal.cell = {240, 8};
+    Navigation navigation;
+    navigation.goal = &goal;
+    navigation.flags = search_pending_flag;
+    UnitView view{unit, geometry, movement, navigation, false, weapons};
+    NavigationHost host;
+    SearchWorker worker;
+    uint32_t partial_guides = 0;
+    bool arrived = false;
+    for (uint32_t guide = 0; guide < 16; ++guide) {
+        const auto tick = 100 + guide * search_retry_ticks;
+        CHECK(search_ready(navigation, tick));
+        SearchBegin begin;
+        begin.current_tick = tick;
+        begin.seed_step_limit = 32;
+        CHECK(
+            worker.begin(make_record(unit, navigation, goal, map), begin, seen) ==
+            SearchAdvance::in_progress
+        );
+        // The initial goal is 239 cells away, beyond one 100-node slice.
+        // A strict-progress guide must be published within that same slice.
+        CHECK(worker.advance_slice() == SearchAdvance::succeeded);
+        CHECK(worker.budget() <= search_slice_expansions);
+        const auto finish = worker.finish_cell();
+        const bool partial = !goal_contains(goal, finish[0], finish[1]);
+        if (guide == 0)
+            CHECK(partial);
+        if (partial) {
+            ++partial_guides;
+            CHECK(worker.threshold() > 0);
+            CHECK(
+                worker.heuristic(finish[0], finish[1]) <
+                worker.heuristic(unit.record.cell_x, unit.record.cell_z)
+            );
+            CHECK(worker.order_flags() == 0 && order.raised_events == 0);
+        }
+        CHECK(!accept_path(view, worker.route()));
+        CHECK(navigation.goal == &goal && goal.order == &order);
+        CHECK((navigation.flags & search_pending_flag) == 0);
+        CHECK(navigation.count == 2);
+        if (partial)
+            CHECK(order.raised_events == 0 && host.cancellations == 0);
+        geometry.cell = finish;
+        geometry.position = {
+            (int32_t(finish[0]) * 16 + 8) * 65536, 0, (int32_t(finish[1]) * 16 + 8) * 65536
+        };
+        place(unit, finish[0], finish[1]);
+        tick_navigation(view, tick, host);
+        if (partial) {
+            CHECK(navigation.goal == &goal && goal.order == &order);
+            CHECK((navigation.flags & search_pending_flag) != 0);
+            CHECK(order.raised_events == 0 && host.cancellations == 0);
+        } else {
+            CHECK(goal_contains_unit(goal, geometry));
+            CHECK(navigation.goal == nullptr);
+            CHECK((order.raised_events & arrived_event) != 0);
+            CHECK((order.raised_events & path_failed_event) == 0);
+            CHECK(host.cancellations == 1);
+            arrived = true;
+            break;
+        }
+    }
+    CHECK(arrived && partial_guides >= 2);
 }
 
 /// Records the units examined when no navigator needs a full job.
@@ -533,6 +651,7 @@ int main() {
     preferred_pick_phase_survives_heuristic_resets();
     capped_wall_detours_continue_to_the_actual_goal();
     seed_caps_distinguish_the_last_goal_step_from_truncation();
+    capped_progress_guides_keep_the_goal_and_requeue_until_arrival();
     preferred_picks_preserve_ordinary_cursor_order();
     rejected_preferred_picks_keep_the_ordinary_state();
     preferred_jobs_keep_the_active_unit_goal_and_work_debt();
@@ -1032,9 +1151,12 @@ int main() {
         const auto capped_largest =
             route_at_credit(oa::data::limits::highest_path_search_nodes, 32);
         CHECK(capped.published == 1 && capped_largest.published == 1);
-        CHECK(capped.scans > capped_largest.scans);
         CHECK(!capped.points.empty() && capped.points == capped_largest.points);
-        CHECK(capped.points.back() == (RoutePoint{968, 40}));
+        CHECK(capped.points.back() != (RoutePoint{968, 40}));
+        Goal goal;
+        goal.cell = {60, 2};
+        const auto end = capped.points.back();
+        CHECK(goal_cost(goal, (end[0] - 8) / 16, (end[1] - 8) / 16) < goal_cost(goal, 2, 2));
     }
 
     {
