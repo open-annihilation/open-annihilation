@@ -1054,6 +1054,8 @@ TickResult Vm::tick(uint32_t elapsed, std::size_t instruction_budget) {
     }
     // The thread pass visits the fixed eight-context array in ascending order.
     for (std::size_t i = 0; i < contexts_.size(); ++i) {
+        if (contexts_[i].state == ContextState::stopped)
+            continue;
         auto step = tick_context(i, elapsed, instruction_budget - result.instructions);
         result.instructions += step.instructions;
         if (!step.error)
