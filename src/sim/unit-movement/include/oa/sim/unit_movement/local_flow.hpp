@@ -65,7 +65,8 @@ struct LocalFlowDecision {
 ///
 /// Its three points have the same origin, target and braking-point meaning as
 /// a ground route. The original navigator still owns the mission and arrival.
-/// An inactive head with two points retains a just-completed leg for one tick.
+/// An inactive head with two points retains a completed leg. The caller bounds
+/// how long later choices use that history.
 struct LocalFlowHead {
     std::array<std::array<int16_t, 2>, 3> points{};
     uint64_t goal_key{}; ///< stable identity of the original goal's geometry
@@ -82,7 +83,7 @@ inline constexpr size_t local_flow_head_bytes = 27;
 /// Number of consecutive blocked ticks before the navigator retries the route.
 inline constexpr uint8_t local_flow_retry_ticks = 30;
 
-/// Point count marking a completed, inactive local leg for one following tick.
+/// Point count marking a completed, inactive local leg.
 inline constexpr uint8_t local_flow_completed_count = 2;
 
 /// Tests whether a temporary steering waypoint has been reached or passed.
