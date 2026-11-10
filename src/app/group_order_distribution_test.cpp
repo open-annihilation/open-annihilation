@@ -747,24 +747,30 @@ void direction_uses_all_command_actors_before_rematching() {
 void spatial_sort_retains_the_global_id_admitted_subset() {
     Scene scene;
     scene.block(0, 0, default_width, default_height);
-    scene.block(5, 5, 7, 6, false);
+    scene.block(5, 5, 8, 6, false);
     const auto click = point(88, 88, -17);
-    std::array units{actor(3, 1, 1), actor(1, 1, 1), actor(2, 1, 1)};
+    std::array units{actor(3, 1, 1), actor(1, 1, 1), actor(2, 1, 1), actor(4, 1, 1)};
     source_position(units[0], point(-40, 88));
     source_position(units[1], point(-40, 104));
     source_position(units[2], point(-40, 72));
+    source_position(units[3], point(-40, 88));
     std::array orders{
         input::SelectionOrder{&units[0], input::UnitOrder::patrol, point(-64, -64)},
         input::SelectionOrder{&units[1], input::UnitOrder::patrol, point(-96, -96)},
-        input::SelectionOrder{&units[2], input::UnitOrder::patrol, point(-128, -128)}
+        input::SelectionOrder{&units[2], input::UnitOrder::patrol, point(-128, -128)},
+        input::SelectionOrder{&units[3], input::UnitOrder::patrol, click}
     };
     const auto report = scene.resolve(orders, click);
-    OA_CHECK(report.repaired == 3 && report.assigned == 2 && report.exhausted);
+    OA_CHECK(report.preserved == 1 && report.repaired == 3 && report.assigned == 2);
+    OA_CHECK(report.exhausted);
     OA_CHECK(report.forward_x == 128 && report.forward_z == 0);
     OA_CHECK(same(orders[0].position, click));
-    OA_CHECK(same(orders[1].position, point(104, 88, -17)));
-    OA_CHECK(same(orders[2].position, click));
+    OA_CHECK(same(orders[1].position, point(120, 88, -17)));
+    OA_CHECK(same(orders[2].position, point(104, 88, -17)));
+    OA_CHECK(same(orders[3].position, click));
     check_disjoint(orders[1], orders[2]);
+    check_disjoint(orders[1], orders[3]);
+    check_disjoint(orders[2], orders[3]);
 }
 
 /// Retains each complete key's site set while matching its actors geometrically.
