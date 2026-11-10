@@ -11,7 +11,7 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 4 remains the current preset. Versions 5 and 6 are explicit
+Rules version 4 remains the current preset. Versions 5, 6 and 7 are explicit
 experimental benchmark choices. Version 6 derives from version 4 and keeps
 version 5's advisory corridor lanes separate. The presets retain a capacity of
 10,000 units per participating player. The engine
@@ -196,7 +196,7 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5` or `6` with Enhanced Mode to compare the
+Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6` or `7` with Enhanced Mode to compare the
 presets on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
@@ -801,6 +801,46 @@ reads the three turn rates together and compares pieces while copying them,
 without delaying capture or changing interpolation history. CPU reference
 tests and windowless Metal comparisons check image equivalence; performance
 must still be measured in the full battle. Ray tracing remains deferred.
+
+### Combined battle checkpoint
+
+Source `ad3cb4085` was compared with the unchanged `e4d7b3d6` rules-6
+baseline on the M5 Mac. Each foreground run started with 10,000 units per
+side, used 900 warmup ticks and 900 measured ticks, and kept the normal
+gameplay clock. Both views used Full Metal, AA 4, strategic dots after
+one-third zoom, a 0.25 zoom and a 1,920 by 1,018 window on the 60 Hz external
+display. The turned view used yaw 20 and pitch -53. No recording or readback
+ran during measurement. Accepted runs passed native focus and operating-system
+foreground checks; an interrupted turned-view attempt was excluded.
+
+| View | Baseline FPS | Combined rules-7 FPS | Baseline / combined ticks per second | Baseline / combined frame p99 |
+| --- | --- | --- | --- | --- |
+| Classic 2.5D | 60.154 | 56.478 | 29.994 / 30.006 | 30.52 / 30.74 ms |
+| Turned 3D | 27.425 | 42.339 | 29.843 / 30.004 | 134.16 / 35.69 ms |
+
+The turned-view maximum frame fell from 233.22 to 62.55 ms, and atlas resets
+fell from 22 to zero. The combined run retained its ground indices on all
+1,257 frames that needed them; 13 frames made no index query. Battle paths
+and casualties differ between presets, so this comparison does not isolate
+the cost of any one renderer change. The classic view was slightly slower,
+and the turned view still missed 60 FPS.
+
+Separate native runs continued each preset through 9,000 ticks. Whole-tick
+thread CPU p99 changed from 18.704 to 18.238 ms and the maximum from 83.547
+to 35.214 ms. Ticks exceeding 33.333 ms fell from three to one. Mean CPU
+cost rose from 13.691 to 14.287 ms; these changed battle trajectories do not
+establish an overall simulation throughput gain. All 61 complete physical
+audit epochs passed in each run, and live counts reconciled with births
+and deaths throughout.
+
+The longer movement comparison failed its flow gate. Unique units entering
+the strict centre-bridge corridor fell from 130 to 23. Over the final 300
+ticks, mean rear-cohort displacement changed from 42.70 to 20.68 pixels for
+CORE and from 23.00 to 18.16 for ARM. ARM rear units stationary throughout
+that interval increased from 12 to 133. These were predominantly chases
+whose last native reach check rejected the target; they must not be described
+as a successful combat standoff. Version 7 remains experimental while
+static-edge route delivery and sustained rear movement are corrected.
 
 ## Remaining work
 
