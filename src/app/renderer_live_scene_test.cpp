@@ -3434,9 +3434,7 @@ void ground_index_reuse() {
             OA_CHECK(record.before == before.key && record.previous_attempts == before.attempts);
             OA_CHECK(record.requested.revision == before.key.revision);
             OA_CHECK(record.requested.vertices == fixture.scene.cut_ground.size());
-            OA_CHECK(
-                record.reasons == static_cast<uint32_t>(live::GroundIndexMiss::index_axes)
-            );
+            OA_CHECK(record.reasons == static_cast<uint32_t>(live::GroundIndexMiss::index_axes));
             OA_CHECK(record.world_nanoseconds == 0 && record.card_nanoseconds == 0);
             OA_CHECK(record.total_nanoseconds == record.bounds_nanoseconds);
         }
