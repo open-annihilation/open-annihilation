@@ -68,8 +68,11 @@ void install_pending_field(runtime::Match& match) {
         16,
         16,
         routes::FlowLimits{},
-        match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
-                                                       : routes::FlowPreset::original
+        match.rules().setup.enhanced_mode.version ==
+                oa::data::enhanced_mode::distributed_battle_flow_version
+            ? routes::FlowPreset::fine_regions
+        : match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
+                                                         : routes::FlowPreset::original
     );
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
@@ -230,9 +233,43 @@ void different_presets_refuse_each_others_routes() {
     CHECK(bytes_of(new_routes) == new_bytes);
 }
 
+/// Older recorded presets keep their complete cache bytes; seven has a distinct save format.
+void fine_routes_are_selected_only_for_version_seven() {
+    for (const uint32_t version : {2u, 3u, 4u, 5u, 6u}) {
+        Fixture fixture(options_for(version));
+        routes::FlowCache expected(
+            16,
+            16,
+            routes::FlowLimits{},
+            version >= 3 ? routes::FlowPreset::large_regions : routes::FlowPreset::original
+        );
+        const auto& actual = table(*fixture.match, "shared-routes");
+        const auto bytes = expected.state_bytes();
+        CHECK(bytes_of(actual) == std::vector<uint8_t>(bytes.begin(), bytes.end()));
+    }
+
+    Fixture previous(options_for(oa::data::enhanced_mode::battle_flow_version));
+    Fixture fine(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
+    install_pending_field(*previous.match);
+    install_pending_field(*fine.match);
+    const auto& old_routes = table(*previous.match, "shared-routes");
+    const auto& fine_routes = table(*fine.match, "shared-routes");
+    const auto old_bytes = bytes_of(old_routes), fine_bytes = bytes_of(fine_routes);
+    CHECK(old_bytes[4] == 2 && old_bytes[28] == 4);
+    CHECK(fine_bytes[4] == 3 && fine_bytes[28] == 2);
+    CHECK(fine_bytes.size() > old_bytes.size());
+    CHECK(!old_routes.restore(old_routes.context, fine_bytes));
+    CHECK(!fine_routes.restore(fine_routes.context, old_bytes));
+    CHECK(bytes_of(old_routes) == old_bytes);
+    CHECK(bytes_of(fine_routes) == fine_bytes);
+}
+
 /// Rebuilds the fixture with one real, permissive ground movement class.
 void configure_movement_class(
-    Fixture& fixture, uint16_t per_player_limit = 4, uint16_t unit_player_mask = 3
+    Fixture& fixture,
+    uint16_t per_player_limit = 4,
+    uint16_t unit_player_mask = 3,
+    uint32_t version = 2
 ) {
     fixture.match.reset();
     fixture.fields[1].movement_class = 1;
@@ -264,7 +301,7 @@ void configure_movement_class(
             sight_width, sight_height, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    input.rules = options_for(2).rules;
+    input.rules = options_for(version).rules;
     input.unit_player_mask = unit_player_mask;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});
@@ -285,7 +322,16 @@ void configure_movement_class(
 
 /// Installs an admitted field before or after its first expansion tick.
 void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, bool pending) {
-    routes::FlowCache cache(16, 16);
+    routes::FlowCache cache(
+        16,
+        16,
+        routes::FlowLimits{},
+        match.rules().setup.enhanced_mode.version ==
+                oa::data::enhanced_mode::distributed_battle_flow_version
+            ? routes::FlowPreset::fine_regions
+        : match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
+                                                         : routes::FlowPreset::original
+    );
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
@@ -323,14 +369,14 @@ void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, boo
 }
 
 /// Serves shared routes without waiting for a full-search cursor or its budget.
-void shared_poll_progresses_without_legacy_credit() {
+void shared_poll_progresses_without_legacy_credit(uint32_t version = 2) {
     constexpr uint16_t player_units = 1024;
     constexpr uint32_t request_tick = 120;
     for (const bool pending : {false, true}) {
-        auto options = options_for(2);
+        auto options = options_for(version);
         options.per_player_limit = player_units;
         Fixture fixture(options);
-        configure_movement_class(fixture, player_units);
+        configure_movement_class(fixture, player_units, 3, version);
         auto& match = *fixture.match;
         auto& unit = fixture.spawn(0, 64, 64);
         CHECK(!match.order_refused(
@@ -353,12 +399,14 @@ void shared_poll_progresses_without_legacy_credit() {
         ground->navigation.last_search_tick = 0;
 
         const auto before = match.enhanced_counters();
+        const auto core_rng = match.random_state(), lcg_rng = match.lcg_state();
         match.advance_path_search();
         CHECK(match.fault() == nullptr);
         const auto first = match.enhanced_counters();
         CHECK(first.shared_route_requests == before.shared_route_requests + 1);
         CHECK(first.full_route_searches == before.full_route_searches);
         CHECK(jobs.unit_cursor[0] == distant_cursor && jobs.unit_cursor[1] == distant_cursor);
+        CHECK(match.random_state() == core_rng && match.lcg_state() == lcg_rng);
         if (pending) {
             CHECK(first.shared_route_waits == before.shared_route_waits + 1);
             CHECK(ground->navigation.count == 0);
@@ -397,6 +445,7 @@ void shared_poll_progresses_without_legacy_credit() {
         CHECK(ground->navigation.count >= 2);
         CHECK(ground->navigation.last_search_tick == request_tick + 2);
         CHECK(jobs.unit_cursor[0] == distant_cursor && jobs.unit_cursor[1] == distant_cursor);
+        CHECK(match.random_state() == core_rng && match.lcg_state() == lcg_rng);
     }
 }
 
@@ -1289,7 +1338,11 @@ int main() {
             malformed_state_is_rejected_atomically(version);
         }
         different_presets_refuse_each_others_routes();
+        fine_routes_are_selected_only_for_version_seven();
         shared_poll_progresses_without_legacy_credit();
+        shared_poll_progresses_without_legacy_credit(
+            oa::data::enhanced_mode::distributed_battle_flow_version
+        );
         shared_poll_rotates_extraction_opportunities();
         shared_poll_preserves_an_active_full_search();
         sustained_blockage_bypasses_shared_routes();

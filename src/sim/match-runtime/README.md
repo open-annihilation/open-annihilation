@@ -711,6 +711,16 @@ and player knowledge.
 A clear, budgeted connection to the next corner can omit the first coarse
 anchor without changing the field or the ordinary navigator.
 
+Experimental preset 7 uses a distinct shared-field format with nodes every
+two terrain cells. A wreck can block every four-cell anchor across a bridge
+while leaving a ground unit enough room to pass between them; the finer
+graph retains those lanes. Its 32-edge prefix covers the same terrain
+distance as the earlier 16-edge prefix. The shared cell-storage limit and
+per-tick expansion and extraction budgets are unchanged, so large maps hold
+fewer fields rather than allocating an unbounded cache. Recorded presets
+0 through 6 keep their existing formats and routing behavior. Save restore
+rejects a shared-field format belonging to another preset.
+
 An independent scan polls at most 1,024 unit slots per simulation tick,
 divided among active players, using tick-derived ranges. It does not spend
 the ordinary search credit or move its cursors. The unit of an active full

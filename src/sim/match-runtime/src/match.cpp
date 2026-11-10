@@ -512,7 +512,10 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
             spatial_.terrain_width,
             spatial_.terrain_height,
             sim::ground_orders::FlowLimits{},
-            input.rules.setup.enhanced_mode.version >= regional_flow_version
+            input.rules.setup.enhanced_mode.version ==
+                    data::enhanced_mode::distributed_battle_flow_version
+                ? sim::ground_orders::FlowPreset::fine_regions
+            : input.rules.setup.enhanced_mode.version >= regional_flow_version
                 ? sim::ground_orders::FlowPreset::large_regions
                 : sim::ground_orders::FlowPreset::original
         );
