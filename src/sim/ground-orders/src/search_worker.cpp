@@ -580,9 +580,10 @@ SearchAdvance SearchWorker::begin(
     }
     bool seed_capped{};
     const auto seed = seed_wall_follow(begin.seed_step_limit, seed_capped);
-    // A truncated seed is not an arrival or a failed search. Only ordinary
-    // goal-cost zero cells may finish the credited search that follows it.
-    threshold_ = seed_capped ? 0 : seed;
+    // A capped walk may offer a useful progress guide while the navigator
+    // retains the real goal. Without progress, search for goal-cost zero.
+    const bool capped_progress = seed_capped && seed >= 0 && seed < start_cost;
+    threshold_ = !seed_capped || capped_progress ? seed : 0;
     if (!seed_capped && seed == 0) {
         order_flags_ |= search_goal_contact_flag;
         if (record_.goal->order)
