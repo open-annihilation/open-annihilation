@@ -51,6 +51,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -961,32 +962,6 @@ build_preview_bands(const model_render::ModelRef& model, uint32_t pulse_tick, bo
     return bands;
 }
 
-/// Writes each piece's turn per tick into `turns`, three words a piece in
-/// xy, xz, yz order. A unit with no script leaves them zero. Script axis 0
-/// is the yz word, axis 1 the xz word and axis 2 the xy word.
-/// @param instance the unit's current model and script instance
-/// @param[out] turns turn words in the model's rotation order
-/// @return the number of VM triplet reads, zero for an instance without a script
-uint64_t
-piece_turn_words(oa::sim::match_runtime::UnitInstance& instance, std::vector<int32_t>& turns) {
-    const auto count = instance.model().pieces().size();
-    turns.resize(count * 3);
-    auto* script = instance.script();
-    if (script == nullptr) {
-        std::fill(turns.begin(), turns.end(), 0);
-        return 0;
-    }
-    for (std::size_t piece = 0; piece < count; ++piece) {
-        const auto at = piece * 3;
-        const auto index = static_cast<uint32_t>(piece);
-        const auto speeds = script->piece_turn_speeds(index);
-        turns[at] = speeds[2];
-        turns[at + 1] = speeds[1];
-        turns[at + 2] = speeds[0];
-    }
-    return count;
-}
-
 } // namespace
 
 unit_playout::FrameTime
@@ -1052,7 +1027,9 @@ FixedVec3 shown_unit_position(const MatchModels& models, const oa::World& world,
     return shown_unit_position(models, world, slot, models.presentation.fraction);
 }
 
-void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& match) {
+void observe_match_tick(
+    MatchModels& models, oa::sim::match_runtime::Match& match, oa::platform::job_pool::Pool* pool
+) {
     const uint32_t tick = match.simulation().tick;
     auto& presentation = models.presentation;
     if (!presentation.seen || presentation.tick != tick) {
@@ -1065,17 +1042,37 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
     const uint32_t slots = world.record.unit_slot_count;
     if (presentation.units.size() < slots)
         presentation.units.resize(slots);
-    uint64_t captured_units = 0;
-    uint64_t captured_pieces = 0;
-    uint64_t speed_triplets = 0;
+    bool serial = pool == nullptr || pool->threads() < 2 || slots < 512;
+    auto& captures = presentation.capture_items;
+    captures.clear();
+    if (!serial)
+        try {
+            captures.reserve(slots);
+        } catch (const std::bad_alloc&) {
+            serial = true;
+        }
+    UnitCaptureTotals work;
+    const auto add_work = [&](const UnitCaptureTotals& captured) {
+        work.units += captured.units;
+        work.pieces += captured.pieces;
+        work.triplets += captured.triplets;
+    };
+    const auto flush_serial = [&] {
+        add_work(capture_unit_poses(captures, tick, presentation.capture_scratch));
+        captures.clear();
+    };
     for (uint32_t slot = 1; slot < slots; ++slot) {
         auto& motion = presentation.units[slot];
         const oa::Unit& record = world.record.units[slot];
         auto* runtime =
             record.type_index != 0 ? &match.runtime_state(static_cast<uint16_t>(slot)) : nullptr;
         if (runtime == nullptr || !runtime->instance) {
-            if (motion.seen)
+            if (motion.seen) {
+                // Cleanup keeps its place relative to earlier serial captures.
+                if (!serial)
+                    flush_serial();
                 forget_unit(motion);
+            }
             continue;
         }
         // The redraw as the save dialog closed once crashed reading the pieces of
@@ -1084,6 +1081,8 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
         const auto& instance = runtime->instance->model();
         const auto* owner = match.spawn_slot(slot).unit;
         if (!instance_fits_unit(instance, owner)) {
+            if (!serial)
+                flush_serial();
             if (motion.seen)
                 forget_unit(motion);
             if (!presentation.misfit_logged) {
@@ -1101,19 +1100,29 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
         if (motion.seen && motion.instance_generation == runtime->instance_generation &&
             motion.tick == tick)
             continue;
-        speed_triplets += piece_turn_words(*runtime->instance, presentation.piece_turns);
-        observe_unit(
-            motion,
-            tick,
-            runtime->instance_generation,
-            record,
-            runtime->instance->model(),
-            presentation.piece_turns
-        );
-        ++captured_units;
-        captured_pieces += instance.pieces().size();
+        const UnitCaptureItem item{
+            &motion, &record, &instance, runtime->instance->script(), runtime->instance_generation
+        };
+        const auto count = instance.pieces().size();
+        if (!serial &&
+            (!motion.seen || motion.instance_generation != runtime->instance_generation ||
+             motion.current.pieces.capacity() < count ||
+             motion.previous.pieces.capacity() < count)) {
+            // New or growing histories retain the original serial allocation
+            // and reset order; a later warmed frame can use the drawing pool.
+            flush_serial();
+            serial = true;
+        }
+        if (serial)
+            add_work(capture_unit_poses(
+                std::span<const UnitCaptureItem>(&item, 1), tick, presentation.capture_scratch
+            ));
+        else
+            captures.push_back(item);
     }
-    bench_timers::count_pose_capture(captured_units, captured_pieces, speed_triplets);
+    if (!serial)
+        add_work(capture_unit_poses(captures, tick, presentation.capture_scratch, pool));
+    bench_timers::count_pose_capture(work.units, work.pieces, work.triplets);
     observe_shots(presentation.shots, tick, match.projectiles());
     const auto& effects = match.effects();
     observe_debris(presentation.debris, tick, effects.debris);
@@ -1126,7 +1135,7 @@ void Runtime::place_tracking_camera() {
     if (oa::world_unit_at(&world, tracked_match_unit_) == nullptr)
         return;
     auto& models = match_models();
-    observe_match_tick(models, *match_);
+    observe_match_tick(models, *match_, draw_pool_.get());
     const FixedVec3 shown = shown_unit_position(
         models, world, tracked_match_unit_, tick_fraction(presentation_alpha())
     );
@@ -1601,7 +1610,7 @@ bool Runtime::draw_match_surface() {
     // The frame's place between the ticks. Each draw notes the tick the
     // match is on first, so that the poses of the tick before are at hand.
     auto& models = match_models();
-    observe_match_tick(models, *match_);
+    observe_match_tick(models, *match_, draw_pool_.get());
     auto& presentation = models.presentation;
     presentation.fraction = tick_fraction(presentation_alpha());
     // The moment the units of other machines' players are drawn at on their

@@ -1094,6 +1094,13 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-presentation-interpolation-test PRIVATE oa-app-headers
     oa-present-model oa-sim-effect-particles oa-options)
   add_test(NAME app-presentation-interpolation COMMAND oa-app-presentation-interpolation-test)
+  # Independent unit histories captured on the drawing pool retain every
+  # field and script rate of the calling-thread capture.
+  add_executable(oa-app-presentation-capture-test src/app/presentation_capture_test.cpp
+    src/app/presentation_capture.cpp src/app/presentation_interpolation.cpp)
+  target_link_libraries(oa-app-presentation-capture-test PRIVATE oa-app-headers
+    oa-present-model oa-sim-match-runtime oa-platform-job-pool oa-base-float-precision oa-options)
+  add_test(NAME app-presentation-capture COMMAND oa-app-presentation-capture-test)
   # Exact shared model-space transforms, owner-local poses and bounded
   # fallback while planning animated unit draws.
   add_executable(oa-app-model-transform-cache-test src/app/model_transform_cache_test.cpp
@@ -1422,6 +1429,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
   src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
+  src/app/presentation_capture.cpp
   src/app/runtime_engine_settings.cpp
   src/app/runtime_engine_settings_menu.cpp
   src/app/runtime_engine_settings_match.cpp

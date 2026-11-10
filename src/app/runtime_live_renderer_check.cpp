@@ -1429,7 +1429,7 @@ int Runtime::check_live_renderer() {
     for (int frame = 0; frame < movement_start_ticks && !moving; ++frame) {
         const auto before = match_->world().record.units[commander].position;
         step_match_simulation();
-        observe_match_tick(match_models(), *match_);
+        observe_match_tick(match_models(), *match_, draw_pool_.get());
         const auto after = match_->world().record.units[commander].position;
         moving = std::abs(after.x - before.x) >= 65536 || std::abs(after.z - before.z) >= 65536;
         require(match_->fault() == nullptr, "the moving commander raised a simulation fault");

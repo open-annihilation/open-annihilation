@@ -21,6 +21,7 @@
 #include "oa/present/unit_playout.hpp"
 #include "oa/sim/match_runtime.hpp"
 #include "presentation_interpolation.hpp"
+#include "presentation_capture.hpp"
 #include "model_transform_cache.hpp"
 #include "world_draws.hpp"
 
@@ -66,8 +67,10 @@ struct MatchPresentation {
     /// A slot's model instance did not fit its unit (instance_fits_unit) and
     /// the log has said so: it says so once a match.
     bool misfit_logged{};
-    /// Reused while taking each unit's piece turns; three words per piece.
-    std::vector<int32_t> piece_turns;
+    /// Canonical inputs collected in slot order before any capture worker starts.
+    std::vector<UnitCaptureItem> capture_items;
+    /// Reused turn words, private to each capture band.
+    UnitCaptureScratch capture_scratch;
     ShotFlight shots{};
     /// Each live projectile's pose for the frame being drawn, by pool index.
     std::vector<ShotPose> presented_shots;
@@ -262,6 +265,11 @@ shown_unit_position(const MatchModels& models, const oa::World& world, uint16_t 
 ///
 /// @param[in,out] models the match's renderer state
 /// @param match the match
-void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& match);
+/// @param pool drawing workers; null observes on the calling thread alone
+void observe_match_tick(
+    MatchModels& models,
+    oa::sim::match_runtime::Match& match,
+    oa::platform::job_pool::Pool* pool = nullptr
+);
 
 } // namespace oa::app

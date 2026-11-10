@@ -639,7 +639,7 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
             observe_unit_playout();
             // The presentation notes every tick, drawn or not, so that a
             // drawn frame always has the tick before at hand.
-            observe_match_tick(match_models(), *match_);
+            observe_match_tick(match_models(), *match_, draw_pool_.get());
             observe_match_effect_tick();
             present_director_announcements();
             const auto status = replay_status(replay, hook_error_report());
