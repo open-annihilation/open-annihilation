@@ -3959,6 +3959,136 @@ void ground_index_bounds_on_threads() {
     timers::reset(false);
 }
 
+/// Revision labels reuse indices only after ordered bounds, reach and query context match exactly.
+void ground_index_bounds_revision_reuse() {
+    namespace timers = oa::app::bench_timers;
+    timers::reset(true);
+    GroundIndexThreadsFixture pair;
+    auto& fixture = pair.fixture;
+    for (uint32_t frame = 0; frame < 3; ++frame)
+        pair.build();
+    fixture.draws.sprites[0].surface_effect = true;
+    pair.build();
+    pair.check_indices();
+    OA_CHECK(fixture.scene.terrain_vertex_count >= 3 * 32768);
+    auto& cache = fixture.scene.ground_index_cache;
+    const auto revision_miss = [&] {
+        OA_CHECK(cache.valid && cache.key.revision != 0);
+        ++cache.key.revision;
+    };
+    const auto compare = [&](bool reused) {
+        const auto before = cache.attempts;
+        // The reference always constructs both indices independently,
+        // even when its recomputed bounds happen to equal its old ones.
+        pair.ordinary.ground_index_cache.valid = false;
+        pair.build();
+        pair.check_indices();
+        OA_CHECK(cache.attempts == before + 1);
+        const auto& work = fixture.scene.passes.ground_indices;
+        const auto& records = work.diagnostics;
+        OA_CHECK(work.builds == 1 && work.hits == 0);
+        OA_CHECK(records.size == 1 && records.dropped == 0);
+        if (records.size == 1) {
+            const auto& record = records.records[0];
+            OA_CHECK(record.completed && record.requested == cache.key);
+            if (reused) {
+                OA_CHECK(record.was_valid);
+                OA_CHECK(
+                    record.reasons == static_cast<uint32_t>(live::GroundIndexMiss::index_revision)
+                );
+                OA_CHECK(record.world_nanoseconds == 0 && record.card_nanoseconds == 0);
+                OA_CHECK(record.bounds_nanoseconds == record.total_nanoseconds);
+            } else {
+                OA_CHECK(record.world_nanoseconds != 0 && record.card_nanoseconds != 0);
+            }
+        }
+        const auto& full = pair.ordinary.passes.ground_indices.diagnostics;
+        OA_CHECK(full.size == 1);
+        if (full.size == 1)
+            OA_CHECK(
+                full.records[0].world_nanoseconds != 0 && full.records[0].card_nanoseconds != 0
+            );
+    };
+    for (uint32_t frame = 0; frame < 2; ++frame) {
+        revision_miss();
+        compare(true);
+    }
+    // Indices hold horizontal bounds, not copies of terrain heights.
+    // Equal bounds must still query the current, raised triangles.
+    const auto effect_first = fixture.scene.terrain_vertex_count;
+    OA_CHECK(effect_first < fixture.scene.vertices.size());
+    if (effect_first < fixture.scene.vertices.size()) {
+        const auto old_height = fixture.scene.vertices[effect_first].height;
+        for (auto* scene : {&fixture.scene, &pair.ordinary}) {
+            for (auto& vertex : scene->ground_vertices)
+                vertex.height += 4;
+            scene->listed_ground_revision = 0;
+        }
+        revision_miss();
+        compare(true);
+        OA_CHECK(
+            fixture.scene.vertices[fixture.scene.terrain_vertex_count].height > old_height + 3.9F
+        );
+    }
+    // Moving an extreme vertex changes a bound while preserving the
+    // triangle order. The repaired index must match a complete rebuild.
+    for (const bool along_z : {false, true}) {
+        const auto old = pair.ordinary.ground_index_memory[0].bounds[0];
+        for (auto* scene : {&fixture.scene, &pair.ordinary}) {
+            if (along_z)
+                scene->ground_vertices[0].z -= 4 * cell_edge;
+            else
+                scene->ground_vertices[0].x -= 4 * cell_edge;
+            scene->listed_ground_revision = 0;
+        }
+        revision_miss();
+        compare(false);
+        const auto now = pair.ordinary.ground_index_memory[0].bounds[0];
+        OA_CHECK(std::memcmp(old.data(), now.data(), sizeof(old)) != 0);
+    }
+    const auto reject = [&](auto change) {
+        revision_miss();
+        change();
+        compare(false);
+    };
+    reject([&] { cache.valid = false; });
+    reject([&] { cache.key.revision = 0; });
+    reject([&] { cache.key.vertices -= 3; });
+    reject([&] { cache.key.card = !cache.key.card; });
+    reject([&] { cache.key.card_axes[0] ^= uint64_t{1}; });
+    reject([&] { cache.key.float_control[0] ^= uint64_t{1}; });
+    for (std::size_t index = 0; index < fixture.scene.ground_index_memory.size(); ++index) {
+        reject([&] { fixture.scene.ground_index_memory[index].bounds.pop_back(); });
+        reject([&] {
+            cache.layouts[index].reach =
+                std::nextafter(cache.layouts[index].reach, std::numeric_limits<double>::infinity());
+        });
+    }
+    // Numerically equal signed zero still names different stored bounds.
+    auto& bounds = fixture.scene.ground_index_memory[0].bounds;
+    bool tested_zero = false;
+    for (auto& bound : bounds) {
+        for (auto& value : bound) {
+            if (value != 0)
+                continue;
+            const auto original = std::bit_cast<uint32_t>(value);
+            reject([&] { value = std::bit_cast<float>(original ^ uint32_t{0x80000000}); });
+            tested_zero = true;
+            break;
+        }
+        if (tested_zero)
+            break;
+    }
+    OA_CHECK(tested_zero);
+    fixture.inputs.view_direction = {-0.25F, 1, 0.5F};
+    revision_miss();
+    compare(false);
+    pair.build();
+    OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
+    OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 0);
+    timers::reset(false);
+}
+
 /// Builds matching scene histories while the reference surveys afresh on every frame.
 struct TerrainDemandPair {
     Fixture fixture{};
@@ -7902,6 +8032,7 @@ int main() {
     ground_index_build_diagnostics();
     ground_index_build_record_storage();
     ground_index_bounds_on_threads();
+    ground_index_bounds_revision_reuse();
     passes_on_threads();
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();
