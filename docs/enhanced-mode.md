@@ -756,6 +756,13 @@ Connectivity to the click does not establish a route from each actor.
 Unsupported classes, exhausted work or insufficient space retain the previous
 fallback, with explicit assignment and exhaustion counts.
 
+Reservation priority follows stable actor IDs. After all sites are admitted,
+repaired actors and sites are matched spatially within each complete movement
+and arrival class. Integer projections across and along the command's heading
+retain lateral and forward order, with explicit ID and site tie-breaks. This
+changes neither the reserved site set nor usable original points. Sorting
+reuses the finished frontier storage and reports its comparison work separately.
+
 The stock 20,000-unit scene preserves 12,314 usable points and assigns all
 7,686 repairs without exhaustion, using one movement class and 312,736 bytes
 of scratch per command. Placement legality alone does not establish flow:

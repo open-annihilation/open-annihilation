@@ -690,7 +690,7 @@ void Runtime::distribute_group_order_destinations(
         "group destinations: units %zu preserved %u repaired %u assigned %u unassigned %u "
         "unsupported %u classes %u origins %u cells %u reservation_cells %u scratch_bytes %u "
         "frontiers %u abandoned %u "
-        "exhausted %u\n",
+        "exhausted %u rematched %u sort_comparisons %u forward_x %d forward_z %d\n",
         orders.size(),
         report.preserved,
         report.repaired,
@@ -704,7 +704,11 @@ void Runtime::distribute_group_order_destinations(
         report.scratch_bytes,
         report.frontiers,
         static_cast<unsigned>(report.abandoned),
-        static_cast<unsigned>(report.exhausted)
+        static_cast<unsigned>(report.exhausted),
+        report.rematched,
+        report.sort_comparisons,
+        report.forward_x,
+        report.forward_z
     );
 }
 
