@@ -1323,6 +1323,79 @@ void old_presets_and_failed_fields_keep_immediate_replacement() {
     CHECK(failed.counters().fields_started == 2);
 }
 
+/// Resumes full-budget fields whose active frontier uses indices above 65,535.
+void maximum_fine_fields_restore_active_wide_frontiers() {
+    Grid grid(1024, 512);
+    grid.cells[488 * grid.width + 774] = 0;
+    const FlowLimits limits{64, 8'388'608, 2048, 65'536};
+    FlowCache original(grid.width, grid.height, limits, FlowPreset::fine_regions);
+    FlowCache restored(grid.width, grid.height, limits, FlowPreset::fine_regions);
+    constexpr size_t maximum_state_bytes = 41'951'360;
+    CHECK(original.state_bytes().size() == maximum_state_bytes);
+    const auto read32 = [](std::span<const uint8_t> bytes, size_t at) {
+        return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 | uint32_t(bytes[at + 2]) << 16 |
+               uint32_t(bytes[at + 3]) << 24;
+    };
+    std::array<Goal, 64> goals{};
+    const auto origin = unit_at(8, 8);
+    for (size_t i = 0; i < goals.size(); ++i) {
+        goals[i] = circle(
+            static_cast<int16_t>((i % 11) * 96 + 8), static_cast<int16_t>((i / 11) * 96 + 8)
+        );
+        CHECK(query(original, grid, origin, goals[i]) == FlowResult::fallback);
+        CHECK(query(original, grid, origin, goals[i]) == FlowResult::pending);
+    }
+    for (uint32_t tick = 1; tick <= 128; ++tick) {
+        const auto before = original.counters();
+        original.advance(tick, 0, grid.sampler());
+        CHECK(original.counters().cells_expanded - before.cells_expanded <= limits.work_per_tick);
+        CHECK(original.counters().cells_cleared - before.cells_cleared <= 65'536);
+    }
+    CHECK(original.counters().cells_cleared == limits.total_cells);
+    constexpr size_t coarse_cells = 131'072, metadata_size = 80;
+    constexpr size_t last_field = 128 + 64 * 48 + 63 * (metadata_size + coarse_cells * 5);
+    constexpr size_t last_queue = last_field + metadata_size + coarse_cells;
+    const auto bytes = original.state_bytes();
+    constexpr uint32_t building_phase = 2, wide_seed = 125'316;
+    CHECK(read32(bytes, last_field) == building_phase);
+    CHECK(read32(bytes, last_field + 48) == wide_seed);
+    CHECK(read32(bytes, last_queue) == wide_seed);
+    CHECK(read32(bytes, last_field + 60) > 1);
+    CHECK(read32(bytes, last_queue + 4) > std::numeric_limits<uint16_t>::max());
+    CHECK(restored.restore(bytes));
+    const auto unit = unit_at(772, 488);
+    bool delivered = false;
+    for (uint32_t tick = 129; tick <= 132; ++tick) {
+        original.advance(tick, 0, grid.sampler());
+        restored.advance(tick, 0, grid.sampler());
+        std::array<RoutePoint, navigation_capacity> points{}, resumed{};
+        uint32_t count{}, resumed_count{};
+        const auto result =
+            original.route(context(), unit, goals.back(), points, count, grid.sampler());
+        CHECK(
+            restored.route(context(), unit, goals.back(), resumed, resumed_count, grid.sampler()) ==
+            result
+        );
+        CHECK(count == resumed_count && points == resumed);
+        if (result == FlowResult::ready) {
+            delivered = true;
+            CHECK(count >= 3);
+            for (uint32_t i = 1; i < count; ++i)
+                CHECK(segment_avoids_blocked_cells(grid, points[i - 1], points[i]));
+        }
+        CHECK(original.counters().cells_expanded == restored.counters().cells_expanded);
+        CHECK(original.counters().hits == restored.counters().hits);
+        CHECK(
+            std::equal(
+                original.state_bytes().begin(),
+                original.state_bytes().end(),
+                restored.state_bytes().begin()
+            )
+        );
+    }
+    CHECK(delivered);
+}
+
 /// Delivers a legal nearby prefix while a stale connection farther away waits for repair.
 void regional_prefixes_continue_to_the_original_goal_after_restore() {
     Grid grid(512, 128);
@@ -1859,6 +1932,7 @@ int main() {
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
     old_presets_and_failed_fields_keep_immediate_replacement();
+    maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
     regional_prefixes_continue_to_the_original_goal_after_restore();
