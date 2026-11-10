@@ -715,10 +715,13 @@ Experimental preset 7 uses a distinct shared-field format with nodes every
 two terrain cells. A wreck can block every four-cell anchor across a bridge
 while leaving a ground unit enough room to pass between them; the finer
 graph retains those lanes. Its 32-edge prefix covers the same terrain
-distance as the earlier 16-edge prefix. The shared cell-storage limit and
-per-tick expansion and extraction budgets are unchanged, so large maps hold
-fewer fields rather than allocating an unbounded cache. Recorded presets
-0 through 6 keep their existing formats and routing behavior. Save restore
+distance as the earlier 16-edge prefix. Preset 7 allows at most 64 fields
+and 8,388,608 stored nodes, about 40 MiB of raw field state at the
+largest allocation. The per-tick expansion and extraction budgets stay
+unchanged. A completed field gets 60 ticks of residence before a new key can
+evict it, providing a bounded opportunity for pending clients to receive
+its routes. Recorded presets 0 through 6 keep their existing formats and
+routing behavior. Save restore
 rejects a shared-field grid or format that does not match the selected preset.
 
 An independent scan polls at most 1,024 unit slots per simulation tick,

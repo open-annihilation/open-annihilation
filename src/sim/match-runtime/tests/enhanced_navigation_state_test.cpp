@@ -320,6 +320,43 @@ void configure_movement_class(
     CHECK(fixture.match->movement_map(1) != nullptr);
 }
 
+/// The denser graph retains 64 fields within its recorded, bounded node storage.
+void shared_field_storage_is_bounded_per_preset() {
+    constexpr uint32_t width = 1024, height = 512;
+    for (const uint32_t version :
+         {oa::data::enhanced_mode::battle_flow_version,
+          oa::data::enhanced_mode::distributed_battle_flow_version}) {
+        Fixture fixture(options_for(version));
+        fixture.match.reset();
+        fixture.map.attribute_width = width;
+        fixture.map.attribute_height = height;
+        fixture.map.attributes.resize(size_t(width) * height);
+        fixture.terrain_values.resize(size_t(width) * height);
+        fixture.collision_plots.resize(size_t(width) * height);
+        fixture.altitude_cells.resize(size_t(width / 2) * (height / 2));
+        configure_movement_class(fixture, 1, 1, version);
+        auto& match = *fixture.match;
+        const auto& shared = table(match, "shared-routes");
+        const auto bytes = bytes_of(shared);
+        const auto word = [&](size_t at) {
+            return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 |
+                   uint32_t(bytes[at + 2]) << 16 | uint32_t(bytes[at + 3]) << 24;
+        };
+        const bool fine = version == oa::data::enhanced_mode::distributed_battle_flow_version;
+        const uint32_t stride = fine ? 2 : 4;
+        const uint32_t cells = (width / stride) * (height / stride);
+        CHECK(word(4) == (fine ? 3u : 2u));
+        CHECK(word(16) == 64 && word(20) == cells && word(28) == stride);
+        CHECK(word(24) == 2048 && word(56) == 65536);
+        CHECK(bytes.size() == 128 + 64 * 48 + 64 * (80 + size_t(cells) * 5));
+        CHECK(bytes.size() == (fine ? 41'951'360u : 10'494'080u));
+        const auto core_rng = match.random_state(), lcg_rng = match.lcg_state();
+        CHECK(shared.restore(shared.context, bytes));
+        CHECK(bytes_of(shared) == bytes);
+        CHECK(match.random_state() == core_rng && match.lcg_state() == lcg_rng);
+    }
+}
+
 /// Installs an admitted field before or after its first expansion tick.
 void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, bool pending) {
     routes::FlowCache cache(
@@ -1339,6 +1376,7 @@ int main() {
         }
         different_presets_refuse_each_others_routes();
         fine_routes_are_selected_only_for_version_seven();
+        shared_field_storage_is_bounded_per_preset();
         shared_poll_progresses_without_legacy_credit();
         shared_poll_progresses_without_legacy_credit(
             oa::data::enhanced_mode::distributed_battle_flow_version
