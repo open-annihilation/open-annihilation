@@ -67,6 +67,7 @@ struct Scratch {
 
 constexpr size_t maximum_scratch_bytes = sizeof(Scratch) + maximum_classes * sizeof(Frontier);
 static_assert(maximum_scratch_bytes < 1280 * 1024);
+static_assert(window_cells == maximum_units * 2);
 
 /// Compares every destination bit, including its original height.
 bool same_point(const oa::FixedVec3& a, const oa::FixedVec3& b) noexcept {
@@ -262,6 +263,139 @@ bool rectangle(
     return true;
 }
 
+/// Sorts a bounded index span in place with measured worst-case logarithmic work.
+template <typename Less>
+void sort_indices(std::span<uint16_t> values, Less less, uint32_t& comparisons) noexcept {
+    const auto before = [&](uint16_t a, uint16_t b) {
+        ++comparisons;
+        return less(a, b);
+    };
+    const auto sift = [&](size_t parent, size_t end) {
+        size_t child = parent * 2 + 1;
+        while (child < end) {
+            if (child + 1 < end && before(values[child], values[child + 1]))
+                ++child;
+            if (!before(values[parent], values[child]))
+                break;
+            std::swap(values[parent], values[child]);
+            parent = child;
+            child = parent * 2 + 1;
+        }
+    };
+    for (size_t parent = values.size() / 2; parent != 0; --parent)
+        sift(parent - 1, values.size());
+    for (size_t end = values.size(); end > 1; --end) {
+        std::swap(values[0], values[end - 1]);
+        sift(0, end - 1);
+    }
+}
+
+/// Retains full fixed-point lateral and forward ordering without floating point.
+struct Projection {
+    int64_t lateral{};
+    int64_t forward{};
+};
+
+/// Projects a canonical or admitted point along a whole-pixel command direction.
+Projection project(const oa::FixedVec3& point, int64_t dx, int64_t dz) noexcept {
+    // Each direction component is at most 65535 pixels. Multiplying it by
+    // either signed fixed coordinate and adding both products fits int64_t.
+    return {dx * point.z - dz * point.x, dx * point.x + dz * point.z};
+}
+
+/// Orders projected points with a final identity tie for coincident positions.
+bool before(const Projection& a, const Projection& b, uint16_t aid, uint16_t bid) noexcept {
+    if (a.lateral != b.lateral)
+        return a.lateral < b.lateral;
+    if (a.forward != b.forward)
+        return a.forward < b.forward;
+    return aid < bid;
+}
+
+/// Rematches only already-admitted sites within each identical movement key.
+void rematch(
+    std::span<const input::SelectionOrder> orders,
+    const oa::FixedVec3& click,
+    int32_t left,
+    int32_t top,
+    Scratch& scratch,
+    GroupDestinationReport& report
+) noexcept {
+    if (report.assigned < 2)
+        return;
+    int64_t total_x = 0;
+    int64_t total_z = 0;
+    for (const auto& order : orders) {
+        total_x += int64_t(order.actor->position.x) / fixed_pixel;
+        total_z += int64_t(order.actor->position.z) / fixed_pixel;
+    }
+    const auto count = static_cast<int64_t>(orders.size());
+    int64_t dx = int64_t(click.x) / fixed_pixel - total_x / count;
+    int64_t dz = int64_t(click.z) / fixed_pixel - total_z / count;
+    if (dx == 0 && dz == 0)
+        dx = 1;
+    report.forward_x = static_cast<int32_t>(dx);
+    report.forward_z = static_cast<int32_t>(dz);
+    Frontier* storage = nullptr;
+    for (const auto& frontier : scratch.frontiers)
+        if (frontier) {
+            storage = frontier.get();
+            break;
+        }
+    if (storage == nullptr)
+        return;
+    // All classes have finished expansion. No frontier index is read again;
+    // its exact 65536 entries now hold two complete 32768-entry sort spans.
+    std::span<uint16_t> actors{storage->frontier.data(), maximum_units};
+    std::span<uint16_t> sites{storage->frontier.data() + maximum_units, maximum_units};
+    for (uint32_t key = 0; key < report.classes; ++key) {
+        size_t used = 0;
+        for (uint32_t id = 1; id < maximum_units; ++id) {
+            if ((scratch.flags[id] & assigned_flag) == 0 || (scratch.flags[id] & key_mask) != key)
+                continue;
+            actors[used] = static_cast<uint16_t>(id);
+            sites[used] = static_cast<uint16_t>(scratch.slots[id] & index_mask);
+            ++used;
+        }
+        if (used < 2)
+            continue;
+        const auto actor_point = [&](uint16_t id) -> const oa::FixedVec3& {
+            return orders[(scratch.slots[id] >> index_bits) - 1].actor->position;
+        };
+        const auto& sample = *orders[(scratch.slots[actors[0]] >> index_bits) - 1].actor;
+        const auto site_point = [&](uint16_t index) {
+            return *point_for(
+                left + static_cast<int32_t>(index % window_side),
+                top + static_cast<int32_t>(index / window_side),
+                sample,
+                click.y
+            );
+        };
+        sort_indices(
+            actors.first(used),
+            [&](uint16_t a, uint16_t b) {
+                return before(
+                    project(actor_point(a), dx, dz), project(actor_point(b), dx, dz), a, b
+                );
+            },
+            report.sort_comparisons
+        );
+        sort_indices(
+            sites.first(used),
+            [&](uint16_t a, uint16_t b) {
+                return before(project(site_point(a), dx, dz), project(site_point(b), dx, dz), a, b);
+            },
+            report.sort_comparisons
+        );
+        for (size_t at = 0; at < used; ++at) {
+            auto& slot = scratch.slots[actors[at]];
+            if ((slot & index_mask) != sites[at])
+                ++report.rematched;
+            slot = (slot & ~index_mask) | sites[at];
+        }
+    }
+}
+
 } // namespace
 
 input::SelectionOrder group_order_intent(
@@ -451,6 +585,7 @@ GroupDestinationReport distribute_group_order_points(
         }
     }
     report.exhausted = report.exhausted || class_exhaustion || report.assigned < report.repaired;
+    rematch(orders, click, left, top, *scratch, report);
     for (auto& order : orders) {
         const auto id = order.actor->id;
         if ((scratch->flags[id] & assigned_flag) == 0)

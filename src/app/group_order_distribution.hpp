@@ -56,14 +56,26 @@ struct GroupDestinationReport {
     uint32_t reservation_cells{};
     uint32_t scratch_bytes{};
     uint32_t frontiers{};
+    uint32_t rematched{};
+    uint32_t sort_comparisons{};
+    int32_t forward_x{};
+    int32_t forward_z{};
     bool abandoned{};
     bool exhausted{};
 };
 
 /// Distributes only repaired formation destinations without issuing any order.
 /// Every usable raw XYZ stays exact. All their native arrival rectangles are
-/// reserved before repaired actors receive disjoint rectangles in stable ID
-/// order. A four-neighbour static component connects each candidate to the
+/// reserved before repaired actors admit disjoint rectangles in stable ID
+/// order. Within each complete movement/order class, the admitted sites are
+/// then matched to actors by lateral projection, forward projection and ID
+/// or site-index ties. This retains the exact admitted site set and actor
+/// subset while reducing crossings caused by actor numbering. The direction
+/// is click minus the mean command actor position in whole world pixels;
+/// coordinates and that mean truncate toward zero. Projection keeps every
+/// signed 16.16 position bit; a zero direction uses positive X. This geometric
+/// ordering does not measure route distance or prove improved traffic flow.
+/// A four-neighbour static component connects each candidate to the
 /// click for its complete movement/order key; this does not prove a route from
 /// the actor or account for mobile congestion. RepairPatrol conservatively
 /// reserves the bounding rectangle of its five possible arrival footprints.
@@ -72,6 +84,9 @@ struct GroupDestinationReport {
 /// Each admitted class retains a bounded frontier so interleaved actors are
 /// allocated in global ID order. Command-local heap scratch uses about 300 KiB
 /// for one class and at most 1.25 MiB for eight, independent of map size.
+/// Matching reuses a finished frontier and adds no allocation or static probes.
+/// Two in-place heapsorts per class take bounded O(n log n) comparison work,
+/// reported separately from static-origin and footprint-cell probes.
 /// Exhaustion before assignment leaves the whole command at the existing
 /// bounds/static fallback; later exhaustion retains unassigned fallbacks.
 /// The fallback itself retains the existing policy for unsupported footprints.
