@@ -463,7 +463,9 @@ class TickHost::GroundMissions {
         const auto& enhanced = rules().setup.enhanced_mode;
         auto* movement = host.match.ground_runtime(s.unit_index);
         if (enhanced.enabled &&
-            enhanced.version == static_cast<int32_t>(data::enhanced_mode::battle_flow_version) &&
+            (enhanced.version == static_cast<int32_t>(data::enhanced_mode::battle_flow_version) ||
+             enhanced.version ==
+                 static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version)) &&
             !can_fly() && movement && s.unit && sim::simulation_state::locally_simulated(*s.unit) &&
             !movement->mirrored_driver && s.record.attach_parent == 0 &&
             (movement->movement.flags & sim::unit_movement::occupancy_mask) ==

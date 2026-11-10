@@ -203,7 +203,8 @@ oa::Unit* nearest_enemy(
         state != nullptr ? state->rules.rules() : data::match_rules::baseline_match_rules;
     filter.skip_dying =
         task.kind == TaskKind::strike && rules.setup.enhanced_mode.enabled &&
-        rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version;
+        (rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
+         rules.setup.enhanced_mode.version == data::enhanced_mode::distributed_battle_flow_version);
     if (ai_rules(state).nearest_enemy_filter.rules ==
         data::match_rules::AiNearestEnemyFilterRules::skip_submerged) {
         filter.widened_flags = true;

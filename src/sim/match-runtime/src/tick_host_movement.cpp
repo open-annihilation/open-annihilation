@@ -268,8 +268,12 @@ void TickHost::movement_tick(oa::Unit& record) {
                     context.match = &match;
                     context.player = s.record.owner_index;
                     context.same_route_queue =
-                        match.rules().setup.enhanced_mode.version ==
-                            static_cast<int32_t>(data::enhanced_mode::battle_flow_version) &&
+                        (match.rules().setup.enhanced_mode.version ==
+                             static_cast<int32_t>(data::enhanced_mode::battle_flow_version) ||
+                         match.rules().setup.enhanced_mode.version ==
+                             static_cast<int32_t>(
+                                 data::enhanced_mode::distributed_battle_flow_version
+                             )) &&
                         flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks &&
                         sim::simulation_state::locally_simulated(u);
                     if (const auto* klass = match.movement_class_map(g.movement_class)) {

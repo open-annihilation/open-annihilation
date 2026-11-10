@@ -161,10 +161,13 @@ void Match::run_player_controller(uint8_t player) {
     if (computer) {
         const SeatHooks hooks = seat_hooks_[player];
         const bool played = hooks.play != nullptr && hooks.play(hooks.context, *this, player);
-        auto* retarget = enhanced_ != nullptr && rules().setup.enhanced_mode.version ==
-                                                     data::enhanced_mode::battle_flow_version
-                             ? &enhanced_->ai_retarget
-                             : nullptr;
+        auto* retarget =
+            enhanced_ != nullptr && (rules().setup.enhanced_mode.version ==
+                                         data::enhanced_mode::battle_flow_version ||
+                                     rules().setup.enhanced_mode.version ==
+                                         data::enhanced_mode::distributed_battle_flow_version)
+                ? &enhanced_->ai_retarget
+                : nullptr;
         if (retarget != nullptr) {
             const auto bit = static_cast<uint16_t>(uint16_t(1) << player);
             if (played)

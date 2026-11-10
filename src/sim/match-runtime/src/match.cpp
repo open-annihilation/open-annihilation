@@ -636,7 +636,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
             fault_.note("Enhanced navigation state could not be registered");
     }
     if (enhanced_ &&
-        input.rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version) {
+        (input.rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
+         input.rules.setup.enhanced_mode.version ==
+             data::enhanced_mode::distributed_battle_flow_version)) {
         const bool retarget_added = add_rule_state(
             rule_state_,
             {"ai-retarget",
@@ -1125,8 +1127,11 @@ void Match::assign_squad(sim::unit_spawn::Slot& slot, uint32_t group) {
         return;
     }
     auto& groups = groups_[owner];
-    bool indexed = squad_positions_valid_ && rules().setup.enhanced_mode.enabled &&
-                   rules().setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version;
+    bool indexed =
+        squad_positions_valid_ && rules().setup.enhanced_mode.enabled &&
+        (rules().setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
+         rules().setup.enhanced_mode.version ==
+             data::enhanced_mode::distributed_battle_flow_version);
     if (indexed && slot.record.squad == -1 && squad_positions_[slot.unit_index] != 0) {
         squad_positions_valid_ = false;
         indexed = false;
