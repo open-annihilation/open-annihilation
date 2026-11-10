@@ -9,6 +9,7 @@
 
 #include "oa/sim/script_vm.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -189,6 +190,125 @@ void test_budget() {
     CHECK(finished.ok() && finished.instructions == 4 && machine.static_value(3) == 6);
 }
 
+/// Builds a value-returning child and a parent that starts or waits for it.
+vm::Vm make_lifecycle_vm(bool wait_for_child) {
+    struct HeldWords {
+        std::vector<uint32_t> code;
+        std::vector<uint32_t> entries;
+    };
+
+    const auto held = std::make_shared<HeldWords>();
+    held->code = {
+        op::push_local,
+        0,
+        op::pop_static,
+        0,
+        op::push_local,
+        0,
+        op::return_,
+        op::push_constant,
+        22,
+        wait_for_child ? op::call_script : op::start_script,
+        0,
+        1,
+        op::push_constant,
+        11,
+        op::return_
+    };
+    held->entries = {0, 7};
+    vm::Program program;
+    program.code = held->code;
+    program.entry_points = held->entries;
+    program.static_count = 1;
+    program.owner = held;
+    return vm::Vm(std::move(program), time_scale);
+}
+
+/// Runs live contexts between stopped slots in their original ascending order.
+void test_whole_tick_interspersed_stopped_slots() {
+    auto machine = make_lifecycle_vm(false);
+    std::vector<int32_t> returned;
+    for (std::size_t index = 0; index < vm::context_count; ++index) {
+        const std::array<int32_t, 1> argument{static_cast<int32_t>(index)};
+        const auto started =
+            machine.start(0, argument, [&](int32_t value) { returned.push_back(value); });
+        CHECK(started.ok() && started.context == index);
+    }
+    for (std::size_t index = 0; index < vm::context_count; index += 2)
+        CHECK(machine.tick_context(index, 0).ok());
+    returned.clear();
+    const auto ran = machine.tick(0);
+    CHECK(ran.ok() && ran.instructions == 16);
+    CHECK(returned == (std::vector<int32_t>{1, 3, 5, 7}));
+    CHECK(machine.static_value(0) == 7 && machine.active_count() == 0);
+    const auto idle = machine.tick(50);
+    CHECK(idle.ok() && idle.instructions == 0);
+    CHECK(returned == (std::vector<int32_t>{1, 3, 5, 7}));
+}
+
+/// Observes contexts created and callers awakened before or after their slot was visited.
+void test_whole_tick_live_slot_lifecycle() {
+    for (const bool wait : {false, true}) {
+        for (const bool child_earlier : {false, true}) {
+            auto machine = make_lifecycle_vm(wait);
+            std::vector<int32_t> returned;
+            vm::StartResult dummy;
+            if (child_earlier) {
+                const std::array<int32_t, 1> argument{99};
+                dummy = machine.start(0, argument);
+                CHECK(dummy.ok() && dummy.context == 0);
+            }
+            const auto parent =
+                machine.start(1, {}, [&](int32_t value) { returned.push_back(value); });
+            CHECK(parent.ok() && parent.context == (child_earlier ? 1u : 0u));
+            if (child_earlier)
+                CHECK(machine.tick_context(dummy.context, 0).ok());
+            const auto first = machine.tick(0);
+            CHECK(first.ok());
+            if (!child_earlier && !wait) {
+                CHECK(first.instructions == 8);
+                CHECK(machine.active_count() == 0 && returned == (std::vector<int32_t>{11}));
+                CHECK(machine.static_value(0) == 22);
+                continue;
+            }
+            CHECK(machine.active_count() != 0);
+            if (child_earlier) {
+                CHECK(machine.static_value(0) == 99);
+                CHECK(machine.context(0).state == vm::ContextState::active);
+                CHECK(first.instructions == (wait ? 2u : 4u));
+            } else {
+                CHECK(first.instructions == 6);
+                CHECK(machine.static_value(0) == 22);
+                CHECK(machine.context(parent.context).state == vm::ContextState::active);
+            }
+            CHECK(returned.empty() == wait);
+            const auto second = machine.tick(0);
+            CHECK(second.ok() && second.instructions == (child_earlier ? (wait ? 6u : 4u) : 2u));
+            CHECK(machine.static_value(0) == 22 && machine.active_count() == 0);
+            CHECK(returned == (std::vector<int32_t>{11}));
+        }
+    }
+}
+
+/// Keeps zero-budget refusal and elapsed sleep charging unchanged in a whole tick.
+void test_whole_tick_sleep_and_budget() {
+    auto machine = make_vm();
+    const auto sleeper = machine.start(sleep_then_store);
+    CHECK(sleeper.ok());
+    const auto started = machine.tick(0);
+    CHECK(started.ok() && started.instructions == 2);
+    const auto refused = machine.tick(7, 0);
+    CHECK(!refused.ok() && refused.error->code == vm::ErrorCode::instruction_limit);
+    CHECK(refused.instructions == 0);
+    CHECK(machine.context(sleeper.context).sleep_remaining == sleep_ticks);
+    const auto waiting = machine.tick(7);
+    CHECK(waiting.ok() && waiting.instructions == 0);
+    CHECK(machine.context(sleeper.context).sleep_remaining == sleep_ticks - 7);
+    const auto finished = machine.tick(sleep_ticks - 7);
+    CHECK(finished.ok() && finished.instructions == 3);
+    CHECK(machine.static_value(2) == 33 && machine.active_count() == 0);
+}
+
 /// Advances an xorshift32 generator.
 ///
 /// @param[in,out] state generator state, never 0
@@ -259,6 +379,9 @@ int main() {
     test_single_context();
     test_sleep();
     test_budget();
+    test_whole_tick_interspersed_stopped_slots();
+    test_whole_tick_live_slot_lifecycle();
+    test_whole_tick_sleep_and_budget();
     test_schedule();
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
