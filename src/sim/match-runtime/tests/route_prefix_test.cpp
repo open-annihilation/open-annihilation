@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "route_prefix.hpp"
+#include "preferred_search_candidate.hpp"
 #include "oa/test/check.hpp"
 
 #include <array>
@@ -13,6 +14,8 @@
 namespace {
 using oa::sim::ground_orders::RoutePoint;
 using oa::sim::match_runtime::is_route_prefix;
+using oa::sim::match_runtime::preferred_fallback_search;
+using oa::sim::match_runtime::same_preferred_search_goal;
 
 void check(
     bool expected,
@@ -104,6 +107,72 @@ void saved_battle_routes_keep_their_existing_backbone() {
     after_save[0] = {0, 0};
     OA_CHECK(is_route_prefix(after_save, first_prefix));
 }
+
+void captured_stationary_fallbacks_keep_their_native_search_eligibility() {
+    oa::sim::simulation_state::Order order;
+    oa::sim::ground_orders::Goal goal;
+    goal.order = &order;
+    goal.cell = {312, 336};
+    goal.tolerance = 180;
+    goal.radius_squared = 121;
+    oa::sim::ground_orders::Navigation navigation;
+    navigation.goal = &goal;
+    navigation.flags = oa::sim::ground_orders::search_pending_flag;
+    oa::sim::unit_movement::Movement movement;
+    oa::sim::unit_movement::LocalFlowHead traffic;
+
+    struct Captured {
+        uint32_t last_motion, last_search, count;
+        int32_t desired_speed;
+    };
+
+    // Retained 20,000-unit tick9000 cases14797/15141/15639. The final
+    // actor's desired speed remains nonzero while its position is blocked.
+    for (const auto captured : {
+             Captured{7216, 6814, 1, 0},
+             Captured{7291, 7270, 1, 0},
+             Captured{8375, 8227, 2, 58982},
+         }) {
+        movement.last_motion_tick = captured.last_motion;
+        movement.speed = captured.desired_speed;
+        navigation.last_search_tick = captured.last_search;
+        navigation.count = captured.count;
+        OA_CHECK(preferred_fallback_search(navigation, movement, traffic, 9000));
+    }
+    const auto retained = goal;
+    OA_CHECK(same_preferred_search_goal(goal, retained));
+    goal.cell[0] += 1;
+    OA_CHECK(!same_preferred_search_goal(goal, retained));
+    goal = retained;
+    goal.tolerance += 16;
+    OA_CHECK(!same_preferred_search_goal(goal, retained));
+    goal = retained;
+    oa::sim::simulation_state::Order replacement;
+    goal.order = &replacement;
+    OA_CHECK(!same_preferred_search_goal(goal, retained));
+    goal = retained;
+    traffic.mobile_blocked = true;
+    OA_CHECK(!preferred_fallback_search(navigation, movement, traffic, 9000));
+    traffic.mobile_blocked = false;
+    movement.last_motion_tick = 8999;
+    OA_CHECK(!preferred_fallback_search(navigation, movement, traffic, 9000));
+    movement.last_motion_tick = 8375;
+    navigation.last_search_tick = 8999;
+    OA_CHECK(!preferred_fallback_search(navigation, movement, traffic, 9000));
+    navigation.last_search_tick = 8227;
+    navigation.flags = 0;
+    OA_CHECK(!preferred_fallback_search(navigation, movement, traffic, 9000));
+    navigation.flags = oa::sim::ground_orders::search_pending_flag;
+    goal.order = nullptr;
+    OA_CHECK(!preferred_fallback_search(navigation, movement, traffic, 9000));
+    goal.order = &order;
+    navigation.goal = nullptr;
+    OA_CHECK(!preferred_fallback_search(navigation, movement, traffic, 9000));
+    navigation.goal = &goal;
+    movement.last_motion_tick = std::numeric_limits<uint32_t>::max() - 100;
+    navigation.last_search_tick = std::numeric_limits<uint32_t>::max() - 200;
+    OA_CHECK(preferred_fallback_search(navigation, movement, traffic, 20));
+}
 } // namespace
 
 int main() {
@@ -111,5 +180,6 @@ int main() {
     subdivisions_duplicates_and_bends();
     malformed_counts_and_coordinate_bounds();
     saved_battle_routes_keep_their_existing_backbone();
+    captured_stationary_fallbacks_keep_their_native_search_eligibility();
     return oa::test::check_exit_status();
 }
