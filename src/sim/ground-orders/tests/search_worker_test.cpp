@@ -458,6 +458,41 @@ void preferred_jobs_keep_the_active_unit_goal_and_work_debt() {
     CHECK(scheduler.controller.idle() && scheduler.jobs.unit_cursor[0] == 0);
     CHECK(route.last_search_tick == 200 && scheduler.jobs.credit[0] == 1 - 101);
     CHECK(context.prepared == 2 && context.published == 1);
+
+    // Cancelling a job leaves no cursor binding to reuse when searches and
+    // their order-owned Goals are rebuilt on new unit storage.
+    scheduler.jobs = SearchPlayerJobState{};
+    scheduler.jobs.job_picks[0] = 3;
+    scheduler.jobs.tick_credit = 1;
+    route.last_search_tick = 0;
+    context.prepare_ok = true;
+    CHECK(scan_player_jobs(scheduler, players, 1, 8, 300, all_seen, access) == 1);
+    CHECK(scheduler.controller.active().unit == &mover);
+    scheduler.controller.cancel(route);
+    CHECK(scheduler.controller.idle());
+    oa::sim::unit_spawn::LegacyWorld rebuilt_world(9);
+    prepare_pick_world(rebuilt_world);
+    oa::sim::simulation_state::Order rebuilt_order;
+    Goal rebuilt_goal;
+    rebuilt_goal.order = &rebuilt_order;
+    rebuilt_goal.cell = {9, 12};
+    Navigation rebuilt_route;
+    rebuilt_route.goal = &rebuilt_goal;
+    rebuilt_route.flags = search_pending_flag;
+    context.mover = &rebuilt_world.unit(8);
+    context.route = &rebuilt_route;
+    SearchScheduler rebuilt;
+    rebuilt.jobs.tick_credit = 4;
+    CHECK(
+        scan_player_jobs(
+            rebuilt, rebuilt_world.simulation().players, 1, 8, 400, all_seen, access
+        ) == 4
+    );
+    CHECK(rebuilt.jobs.unit_cursor[0] == 3);
+    CHECK(rebuilt.controller.active().unit == &rebuilt_world.unit(8));
+    CHECK(rebuilt.controller.active().navigation == &rebuilt_route);
+    CHECK(rebuilt.controller.active().goal == &rebuilt_goal);
+    CHECK(rebuilt_route.last_search_tick == 400 && route.last_search_tick == 300);
 }
 } // namespace
 
