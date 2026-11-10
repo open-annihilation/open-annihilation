@@ -63,10 +63,66 @@ struct FrameSample {
     double present{};      ///< uploading and presenting it
     double full_stage{};   ///< classic Full model/sprite construction and uploads
     double full_execute{}; ///< classic Full's first executor call
+    renderer_live_scene::GroundIndexBuilds index_builds{}; ///< bounded build-only diagnostics
 };
 
 /// Room for one stage's milliseconds in a FRAME line.
 constexpr std::size_t kStageValueBytes = 24;
+
+/// Prints build-only metadata after the measured span, never from a worker.
+/// @param frame the measured frame's index
+/// @param builds the bounded records collected after its scene joined
+void print_index_builds(std::size_t frame, const renderer_live_scene::GroundIndexBuilds& builds) {
+    const auto word = [](uint64_t value) { return static_cast<unsigned long long>(value); };
+    for (std::size_t index = 0; index < builds.size; ++index) {
+        const auto& build = builds.records[index];
+        const auto& old = build.before;
+        const auto& key = build.requested;
+        std::printf(
+            "bench: GROUND_INDEX_BUILD_FRAME %zu ordinal %zu previous_attempts %llu "
+            "was_valid %u completed %u reason_mask %u old_revision %llu revision %llu "
+            "old_vertices %zu vertices %zu old_card %u card %u "
+            "old_axes %016llx,%016llx,%016llx,%016llx "
+            "axes %016llx,%016llx,%016llx,%016llx "
+            "old_fp %llx,%llx,%llx fp %llx,%llx,%llx "
+            "bounds_ms %.3f world_ms %.3f card_ms %.3f wall_ms %.3f\n",
+            frame,
+            index,
+            word(build.previous_attempts),
+            unsigned(build.was_valid),
+            unsigned(build.completed),
+            build.reasons,
+            word(old.revision),
+            word(key.revision),
+            old.vertices,
+            key.vertices,
+            unsigned(old.card),
+            unsigned(key.card),
+            word(old.card_axes[0]),
+            word(old.card_axes[1]),
+            word(old.card_axes[2]),
+            word(old.card_axes[3]),
+            word(key.card_axes[0]),
+            word(key.card_axes[1]),
+            word(key.card_axes[2]),
+            word(key.card_axes[3]),
+            word(old.float_control[0]),
+            word(old.float_control[1]),
+            word(old.float_control[2]),
+            word(key.float_control[0]),
+            word(key.float_control[1]),
+            word(key.float_control[2]),
+            double(build.bounds_nanoseconds) / 1e6,
+            double(build.world_nanoseconds) / 1e6,
+            double(build.card_nanoseconds) / 1e6,
+            double(build.total_nanoseconds) / 1e6
+        );
+    }
+    if (builds.dropped != 0)
+        std::printf(
+            "bench: GROUND_INDEX_BUILD_DROPPED_FRAME %zu count %llu\n", frame, word(builds.dropped)
+        );
+}
 
 /// Returns a measure's values, one a frame.
 ///
@@ -714,6 +770,7 @@ void Runtime::play_bench() {
         aim(view.yaw + view.turn_rate * elapsed);
         const auto phases = phase_times_;
         const auto totals_before = bench_timers::timers.totals;
+        bench_timers::clear_ground_index_builds();
         frame();
         const double finished = now();
         if (screen_ != Screen::match || !match_) {
@@ -735,6 +792,9 @@ void Runtime::play_bench() {
              ms(phase_times_.compose - phases.compose),
              ms((phase_times_.upload - phases.upload) + (phase_times_.present - phases.present))}
         );
+        if (bench_timers::timers.ground_index_builds.size != 0 ||
+            bench_timers::timers.ground_index_builds.dropped != 0)
+            samples.back().index_builds = bench_timers::timers.ground_index_builds;
         previous = finished;
         minimum_actual_rate = std::min(minimum_actual_rate, match_timing_.actual_rate);
         if (view.require_gameplay && match_)
@@ -1117,6 +1177,7 @@ void Runtime::play_bench() {
                 sample.ground_index_triangles,
                 sample.ground_index_wall_ms
             );
+            print_index_builds(index, samples[index].index_builds);
             std::printf(
                 "bench: POSE_FRAME %zu units %.0f pieces %.0f vm_triplets %.0f\n",
                 index,

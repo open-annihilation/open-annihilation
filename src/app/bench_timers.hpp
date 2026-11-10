@@ -11,6 +11,8 @@
 // times in (add_nanoseconds, count_packed_materials).
 #pragma once
 
+#include "ground_index_build.hpp"
+
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -230,9 +232,10 @@ struct SceneCounts {
 
 /// The timers' state.
 struct Timers {
-    bool on{};                   ///< only --bench turns the timers on
-    Totals totals{};             ///< sums since the last clear()
-    SceneCounts last{};          ///< the last frame's scene
+    bool on{};       ///< only --bench turns the timers on
+    Totals totals{}; ///< sums since the last clear()
+    renderer_live_scene::GroundIndexBuilds ground_index_builds{}; ///< completed scene-build records
+    SceneCounts last{};                                           ///< the last frame's scene
     double multisample{};        ///< the card's samples a pixel the last frame, as drawn
     uint64_t ground_revision{};  ///< the kept ground's revision last frame
     Stage open = Stage::count;   ///< the innermost Span running, which packing charges
@@ -416,6 +419,26 @@ inline void count_ground_indices(
     timers.totals.ground_index_hits += static_cast<double>(hits);
     timers.totals.ground_index_triangles += static_cast<double>(triangles);
     timers.totals.ground_index_wall_ms += static_cast<double>(nanoseconds) / 1.0e6;
+}
+
+/// Starts the bounded ground-build record list for one measured frame.
+inline void clear_ground_index_builds() noexcept {
+    timers.ground_index_builds.size = 0;
+    timers.ground_index_builds.dropped = 0;
+}
+
+/// Takes worker records only after all scene passes have joined.
+/// @param more the scene's bounded build records
+inline void count_ground_index_builds(const renderer_live_scene::GroundIndexBuilds& more) noexcept {
+    if (!timers.on)
+        return;
+    auto& into = timers.ground_index_builds;
+    for (std::size_t index = 0; index < more.size; ++index)
+        if (into.size < into.capacity)
+            into.records[into.size++] = more.records[index];
+        else
+            ++into.dropped;
+    into.dropped += more.dropped;
 }
 
 /// Counts poses actually captured and the bulk VM speed reads they required.

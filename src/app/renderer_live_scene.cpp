@@ -6997,6 +6997,28 @@ void list_ground(
         ++work.hits;
         return;
     }
+    GroundIndexBuild* diagnostic = nullptr;
+    if (bench_timers::timers.on) {
+        auto& records = work.diagnostics;
+        if (records.size < records.capacity) {
+            diagnostic = &records.records[records.size++];
+            *diagnostic = {};
+            diagnostic->before = cache.key;
+            diagnostic->requested = key;
+            diagnostic->previous_attempts = cache.attempts;
+            diagnostic->was_valid = cache.valid;
+            diagnostic->reasons =
+                (!cache.valid ? uint32_t{index_invalid} : 0U) |
+                (key.revision == 0 ? uint32_t{index_uncached} : 0U) |
+                (cache.key.revision != key.revision ? uint32_t{index_revision} : 0U) |
+                (cache.key.vertices != key.vertices ? uint32_t{index_vertices} : 0U) |
+                (cache.key.card != key.card ? uint32_t{index_card} : 0U) |
+                (cache.key.card_axes != key.card_axes ? uint32_t{index_axes} : 0U) |
+                (cache.key.float_control != key.float_control ? uint32_t{index_float_control} : 0U);
+        } else
+            ++records.dropped;
+    }
+    ++cache.attempts;
     cache.valid = false;
     ++work.builds;
     work.triangles += triangles;
@@ -7005,12 +7027,32 @@ void list_ground(
     struct BuildTime {
         GroundIndexWork& work;
         uint64_t began{};
+        GroundIndexBuild* diagnostic{};
+        uint64_t phase_started{};
+        uint64_t* phase{};
+
+        void next(uint64_t* following) {
+            if (!diagnostic)
+                return;
+            const auto now = bench_timers::now_ns();
+            *phase += now - phase_started;
+            phase = following;
+            phase_started = now;
+        }
 
         ~BuildTime() {
-            if (began)
-                work.build_nanoseconds += bench_timers::now_ns() - began;
+            if (began) {
+                const auto ended = bench_timers::now_ns();
+                work.build_nanoseconds += ended - began;
+                if (diagnostic) {
+                    diagnostic->total_nanoseconds = ended - began;
+                    *phase += ended - phase_started;
+                }
+            }
         }
-    } build_time{work, began};
+    } build_time{
+        work, began, diagnostic, began, diagnostic ? &diagnostic->bounds_nanoseconds : nullptr
+    };
 
     auto& world_bounds = scene.ground_index_memory[0].bounds;
     auto& card_bounds = scene.ground_index_memory[1].bounds;
@@ -7060,7 +7102,9 @@ void list_ground(
                 static_cast<float>(card[3])
             };
     }
+    build_time.next(diagnostic ? &diagnostic->world_nanoseconds : nullptr);
     indices.world.emplace(world_axes, scene.ground_index_memory[0], reach);
+    build_time.next(diagnostic ? &diagnostic->card_nanoseconds : nullptr);
     if (card_axes != nullptr)
         indices.card.emplace(*card_axes, scene.ground_index_memory[1], reach);
     cache.key = key;
@@ -7068,6 +7112,8 @@ void list_ground(
     if (indices.card)
         cache.layouts[1] = indices.card->layout();
     cache.valid = key.revision != 0;
+    if (diagnostic)
+        diagnostic->completed = true;
 }
 
 /// Finds the rendered ground's height on one triangle below a world point.
@@ -8171,6 +8217,7 @@ class PassTimes {
         bench_timers::count_ground_indices(
             indices.builds, indices.hits, indices.triangles, indices.build_nanoseconds
         );
+        bench_timers::count_ground_index_builds(indices.diagnostics);
         const auto add = [](Stage stage, const PassList& list) {
             bench_timers::add_nanoseconds(stage, list.nanoseconds);
             bench_timers::count_packed_materials(stage, list.materials_packed, list.texels_packed);
