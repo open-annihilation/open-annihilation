@@ -44,7 +44,7 @@ RUN_TIMEOUT = 300
 WARMUP_TICKS = 30
 MEASURE_SECONDS = 3
 CURRENT_RULES_VERSION = 4
-SUPPORTED_RULES_VERSIONS = frozenset(range(7))
+SUPPORTED_RULES_VERSIONS = frozenset(range(8))
 VIEW = """label check
 stage {stage}
 menu_seconds 0
@@ -99,6 +99,33 @@ FRAME = re.compile(
     rf"^bench: FRAME (\d+) frame {NUMBER} work {NUMBER} draw {NUMBER} ground ([01]) "
     rf"terrain_packs (\d+) atlas_resets (\d+) atlas_rows (\d+) materials (\d+) "
     rf"stages((?: {NUMBER}){{{len(STAGES)}}})$")
+# Renderer records are separate from the stable FRAME fields and stage order.
+MATERIAL_KINDS = ("surface", "scenery", "effect", "light", "shadow")
+RENDERER_TAGS = frozenset(("GROUND_INDEX", "POSE", "MATERIAL", "GROUND_INDEX_FRAME",
+                          "POSE_FRAME", "MATERIAL_FRAME", "GROUND_INDEX_BUILD_FRAME",
+                          "GROUND_INDEX_BUILD_DROPPED_FRAME"))
+GROUND_INDEX = re.compile(rf"^bench: GROUND_INDEX builds (\d+) hits (\d+) triangles (\d+) wall_ms {NUMBER}$")
+GROUND_INDEX_FRAME = re.compile(rf"^bench: GROUND_INDEX_FRAME (\d+) builds (\d+) hits (\d+) triangles (\d+) wall_ms {NUMBER}$")
+POSE = re.compile(r"^bench: POSE units (\d+) pieces (\d+) vm_triplets (\d+)$")
+POSE_FRAME = re.compile(r"^bench: POSE_FRAME (\d+) units (\d+) pieces (\d+) vm_triplets (\d+)$")
+MATERIAL = re.compile(r"^bench: MATERIAL (\S+) insertions (\d+) texels (\d+) row_texels (\d+)$")
+MATERIAL_FRAME = re.compile(r"^bench: MATERIAL_FRAME (\d+) (\S+) insertions (\d+) texels (\d+) row_texels (\d+)$")
+HEX_AXES = r"[0-9a-f]{16}(?:,[0-9a-f]{16}){3}"
+HEX_CONTROL = r"[0-9a-f]{1,16}(?:,[0-9a-f]{1,16}){2}"
+INDEX_BUILD_CAPACITY = 8
+INDEX_BUILD = re.compile(
+    r"^bench: GROUND_INDEX_BUILD_FRAME (?P<frame>\d+) ordinal (?P<ordinal>\d+) "
+    r"previous_attempts (?P<previous_attempts>\d+) was_valid (?P<was_valid>[01]) "
+    r"completed (?P<completed>[01]) reason_mask (?P<reasons>\d+) "
+    r"old_revision (?P<old_revision>\d+) revision (?P<revision>\d+) "
+    r"old_vertices (?P<old_vertices>\d+) vertices (?P<vertices>\d+) "
+    r"old_card (?P<old_card>[01]) card (?P<card>[01]) "
+    rf"old_axes (?P<old_axes>{HEX_AXES}) axes (?P<axes>{HEX_AXES}) "
+    rf"old_fp (?P<old_fp>{HEX_CONTROL}) fp (?P<fp>{HEX_CONTROL}) "
+    r"bounds_ms (?P<bounds>\d+(?:\.\d+)?) world_ms (?P<world>\d+(?:\.\d+)?) "
+    r"card_ms (?P<card_ms>\d+(?:\.\d+)?) wall_ms (?P<wall>\d+(?:\.\d+)?)$")
+INDEX_DROPPED = re.compile(r"^bench: GROUND_INDEX_BUILD_DROPPED_FRAME (\d+) count (\d+)$")
+
 QUEUED = re.compile(r"^stage: unit \d+ queues (\d+) (\S+)$", re.M)
 # The battle's armies, factories, builders and economies, placed at its
 # start: at least this many live units once it has begun.
@@ -155,6 +182,161 @@ def check_initial(result, rules_version=0, requested_rules_version=0):
              f"not {rules_version}/{requested_rules_version}")
 
 
+def check_renderer_records(result, lines, frames, timers):
+    """Validate optional renderer families, returning the unchanged legacy transcript."""
+    tags = [line.split()[1] for line in lines]
+    legacy = [line for line, tag in zip(lines, tags) if tag not in RENDERER_TAGS]
+    if not any(tag in RENDERER_TAGS for tag in tags):
+        return legacy
+
+    def require(condition, message):
+        if not condition:
+            fail(result, "renderer records: " + message)
+
+    require(frames > 0, "counter span must contain frames")
+    positions = [index for index, tag in enumerate(tags) if tag == "FRAME"]
+    require(len(positions) == frames, "counter frames need the complete FRAME span")
+    require(all(FRAME.fullmatch(lines[index]) for index in positions), "a FRAME line does not read")
+    require([int(FRAME.fullmatch(lines[index]).group(1)) for index in positions] == list(range(frames)),
+            "FRAME indices are not in order")
+    results = [index for index, tag in enumerate(tags) if tag == "RESULT"]
+    require(len(results) == 1 and results[0] < positions[0], "counters must follow RESULT")
+    family_tags = (("GROUND_INDEX", "GROUND_INDEX_FRAME"), ("POSE", "POSE_FRAME"),
+                   ("MATERIAL", "MATERIAL_FRAME"))
+    present = {summary: summary in tags or per_frame in tags
+               for summary, per_frame in family_tags}
+    builds_present = any(tag.startswith("GROUND_INDEX_BUILD_") for tag in tags)
+    require(not builds_present or present["GROUND_INDEX"], "BUILD needs ground-index counters")
+    summary_positions = [index for index, tag in enumerate(tags)
+                         if tag in ("GROUND_INDEX", "POSE", "MATERIAL")]
+    lower = max([results[0], *[index for index, tag in enumerate(tags) if tag == "SLOW"]])
+    require(all(lower < index < positions[0] for index in summary_positions),
+            "summaries must follow SLOW and precede FRAME")
+    expected_summaries = (["GROUND_INDEX"] if present["GROUND_INDEX"] else []) + \
+        (["POSE"] if present["POSE"] else []) + \
+        (["MATERIAL"] * len(MATERIAL_KINDS) if present["MATERIAL"] else [])
+    require([tags[index] for index in summary_positions] == (expected_summaries if timers else []),
+            "summary families are missing, repeated or out of order")
+    sums = {"GROUND_INDEX": [0, 0, 0, 0.0], "POSE": [0, 0, 0]}
+    material_sums = {kind: [0, 0, 0] for kind in MATERIAL_KINDS}
+    consumed = set(summary_positions)
+    done = [index for index, tag in enumerate(tags) if tag == "DONE"]
+    require(len(done) == 1 and done[0] > positions[-1], "counter span needs final DONE")
+
+    def read(pattern, index):
+        match = pattern.fullmatch(lines[index])
+        require(match is not None, "a line does not read: " + lines[index])
+        consumed.add(index)
+        return match
+
+    for frame, first in enumerate(positions):
+        end = positions[frame + 1] if frame + 1 < frames else done[0]
+        cursor = first + 1
+        ground = None
+        if present["GROUND_INDEX"]:
+            require(cursor < end, "missing GROUND_INDEX_FRAME")
+            match = read(GROUND_INDEX_FRAME, cursor)
+            require(int(match.group(1)) == frame, "wrong ground-index frame")
+            ground = [int(match.group(n)) for n in (2, 3, 4)] + [float(match.group(5))]
+            require(ground[0] != 0 or ground[2:] == [0, 0.0],
+                    "ground-index frame without builds has construction work")
+            sums["GROUND_INDEX"] = [a + b for a, b in zip(sums["GROUND_INDEX"], ground)]
+            cursor += 1
+        records = []
+        while cursor < end and tags[cursor] == "GROUND_INDEX_BUILD_FRAME":
+            match = read(INDEX_BUILD, cursor)
+            row = match.groupdict()
+            require(int(row["frame"]) == frame and int(row["ordinal"]) == len(records),
+                    "BUILD frame or ordinal is out of order")
+            require(len(records) < INDEX_BUILD_CAPACITY, "too many BUILD records")
+            integer_fields = ("previous_attempts", "old_revision", "revision", "old_vertices", "vertices")
+            require(all(int(row[name]) < 1 << 64 for name in integer_fields), "BUILD word exceeds uint64")
+            require(int(row["old_vertices"]) % 3 == 0 and int(row["vertices"]) % 3 == 0,
+                    "BUILD vertices are not complete triangles")
+            expected = (0 if int(row["was_valid"]) else 1) | (2 if int(row["revision"]) == 0 else 0)
+            for bit, old, new in ((4, "old_revision", "revision"), (8, "old_vertices", "vertices"),
+                                  (16, "old_card", "card"), (32, "old_axes", "axes"),
+                                  (64, "old_fp", "fp")):
+                if old.endswith(("axes", "fp")):
+                    before = tuple(int(word, 16) for word in row[old].split(","))
+                    requested = tuple(int(word, 16) for word in row[new].split(","))
+                else:
+                    before, requested = int(row[old]), int(row[new])
+                expected |= bit if before != requested else 0
+            require(int(row["reasons"]) == expected and expected != 0, "BUILD reason mask disagrees with keys")
+            require(not int(row["was_valid"]) or int(row["previous_attempts"]) != 0,
+                    "valid cache has no previous attempt")
+            phases = sum(float(row[name]) for name in ("bounds", "world", "card_ms"))
+            require(abs(phases - float(row["wall"])) <= 0.0021, "BUILD subspans do not partition wall time")
+            records.append(row)
+            cursor += 1
+        dropped = 0
+        if cursor < end and tags[cursor] == "GROUND_INDEX_BUILD_DROPPED_FRAME":
+            match = read(INDEX_DROPPED, cursor)
+            dropped = int(match.group(2))
+            require(int(match.group(1)) == frame and dropped > 0 and
+                    len(records) == INDEX_BUILD_CAPACITY, "invalid BUILD overflow")
+            cursor += 1
+        if records or dropped or (builds_present and ground is not None and ground[0] != 0):
+            require(timers and ground is not None and len(records) + dropped == ground[0],
+                    "BUILD count differs from ground-index frame")
+            require(sum(int(row["vertices"]) // 3 for row in records) <= ground[2],
+                    "BUILD triangles exceed frame count")
+            if dropped == 0:
+                require(sum(int(row["vertices"]) // 3 for row in records) == ground[2],
+                        "BUILD triangle count differs from frame")
+                require(abs(sum(float(row["wall"]) for row in records) - ground[3]) <=
+                        0.001 * (len(records) + 1), "BUILD wall differs from ground-index frame")
+        if present["POSE"]:
+            require(cursor < end, "missing POSE_FRAME")
+            match = read(POSE_FRAME, cursor)
+            values = [int(match.group(n)) for n in (2, 3, 4)]
+            require(int(match.group(1)) == frame and values[2] <= values[1] and
+                    (values[0] != 0 or values[1:] == [0, 0]), "invalid pose frame")
+            sums["POSE"] = [a + b for a, b in zip(sums["POSE"], values)]
+            cursor += 1
+        if present["MATERIAL"]:
+            for kind in MATERIAL_KINDS:
+                require(cursor < end, "missing MATERIAL_FRAME")
+                match = read(MATERIAL_FRAME, cursor)
+                require(int(match.group(1)) == frame and match.group(2) == kind,
+                        "material classes or frames are out of order")
+                values = [int(match.group(n)) for n in (3, 4, 5)]
+                require(values[1] >= values[0] and
+                        (values[0] != 0 or values[1:] == [0, 0]), "invalid material texel count")
+                material_sums[kind] = [a + b for a, b in zip(material_sums[kind], values)]
+                cursor += 1
+        require(cursor == end, "unexpected or misplaced record in FRAME block")
+    for index, tag in enumerate(tags):
+        require(tag not in RENDERER_TAGS or index in consumed, "renderer record is outside its span")
+    if timers:
+        for family, pattern in (("GROUND_INDEX", GROUND_INDEX), ("POSE", POSE)):
+            if not present[family]:
+                continue
+            index = next(index for index in summary_positions if tags[index] == family)
+            values = read(pattern, index).groups()
+            actual = ([int(value) for value in values[:3]] + [float(values[3])]
+                      if family == "GROUND_INDEX" else [int(value) for value in values])
+            expected = sums[family]
+            require(all(abs(a - b) <= (0.00051 * (frames + 1) if family == "GROUND_INDEX" and
+                                      n == 3 else 0) for n, (a, b) in enumerate(zip(actual, expected))),
+                    family + " summary differs from frame totals")
+        for index in [index for index in summary_positions if tags[index] == "MATERIAL"]:
+            match = read(MATERIAL, index)
+            require(match.group(1) in material_sums and
+                    [int(match.group(n)) for n in (2, 3, 4)] == material_sums[match.group(1)],
+                    "material summary differs from frame totals")
+        require([read(MATERIAL, index).group(1) for index in summary_positions
+                 if tags[index] == "MATERIAL"] == (list(MATERIAL_KINDS) if present["MATERIAL"] else []),
+                "material summary classes are out of order")
+    else:
+        require(not builds_present and not any(sums[family] != [0] * len(sums[family])
+                                              for family in sums) and
+                not any(any(values) for values in material_sums.values()),
+                "timers-off records contain measured work")
+    return legacy
+
+
 def check_lines(result, timers, rules_version=0, requested_rules_version=0):
     """Checks a finished run's lines and returns them."""
     if result.returncode != 0:
@@ -166,7 +348,7 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
     if away and not AWAY.match(away[0]):
         fail(result, f"the AWAY line does not read: {away[0]}")
     lines = [line for line in lines if not line.startswith("bench: AWAY")]
-    kinds = [line.split()[1] for line in lines]
+    kinds = [line.split()[1] for line in lines if line.split()[1] not in RENDERER_TAGS]
     # The lines come in their order, each kind once but SEC, MEASURE, STAGE,
     # ATLAS, SLOW and FRAME.
     order = ["INITIAL", "WARMUP", "MEASURING", "SEC", "SHOT", "RESULT", "MEASURE", "STAGE", "COUNTS",
@@ -221,6 +403,7 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
     if int(counts.group(1)) < LEAST_UNITS or int(ground.group(2)) != frames or \
             int(atlas.group(2)) != frames:
         fail(result, f"the bench counted {counts.group(1)} units and other frames than {frames:.0f}")
+    check_renderer_records(result, lines, int(frames), timers)
     if timers:
         check_slow_and_frame_lines(result, lines, int(frames), measured["frame"])
     return lines
@@ -273,9 +456,16 @@ def main():
             timed = run_bench(arguments.native, arguments.game_dir, workdir, "timed", VIEW.format(
                 stage=stage, warmup=WARMUP_TICKS, seconds=MEASURE_SECONDS, timers=1))
             lines = check_lines(timed, True)
+            for family in ("GROUND_INDEX", "POSE", "MATERIAL"):
+                if not any(line.split()[1] == family for line in lines):
+                    fail(timed, f"the timed bench omitted its {family} renderer counters")
             queued = QUEUED.findall(timed.stdout)
             if len(queued) != 12 or ("60", "ARMWAR") not in queued or ("30", "CORVENG") not in queued:
                 fail(timed, f"the stage queued {queued}")
+            if any(int(GROUND_INDEX_FRAME.fullmatch(line).group(2)) != 0
+                   for line in lines if GROUND_INDEX_FRAME.fullmatch(line)) and not any(
+                       line.startswith("bench: GROUND_INDEX_BUILD_FRAME ") for line in lines):
+                fail(timed, "the timed bench omitted its ground-index BUILD diagnostics")
             # The summariser reads the run.
             log = workdir / "timed" / "bench.txt"
             log.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -287,7 +477,8 @@ def main():
                 raise BenchFailure("tools/bench/summarise.py did not read the run")
             untimed = run_bench(arguments.native, arguments.game_dir, workdir, "untimed",
                                 VIEW.format(stage=stage, warmup=WARMUP_TICKS, seconds=1, timers=0))
-            if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME"))
+            if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME")) or
+                   (line.startswith("bench: ") and line.split()[1] in RENDERER_TAGS)
                    for line in untimed.stdout.splitlines()):
                 fail(untimed, "the bench printed its stage timers with them off")
             if untimed.returncode != 0 or "bench: DONE label=check" not in untimed.stdout:
@@ -325,6 +516,9 @@ def main():
                     r"cpu_image_bytes \d+ cpu_image_sha256 (?:[0-9a-f]{64}|-)$",
                     paused.stdout, re.M):
                 fail(paused, "the paused rendering span did not identify its actual renderer")
+            check_renderer_records(
+                paused, [line for line in paused.stdout.splitlines() if line.startswith("bench: ")],
+                3, False)
             wrong_population = run_bench(
                 arguments.native, arguments.game_dir, workdir, "wrong-population",
                 paused_view.replace("expected_live_units 2", "expected_live_units 3"))
@@ -332,7 +526,7 @@ def main():
                     "bench: FAILED the live unit roster differs from expected_live_units" \
                     not in wrong_population.stdout:
                 fail(wrong_population, "a wrong rendering population was not refused")
-            for version in (0, 4, 6):
+            for version in (0, 4, 6, 7):
                 rules_view = paused_view + (f"rules_version {version}\n" if version else "")
                 selected = run_bench(
                     arguments.native, arguments.game_dir, workdir, f"rules-{version}",
@@ -342,6 +536,9 @@ def main():
                         r"warmup_frames 2 verified_frames 3$", selected.stdout, re.M):
                     fail(selected, "the Enhanced paused span did not finish")
                 check_initial(selected, version or CURRENT_RULES_VERSION, version)
+                check_renderer_records(
+                    selected, [line for line in selected.stdout.splitlines()
+                               if line.startswith("bench: ")], 3, False)
             mode_off = run_bench(
                 arguments.native, arguments.game_dir, workdir, "rules-off",
                 "label rules-off\nrules_version 6\n")
@@ -351,7 +548,7 @@ def main():
                 fail(mode_off, "explicit rules without Enhanced Mode were not refused")
             unsupported = run_bench(
                 arguments.native, arguments.game_dir, workdir, "rules-unsupported",
-                "label rules-unsupported\nrules_version 7\n", enhanced=True)
+                "label rules-unsupported\nrules_version 8\n", enhanced=True)
             view = workdir / "rules-unsupported" / "rules-unsupported.bench"
             expected = (f"bench: FAILED {view}: line 2: rules_version takes 0 or a supported "
                         "Enhanced Mode rules version")
