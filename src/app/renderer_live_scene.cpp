@@ -6954,7 +6954,27 @@ struct GroundIndices {
     /// The triangles along the cards' axes; none as for world, or when the
     /// cards have no axes.
     std::optional<GroundIndex> card{};
+    /// A caller-prepared list awaits its first real query. A different
+    /// query thread's controls or axes retain the original lazy build.
+    std::optional<GroundIndexKey> prepared{};
 };
+
+/// Names exactly the geometry and arithmetic a ground list is built with.
+GroundIndexKey
+ground_index_key(uint64_t revision, std::size_t vertices, const GroundIndex::Axes* card_axes) {
+    const auto control = base::float_precision::save_float_control();
+    GroundIndexKey key{
+        revision,
+        vertices,
+        {},
+        {control.older_unit, control.vector_unit, control.arm_unit},
+        card_axes != nullptr
+    };
+    if (card_axes)
+        for (std::size_t axis = 0; axis < key.card_axes.size(); ++axis)
+            key.card_axes[axis] = std::bit_cast<uint64_t>((*card_axes)[axis]);
+    return key;
+}
 
 /// Lists the frame's ground triangles along world x and z and along the
 /// cards' axes, reading each ground vertex once.
@@ -6964,11 +6984,13 @@ struct GroundIndices {
 /// @param ground the frame's ground triangles, cut by foundations
 /// @param card_axes the cards' across and above, or none when they have none
 /// @param[out] indices the pass's ground indices, listed afresh
+/// @param pool the free pool for independent bounds, or none for the lazy path
 void list_ground(
     Scene& scene,
     std::span<const Vertex> ground,
     const GroundIndex::Axes* card_axes,
-    GroundIndices& indices
+    GroundIndices& indices,
+    platform::job_pool::Pool* pool = nullptr
 ) {
     indices.listed = true;
     indices.world.reset();
@@ -6977,16 +6999,7 @@ void list_ground(
         indices.card_axes = *card_axes;
     const std::size_t triangles = ground.size() / 3;
     const auto control = base::float_precision::save_float_control();
-    GroundIndexKey key{
-        indices.revision,
-        ground.size(),
-        {},
-        {control.older_unit, control.vector_unit, control.arm_unit},
-        card_axes != nullptr
-    };
-    if (card_axes)
-        for (std::size_t axis = 0; axis < key.card_axes.size(); ++axis)
-            key.card_axes[axis] = std::bit_cast<uint64_t>((*card_axes)[axis]);
+    const auto key = ground_index_key(indices.revision, ground.size(), card_axes);
     auto& cache = scene.ground_index_cache;
     auto& work = scene.passes.ground_indices;
     constexpr GroundIndex::Axes world_axes{1, 0, 0, 1};
@@ -7068,48 +7081,80 @@ void list_ground(
     world_bounds.resize(triangles);
     card_bounds.resize(card_axes != nullptr ? triangles : 0);
     constexpr float none = std::numeric_limits<float>::infinity();
-    double reach{};
-    for (std::size_t triangle = 0; triangle < triangles; ++triangle) {
-        std::array<float, 4> world{none, -none, none, -none};
-        std::array<double, 4> card{none, -none, none, -none};
-        for (std::size_t corner = 0; corner < 3; ++corner) {
-            const auto& vertex = ground[triangle * 3 + corner];
-            if (!std::isfinite(vertex.x) || !std::isfinite(vertex.z) ||
-                !std::isfinite(vertex.height))
-                return;
-            world = {
-                std::min(world[0], vertex.x),
-                std::max(world[1], vertex.x),
-                std::min(world[2], vertex.z),
-                std::max(world[3], vertex.z)
-            };
-            if (card_axes != nullptr) {
-                const auto& axes = *card_axes;
-                const double across = axes[0] * vertex.x + axes[1] * vertex.z;
-                const double above = axes[2] * vertex.x + axes[3] * vertex.z;
-                card = {
-                    std::min(card[0], across),
-                    std::max(card[1], across),
-                    std::min(card[2], above),
-                    std::max(card[3], above)
+
+    struct BoundSummary {
+        double reach{};
+        bool finite{true};
+    };
+
+    const auto bounds = [&](std::size_t first, std::size_t last) {
+        BoundSummary result;
+        for (std::size_t triangle = first; triangle < last; ++triangle) {
+            std::array<float, 4> world{none, -none, none, -none};
+            std::array<double, 4> card{none, -none, none, -none};
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto& vertex = ground[triangle * 3 + corner];
+                if (!std::isfinite(vertex.x) || !std::isfinite(vertex.z) ||
+                    !std::isfinite(vertex.height))
+                    return BoundSummary{0, false};
+                world = {
+                    std::min(world[0], vertex.x),
+                    std::max(world[1], vertex.x),
+                    std::min(world[2], vertex.z),
+                    std::max(world[3], vertex.z)
                 };
+                if (card_axes != nullptr) {
+                    const auto& axes = *card_axes;
+                    const double across = axes[0] * vertex.x + axes[1] * vertex.z;
+                    const double above = axes[2] * vertex.x + axes[3] * vertex.z;
+                    card = {
+                        std::min(card[0], across),
+                        std::max(card[1], across),
+                        std::min(card[2], above),
+                        std::max(card[3], above)
+                    };
+                }
             }
+            result.reach = std::max(
+                {result.reach,
+                 std::abs(double{world[0]}),
+                 std::abs(double{world[1]}),
+                 std::abs(double{world[2]}),
+                 std::abs(double{world[3]})}
+            );
+            world_bounds[triangle] = world;
+            if (card_axes != nullptr)
+                card_bounds[triangle] = {
+                    static_cast<float>(card[0]),
+                    static_cast<float>(card[1]),
+                    static_cast<float>(card[2]),
+                    static_cast<float>(card[3])
+                };
         }
-        reach = std::max(
-            {reach,
-             std::abs(double{world[0]}),
-             std::abs(double{world[1]}),
-             std::abs(double{world[2]}),
-             std::abs(double{world[3]})}
-        );
-        world_bounds[triangle] = world;
-        if (card_axes != nullptr)
-            card_bounds[triangle] = {
-                static_cast<float>(card[0]),
-                static_cast<float>(card[1]),
-                static_cast<float>(card[2]),
-                static_cast<float>(card[3])
-            };
+        return result;
+    };
+    // Every band keeps the original corner order and writes only its own
+    // triangles. Finite nonnegative maxima reduce exactly in any order.
+    constexpr std::size_t triangles_per_band = 16'384;
+    constexpr std::size_t maximum_bands =
+        (maximum_vertices / 3 + triangles_per_band - 1) / triangles_per_band;
+    std::array<BoundSummary, maximum_bands> summaries{};
+    const auto bands = static_cast<uint32_t>(
+        pool != nullptr && pool->threads() > 1
+            ? std::min(maximum_bands, (triangles + triangles_per_band - 1) / triangles_per_band)
+            : 1
+    );
+    platform::job_pool::run_bands(pool, bands, [&](uint32_t band) {
+        const auto previous = base::float_precision::save_float_control();
+        base::float_precision::restore_float_control(control);
+        summaries[band] = bounds(triangles * band / bands, triangles * (band + 1) / bands);
+        base::float_precision::restore_float_control(previous);
+    });
+    double reach{};
+    for (uint32_t band = 0; band < bands; ++band) {
+        if (!summaries[band].finite)
+            return;
+        reach = std::max(reach, summaries[band].reach);
     }
     build_time.next(diagnostic ? &diagnostic->world_nanoseconds : nullptr);
     indices.world.emplace(world_axes, scene.ground_index_memory[0], reach);
@@ -7181,6 +7226,47 @@ rendered_ground(std::span<const Vertex> ground, GroundIndices& indices, float x,
     return result;
 }
 
+/// The camera-facing card's original float basis, shared with demand preparation.
+struct StandingAxes {
+    std::array<float, 3> right{}, up{};
+};
+
+StandingAxes standing_axes(const Inputs& in) {
+    auto direction = in.view_direction;
+    float horizontal = std::hypot(direction[0], direction[2]);
+    if (horizontal < 0.0001F) {
+        direction = {0, 1, height_lift};
+        horizontal = height_lift;
+    }
+    const float length = std::hypot(horizontal, direction[1]);
+    const std::array right{direction[2] / horizontal, 0.0F, -direction[0] / horizontal};
+    const float vertical_scale = std::sqrt(1 + height_lift * height_lift);
+    const std::array up{
+        direction[1] * right[2] / length / vertical_scale,
+        horizontal / length / vertical_scale,
+        -direction[1] * right[0] / length / vertical_scale
+    };
+    return {right, up};
+}
+
+/// The original inverse used both to list and to query a standing card.
+struct SurfaceAxes {
+    float determinant{};
+    bool facing{};
+    GroundIndex::Axes card{};
+};
+
+SurfaceAxes surface_axes(const std::array<float, 3>& right, const std::array<float, 3>& up) {
+    const float determinant = right[0] * up[2] - right[2] * up[0];
+    const bool facing = std::abs(determinant) >= 0.000001F;
+    const double inverse = 1.0 / static_cast<double>(determinant);
+    return {
+        determinant,
+        facing,
+        {up[2] * inverse, -up[0] * inverse, -right[2] * inverse, right[0] * inverse}
+    };
+}
+
 /// Keeps a near-ground explosion's covered card above every intersected terrain plane.
 /// The translation leaves its UVs and shape intact; airborne effects retain their altitude.
 float surface_effect_lift(
@@ -7197,14 +7283,12 @@ float surface_effect_lift(
 ) {
     constexpr float ground_near_distance = 4;
     constexpr float clearance = 0.1F;
-    const float determinant = right[0] * up[2] - right[2] * up[0];
-    const bool facing = std::abs(determinant) >= 0.000001F;
+    const auto projected = surface_axes(right, up);
+    const float determinant = projected.determinant;
+    const bool facing = projected.facing;
     // The card's own axes: a ground vertex lies at its place along them less
     // the card origin's, as the test below works it out.
-    const double inverse = 1.0 / static_cast<double>(determinant);
-    const GroundIndex::Axes axes{
-        up[2] * inverse, -up[0] * inverse, -right[2] * inverse, right[0] * inverse
-    };
+    const auto& axes = projected.card;
     // Indices shared by a pass's bands are listed once, by the first band
     // that needs them, and only read after; a card whose axes they were not
     // listed along tests every triangle instead, which finds the same.
@@ -7213,6 +7297,18 @@ float surface_effect_lift(
     if (lock != nullptr) {
         {
             const std::lock_guard guard(*lock);
+            if (listed.prepared) {
+                const auto requested = ground_index_key(
+                    listed.revision, ground_triangles.size(), facing ? &axes : nullptr
+                );
+                const bool matches = requested == *listed.prepared;
+                listed.prepared.reset();
+                if (!matches) {
+                    listed.listed = false;
+                    listed.world.reset();
+                    listed.card.reset();
+                }
+            }
             if (!listed.listed)
                 list_ground(scene, ground_triangles, facing ? &axes : nullptr, listed);
         }
@@ -7375,7 +7471,9 @@ struct PreparedEffectMaterial {
 /// Packs world effects beside unit shadows before any sprite worker reads the atlas.
 /// @param in the frame's immutable draw list and art
 /// @param[in,out] scene the shared frame rows and per-draw rectangle table
-void prepare_frame_effects(const Inputs& in, Scene& scene) {
+/// @param find_surface_query also check for a guaranteed standing ground query
+/// @return a standing band reaches a surface query using only prepared materials
+bool prepare_frame_effects(const Inputs& in, Scene& scene, bool find_surface_query) {
     // Above this bound, every draw retains the ordinary material path.
     constexpr std::size_t maximum_effect_draws = 65'536;
     auto& passes = scene.passes;
@@ -7383,7 +7481,7 @@ void prepare_frame_effects(const Inputs& in, Scene& scene) {
     const auto& sprites = in.draws->sprites;
     rectangles.clear();
     if (sprites.size() > maximum_effect_draws)
-        return;
+        return false;
     rectangles.resize(sprites.size());
     std::vector<bool> lights(sprites.size());
     for (const auto& draw : in.draws->draws)
@@ -7397,11 +7495,19 @@ void prepare_frame_effects(const Inputs& in, Scene& scene) {
     uint32_t wanted_y = frame.next_y;
     uint32_t wanted_height = frame.row_height;
     Pass pass{scene, passes.effect_packing, false, 0};
+    bool ready_prefix = true;
+    bool surface_query = false;
     for (std::size_t index = 0; index < sprites.size(); ++index) {
         const auto& sprite = sprites[index];
+        if (index % ground_card_band_draws == 0)
+            ready_prefix = true;
+        const bool light = lights[index];
+        const bool standing = find_surface_query && ready_prefix && !surface_query &&
+                              sprite_drawn(in, sprite, light, false);
+        if (standing && (!sprite.world_position || sprite.on_map || sprite.shadow))
+            ready_prefix = false;
         if (!sprite.world_position || sprite.on_map || sprite.shadow || !sprite.frame)
             continue;
-        const bool light = lights[index];
         const bool submerged = sprite.world_position->y / fixed_scale < in.sea_level;
         const bool ground = sprite.terrain_decal || (light && !submerged);
         if (!sprite_drawn(in, sprite, light, ground))
@@ -7412,8 +7518,11 @@ void prepare_frame_effects(const Inputs& in, Scene& scene) {
             const auto& art = *sprite.frame;
             // A taller picture cannot fit the bounded frame arena. Keep its
             // existing persistent path, including its atlas-room fallback.
-            if (art.height > maximum_atlas_edge / 2)
+            if (art.height > maximum_atlas_edge / 2) {
+                if (standing)
+                    ready_prefix = false;
                 continue;
+            }
             const uint64_t count = uint64_t{art.width} * art.height;
             if (art.width == 0 || art.height == 0 || art.pixels.size() < count ||
                 (!art.coverage.empty() && art.coverage.size() < count))
@@ -7489,7 +7598,14 @@ void prepare_frame_effects(const Inputs& in, Scene& scene) {
             }
         }
         rectangles[index] = cached.rectangle;
+        if (standing && ready_prefix) {
+            if (!cached.rectangle)
+                ready_prefix = false;
+            else if (sprite.surface_effect && !submerged)
+                surface_query = true;
+        }
     }
+    return surface_query;
 }
 
 /// Lifts sprites into upright cutouts preserving their classic pixel placement.
@@ -7621,20 +7737,9 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
         const float origin_z = sprite.world_position ? sprite.world_position->z / fixed_scale
                                                      : y + ground * height_lift;
         // Effects face the camera at their actual altitude. Scenery keeps its upright card.
-        auto direction = in.view_direction;
-        float horizontal = std::hypot(direction[0], direction[2]);
-        if (horizontal < 0.0001F) {
-            direction = {0, 1, height_lift};
-            horizontal = height_lift;
-        }
-        const float length = std::hypot(horizontal, direction[1]);
-        const std::array right{direction[2] / horizontal, 0.0F, -direction[0] / horizontal};
-        const float vertical_scale = std::sqrt(1 + height_lift * height_lift);
-        const std::array up{
-            direction[1] * right[2] / length / vertical_scale,
-            horizontal / length / vertical_scale,
-            -direction[1] * right[0] / length / vertical_scale
-        };
+        const auto basis = standing_axes(in);
+        const auto& right = basis.right;
+        const auto& up = basis.up;
         const float surface_lift =
             sprite.surface_effect && sprite.world_position && !submerged_effect
                 ? surface_effect_lift(
@@ -8585,7 +8690,31 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     }
     passes.shadow_packing.nanoseconds += pass_clock(timing) - start;
     start = pass_clock(timing);
-    prepare_frame_effects(in, scene);
+    // A large, actually queried cold ground can list its independent bounds
+    // on the free pool here. Inside a sprite job the same pool is busy.
+    constexpr std::size_t parallel_index_vertices = 3 * 32'768;
+    const bool prepare_index = in.pool != nullptr && in.pool->threads() > 1 &&
+                               cut_ground.size() >= parallel_index_vertices;
+    const bool surface_query = prepare_frame_effects(in, scene, prepare_index);
+    if (surface_query) {
+        const auto basis = standing_axes(in);
+        const auto projected = surface_axes(basis.right, basis.up);
+        const auto* axes = projected.facing ? &projected.card : nullptr;
+        const auto key = ground_index_key(standing_ground.revision, cut_ground.size(), axes);
+        if (key.revision == 0 || !scene.ground_index_cache.valid ||
+            scene.ground_index_cache.key != key) {
+            try {
+                list_ground(scene, cut_ground, axes, standing_ground, in.pool);
+                standing_ground.prepared = key;
+            } catch (...) {
+                // Preparation cannot move a failure before the original material
+                // or pass failures. Its first real query retries the lazy path.
+                const auto revision = standing_ground.revision;
+                standing_ground = {};
+                standing_ground.revision = revision;
+            }
+        }
+    }
     passes.effect_packing.nanoseconds += pass_clock(timing) - start;
     // Every pass at once, the longest first, then the ground ahead.
     const auto shadows_drawn = [&](std::size_t band) {

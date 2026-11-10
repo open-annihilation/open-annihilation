@@ -307,7 +307,7 @@ struct GroundIndexCache {
     uint64_t attempts{}; ///< Scene-cache-local build attempts, including unfinished ones
 };
 
-/// Per-build index work, written under the shared sprite pass's index lock.
+/// Per-build index work, written before sprite jobs or under their shared index lock.
 struct GroundIndexWork {
     uint64_t builds{}, hits{}, triangles{}, build_nanoseconds{};
     GroundIndexBuilds diagnostics{};
