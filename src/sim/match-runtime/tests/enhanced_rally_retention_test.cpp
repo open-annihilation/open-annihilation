@@ -90,7 +90,9 @@ struct Rally {
         match().set_unit_squad(leader, strike);
         match().simulation().players[owner].status = OA_PLAYER_STATUS_COMPUTER;
         ai::prepare_match_computer_players(match());
-        controller = &ai::match_computer_players(match())->players[owner];
+        auto* players = ai::match_computer_players(match());
+        ai::computer_players_adopt(players, ai::match_computer_host(match()), owner);
+        controller = &players->players[owner];
         CHECK(controller->present != 0);
         controller->sort_countdown = 100000;
         for (auto& task : controller->tasks)
