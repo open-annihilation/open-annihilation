@@ -183,7 +183,7 @@ void started_rules_must_match_explicit_requests() {
 /// only once, with the refusal attached to its input line.
 void view_refuses_invalid_rules_versions() {
     for (const std::string_view value :
-         std::array<std::string_view, 4>{"7", "-1", "4.5", "4294967296"})
+         std::array<std::string_view, 4>{"8", "-1", "4.5", "4294967296"})
         OA_CHECK(
             refusal("rules_version " + std::string(value)) ==
             "line 1: rules_version takes 0 or a supported Enhanced Mode rules version"
