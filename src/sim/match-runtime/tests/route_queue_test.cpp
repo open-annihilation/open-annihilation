@@ -537,7 +537,9 @@ enum class Pipeline {
     dying_leader,
     nonpositive_leader,
     dying_follower,
-    nonpositive_follower
+    nonpositive_follower,
+    same_cell_jitter,
+    recent_cell_progress
 };
 
 struct PipelineResult {
@@ -552,7 +554,9 @@ struct PipelineResult {
     bool operator==(const PipelineResult&) const = default;
 };
 
-void prepare_route(Scene& scene, uint16_t id, int32_t x, int32_t z, uint32_t age) {
+void prepare_route(
+    Scene& scene, uint16_t id, int32_t x, int32_t z, uint32_t age, uint32_t sample_tick = 57
+) {
     auto& state = scene.ground(id);
     auto& record = scene.match().spawn_slot(id).record;
     scene.match().place_unit_at(id, x, land_height * pixel, z * pixel, ground_layer);
@@ -562,7 +566,8 @@ void prepare_route(Scene& scene, uint16_t id, int32_t x, int32_t z, uint32_t age
     state.movement.velocity = movement::aim_velocity(east, 0, maximum_speed);
     state.movement.turn = 0;
     state.movement.flags = ground_layer | movement::collision_blocked;
-    state.movement.last_motion_tick = 57 - age;
+    state.movement.last_motion_tick = sample_tick - age;
+    state.occupancy_changed_tick = sample_tick - age;
     state.navigation.points = {};
     state.navigation.points[0] = {static_cast<int16_t>(x / pixel), static_cast<int16_t>(z)};
     state.navigation.points[1] = {208, 144};
@@ -572,7 +577,8 @@ void prepare_route(Scene& scene, uint16_t id, int32_t x, int32_t z, uint32_t age
     state.navigation.last_search_tick = 0;
 }
 
-PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2) {
+PipelineResult
+pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2, uint32_t sample_tick = 57) {
     Scene scene(version, false, true);
     auto& match = scene.match();
     const auto leader = scene.queue[0], follower = scene.queue[1];
@@ -590,11 +596,13 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
             match.issue_ground_move(scene.gate, {208 * pixel, 0, 48 * pixel}, false)
         ));
     scene.run();
-    match.simulation().tick = 56;
-    prepare_route(scene, leader, overlap ? 112 * pixel : 120 * pixel - 1, overlap ? 128 : 144, 10);
-    prepare_route(scene, follower, 88 * pixel - 1, 144, blocked >= 30 ? 30 : 2);
+    match.simulation().tick = sample_tick - 1;
+    prepare_route(
+        scene, leader, overlap ? 112 * pixel : 120 * pixel - 1, overlap ? 128 : 144, 10, sample_tick
+    );
+    prepare_route(scene, follower, 88 * pixel - 1, 144, blocked >= 30 ? 30 : 2, sample_tick);
     if (overlap)
-        prepare_route(scene, scene.gate, 112 * pixel, 160, 10);
+        prepare_route(scene, scene.gate, 112 * pixel, 160, 10, sample_tick);
     else {
         auto& gate = scene.ground(scene.gate);
         gate.movement.speed = 0;
@@ -642,6 +650,23 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
     case Pipeline::nonpositive_follower:
         match.spawn_slot(follower).record.health = 0;
         break;
+    case Pipeline::same_cell_jitter:
+    case Pipeline::recent_cell_progress: {
+        // Both units moved recently within their registered footprints.
+        // They are still on the same corridor cells after the traffic grace.
+        auto& rear = scene.ground(follower);
+        front.movement.last_motion_tick = rear.movement.last_motion_tick = sample_tick - 1;
+        front.occupancy_changed_tick = sample_tick - movement::local_flow_retry_ticks * 2;
+        rear.occupancy_changed_tick = control == Pipeline::same_cell_jitter
+                                          ? sample_tick - movement::local_flow_retry_ticks * 2
+                                          : sample_tick - 1;
+        front.geometry.position[2] -= 1;
+        rear.geometry.position[2] += 1;
+        front.write_slot();
+        rear.write_slot();
+        front.navigation.last_search_tick = rear.navigation.last_search_tick = sample_tick - 1;
+        break;
+    }
     default:
         break;
     }
@@ -679,7 +704,7 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
         result.mobile = head->mobile_blocked;
         result.points = head->points;
     }
-    CHECK(match.simulation().tick == 57);
+    CHECK(match.simulation().tick == sample_tick);
     CHECK(state.geometry.heading == static_cast<uint16_t>(east + state.movement.turn));
     CHECK(std::abs(int(state.movement.turn)) <= maximum_turn);
     CHECK(
@@ -733,8 +758,29 @@ void historical_profiles_do_not_read_route_coherence() {
         CHECK(pipeline(version, Pipeline::matched) == pipeline(version, Pipeline::different_goal));
 }
 
+void same_cell_jitter_releases_only_mature_distributed_recovery() {
+    constexpr uint32_t sample_tick = 117;
+    const auto legacy = pipeline(battle_version, Pipeline::same_cell_jitter, 31, sample_tick);
+    const auto enhanced =
+        pipeline(distributed_version, Pipeline::same_cell_jitter, 31, sample_tick);
+    CHECK(legacy.mobile && !legacy.active);
+    CHECK(enhanced.mobile && enhanced.active);
+    CHECK(enhanced.position != legacy.position || enhanced.velocity != legacy.velocity);
+
+    // A recent footprint-cell change and an immature collision retain the
+    // original route even when the motion clock looks the same as jitter.
+    const auto recent =
+        pipeline(distributed_version, Pipeline::recent_cell_progress, 31, sample_tick);
+    CHECK(recent.mobile && !recent.active);
+    CHECK(recent == pipeline(battle_version, Pipeline::recent_cell_progress, 31, sample_tick));
+    const auto immature =
+        pipeline(distributed_version, Pipeline::same_cell_jitter, 29, sample_tick);
+    CHECK(immature.mobile && !immature.active);
+    CHECK(immature == pipeline(battle_version, Pipeline::same_cell_jitter, 29, sample_tick));
+}
+
 void print_legacy_trace() {
-    for (uint32_t version = 0; version < battle_version; ++version)
+    for (uint32_t version = 0; version <= battle_version; ++version)
         for (const auto control :
              {Pipeline::matched,
               Pipeline::different_goal,
@@ -793,5 +839,6 @@ int main(int argc, char** argv) {
         );
     }
     run("historical profile coherence", historical_profiles_do_not_read_route_coherence);
+    run("same-cell jitter recovery", same_cell_jitter_releases_only_mature_distributed_recovery);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
