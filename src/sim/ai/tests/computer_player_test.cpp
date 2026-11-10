@@ -1546,6 +1546,41 @@ void test_recruitment_rereads_reused_source_slots() {
     );
 }
 
+/// Leaves another task's whole-squad callback dispatch independent of recruitment.
+void test_recruitment_budget_does_not_limit_rally_callbacks() {
+    RecruitRun run(RecruitRun::distributed_version, 600, 1);
+    auto& tasks = run.state.players[RecruitRun::player].tasks;
+    tasks[static_cast<uint32_t>(Squad::land_strike)].kind = TaskKind::none;
+    tasks[static_cast<uint32_t>(Squad::land_army)] = {
+        TaskKind::rally, Squad::land_army, 300, 0, 0, 0, Squad::land_strike, 0
+    };
+    auto expected = run.waiting();
+    std::sort(expected.begin(), expected.end());
+    const auto random_before = run.fake.roll;
+    run.tick(300);
+    std::vector<uint16_t> moved;
+    for (const auto& order : run.fake.orders) {
+        check(
+            order.kind == "move" && !order.queue,
+            "recruit budget: a rally still gives ordinary unqueued moves"
+        );
+        moved.push_back(order.unit);
+    }
+    check(
+        moved == expected && moved.size() == 600,
+        "recruit budget: another task still dispatches every waiting member"
+    );
+    check(
+        run.fake.joined.empty() && run.waiting().size() == 600,
+        "recruit budget: the rally changes no source membership"
+    );
+    check(run.fake.roll == random_before, "recruit budget: the rally's random stream is unchanged");
+    check(
+        tasks[static_cast<uint32_t>(Squad::land_army)].next_tick == 450,
+        "recruit budget: the rally keeps its separate 150-tick deadline"
+    );
+}
+
 // The aircraft task's run, with the wing and base given.
 struct AirRun {
     Fake fake;
@@ -1782,6 +1817,7 @@ int main(int argc, char** argv) {
     test_distributed_strike_recruitment_budget();
     test_earlier_recruitment_keeps_its_seed_and_limit();
     test_recruitment_rereads_reused_source_slots();
+    test_recruitment_budget_does_not_limit_rally_callbacks();
     test_patrol_group_size();
     test_patrol_null_enemy_skip();
     test_squad_assignment();
